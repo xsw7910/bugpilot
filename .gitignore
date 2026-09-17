@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.ai/
+.ai_memory/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+*.whl
+*.spec
+node_modules/
+extension/out/
+*.vsix
+
+# The real forbidden-word list for tests/test_publishable.py. Local only: a
+# guard that names a company in a public repository discloses the thing it
+# exists to keep out. `tests/forbidden_words.example` is the committed template.
+tests/forbidden_words.txt

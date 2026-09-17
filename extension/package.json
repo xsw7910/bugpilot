@@ -1,0 +1,253 @@
+{
+  "name": "bugpilot",
+  "displayName": "BugPilot",
+  "description": "Turn a Jira bug into focused code context, without leaving the editor.",
+  "version": "0.1.0",
+  "publisher": "ShiweiX",
+  "//icon": "The Marketplace and Extensions-list image. Must be a PNG - vsce refuses an SVG outright - and is drawn by scripts/make-icon.mjs so it can be regenerated rather than being an unexplained binary. Not the activity bar icon; that one is contributes.viewsContainers.activitybar[0].icon.",
+  "icon": "media/icon.png",
+  "//license": "Proprietary, and pointed at a file rather than declared as an SPDX id. `UNLICENSED` says 'no rights granted at all', which is the wrong thing to tell someone installing it from the Marketplace: they need permission to use it. This form also makes vsce ship the file as the License asset the extension page links to.",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "//categories": "`Programming Languages` was wrong and was there: that category is for extensions that add language support - grammars, servers, debuggers - and browsing it for this would waste the reader's time. A category is a shelf in someone else's shop, not a keyword.",
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "jira",
+    "bug",
+    "ai",
+    "agent",
+    "code search",
+    "context"
+  ],
+  "type": "module",
+  "//engines": "vscode is the minimum API level, pinned to @types/vscode so no newer API can be used by accident. node 22.18 is where type stripping landed, which the test script relies on.",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=22.18"
+  },
+  "//main": "The extension host requires CommonJS JS, so the packaged entry point is built by tsconfig.build.json. Tests run the TypeScript sources directly instead.",
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "//capabilities": "Declared rather than left to the default. This extension spawns a process whose path a workspace can override (bugpilot.executablePath), so it has no business running in a folder the developer has not trusted - VS Code already disables it there, and saying so gives the reason instead of silent inaction. It also reads and writes the filesystem and runs a local CLI, none of which exists in a virtual workspace.",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "BugPilot runs the bugpilot CLI, and a workspace can point bugpilot.executablePath at a file inside itself."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "BugPilot runs a local CLI and reads the repository from disk."
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bugpilot",
+          "title": "BugPilot",
+          "icon": "media/bug.svg"
+        }
+      ]
+    },
+    "views": {
+      "bugpilot": [
+        {
+          "id": "bugpilot.panel",
+          "name": "Prepare",
+          "type": "webview"
+        },
+        {
+          "id": "bugpilot.artifacts",
+          "name": "Artifacts"
+        },
+        {
+          "id": "bugpilot.history",
+          "name": "History"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "bugpilot.checkEnvironment",
+        "title": "Check Environment",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.showInstallInstructions",
+        "title": "Install Instructions",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.chooseExecutable",
+        "title": "Choose Executable",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.setCredentials",
+        "title": "Set Jira Credentials",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.clearCredentials",
+        "title": "Clear Jira Credentials",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.openPanelInEditor",
+        "title": "Open Panel in Editor",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.stop",
+        "title": "Stop Run",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.retry",
+        "title": "Retry After a Failed Fix",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.openAgentTask",
+        "title": "Open agent_task.md",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.openArtifactsFolder",
+        "title": "Open Artifacts Folder",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.fixWithAI",
+        "title": "Fix with AI",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.copyHandoffPrompt",
+        "title": "Copy Handoff Prompt",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.openArtifact",
+        "title": "Open Artifact",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.showWorkItem",
+        "title": "Show Work Item",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.refreshViews",
+        "title": "Refresh Artifacts and History",
+        "category": "BugPilot",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "bugpilot.doctor",
+        "title": "Doctor",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.agentCheck",
+        "title": "Agent Check",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.clean",
+        "title": "Clean Work Item Artifacts",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.mcpStatus",
+        "title": "MCP Status",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.resumeAgentSession",
+        "title": "Resume Agent Session in Terminal",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.showLog",
+        "title": "Show Log",
+        "category": "BugPilot"
+      }
+    ],
+    "menus": {
+      "//commandPalette": "These two are invoked by a tree item with an argument; from the palette they would have nothing to act on.",
+      "commandPalette": [
+        {
+          "command": "bugpilot.openArtifact",
+          "when": "false"
+        },
+        {
+          "command": "bugpilot.showWorkItem",
+          "when": "false"
+        }
+      ],
+      "//view/item/context": "Right-clicking a History row acts on that row: the handlers switch the panel to it first, so nothing happens invisibly to a different work item. `viewItem` keeps the menu off the placeholder rows.",
+      "view/item/context": [
+        {
+          "command": "bugpilot.openAgentTask",
+          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "group": "1_open@1"
+        },
+        {
+          "command": "bugpilot.copyHandoffPrompt",
+          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "group": "1_open@2"
+        },
+        {
+          "command": "bugpilot.openArtifactsFolder",
+          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "group": "1_open@3"
+        },
+        {
+          "command": "bugpilot.retry",
+          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "group": "2_act@1"
+        },
+        {
+          "command": "bugpilot.clean",
+          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "group": "3_destructive@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "bugpilot.refreshViews",
+          "when": "view == bugpilot.artifacts || view == bugpilot.history",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "BugPilot",
+      "properties": {
+        "bugpilot.executablePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `bugpilot` executable. Leave empty to resolve it through `PATH`.",
+          "scope": "machine-overridable"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/*.test.ts\"",
+    "smoke": "npm run build && node scripts/smoke-activate.mjs",
+    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').writeFileSync('out/package.json', JSON.stringify({ type: 'commonjs' }) + '\\n')\"",
+    "package": "npm run build && node scripts/check-package.mjs && vsce package --no-dependencies",
+    "integration": "node --test \"test-integration/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.9.3"
+  }
+}

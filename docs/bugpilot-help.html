@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bugpilot — Install &amp; Usage Guide</title>
+<style>:root{color-scheme:light}html,body{margin:0;padding:0}img{max-width:100%}</style>
+</head>
+<body>
+<style>
+  :root{
+    --ground:#f5f7f6; --surface:#ffffff; --surface-2:#eaf0ee; --ink:#151b18; --muted:#57635d; --line:#dde5e1;
+    --accent:#1f8a5b; --accent-ink:#146845; --accent-soft:#e2f1ea; --amber:#a86a12; --crit:#c0492f;
+    --term-bg:#0f1a15; --term-ink:#dce7e0; --term-prompt:#57d69a; --term-flag:#e6b45a; --term-out:#8fa79b;
+    --shadow:0 1px 2px rgba(21,27,24,.05), 0 8px 22px rgba(21,27,24,.06);
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --ground:#0f1512; --surface:#161d19; --surface-2:#1d2621; --ink:#e8efea; --muted:#93a49b; --line:#26312b;
+      --accent:#46c98a; --accent-ink:#7fe0b4; --accent-soft:#14261e; --amber:#e0b15c; --crit:#e77a63;
+      --term-bg:#0b1310; --term-ink:#d7e4dc; --term-prompt:#57d69a; --term-flag:#e6b45a; --term-out:#7f978b;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 34px rgba(0,0,0,.45); color-scheme:dark; }
+  }
+  :root[data-theme="light"]{ --ground:#f5f7f6; --surface:#ffffff; --surface-2:#eaf0ee; --ink:#151b18; --muted:#57635d; --line:#dde5e1;
+    --accent:#1f8a5b; --accent-ink:#146845; --accent-soft:#e2f1ea; --amber:#a86a12; --crit:#c0492f;
+    --term-bg:#0f1a15; --term-ink:#dce7e0; --term-prompt:#57d69a; --term-flag:#e6b45a; --term-out:#8fa79b;
+    --shadow:0 1px 2px rgba(21,27,24,.05), 0 8px 22px rgba(21,27,24,.06); color-scheme:light; }
+  :root[data-theme="dark"]{ --ground:#0f1512; --surface:#161d19; --surface-2:#1d2621; --ink:#e8efea; --muted:#93a49b; --line:#26312b;
+    --accent:#46c98a; --accent-ink:#7fe0b4; --accent-soft:#14261e; --amber:#e0b15c; --crit:#e77a63;
+    --term-bg:#0b1310; --term-ink:#d7e4dc; --term-prompt:#57d69a; --term-flag:#e6b45a; --term-out:#7f978b;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 34px rgba(0,0,0,.45); color-scheme:dark; }
+
+  *{ box-sizing:border-box; } html,body{ margin:0; }
+  body{ background:var(--ground); color:var(--ink); font-family:var(--sans); line-height:1.6; -webkit-font-smoothing:antialiased; }
+
+  .topbar{ position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between;
+    padding:12px 20px; background:color-mix(in srgb,var(--ground) 88%,transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
+  .topbar .t{ font-weight:700; font-size:15px; } .topbar .t span{ font-family:var(--mono); color:var(--accent); }
+  .topbar .rt{ display:flex; gap:8px; }
+  .btn{ font-size:13px; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:8px; height:32px; padding:0 12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+  .btn:hover{ color:var(--accent); border-color:var(--accent); }
+
+  .page{ max-width:900px; margin:0 auto; padding:30px 22px 90px; }
+  h1{ font-size:clamp(27px,4vw,40px); letter-spacing:-.02em; font-weight:800; margin:4px 0 8px; text-wrap:balance; }
+  .sub{ color:var(--muted); font-size:16.5px; margin:0 0 6px; max-width:64ch; }
+  .meta{ display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 26px; font-size:12.5px; }
+  .meta .chip{ border:1px solid var(--line); border-radius:999px; padding:5px 12px; color:var(--muted); background:var(--surface); }
+
+  h2{ font-size:15px; font-weight:800; letter-spacing:.02em; text-transform:uppercase; color:var(--muted); margin:34px 0 14px; scroll-margin-top:64px; }
+
+  .step{ background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:18px 20px 20px; margin:0 0 16px; }
+  .step > header{ display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .num{ width:30px; height:30px; border-radius:50%; background:var(--accent); color:#fff; font-weight:750; display:grid; place-items:center; font-size:15px; flex:0 0 auto; }
+  .step h3{ font-size:19px; letter-spacing:-.01em; margin:0; font-weight:750; }
+  .step p{ margin:0 0 12px; max-width:72ch; } .step p:last-child{ margin-bottom:0; }
+  .step ul{ margin:0 0 12px; padding-left:20px; } .step li{ margin:4px 0; color:var(--muted); }
+  .step li b{ color:var(--ink); }
+  code{ font-family:var(--mono); font-size:.9em; background:var(--surface-2); border:1px solid var(--line); border-radius:5px; padding:.5px 6px; }
+
+  /* terminal command block with copy */
+  .term{ background:var(--term-bg); border:1px solid var(--line); border-radius:11px; overflow:hidden; margin:0 0 12px; position:relative; }
+  .term .bar{ display:flex; align-items:center; gap:7px; padding:8px 12px; border-bottom:1px solid rgba(255,255,255,.08); }
+  .term .bar .d{ width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,.16); }
+  .term .bar .path{ margin-left:6px; font-family:var(--mono); font-size:11.5px; color:var(--term-out); }
+  .term .copy{ margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--term-out); background:transparent; border:1px solid rgba(255,255,255,.15); border-radius:6px; padding:3px 9px; cursor:pointer; }
+  .term .copy:hover{ color:var(--term-ink); border-color:rgba(255,255,255,.35); }
+  .term .copy.ok{ color:var(--term-prompt); border-color:var(--term-prompt); }
+  .term pre{ margin:0; padding:13px 16px; overflow-x:auto; font-family:var(--mono); font-size:13.5px; line-height:1.7; color:var(--term-ink); }
+  .term .p{ color:var(--term-prompt); } .term .f{ color:var(--term-flag); } .term .o{ color:var(--term-out); }
+
+  .note{ border:1px solid var(--line); border-left:3px solid var(--accent); background:var(--surface); border-radius:10px; padding:12px 15px; margin:0 0 12px; }
+  .note.warn{ border-left-color:var(--amber); } .note.tip{ border-left-color:var(--accent); }
+  .note .h{ font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--accent-ink); margin-bottom:3px; }
+  .note.warn .h{ color:var(--amber); }
+  .note p{ margin:0; font-size:14px; color:var(--muted); } .note code{ font-size:.86em; }
+
+  .files{ background:var(--surface-2); border:1px solid var(--line); border-radius:10px; padding:12px 15px; font-family:var(--mono); font-size:13px; color:var(--muted); margin:0 0 12px; }
+  .files b{ color:var(--accent-ink); font-weight:600; }
+
+  .foot{ margin-top:26px; font-size:13px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; }
+
+  @media print{ .topbar,.term .copy{ display:none; } body{ background:#fff; } .step,.term{ box-shadow:none; } .page{ padding:0; } }
+</style>
+
+<div class="topbar">
+  <div class="t"><span>bugpilot</span> · Help &amp; Command Reference</div>
+  <div class="rt">
+    <button class="btn" id="printBtn">⎙ Print / PDF</button>
+    <button class="btn" id="themeBtn" aria-label="Toggle theme">◐</button>
+  </div>
+</div>
+
+<div class="page">
+  <h1>bugpilot — Install &amp; Usage Guide</h1>
+  <p class="sub">How to install bugpilot, configure Jira once, and run it. bugpilot turns a Jira bug into an AI-ready
+    package, then launches a coding agent to implement the fix — with you in control of what ships. Every command block
+    has a <b>Copy</b> button.</p>
+  <div class="meta">
+    <span class="chip">Windows · PowerShell</span>
+    <span class="chip">Python 3.10+</span>
+    <span class="chip">Jira Cloud</span>
+    <span class="chip">Run from the target repo root</span>
+  </div>
+
+  <!-- ===================== INSTALL ===================== -->
+  <h2 id="install">1 · Install</h2>
+
+  <div class="step">
+    <header><span class="num">1</span><h3>Double-click <code>install.cmd</code></h3></header>
+    <p>One double-click does everything: it installs <b>Python</b> if you don't have it, installs <b>bugpilot</b>, then
+      runs <b>bugpilot setup</b> — where you enter your <b>Jira email</b> and <b>API token</b> (create one at
+      <code>id.atlassian.com/manage-profile/security/api-tokens</code>), saved to <code>~/.bugpilot/config.toml</code>.
+      Keep the <code>installer\</code> folder next to install.cmd; re-run setup anytime with <code>bugpilot setup</code>.</p>
+    <div class="files">
+      <b>install.cmd</b> &nbsp;·&nbsp; double-click this<br>
+      <b>installer\</b> &nbsp;·&nbsp; install.ps1 + wheel (leave alone)
+    </div>
+  </div>
+
+  <!-- ===================== QUICK START ===================== -->
+  <h2 id="usage">2 · Run it</h2>
+
+  <div class="step">
+    <header><span class="num">2</span><h3>From your product repo, run one command</h3></header>
+    <p>Run from your <b>product repo</b> root, on a <b>clean</b> working tree and on <b>master</b> — the workflow creates a
+      feature branch (<code>feature/JR-12345-…</code>) based on the Jira item number, off your current branch.</p>
+    <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">your-product-repo</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> cd C:\path\to\your-product-repo  <span class="o">#C:\sandbox\monorepo</span>
+<span class="p">❯</span> bugpilot JR-12345</pre></div>
+    <p>Prepares the package, then <b>launches Claude</b> to make the fix. It stops at the commit gate — you review and
+      commit. bugpilot never commits or pushes.</p>
+  </div>
+
+  <div class="step">
+    <header><span class="num">3</span><h3>Verify</h3></header>
+    <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">new PowerShell window</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot --help</pre></div>
+    <p>See the command list? You're installed.</p>
+  </div>
+
+  <!-- ===================== OPTIONS ===================== -->
+  <h2 id="options">3 · Options</h2>
+  <p class="sub" style="margin-bottom:14px">Flags for <code>bugpilot &lt;issue&gt;</code> — replace <code>JR-12345</code> with your issue key.</p>
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">bugpilot &lt;issue&gt; options</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot JR-12345 <span class="f">--prepare-only</span>   <span class="o"># just build artifacts, don't launch an agent</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--copilot</span>        <span class="o"># use Copilot CLI instead of Claude</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--hint</span> <span class="o">"Fix in FooWidget.cxx: keep selection on tab switch"</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--jira-comment</span>   <span class="o"># also post one Jira status comment</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--resume</span>         <span class="o"># keep existing .ai/JR-12345/ artifacts</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--allow-mock</span>     <span class="o"># demo without Jira credentials</span></pre></div>
+  <div class="note"><div class="h">Defaults</div><p><b>Claude</b> launches by default (<code>--prepare-only</code> to skip).
+    <b>Jira comment off</b> by default (<code>--jira-comment</code> to enable). Runs are <b>fresh</b>
+    (<code>--resume</code> to keep artifacts).</p></div>
+
+  <!-- ===================== COMMAND REFERENCE ===================== -->
+  <h2 id="reference">4 · All commands (reference)</h2>
+  <p class="sub" style="margin-bottom:14px">Every command, grouped. Base commands are copy-ready; comments note the
+    useful flags. Replace <code>JR-12345</code> with your issue key.</p>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">setup &amp; environment</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot setup                        <span class="o"># configure Jira email + token (--hide-token to hide it)</span>
+<span class="p">❯</span> bugpilot doctor                       <span class="o"># check Python, git, ripgrep, Jira, agents, email</span>
+<span class="p">❯</span> bugpilot agent-check                 <span class="o"># Copilot / Claude / gh availability</span>
+<span class="p">❯</span> bugpilot status JR-12345               <span class="o"># step status + generated files for an issue</span></pre></div>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">main workflow</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot JR-12345                      <span class="o"># DEFAULT: prepare, then launch Claude</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--prepare-only</span>   <span class="o"># artifacts only, no agent</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--copilot</span>        <span class="o"># use Copilot instead of Claude</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--jira-comment</span>   <span class="o"># add the pre-commit Jira status comment (off by default)</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--hint</span> <span class="o">"…"        # point the agent at the fix location</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--resume</span>         <span class="o"># keep artifacts  |  --fresh (default) re-cleans</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--include-memory</span> <span class="o"># also reset this issue's shared memory (fresh only)</span>
+<span class="p">❯</span> bugpilot JR-12345 <span class="f">--allow-mock</span>     <span class="o"># demo without Jira  |  --no-mock = default (real)</span></pre></div>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">jira</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot fetch JR-12345                <span class="o"># fetch the issue (real Jira; --allow-mock for demo)</span>
+<span class="p">❯</span> bugpilot jira-validate JR-12345        <span class="o"># fetch + field-mapping check (real Jira only)</span>
+<span class="p">❯</span> bugpilot parse JR-12345                <span class="o"># structured repro / actual / expected / errors</span></pre></div>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">analysis (individual prepare steps)</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot keywords JR-12345             <span class="o"># high / normal / dropped keywords</span>
+<span class="p">❯</span> bugpilot search JR-12345               <span class="o"># ripgrep code search + confidence (High/Med/Low)</span>
+<span class="p">❯</span> bugpilot git-context JR-12345          <span class="o"># branch, status, recent history</span>
+<span class="p">❯</span> bugpilot context JR-12345              <span class="o"># build bug_context.md</span></pre></div>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">agent hand-off package</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot prompt JR-12345               <span class="o"># regenerate copilot_task / handoff / team_instructions</span>
+<span class="p">❯</span> bugpilot agent-task JR-12345         <span class="o"># regen task package (--jira-comment to include Jira step)</span>
+<span class="p">❯</span> bugpilot agent-instructions JR-12345 <span class="o"># refresh per-issue team rules</span></pre></div>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">results &amp; memory</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot check-results JR-12345        <span class="o"># verify agent output files (--strict to fail if missing)</span>
+<span class="p">❯</span> bugpilot manual-result JR-12345        <span class="o"># manual-fix templates (--overwrite to replace)</span>
+<span class="p">❯</span> bugpilot summarize-results JR-12345    <span class="o"># build result summary (--jira-comment posts a comment)</span>
+<span class="p">❯</span> bugpilot review-package JR-12345       <span class="o"># final review prompt</span>
+<span class="p">❯</span> bugpilot memory search JR-12345        <span class="o"># find similar past issues (or a free-text query)</span>
+<span class="p">❯</span> bugpilot memory add JR-12345           <span class="o"># create / refresh shared memory entry</span>
+<span class="p">❯</span> bugpilot memory update JR-12345        <span class="o"># fold the result summary into memory</span></pre></div>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">notifications</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot jira-comment-draft JR-12345   <span class="o"># local draft (root cause + change summary)</span>
+<span class="p">❯</span> bugpilot jira-comment JR-12345         <span class="o"># preview; add --execute to post exactly one comment</span>
+<span class="p">❯</span> bugpilot notify JR-12345               <span class="o"># write email draft + .eml; add --execute to send</span>
+<span class="p">❯</span> bugpilot retry-prompt JR-12345         <span class="o"># second-attempt prompt + user_feedback.md</span></pre></div>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">delivery (plans only — bugpilot never runs git)</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot delivery-check JR-12345       <span class="o"># is it ready for manual commit / push?</span>
+<span class="p">❯</span> bugpilot commit-plan JR-12345          <span class="o"># commit plan (+ email at the gate; --no-email to skip)</span>
+<span class="p">❯</span> bugpilot push-plan JR-12345            <span class="o"># push plan</span></pre></div>
+
+  <div class="term"><div class="bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="path">cleanup</span><button class="copy">Copy</button></div><pre><span class="p">❯</span> bugpilot clean JR-12345                <span class="o"># delete .ai/JR-12345/  (--include-memory also removes memory)</span></pre></div>
+
+  <!-- ===================== CONFIG ===================== -->
+  <h2 id="config">5 · Configuration</h2>
+  <div class="step">
+    <header><h3>Where settings come from</h3></header>
+    <p>Jira credentials resolve in this order: <b>environment variables → <code>~/.bugpilot/config.toml</code> → fixed
+      company URL</b>. Run <code>bugpilot setup</code> to write the config file; use env vars to override per-shell.</p>
+    <div class="files">
+      <b>~/.bugpilot/config.toml</b><br>
+      jira_email = "you@your-company.com"<br>
+      jira_token = "your-api-token"
+    </div>
+    <div class="note tip"><div class="h">Environment variables</div><p><b>Jira:</b> <code>JIRA_BASE_URL</code>
+      <code>JIRA_EMAIL</code> <code>JIRA_TOKEN</code>. &nbsp;<b>Auto Jira comment from summarize-results:</b>
+      <code>BUGPILOT_AUTO_JIRA_COMMENT=true</code>. &nbsp;<b>Email:</b> <code>BUGPILOT_EMAIL_FROM/TO</code> plus Graph
+      (<code>GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET</code>) or SMTP (<code>SMTP_HOST/PORT/USERNAME/PASSWORD</code>).
+      &nbsp;<b>Agent:</b> <code>BUGPILOT_CLAUDE_COMMAND</code> / <code>BUGPILOT_CLAUDE_ARGS</code> (and Copilot equivalents).</p></div>
+    <div class="note warn"><div class="h">Security note</div><p>For now the API token is saved in plaintext in
+      <code>config.toml</code> (file permissions tightened where the OS allows). Treat that file as a secret; don't commit
+      or share it.</p></div>
+  </div>
+
+  <!-- ===================== TROUBLESHOOTING ===================== -->
+  <h2 id="troubleshooting">6 · Troubleshooting</h2>
+  <div class="step">
+    <ul>
+      <li><b>“bugpilot is not recognized”</b> — close and reopen PowerShell (PATH was updated during install). Still
+        missing? <code>python -m pipx ensurepath</code>, then reopen. (exe users: add its folder to PATH or use the full path.)</li>
+      <li><b>“Python was not found” / installer says no Python</b> — let install.cmd install it via winget (say <b>Yes</b>),
+        or install Python 3.12 yourself (Install step 1) and reopen the terminal.</li>
+      <li><b>Installer can't find a wheel</b> — the <code>bugpilot-*.whl</code> must sit in the <code>installer\</code>
+        folder, next to <code>install.ps1</code>.</li>
+      <li><b>“running scripts is disabled” / a security prompt</b> — use <b>install.cmd</b> (double-click); it handles the
+        execution policy. exe first run → SmartScreen → <b>More info → Run anyway</b>.</li>
+      <li><b>setup: “Authentication failed”</b> — wrong email or token, or the token was revoked. Create a fresh token and
+        re-run <code>bugpilot setup</code>.</li>
+      <li><b>Jira “not found or not accessible”</b> — the issue key is wrong, or your account can't view that project.
+        Open <code>&lt;JIRA_URL&gt;/browse/JR-12345</code> in a browser to confirm.</li>
+      <li><b>Fix didn't happen</b> — if you ran <code>--prepare-only</code>, no agent was launched. Re-run without it, or
+        open the agent yourself and paste: <code>Read .ai/JR-12345/agent_task.md and complete the workflow.</code></li>
+    </ul>
+  </div>
+
+  <h2 id="update">7 · Update / uninstall</h2>
+  <div class="step">
+    <p><b>Update:</b> re-run <code>install.cmd</code> with the newer <code>bugpilot-*.whl</code> (it reinstalls in place).
+      exe users: replace <code>bugpilot.exe</code> with the new one. Your <code>~/.bugpilot/config.toml</code> is kept.</p>
+    <p><b>Uninstall:</b> <code>pipx uninstall bugpilot</code> (or delete <code>bugpilot.exe</code>). Delete
+      <code>~/.bugpilot/config.toml</code> too if you want your saved Jira credentials gone.</p>
+  </div>
+
+  <p class="foot">bugpilot is prepare-and-hand-off: it builds a reviewable package and launches an agent that stops at the
+    commit gate. It never commits, pushes, merges, opens PRs, or changes Jira fields — you stay in control of what ships.</p>
+</div>
+
+<script>
+  document.getElementById('printBtn').addEventListener('click', function(){ window.print(); });
+  document.getElementById('themeBtn').addEventListener('click', function(){
+    var r=document.documentElement, c=r.getAttribute('data-theme');
+    if(!c) c=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+    r.setAttribute('data-theme', c==='dark'?'light':'dark');
+  });
+  // copy buttons — copy the command text (strip the ❯ prompt)
+  document.querySelectorAll('.term').forEach(function(term){
+    var btn = term.querySelector('.copy'); if(!btn) return;
+    btn.addEventListener('click', function(){
+      var pre = term.querySelector('pre');
+      var text = pre.innerText.replace(/^❯\s?/gm, '').trim();
+      var done = function(){ btn.textContent='Copied'; btn.classList.add('ok'); setTimeout(function(){ btn.textContent='Copy'; btn.classList.remove('ok'); }, 1400); };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(done).catch(fallback);
+      } else { fallback(); }
+      function fallback(){
+        try{ var ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); }
+        catch(e){ btn.textContent='Select & copy'; }
+      }
+    });
+  });
+</script>
+
+</body>
+</html>

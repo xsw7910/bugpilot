@@ -1,0 +1,19 @@
+{
+  // F5 launches a second VS Code with the extension loaded.
+  //
+  // The pre-launch task is not optional: the extension host loads
+  // `extension/out/extension.js`, not the TypeScript sources, so without a
+  // build you are debugging whatever you compiled last time. That mistake
+  // costs half an hour the first time it happens.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run BugPilot Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
+      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "preLaunchTask": "build extension"
+    }
+  ]
+}

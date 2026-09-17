@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    // Node runs these .ts files by stripping types, which cannot handle syntax
+    // that emits code (parameter properties, enums, namespaces, decorators).
+    // tsc rejects them at typecheck instead of letting them fail at runtime.
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    // `vscode` is an ambient module declaration, so it has to be listed here for
+    // src/extension.ts and src/host/** to typecheck. Nothing else may import it.
+    "types": ["node", "vscode"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "test-integration/**/*.ts"]
+}

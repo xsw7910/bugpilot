@@ -1,0 +1,20 @@
+# Words that must never appear in anything this repository publishes: the
+# Python package, the README that becomes the PyPI page, and the extension that
+# becomes the .vsix.
+#
+# Copy this file to `forbidden_words.txt` and put the real ones in it. That file
+# is gitignored, and deliberately: a guard that names a company in a public
+# repository discloses exactly what it exists to keep out of the published
+# artifacts. Keeping the list local is the difference between "this project has
+# no company identifiers in it" and "this project will tell you which company".
+#
+# One word per line. Blank lines and `#` comments are ignored. Matching is
+# case-insensitive and substring-based, so `acme` catches `AcmeCorp` and
+# `acme-internal` too.
+#
+# Without `forbidden_words.txt` the check has nothing to look for and says so
+# rather than passing quietly — see `test_the_word_list_is_present_and_private`.
+
+acme
+acme-corp
+initech

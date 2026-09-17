@@ -1,0 +1,24 @@
+{
+  // Packaging build only. Development and `node --test` use tsconfig.json,
+  // which emits nothing and runs the .ts sources directly.
+  //
+  // The extension host loads `main` with require(), and its bundled Node is far
+  // older than the 22.18 that made type stripping the default — so a .vsix
+  // needs real CommonJS JavaScript. That is the only thing this file does.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "out",
+    "module": "CommonJS",
+    "moduleResolution": "Node10",
+    // CommonJS output cannot preserve import syntax verbatim, and the .ts
+    // specifiers the sources use have to become .js in the emitted files.
+    "verbatimModuleSyntax": false,
+    // Default-importing a CommonJS builtin (`import path from "node:path"`) is
+    // legal under NodeNext but needs interop helpers once the output is CJS.
+    "esModuleInterop": true,
+    "rewriteRelativeImportExtensions": true,
+    "types": ["node", "vscode"]
+  },
+  "include": ["src/**/*.ts"]
+}
