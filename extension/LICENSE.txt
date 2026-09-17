@@ -1,0 +1,57 @@
+BugPilot for VS Code — Licence Terms
+Copyright (c) 2026 Shiwei Xing. All rights reserved.
+
+This licence covers the BugPilot VS Code extension. The `bugpilot` command-line
+tool the extension drives is a separate work under a separate licence — the
+Business Source License 1.1; see the LICENSE file in its repository.
+
+
+1. Permission to use
+
+Version 0.1.0 of this extension is provided free of charge. You may install and
+use it, on as many machines as you like, for any purpose including commercial
+work.
+
+
+2. Future versions may not be free
+
+This grant is made for the version named above. Later versions may include
+features that require a paid licence. Nothing here obliges you to upgrade: the
+version you have remains licensed to you on these terms, and any version
+offered free of charge stays free for that version.
+
+
+3. What you may not do
+
+You may not redistribute this extension or any part of it, sell it, rent it, or
+include it in another product; decompile, disassemble, or reverse engineer it,
+except to the extent that law expressly permits despite this restriction; or
+remove, disable, or circumvent any licence check, notice, or attribution in it.
+
+No rights are granted to the source code. Nothing in this licence transfers
+ownership of anything.
+
+
+4. No warranty, no liability
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+This extension prepares context for AI coding agents and runs a local tool that
+reads your repository and your Jira issues. You are responsible for reviewing
+anything it produces, and for anything an agent does with it.
+
+
+5. Third-party components
+
+The icon font in `media/codicons/` is Microsoft's, from @vscode/codicons, and is
+licensed CC BY 4.0. Its attribution is in `media/codicons/ATTRIBUTION.md` and
+must be preserved. Section 3 does not restrict any right that licence grants
+you in that font.
+
+
+For any other use, or for a commercial licence, contact the copyright holder.

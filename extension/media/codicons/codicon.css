@@ -1,0 +1,105 @@
+/*
+ * The codicon font, and only the glyphs this panel uses.
+ *
+ * VS Code does not expose its icon font to webviews, and `$(icon-name)` syntax
+ * works only in tree items, quick picks and the status bar — not in HTML. So
+ * the font is vendored here, and this file declares the glyphs the panel
+ * references rather than copying all seven hundred: a shorter file is a
+ * readable one, and an unused glyph name is one more thing to keep true.
+ *
+ * `codicon.ttf` is Microsoft's, from @vscode/codicons, and the icons are
+ * licensed CC BY 4.0 — see ATTRIBUTION.md next to this file. Updating the font
+ * means copying dist/codicon.ttf again and checking these code points against
+ * dist/codicon.css, because they are addresses in that file rather than names.
+ */
+
+@font-face {
+  font-family: "codicon";
+  font-display: block;
+  src: url("codicon.ttf") format("truetype");
+}
+
+.codicon {
+  font: normal normal normal 16px/1 codicon;
+  display: inline-block;
+  text-decoration: none;
+  text-rendering: auto;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Run. */
+.codicon-play:before { content: "\eb2c"; }
+
+/*
+ * The step states: running, done, failed, skipped. (Not started shows nothing.)
+ *
+ * All round, and deliberately so. A bare `check` was the first choice and it
+ * was a mistake: next to a ticked checkbox it read as a second checkbox. These
+ * are the glyphs the editor's own Testing view uses for the same question, and
+ * a filled disc shares no silhouette with a square control.
+ */
+.codicon-loading:before { content: "\eb19"; }
+.codicon-pass-filled:before { content: "\ebb3"; }
+.codicon-error:before { content: "\ea87"; }
+.codicon-circle-slash:before { content: "\eabd"; }
+
+/* The Build context row's actions. */
+.codicon-go-to-file:before { content: "\ea94"; }
+.codicon-copy:before { content: "\ebcc"; }
+.codicon-folder-opened:before { content: "\eaf7"; }
+
+/*
+ * Advanced settings: one icon per field, so the section can be scanned down its
+ * left edge instead of read line by line.
+ */
+.codicon-settings-gear:before { content: "\eb51"; }
+.codicon-chevron-up:before { content: "\eab7"; }
+.codicon-edit:before { content: "\ea73"; }
+.codicon-lightbulb:before { content: "\ea61"; }
+.codicon-search:before { content: "\ea6d"; }
+.codicon-file:before { content: "\ea7b"; }
+.codicon-list-ordered:before { content: "\eb16"; }
+.codicon-hubot:before { content: "\eb08"; }
+.codicon-terminal:before { content: "\ea85"; }
+
+/* Attachments: the row's own icon, the add button, and each file's remove. */
+.codicon-attach:before { content: "\ec34"; }
+.codicon-add:before { content: "\ea60"; }
+.codicon-close:before { content: "\ea76"; }
+
+/* The repository notice, and the footer's two facts. */
+.codicon-warning:before { content: "\ea6c"; }
+.codicon-check:before { content: "\eab2"; }
+.codicon-folder:before { content: "\ea83"; }
+.codicon-key:before { content: "\eb11"; }
+
+/*
+ * The spinner.
+ *
+ * Their own `codicon-modifier-spin` lives in the full stylesheet; this is the
+ * same rotation, declared here so the running row turns without pulling in the
+ * rest of that file.
+ */
+@keyframes codicon-spin {
+  100% { transform: rotate(360deg); }
+}
+
+.codicon-spin:before {
+  display: inline-block;
+  animation: codicon-spin 1.5s steps(30) infinite;
+}
+
+/*
+ * Motion is a preference, not a decoration.
+ *
+ * A developer who asked the system to reduce motion gets the glyph without the
+ * rotation; the row is still identifiable, because the icon and the accessible
+ * name both say "running" on their own.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .codicon-spin:before {
+    animation: none;
+  }
+}

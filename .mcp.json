@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "bugpilot": {
+      "command": "python",
+      "args": ["-m", "bugpilot.mcp_server"],
+      "env": {
+        "PYTHONPATH": ".",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  }
+}

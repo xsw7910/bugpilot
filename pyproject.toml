@@ -1,0 +1,51 @@
+[build-system]
+# 77 is where PEP 639 landed: `license` as an SPDX expression plus
+# `license-files`. The older `license = {file = ...}` form still works but is
+# deprecated, and this package is about to be published.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bugpilot"
+version = "0.1.0"
+description = "Turn a Jira bug into focused code context for AI coding agents"
+readme = "README.md"
+requires-python = ">=3.10"
+# Name only, no email. A contact address on a public package is a public
+# address, and the one on this machine belongs to an employer.
+authors = [{ name = "Shiwei Xing" }]
+keywords = ["jira", "bug", "ai", "agent", "code-search", "context"]
+# No `License ::` classifier: with PEP 639 the SPDX expression above is the
+# licence declaration, and setuptools rejects both being given.
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Bug Tracking",
+]
+# Source-available, not open source in the OSI sense: non-production use is
+# free, production use inside a company is granted, and offering a competing
+# paid product is not. Converts to Apache-2.0 on 2030-09-08. The parameters that
+# decide all of that are at the top of LICENSE.
+license = "BUSL-1.1"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+# Optional so the CLI, the wheel and the PyInstaller exe stay dependency-free;
+# only an MCP install pulls the SDK in.
+mcp = ["mcp>=2"]
+
+[project.scripts]
+bugpilot = "bugpilot.cli:main"
+bugpilot-mcp = "bugpilot.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["bugpilot*"]

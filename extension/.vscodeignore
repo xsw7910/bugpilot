@@ -1,0 +1,19 @@
+# What ships in the .vsix — written as an allowlist, not a blocklist.
+#
+# It started as a blocklist (`src/**`, `test/**`, …) and immediately rotted:
+# `test-integration/` was added a step later, matched none of those patterns,
+# and shipped inside the extension. Installing the .vsix is what revealed it.
+#
+# So everything is excluded and the four things the extension actually needs are
+# added back. A new directory is now excluded by default, and
+# `scripts/check-package.mjs` enforces the same rule from the other side —
+# anything packaged that is not on its allowlist fails the build.
+
+**
+
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE.txt
+!out/**
+!media/**

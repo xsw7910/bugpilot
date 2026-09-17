@@ -1,0 +1,15 @@
+# What the source distribution carries, beyond the package itself.
+#
+# `tests/` is pruned rather than scrubbed. It is a test suite for this
+# repository, not something an installer needs — and it carries the things a
+# test suite legitimately carries and a published artifact should not: a
+# company's product name in a fixture, and real ticket numbers from the
+# project this was built against. Excluding it settles both at once.
+#
+# Checked, not assumed: `python -m build` put 19 test files in the sdist before
+# this file existed.
+prune tests
+prune docs
+prune extension
+prune scripts
+prune installer

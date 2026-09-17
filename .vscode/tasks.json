@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build extension",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/extension" },
+      "group": "build",
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "test extension",
+      "type": "shell",
+      "command": "npm test",
+      "options": { "cwd": "${workspaceFolder}/extension" },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "test extension against the real CLI",
+      "type": "shell",
+      "command": "npm run integration",
+      "options": { "cwd": "${workspaceFolder}/extension" },
+      "problemMatcher": []
+    }
+  ]
+}
