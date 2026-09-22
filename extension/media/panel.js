@@ -60,6 +60,16 @@
   const JIRA_ONLY = ["issueKey"];
   const MANUAL_ONLY = ["title", "description"];
 
+  /**
+   * The multi-line fields, which grow to fit what has been typed into them.
+   *
+   * Every textarea on the page, not a chosen few: they are the same control,
+   * and a Hint that grows next to a Focus files that does not is a difference
+   * the developer has to discover. `rows` in the markup is the height each one
+   * starts at; `max-height` in `panel.css` is where growing stops.
+   */
+  const GROWING_FIELDS = ["description", "hint", "keywords", "focusFiles", "ignorePaths"];
+
   /** The five the CLI runs, which are the ones that go into `form.plan`. */
   const PLAN_FIELDS = [
     "issueDetails",
@@ -114,6 +124,36 @@
   /** The coupled checkboxes as they were before Build context forced them off. */
   let planBeforeCoupling;
 
+  // --- growing fields ------------------------------------------------------
+
+  /**
+   * Resize one field to its content.
+   *
+   * `height: auto` comes first for two reasons. It is what lets the field
+   * shrink again — `scrollHeight` on a box already stretched to fit reports the
+   * stretched height, so without it a field that grew to ten lines stays ten
+   * lines after the text is deleted. And it puts the box back to the height
+   * `rows` asks for, which is the floor: a textarea does not grow with its
+   * content on its own, so that measurement is `rows` and nothing else.
+   *
+   * Measuring the floor here rather than once at load is what makes it right
+   * for Hint and Keywords, which live inside Advanced settings: a field in a
+   * closed `<details>` has no layout, and every height read from it is zero.
+   * That case leaves `height: auto` in place — the right height for when the
+   * section is opened — and waits to be called again.
+   */
+  function grow(element) {
+    if (!element || !GROWING_FIELDS.includes(element.id)) return;
+    element.style.height = "auto";
+    const resting = element.clientHeight;
+    if (!resting) return;
+    element.style.height = `${Math.max(resting, element.scrollHeight)}px`;
+  }
+
+  function growAll() {
+    for (const field of GROWING_FIELDS) grow(byId(field));
+  }
+
   // --- reading the form ----------------------------------------------------
 
   function readForm() {
@@ -150,6 +190,9 @@
     applySourceVisibility();
     applyAgentVisibility();
     applyPlanCoupling();
+    // After the visibility pass, not before: a field the source just hid has no
+    // height to measure, and one it just showed had none a moment ago.
+    growAll();
   }
 
   /** Show only the fields the chosen input source uses. */
@@ -496,7 +539,15 @@
     }
   });
 
-  byId("form").addEventListener("input", formChanged);
+  byId("form").addEventListener("input", (event) => {
+    grow(event.target);
+    formChanged();
+  });
+
+  // Advanced settings holds three of the five growing fields, and none of them
+  // could be measured while it was closed. Opening it is the first moment they
+  // have a height, so it is where restored text gets sized.
+  byId("advanced").addEventListener("toggle", growAll);
   byId("form").addEventListener("change", (event) => {
     const target = event.target;
     if (target && (target.name === "source" || target.id === "plan-buildContext")) {
@@ -542,6 +593,7 @@
     applySourceVisibility();
     applyAgentVisibility();
     applyPlanCoupling();
+    growAll();
   }
   vscode.postMessage({ type: "ready" });
 })();

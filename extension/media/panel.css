@@ -344,6 +344,19 @@ select {
 textarea {
   resize: vertical;
   min-height: 2.4em;
+  /*
+   * Where growing stops. `panel.js` sets an inline height from the content on
+   * every keystroke; this is the ceiling it cannot pass, after which the field
+   * scrolls like an ordinary box. About ten lines: enough that a long hint is
+   * read rather than peeped at, short enough that one field cannot push Run
+   * off the bottom of a sidebar.
+   *
+   * In em, not px, so it follows the theme's font size — and it stays a rule
+   * rather than a number in the script, where a max height would be guesswork
+   * about a font the page does not choose.
+   */
+  max-height: 13em;
+  overflow-y: auto;
   /* Paths, one per line: a proportional font makes a column of them wander. */
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.95em;

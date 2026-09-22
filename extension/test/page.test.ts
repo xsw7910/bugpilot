@@ -66,6 +66,17 @@ class FakeElement {
   checked = false;
   disabled = false;
   type = "";
+  /**
+   * What layout would give, for the fields that resize themselves.
+   *
+   * There is no layout here, so a test that cares sets these two by hand:
+   * `clientHeight` is the height `rows` asks for, `scrollHeight` the height the
+   * text wants. Both default to 0 — which is exactly the case the page has to
+   * survive, a field inside a closed `<details>`.
+   */
+  clientHeight = 0;
+  scrollHeight = 0;
+  readonly style: Record<string, string> = {};
   readonly classes = new Set<string>();
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
@@ -756,6 +767,58 @@ test("the credential status is shown, and the button asks the host to edit it", 
   assert.equal(p.byId("jira-status").textContent, "Not configured");
   assert.equal(p.byId("jira-ok").hidden, true);
   assert.equal(p.byId("set-credentials").textContent, "Set Jira credentials");
+});
+
+// --- fields that grow ------------------------------------------------------
+
+/** A field as layout would hand it over: `rows` height, then content height. */
+function sized(p: Page, id: string, rows: number, content: number): FakeElement {
+  const element = p.byId(id);
+  element.clientHeight = rows;
+  element.scrollHeight = content;
+  return element;
+}
+
+test("a field grows to the height its text needs", () => {
+  const p = load();
+  const hint = sized(p, "hint", 48, 160);
+  p.byId("form").dispatch("input", { target: hint });
+  assert.equal(hint.style["height"], "160px");
+});
+
+test("a field never shrinks below the height its rows ask for", () => {
+  // Deleting the text puts the box back where it started, not down to one line.
+  const p = load();
+  const keywords = sized(p, "keywords", 40, 18);
+  p.byId("form").dispatch("input", { target: keywords });
+  assert.equal(keywords.style["height"], "40px");
+});
+
+test("a field with no layout is left at auto rather than sized to zero", () => {
+  // Hint and Keywords sit inside Advanced settings. While it is closed every
+  // height reads 0, and a box pinned to 0px is one that opens up empty.
+  const p = load();
+  const hint = sized(p, "hint", 0, 0);
+  p.byId("form").dispatch("input", { target: hint });
+  assert.equal(hint.style["height"], "auto");
+});
+
+test("opening Advanced settings sizes the text already restored into it", () => {
+  // The path a hidden webview takes: state is restored into fields that cannot
+  // be measured, and the toggle is the first moment they can be.
+  const p = load({ form: { ...DEFAULT_FORM, hint: "a paragraph that wrapped" } });
+  assert.equal(p.byId("hint").style["height"], "auto", "nothing was measurable yet");
+
+  sized(p, "hint", 48, 210);
+  p.byId("advanced").dispatch("toggle");
+  assert.equal(p.byId("hint").style["height"], "210px");
+});
+
+test("a single-line field is not resized", () => {
+  const p = load();
+  const issueKey = sized(p, "issueKey", 24, 24);
+  p.byId("form").dispatch("input", { target: issueKey });
+  assert.equal(issueKey.style["height"], undefined);
 });
 
 // --- persistence -----------------------------------------------------------

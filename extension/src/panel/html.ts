@@ -129,7 +129,13 @@ const ADVANCED_FIELDS: readonly TextField[] = [
   {
     id: "hint",
     label: "Hint",
-    kind: "input",
+    // Multi-line, although a hint is still a pointer rather than a document.
+    // The reason is not room, it is visibility: a single-line input scrolls
+    // sideways, so by the time a developer has typed a sentence the start of it
+    // is gone. Three rows, growing with what is typed until `panel.css` stops
+    // it — which keeps the section scannable when the field is empty.
+    kind: "textarea",
+    rows: 3,
     icon: "lightbulb",
     tone: "hint",
     placeholder: "e.g. Check initialization logic in the affected component",
@@ -137,7 +143,11 @@ const ADVANCED_FIELDS: readonly TextField[] = [
   {
     id: "keywords",
     label: "Keywords",
-    kind: "input",
+    // The same reason, plus one of its own: `parseKeywords` splits on newlines
+    // as well as commas, so a list written one term per line already worked —
+    // there was simply nowhere to type it.
+    kind: "textarea",
+    rows: 2,
     icon: "search",
     tone: "primary",
     placeholder: "e.g. initialization, configuration, crash, validation",
