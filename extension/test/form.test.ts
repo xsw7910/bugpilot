@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   ARGV_TEXT_LIMIT,
   DEFAULT_FORM,
+  FIX_MODE_ID_RE,
   HINT_LIMIT,
   JIRA_ISSUE_KEY_RE,
   buildPrepareArgs,
@@ -404,4 +405,57 @@ test("a path with a space survives as one argument", () => {
   );
   assert.ok(args.includes("--attach=C:/Users/me/My Documents/a log.txt"));
   assert.equal(args.includes("--attach"), false);
+});
+
+// --- fix mode --------------------------------------------------------------
+
+test("the Fix Mode id pattern matches the one bugpilot enforces", () => {
+  // The third rule kept in step by reading the Python rather than trusting a
+  // copy, after the issue-key pattern and the error-code table.
+  const source = readFileSync(
+    new URL("../../bugpilot/core/fix_modes.py", import.meta.url),
+    "utf8",
+  );
+  const match = /_MODE_ID_RE = re\.compile\(r"([^"]+)"\)/.exec(source);
+  assert.ok(match, "could not find _MODE_ID_RE in bugpilot/core/fix_modes.py");
+  assert.equal(FIX_MODE_ID_RE.source, match[1]);
+});
+
+test("the selected Fix Mode becomes one --fix-mode flag", () => {
+  const args = argsOf(form({ issueKey: "JR-1", fixModeId: "conservative" }));
+  assert.equal(valueOf(args, "--fix-mode"), "conservative");
+  assert.equal(args.filter((arg) => arg.startsWith("--fix-mode")).length, 1);
+});
+
+test("the default mode is passed explicitly too", () => {
+  // The panel always sends what it shows. Relying on the CLI's persisted
+  // selection instead would let the dropdown say Standard while the run used
+  // whatever the work item was prepared with last time.
+  const args = argsOf(form({ issueKey: "JR-1", fixModeId: "standard" }));
+  assert.equal(valueOf(args, "--fix-mode"), "standard");
+});
+
+test("no selection sends no flag, leaving the CLI its own default", () => {
+  // The state before the catalog arrives. Inventing an id here would be this
+  // file deciding what the default is.
+  const args = argsOf(form({ issueKey: "JR-1", fixModeId: "" }));
+  assert.equal(
+    args.find((arg) => arg.startsWith("--fix-mode")),
+    undefined,
+  );
+});
+
+test("a malformed Fix Mode id is a field problem, not a flag", () => {
+  const result = buildPrepareArgs(form({ issueKey: "JR-1", fixModeId: "../etc/passwd" }), OPTIONS);
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.problems[0]?.field, "fixModeId");
+});
+
+test("choosing a Fix Mode changes nothing else about the command line", () => {
+  const base = form({ issueKey: "JR-1", hint: "look here", keywords: "cache" });
+  const withMode = argsOf({ ...base, fixModeId: "deep-analysis" });
+  assert.deepEqual(
+    withMode.filter((arg) => !arg.startsWith("--fix-mode")),
+    argsOf(base),
+  );
 });

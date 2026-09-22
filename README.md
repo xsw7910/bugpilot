@@ -335,6 +335,10 @@ bugpilot push-plan JR-12345
 - `bugpilot jira-comment <ISSUE>`: preview the local Jira comment draft without posting to Jira.
 - `bugpilot jira-comment <ISSUE> --execute`: post exactly one Jira comment from the local draft.
 - `bugpilot retry-prompt <ISSUE>`: generate a second-attempt agent prompt from local artifacts and developer feedback.
+- `bugpilot bug <ISSUE> --fix-mode <id>`: prepare the package under a chosen AI Fix Mode (see below). Persists for `--resume` and regeneration; a fresh run returns to Standard Fix.
+- `bugpilot fix-mode list`: the AI Fix Modes this repository can run; `--all-scopes` shows every definition on disk, including shadowed ones.
+- `bugpilot fix-mode show <id>`: one mode in full, including its six instruction sections.
+- `bugpilot fix-mode duplicate|create|update|delete ... --scope user|project`: manage custom modes (`--expected-version N` guards `update` and `delete`; `--json` on every subcommand).
 - `bugpilot manual-result <ISSUE>`: create developer manual-fix result templates without overwriting existing result files.
 - `bugpilot manual-result <ISSUE> --overwrite`: replace result files with fresh manual-fix templates.
 - `bugpilot delivery-check <ISSUE>`: check readiness for manual delivery.
@@ -363,6 +367,14 @@ bugpilot jira-comment JR-12345 --execute
 ```
 
 Run these from the target product repo root. Real Jira is the default, and mock fallback requires `--allow-mock`. `bugpilot bug <ISSUE>` is fresh by default; use `--resume` only when continuing existing artifacts. `bugpilot jira-comment <ISSUE>` previews without writing Jira, and `--execute` is required for Jira comment write-back.
+
+## AI Fix Modes
+A Fix Mode decides *how* the agent approaches a bug — how far to investigate, how to implement, how to verify, what to report. It never decides what the agent may do: BugPilot's evidence, branch, Jira and delivery rules are added around every mode and cannot be edited by one.
+
+- **Standard Fix** (`standard`) is the default. The other built-ins are **Conservative Fix**, **Investigate First** (investigation only — no source changes in that pass), **Test-Driven Fix** and **Deep Analysis**.
+- Select one per run with `--fix-mode <id>`. The choice is recorded in `.ai/<issue>/fix_mode.json` and reused by `--resume`, `prompt`, `agent-task` and `retry-prompt`; a fresh run starts from Standard Fix again.
+- Custom modes are JSON files: yours in `~/.bugpilot/fix_modes/<id>.json`, the project's in `<repo>/.bugpilot/fix_modes/<id>.json` (commit that directory to share them). A project mode shadows a user mode with the same id; built-in ids cannot be overridden. Start from `bugpilot fix-mode duplicate <builtin> <new-id> --scope user|project`.
+- The VS Code extension selects a mode above **Run** and edits custom ones under **Manage Fix Modes**. The MCP server can list, inspect and select modes (`list_fix_modes`, `show_fix_mode`, `fix_mode_id` on the prepare tools) but cannot create, change or delete them — that stays with the developer.
 
 ## Safety Rules
 - bugpilot does not automatically modify product source code.

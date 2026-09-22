@@ -13,6 +13,9 @@ from bugpilot.core import agent_runner, copilot, doctor, errors, setup, workflow
 from bugpilot.core.cleanup import clean_issue_artifacts
 from bugpilot.core.context import build_context
 from bugpilot.core.email_notify import EmailSendError
+from bugpilot.core.fix_mode_state import fix_mode_metadata
+from bugpilot.core.fix_mode_store import FixModeCatalog, FixModeStore, scoped_modes
+from bugpilot.core.fix_modes import FixMode, FixModeError
 from bugpilot.core.jira import JiraCommentPostError, JiraFetchError, fetch_issue, parse_issue
 from bugpilot.core.input_adapters import bug_spec_from_description, load_bug_spec
 from bugpilot.core.keywords import extract_keywords
@@ -113,6 +116,45 @@ def build_parser() -> argparse.ArgumentParser:
     manual_result_parser.add_argument("issue_key")
     manual_result_parser.add_argument("--overwrite", action="store_true", help="Overwrite existing result files with templates.")
 
+    fix_mode_parser = subparsers.add_parser("fix-mode", help="List, show or customize the AI fixing workflows.")
+    fix_mode_parser.add_argument(
+        "action",
+        choices=["list", "show", "duplicate", "create", "update", "delete"],
+        help="list or show the modes, or duplicate/create/update/delete a custom one.",
+    )
+    fix_mode_parser.add_argument("mode_id", nargs="?", help="Mode id. Required by everything but `list`.")
+    fix_mode_parser.add_argument("new_id", nargs="?", help="The copy's id, for `duplicate`.")
+    fix_mode_parser.add_argument(
+        "--scope",
+        choices=["user", "project"],
+        help="Where a custom mode lives: your home directory, or this repository. Required to write one.",
+    )
+    fix_mode_parser.add_argument(
+        "--all-scopes",
+        action="store_true",
+        dest="all_scopes",
+        help="List every definition on disk, including one shadowed by another scope.",
+    )
+    fix_mode_parser.add_argument(
+        "--from-file",
+        metavar="PATH",
+        dest="from_file",
+        help="JSON file holding the mode definition, for `create` and `update`.",
+    )
+    fix_mode_parser.add_argument(
+        "--expected-version",
+        type=int,
+        metavar="N",
+        dest="expected_version",
+        help="The version you last saw. `update` and `delete` refuse if it has moved on since.",
+    )
+    fix_mode_parser.add_argument(
+        "--name",
+        metavar="TEXT",
+        help="Display name for a duplicated mode.",
+    )
+    _add_json_flag(fix_mode_parser)
+
     memory_parser = subparsers.add_parser("memory", help="Manage shared AI memory.")
     memory_subparsers = memory_parser.add_subparsers(dest="memory_command", required=True)
     memory_add = memory_subparsers.add_parser("add", help="Add bug memory entry.")
@@ -203,6 +245,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include the pre-commit Jira status comment instruction in the generated agent_task.md (omitted by default).",
     )
+    # No argparse `choices=`: the list comes from the registry, which a later
+    # phase widens with project and user modes, and argparse would both freeze
+    # that list at parser-build time and word the rejection worse than core does.
+    bug_parser.add_argument(
+        "--fix-mode",
+        metavar="ID",
+        dest="fix_mode",
+        help=(
+            "Select the AI fixing workflow (see: bugpilot fix-mode list). "
+            "Default: the work item's previous selection, otherwise Standard Fix."
+        ),
+    )
     bug_mock = bug_parser.add_mutually_exclusive_group()
     bug_mock.add_argument("--allow-mock", action="store_true", help="Allow mock/demo fallback when Jira fetch fails.")
     bug_mock.add_argument("--no-mock", action="store_true", help="Require real Jira data. This is the default.")
@@ -255,6 +309,9 @@ def _dispatch(args, repo_root: Path) -> int:
         for line in doctor.doctor_report_lines(repo_root):
             print(line)
         return 0
+
+    if args.command == "fix-mode":
+        return _run_fix_mode_command(args, repo_root)
 
     if args.command == "agent-check":
         for line in copilot.agent_status_lines(repo_root):
@@ -415,7 +472,10 @@ def _dispatch(args, repo_root: Path) -> int:
         return 0
 
     if args.command == "prompt":
-        workflow.prompt_step(repo_root, args.issue_key, jira_comment=args.jira_comment)
+        try:
+            workflow.prompt_step(repo_root, args.issue_key, jira_comment=args.jira_comment)
+        except FixModeError as exc:
+            return _report_fix_mode_failure(exc)
         print(f"Generated prompts for {args.issue_key}.")
         return 0
 
@@ -426,6 +486,8 @@ def _dispatch(args, repo_root: Path) -> int:
             print(f"Missing .ai/{args.issue_key}/bug_context.md.", file=sys.stderr)
             print(f"Run: bugpilot bug {args.issue_key}", file=sys.stderr)
             return 1
+        except FixModeError as exc:
+            return _report_fix_mode_failure(exc)
         print(f"Regenerated agent task files for {args.issue_key}.")
         return 0
 
@@ -440,6 +502,8 @@ def _dispatch(args, repo_root: Path) -> int:
         except FileNotFoundError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+        except FixModeError as exc:
+            return _report_fix_mode_failure(exc)
         print(f"Generated retry prompt: {result['prompt']}")
         if "user_feedback" in result:
             print(f"Generated user feedback template: {result['user_feedback']}")
@@ -661,6 +725,19 @@ def _dispatch(args, repo_root: Path) -> int:
             _print_log_hint(repo_root, work_item_id)
             _print_jira_error(exc)
             return 1
+        # Before the ValueError arm below, which FixModeError also matches: a
+        # rejected mode is a bad argument, not a failed run, so it points at
+        # `fix-mode list` instead of at a log that may not exist yet.
+        except FixModeError as exc:
+            if stream is not None:
+                stream.fail(errors.INVALID_INPUT, str(exc))
+                return 1
+            if json_mode:
+                cli_json.emit_failure("bug", errors.INVALID_INPUT, str(exc), work_item_id=work_item_id)
+                return 1
+            print(f"ERROR: {exc}", file=sys.stderr)
+            print("Run: bugpilot fix-mode list", file=sys.stderr)
+            return 1
         except ValueError as exc:
             if stream is not None:
                 stream.fail(errors.INVALID_INPUT, str(exc))
@@ -698,6 +775,7 @@ def _dispatch(args, repo_root: Path) -> int:
                     issue_dir=f".ai/{work_item_id}",
                     generated_files=result.generated_files,
                     skipped_steps=request.skipped_steps(),
+                    fix_mode=fix_mode_metadata(result.fix_mode) if result.fix_mode else None,
                     agent_task=agent_task if agent_task_exists else None,
                     warnings=([mock_warning] if mock_warning else []) + list(result.warnings),
                 )
@@ -714,6 +792,10 @@ def _dispatch(args, repo_root: Path) -> int:
         _print_key_generated_artifacts(repo_root, work_item_id)
         print(f"Prepared bugpilot workflow package for {work_item_id}.")
         print(f"Artifacts: .ai/{work_item_id}")
+        if result.fix_mode is not None:
+            print(f"AI Fix Mode: {result.fix_mode.name} ({result.fix_mode.id})")
+            if result.fix_mode.is_investigation:
+                print("  Investigation only: the agent will not change source code in this pass.")
         # By default an agent (Claude) is launched after preparation. --prepare-only
         # stops here with artifacts only; --agent-fix prints legacy guidance instead.
         if not agent_task_exists:
@@ -730,9 +812,39 @@ def _dispatch(args, repo_root: Path) -> int:
                     print(line)
             return 0
         agent = "copilot" if args.copilot else "claude"
-        return _run_agent_after_prepare(repo_root, work_item_id, agent)
+        return _run_agent_after_prepare(repo_root, work_item_id, agent, fix_mode=result.fix_mode)
 
     return 1
+
+
+def _launch_expectation_lines(fix_mode: FixMode | None, *, retry: bool) -> list[str]:
+    """What the developer is told the agent is about to do.
+
+    Three sentences, chosen by the mode's execution kind rather than its id, so a
+    custom investigate-kind mode reads the same as the built-in one. The task
+    file is what actually instructs the agent; this only has to agree with it —
+    telling the developer a fix is coming while the task says "do not modify
+    source code" was the contradiction this replaces. A retry launch has no
+    resolved mode in hand, so it describes the loop and lets the retry prompt
+    say the rest.
+    """
+    if retry:
+        return [
+            "The agent will read your feedback and the previous attempt, then continue",
+            "the workflow the retry prompt describes.",
+            "It stops at the commit gate. Review its changes as third-party code before you commit.",
+        ]
+    if fix_mode is not None and fix_mode.is_investigation:
+        return [
+            "The agent will investigate the issue, document the evidence and hypotheses,",
+            "and propose a fix plan without changing source code.",
+            "It stops at the investigation handoff and asks before any implementation.",
+        ]
+    return [
+        "The agent will analyze, implement the smallest safe fix, and write result files.",
+        "It stops at the commit gate and asks before committing.",
+        "Review its changes as third-party code before you commit.",
+    ]
 
 
 def _emit_status_json(repo_root: Path, issue_key: str) -> int:
@@ -764,6 +876,10 @@ def _emit_status_json(repo_root: Path, issue_key: str) -> int:
             mode=status.get("mode"),
             steps=status.get("steps", {}),
             generated_files=status.get("generated_files", []),
+            # `mode` above is the prepare-only run mode and predates Fix Modes;
+            # this is the AI workflow the package was prepared under. Null for a
+            # package prepared before Fix Modes existed.
+            fix_mode=status.get("fix_mode"),
         )
     )
     return 0
@@ -798,16 +914,21 @@ def _allow_mock(args) -> bool:
     return bool(getattr(args, "allow_mock", False))
 
 
-def _run_agent_after_prepare(repo_root: Path, issue_key: str, agent: str, prompt_file: str | None = None) -> int:
+def _run_agent_after_prepare(
+    repo_root: Path,
+    issue_key: str,
+    agent: str,
+    prompt_file: str | None = None,
+    fix_mode: FixMode | None = None,
+) -> int:
     handoff = (
         agent_runner.RETRY_HANDOFF_PROMPT.format(prompt_file=prompt_file) if prompt_file else None
     )
     instruction = prompt_file or f".ai/{issue_key}/agent_task.md"
     print()
     print(f"Launching {agent} to complete the workflow for {issue_key}.")
-    print("The agent will analyze, implement the smallest safe fix, and write result files.")
-    print("It stops at the commit gate and asks before committing.")
-    print("Review its changes as third-party code before you commit.")
+    for line in _launch_expectation_lines(fix_mode, retry=prompt_file is not None):
+        print(line)
     result = agent_runner.run_agent(repo_root, issue_key, agent, prompt=handoff)
     if not result.ran:
         print(f"WARN: could not launch {agent}: {result.skipped_reason}", file=sys.stderr)
@@ -961,6 +1082,282 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
     return 0
 
 
+def _report_fix_mode_failure(exc: FixModeError) -> int:
+    """A regeneration path whose stored selection no longer works.
+
+    It says what to do next rather than falling back to Standard Fix: quietly
+    regenerating a Conservative package as Standard is exactly the substitution
+    the persisted selection exists to prevent.
+    """
+    print(f"ERROR: {exc}", file=sys.stderr)
+    print("Run: bugpilot fix-mode list", file=sys.stderr)
+    return 1
+
+
+def _run_fix_mode_command(args, repo_root: Path) -> int:
+    """`bugpilot fix-mode …`: read the catalog, or change a custom mode in it.
+
+    `repo_root` is threaded in rather than taken from the process directory,
+    because a project's modes belong to the repository being worked on — which
+    is not always the directory a command was typed in, and is never the one a
+    test runs from.
+    """
+    store = FixModeStore(repo_root)
+    try:
+        catalog = store.load_catalog()
+    except FixModeError as exc:
+        return _fix_mode_error(args, exc)
+    handlers = {
+        "list": _fix_mode_list,
+        "show": _fix_mode_show,
+        "duplicate": _fix_mode_duplicate,
+        "create": _fix_mode_create,
+        "update": _fix_mode_update,
+        "delete": _fix_mode_delete,
+    }
+    try:
+        return handlers[args.action](args, store, catalog)
+    except FixModeError as exc:
+        return _fix_mode_error(args, exc)
+    except OSError as exc:
+        # A read-only checkout, a permission denied, a directory that vanished.
+        # A user's environment problem, not a BugPilot defect, so it reads as a
+        # message rather than a traceback.
+        return _fix_mode_error(args, FixModeError(f"Fix Mode storage is not writable: {exc}"))
+
+
+def _fix_mode_error(args, exc: FixModeError) -> int:
+    if getattr(args, "json_output", False):
+        cli_json.emit_failure("fix-mode", errors.INVALID_INPUT, str(exc))
+        return 1
+    print(f"ERROR: {exc}", file=sys.stderr)
+    return 1
+
+
+def _fix_mode_summary(mode: FixMode) -> dict[str, object]:
+    """One mode as a picker needs it: metadata plus the line that describes it."""
+    return {**fix_mode_metadata(mode), "description": mode.description}
+
+
+def _fix_mode_definition(mode: FixMode) -> dict[str, object]:
+    """The whole mode, including the six sections an editor edits."""
+    definition = _fix_mode_summary(mode)
+    definition.update({name: text for name, text in mode.instruction_sections()})
+    return definition
+
+
+def _fix_mode_issues(catalog: FixModeCatalog) -> list[dict[str, object]]:
+    return [
+        {"scope": issue.scope, "path": issue.path, "message": issue.message}
+        for issue in catalog.issues
+    ]
+
+
+def _fix_mode_list(args, store: FixModeStore, catalog: FixModeCatalog) -> int:
+    """The effective list, or every physical definition with `--all-scopes`.
+
+    Two different questions. The selector asks which definition an id runs, and
+    gets one mode per id. Management asks what exists on disk, and has to see
+    both `user/my-safe` and `project/my-safe` — resolving that through the
+    effective registry would make the shadowed one unaddressable.
+    """
+    if args.mode_id:
+        # `fix-mode list standard` used to print the whole table and drop the
+        # id. Accepting an argument and ignoring it is the CLI equivalent of a
+        # silent fallback, so it is refused with the command that was meant.
+        raise FixModeError(
+            f"bugpilot fix-mode list takes no mode id. To see one mode, run: "
+            f"bugpilot fix-mode show {args.mode_id}"
+        )
+    effective = catalog.effective_modes()
+    if args.json_output:
+        payload: dict[str, object] = {
+            "default_mode_id": catalog.effective_registry().default.id,
+            "issues": _fix_mode_issues(catalog),
+        }
+        if args.all_scopes:
+            for scope in ("builtin", "user", "project"):
+                payload[scope] = [
+                    {
+                        **_fix_mode_summary(mode),
+                        "scope": scope,
+                        "effective": catalog.is_effective(mode),
+                    }
+                    for mode in catalog.scoped(scope)
+                ]
+        else:
+            payload["modes"] = [_fix_mode_summary(mode) for mode in effective]
+        cli_json.emit(cli_json.success("fix-mode", **payload))
+        return 0
+
+    rows = (
+        [(scope, mode) for scope, mode in scoped_modes(catalog)]
+        if args.all_scopes
+        else [(mode.source, mode) for mode in effective]
+    )
+    width = max(len(mode.id) for _, mode in rows)
+    name_width = max(len(mode.name) for _, mode in rows)
+    print(f"{'ID'.ljust(width)}  {'Name'.ljust(name_width)}  Kind          Source")
+    for scope, mode in rows:
+        note = "" if not args.all_scopes or catalog.is_effective(mode) else "  (overridden)"
+        print(
+            f"{mode.id.ljust(width)}  {mode.name.ljust(name_width)}  "
+            f"{mode.execution_kind.ljust(12)}  {scope}{note}"
+        )
+    for issue in catalog.issues:
+        print(f"WARN: {issue.scope} Fix Mode {issue.path}: {issue.message}", file=sys.stderr)
+    print()
+    print("Select one with: bugpilot bug <work item> --fix-mode <id>")
+    return 0
+
+
+def _fix_mode_show(args, store: FixModeStore, catalog: FixModeCatalog) -> int:
+    mode_id = _require_mode_id(args, "show")
+    mode = (
+        store.read(args.scope, mode_id)
+        if args.scope
+        else catalog.effective_registry().resolve(mode_id)
+    )
+    if args.json_output:
+        cli_json.emit(cli_json.success("fix-mode", mode=_fix_mode_definition(mode)))
+        return 0
+    for line in _fix_mode_show_lines(mode):
+        print(line)
+    return 0
+
+
+def _fix_mode_duplicate(args, store: FixModeStore, catalog: FixModeCatalog) -> int:
+    """Copy any mode into a writable scope. The way a custom mode starts."""
+    source_id = _require_mode_id(args, "duplicate")
+    if not args.new_id:
+        raise FixModeError("bugpilot fix-mode duplicate needs a new id for the copy.")
+    mode = store.duplicate(
+        source_id,
+        args.new_id,
+        _require_write_scope(args),
+        name=args.name,
+        registry=catalog.effective_registry(),
+    )
+    return _fix_mode_written(args, mode, f"Duplicated {source_id} as {mode.id} ({mode.source}).")
+
+
+def _fix_mode_create(args, store: FixModeStore, catalog: FixModeCatalog) -> int:
+    mode_id = _require_mode_id(args, "create")
+    mode = store.create(_require_write_scope(args), mode_id, _fix_mode_payload(args))
+    return _fix_mode_written(args, mode, f"Created {mode.id} ({mode.source}).")
+
+
+def _fix_mode_update(args, store: FixModeStore, catalog: FixModeCatalog) -> int:
+    mode_id = _require_mode_id(args, "update")
+    scope = _require_write_scope(args)
+    # The concurrency guard is checked before the payload is even read: a save
+    # that cannot be safe is not worth loading a file for, and "which version did
+    # you last see" is the more useful thing to be told first.
+    expected = _require_expected_version(args)
+    mode = store.update(scope, mode_id, _fix_mode_payload(args), expected)
+    return _fix_mode_written(args, mode, f"Updated {mode.id} to version {mode.version}.")
+
+
+def _fix_mode_delete(args, store: FixModeStore, catalog: FixModeCatalog) -> int:
+    mode_id = _require_mode_id(args, "delete")
+    mode = store.delete(
+        _require_write_scope(args), mode_id, _require_expected_version(args)
+    )
+    if args.json_output:
+        cli_json.emit(cli_json.success("fix-mode", deleted=_fix_mode_summary(mode)))
+        return 0
+    print(f"Deleted {mode.id} ({mode.source}).")
+    print("Prepared work items that recorded it will ask for another mode before regenerating.")
+    return 0
+
+
+def _fix_mode_written(args, mode: FixMode, message: str) -> int:
+    if args.json_output:
+        cli_json.emit(cli_json.success("fix-mode", mode=_fix_mode_definition(mode)))
+        return 0
+    print(message)
+    return 0
+
+
+def _require_mode_id(args, action: str) -> str:
+    if not args.mode_id:
+        raise FixModeError(f"bugpilot fix-mode {action} needs a mode id.")
+    return args.mode_id
+
+
+def _require_write_scope(args) -> str:
+    """Which directory a mutation writes to, always stated rather than guessed.
+
+    There is no default: `user` and `project` mean different things to a team,
+    and choosing one silently would put a personal workflow in a repository or a
+    team's in one developer's home directory.
+    """
+    if not args.scope:
+        raise FixModeError("This command needs --scope user or --scope project.")
+    return args.scope
+
+
+def _require_expected_version(args) -> int:
+    if args.expected_version is None:
+        raise FixModeError(
+            "This command needs --expected-version, the version you last saw. It is "
+            "what stops one save from overwriting another."
+        )
+    return args.expected_version
+
+
+def _fix_mode_payload(args) -> object:
+    """The definition, read from a file rather than the command line.
+
+    Six multiline sections do not belong in argv: a command line has a length
+    limit, and quoting rules that differ per shell. A file has neither problem,
+    and keeps the mode's text data rather than something a shell might read.
+    """
+    if not args.from_file:
+        raise FixModeError("This command needs --from-file <json> with the mode definition.")
+    path = Path(args.from_file)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise FixModeError(f"{path} is not valid JSON: {exc}.") from exc
+    except OSError as exc:
+        raise FixModeError(f"{path} could not be read: {exc}.") from exc
+
+
+def _fix_mode_show_lines(mode: FixMode) -> list[str]:
+    """One mode in full, as a person reads it rather than as Python spells it."""
+    lines = [
+        f"{mode.name} ({mode.id})",
+        "",
+        mode.description,
+        "",
+        f"Version:        {mode.version}",
+        f"Source:         {mode.source}",
+        f"Execution kind: {mode.execution_kind}",
+    ]
+    if mode.based_on:
+        lines.append(f"Based on:       {mode.based_on}")
+        if mode.based_on_version is not None:
+            lines.append(f"Based on version: {mode.based_on_version}")
+    if mode.is_investigation:
+        lines += [
+            "",
+            "This mode does not change source code in its first pass: it produces a",
+            "diagnosis and a proposed fix plan, then asks before implementing.",
+        ]
+    headings = {
+        "objective": "Objective",
+        "investigation": "Investigation",
+        "implementation": "Implementation",
+        "verification": "Verification",
+        "constraints": "Constraints",
+        "completion": "Completion Requirements",
+    }
+    for name, text in mode.instruction_sections():
+        lines += ["", headings.get(name, name.title()), "", f"  {text.strip()}"]
+    return lines
+
+
 def _build_bug_request(repo_root: Path, args) -> InvestigationRequest:
     """Turn `bugpilot bug` arguments into an InvestigationRequest.
 
@@ -1014,14 +1411,21 @@ def _build_bug_request(repo_root: Path, args) -> InvestigationRequest:
             "--jira-comment asks the agent to post to Jira, which a hand-written bug has no target for."
         )
 
+    # The id only: core resolves it, once per run, so the CLI never becomes a
+    # second place that knows which modes exist or which scope wins.
+    fix_mode_id = getattr(args, "fix_mode", None)
+
     if args.issue_key:
         request = workflow.jira_request(args.issue_key, options)
         request.plan = plan
+        request.fix_mode_id = fix_mode_id
         return request
     # repo_root makes the local id collision-safe: ids have one-second
     # granularity and a fresh run would wipe a same-second neighbour.
     spec = bug_spec_from_description(description, title=args.title, repo_root=repo_root)
-    return InvestigationRequest(spec=spec, options=options, plan=plan)
+    return InvestigationRequest(
+        spec=spec, options=options, plan=plan, fix_mode_id=fix_mode_id
+    )
 
 
 def _bug_progress_printer(issue_key: str, resolved_steps: list[str] | None = None, source: str = "jira"):

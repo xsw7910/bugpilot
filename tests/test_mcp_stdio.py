@@ -23,6 +23,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 EXPECTED_TOOLS = {
+    "list_fix_modes",
+    "show_fix_mode",
     "prepare_jira_bug",
     "prepare_bug_description",
     "refine_investigation",
@@ -122,7 +124,7 @@ def test_the_server_starts_and_introduces_itself(tmp_path):
         session.close()
 
 
-def test_exactly_the_seven_tools_arrive_over_the_wire(client):
+def test_exactly_the_planned_tools_arrive_over_the_wire(client):
     listing = client.call("tools/list", {}, 2)
     assert {tool["name"] for tool in listing["result"]["tools"]} == EXPECTED_TOOLS
 

@@ -273,6 +273,25 @@ export function panelHtml(options: PanelHtmlOptions): string {
 
 ${MAIN_FIELDS.map(field).join("\n")}
 
+    <div class="field" id="field-fixModeId">
+${settingHeader({
+      forId: "fixModeId",
+      label: "Fix Mode",
+      icon: "lightbulb",
+      tone: "primary",
+      hint: "How the AI works on this bug.",
+    })}
+      <div class="fix-mode-row">
+        <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-description">
+          <option value="">Loading Fix Modes…</option>
+        </select>
+        <button type="button" id="manage-fix-modes" class="icon" title="Manage Fix Modes" aria-label="Manage Fix Modes">
+          <span class="codicon codicon-settings-gear" aria-hidden="true"></span>
+        </button>
+      </div>
+      <p class="hint fix-mode-note" id="fixModeId-description"></p>
+    </div>
+
     <div class="run">
       <div class="run-buttons">
         <button type="submit" id="run" class="primary">
@@ -291,6 +310,7 @@ ${MAIN_FIELDS.map(field).join("\n")}
         <h2 id="workflow-heading">Investigation &amp; AI Fix</h2>
         <span id="workflow-status" class="workflow-status" role="status">Ready to run</span>
       </div>
+      <p id="prepared-fix-mode" class="muted" hidden></p>
       <ol class="steps">
 ${WORKFLOW_STEP_IDS.map(step).join("\n")}
       </ol>
@@ -360,6 +380,69 @@ ${settingHeader({
       </div>
     </details>
   </form>
+
+  <section id="manage" class="group manage" aria-labelledby="manage-heading" hidden>
+    <div class="manage-head">
+      <h2 id="manage-heading">Manage Fix Modes</h2>
+      <button type="button" id="manage-close" class="link">Close</button>
+    </div>
+    <p id="manage-error" class="error" role="alert" hidden></p>
+    <p id="manage-detail" class="muted" hidden></p>
+    <div id="manage-list"></div>
+
+    <div id="manage-editor" hidden>
+      <p id="editor-title" class="card-title"></p>
+      <p id="editor-origin" class="muted"></p>
+      <p id="editor-readonly" class="muted" hidden>
+        Built-in Fix Modes are read-only. Use Duplicate &amp; Customize to make your own.
+      </p>
+
+      <div class="field">
+        <label for="editor-name">Name</label>
+        <input type="text" id="editor-name">
+      </div>
+      <div class="field">
+        <label for="editor-id">ID</label>
+        <input type="text" id="editor-id">
+        <p class="hint" id="editor-id-hint">Lowercase letters, digits and hyphens. Fixed once the mode exists.</p>
+      </div>
+      <div class="field">
+        <label for="editor-description">Description</label>
+        <input type="text" id="editor-description">
+      </div>
+      <div class="field">
+        <label for="editor-executionKind">Execution kind</label>
+        <select id="editor-executionKind">
+          <option value="fix">Fix — change source code</option>
+          <option value="investigate">Investigate — diagnose first, no source changes</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="editor-scope">Scope</label>
+        <select id="editor-scope">
+          <option value="user">User — your home directory</option>
+          <option value="project">Project — this repository, shareable</option>
+        </select>
+        <p class="hint" id="editor-scope-hint">Fixed once the mode exists. Duplicate it to move it.</p>
+      </div>
+
+${EDITOR_SECTIONS.map(section).join("\n")}
+
+      <div class="run-buttons">
+        <button type="button" id="editor-save" class="primary">Save Fix Mode</button>
+        <button type="button" id="editor-preview">Preview instructions</button>
+        <button type="button" id="editor-cancel">Cancel</button>
+      </div>
+      <div id="editor-preview-pane" hidden>
+        <p class="card-title">Fix Mode Instructions Preview</p>
+        <p class="muted">
+          What this mode tells the agent. BugPilot's own evidence, branch, Jira and
+          delivery rules are added around it and are not editable here.
+        </p>
+        <div id="editor-preview-body"></div>
+      </div>
+    </div>
+  </section>
 
   <section id="failure" class="card card-failure" role="alert" hidden>
     <p id="failure-summary" class="card-title"></p>
@@ -501,6 +584,28 @@ ${
             ${note}
           </div>
         </li>`;
+}
+
+/**
+ * The six editable sections, as the editor shows them.
+ *
+ * The ids match `FixModeDraft`'s fields exactly, so the page reads and writes
+ * them by name rather than keeping a second mapping that could drift.
+ */
+export const EDITOR_SECTIONS: readonly { readonly id: string; readonly label: string }[] = [
+  { id: "objective", label: "Objective" },
+  { id: "investigation", label: "Investigation" },
+  { id: "implementation", label: "Implementation" },
+  { id: "verification", label: "Verification" },
+  { id: "constraints", label: "Constraints" },
+  { id: "completion", label: "Completion Requirements" },
+];
+
+function section(entry: { readonly id: string; readonly label: string }): string {
+  return `      <div class="field">
+        <label for="editor-${entry.id}">${entry.label}</label>
+        <textarea id="editor-${entry.id}" rows="4"></textarea>
+      </div>`;
 }
 
 /** The text field ids the page owns, exported so tests can compare them to `FormState`. */

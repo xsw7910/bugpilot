@@ -16,6 +16,12 @@ So the instructions live here, once, as data. Every entry point renders them:
 The wording of the first two is fixed by requirement R1: existing human-facing
 output must survive byte for byte, and those strings reach a spawned agent's
 command line.
+
+None of them says *what* the workflow is. That is the selected AI Fix Mode's
+to say, and it says it in ``agent_task.md``: an investigate-kind mode changes
+no source code, so a handoff that told every agent to "implement the smallest
+safe fix" would contradict the task file it points at. The handoff points; the
+task file decides.
 """
 
 from __future__ import annotations
@@ -91,8 +97,8 @@ def mcp_prompt(tool: str, argument: str) -> str:
     return (
         f"Call {tool} with {argument}.\n"
         f"Then read the returned {reads} and complete the "
-        "workflow they describe: analyse the bug, implement the smallest safe fix, "
-        "and write the required result files.\n"
+        "workflow they describe for the selected AI Fix Mode, "
+        "then write the required result files.\n"
         f"Stop before committing. {_FORBIDDEN_SENTENCE}"
     )
 
@@ -111,7 +117,8 @@ def skill_steps() -> tuple[str, ...]:
         f"Read {reads}. They contain the issue details, the ranked candidate "
         "files and the relevant git history — read them instead of searching "
         "the repository from scratch.",
-        "Complete the workflow `agent_task.md` describes: analyse the bug, "
-        "implement the smallest safe fix, and write the required result files.",
+        "Complete the workflow `agent_task.md` describes for the selected AI Fix "
+        "Mode — it says whether this pass investigates only or implements — and "
+        "write the required result files.",
         f"Stop at the commit gate. {_FORBIDDEN_SENTENCE}",
     )

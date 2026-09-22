@@ -62,6 +62,16 @@ export interface FormState {
    * these are copied into the work item and named in the agent's task file.
    */
   readonly attachments: readonly string[];
+  /**
+   * Which AI Fix Mode the next run uses, by id.
+   *
+   * An id and nothing else: what the modes are, what they instruct and which
+   * one is the default all belong to bugpilot's registry, and the page fills
+   * this from `fix-mode list --json`. Empty means the catalog has not been read
+   * yet, and the run then omits the flag so core applies its own default rather
+   * than this file guessing at one.
+   */
+  readonly fixModeId: string;
   readonly plan: PlanState;
   /**
    * Hand the finished package to a coding agent, as the last workflow step.
@@ -102,6 +112,7 @@ export const DEFAULT_FORM: FormState = {
   maxFiles: "",
   maxSearchLines: "",
   attachments: [],
+  fixModeId: "",
   plan: {
     issueDetails: true,
     codeSearch: true,
@@ -125,7 +136,8 @@ export type FormField =
   | "ignorePaths"
   | "maxFiles"
   | "maxSearchLines"
-  | "agentCommand";
+  | "agentCommand"
+  | "fixModeId";
 
 /** A problem attached to the field that caused it, so the UI can show it there. */
 export interface FieldProblem {
@@ -174,6 +186,40 @@ export interface BuildOptions {
  * kept honest. Validating here means a typo is caught before spawning anything.
  */
 export const JIRA_ISSUE_KEY_RE = /^[A-Z][A-Z0-9]+-\d+$/;
+
+/**
+ * A Fix Mode id, matching `_MODE_ID_RE` in `bugpilot/core/fix_modes.py`.
+ *
+ * Checked before it reaches a command line even though the page only offers ids
+ * the CLI itself listed: a webview message is untrusted input, and this is the
+ * one field of it that becomes a flag naming something on disk in a later phase.
+ * `test/form.test.ts` compares the pattern against the Python source.
+ */
+export const FIX_MODE_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
+
+/**
+ * Which work item a form is about, named the way a run would name it.
+ *
+ * One identity rule, shared: the same `trim().toUpperCase()` a Jira run applies
+ * before it touches `.ai/<work item>/`, so nothing downstream has to invent a
+ * second notion of "the same bug".
+ *
+ * Three answers, and the difference between them matters:
+ *
+ *  - a work item id, when the form names a complete Jira key;
+ *  - `"manual"` for a hand-written bug, whose real id is minted by the CLI at
+ *    run time — every hand-written bug is *a* new work item even though this
+ *    cannot say which one;
+ *  - `undefined` while a key is half-typed, which is not yet any work item and
+ *    so is not a reason to conclude the developer switched to another bug.
+ */
+export const MANUAL_WORK_ITEM_SCOPE = "manual";
+
+export function workItemScopeOf(form: FormState): string | undefined {
+  if (form.source !== "jira") return MANUAL_WORK_ITEM_SCOPE;
+  const key = form.issueKey.trim().toUpperCase();
+  return JIRA_ISSUE_KEY_RE.test(key) ? key : undefined;
+}
 
 /**
  * How much text may ride on the command line.
@@ -347,6 +393,22 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   // right place for it, since the same race exists for a CLI user.
   for (const attachment of form.attachments) {
     if (attachment.trim() !== "") args.push(flag("--attach", attachment));
+  }
+
+  // Always explicit when the panel has a selection. The CLI's own precedence is
+  // explicit > persisted > Standard, and letting the persisted value win here
+  // would let the panel show Conservative while the run quietly did something
+  // else — the selector on screen is the promise.
+  const fixModeId = form.fixModeId.trim();
+  if (fixModeId !== "") {
+    if (!FIX_MODE_ID_RE.test(fixModeId)) {
+      problems.push({
+        field: "fixModeId",
+        message: `"${fixModeId}" is not a Fix Mode id. Pick one from the list.`,
+      });
+    } else {
+      args.push(flag("--fix-mode", fixModeId));
+    }
   }
 
   args.push(...planFlags(form.plan));

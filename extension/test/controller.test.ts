@@ -9,6 +9,9 @@ import type { FormState } from "../src/app/form.ts";
 import type { Environment } from "../src/app/environment.ts";
 import type { Envelope, StreamEvent } from "../src/protocol.ts";
 import type { PanelState } from "../src/panel/messages.ts";
+import { fixModesFromPayload, managedFixModesFromPayload } from "../src/app/fixModes.ts";
+import type { FixModeCatalog, ManagedFixModes } from "../src/app/fixModes.ts";
+import type { FixModeRequest } from "../src/app/controller.ts";
 
 const ROOT = "/work/app";
 const TOKEN = "ATATT3xFfGF0abcdef1234567890";
@@ -43,6 +46,10 @@ interface Harness {
   readonly probed: string[];
   readonly saved: FormState[];
   readonly savedWorkItems: string[];
+  /** How many times the Fix Mode catalog was asked for. */
+  readonly fixModeCalls: { count: number };
+  /** The fake file contents, live: a test may add or remove one mid-scenario. */
+  readonly files: Record<string, string>;
   readonly last: () => PanelState;
 }
 
@@ -69,6 +76,12 @@ interface HarnessOptions {
   readonly agentPanel?: boolean;
   /** What the file dialog returns when the panel asks for attachments. */
   readonly pickFiles?: readonly string[];
+  /** The Fix Mode catalog discovery returns; absent means no discovery port. */
+  readonly fixModes?: FixModeCatalog;
+  /** Every physical definition, for the management view. */
+  readonly managed?: ManagedFixModes;
+  /** What a Fix Mode management command does, and what it answers. */
+  readonly runFixMode?: (request: FixModeRequest) => Promise<Envelope>;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -87,6 +100,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const terminals: { name: string; cwd: string; commandLine: string }[] = [];
   const folders: string[] = [];
   const probed: string[] = [];
+  const fixModeCalls = { count: 0 };
+  const files: Record<string, string> = { ...(options.files ?? {}) };
   let release = () => {};
 
   const ports: ControllerPorts = {
@@ -129,8 +144,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
             ? { kind: "ok", names: [...options.directory] }
             : { kind: "missing" },
       readFile: async (file) => {
-        const key = Object.keys(options.files ?? {}).find((name) => file.endsWith(name));
-        return key ? options.files![key] : undefined;
+        const key = Object.keys(files).find((name) => file.endsWith(name));
+        return key ? files[key] : undefined;
       },
       writeFile: async (file, contents) => {
         written.push({ path: file, contents });
@@ -181,6 +196,18 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     now: () => 1_000,
     saveForm: (form) => saved.push(form),
     saveWorkItem: (workItemId) => savedWorkItems.push(workItemId),
+    ...(options.fixModes === undefined
+      ? {}
+      : {
+          listFixModes: async () => {
+            fixModeCalls.count += 1;
+            return options.fixModes!;
+          },
+        }),
+    ...(options.managed === undefined
+      ? {}
+      : { listManagedFixModes: async () => options.managed! }),
+    ...(options.runFixMode === undefined ? {} : { runFixModeCommand: options.runFixMode }),
   };
 
   const controller = new Controller(ports, options.form ?? DEFAULT_FORM);
@@ -201,6 +228,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     terminals,
     saved,
     savedWorkItems,
+    fixModeCalls,
+    files,
     last: () => {
       assert.ok(states.length > 0, "no state was rendered");
       return states[states.length - 1]!;
@@ -1392,4 +1421,620 @@ test("a warning from the run reaches the developer, not just the log", async () 
   const warning = h.notices.find((notice) => notice.kind === "warning");
   assert.ok(warning, "the run warning was swallowed");
   assert.match(warning.message, /Attachment not added/);
+});
+
+// --- fix mode selection ----------------------------------------------------
+
+const MODE_PAYLOAD = {
+  schema_version: 1,
+  ok: true,
+  command: "fix-mode",
+  default_mode_id: "standard",
+  modes: [
+    {
+      id: "standard",
+      name: "Standard Fix",
+      description: "Default workflow.",
+      version: 1,
+      source: "builtin",
+      execution_kind: "fix",
+    },
+    {
+      id: "conservative",
+      name: "Conservative Fix",
+      description: "Minimal, low-risk changes.",
+      version: 1,
+      source: "builtin",
+      execution_kind: "fix",
+    },
+    {
+      id: "investigate-first",
+      name: "Investigate First",
+      description: "Diagnose before changing source.",
+      version: 1,
+      source: "builtin",
+      execution_kind: "investigate",
+    },
+    {
+      id: "test-driven",
+      name: "Test-Driven Fix",
+      description: "Reproduce with a focused test first.",
+      version: 1,
+      source: "builtin",
+      execution_kind: "fix",
+    },
+    {
+      id: "deep-analysis",
+      name: "Deep Analysis",
+      description: "Deeper evidence review.",
+      version: 1,
+      source: "builtin",
+      execution_kind: "fix",
+    },
+  ],
+  warnings: [],
+};
+
+const CATALOG = fixModesFromPayload(MODE_PAYLOAD);
+
+/** A status file for a package prepared with one mode. */
+function statusWith(modeId: string, name: string, kind = "fix"): string {
+  return JSON.stringify({
+    issue_key: "JR-12345",
+    mode: "prepare-only",
+    steps: { doctor: "pass" },
+    generated_files: [],
+    fix_mode: { id: modeId, name, version: 1, source: "builtin", execution_kind: kind },
+  });
+}
+
+test("the catalog is discovered once per environment resolution", () => {
+  // Not per render and not per keystroke: this spawns a process.
+  return (async () => {
+    const h = harness({ fixModes: CATALOG });
+    await h.controller.refreshEnvironment();
+
+    assert.equal(h.fixModeCalls.count, 1);
+    assert.equal(h.last().fixModes.kind, "ready");
+  })();
+});
+
+test("a new form takes the default the CLI declared", async () => {
+  const h = harness({ fixModes: CATALOG });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().form?.fixModeId, "standard");
+});
+
+test("a selection the catalog no longer offers falls back to the declared default", async () => {
+  const h = harness({ fixModes: CATALOG, form: jiraForm({ fixModeId: "team-safe-fix" }) });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().form?.fixModeId, "standard");
+});
+
+test("the developer's own choice survives an environment refresh", async () => {
+  const h = harness({ fixModes: CATALOG, form: jiraForm({ fixModeId: "conservative" }) });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().form?.fixModeId, "conservative");
+});
+
+test("the selected mode reaches the command line", async () => {
+  const h = harness({ fixModes: CATALOG, events: successfulRun });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm({ fixModeId: "conservative" }));
+
+  assert.ok(h.streamRuns[0]!.args.includes("--fix-mode=conservative"));
+  assert.equal(
+    h.streamRuns[0]!.args.filter((arg) => arg.startsWith("--fix-mode")).length,
+    1,
+  );
+});
+
+test("opening a prepared work item shows the mode it was prepared with", async () => {
+  const h = harness({
+    fixModes: CATALOG,
+    files: { "workflow_status.json": statusWith("conservative", "Conservative Fix") },
+    directory: ["agent_task.md", "workflow_status.json"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  assert.deepEqual(h.last().preparedFixMode, {
+    id: "conservative",
+    name: "Conservative Fix",
+    executionKind: "fix",
+    availability: "available",
+  });
+  // And the selector follows it, so running again repeats what was prepared.
+  assert.equal(h.last().form?.fixModeId, "conservative");
+});
+
+test("switching to a work item with no recorded mode does not keep the previous one", async () => {
+  // Otherwise HR-100's Deep Analysis silently becomes HR-200's workflow.
+  const h = harness({
+    fixModes: CATALOG,
+    form: jiraForm({ fixModeId: "investigate-first" }),
+    files: { "workflow_status.json": JSON.stringify({ steps: {}, generated_files: [] }) },
+    directory: ["agent_task.md"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-999");
+
+  assert.equal(h.last().form?.fixModeId, "standard");
+  assert.equal(h.last().preparedFixMode, undefined);
+});
+
+test("a prepared mode the catalog no longer has is shown as unavailable", async () => {
+  const h = harness({
+    fixModes: CATALOG,
+    files: { "workflow_status.json": statusWith("team-safe-fix", "Team Safe Fix") },
+    directory: ["agent_task.md"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  assert.equal(h.last().preparedFixMode?.id, "team-safe-fix");
+  assert.equal(h.last().preparedFixMode?.availability, "unavailable");
+  // The form does not inherit a mode that cannot be run.
+  assert.equal(h.last().form?.fixModeId, "standard");
+});
+
+test("the prepared mode is what ran, not what is selected now", async () => {
+  const h = harness({
+    fixModes: CATALOG,
+    events: successfulRun,
+    files: { "workflow_status.json": statusWith("investigate-first", "Investigate First", "investigate") },
+    directory: ["agent_task.md", "workflow_status.json"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm({ fixModeId: "investigate-first" }));
+
+  assert.equal(h.last().preparedFixMode?.id, "investigate-first");
+  assert.equal(h.last().preparedFixMode?.executionKind, "investigate");
+
+  // The developer changes their mind without running again. What is on disk did
+  // not change, so neither does what the panel says was prepared.
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ fixModeId: "conservative" }) });
+  await h.controller.showWorkItem("JR-12345");
+
+  assert.equal(h.last().preparedFixMode?.id, "investigate-first");
+});
+
+test("a bugpilot that cannot list modes says so and still prepares", async () => {
+  const h = harness({
+    fixModes: { kind: "unavailable", detail: "This BugPilot version does not expose AI Fix Modes." },
+    events: successfulRun,
+  });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().fixModes.kind, "unavailable");
+
+  await h.controller.run(jiraForm({ fixModeId: "" }));
+
+  // No invented id reaches the CLI, and the run still happens.
+  assert.equal(
+    h.streamRuns[0]!.args.find((arg) => arg.startsWith("--fix-mode")),
+    undefined,
+  );
+  assert.equal(h.streamRuns.length, 1);
+});
+
+test("a blocked environment does not spawn a discovery process", async () => {
+  const h = harness({
+    fixModes: CATALOG,
+    environment: { kind: "no-folder", summary: "Open a folder first." },
+  });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.fixModeCalls.count, 0);
+  assert.equal(h.last().fixModes.kind, "unavailable");
+});
+
+// --- a Fix Mode belongs to a work item, not to the panel --------------------
+
+test("typing another issue key does not carry the previous bug's Fix Mode", async () => {
+  // The reviewed defect. JR-12345 was prepared with Deep Analysis, so the
+  // selector shows it; typing a different key used to leave it there, and the
+  // next run prepared an unrelated bug under a workflow nobody chose for it.
+  const h = harness({
+    fixModes: CATALOG,
+    files: { "workflow_status.json": statusWith("deep-analysis", "Deep Analysis") },
+    directory: ["agent_task.md", "workflow_status.json"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(h.last().form?.fixModeId, "deep-analysis");
+
+  // Same panel, different bug, typed rather than clicked. It has no package.
+  delete h.files["workflow_status.json"];
+  await h.controller.handle({
+    type: "formChanged",
+    form: jiraForm({ issueKey: "JR-999", fixModeId: "deep-analysis" }),
+  });
+
+  assert.equal(h.last().form?.fixModeId, "standard");
+});
+
+test("a typed key that names a prepared work item adopts that item's mode", async () => {
+  const h = harness({
+    fixModes: CATALOG,
+    files: { "workflow_status.json": statusWith("test-driven", "Test-Driven Fix") },
+    directory: ["agent_task.md", "workflow_status.json"],
+  });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({
+    type: "formChanged",
+    form: jiraForm({ issueKey: "JR-300", fixModeId: "standard" }),
+  });
+
+  assert.equal(h.last().form?.fixModeId, "test-driven");
+});
+
+test("editing other fields leaves a deliberate choice alone", async () => {
+  // The rule is "another bug gets its own mode", not "the panel keeps resetting
+  // the dropdown": a hint, a keyword or a focus file is the same bug. A reset
+  // would replace the form and push, so the absence of a push is the assertion.
+  const h = harness({ fixModes: CATALOG });
+  await h.controller.refreshEnvironment();
+  const chosen = jiraForm({ issueKey: "JR-200", fixModeId: "conservative" });
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ issueKey: "JR-200" }) });
+  await h.controller.handle({ type: "formChanged", form: chosen });
+  const pushes = h.states.length;
+
+  for (const edit of [{ hint: "look here" }, { keywords: "cache" }, { focusFiles: "src/a.ts" }]) {
+    await h.controller.handle({ type: "formChanged", form: { ...chosen, ...edit } });
+  }
+
+  assert.equal(h.states.length, pushes, "an edit to another field re-derived the Fix Mode");
+  assert.equal(h.saved.at(-1)?.fixModeId, "conservative");
+});
+
+test("a half-typed key is not yet another work item", async () => {
+  // Otherwise every keystroke of an issue key would re-derive the mode, and a
+  // deliberate choice would be wiped out mid-word.
+  const h = harness({ fixModes: CATALOG });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ issueKey: "JR-200" }) });
+  const chosen = jiraForm({ issueKey: "JR-200", fixModeId: "conservative" });
+  await h.controller.handle({ type: "formChanged", form: chosen });
+  const pushes = h.states.length;
+
+  for (const partial of ["JR-", "J", ""]) {
+    await h.controller.handle({
+      type: "formChanged",
+      form: { ...chosen, issueKey: partial },
+    });
+  }
+
+  assert.equal(h.states.length, pushes);
+  assert.equal(h.saved.at(-1)?.fixModeId, "conservative");
+});
+
+test("switching to a hand-written bug starts from the default", async () => {
+  // A hand-written bug is a new work item too; only its id is minted later.
+  const h = harness({
+    fixModes: CATALOG,
+    files: { "workflow_status.json": statusWith("deep-analysis", "Deep Analysis") },
+    directory: ["agent_task.md"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(h.last().form?.fixModeId, "deep-analysis");
+
+  await h.controller.handle({
+    type: "formChanged",
+    form: {
+      ...DEFAULT_FORM,
+      source: "manual",
+      description: "it crashes",
+      fixModeId: "deep-analysis",
+    },
+  });
+
+  assert.equal(h.last().form?.fixModeId, "standard");
+});
+
+test("the selector follows the typed bug while the prepared line stays with the open one", async () => {
+  // Two different questions: what the next run would use, and what produced the
+  // package whose artifacts and progress are on screen.
+  const h = harness({
+    fixModes: CATALOG,
+    files: {
+      "workflow_status.json": statusWith("investigate-first", "Investigate First", "investigate"),
+    },
+    directory: ["agent_task.md", "workflow_status.json"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  delete h.files["workflow_status.json"];
+  await h.controller.handle({
+    type: "formChanged",
+    form: jiraForm({ issueKey: "JR-999", fixModeId: "investigate-first" }),
+  });
+
+  assert.equal(h.last().form?.fixModeId, "standard");
+  assert.equal(h.last().preparedFixMode?.id, "investigate-first");
+});
+
+// --- managing custom Fix Modes ----------------------------------------------
+
+const MANAGED = managedFixModesFromPayload({
+  ok: true,
+  builtin: [
+    {
+      id: "standard",
+      name: "Standard Fix",
+      description: "Default.",
+      version: 1,
+      source: "builtin",
+      execution_kind: "fix",
+      effective: true,
+    },
+  ],
+  user: [
+    {
+      id: "my-safe",
+      name: "My Safe Fix",
+      description: "Mine.",
+      version: 3,
+      source: "user",
+      execution_kind: "fix",
+      effective: false,
+    },
+  ],
+  project: [
+    {
+      id: "my-safe",
+      name: "Team Safe Fix",
+      description: "Ours.",
+      version: 1,
+      source: "project",
+      execution_kind: "fix",
+      effective: true,
+    },
+  ],
+  issues: [],
+});
+
+const DEFINITION_ENVELOPE: Envelope = {
+  ok: true,
+  command: "fix-mode",
+  warnings: [],
+  mode: {
+    id: "my-safe",
+    name: "My Safe Fix",
+    description: "Mine.",
+    version: 3,
+    source: "user",
+    execution_kind: "fix",
+    based_on: "standard",
+    based_on_version: 1,
+    objective: "Objective.",
+    investigation: "Investigation.",
+    implementation: "Implementation.",
+    verification: "Verification.",
+    constraints: "Constraints.",
+    completion: "Completion.",
+  },
+};
+
+/** A harness whose Fix Mode commands are scripted and recorded. */
+function manageHarness(options: HarnessOptions & { envelopes?: Envelope[] } = {}) {
+  const requests: { args: readonly string[]; payload?: unknown }[] = [];
+  const queued = [...(options.envelopes ?? [])];
+  const h = harness({
+    fixModes: CATALOG,
+    managed: MANAGED,
+    ...options,
+    runFixMode: async (request) => {
+      const args = request.args("/tmp/payload.json");
+      requests.push({ args, ...(request.payload === undefined ? {} : { payload: request.payload }) });
+      return queued.shift() ?? DEFINITION_ENVELOPE;
+    },
+  });
+  return { ...h, requests };
+}
+
+test("opening the manager reads every physical definition", async () => {
+  const h = manageHarness();
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "manageFixModes" });
+
+  const manage = h.last().manage!;
+  assert.equal(manage.catalog.kind, "ready");
+  if (manage.catalog.kind !== "ready") return;
+  // Both definitions of the shadowed id, which the selector never shows.
+  assert.deepEqual(manage.catalog.user.map((mode) => mode.name), ["My Safe Fix"]);
+  assert.deepEqual(manage.catalog.project.map((mode) => mode.name), ["Team Safe Fix"]);
+  assert.equal(manage.catalog.user[0]!.effective, false);
+});
+
+test("the manager is absent from the state until it is opened", async () => {
+  const h = manageHarness();
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().manage, undefined);
+
+  await h.controller.handle({ type: "manageFixModes" });
+  assert.ok(h.last().manage);
+
+  await h.controller.handle({ type: "closeFixModes" });
+  assert.equal(h.last().manage, undefined);
+});
+
+test("a shadowed mode is opened from the scope that owns it", async () => {
+  const h = manageHarness();
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+
+  await h.controller.handle({ type: "fixModeAction", action: "edit", id: "my-safe", scope: "user" });
+
+  assert.deepEqual(h.requests.at(-1)!.args, [
+    "fix-mode",
+    "show",
+    "my-safe",
+    "--scope=user",
+    "--json",
+  ]);
+  const editor = h.last().manage!.editor!;
+  assert.equal(editor.intent, "edit");
+  assert.equal(editor.version, 3);
+  assert.equal(editor.objective, "Objective.");
+});
+
+test("a built-in opens read-only and duplicating it starts a new mode", async () => {
+  const h = manageHarness();
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+
+  await h.controller.handle({ type: "fixModeAction", action: "view", id: "standard", scope: "builtin" });
+  assert.equal(h.last().manage!.editor!.intent, "view");
+  // No scope flag for a built-in: it is not in either custom directory.
+  assert.deepEqual(h.requests.at(-1)!.args, ["fix-mode", "show", "standard", "--json"]);
+
+  await h.controller.handle({
+    type: "fixModeAction",
+    action: "duplicate",
+    id: "standard",
+    scope: "builtin",
+  });
+  const draft = h.last().manage!.editor!;
+  assert.equal(draft.intent, "create");
+  assert.equal(draft.version, 0);
+  assert.equal(draft.basedOn, "my-safe");
+  assert.notEqual(draft.id, "my-safe");
+  assert.match(draft.name, /copy/);
+});
+
+test("saving an edit sends the payload in a file and refreshes both catalogs", async () => {
+  const h = manageHarness({
+    envelopes: [DEFINITION_ENVELOPE, { ok: true, command: "fix-mode", warnings: [] }],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+  await h.controller.handle({ type: "fixModeAction", action: "edit", id: "my-safe", scope: "user" });
+  const before = h.fixModeCalls.count;
+
+  const draft = { ...h.last().manage!.editor!, objective: "Edited objective." };
+  await h.controller.handle({ type: "saveFixMode", draft });
+
+  const save = h.requests.at(-1)!;
+  assert.deepEqual(save.args, [
+    "fix-mode",
+    "update",
+    "my-safe",
+    "--scope=user",
+    "--expected-version=3",
+    "--from-file=/tmp/payload.json",
+    "--json",
+  ]);
+  assert.equal((save.payload as Record<string, unknown>)["objective"], "Edited objective.");
+  assert.equal(h.last().manage!.editor, undefined, "the editor closes after a successful save");
+  assert.ok(h.fixModeCalls.count > before, "the selector's catalog was not refreshed");
+});
+
+test("a refused save keeps the editor open with what was typed", async () => {
+  // The conflict case: another editor saved first. Losing the developer's text
+  // here would be the worst possible answer to "someone else got there first".
+  const h = manageHarness({
+    envelopes: [
+      DEFINITION_ENVELOPE,
+      {
+        ok: false,
+        command: "fix-mode",
+        error: {
+          code: "INVALID_INPUT",
+          message: "Fix Mode 'my-safe' changed since this editor was opened (expected version 3, found 4). Reload it before saving.",
+        },
+      },
+    ],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+  await h.controller.handle({ type: "fixModeAction", action: "edit", id: "my-safe", scope: "user" });
+
+  const draft = { ...h.last().manage!.editor!, objective: "Work in progress." };
+  await h.controller.handle({ type: "saveFixMode", draft });
+
+  const manage = h.last().manage!;
+  assert.equal(manage.editor?.objective, "Work in progress.");
+  assert.match(manage.error ?? "", /changed since this editor was opened/);
+});
+
+test("deleting asks first, and says what it costs", async () => {
+  const h = manageHarness({
+    confirm: true,
+    envelopes: [{ ok: true, command: "fix-mode", warnings: [] }],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+
+  await h.controller.handle({
+    type: "fixModeAction",
+    action: "delete",
+    id: "my-safe",
+    scope: "project",
+  });
+
+  assert.deepEqual(h.requests.at(-1)!.args, [
+    "fix-mode",
+    "delete",
+    "my-safe",
+    "--scope=project",
+    "--expected-version=1",
+    "--json",
+  ]);
+});
+
+test("a declined delete changes nothing", async () => {
+  const h = manageHarness({ confirm: false });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+
+  await h.controller.handle({
+    type: "fixModeAction",
+    action: "delete",
+    id: "my-safe",
+    scope: "user",
+  });
+
+  assert.equal(h.requests.length, 0);
+});
+
+test("a stale delete is reported rather than pretended", async () => {
+  const h = manageHarness({
+    confirm: true,
+    envelopes: [
+      {
+        ok: false,
+        command: "fix-mode",
+        error: { code: "INVALID_INPUT", message: "changed since it was listed" },
+      },
+    ],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+
+  await h.controller.handle({
+    type: "fixModeAction",
+    action: "delete",
+    id: "my-safe",
+    scope: "user",
+  });
+
+  assert.match(h.last().manage!.error ?? "", /changed since it was listed/);
+});
+
+test("a bugpilot that cannot manage modes says so instead of failing quietly", async () => {
+  const h = harness({ fixModes: CATALOG });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "manageFixModes" });
+
+  assert.equal(h.last().manage!.catalog.kind, "unavailable");
 });
