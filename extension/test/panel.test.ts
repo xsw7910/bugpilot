@@ -163,6 +163,10 @@ test("every message the page sends is one the host understands", () => {
     "action",
     "command",
     "openArtifact",
+    "manageFixModes",
+    "closeFixModes",
+    "fixModeAction",
+    "saveFixMode",
   ]);
   for (const type of sent) {
     assert.ok(understood.has(type), `the page sends "${type}", which the host drops`);
@@ -234,8 +238,11 @@ test("the form's fields are exactly the model's fields", () => {
   // be filled in, and a field on the page that the model does not have is
   // silently discarded on the way to argv.
   const modelFields = Object.keys(DEFAULT_FORM).filter(
-    // `attachments` is a list built by a file dialog, not a text field.
-    (key) => !["source", "plan", "fresh", "fixWithAI", "agent", "attachments"].includes(key),
+    // `attachments` is a list built by a file dialog, not a text field, and
+    // `agent` and `fixModeId` are selects whose options come from elsewhere —
+    // the agent list from the markup, the Fix Modes from the CLI.
+    (key) =>
+      !["source", "plan", "fresh", "fixWithAI", "agent", "attachments", "fixModeId"].includes(key),
   );
   assert.deepEqual([...TEXT_FIELD_IDS].sort(), modelFields.sort());
 });
@@ -578,15 +585,38 @@ test("every field that can hold a paragraph is multi-line", () => {
   }
 });
 
-test("the page grows exactly the fields the markup made multi-line", () => {
+test("the page grows exactly the form fields the markup made multi-line", () => {
   // Both directions, because neither failure is visible: a textarea missing
   // from the list silently stops growing, and an id in the list that no longer
   // matches a textarea grows nothing at all.
+  //
+  // The subject is the run form. Its controls carry a `name`, which is what
+  // separates them from the Fix Mode editor's section boxes below — a separate
+  // surface, reached from the gear, that keeps the height `rows` gives it.
   const declared = /const GROWING_FIELDS = \[([^\]]*)\]/.exec(PAGE_JS)?.[1] ?? "";
   const grown = [...declared.matchAll(/"([^"]+)"/g)].map((match) => match[1]!);
-  const textareas = [...HTML.matchAll(/<textarea[^>]*id="([^"]+)"/g)].map((match) => match[1]!);
+  const textareas = [...HTML.matchAll(/<textarea[^>]*name="([^"]+)"/g)].map((match) => match[1]!);
   assert.ok(textareas.length > 0, "expected the form to have textareas");
   assert.deepEqual(grown.sort(), textareas.sort());
+});
+
+test("the Fix Mode editor's section boxes are deliberately not grown", () => {
+  // Recorded as a decision rather than left looking like an oversight. The
+  // growing fields are typed into while composing a run; the editor is a
+  // different surface with its own preview, and its boxes stay the size `rows`
+  // asks for. They still inherit the ceiling from the stylesheet.
+  //
+  // It is also a trap worth guarding: `grow` is driven by the form's `input`
+  // listener, so an editor id added to GROWING_FIELDS would be resized by
+  // `growAll` and then never again while it was being typed into.
+  const editors = [...HTML.matchAll(/<textarea[^>]*id="(editor-[^"]+)"/g)].map(
+    (match) => match[1]!,
+  );
+  assert.ok(editors.length > 0, "expected the Fix Mode editor to have section boxes");
+  const declared = /const GROWING_FIELDS = \[([^\]]*)\]/.exec(PAGE_JS)?.[1] ?? "";
+  for (const id of editors) {
+    assert.equal(declared.includes(`"${id}"`), false, `${id} grows but nothing resizes it`);
+  }
 });
 
 test("growing has a ceiling, in the theme's own units", () => {
@@ -828,4 +858,47 @@ test("the attachment ceiling is the one the CLI enforces", () => {
   const declared = /MAX_ATTACHMENTS = (\d+)/.exec(python)?.[1];
   assert.ok(declared, "could not find MAX_ATTACHMENTS in attachments.py");
   assert.equal(MAX_ATTACHMENTS, Number(declared));
+});
+
+// --- fix mode --------------------------------------------------------------
+
+test("the page has a Fix Mode selector outside Advanced settings", () => {
+  // Outside on purpose: this is an execution choice, not retrieval tuning, and
+  // burying it would make Investigate First a setting nobody finds.
+  const advanced = HTML.slice(HTML.indexOf('id="advanced"'));
+  assert.ok(HTML.includes('<select id="fixModeId"'), "no Fix Mode selector in the page");
+  assert.ok(!advanced.includes('id="fixModeId"'), "the Fix Mode selector is inside Advanced settings");
+  assert.ok(
+    HTML.indexOf('id="field-fixModeId"') < HTML.indexOf('id="run"'),
+    "the Fix Mode selector should sit above the run button",
+  );
+});
+
+test("the Fix Mode selector is labelled and described for assistive tech", () => {
+  assert.ok(HTML.includes('<label for="fixModeId"'), "the selector has no label");
+  assert.ok(HTML.includes('aria-describedby="fixModeId-description"'));
+  assert.ok(HTML.includes('id="fixModeId-description"'));
+});
+
+test("the page markup does not name any Fix Mode", () => {
+  // The options are filled from `fix-mode list --json`; a name here would go
+  // stale silently the day a mode is renamed or added.
+  for (const name of ["Standard Fix", "Conservative Fix", "Investigate First"]) {
+    assert.ok(!HTML.includes(name), `the markup hard-codes the mode name ${name}`);
+  }
+});
+
+test("a Fix Mode id from the page is shape-checked before it can become a flag", () => {
+  const base = { type: "run", form: { ...DEFAULT_FORM, issueKey: "JR-1" } };
+  const parsed = parsePanelMessage({ ...base, form: { ...base.form, fixModeId: "conservative" } });
+  assert.equal(parsed?.type === "run" && parsed.form.fixModeId, "conservative");
+
+  for (const hostile of ["../../etc/passwd", "Conservative", "a b", "", 7, null]) {
+    const message = parsePanelMessage({ ...base, form: { ...base.form, fixModeId: hostile } });
+    assert.equal(
+      message?.type === "run" && message.form.fixModeId,
+      "",
+      `${JSON.stringify(hostile)} should not survive as a mode id`,
+    );
+  }
 });

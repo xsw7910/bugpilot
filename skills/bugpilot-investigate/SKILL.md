@@ -20,9 +20,15 @@ already assembled around them.
 2. Read `.ai/<ISSUE>/agent_task.md` and `.ai/<ISSUE>/bug_context.md`. They
    contain the issue details, the ranked candidate files and the relevant git
    history — read them instead of searching the repository from scratch.
-3. Complete the workflow `agent_task.md` describes: analyse the bug, implement
-   the smallest safe fix, and write the required result files.
+3. Complete the workflow `agent_task.md` describes for the selected AI Fix
+   Mode — it says whether this pass investigates only or implements — and
+   write the required result files.
 4. Stop at the commit gate. Do not commit, push, or post to Jira.
+
+The developer chooses the AI Fix Mode, not you: `bugpilot bug <ISSUE>
+--fix-mode <id>` selects one, `bugpilot fix-mode list` names them, and Standard
+Fix is the default. `agent_task.md` is authoritative for what the selected mode
+asks of you.
 
 ## If the fix did not work
 
@@ -39,7 +45,8 @@ the template.
 
 - No commits, no pushes, no Jira comments. Preparing context and deciding to
   ship are different acts, and the second one belongs to a person.
-- No large refactors. The task file asks for the smallest safe fix.
+- No large refactors. The task file scopes the change for the selected AI Fix
+  Mode, and an investigation-only mode changes no source code at all.
 
 ## When the command is missing
 

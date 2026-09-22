@@ -13,6 +13,14 @@ import * as vscode from "vscode";
 
 import { historyFromPayload } from "../app/artifacts.ts";
 import type { HistoryList, WorkItemProbe } from "../app/artifacts.ts";
+import {
+  FIX_MODE_LIST_ARGS,
+  FIX_MODE_MANAGED_ARGS,
+  fixModeDiscoveryFailure,
+  fixModesFromPayload,
+  managedFixModesFromPayload,
+} from "../app/fixModes.ts";
+import type { FixModeCatalog, ManagedFixModes } from "../app/fixModes.ts";
 import { launcherNames } from "../executable.ts";
 import { pickLatestSession, sessionIdFromFileName } from "../app/session.ts";
 import { Runner } from "../runner.ts";
@@ -218,6 +226,44 @@ export async function loadHistory(
     (id) => times.get(id),
     (id) => probed.get(id),
   );
+}
+
+/**
+ * The AI Fix Modes this bugpilot offers: `fix-mode list --json`.
+ *
+ * The same shape as `loadHistory` above — spawn here, interpret in a pure
+ * module — so what the catalog means is testable without a process. A failure
+ * becomes `unavailable` with a reason rather than a thrown error or a
+ * hard-coded list: the page has to be able to say "this BugPilot does not offer
+ * Fix Modes" and still let the developer prepare a package.
+ */
+export async function loadFixModes(
+  runJson: (args: readonly string[]) => Promise<unknown>,
+): Promise<FixModeCatalog> {
+  let payload: unknown;
+  try {
+    payload = await runJson(FIX_MODE_LIST_ARGS);
+  } catch (error) {
+    return fixModeDiscoveryFailure(error);
+  }
+  return fixModesFromPayload(payload);
+}
+
+/**
+ * Every physical Fix Mode definition: `fix-mode list --all-scopes --json`.
+ *
+ * A second call rather than a field on the first, because the two answer
+ * different questions and the panel needs them at different times: the selector
+ * asks on every environment resolution, management only when it is opened.
+ */
+export async function loadManagedFixModes(
+  runJson: (args: readonly string[]) => Promise<unknown>,
+): Promise<ManagedFixModes> {
+  try {
+    return managedFixModesFromPayload(await runJson(FIX_MODE_MANAGED_ARGS));
+  } catch (error) {
+    return fixModeDiscoveryFailure(error);
+  }
 }
 
 /**

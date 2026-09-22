@@ -38,15 +38,29 @@ def test_launch_prompts_are_unchanged():
     assert handoff.handoff_prompt("JR-1") == "Read .ai/JR-1/agent_task.md and complete the workflow."
 
 
-def test_mcp_prompt_is_byte_for_byte_what_it_was():
-    """Moving the wording into one module must not reword what a model reads."""
-    assert handoff.mcp_prompt("prepare_jira_bug", 'issue_key="JR-1"') == (
-        'Call prepare_jira_bug with issue_key="JR-1".\n'
+def test_mcp_prompt_is_exactly_the_agreed_wording():
+    """One module renders it, so this is the one place the wording is pinned.
+
+    Mode-neutral on purpose: the prompt points at the task file and the task
+    file, written for the selected Fix Mode, says whether this pass implements
+    or only investigates. A prompt that said "implement" would contradict an
+    investigate-kind task file.
+    """
+    assert handoff.mcp_prompt("prepare_jira_bug", 'issue_key="JR-1"').splitlines() == [
+        'Call prepare_jira_bug with issue_key="JR-1".',
         "Then read the returned agent_task.md and bug_context.md and complete the "
-        "workflow they describe: analyse the bug, implement the smallest safe fix, "
-        "and write the required result files.\n"
-        "Stop before committing. Do not commit, push, or post to Jira."
-    )
+        "workflow they describe for the selected AI Fix Mode, then write the required "
+        "result files.",
+        "Stop before committing. Do not commit, push, or post to Jira.",
+    ]
+
+
+@pytest.mark.parametrize("text", [handoff.mcp_prompt("t", "a"), " ".join(handoff.skill_steps())])
+def test_no_handoff_assumes_the_workflow_implements_a_fix(text):
+    """The task file decides that, per mode; the handoff only points at it."""
+    assert "smallest safe fix" not in text
+    assert "implement the fix" not in text
+    assert "agent_task.md" in text
 
 
 def test_the_forbidden_sentence_reads_as_english():

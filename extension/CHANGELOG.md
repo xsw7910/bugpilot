@@ -19,6 +19,16 @@ First release. What it does today:
   second builds the retry package around what you wrote.
 - Jira credentials live in VS Code's SecretStorage and reach the CLI as
   environment variables — never on a command line, never in the panel.
+- **Fix Mode.** A dropdown above **Run** chooses how the agent approaches the
+  bug: Standard Fix, Conservative Fix, Investigate First, Test-Driven Fix or
+  Deep Analysis, plus any custom mode you or the project define. Investigate
+  First prepares an investigation-only pass — evidence, hypotheses and a fix
+  plan, no source changes — and the panel says so before you run it. History
+  shows which mode a work item was prepared with.
+- **Manage Fix Modes.** Duplicate a built-in mode and edit the copy's
+  instructions, at user scope (`~/.bugpilot/fix_modes/`) or project scope
+  (`.bugpilot/fix_modes/`, shared through source control). The list of modes
+  comes from the `bugpilot` CLI; the extension defines none of its own.
 
 Requires the `bugpilot` CLI on the machine; the extension drives it and does not
 bundle it.

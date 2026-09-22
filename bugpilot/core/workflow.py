@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .artifact_io import atomic_write_text
 from .cleanup import clean_issue_artifacts, validate_issue_key
 from .config import WORKFLOW_STEPS, EmailConfig, GraphConfig, issue_dir, load_email_config, load_graph_config
 from .email_notify import EmailSendError, EmailSendResult, build_email_draft, render_eml, send_notification, send_via_graph
 from .context import build_context
-from .delivery_instructions import delivery_instructions_block
+from .delivery_instructions import delivery_instructions_block, delivery_safety_block
 from .doctor import collect_doctor_report
 from .handoff import handoff_prompt
 from .git_ops import current_branch, generate_git_context, inside_git_repo, run_command, working_tree_status
@@ -27,7 +26,19 @@ from .input_adapters import bug_spec_from_jira, load_bug_spec, manual_issue_payl
 from .memory import add_memory_entry, build_memory_entry, search_memory
 from .models import SOURCE_MANUAL, BugSpec, InvestigationOptions, InvestigationPlan, InvestigationRequest
 from .attachments import ATTACHMENTS_DIR, attachment_names, copy_attachments
-from .prompts import copilot_team_instructions, generate_copilot_task_files, generate_prompts
+from .fix_mode_state import (
+    fix_mode_metadata,
+    persist_fix_mode,
+    select_fix_mode,
+    stored_fix_mode_metadata,
+)
+from .fix_modes import FixMode
+from .prompts import (
+    copilot_team_instructions,
+    generate_copilot_task_files,
+    generate_prompts,
+    investigation_handoff_block,
+)
 from .search import related_files_json, run_code_search, search_quality_json
 
 
@@ -44,6 +55,10 @@ class WorkflowResult:
     # run. An attachment that could not be copied is the first: the developer
     # chose three files and got two, and the log is not where they will look.
     warnings: list[str] = field(default_factory=list)
+    # The mode this run prepared the package under. Carried on the result so an
+    # entry point can report it without re-reading the selection file it just
+    # wrote — and so a caller cannot report a different mode than ran.
+    fix_mode: FixMode | None = None
 
 
 # How many developer-supplied keywords are searched. One ripgrep invocation each,
@@ -134,13 +149,21 @@ def refine_investigation(
     # `resolved` with no handler raises instead of being silently skipped. That is
     # how `memory_add` was dropped from refinement, leaving the memory entry
     # describing the pre-refinement context.
+    # The mode the task file is regenerated under: the persisted selection,
+    # resolved once here and handed to prompt_step, exactly as run_investigation
+    # does — so the result reports the mode that actually ran rather than
+    # leaving a caller to re-read the selection file. Resolved only when the
+    # prompt step will run, since that is the only step that needs it and an
+    # unresolvable selection should fail that step, not a refinement that never
+    # touches the task file.
+    mode = _selected_fix_mode(repo_root, work_item_id) if "prompt" in resolved else None
     handlers: dict[str, Callable[[], None]] = {
         "keywords": lambda: keywords_step(repo_root, work_item_id, options),
         "memory_search": lambda: memory_search_step(repo_root, work_item_id),
         "code_search": lambda: code_search_step(repo_root, work_item_id, options),
         "git_context": lambda: git_context_step(repo_root, work_item_id),
         "context": lambda: _context_and_fold(repo_root, work_item_id),
-        "prompt": lambda: prompt_step(repo_root, work_item_id),
+        "prompt": lambda: prompt_step(repo_root, work_item_id, fix_mode=mode),
         "memory_add": lambda: memory_add_step(repo_root, work_item_id),
     }
     unhandled = resolved - handlers.keys()
@@ -180,6 +203,7 @@ def refine_investigation(
         generated_files=generated,
         warnings=attachment_warnings,
         fresh=False,
+        fix_mode=mode,
     )
 
 
@@ -268,6 +292,13 @@ def run_investigation(
     skipped = set(request.skipped_steps())
     jira_result = None
     clean_result = None
+    # Resolved before anything is deleted, and before the persisted selection is
+    # read: a fresh run is about to discard the package that recorded a mode, so
+    # only an explicit choice can apply to it, and a mistyped one must cost the
+    # developer nothing.
+    selection = select_fix_mode(
+        repo_root, issue_key, request.fix_mode_id, use_persisted=not fresh
+    )
     if fresh:
         validate_issue_key(issue_key)
         _progress(progress, "clean_start")
@@ -322,6 +353,13 @@ def run_investigation(
     # honored by prompt_step below; the marker survives --resume (fresh clears it).
     if jira_comment:
         _set_jira_comment_on(target)
+    # Recorded before the pipeline runs, so that every later path — resume,
+    # refine, standalone agent-task, retry — regenerates under the same mode
+    # even if this run fails halfway.
+    persist_fix_mode(repo_root, issue_key, selection.mode)
+    log(target, f"[INFO] fix mode: {selection.mode.id} ({selection.origin})")
+    for warning in selection.warnings:
+        log(target, f"[WARN] {warning}")
     command = f"bugpilot bug {issue_key}"
     if not fresh:
         command += " --resume"
@@ -403,7 +441,7 @@ def run_investigation(
             _remove_intermediate_files(repo_root, issue_key)
         if "prompt" in resolved:
             _progress(progress, "prompt")
-            prompt_step(repo_root, issue_key)
+            prompt_step(repo_root, issue_key, fix_mode=selection.mode)
         if "memory_add" in resolved:
             memory_add_step(repo_root, issue_key)
     except Exception as exc:
@@ -448,11 +486,12 @@ def run_investigation(
         issue_key=issue_key,
         issue_dir=target,
         generated_files=generated,
-        warnings=attachment_warnings,
+        warnings=attachment_warnings + list(selection.warnings),
         jira_result=jira_result,
         clean_result=clean_result,
         fresh=fresh,
         allow_mock=allow_mock,
+        fix_mode=selection.mode,
     )
 
 
@@ -670,7 +709,35 @@ def context_step(repo_root: Path, issue_key: str) -> None:
         raise
 
 
-def prompt_step(repo_root: Path, issue_key: str, jira_comment: bool = False) -> None:
+def _selected_fix_mode(
+    repo_root: Path,
+    issue_key: str,
+    requested_id: str | None = None,
+    *,
+    use_persisted: bool = True,
+) -> FixMode:
+    """The mode this work item runs under, with any drift reported to the log.
+
+    Every regeneration path goes through here rather than reading the selection
+    file itself: a path that forgot to would silently regenerate the package as
+    Standard Fix, which is the failure this whole phase exists to prevent.
+    """
+    selection = select_fix_mode(
+        repo_root, issue_key, requested_id, use_persisted=use_persisted
+    )
+    target = issue_dir(repo_root, issue_key)
+    if target.exists():
+        for warning in selection.warnings:
+            log(target, f"[WARN] {warning}")
+    return selection.mode
+
+
+def prompt_step(
+    repo_root: Path,
+    issue_key: str,
+    jira_comment: bool = False,
+    fix_mode: FixMode | None = None,
+) -> None:
     target = _prepare_issue_dir(repo_root, issue_key)
     if jira_comment:
         _set_jira_comment_on(target)
@@ -680,8 +747,14 @@ def prompt_step(repo_root: Path, issue_key: str, jira_comment: bool = False) -> 
         hint = _read_artifact(target, "developer_hint.md") or None
         jira_comment = _jira_comment_enabled(target)
         attached = attachment_names(target)
+        mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
         for file_name, content in generate_prompts(
-            issue_key, summary, hint=hint, jira_comment=jira_comment, attachments=attached
+            issue_key,
+            summary,
+            hint=hint,
+            jira_comment=jira_comment,
+            attachments=attached,
+            fix_mode=mode,
         ).items():
             (target / file_name).write_text(content, encoding="utf-8")
         _mark_step(repo_root, issue_key, "prompt", "pass")
@@ -692,7 +765,12 @@ def prompt_step(repo_root: Path, issue_key: str, jira_comment: bool = False) -> 
         raise
 
 
-def copilot_task_step(repo_root: Path, issue_key: str, jira_comment: bool = False) -> None:
+def copilot_task_step(
+    repo_root: Path,
+    issue_key: str,
+    jira_comment: bool = False,
+    fix_mode: FixMode | None = None,
+) -> None:
     target = _prepare_issue_dir(repo_root, issue_key)
     bug_context = target / "bug_context.md"
     if not bug_context.exists():
@@ -705,8 +783,14 @@ def copilot_task_step(repo_root: Path, issue_key: str, jira_comment: bool = Fals
         hint = _read_artifact(target, "developer_hint.md") or None
         jira_comment = _jira_comment_enabled(target)
         attached = attachment_names(target)
+        mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
         for file_name, content in generate_copilot_task_files(
-            issue_key, summary, hint=hint, jira_comment=jira_comment, attachments=attached
+            issue_key,
+            summary,
+            hint=hint,
+            jira_comment=jira_comment,
+            attachments=attached,
+            fix_mode=mode,
         ).items():
             (target / file_name).write_text(content, encoding="utf-8")
         log(target, "[END] copilot_task: pass")
@@ -1040,7 +1124,11 @@ def retry_prompt_step(repo_root: Path, issue_key: str) -> dict[str, Path]:
             created_feedback = True
             log(target, f"[GENERATED] .ai/{issue_key}/user_feedback.md")
         prompt_path = target / "agent_retry_prompt.md"
-        prompt_path.write_text(_build_retry_prompt(repo_root, issue_key), encoding="utf-8")
+        mode = _selected_fix_mode(repo_root, issue_key)
+        prompt_path.write_text(
+            _build_retry_prompt(repo_root, issue_key, mode), encoding="utf-8"
+        )
+        log(target, f"[INFO] retry fix mode: {mode.id} ({mode.execution_kind})")
         _mark_step(repo_root, issue_key, "retry_prompt", "pass")
         log(target, f"[GENERATED] .ai/{issue_key}/agent_retry_prompt.md")
         log(target, "[END] retry_prompt: pass")
@@ -1128,7 +1216,19 @@ def _user_feedback_template(issue_key: str) -> str:
     )
 
 
-def _build_retry_prompt(repo_root: Path, issue_key: str) -> str:
+def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | None = None) -> str:
+    """A second attempt at whatever the selected Fix Mode asked for the first time.
+
+    This is the package's other task-shaped renderer, and it used to assume the
+    first pass had produced a fix: it asked the agent to re-check "the
+    implementation location", to decide whether to revert a previous change, and
+    it ended with the commit/push offer. Under an investigation-only mode all
+    three describe work that never happened, and the offer invites the agent to
+    invent a fix so that the question makes sense. So the middle of this prompt
+    follows `execution_kind`, while the reading list, the feedback, the required
+    files and BugPilot Delivery Safety are the same either way.
+    """
+    mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
     target = issue_dir(repo_root, issue_key)
     reading_files = [
         "bug_context.md",
@@ -1147,10 +1247,61 @@ def _build_retry_prompt(repo_root: Path, issue_key: str) -> str:
     reading.append("- current git diff")
     feedback = _cap_text(_read_artifact(target, "user_feedback.md") or "No user feedback file found.", 3000)
     previous = _previous_attempt_summary(target)
+    investigating = mode.is_investigation
+    purpose = (
+        "The previous investigation did not answer the question, or the developer wants a "
+        "second, more focused investigation pass. No source changes have been applied, and "
+        "none are to be applied in this pass.\n\n"
+        if investigating
+        else "The previous attempt did not fully resolve the issue, or the developer wants a second focused attempt.\n\n"
+    )
+    if investigating:
+        retry_instructions = (
+            "- First explain why the previous investigation did not settle the root cause.\n"
+            "- Use user_feedback.md as the main correction for this retry.\n"
+            "- Name the evidence that is still missing, and what would confirm or rule out each hypothesis.\n"
+            "- Revise the ranked hypotheses against the supplied evidence; drop the ones it contradicts.\n"
+            "- Inspect only the additional locations this evidence points at.\n"
+            "- Update the proposed fix plan and the proposed verification.\n"
+            "- Do not modify source code, and do not describe the bug as fixed, resolved, or verified.\n"
+            "- If a current git diff exists, review it and report it as an unexpected change rather than continuing from it.\n"
+            "- Do not commit or push.\n"
+            "- Do not update Jira.\n"
+            "- Do not claim tests passed: implementation has not started.\n"
+            "- Update the required result files, still describing investigation state.\n\n"
+        )
+    else:
+        retry_instructions = (
+            "- First explain why the previous attempt did not fully resolve the issue.\n"
+            "- Re-check the implementation location.\n"
+            "- Use user_feedback.md as the main correction for this retry.\n"
+            "- If current git diff exists, review it before editing.\n"
+            "- If the previous change is wrong, explain whether to revert or adjust it.\n"
+            "- Do not make broad refactors.\n"
+            "- Do not modify unrelated files.\n"
+            "- Do not commit or push automatically.\n"
+            "- Do not update Jira.\n"
+            "- Do not claim tests passed unless they were run.\n"
+            "- Update the required result files.\n\n"
+        )
+    closing = (
+        delivery_safety_block(issue_key) + investigation_handoff_block(issue_key)
+        if investigating
+        else delivery_instructions_block(
+            issue_key, intro="After completing the retry and updating required result files"
+        )
+    )
     return (
         f"# Agent Retry Prompt: {issue_key}\n\n"
+        "## AI Fix Mode\n\n"
+        f"- Mode: {mode.name}\n"
+        f"- Mode ID: `{mode.id}`\n"
+        f"- Execution: {mode.execution_kind}\n\n"
+        f"This retry runs under the same Fix Mode as `.ai/{issue_key}/agent_task.md`. "
+        "Follow the mode as written there. BugPilot's safety, evidence and delivery rules "
+        "still win any conflict with it.\n\n"
         "## Purpose\n\n"
-        "The previous attempt did not fully resolve the issue, or the developer wants a second focused attempt.\n\n"
+        f"{purpose}"
         "## Required Reading\n\n"
         f"{chr(10).join(reading)}\n\n"
         "## Developer Feedback\n\n"
@@ -1158,18 +1309,8 @@ def _build_retry_prompt(repo_root: Path, issue_key: str) -> str:
         "## Previous Attempt Summary\n\n"
         f"{previous}\n\n"
         "## Retry Instructions\n\n"
-        "- First explain why the previous attempt did not fully resolve the issue.\n"
-        "- Re-check the implementation location.\n"
-        "- Use user_feedback.md as the main correction for this retry.\n"
-        "- If current git diff exists, review it before editing.\n"
-        "- If the previous change is wrong, explain whether to revert or adjust it.\n"
-        "- Do not make broad refactors.\n"
-        "- Do not modify unrelated files.\n"
-        "- Do not commit or push automatically.\n"
-        "- Do not update Jira.\n"
-        "- Do not claim tests passed unless they were run.\n"
-        "- Update the required result files.\n\n"
-        f"{delivery_instructions_block(issue_key, intro='After completing the retry and updating required result files')}"
+        f"{retry_instructions}"
+        f"{closing}"
         "## Required Output Files\n\n"
         f"- .ai/{issue_key}/bug_analysis.md\n"
         f"- .ai/{issue_key}/fix_summary.md\n"
@@ -1412,38 +1553,16 @@ def _write_status(
         status["fresh"] = fresh
     if allow_mock is not None:
         status["allow_mock"] = allow_mock
+    # Additive: consumers read keys they know and ignore the rest, so no
+    # schema bump. Absent for a package prepared before Fix Modes existed.
+    recorded_mode = stored_fix_mode_metadata(repo_root, issue_key)
+    if recorded_mode is not None:
+        status["fix_mode"] = recorded_mode
     # Atomically, because this file is read from *other processes* while a run is
     # in progress: the VS Code extension restores its checklist from it and the
     # MCP server's get_status reads it. A torn read parses as nothing, which the
     # panel shows as "no progress" for a run that is going fine.
-    _atomic_write_text(target / "workflow_status.json", json.dumps(status, indent=2) + "\n")
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Write via a temp file and one rename, so a reader never sees half a file.
-
-    The retry is for Windows: ``os.replace`` onto a path another process has open
-    fails with ``PermissionError`` there, and the readers of this file are exactly
-    that — an extension restoring its checklist, an MCP ``get_status`` call.
-    Those reads last microseconds, so a couple of retries clear it.
-
-    If it still fails, write in place rather than raising: a torn read costs one
-    stale checklist, while a raised exception costs the whole step.
-    """
-    temp = path.with_name(path.name + f".tmp{os.getpid()}")
-    temp.write_text(text, encoding="utf-8")
-    for attempt in range(4):
-        try:
-            os.replace(temp, path)
-            return
-        except PermissionError:
-            if attempt == 3:
-                break
-            time.sleep(0.05)
-    try:
-        path.write_text(text, encoding="utf-8")
-    finally:
-        temp.unlink(missing_ok=True)
+    atomic_write_text(target / "workflow_status.json", json.dumps(status, indent=2) + "\n")
 
 
 def _mark_step(repo_root: Path, issue_key: str, step: str, status: str) -> None:

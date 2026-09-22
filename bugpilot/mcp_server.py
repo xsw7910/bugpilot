@@ -12,10 +12,13 @@ somewhere else first:
    argument the model fills in freely is a tool argument the model can get
    wrong, and getting it wrong here means writing artifacts into someone else's
    checkout.
-3. **Seven coarse tools, no more.** Every tool schema sits in the model's
-   context on every turn, so the 25 CLI subcommands are not mirrored one-to-one.
-   Tools express intent (``refine_investigation``) rather than implementation
-   steps (``run ripgrep again``).
+3. **Coarse tools, counted.** Every tool schema sits in the model's context
+   on every turn, so the 25 CLI subcommands are not mirrored one-to-one. Tools
+   express intent (``refine_investigation``) rather than implementation steps
+   (``run ripgrep again``). The two Fix Mode tools earn their place the same
+   way: a model that cannot see which workflows exist cannot pick one, and
+   guessing an id fails the run. They are read-only — creating, editing and
+   deleting modes stays with the developer, in the CLI and the editor.
 
 Deliberately **not** exposed: posting a Jira comment, sending mail, committing,
 pushing, ``clean`` and ``setup``. The first four are outward or destructive
@@ -41,6 +44,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from bugpilot.core import errors, handoff, workflow
 from bugpilot.core.config import issue_dir
+from bugpilot.core.fix_mode_state import fix_mode_metadata, fix_mode_registry
+from bugpilot.core.fix_mode_store import catalog_for
+from bugpilot.core.fix_modes import FixMode, FixModeError
 from bugpilot.core.identity import is_known_work_item_id, validate_work_item_id
 from bugpilot.core.input_adapters import bug_spec_from_description, load_bug_spec
 # Aliased on import: the tool below is also called search_memory, and a bare
@@ -57,6 +63,12 @@ When the user references a Jira issue key (for example JR-12345) or describes a 
 and asks to fix, investigate or analyse it, call prepare_jira_bug or
 prepare_bug_description first. Then read the returned bug_context.md and
 agent_task.md and work from those instead of searching the codebase from scratch.
+
+If the developer asks for a particular approach — investigate before changing
+anything, stay conservative, write a test first — call list_fix_modes and pass the
+matching fix_mode_id when preparing. A Fix Mode changes how the work is approached,
+never what is allowed: BugPilot's safety, evidence and delivery rules apply to every
+mode.
 
 BugPilot prepares and hands off. It never commits, pushes, or posts to Jira, and
 neither should you without the developer asking.
@@ -174,12 +186,67 @@ def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> 
         "issue_dir": f".ai/{work_item_id}",
         "agent_task": f".ai/{work_item_id}/agent_task.md" if task_path.exists() else None,
         "generated_files": result.generated_files,
-        "next_step": (
-            f"Read .ai/{work_item_id}/agent_task.md and .ai/{work_item_id}/bug_context.md, "
-            "then implement the smallest safe fix. Stop before committing."
-        ),
+        # What the package was actually prepared with, in the same shape
+        # workflow_status.json and the CLI's --json use. Additive: a client that
+        # does not know about Fix Modes reads past it.
+        "fix_mode": fix_mode_metadata(result.fix_mode) if result.fix_mode else None,
+        # Core's own warnings, including a Fix Mode whose definition moved
+        # between runs. Swallowing them here would hide the one event that
+        # changes how the task was written.
+        "warnings": list(result.warnings),
+        "next_step": _next_step(work_item_id, result.fix_mode),
         "context_excerpt": _read_artifact(root, work_item_id, "bug_context.md"),
     }
+
+
+def _next_step(work_item_id: str, mode: FixMode | None) -> str:
+    """The one sentence a client acts on before it has read anything.
+
+    It has to agree with the task file it points at. The task file is written
+    by core from the mode's execution kind, so this asks the same question of
+    the same object — never the mode's id, so a custom investigate-kind mode
+    gets the investigation sentence too. Without a mode on the result (a legacy
+    path that carries none) the sentence says only to follow the task file.
+    """
+    reads = f"Read .ai/{work_item_id}/agent_task.md and .ai/{work_item_id}/bug_context.md, "
+    if mode is None:
+        return reads + "then complete the workflow they describe. Stop before committing."
+    if mode.is_investigation:
+        return (
+            reads
+            + "then complete the investigation workflow they describe: document the "
+            "evidence and hypotheses and propose a fix plan. Do not change source code "
+            "in this pass."
+        )
+    return reads + "then implement the smallest safe fix. Stop before committing."
+
+
+def _checked_fix_mode_id(mode_id: str | None) -> str | None:
+    """A model-supplied id, trimmed, or nothing.
+
+    Shape only. Whether the id names a mode this repository has is core's
+    question, answered when the run resolves it — a list this tool returned a
+    minute ago is not authority over a definition that may have changed since.
+    """
+    candidate = (mode_id or "").strip()
+    return candidate or None
+
+
+def _resolve_fix_mode(repo_root: Path, mode_id: str) -> FixMode:
+    """Turn an id the model supplied into a mode, or say why it is not one.
+
+    Through the same registry every other entry point resolves against, so a
+    user mode, a project mode and a built-in all work here with no special case
+    — and a mode that has since been deleted fails with the message that lists
+    what is available, rather than quietly becoming Standard Fix.
+    """
+    candidate = (mode_id or "").strip()
+    if not candidate:
+        raise ToolError("A Fix Mode id is required. Call list_fix_modes to see them.")
+    try:
+        return fix_mode_registry(repo_root).resolve(candidate)
+    except FixModeError as exc:
+        raise ToolError(str(exc)) from exc
 
 
 def _options(
@@ -212,6 +279,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         keywords: list[str] | None = None,
         focus_files: list[str] | None = None,
         ignore_paths: list[str] | None = None,
+        fix_mode_id: str | None = None,
     ) -> dict[str, object]:
         """Fetch a Jira bug and build focused code context for fixing it.
 
@@ -231,11 +299,18 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             keywords: Extra search terms the report may not have spelled out.
             focus_files: Files or directories to rank higher.
             ignore_paths: Files or directories to exclude from the search.
+            fix_mode_id: Optional Fix Mode id from list_fix_modes, controlling how to
+                approach the work. Omit it to keep the mode this work item was last
+                prepared with, or BugPilot's default for a new one.
         """
         key = _checked(issue_key)
         request = workflow.jira_request(
             key, _options(hint, keywords, focus_files, ignore_paths)
         )
+        # The id only. Which definition it names — built-in, the developer's own,
+        # the project's — and whether it still exists is core's to decide, once,
+        # when the run resolves it.
+        request.fix_mode_id = _checked_fix_mode_id(fix_mode_id)
         with bound.lock:
             result = _run(f"prepare {key}", bound.repo_root, request)
         return _package(bound.repo_root, key, result)
@@ -248,6 +323,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         keywords: list[str] | None = None,
         focus_files: list[str] | None = None,
         ignore_paths: list[str] | None = None,
+        fix_mode_id: str | None = None,
     ) -> dict[str, object]:
         """Build focused code context from a bug described in prose.
 
@@ -269,6 +345,9 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             keywords: Extra search terms.
             focus_files: Files or directories to rank higher.
             ignore_paths: Files or directories to exclude from the search.
+            fix_mode_id: Optional Fix Mode id from list_fix_modes, controlling how to
+                approach the work. Omit it to keep the mode this work item was last
+                prepared with, or BugPilot's default for a new one.
         """
         try:
             spec = bug_spec_from_description(
@@ -277,7 +356,9 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         except ValueError as exc:
             raise ToolError(str(exc)) from exc
         request = InvestigationRequest(
-            spec=spec, options=_options(hint, keywords, focus_files, ignore_paths)
+            spec=spec,
+            options=_options(hint, keywords, focus_files, ignore_paths),
+            fix_mode_id=_checked_fix_mode_id(fix_mode_id),
         )
         with bound.lock:
             result = _run("prepare the bug", bound.repo_root, request)
@@ -416,6 +497,66 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             "title": spec.title if spec else None,
             "steps": status.get("steps", {}),
             "generated_files": status.get("generated_files", []),
+            # Read back from the record, not recomputed: this is the mode that
+            # produced the package, which a rename or a deletion since then does
+            # not change.
+            "fix_mode": status.get("fix_mode"),
+        }
+
+    @server.tool()
+    def list_fix_modes() -> dict[str, object]:
+        """List the AI Fix Modes available for this repository.
+
+        A Fix Mode controls *how* to approach a bug — how far to investigate,
+        how to implement, how to verify, what to report — and is passed to the
+        prepare tools as fix_mode_id. Call this when the developer asks for a
+        particular approach ("just investigate first", "be conservative",
+        "write a test first") so you pass an id that exists rather than guessing.
+
+        The list is what this repository can actually run: BugPilot's packaged
+        modes plus any the developer or the project has defined. It does not
+        control what you are allowed to do — BugPilot's safety, evidence and
+        delivery rules apply in every mode and are not editable by one.
+
+        Creating, editing and deleting modes is deliberately not available here;
+        that stays with the developer, in the CLI and the editor.
+        """
+        catalog = catalog_for(bound.repo_root)
+        return {
+            "default_mode_id": catalog.effective_registry().default.id,
+            "modes": [
+                {**fix_mode_metadata(mode), "description": mode.description}
+                for mode in catalog.effective_modes()
+            ],
+            # A custom file BugPilot could not read. Reported rather than hidden,
+            # so a mode missing from the list has a reason the developer can be
+            # told. The scope and the message; not a path the model has no use
+            # for beyond repeating it.
+            "issues": [
+                {"scope": issue.scope, "message": issue.message} for issue in catalog.issues
+            ],
+        }
+
+    @server.tool()
+    def show_fix_mode(mode_id: str) -> dict[str, object]:
+        """Show one AI Fix Mode in full: its metadata and its instructions.
+
+        Use it to see what a mode would actually ask of you before selecting it
+        with fix_mode_id, or to explain to the developer what a mode they named
+        will do.
+
+        Read-only. The six sections it returns are the mode's own workflow
+        guidance; BugPilot's evidence, branch, Jira and delivery rules are added
+        around them when a task is generated and are not part of a mode.
+
+        Args:
+            mode_id: An id from list_fix_modes, e.g. "conservative".
+        """
+        mode = _resolve_fix_mode(bound.repo_root, mode_id)
+        return {
+            **fix_mode_metadata(mode),
+            "description": mode.description,
+            **{name: text for name, text in mode.instruction_sections()},
         }
 
     @server.prompt(name="fix_bug", title="Prepare and fix a bug with BugPilot")

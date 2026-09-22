@@ -18,6 +18,7 @@ import { installInstructions, resolveEnvironment } from "./app/environment.ts";
 import type { Environment } from "./app/environment.ts";
 import { Controller } from "./app/controller.ts";
 import { DEFAULT_FORM } from "./app/form.ts";
+import { fixModeCommandPort } from "./app/fixModeTransport.ts";
 import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
 import { diagnose } from "./errors.ts";
@@ -31,6 +32,8 @@ import {
   createFilesPort,
   createUiPort,
   findAgentSession,
+  loadFixModes,
+  loadManagedFixModes,
   loadHistory,
   mcpConfigured,
 } from "./host/ports.ts";
@@ -115,6 +118,34 @@ export function activate(context: vscode.ExtensionContext): void {
       saveForm: (form) => void context.workspaceState.update(FORM_STATE_KEY, form),
       saveWorkItem: (workItemId) =>
         void context.workspaceState.update(WORK_ITEM_STATE_KEY, workItemId),
+      // One spawn for the whole catalog, from the one place that knows the
+      // discovery command. The controller asks when the environment resolves,
+      // which is also when the executable can have changed.
+      listFixModes: async () => {
+        const root = controller.root;
+        if (!root) {
+          return { kind: "unavailable", detail: "No repository is open, so AI Fix Modes could not be read." };
+        }
+        return loadFixModes((args) =>
+          new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
+        );
+      },
+      listManagedFixModes: async () => {
+        const root = controller.root;
+        if (!root) {
+          return { kind: "unavailable", detail: "No repository is open, so AI Fix Modes could not be read." };
+        }
+        return loadManagedFixModes((args) =>
+          new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
+        );
+      },
+      // The payload file and its cleanup live in the app layer; the controller
+      // only says what the command is and what definition it carries, and the
+      // port refuses outright when there is no repository to run it against.
+      runFixModeCommand: fixModeCommandPort(
+        () => controller.root,
+        (args, cwd) => new Runner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
+      ),
       canRun,
     },
     context.workspaceState.get<FormState>(FORM_STATE_KEY) ?? DEFAULT_FORM,

@@ -121,6 +121,12 @@
    */
   let attachments = [];
   let shownProblems = "";
+  /** The catalog as it was last rendered, so options are not rebuilt per push. */
+  let fixModeSignature;
+  /** Whether a real mode can be chosen; the selector stays disabled until then. */
+  let fixModesReady = false;
+  /** The catalog as the host last described it, for the note under the select. */
+  let fixModeCatalog;
   /** The coupled checkboxes as they were before Build context forced them off. */
   let planBeforeCoupling;
 
@@ -164,6 +170,7 @@
     // Not part of the plan: it is what happens after the run, not a flag on it.
     form.fixWithAI = byId("plan-fixWithAI").checked;
     form.agent = byId("agent").value || "auto";
+    form.fixModeId = byId("fixModeId").value || "";
     form.attachments = [...attachments];
     form.fresh = byId("fresh").checked;
     return form;
@@ -181,6 +188,9 @@
     // means the default of on.
     byId("plan-fixWithAI").checked = form.fixWithAI === true;
     byId("agent").value = form.agent ?? "auto";
+    // After renderFixModes has put the options there — a value that is not one
+    // of them is dropped by the element, which is why the order matters.
+    byId("fixModeId").value = form.fixModeId ?? "";
     attachments = Array.isArray(form.attachments) ? [...form.attachments] : [];
     renderAttachments();
     byId("fresh").checked = form.fresh === true;
@@ -294,6 +304,10 @@
     // enabled for the whole first frame of a run.
     running = (state.progress || {}).state === "running";
 
+    // Before the form is written: `writeForm` sets the select's value, and a
+    // <select> silently drops a value that has no option yet.
+    renderFixModeOptions(state);
+
     if (typeof state.revision === "number" && state.revision !== appliedRevision && state.form) {
       writeForm(state.form);
       appliedRevision = state.revision;
@@ -302,10 +316,131 @@
 
     renderReadiness(state.readiness);
     renderProblems(state.problems || []);
+    // After the form: the note describes whichever mode the select ended on.
+    renderFixModes(state);
     renderWorkflow(state);
     renderRun(state);
     renderNotices(state);
+    renderManage(state);
     renderFooter(state);
+  }
+
+  /**
+   * The Fix Mode selector: its options, its description, and what it cannot do.
+   *
+   * The options come from the host, which got them from `bugpilot fix-mode
+   * list --json`. Nothing here knows what a Fix Mode is called or which one is
+   * the default — a list written into this file would go stale the moment the
+   * registry grows, and would look right while doing so.
+   *
+   * Rebuilt only when the catalog itself changes, so a state push mid-typing
+   * cannot reset the developer's choice.
+   */
+  function renderFixModeOptions(state) {
+    const catalog = state.fixModes || { kind: "loading" };
+    const select = byId("fixModeId");
+    const signature =
+      catalog.kind === "ready"
+        ? catalog.modes.map((mode) => `${mode.id}:${mode.name}`).join("|")
+        : `${catalog.kind}:${catalog.detail || ""}`;
+    if (signature !== fixModeSignature) {
+      fixModeSignature = signature;
+      const chosen = select.value;
+      select.replaceChildren();
+      if (catalog.kind === "ready") {
+        for (const mode of catalog.modes) {
+          const option = document.createElement("option");
+          option.value = mode.id;
+          option.textContent = mode.name;
+          select.append(option);
+        }
+        // Keep the developer's choice across a re-render; otherwise fall to the
+        // default the CLI declared, never to a name spelled out here.
+        select.value = catalog.modes.some((mode) => mode.id === chosen)
+          ? chosen
+          : catalog.defaultModeId || "";
+      } else {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent =
+          catalog.kind === "loading" ? "Loading Fix Modes…" : "Fix Modes unavailable";
+        select.append(option);
+        select.value = "";
+      }
+    }
+    fixModesReady = catalog.kind === "ready";
+    fixModeCatalog = catalog;
+  }
+
+  /** The note and the prepared line, once the form has settled on a selection. */
+  function renderFixModes(state) {
+    renderFixModeNote((state.problems || []).find((entry) => entry.field === "fixModeId"));
+    renderPreparedFixMode(state);
+  }
+
+  /**
+   * The line under the selector: what this mode does, or why there is none.
+   *
+   * Called on every render and again the moment the developer changes the
+   * selection, so the description never lags a click behind the dropdown.
+   */
+  function renderFixModeNote(problem) {
+    const select = byId("fixModeId");
+    const note = byId("fixModeId-description");
+    const catalog = fixModeCatalog || { kind: "loading" };
+    const selected =
+      catalog.kind === "ready"
+        ? catalog.modes.find((mode) => mode.id === select.value)
+        : undefined;
+    // Spelled out in words rather than as a colour or an icon alone: this is
+    // the difference between a pass that edits the repository and one that does
+    // not, and it has to survive a screen reader and a monochrome theme.
+    const investigation =
+      selected && selected.executionKind === "investigate"
+        ? "Investigation only — no source changes in this pass. "
+        : "";
+    note.textContent = problem
+      ? problem.message
+      : catalog.kind === "unavailable"
+        ? catalog.detail || "AI Fix Modes could not be read."
+        : selected
+          ? `${investigation}${selected.description || ""}`.trim()
+          : "";
+    byId("field-fixModeId").classList.toggle(
+      "field-invalid",
+      Boolean(problem) || catalog.kind === "unavailable",
+    );
+    select.setAttribute("aria-invalid", problem ? "true" : "false");
+  }
+
+  /**
+   * What the package on disk was prepared with — not what the dropdown says.
+   *
+   * They differ as soon as someone changes the selection without running, and
+   * labelling an old package with a new choice would misreport what the agent
+   * was actually told.
+   */
+  function renderPreparedFixMode(state) {
+    const prepared = state.preparedFixMode;
+    const line = byId("prepared-fix-mode");
+    if (!prepared) {
+      line.textContent = "";
+      line.hidden = true;
+      return;
+    }
+    const kind =
+      prepared.executionKind === "investigate" ? " · investigation only" : "";
+    // Three states, not two. "This mode is gone" and "BugPilot could not check"
+    // look alike and mean opposite things: one needs a new mode chosen, the
+    // other needs nothing at all.
+    const suffix =
+      prepared.availability === "unavailable"
+        ? " (unavailable)"
+        : prepared.availability === "unknown"
+          ? " · availability unknown"
+          : kind;
+    line.textContent = `Prepared with Fix Mode: ${prepared.name}${suffix}`;
+    line.hidden = false;
   }
 
   function renderReadiness(readiness) {
@@ -480,6 +615,9 @@
     byId("source-jira").disabled = !enabled;
     byId("source-manual").disabled = !enabled;
     byId("agent").disabled = !enabled;
+    // Disabled until the catalog is in: an enabled selector with nothing real
+    // in it invites a choice that does not exist.
+    byId("fixModeId").disabled = !enabled || !fixModesReady;
     byId("fresh").disabled = !enabled;
     byId("plan-buildContext").disabled = !enabled;
     applyPlanCoupling();
@@ -507,6 +645,223 @@
   function persist(form) {
     vscode.setState({ form });
   }
+
+  // --- managing custom Fix Modes -------------------------------------------
+
+  /** The editor's fields, named exactly as the draft names them. */
+  const EDITOR_SECTIONS = [
+    "objective",
+    "investigation",
+    "implementation",
+    "verification",
+    "constraints",
+    "completion",
+  ];
+  const EDITOR_TEXT = ["name", "id", "description", ...EDITOR_SECTIONS];
+  const SECTION_LABELS = {
+    objective: "Objective",
+    investigation: "Investigation",
+    implementation: "Implementation",
+    verification: "Verification",
+    constraints: "Constraints",
+    completion: "Completion Requirements",
+  };
+
+  /** The draft the editor was opened with, for the fields it does not edit. */
+  let openDraft;
+
+  /**
+   * The management view: what is on disk, grouped by who owns it.
+   *
+   * Built from the host's state rather than from the selector's list, because
+   * the two answer different questions — this one has to show a user mode that
+   * a project mode currently shadows, which the selector never mentions.
+   */
+  function renderManage(state) {
+    const manage = state.manage;
+    byId("manage").hidden = !manage;
+    if (!manage) {
+      openDraft = undefined;
+      return;
+    }
+    const error = byId("manage-error");
+    error.textContent = manage.error || "";
+    error.hidden = !manage.error;
+
+    const catalog = manage.catalog || { kind: "loading" };
+    const detail = byId("manage-detail");
+    detail.textContent =
+      catalog.kind === "loading"
+        ? "Reading Fix Modes…"
+        : catalog.kind === "unavailable"
+          ? catalog.detail || "Fix Modes could not be read."
+          : "";
+    detail.hidden = detail.textContent === "";
+
+    renderManageList(catalog);
+    renderEditor(manage.editor);
+  }
+
+  function renderManageList(catalog) {
+    const container = byId("manage-list");
+    container.replaceChildren();
+    if (catalog.kind !== "ready") return;
+    for (const [scope, label, hint] of [
+      ["builtin", "Built-in", "Packaged with BugPilot. Read-only."],
+      ["user", "User", "Yours, in your home directory."],
+      ["project", "Project", "This repository's, shareable with the team."],
+    ]) {
+      const modes = catalog[scope] || [];
+      const group = document.createElement("div");
+      group.className = "manage-group";
+
+      const heading = document.createElement("p");
+      heading.className = "card-title";
+      heading.textContent = `${label} (${modes.length})`;
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = modes.length === 0 ? `${hint} None yet.` : hint;
+      group.append(heading, note);
+
+      for (const mode of modes) group.append(manageRow(scope, mode));
+      container.append(group);
+    }
+    for (const issue of catalog.issues || []) {
+      const card = document.createElement("p");
+      card.className = "error";
+      // Path and reason both: the developer has to be able to find the file.
+      card.textContent = `${issue.scope}: ${issue.path} — ${issue.message}`;
+      container.append(card);
+    }
+  }
+
+  function manageRow(scope, mode) {
+    const row = document.createElement("div");
+    row.className = "manage-row";
+
+    const text = document.createElement("div");
+    const title = document.createElement("p");
+    title.className = "manage-name";
+    // Said in words, not by position or colour: two modes can share an id
+    // across scopes, and which one runs is the thing that is easy to get wrong.
+    const badges = [`v${mode.version}`];
+    if (mode.executionKind === "investigate") badges.push("investigation only");
+    if (!mode.effective) badges.push("overridden by project");
+    title.textContent = `${mode.name} — ${mode.id} (${badges.join(", ")})`;
+    const description = document.createElement("p");
+    description.className = "muted";
+    description.textContent = mode.description || "";
+    text.append(title, description);
+
+    const actions = document.createElement("div");
+    actions.className = "manage-actions";
+    const available =
+      scope === "builtin"
+        ? [["view", "View"], ["duplicate", "Duplicate & Customize"]]
+        : [["edit", "Edit"], ["duplicate", "Duplicate"], ["delete", "Delete"]];
+    for (const [action, label] of available) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () =>
+        vscode.postMessage({ type: "fixModeAction", action, id: mode.id, scope }),
+      );
+      actions.append(button);
+    }
+
+    row.append(text, actions);
+    return row;
+  }
+
+  function renderEditor(draft) {
+    const editor = byId("manage-editor");
+    editor.hidden = !draft;
+    byId("editor-preview-pane").hidden = true;
+    if (!draft) {
+      openDraft = undefined;
+      return;
+    }
+    openDraft = draft;
+    const readOnly = draft.intent === "view";
+    byId("editor-title").textContent =
+      draft.intent === "create"
+        ? "New Fix Mode"
+        : readOnly
+          ? `${draft.name} (built-in)`
+          : `Edit ${draft.name}`;
+    const origin = [];
+    if (draft.basedOn) {
+      origin.push(
+        `Based on ${draft.basedOn}${
+          draft.basedOnVersion ? ` version ${draft.basedOnVersion}` : ""
+        }`,
+      );
+    }
+    if (draft.intent === "edit") origin.push(`Current version ${draft.version}`);
+    byId("editor-origin").textContent = origin.join(" · ");
+    byId("editor-readonly").hidden = !readOnly;
+
+    for (const field of EDITOR_TEXT) byId(`editor-${field}`).value = draft[field] ?? "";
+    byId("editor-executionKind").value = draft.executionKind || "fix";
+    byId("editor-scope").value = draft.scope || "user";
+
+    for (const field of EDITOR_TEXT) byId(`editor-${field}`).disabled = readOnly;
+    byId("editor-executionKind").disabled = readOnly;
+    // An id names the mode every prepared work item recorded, and a scope is
+    // which directory the file lives in. Both are fixed once the mode exists;
+    // changing either is a new mode, which is what Duplicate is for.
+    byId("editor-id").disabled = readOnly || draft.intent === "edit";
+    byId("editor-scope").disabled = readOnly || draft.intent === "edit";
+    byId("editor-save").hidden = readOnly;
+    byId("editor-save").textContent =
+      draft.intent === "create" ? "Create Fix Mode" : "Save Fix Mode";
+  }
+
+  /** What the editor currently holds, on top of the draft it was opened with. */
+  function readDraft() {
+    const draft = { ...(openDraft || {}) };
+    for (const field of EDITOR_TEXT) draft[field] = byId(`editor-${field}`).value;
+    draft.executionKind = byId("editor-executionKind").value || "fix";
+    draft.scope = byId("editor-scope").value || "user";
+    return draft;
+  }
+
+  /**
+   * The instructions this mode gives an agent, and nothing else.
+   *
+   * Only the six sections the developer owns. BugPilot's precedence, delivery
+   * safety, evidence and forbidden-action sections are added around them when a
+   * task is generated, and showing them here would suggest they are editable.
+   */
+  function renderPreview() {
+    const draft = readDraft();
+    const body = byId("editor-preview-body");
+    body.replaceChildren();
+    for (const section of EDITOR_SECTIONS) {
+      const heading = document.createElement("p");
+      heading.className = "manage-name";
+      heading.textContent = SECTION_LABELS[section] || section;
+      const text = document.createElement("p");
+      text.className = "muted";
+      text.textContent = draft[section] || "";
+      body.append(heading, text);
+    }
+    byId("editor-preview-pane").hidden = false;
+  }
+
+  byId("manage-fix-modes").addEventListener("click", () =>
+    vscode.postMessage({ type: "manageFixModes" }),
+  );
+  byId("manage-close").addEventListener("click", () =>
+    vscode.postMessage({ type: "closeFixModes" }),
+  );
+  byId("editor-cancel").addEventListener("click", () =>
+    vscode.postMessage({ type: "manageFixModes" }),
+  );
+  byId("editor-preview").addEventListener("click", renderPreview);
+  byId("editor-save").addEventListener("click", () =>
+    vscode.postMessage({ type: "saveFixMode", draft: readDraft() }),
+  );
 
   // --- wiring --------------------------------------------------------------
 
@@ -555,6 +910,7 @@
       applyPlanCoupling();
     }
     if (target && target.id === "agent") applyAgentVisibility();
+    if (target && target.id === "fixModeId") renderFixModeNote();
     formChanged();
   });
 

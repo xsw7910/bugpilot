@@ -19,7 +19,9 @@ from bugpilot.core import search, workflow
 from bugpilot.core.git_ops import artifacts_ignored
 from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.models import InvestigationOptions, InvestigationPlan, InvestigationRequest
-from bugpilot.core.workflow import MAX_SUPPLIED_KEYWORDS, _atomic_write_text, run_investigation
+from bugpilot.core import artifact_io
+from bugpilot.core.artifact_io import atomic_write_text
+from bugpilot.core.workflow import MAX_SUPPLIED_KEYWORDS, run_investigation
 
 
 def _git(repo, *args):
@@ -33,7 +35,7 @@ def test_status_is_written_atomically(tmp_path, monkeypatch):
     """The extension restores its checklist from this file while a run writes it.
 
     A torn read parses as nothing, which the panel shows as "no progress" for a
-    run that is going fine. `_atomic_write_text` existed for this and had zero
+    run that is going fine. `atomic_write_text` existed for this and had zero
     callers.
     """
     seen: list[tuple[str, str]] = []
@@ -43,7 +45,7 @@ def test_status_is_written_atomically(tmp_path, monkeypatch):
         seen.append((os.path.basename(str(source)), os.path.basename(str(target))))
         return real_replace(source, target)
 
-    monkeypatch.setattr(workflow.os, "replace", watched)
+    monkeypatch.setattr(artifact_io.os, "replace", watched)
     workflow._write_status(tmp_path, "JR-1", {"doctor": "pass"}, [])
 
     status = tmp_path / ".ai" / "JR-1" / "workflow_status.json"
@@ -67,11 +69,11 @@ def test_a_locked_target_falls_back_instead_of_failing_the_step(tmp_path, monkey
         calls["count"] += 1
         raise PermissionError("being used by another process")
 
-    monkeypatch.setattr(workflow.os, "replace", always_locked)
-    monkeypatch.setattr(workflow.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(artifact_io.os, "replace", always_locked)
+    monkeypatch.setattr(artifact_io.time, "sleep", lambda _seconds: None)
 
     target = tmp_path / "workflow_status.json"
-    _atomic_write_text(target, '{"ok": true}\n')
+    atomic_write_text(target, '{"ok": true}\n')
 
     assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
     assert calls["count"] > 1, "it gave up without retrying"

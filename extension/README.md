@@ -114,6 +114,43 @@ Investigation & AI Fix           Running 3/6…
 **Stop** joins Run in that row while a run is in flight, and **Retry** once a
 prepared attempt exists. Neither is ever shown greyed out.
 
+## Fix Mode
+
+Above **Run** sits a **Fix Mode** dropdown: how the agent should approach this
+bug. The list comes from your `bugpilot` install, so it shows exactly what that
+version can run:
+
+| Mode | What the agent does |
+| --- | --- |
+| Standard Fix | Analyse, fix minimally, verify, summarise. The default |
+| Conservative Fix | Minimal, low-risk changes, for legacy or sensitive code |
+| Investigate First | Diagnose and build an evidence-backed fix plan — **no source changes** in this pass |
+| Test-Driven Fix | Reproduce with a focused test, fix the cause, then rerun verification |
+| Deep Analysis | Deeper evidence review for complex crashes, regressions, or cross-module bugs |
+
+The choice travels with the work item: reopening one from **History** shows
+**Prepared with Fix Mode: …** for what actually ran, separately from what you
+would pick next. Choosing an investigate-only mode shows that beneath the
+dropdown, so nobody is surprised when the agent stops without editing.
+
+### Manage Fix Modes
+
+The gear beside the dropdown opens **Manage Fix Modes**. You cannot edit a
+built-in mode, but you can **duplicate** one and change the copy: its name, its
+description and the six instruction sections an agent reads. Each custom mode
+lives in one of two scopes:
+
+| Scope | Where it lives | Who sees it |
+| --- | --- | --- |
+| User | `~/.bugpilot/fix_modes/` | You, in every repository |
+| Project | `.bugpilot/fix_modes/` in this repository | Everyone who checks the repository out |
+
+A project mode with the same id shadows a user mode, which is how a team
+standardises a workflow: commit `.bugpilot/fix_modes/` and the mode arrives with
+the code. A mode's instructions are guidance for the agent; BugPilot's own
+rules — evidence, branches, Jira, delivery, no commits — wrap every mode and are
+not editable here.
+
 ## Attachments
 
 **Advanced settings → Attachments → Add files…** attaches anything that is not

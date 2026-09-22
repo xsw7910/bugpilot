@@ -16,7 +16,7 @@
 
 import path from "node:path";
 
-import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM } from "./form.ts";
+import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE } from "./form.ts";
 import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
 import { buildWorkflow, overallStatus } from "./workflow.ts";
@@ -28,6 +28,22 @@ import type { ArtifactList } from "./artifacts.ts";
 import { COMMANDS } from "../commands.ts";
 import { diagnose } from "../errors.ts";
 import type { Environment } from "./environment.ts";
+import {
+  deleteArgsFor,
+  draftFromDefinition,
+  payloadFromDraft,
+  preparedFixModeFromStatus,
+  saveArgsForDraft,
+  selectedFixModeId,
+  suggestedCopyId,
+} from "./fixModes.ts";
+import type {
+  FixModeCatalog,
+  FixModeDraft,
+  ManagedFixMode,
+  ManagedFixModes,
+  PreparedFixMode,
+} from "./fixModes.ts";
 import type { Log } from "./log.ts";
 import type { Envelope, StreamEvent } from "../protocol.ts";
 import { MAX_ATTACHMENTS } from "../panel/messages.ts";
@@ -146,7 +162,37 @@ export interface ControllerPorts {
    * only if the window remembers *which* work item to read it from.
    */
   readonly saveWorkItem?: (workItemId: string) => void;
+  /**
+   * The AI Fix Modes this bugpilot offers.
+   *
+   * A port rather than a `runner.runJson` call inline, for the same reason the
+   * history list is one: the spawn belongs to the host, and this way exactly one
+   * place in the extension knows the discovery command. Absent — an older host,
+   * or a test that does not care — means the catalog is unavailable, never a
+   * list invented here.
+   */
+  readonly listFixModes?: () => Promise<FixModeCatalog>;
+  /** Every physical definition, for the management view. */
+  readonly listManagedFixModes?: () => Promise<ManagedFixModes>;
+  /** One management command, with its definition written to a temporary file. */
+  readonly runFixModeCommand?: (request: FixModeRequest) => Promise<Envelope>;
 }
+
+/**
+ * A Fix Mode management command, and the definition it carries.
+ *
+ * `args` is a function of the payload's path because the host decides where
+ * that file goes: six multiline sections have no business on a command line,
+ * and a path is the only part of them the process ever sees.
+ */
+export interface FixModeRequest {
+  readonly args: (payloadPath: string) => readonly string[];
+  readonly payload?: unknown;
+}
+
+/** What the management list can ask for. Delete is the only destructive one. */
+export const FIX_MODE_ACTIONS = ["view", "edit", "duplicate", "delete"] as const;
+export type FixModeActionId = (typeof FIX_MODE_ACTIONS)[number];
 
 const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -210,6 +256,33 @@ export class Controller {
   #root: string | undefined;
   #jiraConfigured = false;
   #warnings: readonly Notice[] = [];
+  /**
+   * The Fix Mode catalog, read once per environment resolution.
+   *
+   * Not per render and not per keystroke: this spawns a process, and the answer
+   * only changes when the executable does — which is exactly when the
+   * environment is re-probed.
+   */
+  #fixModes: FixModeCatalog = { kind: "loading" };
+  /** What the work item on screen was actually prepared with, if anything. */
+  #preparedFixMode: PreparedFixMode | undefined;
+  /** Whether the management view is open, and what it is showing. */
+  #manageOpen = false;
+  #managed: ManagedFixModes = { kind: "loading" };
+  /** The mode being viewed or edited, if any. */
+  #editor: FixModeDraft | undefined;
+  /** Why the last management command was refused, kept beside the editor. */
+  #manageError: string | undefined;
+  /**
+   * The work item the current Fix Mode selection was derived for.
+   *
+   * A Fix Mode belongs to a bug, not to the panel. Without this, changing the
+   * issue key in the form left the previous work item's mode selected, and the
+   * next run prepared a different bug under a workflow nobody chose for it —
+   * while the tree-driven path re-derived correctly, so the two ways of
+   * switching disagreed.
+   */
+  #fixModeWorkItem: string | undefined;
   #abort: AbortController | undefined;
   #running = false;
   /**
@@ -303,6 +376,7 @@ export class Controller {
       this.#readiness.kind === "blocked"
         ? new Set(this.#readiness.actions.map((action) => action.command))
         : new Set();
+    await this.#loadFixModes();
     // The revision is deliberately *not* bumped here. Bumping it makes the page
     // rewrite every field from the host's copy, which moves the caret and
     // discards anything typed inside the 400ms `formChanged` debounce — and
@@ -318,8 +392,7 @@ export class Controller {
         this.#push();
         return;
       case "formChanged":
-        this.#form = message.form;
-        this.#ports.saveForm?.(message.form);
+        await this.#formChanged(message.form);
         return;
       case "addAttachments":
         await this.addAttachments(message.form);
@@ -335,6 +408,18 @@ export class Controller {
         return;
       case "openArtifact":
         await this.openArtifact(message.name);
+        return;
+      case "manageFixModes":
+        await this.openFixModeManager();
+        return;
+      case "closeFixModes":
+        this.closeFixModeManager();
+        return;
+      case "fixModeAction":
+        await this.fixModeAction(message.action, message.id, message.scope);
+        return;
+      case "saveFixMode":
+        await this.saveFixMode(message.draft);
         return;
       case "action":
         if (message.id === "openContext") await this.openArtifact("bug_context.md");
@@ -472,6 +557,10 @@ export class Controller {
 
     // canRetry is decided by refreshArtifacts, from whether a package exists.
     await this.refreshArtifacts();
+    // What the run actually prepared, read back from its own status file rather
+    // than assumed from the form: the two agree here, and the panel should be
+    // reporting the package either way.
+    if (this.#workItemId) await this.#loadPreparedFixMode(this.#workItemId);
     this.#ports.ui.refreshViews();
 
     // The last row of the workflow, and the only one this extension performs
@@ -733,18 +822,307 @@ export class Controller {
       return;
     }
     this.#setWorkItem(workItemId);
-    const directory = path.join(this.#root, ".ai", workItemId);
-    const status = await this.#ports.files.readFile(path.join(directory, "workflow_status.json"));
-    let parsed: unknown;
-    try {
-      parsed = status === undefined ? undefined : JSON.parse(status);
-    } catch {
-      // A truncated status file must not stop the artifacts from being listed.
-      parsed = undefined;
-    }
+    const parsed = await this.#readStatus(workItemId);
     this.#progress = viewFromStatus(parsed);
+    this.#preparedFixMode = preparedFixModeFromStatus(parsed, this.#fixModes);
+    this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
     await this.refreshArtifacts();
     this.#push();
+  }
+
+  /**
+   * Read the Fix Mode catalog, and keep the developer's choice if it survived.
+   *
+   * Only when the CLI is usable: asking a blocked environment for a mode list
+   * spawns a process that is already known to fail, and the answer would be an
+   * error card the blocked card already showed.
+   */
+  async #loadFixModes(): Promise<void> {
+    if (this.#readiness.kind !== "ready") {
+      this.#fixModes = {
+        kind: "unavailable",
+        detail: "BugPilot is not ready, so its AI Fix Modes could not be read.",
+      };
+      return;
+    }
+    if (!this.#ports.listFixModes) {
+      this.#fixModes = {
+        kind: "unavailable",
+        detail: "This BugPilot version does not expose AI Fix Modes. Update BugPilot to choose one.",
+      };
+      return;
+    }
+    this.#fixModes = await this.#ports.listFixModes();
+    // The selection is normalized against the catalog that just arrived: an id
+    // the registry no longer offers falls back to the CLI's declared default
+    // rather than being sent to a run that would reject it.
+    const selected = selectedFixModeId(this.#fixModes, this.#form.fixModeId);
+    if (selected !== this.#form.fixModeId) this.#replaceForm({ ...this.#form, fixModeId: selected });
+  }
+
+  // --- managing custom Fix Modes ---------------------------------------------
+
+  /** Open the management view and read what is on disk. */
+  async openFixModeManager(): Promise<void> {
+    this.#manageOpen = true;
+    this.#editor = undefined;
+    this.#manageError = undefined;
+    this.#managed = { kind: "loading" };
+    this.#push();
+    await this.#refreshManaged();
+  }
+
+  closeFixModeManager(): void {
+    this.#manageOpen = false;
+    this.#editor = undefined;
+    this.#manageError = undefined;
+    this.#push();
+  }
+
+  /**
+   * View, edit, duplicate or delete one definition.
+   *
+   * Addressed by id *and* scope, never by id alone: when a project mode shadows
+   * a user mode of the same name, resolving through the effective registry
+   * would make the shadowed one impossible to open or remove.
+   */
+  async fixModeAction(action: FixModeActionId, id: string, scope: string): Promise<void> {
+    if (action === "delete") {
+      await this.#deleteFixMode(id, scope);
+      return;
+    }
+    const definition = await this.#showFixMode(id, scope);
+    if (!definition) return;
+    if (action === "duplicate") {
+      const taken = this.#knownModeIds();
+      // A suggestion, not a decision: core validates the id the developer keeps.
+      this.#editor = {
+        ...definition,
+        intent: "create",
+        id: suggestedCopyId(definition.id, taken),
+        name: `${definition.name} (copy)`,
+        scope: scope === "project" ? "project" : "user",
+        version: 0,
+        basedOn: definition.id,
+        basedOnVersion: definition.version,
+      };
+    } else {
+      this.#editor = {
+        ...definition,
+        // A built-in can be read and copied, never written: it is packaged, and
+        // the developer's own version of it is what `duplicate` is for.
+        intent: scope === "builtin" ? "view" : "edit",
+      };
+    }
+    this.#manageError = undefined;
+    this.#push();
+  }
+
+  /**
+   * Write a draft back, and keep the editor open if core refuses it.
+   *
+   * A rejected save — a stale version, a heading in a section, an id already
+   * taken — must not cost the developer what they typed. The draft stays on
+   * screen with the reason beside it.
+   */
+  async saveFixMode(draft: FixModeDraft): Promise<void> {
+    if (draft.intent === "view") return;
+    const envelope = await this.#runFixMode({
+      args: (payloadPath) => saveArgsForDraft(draft, payloadPath),
+      payload: payloadFromDraft(draft),
+    });
+    if (!envelope) return;
+    if (!envelope.ok) {
+      this.#editor = draft;
+      this.#manageError = envelope.error.message;
+      this.#push();
+      return;
+    }
+    this.#editor = undefined;
+    this.#manageError = undefined;
+    await this.#refreshAfterFixModeChange();
+    this.#ports.ui.notify(
+      "info",
+      draft.intent === "edit"
+        ? `Saved Fix Mode ${draft.id}.`
+        : `Created Fix Mode ${draft.id} in ${draft.scope} scope.`,
+    );
+  }
+
+  async #deleteFixMode(id: string, scope: string): Promise<void> {
+    const mode = this.#managedMode(id, scope);
+    if (!mode) return;
+    const confirmed = await this.#ports.ui.confirm(
+      `Delete the ${scope} Fix Mode "${mode.name}"? Existing prepared work items using this ` +
+        "Fix Mode may no longer regenerate until another mode is selected.",
+      "Delete Fix Mode",
+    );
+    if (!confirmed) return;
+    const envelope = await this.#runFixMode({ args: () => deleteArgsFor(mode) });
+    if (!envelope) return;
+    if (!envelope.ok) {
+      // A refused delete leaves the mode where it was, and says why.
+      this.#manageError = envelope.error.message;
+      this.#push();
+      return;
+    }
+    this.#manageError = undefined;
+    await this.#refreshAfterFixModeChange();
+  }
+
+  /** One definition in full, from the scope that owns it. */
+  async #showFixMode(id: string, scope: string): Promise<FixModeDraft | undefined> {
+    const args = ["fix-mode", "show", id, "--json"];
+    if (scope === "user" || scope === "project") args.splice(3, 0, `--scope=${scope}`);
+    const envelope = await this.#runFixMode({ args: () => args });
+    if (!envelope) return undefined;
+    if (!envelope.ok) {
+      this.#manageError = envelope.error.message;
+      this.#push();
+      return undefined;
+    }
+    const draft = draftFromDefinition(
+      envelope,
+      "view",
+      scope === "project" ? "project" : "user",
+    );
+    if (!draft) {
+      this.#manageError = "BugPilot did not describe that Fix Mode.";
+      this.#push();
+    }
+    return draft;
+  }
+
+  async #runFixMode(request: FixModeRequest): Promise<Envelope | undefined> {
+    if (!this.#ports.runFixModeCommand) {
+      this.#manageError = "This BugPilot version cannot manage custom Fix Modes.";
+      this.#push();
+      return undefined;
+    }
+    try {
+      return await this.#ports.runFixModeCommand(request);
+    } catch (error) {
+      this.#manageError = `BugPilot could not run that command: ${(error as Error).message}`;
+      this.#push();
+      return undefined;
+    }
+  }
+
+  /**
+   * Both catalogs, after anything on disk changed.
+   *
+   * The selector's list and the management list are two reads of the same
+   * files; refreshing one would leave the other describing a mode that is gone
+   * or missing one that just arrived.
+   */
+  async #refreshAfterFixModeChange(): Promise<void> {
+    await this.#loadFixModes();
+    await this.#refreshManaged();
+  }
+
+  async #refreshManaged(): Promise<void> {
+    this.#managed = this.#ports.listManagedFixModes
+      ? await this.#ports.listManagedFixModes()
+      : { kind: "unavailable", detail: "This BugPilot version cannot manage custom Fix Modes." };
+    this.#push();
+  }
+
+  #managedMode(id: string, scope: string): ManagedFixMode | undefined {
+    if (this.#managed.kind !== "ready") return undefined;
+    const group =
+      scope === "user"
+        ? this.#managed.user
+        : scope === "project"
+          ? this.#managed.project
+          : this.#managed.builtin;
+    return group.find((mode) => mode.id === id);
+  }
+
+  #knownModeIds(): string[] {
+    if (this.#managed.kind !== "ready") return [];
+    return [...this.#managed.builtin, ...this.#managed.user, ...this.#managed.project].map(
+      (mode) => mode.id,
+    );
+  }
+
+  /**
+   * Store what the developer typed, and notice when it is about another bug.
+   *
+   * The mode is re-derived only when the work item identity actually changes —
+   * not on every keystroke. Editing a hint, a keyword or a focus file leaves a
+   * deliberate choice exactly where the developer put it; changing the issue
+   * key is a different bug, and a different bug gets its own mode.
+   */
+  async #formChanged(form: FormState): Promise<void> {
+    this.#form = form;
+    this.#ports.saveForm?.(form);
+    const scope = workItemScopeOf(form);
+    // `undefined` is a half-typed key: not yet any work item, so not yet a
+    // reason to conclude the developer moved to another one.
+    if (scope === undefined || scope === this.#fixModeWorkItem) return;
+    const prepared =
+      scope === MANUAL_WORK_ITEM_SCOPE
+        ? undefined
+        : preparedFixModeFromStatus(await this.#readStatus(scope), this.#fixModes);
+    // Only the selection follows the typed key. `#preparedFixMode` keeps
+    // describing the work item whose artifacts and progress are on screen,
+    // which is still the one that was opened.
+    if (this.#deriveFixModeFor(scope, prepared)) this.#push();
+  }
+
+  /**
+   * Point the selector at the mode this work item would run under.
+   *
+   * The one rule, shared by both ways of switching: a prepared mode that is
+   * still available, otherwise the default the CLI declared. Returns whether
+   * the selection changed, so a caller can decide whether the page needs a push.
+   */
+  #deriveFixModeFor(
+    workItemId: string | undefined,
+    prepared: PreparedFixMode | undefined,
+  ): boolean {
+    this.#fixModeWorkItem = workItemId;
+    const inherited = prepared?.availability === "available" ? prepared.id : undefined;
+    const selected = selectedFixModeId(this.#fixModes, inherited);
+    if (selected === this.#form.fixModeId) return false;
+    this.#replaceForm({ ...this.#form, fixModeId: selected });
+    return true;
+  }
+
+  /**
+   * Replace the form the page shows, which needs a new revision to take effect.
+   *
+   * Used sparingly: the page owns the form while the developer types, and a
+   * revision bump rewrites every field. Both callers here change something the
+   * developer cannot have typed — the mode a stored package was prepared with,
+   * or a selection the registry no longer offers.
+   */
+  #replaceForm(form: FormState): void {
+    this.#form = form;
+    this.#revision += 1;
+    this.#ports.saveForm?.(form);
+  }
+
+  /** What the work item's own status file says it was prepared with. */
+  async #loadPreparedFixMode(workItemId: string): Promise<void> {
+    this.#preparedFixMode = preparedFixModeFromStatus(
+      await this.#readStatus(workItemId),
+      this.#fixModes,
+    );
+  }
+
+  async #readStatus(workItemId: string): Promise<unknown> {
+    if (!this.#root) return undefined;
+    const text = await this.#ports.files.readFile(
+      path.join(this.#root, ".ai", workItemId, "workflow_status.json"),
+    );
+    try {
+      return text === undefined ? undefined : JSON.parse(text);
+    } catch {
+      // A truncated status file is not worth failing over: it costs the mode
+      // line, and the artifacts still list.
+      return undefined;
+    }
   }
 
   #setWorkItem(workItemId: string): void {
@@ -770,6 +1148,17 @@ export class Controller {
     });
     this.#ports.ui.render({
       revision: this.#revision,
+      fixModes: this.#fixModes,
+      ...(this.#preparedFixMode === undefined ? {} : { preparedFixMode: this.#preparedFixMode }),
+      ...(this.#manageOpen
+        ? {
+            manage: {
+              catalog: this.#managed,
+              ...(this.#editor === undefined ? {} : { editor: this.#editor }),
+              ...(this.#manageError === undefined ? {} : { error: this.#manageError }),
+            },
+          }
+        : {}),
       readiness: this.#readiness,
       form: this.#form,
       problems: this.#problems,

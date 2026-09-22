@@ -262,6 +262,7 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
     warnings: [],
     jiraConfigured: false,
     canRetry: false,
+    fixModes: { kind: "loading" },
     ...overrides,
   };
 };
@@ -995,4 +996,372 @@ test("Add files asks the host, because only the host can open a dialog", () => {
   // Carrying the form, so the host merges onto what is on screen rather than
   // onto its own copy from up to a debounce ago.
   assert.equal(sent.form.issueKey, "JR-9");
+});
+
+// --- fix mode --------------------------------------------------------------
+
+const MODES = {
+  kind: "ready" as const,
+  defaultModeId: "standard",
+  modes: [
+    {
+      id: "standard",
+      name: "Standard Fix",
+      description: "Default workflow for most bugs.",
+      version: 1,
+      source: "builtin",
+      executionKind: "fix" as const,
+    },
+    {
+      id: "investigate-first",
+      name: "Investigate First",
+      description: "Diagnose and propose a fix plan.",
+      version: 1,
+      source: "builtin",
+      executionKind: "investigate" as const,
+    },
+  ],
+};
+
+test("the Fix Mode options come from the host, not from the page", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+
+  const select = page.byId("fixModeId");
+  assert.deepEqual(
+    select.children.map((option) => option.value),
+    ["standard", "investigate-first"],
+  );
+  assert.deepEqual(
+    select.children.map((option) => option.textContent),
+    ["Standard Fix", "Investigate First"],
+  );
+  assert.equal(select.disabled, false);
+});
+
+test("the selected mode's description is shown under the selector", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+
+  assert.equal(page.byId("fixModeId-description").textContent, "Default workflow for most bugs.");
+});
+
+test("an investigation mode says so before anything runs", () => {
+  const page = load();
+  page.send(
+    state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }),
+  );
+
+  const note = page.byId("fixModeId-description").textContent;
+  assert.match(note, /Investigation only/);
+  assert.match(note, /no source changes in this pass/);
+  // Said in words, not by colour alone.
+  assert.match(note, /Diagnose and propose a fix plan/);
+});
+
+test("changing the selection updates the description immediately", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+
+  page.byId("fixModeId").value = "investigate-first";
+  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
+
+  assert.match(page.byId("fixModeId-description").textContent, /Investigation only/);
+});
+
+test("the selector is disabled until the catalog arrives", () => {
+  const page = load();
+  page.send(state({ fixModes: { kind: "loading" } }));
+
+  assert.equal(page.byId("fixModeId").disabled, true);
+  assert.equal(page.byId("fixModeId").children[0]?.textContent, "Loading Fix Modes…");
+});
+
+test("a bugpilot without Fix Modes explains itself instead of offering a list", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: {
+        kind: "unavailable",
+        detail: "This BugPilot version does not expose AI Fix Modes. Update BugPilot to choose one.",
+      },
+    }),
+  );
+
+  assert.equal(page.byId("fixModeId").disabled, true);
+  assert.match(page.byId("fixModeId-description").textContent, /does not expose AI Fix Modes/);
+  assert.ok(page.byId("field-fixModeId").classes.has("field-invalid"));
+  // And the page still lets the developer run: Standard is the CLI's default.
+  assert.equal(page.byId("run").disabled, false);
+});
+
+test("the run message carries the selected Fix Mode", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  page.byId("fixModeId").value = "investigate-first";
+  page.byId("form").dispatch("submit");
+
+  const run = page.posted.find((message) => message["type"] === "run");
+  assert.equal((run?.["form"] as { fixModeId?: string } | undefined)?.fixModeId, "investigate-first");
+});
+
+test("the prepared mode is reported separately from the current selection", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: MODES,
+      form: { ...DEFAULT_FORM, fixModeId: "standard" },
+      preparedFixMode: {
+        id: "investigate-first",
+        name: "Investigate First",
+        executionKind: "investigate",
+        availability: "available",
+      },
+    }),
+  );
+
+  const line = page.byId("prepared-fix-mode");
+  assert.equal(line.hidden, false);
+  assert.match(line.textContent, /Prepared with Fix Mode: Investigate First/);
+  assert.match(line.textContent, /investigation only/);
+  // The selector still shows what the *next* run would use.
+  assert.equal(page.byId("fixModeId").value, "standard");
+});
+
+test("a prepared mode that is no longer available is named, not replaced", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: MODES,
+      preparedFixMode: { id: "team-safe-fix", name: "Team Safe Fix", availability: "unavailable" },
+    }),
+  );
+
+  assert.match(page.byId("prepared-fix-mode").textContent, /Team Safe Fix \(unavailable\)/);
+});
+
+test("a work item with no recorded mode shows no prepared line", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+
+  assert.equal(page.byId("prepared-fix-mode").hidden, true);
+});
+
+// --- the management view -----------------------------------------------------
+
+const MANAGED_READY = {
+  kind: "ready" as const,
+  builtin: [
+    {
+      id: "standard",
+      name: "Standard Fix",
+      description: "Default.",
+      version: 1,
+      source: "builtin",
+      executionKind: "fix" as const,
+      scope: "builtin",
+      effective: true,
+    },
+  ],
+  user: [
+    {
+      id: "my-safe",
+      name: "My Safe Fix",
+      description: "Mine.",
+      version: 3,
+      source: "user",
+      executionKind: "fix" as const,
+      scope: "user",
+      effective: false,
+    },
+  ],
+  project: [
+    {
+      id: "my-safe",
+      name: "Team Safe Fix",
+      description: "Ours.",
+      version: 1,
+      source: "project",
+      executionKind: "investigate" as const,
+      scope: "project",
+      effective: true,
+    },
+  ],
+  issues: [],
+};
+
+const DRAFT = {
+  intent: "edit" as const,
+  id: "my-safe",
+  name: "My Safe Fix",
+  description: "Mine.",
+  executionKind: "fix" as const,
+  objective: "Objective.",
+  investigation: "Investigation.",
+  implementation: "Implementation.",
+  verification: "Verification.",
+  constraints: "Constraints.",
+  completion: "Completion.",
+  scope: "user" as const,
+  version: 3,
+  basedOn: "standard",
+  basedOnVersion: 1,
+};
+
+test("the management view is hidden until the host opens it", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+
+  assert.equal(page.byId("manage").hidden, true);
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+  assert.equal(page.byId("manage").hidden, false);
+});
+
+test("the gear asks the host to open it", () => {
+  const page = load();
+  page.byId("manage-fix-modes").dispatch("click");
+
+  assert.ok(page.posted.some((message) => message["type"] === "manageFixModes"));
+});
+
+test("both definitions of a shadowed id are listed, and which one runs is said in words", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+
+  const text = JSON.stringify(page.byId("manage-list"));
+  assert.ok(text.includes("My Safe Fix"), "the user's own copy is missing");
+  assert.ok(text.includes("Team Safe Fix"), "the project copy is missing");
+  assert.ok(text.includes("overridden by project"), "nothing says which one runs");
+  assert.ok(text.includes("investigation only"), "the investigation kind is not shown");
+});
+
+test("a built-in offers view and duplicate, a custom mode offers edit and delete", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+
+  const labels = JSON.stringify(page.byId("manage-list"));
+  assert.ok(labels.includes("Duplicate & Customize"));
+  assert.ok(labels.includes("Edit"));
+  assert.ok(labels.includes("Delete"));
+});
+
+test("the editor fills every section and fixes what may not change", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
+
+  assert.equal(page.byId("manage-editor").hidden, false);
+  assert.equal(page.byId("editor-objective").value, "Objective.");
+  assert.equal(page.byId("editor-completion").value, "Completion.");
+  assert.equal(page.byId("editor-name").value, "My Safe Fix");
+  // An id names what every prepared work item recorded; a scope is the
+  // directory the file lives in. Neither moves on an existing mode.
+  assert.equal(page.byId("editor-id").disabled, true);
+  assert.equal(page.byId("editor-scope").disabled, true);
+  assert.equal(page.byId("editor-name").disabled, false);
+  assert.match(page.byId("editor-origin").textContent, /Based on standard version 1/);
+  assert.match(page.byId("editor-origin").textContent, /Current version 3/);
+});
+
+test("a new mode may choose its id and scope", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: MODES,
+      manage: { catalog: MANAGED_READY, editor: { ...DRAFT, intent: "create", version: 0 } },
+    }),
+  );
+
+  assert.equal(page.byId("editor-id").disabled, false);
+  assert.equal(page.byId("editor-scope").disabled, false);
+  assert.equal(page.byId("editor-save").textContent, "Create Fix Mode");
+});
+
+test("a built-in is shown but never editable", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: MODES,
+      manage: { catalog: MANAGED_READY, editor: { ...DRAFT, intent: "view" } },
+    }),
+  );
+
+  assert.equal(page.byId("editor-objective").disabled, true);
+  assert.equal(page.byId("editor-name").disabled, true);
+  assert.equal(page.byId("editor-save").hidden, true);
+  assert.equal(page.byId("editor-readonly").hidden, false);
+});
+
+test("saving sends what the editor holds, not what it was opened with", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
+  page.byId("editor-objective").value = "Edited objective.";
+  page.byId("editor-save").dispatch("click");
+
+  const save = page.posted.find((message) => message["type"] === "saveFixMode");
+  const draft = save?.["draft"] as Record<string, unknown>;
+  assert.equal(draft["objective"], "Edited objective.");
+  assert.equal(draft["version"], 3, "the version it was opened at must come back");
+  assert.equal(draft["intent"], "edit");
+});
+
+test("the preview shows the mode's own instructions and says so", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
+
+  page.byId("editor-preview").dispatch("click");
+
+  assert.equal(page.byId("editor-preview-pane").hidden, false);
+  const preview = JSON.stringify(page.byId("editor-preview-body"));
+  assert.ok(preview.includes("Objective."));
+  assert.ok(preview.includes("Completion Requirements"));
+  // BugPilot's own sections are not the developer's to edit, so they are not
+  // shown here as though they were.
+  assert.ok(!preview.includes("Forbidden Actions"));
+  assert.ok(!preview.includes("Delivery Safety"));
+});
+
+test("an unreadable custom file is reported without emptying the list", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: MODES,
+      manage: {
+        catalog: {
+          ...MANAGED_READY,
+          issues: [{ scope: "project", path: "/repo/.bugpilot/fix_modes/x.json", message: "bad" }],
+        },
+      },
+    }),
+  );
+
+  const text = JSON.stringify(page.byId("manage-list"));
+  assert.ok(text.includes("x.json"), "the path a developer has to open is missing");
+  assert.ok(text.includes("My Safe Fix"), "one broken file emptied the list");
+});
+
+test("a refused command is shown beside the editor", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: MODES,
+      manage: { catalog: MANAGED_READY, editor: DRAFT, error: "Reload it before saving." },
+    }),
+  );
+
+  assert.equal(page.byId("manage-error").hidden, false);
+  assert.match(page.byId("manage-error").textContent, /Reload it before saving/);
+});
+
+test("the prepared line distinguishes gone from not-checked", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: MODES,
+      preparedFixMode: { id: "my-safe", name: "My Safe Fix", availability: "unknown" },
+    }),
+  );
+
+  assert.match(page.byId("prepared-fix-mode").textContent, /availability unknown/);
+  assert.ok(!page.byId("prepared-fix-mode").textContent.includes("(unavailable)"));
 });

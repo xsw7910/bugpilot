@@ -19,6 +19,7 @@ from bugpilot.core.jira_parse import extract_parsed_details
 from bugpilot.core.jira_adf import adf_to_markdown
 from bugpilot.core.keywords import extract_keywords
 from bugpilot.core.memory import build_memory_entry, search_memory
+from bugpilot.core.prompts import _fallback_team_instructions, copilot_team_instructions
 from bugpilot.core.search import INCLUDE_GLOBS, _noise_flags, run_code_search
 from bugpilot.core.workflow import copilot_task_step, git_context_step, run_bug_workflow
 
@@ -824,6 +825,36 @@ def test_copilot_handoff_is_generated(tmp_path):
     assert "Never push main/master" in handoff
 
 
+def test_team_instructions_defer_to_the_task_fix_mode():
+    """The generic team rules must not re-offer what a Fix Mode withheld.
+
+    `agent_task.md` tells the agent to read this file, and it used to say "you
+    may ask the developer whether they want you to commit and push" with no
+    qualification — which handed an investigation-only pass back the commit
+    offer that the task had deliberately omitted.
+    """
+    text = copilot_team_instructions()
+
+    assert "## Task and Fix Mode Precedence" in text
+    assert "If the selected Fix Mode is investigation-only" in text
+    assert "do not offer to commit or push" in text
+    assert "When the current pass is allowed to change source code, you may ask" in text
+    assert "In an investigation-only pass, record the proposed validation instead" in text
+
+
+def test_fallback_team_instructions_mirror_the_packaged_document():
+    """The fallback is what ships when docs/ is not on disk (a pyinstaller run).
+
+    Two copies of the same policy drift the moment one is edited alone, and the
+    fallback is the copy nobody looks at.
+    """
+    docs = (
+        Path(__file__).resolve().parents[1] / "docs" / "agent_team_instructions.md"
+    ).read_text(encoding="utf-8")
+
+    assert _fallback_team_instructions().strip() == docs.strip()
+
+
 def test_docs_copilot_team_instructions_exists():
     path = Path(__file__).resolve().parents[1] / "docs" / "agent_team_instructions.md"
     assert path.exists()
@@ -879,7 +910,10 @@ def test_bug_hint_is_injected_into_copilot_task(tmp_path, monkeypatch):
     assert (issue_dir / "developer_hint.md").read_text(encoding="utf-8").strip() == hint
     assert "## Developer Hint" in task
     assert hint in task
-    assert "Trust this hint" in task
+    # High-priority guidance to verify, not ground truth to act on unchecked.
+    assert "Treat this hint as high-priority developer guidance." in task
+    assert "verify it against the available evidence" in task
+    assert "Trust this hint" not in task
 
 
 def test_bug_without_hint_has_no_developer_hint_section(tmp_path, monkeypatch):
