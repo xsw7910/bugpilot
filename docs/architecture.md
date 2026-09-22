@@ -292,22 +292,159 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   from every prior artifact and computes a 0–100 `_quality_score`. Imports no
   other core module; depends purely on files on disk.
 
-### 5.4 Task generation — `prompts.py`, `delivery_instructions.py`
+### 5.4 Task generation — `prompts.py`, `fix_modes.py`, `fix_mode_state.py`, `delivery_instructions.py`
 
-- **`prompts.py` (~270 lines)** — builds the three handoff files.
+The Fix Mode path has one resolution boundary, and everything downstream of it
+holds an object rather than a name:
+
+```text
+CLI --fix-mode <id> / VS Code selector / future MCP
+  -> InvestigationRequest.fix_mode_id
+    -> fix_mode_state.select_fix_mode(...)      explicit > persisted > Standard
+      -> FixModeRegistry.resolve(id)            the only id -> mode lookup
+        -> FixMode
+          -> persisted to .ai/<work item>/fix_mode.json (audit + later runs)
+          -> prompt_step / copilot_task_step / retry_prompt_step
+            -> generate_prompts(..., fix_mode=<FixMode>)
+```
+
+That registry is built per command from three places, with project beating user
+for a custom id and built-in ids reserved against both:
+
+```text
+packaged built-ins           bugpilot/core/fix_modes.py
+user Fix Modes               ~/.bugpilot/fix_modes/<id>.json
+project Fix Modes            <target repo>/.bugpilot/fix_modes/<id>.json
+                                  |
+                                  v
+                       FixModeStore.load_catalog()
+                        /                              effective registry                  scoped catalog
+        one mode per id,                    every physical definition,
+        what a run resolves                 including a shadowed one
+```
+
+The MCP server is a third caller on that same path, and only ever a reader of
+it: `list_fix_modes` and `show_fix_mode` report what the registry resolves, and
+`fix_mode_id` on the prepare tools is an id handed to the same
+`InvestigationRequest` field the CLI fills in.
+
+```text
+MCP client
+  -> list_fix_modes / show_fix_mode        catalog_for / fix_mode_registry
+  -> prepare_* (fix_mode_id)               InvestigationRequest.fix_mode_id
+       -> run_investigation                 explicit > persisted > default
+```
+
+It holds no built-in list, no default id, no precedence rule and no storage
+path, and reaches no `FixModeStore` mutation API: authoring a mode is the
+developer's, through the CLI and the editor.
+
+Management is the other direction, and never goes through the effective
+registry — a mode one scope shadows still has to be editable in the scope that
+owns it:
+
+```text
+VS Code Manage Fix Modes
+  -> panel message (draft, never instruction text on a command line)
+    -> controller -> app/fixModeTransport (temporary JSON payload file)
+      -> bugpilot fix-mode create|update|delete|duplicate --scope … --json
+        -> FixModeStore  ->  <scope>/fix_modes/<id>.json
+```
+
+`.bugpilot/` is team configuration and belongs to the developer: BugPilot writes
+a mode file when asked and nothing else — it never stages, commits, or gitignores
+one. `.ai/` stays runtime state, and `.ai/<work item>/fix_mode.json` stays an
+audit record whose id is the only thing that selects a definition.
+
+The VS Code panel is one of those callers and knows only ids. It discovers what
+to offer, never what a mode *is*:
+
+```text
+bugpilot fix-mode list --json      (default_mode_id + display metadata)
+  -> host/ports.loadFixModes -> app/fixModes.fixModesFromPayload
+    -> PanelState.fixModes         the selector's options
+      -> FormState.fixModeId       what the developer picked
+        -> --fix-mode=<id>         the same resolution path as the CLI
+```
+
+Nothing on that path carries a mode's instruction sections, and the extension
+contains no list of modes and no default id — a guard test reads every shipped
+source file to keep it so. What a *prepared* work item is under is read back from
+`workflow_status.fix_mode` — the persisted selection, recorded once it resolves
+and before the pipeline runs — and is shown separately from the current selection.
+
+- **`fix_modes.py` (~400 lines)** — the AI Fix Mode model and registry: a frozen
+  `FixMode` with six instruction sections (objective, investigation,
+  implementation, verification, constraints, completion) plus `id`, `name`,
+  `source`, `version`, `based_on`, `based_on_version` and `execution_kind`;
+  `FixModeRegistry` with the five built-in modes, `standard` as the deterministic
+  default, and an unknown ID raising `FixModeNotFoundError` rather than falling
+  back. `execution_kind` (`"fix"` | `"investigate"`) is the only structured
+  workflow semantic, because a renderer cannot read "do not edit source yet" out
+  of prose and know to withhold the commit/push offer. `validate()` type-checks
+  every field before touching it, so a hand-edited custom mode fails as a
+  `FixModeError` naming the field rather than an `AttributeError` from inside a
+  `strip()`. It also contains the mode text: editable sections may not carry
+  Markdown headings (a mode could otherwise forge `## Forbidden Actions` above
+  the real one) and are capped at `MAX_FIX_MODE_TEXT_LENGTH`. Imports no other
+  core module and holds no product-specific knowledge: a mode says *how* to
+  work, never what the bug is, and never what BugPilot forbids.
+
+- **`fix_mode_store.py` (~470 lines)** — custom Fix Modes on disk. Resolves the
+  two scope directories, loads and strictly validates `<id>.json` (unknown keys
+  refused, `source` refused outright because scope comes from the directory,
+  file name must match the id, every definition through `FixMode.validate()`),
+  reports unreadable files as diagnostics rather than dropping the rest, and
+  performs create/duplicate/update/delete with `expected_version` optimistic
+  concurrency and path/symlink containment. `FixModeCatalog` carries the scoped
+  view; `effective_registry()` is the one-mode-per-id view a run resolves
+  through. Nothing is cached: these files are meant to be edited and committed.
+- **`fix_mode_state.py` (~190 lines)** — which mode a work item runs under.
+  `select_fix_mode` applies the precedence (explicit id, else the persisted
+  selection, else Standard Fix) and `persist_fix_mode` records it at
+  `.ai/<work item>/fix_mode.json` — generated runtime state beside
+  `workflow_status.json`, not the team-owned `.bugpilot/` that later phases add.
+  Only the id selects a mode: it is re-resolved through the registry on every
+  read, so a stale file cannot describe one mode and deliver another, and a
+  selection that no longer resolves fails loudly instead of becoming Standard.
+  `fix_mode_registry()` is the one seam a later phase widens to include user and
+  project modes. `fix_mode_metadata` gives the single audit shape used by the
+  file, `workflow_status.json` and the `--json` envelope.
+- **`prompts.py` (~520 lines)** — builds the three handoff files.
   `generate_prompts` / `generate_copilot_task_files` both return
   `{agent_task.md, agent_handoff.md, agent_team_instructions.md}`.
-  `_copilot_task` is the large template (branch/analysis/implementation/output/
-  forbidden sections, plus the optional pre-commit Jira-status block and the
-  shared delivery block). The `jira_comment` parameter threads through
+  `_copilot_task` is the large template (branch/input files, the selected AI Fix
+  Mode, the rule-precedence statement, the invariant evidence and editing
+  sections, output/forbidden sections, plus the optional Jira-status block and
+  the closing block).
+  Their `fix_mode` parameter takes a resolved `FixMode` or `None`
+  (`_task_fix_mode` → the packaged `STANDARD_FIX`); an ID string raises, because
+  resolving one for a user- or project-scoped mode needs a repository root, a
+  user config directory and a scope precedence rule that this module does not
+  have. Callers resolve through `FixModeRegistry.resolve()` and pass the object.
+  `_fix_mode_section` renders the mode metadata and its six sections,
+  `_precedence_section` states that a BugPilot rule wins any conflict with a
+  mode, and `mode.is_investigation` selects the closing block:
+  `_investigation_handoff_block` (no commit/push offer, ask before implementing)
+  instead of `assisted_delivery_block`, with `_required_output_section`
+  describing the same five artifacts as investigation state.
+  `delivery_safety_block` is rendered either way — an investigation withholds
+  the offer, never the staging and branch rules. Mode text controls
+  *how* the agent works; everything below it in the file is BugPilot-owned and a
+  mode cannot relax it. The `jira_comment` parameter threads through
   `_copilot_task`, `_copilot_handoff`, and `delivery_instructions_block` to
   include or omit the "Report Status to Jira (before commit)" instruction.
   `copilot_team_instructions()` loads `docs/agent_team_instructions.md` or a
   `_fallback_team_instructions()` mirror.
-- **`delivery_instructions.py` (~50 lines)** — single source of the "Optional
-  Assisted Delivery" block: branch-name checks, the forbidden add-list
-  (`.ai/`, `.ai_memory/`, `jira.json`, secret-bearing files), and the
-  commit/push approval gate. `jira_comment` toggles the last Jira-rule sentence.
+- **`delivery_instructions.py` (~110 lines)** — delivery text, split in two
+  because only one half depends on the workflow. `delivery_safety_block` is the
+  BugPilot-owned gate — branch-name checks, the forbidden add-list (`.ai/`,
+  `.ai_memory/`, `jira.json`, secret-bearing files), no force push, no merge/PR
+  — and is rendered for every Fix Mode. `assisted_delivery_block` is the offer:
+  the delivery summary, the commit question, and the commit/push commands, for a
+  pass that produced a fix. `delivery_instructions_block` composes both, for
+  callers that always deliver (the retry prompt). `jira_comment` toggles the last
+  Jira-rule sentence in the safety block.
 
 ### 5.5 Agent handoff & setup — `agent_runner.py`, `copilot.py`, `setup.py`
 
@@ -347,6 +484,10 @@ file. Errors are deliberately built to never echo secrets.
   enforces the `JR-12345` shape.
 - **`logging_utils.py` (~13 lines)** — `log(issue_dir, message)` appends a
   UTC-timestamped line to `execution.log`.
+- **`artifact_io.py` (~34 lines)** — `atomic_write_text`: temp file plus one
+  rename, with the Windows `PermissionError` retry and an in-place fallback. For
+  the files another process reads while a run is in progress —
+  `workflow_status.json` and `fix_mode.json`.
 
 ---
 
@@ -370,6 +511,8 @@ Artifacts *are* the interface between steps. Producer → consumer:
 | `agent_task.md` / `agent_handoff.md` / `agent_team_instructions.md` | `prompt_step` | Copilot/Claude/human |
 | `developer_hint.md` | `--hint` | prompt/agent-task regeneration |
 | `jira_comment_on.flag` | `--jira-comment` | prompt/agent-task regeneration |
+| `fix_mode.json` | `--fix-mode` / default | resume, refine, prompt/agent-task/retry regeneration, status |
+| `.bugpilot/fix_modes/*.json` | `fix-mode` CRUD (or a developer's editor) | the effective registry, every run |
 | `bug_analysis.md`, `fix_summary.md`, `test_result.md`, `diff_summary.md`, `review_notes.md` | agent/human/`manual-result` | check-results, summarize, review-package, jira-comment-draft |
 | `user_feedback.md`, `agent_retry_prompt.md` | `retry_prompt_step` | agent (2nd attempt) |
 | `result_summary.md`, `manual_validation.md` | `summarize_results_step` | review-package, email, jira-comment-draft |

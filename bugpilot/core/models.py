@@ -170,6 +170,14 @@ class InvestigationRequest:
     spec: BugSpec
     options: InvestigationOptions = field(default_factory=InvestigationOptions)
     plan: InvestigationPlan = field(default_factory=InvestigationPlan)
+    # *Which* AI workflow to hand the prepared package to, by id. Not in
+    # `options`, which is about retrieval, and not in `BugSpec`, which is the bug
+    # itself — the Fix Mode is execution policy and changes nothing about what
+    # is retrieved. An id rather than a resolved mode, because an entry point
+    # knows what the developer typed and core owns resolution. `None` means the
+    # caller expressed no preference: the work item's persisted choice, or
+    # Standard Fix.
+    fix_mode_id: str | None = None
 
     @property
     def work_item_id(self) -> str:

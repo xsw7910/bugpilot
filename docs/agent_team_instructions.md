@@ -4,6 +4,14 @@
 
 This document gives the AI agent stable team rules for working in a legacy C++/Qt desktop codebase.
 
+## Task and Fix Mode Precedence
+
+These are general team rules. The issue-specific agent task, and the AI Fix Mode it names, decide whether implementation, testing, and assisted delivery are allowed in the current pass.
+
+- If the selected Fix Mode is investigation-only, do not implement, do not offer to commit or push, and do not describe the issue as fixed, resolved, or verified. Complete the investigation artifacts and ask the developer whether to continue.
+- The rules below about small fixes, focused tests, and asking about commit and push apply to a pass that is allowed to change source code.
+- BugPilot safety rules always apply, in every pass and in every Fix Mode.
+
 ## Core Principles
 
 - Prefer small, targeted fixes.
@@ -47,6 +55,8 @@ This document gives the AI agent stable team rules for working in a legacy C++/Q
 
 ## Testing Expectations
 
+These apply to a pass that changes source code. In an investigation-only pass, record the proposed validation instead and state plainly that tests were not run.
+
 - Run focused tests if available.
 - If automated tests are unavailable, document manual validation.
 - Include regression risk.
@@ -61,7 +71,7 @@ This document gives the AI agent stable team rules for working in a legacy C++/Q
 - Do not delete files.
 - Do not merge.
 - Do not commit or push automatically.
-- You may ask the developer whether they want you to commit and push after completing the workflow.
+- When the current pass is allowed to change source code, you may ask the developer whether they want you to commit and push after completing the workflow.
 - Only commit and push after explicit approval.
 - Never push main/master.
 - Never force push.

@@ -83,6 +83,55 @@ h2 {
   font-size: 0.9em;
 }
 
+/* The Fix Mode description reads as part of its selector, not as a new block. */
+.fix-mode-note {
+  margin-top: 4px;
+}
+
+/* The selector keeps the width it had; the gear sits beside it. */
+.fix-mode-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.fix-mode-row select {
+  flex: 1 1 auto;
+}
+
+/* Manage Fix Modes: the panel's own list idiom, not a second visual language. */
+.manage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.manage-group {
+  margin-top: 10px;
+}
+
+.manage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.manage-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.manage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .error {
   color: var(--vscode-errorForeground);
   margin: 3px 0 0;

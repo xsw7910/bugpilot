@@ -20,6 +20,17 @@ import { WORKFLOW_STEP_IDS } from "../app/workflow.ts";
 import type { OverallStatus, WorkflowStep } from "../app/workflow.ts";
 import type { ArtifactList } from "../app/artifacts.ts";
 import type { CommandAction } from "../app/environment.ts";
+import { FIX_MODE_ID_RE } from "../app/form.ts";
+import { WRITABLE_SCOPES } from "../app/fixModes.ts";
+import type {
+  FixModeCatalog,
+  FixModeDraft,
+  ManagedFixModes,
+  PreparedFixMode,
+  WritableScope,
+} from "../app/fixModes.ts";
+import { FIX_MODE_ACTIONS } from "../app/controller.ts";
+import type { FixModeActionId } from "../app/controller.ts";
 
 /**
  * Upper bounds on incoming strings.
@@ -38,6 +49,7 @@ const CAPS: Readonly<Record<keyof FormTextFields, number>> = {
   maxFiles: 16,
   maxSearchLines: 16,
   agentCommand: 2_000,
+  fixModeId: 64,
 };
 
 type FormTextFields = Omit<
@@ -97,6 +109,30 @@ export interface PanelState {
   /** Set when a previous attempt exists, which is what enables Retry. */
   readonly canRetry: boolean;
   readonly workItemId?: string;
+  /**
+   * The AI Fix Modes bugpilot offers, and whether they could be read at all.
+   *
+   * Computed by the host like everything else on this state: the page has no
+   * way to spawn a process, and giving it one would make the webview the thing
+   * that decides what a Fix Mode is.
+   */
+  readonly fixModes: FixModeCatalog;
+  /**
+   * What the *prepared* package was built with, when there is one.
+   *
+   * Separate from `form.fixModeId`, which is what the next run would use. The
+   * two disagree the moment a developer changes the dropdown without running,
+   * and reporting the new choice as though it had produced the package on disk
+   * would misdescribe what the agent was told.
+   */
+  readonly preparedFixMode?: PreparedFixMode;
+  /**
+   * The Manage Fix Modes view, present only while it is open.
+   *
+   * Every physical definition rather than the effective list the selector uses:
+   * a mode one scope shadows still has to be editable in the scope that owns it.
+   */
+  readonly manage?: ManageView;
 }
 
 /**
@@ -169,7 +205,16 @@ export type PanelMessage =
   | { readonly type: "addAttachments"; readonly form: FormState }
   | { readonly type: "action"; readonly id: PanelAction }
   | { readonly type: "command"; readonly id: string }
-  | { readonly type: "openArtifact"; readonly name: string };
+  | { readonly type: "openArtifact"; readonly name: string }
+  | { readonly type: "manageFixModes" }
+  | { readonly type: "closeFixModes" }
+  | {
+      readonly type: "fixModeAction";
+      readonly action: FixModeActionId;
+      readonly id: string;
+      readonly scope: string;
+    }
+  | { readonly type: "saveFixMode"; readonly draft: FixModeDraft };
 
 /**
  * Validate a message from the page.
@@ -185,7 +230,22 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     case "ready":
     case "stop":
     case "retry":
+    case "manageFixModes":
+    case "closeFixModes":
       return { type };
+    case "fixModeAction": {
+      const action = message?.["action"];
+      const id = asString(message?.["id"], 64);
+      const scope = asString(message?.["scope"], 16);
+      if (!(FIX_MODE_ACTIONS as readonly string[]).includes(action as string)) return undefined;
+      if (id === undefined || !FIX_MODE_ID_RE.test(id)) return undefined;
+      if (scope !== "builtin" && scope !== "user" && scope !== "project") return undefined;
+      return { type, action: action as FixModeActionId, id, scope };
+    }
+    case "saveFixMode": {
+      const draft = asDraft(message?.["draft"]);
+      return draft ? { type, draft } : undefined;
+    }
     case "run":
     case "formChanged":
     case "addAttachments": {
@@ -219,6 +279,69 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
   }
 }
 
+/**
+ * The management view: what exists on disk, and the mode being looked at.
+ *
+ * Present only while the developer has it open, so the page has one thing to
+ * check before rendering any of it.
+ */
+export interface ManageView {
+  readonly catalog: ManagedFixModes;
+  /** The mode in the editor, if one is open. */
+  readonly editor?: FixModeDraft;
+  /** Why the last management command was refused. */
+  readonly error?: string;
+}
+
+/**
+ * The upper bound on one section of a draft.
+ *
+ * Core enforces the real limit and is authoritative; this only stops a hostile
+ * or broken page from handing megabytes to a temporary file. Deliberately the
+ * same number, so a draft that passes here fails in core for a reason the
+ * developer can act on rather than being silently truncated at a different one.
+ */
+export const MAX_FIX_MODE_SECTION = 12_000;
+
+function asDraft(raw: unknown): FixModeDraft | undefined {
+  const record = asRecord(raw);
+  if (!record) return undefined;
+  const intent = record["intent"];
+  if (intent !== "create" && intent !== "edit" && intent !== "view") return undefined;
+  const id = asString(record["id"], 64);
+  // The same shape core accepts. Checked here because this value becomes a file
+  // name in a directory BugPilot writes to, and a webview is untrusted input.
+  if (id === undefined || !FIX_MODE_ID_RE.test(id)) return undefined;
+  const scope = record["scope"];
+  if (!(WRITABLE_SCOPES as readonly string[]).includes(scope as string)) return undefined;
+  const executionKind = record["executionKind"];
+  if (executionKind !== "fix" && executionKind !== "investigate") return undefined;
+  const version = record["version"];
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 0) return undefined;
+  const text = (field: string): string => asString(record[field], MAX_FIX_MODE_SECTION) ?? "";
+  const basedOn = asString(record["basedOn"], 64);
+  const basedOnVersion = record["basedOnVersion"];
+  return {
+    intent,
+    id,
+    name: text("name"),
+    description: text("description"),
+    executionKind,
+    objective: text("objective"),
+    investigation: text("investigation"),
+    implementation: text("implementation"),
+    verification: text("verification"),
+    constraints: text("constraints"),
+    completion: text("completion"),
+    scope: scope as WritableScope,
+    version,
+    ...(basedOn && FIX_MODE_ID_RE.test(basedOn) ? { basedOn } : {}),
+    ...(typeof basedOnVersion === "number" && Number.isInteger(basedOnVersion) && basedOnVersion > 0
+      ? { basedOnVersion }
+      : {}),
+  };
+}
+
 function parseForm(raw: unknown): FormState | undefined {
   const record = asRecord(raw);
   if (!record) return undefined;
@@ -243,6 +366,11 @@ function parseForm(raw: unknown): FormState | undefined {
     maxSearchLines: text("maxSearchLines"),
     agentCommand: text("agentCommand"),
     attachments: parseAttachments(record["attachments"]),
+    // Shape-checked here rather than trusted: the page only offers ids the CLI
+    // listed, but this is the untrusted side of the boundary and the value ends
+    // up as a command-line flag. Anything else becomes "no selection", which
+    // lets core apply its own default instead of failing the run.
+    fixModeId: FIX_MODE_ID_RE.test(text("fixModeId")) ? text("fixModeId") : "",
     plan: {
       // Not negotiable: this is the input, and a page claiming otherwise is
       // either stale or lying.
