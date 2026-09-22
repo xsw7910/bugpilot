@@ -563,6 +563,40 @@ test("the limits show their defaults without pretending to hold them", () => {
   assert.equal(/Maximum number of/.test(HTML), false, "the number in the box says this already");
 });
 
+test("every field that can hold a paragraph is multi-line", () => {
+  // Hint and Keywords were single-line inputs, which scroll sideways: a
+  // developer who typed a sentence could no longer see the start of it. The
+  // list is also what `parseKeywords` assumes — it splits on newlines, which
+  // needs somewhere to type one.
+  for (const id of ["description", "hint", "keywords", "focusFiles", "ignorePaths"]) {
+    assert.match(HTML, new RegExp(`<textarea[^>]*id="${id}"`), `${id} is not multi-line`);
+    assert.equal(
+      new RegExp(`<input[^>]*id="${id}"`).test(HTML),
+      false,
+      `${id} went back to a single line`,
+    );
+  }
+});
+
+test("the page grows exactly the fields the markup made multi-line", () => {
+  // Both directions, because neither failure is visible: a textarea missing
+  // from the list silently stops growing, and an id in the list that no longer
+  // matches a textarea grows nothing at all.
+  const declared = /const GROWING_FIELDS = \[([^\]]*)\]/.exec(PAGE_JS)?.[1] ?? "";
+  const grown = [...declared.matchAll(/"([^"]+)"/g)].map((match) => match[1]!);
+  const textareas = [...HTML.matchAll(/<textarea[^>]*id="([^"]+)"/g)].map((match) => match[1]!);
+  assert.ok(textareas.length > 0, "expected the form to have textareas");
+  assert.deepEqual(grown.sort(), textareas.sort());
+});
+
+test("growing has a ceiling, in the theme's own units", () => {
+  // Without one, a pasted stack trace pushes Run off the bottom of the sidebar.
+  // In em rather than px so it follows the font the theme chose.
+  const rule = /textarea \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  assert.match(rule, /max-height: [\d.]+em/, "nothing stops a field from growing");
+  assert.match(rule, /overflow-y: auto/, "a capped field with no scrollbar hides its own text");
+});
+
 test("a path field says one-per-line by showing it", () => {
   // A multi-line placeholder does what a sentence about line breaks cannot.
   for (const id of ["focusFiles", "ignorePaths"]) {
