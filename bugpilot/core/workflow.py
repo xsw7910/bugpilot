@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -326,6 +326,15 @@ def run_investigation(
     )
     if effective_hint and effective_hint.strip():
         hint_path.write_text(effective_hint.strip() + "\n", encoding="utf-8")
+    # The steps below now search with the hint, so they must be given the one
+    # actually in force (§33.5). On --resume the hint comes from the file rather
+    # than from this invocation's options, and without this the retrieval would
+    # quietly run without it while the agent's task file still carried it.
+    search_options = (
+        replace(request.options, hint=effective_hint.strip())
+        if effective_hint and effective_hint.strip()
+        else request.options
+    )
 
     # Attachments are copied here, before any step runs, because the task file
     # written later has to name them — and it may only name the ones that
@@ -422,13 +431,13 @@ def run_investigation(
             _persist_resolved_spec(repo_root, request)
         if "keywords" in resolved:
             _progress(progress, "keywords")
-            keywords_step(repo_root, issue_key, request.options)
+            keywords_step(repo_root, issue_key, search_options)
         if "memory_search" in resolved:
             _progress(progress, "memory_search")
             memory_search_step(repo_root, issue_key)
         if "code_search" in resolved:
             _progress(progress, "code_search")
-            code_search_step(repo_root, issue_key, request.options)
+            code_search_step(repo_root, issue_key, search_options)
         if "git_context" in resolved:
             _progress(progress, "git_context")
             git_context_step(repo_root, issue_key)

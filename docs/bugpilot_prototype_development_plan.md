@@ -3482,3 +3482,998 @@ typing, and anything that changes the hint without the developer accepting it.
 Not deferred but worth recording: a custom agent command cannot improve hints,
 because doing it safely needs that provider's non-interactive argument shape,
 which only the developer who configured it knows.
+
+## 33. Retrieval Quality
+
+**Status:** 33.1-33.7 Complete and verified. 33.8 Deferred by design.
+
+```text
+33.1  Retrieval Regression Baseline   Complete   harness + corpus + baseline
+33.2  Search Surface Correctness      Complete   one extension list; docs reserved out of the lead
+33.3  Search Term Quality             Complete   weight from evidence, not position
+33.4  Repository Term Probing         Complete   true counts; broad terms demoted
+33.5  Hint-Aware Retrieval            Complete   hint is a weighted signal
+33.6  Context Ranking                 Complete   verified; no production change needed
+33.7  Regression Verification         Complete   top-5 recall 0/5 -> 3/5; docs 15/30 -> 9/30
+33.7A Real Historical Corpus Support  Complete   loader, MRR, report — 0 real cases available
+33.7B Identifier-Shape Expansion      Complete   prose -> camelCase/snake_case, probe-gated
+33.7C Retrieval Metrics/Calibration   Complete   top-3 2/5 -> 3/5; MRR 0.307 -> 0.467
+33.8  AI Semantic Expansion           Deferred   one measured case needs it; not yet justified
+33.10 Pre-Commit Fix Pass             Complete   review findings closed; metrics held, 5.3s -> 4.0s
+```
+
+Cumulative, baseline (§33.1) to now:
+
+```text
+              baseline   now
+top-3 recall       0/5   3/5
+top-5 recall       0/5   3/5
+MRR                  -   0.467
+docs in top 5    15/30   9/30
+```
+
+Files changed: `bugpilot/core/code_files.py` (new), `search_terms.py` (new),
+`search.py`, `keywords.py`, `workflow.py`. Tests added:
+`tests/retrieval_corpus.py` (harness), `test_retrieval_regression.py`,
+`test_search_surface.py`, `test_search_probing.py`, `test_hint_retrieval.py`,
+`test_context_ranking.py`; four existing guards loosened from exact-shape to
+contract assertions. Python 983 passed.
+
+**C++/Qt validation: not done.** No historical target-repository corpus was
+available locally, so every case is Python/TypeScript. The extension work in
+§33.2 is verified by fixture for `.c`, `.hxx`, `.qml`, `.ts` and `.js`, but the
+breadth threshold in particular was derived from this repository's term
+distribution and will differ on a large Qt codebase. Recorded as the outstanding
+validation for this section.
+
+The objective is not better-looking keyword lists. It is:
+
+```text
+find the smallest set of search terms that retrieves the files most likely to
+help fix the bug, while keeping irrelevant context out
+```
+
+### 33.0 What the investigation found
+
+Measured against this repository, not inferred. The pipeline today is:
+
+```text
+issue/description -> parse_issue.combined_text -> extract_keywords
+                  -> user keywords prepended -> one `rg` per term
+                  -> _rank_related_files -> related_files.json -> bug_context.md (top 5)
+```
+
+Problems, ranked by effect on retrieval:
+
+```text
+1. The high-value tier is positional. `high_value_keywords = keywords[:5]` takes
+   the top five of the ranking whatever they are, and search.py gives that tier
+   weight 6. On a prose bug the five are prose:
+     "The data process output is wrong and the volume is not updated correctly."
+       high: ['correctly', 'data', 'process', 'output', 'volume']
+   `selected` outranks `VDS` because length >= 8 scores +1 and an all-caps
+   acronym scores 0.
+2. Documentation competes with implementation. `*.md` is an include glob, and
+   prose terms match prose files. Measured, for
+   "Fix Mode selection is not persisted when the run fails halfway.":
+       1 docs/bugpilot_prototype_development_plan.md
+       2 bugpilot/cli.py
+       3 README.md
+       4 docs/architecture.md
+       5 docs/adapter_design.md
+   `bugpilot/core/fix_mode_state.py` — the file that implements the behaviour —
+   does not appear at all. With identifier terms it ranks first.
+3. Breadth is measured and thrown away. `_rg_keyword` reads all of rg's output
+   and breaks at MAX_MATCHES_PER_KEYWORD, so a term matching 9,000 lines and one
+   matching exactly 20 are indistinguishable downstream.
+4. The Hint never reaches retrieval. It is written to developer_hint.md and read
+   only by prompts.py.
+5. Nine extensions the extractor recognises are never searched: .c .cs .go .hxx
+   .java .js .qml .rs .ts
+6. No bridge between identifier and prose spellings. `VolumeDescriptor` finds 4
+   matches; `volume descriptor` finds 0, and vice versa.
+```
+
+### 33.1 Retrieval Regression Baseline
+
+**Status:** Complete. Harness and corpus added; baseline measured and recorded
+below. 8 tests passed.
+
+Files: `tests/retrieval_corpus.py` (harness + corpus, not collected by pytest),
+`tests/test_retrieval_regression.py` (mechanics and a loose floor).
+
+`run_case` mirrors `workflow.keywords_step` rather than calling it: that step
+reads and writes a work-item directory, and the harness wants the retrieval, not
+the artifacts. The user-keyword merge is reproduced exactly.
+
+**Baseline, measured 2026-09-23 against this repository at c767ddd:**
+
+```text
+case                            kind                     best  t3  t5 t10  docs@5  terms   sec
+fix-mode-persistence            natural language            -   n   n   n       3      5   0.2
+identifier-persist-fix-mode     strong identifier           7   n   n   Y       3     15   0.7
+prose-heavy-keyword-extraction  prose heavy                 6   n   n   Y       2     14   0.6
+generic-terms-only              generic terms               -   n   n   n       2      6   0.3
+atomic-write-crash              natural language            -   n   n   n       3     10   0.5
+hint-points-at-the-fix          hint carries direction      -   n   n   n       2      3   0.1
+
+top-3 recall     0/5
+top-5 recall     0/5
+top-10 recall    2/5
+docs in top 5    15/30 slots
+total duration   2.5s
+```
+
+Read that table before reading anything else in §33. Retrieval does not merely
+rank the right file low — on three of five cases it does not return it at all,
+and half of every top-5 is documentation. `generic-terms-only` has no expected
+file on purpose: it measures what a bug made only of generic words drags in.
+
+Limitations, recorded rather than smoothed over:
+
+```text
+- ranks move as this repository moves, so the corpus is a floor, not a snapshot;
+  exact numbers live here and the tests assert loose thresholds
+- one real-world gap: no C++/Qt corpus. Every case is Python/TypeScript, which
+  is the language mix this repository has. §33.2's extension work is therefore
+  verified by fixture, not by a real Qt tree. Recorded as deferred validation.
+- `hint-points-at-the-fix` carries a hint that currently cannot affect anything;
+  it is in the corpus now so §33.5 has a before number to move.
+```
+
+Objective: measure retrieval before changing it, so every later claim is
+evidence-based rather than plausible.
+
+```text
+- a harness that runs the real pipeline (extract -> search -> rank) over a case
+- metrics: rank of each expected file, top-3/5/10 hit, docs in top 5, zero-match
+  terms, broad terms, candidate term count, duration
+- a corpus of at least five cases: natural-language, strong-identifier,
+  prose-heavy, generic-terms, and one with a known implementation file
+- fixture repositories where determinism matters; this repository where it is
+  stable
+- baseline recorded as data, not as assertions: a baseline test must not fail
+  because retrieval is currently poor
+```
+
+Acceptance: baseline numbers recorded in this section before 33.2 begins.
+
+### 33.2 Search Surface Correctness
+
+**Status:** Complete. 30 focused tests passed; 231 existing search/workflow/
+context tests still pass.
+
+Files: new `bugpilot/core/code_files.py`; `bugpilot/core/search.py`,
+`bugpilot/core/keywords.py`, `tests/test_core_robustness.py` changed; new
+`tests/test_search_surface.py`.
+
+**One list, where there were three.** `search.INCLUDE_GLOBS` built ripgrep's
+`-g` flags, `search._is_included_path` re-stated the same suffixes inline to
+filter rg's output, and `keywords._CODE_EXT` decided whether `widget.cpp` in a
+report looked like a file name. The third had drifted nine extensions away from
+the other two: `.c .cs .go .hxx .java .js .qml .rs .ts` were recognised and
+unsearchable, so a bug naming `reader.ts` produced a keyword for a file the
+search would never open. All three now derive from `code_files.CODE_SUFFIXES`.
+Exclusion directories are unchanged.
+
+**Documentation keeps its seat but not the front row.** Of the mechanisms
+considered — separate scores, a penalty, bands, reserved slots — reserved slots
+is the one that states the actual requirement: `RESERVED_IMPLEMENTATION_SLOTS =
+3` of the files that survive the cap are kept for implementation when
+implementation exists. Scores are untouched; this decides which files survive
+the cap and in what order. Documentation is still searched and still returned,
+because a design note naming the subsystem is a real lead. Focus Files are
+exempt: a `--focus-file` is an instruction, and a reservation that could demote
+one would be the ranker quietly overruling the developer — so pinned files lead
+whatever their kind, including documentation.
+
+**Interim measurement after 33.2, recorded because it got worse before it got
+better:**
+
+```text
+                  baseline   after 33.2
+top-3 recall           0/5          0/5
+top-5 recall           0/5          0/5
+top-10 recall          2/5          1/5   <-- regression
+docs in top 5        15/30        11/30
+```
+
+Documentation dropped from half the top-5 slots to a third, as intended. But
+`prose-heavy-keyword-extraction` fell out of the top 10 (was rank 6). Cause:
+making `.ts`/`.js` searchable added the whole VS Code extension to the candidate
+pool, and under the current flat prose weighting those files match generic terms
+("keywords", "files", "good") as readily as `core/keywords.py` does. Recall went
+up and precision went down.
+
+This is the expected shape of the problem and the reason §33.3 and §33.4 follow:
+more search surface is only useful once term weight reflects term evidence. Not
+patched over here — it is re-measured in §33.7, and the acceptance criterion is
+that this case recovers.
+
+Coverage before semantics.
+
+```text
+- align the searched extensions with the extensions the extractor recognises,
+  from one source of truth rather than two lists that drift
+- keep the existing exclusion directories
+- separate implementation candidates from supporting documentation so prose
+  matches in docs cannot crowd source out of the top ranks — without declaring
+  documentation useless
+```
+
+Acceptance: a file in each newly supported extension is findable; source
+outranks a broadly-matching doc; docs still reachable as supporting context.
+
+### 33.3 Search Term Quality
+
+**Status:** Complete. 245 search/workflow/surface/robustness tests pass.
+
+Files: new `bugpilot/core/search_terms.py`; `bugpilot/core/keywords.py`,
+`bugpilot/core/search.py` changed; `tests/test_workflow.py` schema guard
+loosened to the real contract.
+
+**The model.** Three fields, because the ranker reads three:
+
+```python
+@dataclass(frozen=True)
+class SearchTerm:
+    value: str
+    source: Literal["issue","hint","user","identifier","phrase","expanded"]
+    weight: int
+```
+
+`kind`, `confidence` and provenance chains were considered and left out — nothing
+would have branched on them, and an unused field in a scoring path becomes a
+future argument about what it meant.
+
+**Weights**, on the scale `search._match_weight` already used, so the ranker's
+arithmetic keeps its meaning and only the assignment changes:
+
+```text
+12  quoted phrase            an exact UI/error string is near-unique
+ 8  user keyword, and        the developer or the crash said this;
+    stack-trace identifier   neither is guessing
+ 6  code-shaped identifier   a hump, a qualifier, an underscore, a file name,
+                             or an all-caps acronym of 3-6 characters
+ 4  hint prose               chosen by the developer, but still a hypothesis
+ 2  issue prose
+ 1  generic prose, hedges, and sub-tokens split from compounds
+```
+
+Two additions the measurements forced:
+
+```text
+- acronyms. `_is_identifier_shaped` looks for a camelCase hump, and an acronym
+  has none, so `VDS` weighed exactly as much as `selected`. All-caps, 3-6
+  characters, not a stop word -> identifier. Bounded by length so a shouted
+  sentence does not become a pile of identifiers.
+- hedges. A hint begins "maybe" or "possibly" more often than not, and those
+  words carry none of its meaning.
+```
+
+**Backward compatibility.** `extract_keywords` still returns the five legacy
+lists; `extracted_keywords.json` is written into every work item and printed by
+the CLI. One key was added beside them — `priority_keywords`, which of the tokens
+the software itself printed — because the five cannot express it and the
+weighting needs it. The schema guard now asserts the five are present rather
+than that nothing else is, which is the actual contract.
+
+**Term budget.** `MAX_SEARCHED_TERMS = 28`, matching the old worst case
+(5 + 10 + 5 + 8). Weight decides which survive, so the bound on
+`terms x 20s timeout` is unchanged.
+
+**Measured after 33.3:**
+
+```text
+                  baseline   after 33.2   after 33.3
+top-3 recall           0/5          0/5          1/5
+top-5 recall           0/5          0/5          1/5
+top-10 recall          2/5          1/5          2/5
+docs in top 5        15/30        11/30        11/30
+```
+
+`identifier-persist-fix-mode` moved 7 -> 3. `hint-points-at-the-fix` moved from
+absent to 9, because wiring the weighted list into `run_code_search` also gave
+`options.hint` a path into retrieval for the first time — §33.5's plumbing
+arrived here as a side effect, and that section covers its semantics and tests
+rather than its existence. The three cases still missing are prose bugs whose
+terms match documentation as readily as implementation; §33.4 is the part that
+addresses breadth.
+
+Replace positional importance with evidence.
+
+```text
+- a term's weight comes from what it looks like and where it came from, never
+  from its index in a list
+- strongest: stack/error identifiers, explicit user keywords, strong code
+  identifiers
+- medium: quoted phrases, hint-derived technical terms
+- lower: ordinary issue prose
+- lowest: generic prose
+- smallest model that the ranker actually uses; no unused metadata
+- extracted_keywords.json keeps its five legacy lists
+```
+
+Acceptance: `correctly`/`selected`/`changing`/`data`/`process` no longer reach
+the top weight by position; `OpenVDS`, `SamplePoststackReader`,
+`VolumeDescriptor`, `mapSampleIndexToSampleValue`, `sample_volume_cache.cpp` still do.
+
+### 33.4 Repository Term Probing
+
+**Status:** Complete. 10 focused tests added; 261 search/workflow/context tests
+pass.
+
+Files: `bugpilot/core/search.py`; new `tests/test_search_probing.py`;
+`tests/test_workflow.py` search-quality guard loosened to the real contract.
+
+**Two ideas that were conflated, separated.** `TermSearchResult` holds
+`total_match_count` (how much of the repository the term touched — decides what
+it is worth) and `retained_matches` (bounded evidence shown downstream). The
+count was always there: ripgrep prints every match and the collector discarded
+the surplus. Counting costs one pass over output already in memory; no second
+process.
+
+**The threshold, derived rather than guessed.** Measured over the §33.1 corpus
+against this repository: 58 terms, median 193 matches, deciles
+`[12, 27, 40, 76, 193, 308, 512, 791, 2254]`. The two genuinely specific terms —
+`persist_fix_mode` (12) and `fix_mode.json` (19) — sit in the bottom two deciles,
+three orders of magnitude below `Fix` (3,472) and `Mode` (4,150).
+`BROAD_MATCH_THRESHOLD = 500` is the ~70th percentile. One constant, one place;
+re-derive it with `tests/retrieval_corpus.py` if the corpus changes.
+
+A broad term is demoted to the weakest weight, not dropped: it is sometimes the
+only thread connecting a file to the report, and dropping it would trade a
+precision problem for a recall one.
+
+**The defect this phase actually found.** The retained cap counted *lines*, and
+ripgrep walks in directory order — so a term with 76 matches retained whatever
+the walk reached first. `bugpilot/core/fix_mode_state.py` contains `persisted`
+nine times and `FixMode` twenty-four, and was retained for neither: the budget
+had been spent in `bugpilot/cli.py` before the walk arrived. This was invisible
+from the outside and larger than the weighting problem.
+
+The budget is now counted in files (`MAX_FILES_PER_TERM = 20`,
+`MAX_MATCHES_PER_FILE_PER_TERM = 3`), so a term's evidence spans the repository.
+And because spreading helps a term that names something while hurting one that
+is everywhere, a broad term gets `BROAD_TERM_FILE_BUDGET = 4`. Both halves were
+measured:
+
+```text
+                                    top-3   top-5   docs@5
+after 33.3                            1/5     1/5    11/30
++ file-spread budget for all terms     0/5     0/5    11/30   <-- worse
++ smaller budget for broad terms       2/5     2/5     9/30
+```
+
+The middle row is why the second constant exists: sixty matches of `Mode` across
+twenty files score twenty files. Recorded because it was a real wrong turn, not
+a straight line.
+
+**Diagnostics** go into `search_quality.json` — the file that already answers
+"should I trust this search" — as a `terms` list of value, source, weight,
+effective weight, match count and classification. No new artifact.
+
+**Measured after 33.4:**
+
+```text
+                  baseline   33.2    33.3    33.4
+top-3 recall           0/5    0/5     1/5     2/5
+top-5 recall           0/5    0/5     1/5     2/5
+top-10 recall          2/5    1/5     2/5     2/5
+docs in top 5        15/30  11/30   11/30    9/30
+```
+
+Both Fix Mode cases now rank 3. `hint-points-at-the-fix` regressed from 9 to
+absent and is picked up in §33.5, which owns that case.
+
+Keep the breadth information the search already computes.
+
+```text
+- record each term's true repository match count, while still retaining only the
+  bounded number of detailed matches downstream needs
+- a term with zero matches does not influence ranking, and is recorded
+- a very broad term influences ranking less than a specific one
+- the breadth threshold is one named, documented constant, justified from the
+  corpus numbers rather than guessed
+```
+
+Acceptance: zero-match terms excluded; a specific term outranks a broad one;
+counts visible in the existing search-quality artifact.
+
+### 33.5 Hint-Aware Retrieval
+
+**Status:** Complete. 12 focused tests; 223 workflow/investigation tests pass.
+
+Files: `bugpilot/core/workflow.py`; new `tests/test_hint_retrieval.py`. The term
+plumbing itself landed with §33.3, which is where `run_code_search` began taking
+`options.hint`.
+
+**One extractor, not two.** Hint terms come from `extract_keywords`, the same
+function the issue goes through. A second parser for hints would drift from this
+one and be wrong in a different way.
+
+**Weight 4**, between issue prose (2) and identifiers/user keywords (6/8). The
+reasoning: a hint is better evidence than the words that happened to be in the
+report, because the developer chose to write it — and worse evidence than a name
+the crash printed or a keyword they typed deliberately, because it may be wrong.
+A hedge ("maybe", "possibly", "seems") is weight 1; it is how a hint begins, not
+what it says.
+
+**Effective hint, fixed here.** `run_investigation` computed `effective_hint` —
+explicit `--hint`, else the request's options, else the hint a previous run left
+in `developer_hint.md` so `--resume` keeps it — wrote it to disk, and then passed
+the *original* `request.options` to the steps. Now that those steps search with
+the hint, a resumed run would have retrieved without one while the agent's task
+file still carried it. The steps are given `search_options`, carrying the hint
+actually in force. An AI-improved hint needs nothing special: the extension puts
+the accepted text in the form, so it arrives as `options.hint` like any other.
+
+**Provenance** is in `search_quality.json` already — each term records
+`source: "hint"`, so a surprising rank can be explained.
+
+**Retrieval calls no AI**, asserted directly: neither `search.py` nor
+`search_terms.py` may contain a provider or a subprocess spawn.
+
+**The case that did not recover.** `hint-points-at-the-fix` went 9 (after §33.3)
+to absent (after §33.4) and stays absent. Diagnosed rather than tuned away: the
+issue and the hint together yield `built`, `details`, `loaded`, `prompt`, `hint`,
+`text` — all prose, all matching 29 to 2,488 times — while the target file
+`extension/src/app/hintImprovement.ts` answers to `hintImprovement`, which no
+sentence in either spells. This is the identifier-versus-prose gap the
+investigation named and did not claim to solve deterministically.
+
+Kept in the corpus as a failing case on purpose. It is the evidence for §33.8:
+the remaining headroom is semantic expansion, not more weighting. Tuning until
+it passed would have been fitting the ranker to one sentence.
+
+```text
+- the developer's hint becomes a search signal, through the same extractor
+- weighted above ordinary issue prose and below user keywords and strong
+  identifiers, so a wrong hint cannot take over
+- the effective hint is whatever the rest of BugPilot already uses, including an
+  AI-improved one the developer accepted; retrieval never calls AI
+- hint provenance recorded, so a surprising rank can be explained
+```
+
+Acceptance: a hint contributes terms; an empty hint changes nothing; a hint term
+cannot outrank a user keyword or a stack-trace identifier.
+
+### 33.6 Context Ranking
+
+**Status:** Complete, by verification rather than by new mechanism. 5 tests added.
+
+Files: new `tests/test_context_ranking.py`. No production change was needed.
+
+`context._related_files_markdown` takes `related_files[:5]`, and that list is
+already ordered by §33.2's `_select_with_reserved_slots` — so implementation
+leading the ranking is implementation leading the context. Adding a second
+ordering rule here would have been two places deciding the same thing.
+
+What the tests assert is the finished `bug_context.md`, not the scores behind
+it, because the scores were right in cases where the context still was not:
+
+```text
+- implementation reaches the context ahead of prose, in a fixture where four
+  documents repeat the issue's own sentence twelve times each and one source
+  file mentions it once
+- documentation is still listed as supporting context
+- a test file naming the broken behaviour is still a lead, not excluded
+- a --focus-file leads the context even when it is a document, so §33.2's
+  reservation cannot overrule the developer
+- the §33.4 term diagnostics did not displace the existing quality reporting
+```
+
+Header/implementation pairing and the test-path confidence cap are untouched.
+The external context format is unchanged, so nothing downstream needed migrating.
+
+Only the top files reach `bug_context.md`, so ranking mistakes are expensive.
+
+```text
+- implementation files have protected representation in the context
+- supporting documentation stays available
+- Focus Files keep their explicit priority
+- tests stay eligible; header/implementation pairing unchanged
+```
+
+Acceptance: tests that assert the final selected context, not only intermediate
+scores.
+
+### 33.7 Regression Verification
+
+**Status:** Complete. Python: 983 passed (64 added across §33).
+
+**Before and after, on the §33.1 corpus against this repository:**
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Relevant file in top 3 | 0/5 | 2/5 |
+| Relevant file in top 5 | 0/5 | **3/5** |
+| Relevant file in top 10 | 2/5 | 3/5 |
+| Documentation in top 5 | 15/30 | **9/30** |
+| Zero-match terms | 0 | 0 |
+| Broad terms kept at full weight | all | 0 |
+| Corpus duration | 2.5s | 3.3s |
+
+Per case:
+
+```text
+case                             before   after
+fix-mode-persistence             absent       5
+identifier-persist-fix-mode           7       1
+prose-heavy-keyword-extraction        6       3
+generic-terms-only               absent  absent   (no expected file; noise probe)
+atomic-write-crash               absent  absent
+hint-points-at-the-fix           absent  absent
+```
+
+**Regressions found and fixed during the work**, recorded because none of them
+was visible from the outside:
+
+```text
+1. §33.2 raised recall and lowered precision: making .ts/.js searchable added
+   the whole extension to the candidate pool, and prose-heavy fell out of the
+   top 10 before §33.3/§33.4 brought it back to 3.
+2. Spreading the retained budget across files helped one case and hurt two,
+   because sixty matches of `Mode` across twenty files score twenty files.
+   Fixed with a separate, smaller budget for broad terms.
+3. Retrieval stopped being reproducible. ripgrep walks directories in parallel,
+   so once the budget was counted in files, *which* files a broad term kept
+   depended on output order: two identical searches of an unchanged tree
+   returned different rankings. Caught by running the corpus twice. Matches are
+   now sorted before any budget is applied, and a test runs the same search
+   three times and compares.
+```
+
+**Acceptance.** Retrieval improved, not merely the keyword lists: top-5 recall
+0/5 -> 3/5 and documentation's share of the context roughly halved. The
+assertions in `tests/test_retrieval_regression.py` were tightened to the
+achieved level — identifier case at top 3, the natural-language case present at
+all, documentation at most 12/30 — with margin, because the corpus runs against
+a repository that keeps changing.
+
+**Threshold honesty.** `BROAD_MATCH_THRESHOLD = 250` is anchored to the corpus
+median (193), not to the argmax of a sweep. The sweep over
+100/150/200/250/300/400/500/800/1200 moved top-5 recall between 1/5 and 3/5 with
+no sharp edge; six cases cannot resolve the constant finely, and tuning it to
+them would be fitting the ranker to six sentences.
+
+**Three cases still fail, and they are the honest limit of this phase:**
+
+```text
+- generic-terms-only has no expected file; it measures noise, and its ranks are
+  the noise floor.
+- atomic-write-crash and hint-points-at-the-fix need a bridge from prose to
+  identifier ("issue details are loaded" -> `loadIssueDetails`,
+  "left truncated" -> `atomic_write_text`). No weighting reaches those; that is
+  §33.8's territory and the reason it is written down rather than done.
+```
+
+Re-run the 33.1 corpus and publish before/after for every metric. A metric that
+gets worse is investigated and reported, not hidden. Acceptance is measured
+retrieval improvement, not tidier keyword lists.
+
+### 33.7A Real Historical Corpus Support
+
+**Status:** Complete (support). 13 retrieval-regression tests pass. **No real
+C++/Qt cases were available on this machine**, so the loader is verified by
+fixture and the corpus itself is empty — see availability below.
+
+Files: `tests/retrieval_corpus.py`, `tests/test_retrieval_regression.py`,
+`.gitignore`.
+
+**Two corpora, one harness.** The six committed fixture cases stay as they were.
+A real corpus is loaded from a local JSON file naming the product checkout to
+search:
+
+```json
+{
+  "repo_root": "C:/path/to/the/product/checkout",
+  "cases": [
+    {"id": "JR-12345",
+     "issue_text": "VDS cannot be selected as process output.",
+     "hint": "maybe output type validation",
+     "expected_files": ["src/process/OutputSelector.cpp"],
+     "notes": "fixed in MR !456; the header change was incidental"}
+  ]
+}
+```
+
+**Storage decision.** Internal Jira prose does not belong in a public
+repository, so `tests/retrieval_corpus/` is git-ignored: the committed part is
+the loader, the format and the report. `load_real_corpus` returns an empty list
+when the file is absent rather than raising, and a test asserts that the suite
+does not depend on a private repository — a test that failed for its absence
+would be deleted within a week.
+
+**Ground truth** is what the fixing commit changed, minus what was along for the
+ride. A formatting sweep, a regenerated file or a changelog edit appears in the
+diff without being what the bug was about, and counting those would reward a
+search for finding the wrong thing. Recorded in the dataclass docstring so
+whoever populates the corpus reads it first.
+
+**MRR added.** `rank 15 -> rank 6` is a real improvement that top-5 recall
+records as nothing happening. Cases with no expected file (the noise probe) are
+excluded from recall and MRR: scoring a question with no answer is not a
+measurement.
+
+**A developer command**, because retrieval work needs to see where every file
+landed and an assertion cannot show that:
+
+```text
+python tests/retrieval_corpus.py                 # the fixture cases
+python tests/retrieval_corpus.py --real          # a local historical corpus
+python tests/retrieval_corpus.py --real PATH --repo PATH
+python tests/retrieval_corpus.py --format        # print the file format
+```
+
+**Baseline before §33.7B**, re-measured on this tree rather than taken from the
+§33.7 report:
+
+```text
+fixture corpus (6 cases, 5 scored)
+  top-3  2/5
+  top-5  3/5
+  top-10 3/5
+  MRR    0.307
+  docs in top 5  9/30
+  terms  53
+  duration 3.4-3.6s
+
+real C++/Qt corpus
+  0 cases — none available on this machine
+```
+
+**Availability, stated plainly.** No historical product repository or issue
+export is present locally, and none was fabricated. Every number in §33 remains
+measured against BugPilot's own Python/TypeScript tree. The C++/Qt validation
+this section exists to enable is still outstanding; what changed is that it can
+now be run by populating one file.
+
+The §33.1 corpus is six hand-written cases against this repository. It was enough
+to find three real defects, and it is not enough to calibrate anything: six
+sentences cannot resolve a threshold, and every one of them is Python or
+TypeScript while the repository BugPilot was built for is C++/Qt.
+
+Scope:
+
+```text
+- a corpus format carrying a real issue and the files that actually fixed it:
+  id, issue text, optional hint, expected files
+- two corpora, not one: the committed fixture cases stay deterministic and
+  self-contained; a real historical corpus is loaded from a local file and
+  pointed at a checkout of the product repository
+- the standard test suite never requires the private repository, and never
+  fails for its absence
+- MRR alongside top-3/5/10, because rank 15 -> rank 6 is a real improvement that
+  recall thresholds cannot see
+- a readable report for use while developing retrieval, not only assertions
+```
+
+Storage decision to record: internal Jira text does not belong in this
+repository, so the real corpus is a **local, git-ignored file** that a developer
+populates from issues they already have access to. The committed part is the
+loader and the format.
+
+Acceptance: the harness evaluates a real corpus when one is present, skips
+cleanly when it is not, and reports MRR.
+
+### 33.7B Identifier-Shape Expansion
+
+**Status:** Complete. 13 focused tests; 286 retrieval-related tests pass.
+
+Files: `bugpilot/core/keywords.py` (phrases and shapes),
+`bugpilot/core/search_terms.py` (candidates, weight, budget),
+`bugpilot/core/search.py` (probe before admit, diagnostics);
+new `tests/test_shape_expansion.py`; two schema guards widened.
+
+**Where the code lives.** Phrase extraction needs the issue *text*, and by the
+time `search.py` runs it has only the keyword lists — so `extract_keywords`
+emits `shape_candidates` alongside the five legacy lists, and the search probes
+them. Putting it there also avoided a circular import between `keywords` and
+`search_terms`.
+
+**The filter that made it work.** The first attempt excluded stop words and
+generic prose from phrases, and produced nothing at all: `issue`, `output`,
+`type`, `details`, `selection` are all in one list or the other, and they are
+exactly the words `issueDetails` and `outputType` are made of. Those lists exist
+to stop a word counting as evidence *alone*, which is a different question. Only
+grammatical function words are now excluded — enough to keep "does not work" out
+— and everything else is let through and killed by the repository probe if the
+codebase does not use it. The probe is a better filter than any word list.
+
+**Nothing is evidence until the repository says so.** Each shape is probed; zero
+matches means discarded before ranking. A generated string can never lift a file
+on the strength of having been generated.
+
+**Case-only variants are not generated.** The search is case-insensitive, so
+`outputType` and `OutputType` match the same lines; producing both would spend
+two processes to score one piece of evidence twice. `identifier_shapes` returns
+camelCase and snake_case only, and a test pins it.
+
+**Weight 5**: below a name somebody wrote (6/8), above a hint (4) and prose (2).
+It was assembled by a rule, and the codebase agreed with it.
+
+**Budget, taken out of the total rather than added to it.**
+`MAX_EXPANSION_PROBES = 8` comes out of `MAX_SEARCHED_TERMS = 28`, so base terms
+get 20. The budget counts attempts, not survivors, because a probe that finds
+nothing still costs a process.
+
+*Corrected in the §33.9 fix pass:* this section previously claimed 28 matched
+the pre-§33 worst case. It did not. The old pipeline searched phrases plus
+high-value plus normal plus expanded, and supplied keywords were **prepended to
+the high-value list**, so its worst case was 5 + (20 + 5) + 10 + 8 = **48**
+invocations — up to sixteen minutes against the 20-second per-term timeout. 28
+is a deliberate reduction to a little over half that, and therefore a retrieval
+behaviour change as well as a latency one, not a preservation of previous
+behaviour.
+
+**Diagnostics** gained `derived_from` and `status` per term, so a developer can
+see that `outputType` came from "output type", matched 17 lines and was kept.
+
+**Measured, fixture corpus:**
+
+```text
+                 before 33.7B   after 33.7B
+top-3 recall              2/5           3/5
+top-5 recall              3/5           3/5
+top-10 recall             3/5           3/5
+MRR                     0.307         0.467
+docs in top 5           9/30          9/30
+duration                 3.4s          5.3s
+```
+
+`fix-mode-persistence` moved 5 -> 1: "Fix Mode selection" became `fixMode`,
+`fix_mode` and `modeSelection`, and `fix_mode` is what the implementation
+actually spells. That is the bridge working on the case §33.7 could not reach.
+
+The duration rose 3.4s -> 5.3s for six cases, about 0.3s per case, from the
+extra probes. Worst case is unchanged; typical case is slower because it now
+spends terms it previously left unused.
+
+The gap §33.7 measured and could not close: a bug says "issue details are
+loaded" and the code says `loadIssueDetails`. No weighting reaches across that,
+because the words are present and the *shape* is not.
+
+This phase bridges shape only, never meaning:
+
+```text
+issue details  ->  issueDetails, IssueDetails, issue_details
+output type    ->  outputType,   OutputType,   output_type
+```
+
+and explicitly not:
+
+```text
+issue details  ->  loadIssueDetails, IssueDetailsLoader, refreshIssueDetails
+```
+
+Those invent a verb the report never used. Shape transformation is deterministic
+and checkable; semantic inference is §33.8.
+
+Scope:
+
+```text
+- candidate phrases from adjacent meaningful tokens, 2-3 words, reusing the
+  existing stop-word and generic-word filters
+- camelCase, PascalCase and snake_case variants of each phrase
+- every candidate probed against the repository: zero matches is discarded, so
+  a generated string can never influence ranking on the strength of having been
+  generated
+- case-only variants deduplicated, because the search is case-insensitive and
+  `outputType`/`OutputType` would otherwise score the same evidence twice
+- weighted below an explicit user keyword and a stack-trace identifier, above
+  issue prose: a confirmed shape is evidence, but weaker than a name somebody
+  actually wrote
+- its own small budget, so worst-case `terms x timeout` does not grow
+- provenance in the diagnostics: which phrase produced it, how many matches it
+  found, whether it was kept
+```
+
+Acceptance: a fixture case whose implementation file is unreachable before
+expansion reaches it after; no case regresses; the corpus duration does not grow
+materially.
+
+### 33.7C Retrieval Metrics and Calibration
+
+**Status:** Complete. Python: 1,001 passed (16 added in §33.7).
+
+**Fixture corpus, before and after §33.7B** (6 cases, 5 scored, this repository):
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Top-3 recall | 2/5 | **3/5** |
+| Top-5 recall | 3/5 | 3/5 |
+| Top-10 recall | 3/5 | 3/5 |
+| MRR | 0.307 | **0.467** |
+| Docs in top 5 | 9/30 | 9/30 |
+| Duration | 3.4s | 5.3s |
+| Terms per case (avg) | 8.8 | 17.0 |
+| Shapes generated (avg) | 0 | 7.3 |
+| Shapes retained (avg) | 0 | 1.8 |
+
+Per case: `fix-mode-persistence` 5 -> **1**; `identifier-persist-fix-mode` 1 -> 1;
+`prose-heavy-keyword-extraction` 3 -> 3; three still absent.
+
+**Real C++/Qt corpus: 0 cases.** None available on this machine and none
+invented. Every number above is BugPilot's own Python/TypeScript tree.
+
+**Why the three still fail**, from their own diagnostics rather than from
+guesswork:
+
+```text
+generic-terms-only      not a failure. No expected file; it measures what a bug
+                        made only of generic words drags in.
+
+atomic-write-crash      missing semantic bridge. Expected artifact_io.py, which
+                        implements `atomic_write_text`. The issue says "writing
+                        ... is left truncated". Shapes generated
+                        workflowStatusFile, workflow_status (145, kept) and six
+                        others; none reaches `atomic_write_text`, because
+                        "writing safely" -> "atomic write" is a synonym, not a
+                        shape. Exactly §33.8's case.
+
+hint-points-at-the-fix  ground-truth ambiguity, and it is the corpus that is
+                        wrong. Expansion worked: issueDetails (86),
+                        issue_details (54) and issue_text (13) were all
+                        confirmed and retained. They rank host/ports.ts and
+                        controller.ts — which is correct, because those are
+                        where issue details are *loaded*. The case names
+                        hintImprovement.ts, which builds the prompt. Left as-is
+                        and recorded rather than quietly re-pointed: a corpus
+                        edited until it passes stops being a measurement.
+```
+
+**Broad-match threshold: unchanged at 250, still provisional.** With shapes
+included the term population is 102 (was 58):
+
+```text
+min 0   median 28   p75 323   p90 821   max 3248
+deciles [0, 0, 0, 7, 28, 61, 196, 437, 821]
+33 zero-match terms — all generated shapes, all correctly discarded
+
+median match count by source
+  identifier         18      shape_expansion    0
+  issue             187      hint             283
+```
+
+250 sits around p70 and separates what it was meant to: identifier-source terms
+(median 18) sit far below it, issue prose (median 187) straddles it. Not moved —
+six cases cannot justify a different number, and the distribution shifted mostly
+because two thirds of generated shapes match nothing, which says more about
+expansion than about breadth. Re-derive on a real C++/Qt corpus.
+
+**AI semantic expansion (§33.8): probably useful later, not justified yet.**
+Of five scored cases, three are at or above rank 3, one is a corpus error, and
+exactly one — `atomic-write-crash` — needs a transformation deterministic rules
+cannot make ("writing is left truncated" -> `atomic_write_text`). One case in
+six is not evidence for adding a model call to every run. The stronger argument
+for revisiting it is that shape expansion generated 44 candidates and the
+repository confirmed 11: the probe gate works, and it would work just as well on
+AI-proposed terms. Decide it on a real corpus, not on this one.
+
+Scope:
+
+```text
+- the same corpus, before and after, on top-3/5/10, MRR, docs in top 5,
+  duration, terms per case, expansions generated and retained
+- fixture and real corpora reported separately, never averaged into one number
+- every case still outside the top 5 classified by *why*, so the §33.8 decision
+  rests on evidence rather than on the feeling that AI would help
+- the match-count distribution from the larger corpus, to say whether
+  BROAD_MATCH_THRESHOLD = 250 still looks reasonable — reported, not tuned,
+  unless the evidence is strong enough to justify moving it
+```
+
+Acceptance: a before/after table, a failure classification, and a recommendation
+on §33.8 that follows from the numbers.
+
+### 33.8 AI Semantic Expansion — Deferred
+
+**Status:** Deferred, deliberately.
+
+Not in this phase: AI keyword generation, a Suggest Keywords UI, automatic
+semantic expansion, Jev, embeddings, vector search, repository indexing,
+stemming/lemmatisation frameworks, AND/co-occurrence query semantics, cross-run
+learning, telemetry, and any automatic rewriting of the developer's keywords.
+
+The investigation's reasoning: the bottleneck is term weighting and the search
+surface, not vocabulary breadth. AI cannot fix a positional tier or an include
+glob. Expansion is worth reconsidering once 33.7 has numbers — and any AI term
+would still have to survive the 33.4 probe, which is also what would remove the
+need for a human review step.
+
+### 33.9 Non-Goals for This Phase
+
+```text
+- renaming Advanced Settings -> Keywords (a user-visible contract; worth doing
+  once the automatic path is demonstrably better)
+- making user keywords obsolete: they stay an explicit expert boost
+- redesigning the search engine; one rg per term stays, with the term count bounded
+```
+
+### 33.10 Pre-Commit Fix Pass
+
+**Status:** Complete. Three review findings closed; metrics unchanged,
+duration improved. Python: 1,010 passed.
+
+Files: `bugpilot/core/code_files.py`, `bugpilot/core/search_terms.py`,
+`tests/retrieval_corpus.py`; new `tests/test_search_budget.py`;
+`tests/test_search_surface.py` and `tests/test_retrieval_regression.py`
+extended.
+
+**1. Implementation and documentation are now mutually exclusive.**
+`CMakeLists.txt` ends in `.txt`, so a pure suffix rule answered *both* "is this
+implementation" and "is this documentation" with yes. Ranking read
+`is_implementation` and was right; the `related_files.json` label and the
+corpus's docs-in-top-5 metric read `is_documentation` and were wrong — which
+would have inflated the headline §33.2 metric on exactly the CMake-heavy
+repositories §33.7A exists to measure. `is_documentation` now returns False for
+anything in `CODE_FILENAMES`, and a test asserts no path can be both.
+
+**2. Generic `*.txt` is no longer searched.**
+§33.2's requirement was to align the *code* extensions the extractor already
+recognised. The documentation formats were an addition of mine, and `.txt` was
+the wrong one: it is the commonest extension for things that are not prose at
+all — `requirements.txt`, licence text, generated file lists, data dumps — so it
+bought scan time and noise rather than leads, and it was the root cause of
+finding 1. `md`, `rst` and `adoc` remain. `CMakeLists.txt` stays searchable
+through `CODE_FILENAMES`, where it belongs: it is a build file, not a document.
+Measured effect: corpus duration 5.3s -> 4.0s, every retrieval metric unchanged.
+
+**3. User keywords boost the search; they no longer replace it.**
+User terms weigh 8 and therefore sort first, so truncating the merged list
+handed them the whole base budget: twenty `--keywords` left room for nothing
+else, and `SampleFoo::bar` from the stack trace was dropped in favour of the
+twentieth word the developer typed. That inverts what the field is for.
+
+`_allocate` now holds `AUTOMATIC_TERM_RESERVE = 8` of the 20-term base budget
+for terms bugpilot found itself. It is a reserve, not a quota — when there are
+fewer automatic terms than that, the space goes back to the user rather than
+being wasted:
+
+```text
+user keywords   total   user   automatic
+  0               7       0        7
+  2               9       2        7
+ 12              19      12        7
+ 20              20      13        7     <- was 20 user, 0 automatic
+```
+
+Terms are re-sorted into weight order after allocation, so the strongest term is
+still searched first and the result does not depend on which bucket a term came
+from.
+
+**4. Corpus files are validated.** A case with no `issue_text` used to load as
+an empty string, score "not found", and pull the average down for a reason
+invisible in the report. `load_real_corpus` now raises `CorpusError` for
+malformed JSON, a missing id, missing issue text, or a duplicate id, and the
+developer command prints the message instead of a traceback. The harness also
+dropped its private copy of the documentation suffix list and uses the
+production classifier — that second list is how the `CMakeLists.txt` miscount
+would have reached the metric.
+
+**Metrics across the fix pass** (fixture corpus, unchanged by design):
+
+```text
+                 before fixes   after fixes
+top-3 recall              3/5           3/5
+top-5 recall              3/5           3/5
+top-10 recall             3/5           3/5
+MRR                     0.467         0.467
+docs in top 5            9/30          9/30
+duration                  5.3s          4.0s
+```
+
+**Deferred, recorded rather than fixed** — none affects correctness:
+
+```text
+- `_collect` parses and sorts rg output twice per term; the first pass needs
+  only the count
+- `extract_keywords(hint)` runs twice per search (CPU only, no subprocess)
+- `high_set` / `normal_set` are threaded through `_rank_related_files` and are
+  dead on the weighted path
+- the corpus has no `primary_files` / `supporting_files` distinction, which
+  `hint-points-at-the-fix` argues for
+- parallel rg, result caching, threshold tuning, search indexing
+- real C++/Qt corpus population, and §33.8 AI semantic expansion
+```

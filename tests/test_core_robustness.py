@@ -102,7 +102,7 @@ def test_a_keyword_starting_with_a_dash_is_searched_not_eaten(tmp_path, monkeypa
         return Result()
 
     monkeypatch.setattr(search.subprocess, "run", fake_run)
-    search._rg_keyword(tmp_path, "-Wall", "high_value", [])
+    search._run_rg(tmp_path, "-Wall", [])
 
     args = captured[0]
     assert "--" in args, "without `--` ripgrep reads the keyword as a flag"
@@ -114,14 +114,16 @@ def test_a_keyword_starting_with_a_dash_is_searched_not_eaten(tmp_path, monkeypa
 @pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep is not installed")
 def test_the_real_ripgrep_accepts_the_form_we_build(tmp_path):
     """The proof that matters: run the actual binary, not a stub of it."""
-    # .cpp, because INCLUDE_GLOBS is the legacy C++/Qt set and .c is not in it.
-    (tmp_path / "flags.cpp").write_text("// built with -Wall here\n", encoding="utf-8")
+    # .c, which §33.2 made searchable: the include globs and the extractor's
+    # notion of a code file now come from one list in `core/code_files.py`.
+    (tmp_path / "flags.c").write_text("// built with -Wall here\n", encoding="utf-8")
     warnings: list[str] = []
-    matches = search._rg_keyword(tmp_path, "-Wall", "high_value", warnings)
+    completed = search._run_rg(tmp_path, "-Wall", warnings)
+    matches, _total = search._collect(completed.stdout, "-Wall", "high_value")
 
     assert warnings == [], warnings
     assert [match.keyword for match in matches] == ["-Wall"]
-    assert "flags.cpp" in matches[0].file
+    assert "flags.c" in matches[0].file
 
 
 # --- supplied keywords are unbounded work ----------------------------------

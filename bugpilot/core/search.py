@@ -5,26 +5,25 @@ from __future__ import annotations
 import json
 import subprocess
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from .code_files import is_documentation, is_implementation, is_searchable, search_globs
 from .git_ops import command_available
 from .models import InvestigationOptions
+from .search_terms import (
+    WEIGHT_IDENTIFIER,
+    WEIGHT_PROSE,
+    WEIGHT_WEAK,
+    SearchTerm,
+    shape_candidates,
+    terms_from_extraction,
+)
 
 
-INCLUDE_GLOBS = [
-    "*.cpp",
-    "*.cxx",
-    "*.cc",
-    "*.h",
-    "*.hpp",
-    "*.ui",
-    "*.qrc",
-    "*.py",
-    "*.cmake",
-    "CMakeLists.txt",
-    "*.md",
-]
+#: Derived, never hand-written: `code_files` is the one list, and this used to be
+#: a second one that had drifted nine extensions away from it.
+INCLUDE_GLOBS = search_globs()
 EXCLUDE_DIRS = [
     ".git",
     "build",
@@ -38,13 +37,59 @@ EXCLUDE_DIRS = [
     ".venv",
     "__pycache__",
 ]
-MAX_MATCHES_PER_KEYWORD = 20
+# The retained evidence for one term, counted in *files* rather than lines.
+#
+# Counting lines was the single worst defect §33 found, and it was invisible:
+# ripgrep walks in directory order, so the first 20 lines of a term with 76
+# matches are whatever it happened to reach first. `bugpilot/core/fix_mode_state.py`
+# contains `persisted` nine times and `FixMode` twenty-four, and was never
+# retained for either — its hits sat past the line budget, which had already
+# been spent in `bugpilot/cli.py`. A term's evidence should span the repository,
+# not its first few directories.
+MAX_FILES_PER_TERM = 20
+MAX_MATCHES_PER_FILE_PER_TERM = 3
+# A broad term gets a much smaller share of that budget. Spreading evidence
+# helps a term that names something and hurts one that is everywhere: measured,
+# giving broad terms the full budget moved `fix-mode-persistence` from absent to
+# rank 6 and simultaneously pushed `identifier-persist-fix-mode` from 3 to 7,
+# because sixty matches of `Mode` across twenty files score twenty files.
+BROAD_TERM_FILE_BUDGET = 4
+# Above this many repository matches, a term stops discriminating and is scored
+# as the weakest thing there is (§33.4).
+#
+# Measured, not guessed. Over the §33.1 corpus against this repository: 58 terms,
+# median 193 matches, deciles [12, 27, 40, 76, 193, 308, 512, 791, 2254]. The two
+# genuinely specific terms — `persist_fix_mode` (12) and `fix_mode.json` (19) —
+# sit in the bottom two deciles, three orders of magnitude below `Fix` (3,472)
+# and `Mode` (4,150).
+#
+# The anchor is the median: a term matching more often than the typical term in
+# a bug report is not telling you much. 250 is just above it.
+#
+# A sweep over the corpus (100/150/200/250/300/400/500/800/1200) put top-5
+# recall between 1/5 and 3/5 with no sharp edge — 250 was the best and 200 and
+# 300 were one case behind. That flatness is the honest reading: six cases
+# cannot resolve this constant finely, and picking the argmax of six would be
+# fitting the ranker to them. Re-derive it with `tests/retrieval_corpus.py` on a
+# larger corpus, especially a C++/Qt one, where the distribution will differ.
+BROAD_MATCH_THRESHOLD = 250
 MAX_SNIPPETS_PER_FILE = 5
 MAX_TOTAL_RELATED_FILES = 10
+# How many of the files that reach `bug_context.md` are kept for implementation.
+#
+# Measured before this existed (§33.1): documentation held 15 of the 30 top-5
+# slots across the corpus, because prose terms match prose files and `.md` is
+# searched. The answer is not to stop searching documentation — a design note
+# naming the subsystem is a real lead — but to stop it taking the seats that
+# decide what an agent reads. Three of five: enough that implementation leads,
+# few enough that a genuinely better document still appears.
+RESERVED_IMPLEMENTATION_SLOTS = 3
 MAX_TOTAL_CODE_SEARCH_LINES = 300
 # Large enough to outrank keyword evidence: an explicit --focus-file is a
 # stronger signal than any automatic ranking heuristic.
 FOCUS_FILE_BONUS = 25
+#: Written once: `_select_with_reserved_slots` reads it to know what not to demote.
+FOCUS_REASON = "developer marked this file as a focus area"
 LOW_VALUE_KEYWORDS = {
     "crash",
     "error",
@@ -110,12 +155,48 @@ TEST_PATH_INDICATORS = {"test", "tests", "spec", "specs", "__tests__", "testing"
 
 
 @dataclass
+class TermSearchResult:
+    """What one term found, and how much of the repository it touched.
+
+    `total_match_count` and `retained_matches` are different questions. The
+    first says whether the term discriminates; the second is the evidence shown
+    downstream. Keeping thousands of Match records to learn "this term is
+    everywhere" would be paying in memory for a number rg already printed.
+    """
+
+    term: SearchTerm
+    total_match_count: int
+    retained_matches: list["Match"] = field(default_factory=list)
+
+    @property
+    def classification(self) -> str:
+        if self.total_match_count == 0:
+            return "zero"
+        return "broad" if self.total_match_count > BROAD_MATCH_THRESHOLD else "specific"
+
+    @property
+    def effective_weight(self) -> int:
+        """What this term is worth once the repository has had its say.
+
+        A broad term is demoted rather than dropped: it may still be the only
+        thread connecting a file to the report, and removing it outright would
+        trade a precision problem for a recall one.
+        """
+        if self.classification == "broad":
+            return WEIGHT_WEAK
+        return self.term.weight
+
+
+@dataclass
 class Match:
     keyword: str
     tier: str
     file: str
     line_number: int
     line: str
+    #: What the term was worth (§33.3). 0 means a caller built this Match without
+    #: a term — the legacy tier path below still scores those.
+    weight: int = 0
 
 
 @dataclass
@@ -157,19 +238,32 @@ def run_code_search(
         )
         return markdown, [], quality
 
+    # §33.3: one weighted list, ordered by what each term is worth, instead of
+    # four tiers whose membership was decided by position.
+    terms = terms_from_extraction(
+        keywords, user_keywords=list(options.keywords or []), hint=options.hint or ""
+    )
     all_matches: list[Match] = []
     warnings: list[str] = []
-    # Exact quoted phrases first — an exact UI/error-string hit is the strongest
-    # signal (rg --fixed-strings matches the literal string, spaces included).
-    for phrase in phrases:
-        all_matches.extend(_rg_keyword(repo_root, phrase, "phrase", warnings))
-    for keyword in high_value:
-        all_matches.extend(_rg_keyword(repo_root, keyword, "high_value", warnings))
-    for keyword in normal:
-        all_matches.extend(_rg_keyword(repo_root, keyword, "normal", warnings))
-    # Sub-tokens split from compound identifiers — low-weight, for recall only.
-    for keyword in expanded:
-        all_matches.extend(_rg_keyword(repo_root, keyword, "expanded", warnings))
+    probes: list[TermSearchResult] = []
+    for term in terms:
+        probe = _probe_term(repo_root, term, warnings)
+        probes.append(probe)
+        # A term that matches nothing contributes nothing; it is kept in
+        # `probes` so the diagnostics can say it was tried and found wanting.
+        all_matches.extend(probe.retained_matches)
+
+    # §33.7B: identifier shapes assembled from adjacent words — `output type`
+    # becoming `outputType`. Every one is a string this code made up, so each is
+    # probed and only the ones the repository actually contains are admitted.
+    # A shape with no matches is discarded here and never reaches the ranker.
+    for term in shape_candidates(
+        keywords, hint=options.hint or "", already={probe.term.key for probe in probes}
+    ):
+        probe = _probe_term(repo_root, term, warnings)
+        probes.append(probe)
+        if probe.total_match_count:
+            all_matches.extend(probe.retained_matches)
 
     all_matches = [match for match in all_matches if not _matches_any_path(match.file, options.ignore_paths)]
     ranked = _rank_related_files(
@@ -180,6 +274,7 @@ def run_code_search(
 
     related = _related_files(ranked)
     quality = _overall_quality(related, warnings)
+    quality["terms"] = _term_diagnostics(probes)
     markdown = _render_markdown(
         issue_key, high_value, normal, phrases, expanded, ranked, warnings, quality,
         max_search_lines=options.max_search_lines,
@@ -187,10 +282,38 @@ def run_code_search(
     return markdown, related, quality
 
 
+def _term_diagnostics(probes: list[TermSearchResult]) -> list[dict[str, object]]:
+    """What each term was worth, what it matched, and what that did to it.
+
+    Lives in `search_quality.json` rather than a new artifact: that file already
+    answers "should I trust this search", and "half your terms match four
+    thousand lines each" is the same question.
+    """
+    return [
+        {
+            "value": probe.term.value,
+            "source": probe.term.source,
+            "weight": probe.term.weight,
+            "effective_weight": probe.effective_weight,
+            "match_count": probe.total_match_count,
+            "classification": probe.classification,
+            # Why this term exists at all, and whether it survived. Only a
+            # generated shape has an answer to the first; everything else was
+            # simply present in the text.
+            "derived_from": probe.term.derived_from,
+            "status": "dropped" if probe.total_match_count == 0 else "retained",
+        }
+        for probe in probes
+    ]
+
+
 def _related_files(ranked: list[FileScore]) -> list[dict[str, object]]:
     related = [
         {
             "file": item.file,
+            # Why a file sits where it does: §33.2 keeps the leading slots for
+            # implementation, and without this the artifact cannot show it.
+            "documentation": is_documentation(item.file),
             "score": item.score,
             "confidence": item.confidence,
             "matched_keywords": sorted(item.matched_keywords),
@@ -217,7 +340,29 @@ def _keyword_list(value: object) -> list[str]:
     return [str(item) for item in value if str(item).strip()]
 
 
-def _rg_keyword(repo_root: Path, keyword: str, tier: str, warnings: list[str]) -> list[Match]:
+def _probe_term(repo_root: Path, term: SearchTerm, warnings: list[str]) -> TermSearchResult:
+    """Search for one term, keeping both what it found and how much it touched.
+
+    One ripgrep run, read twice: once to count, once to retain. How much is
+    retained depends on what the count said — a term that names something earns
+    evidence from across the repository, a term that is everywhere does not.
+    """
+    completed = _run_rg(repo_root, term.value, warnings)
+    if completed is None:
+        return TermSearchResult(term=term, total_match_count=0)
+
+    _sample, total = _collect(completed.stdout, term.value, term.source, max_files=0)
+    budget = BROAD_TERM_FILE_BUDGET if total > BROAD_MATCH_THRESHOLD else MAX_FILES_PER_TERM
+    matches, _total = _collect(completed.stdout, term.value, term.source, max_files=budget)
+
+    result = TermSearchResult(term=term, total_match_count=total)
+    weight = result.effective_weight
+    result.retained_matches = [replace(match, weight=weight) for match in matches]
+    return result
+
+
+def _run_rg(repo_root: Path, keyword: str, warnings: list[str]):
+    """Run ripgrep for one literal term, or report why it could not."""
     args = ["rg", "--line-number", "--no-heading", "--ignore-case", "--fixed-strings"]
     for glob in INCLUDE_GLOBS:
         args.extend(["-g", glob])
@@ -244,24 +389,52 @@ def _rg_keyword(repo_root: Path, keyword: str, tier: str, warnings: list[str]) -
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         warnings.append(f"Search failed for keyword `{keyword}`: {exc}")
-        return []
+        return None
 
     if completed.returncode not in {0, 1}:
         warnings.append(f"Search failed for keyword `{keyword}`: {completed.stderr.strip()}")
-        return []
+        return None
 
-    matches = []
-    for line in completed.stdout.splitlines():
+    return completed
+
+
+def _collect(
+    stdout: str, keyword: str, tier: str, max_files: int = MAX_FILES_PER_TERM
+) -> tuple[list[Match], int]:
+    """Bounded evidence, unbounded count — and the budget spread across files.
+
+    Sorted before anything is kept, because ripgrep walks directories in
+    parallel and its output order is not stable between runs. With a per-file
+    budget that order decides *which* files a broad term retains, so two
+    identical searches of an unchanged tree returned different rankings — caught
+    by running the §33.1 corpus twice. A search an agent depends on has to be
+    reproducible, and sorting costs one pass over output already in memory.
+    """
+    parsed_lines = []
+    total = 0
+    for line in stdout.splitlines():
         parsed = _parse_rg_line(line)
         if parsed is None:
             continue
         path, line_number, text = parsed
         if not _is_included_path(path):
             continue
-        matches.append(Match(keyword=keyword, tier=tier, file=path, line_number=line_number, line=text.strip()))
-        if len(matches) >= MAX_MATCHES_PER_KEYWORD:
-            break
-    return matches
+        total += 1
+        parsed_lines.append((path, line_number, text))
+
+    matches: list[Match] = []
+    per_file: dict[str, int] = {}
+    for path, line_number, text in sorted(parsed_lines, key=lambda item: (item[0], item[1])):
+        seen = per_file.get(path, 0)
+        if seen >= MAX_MATCHES_PER_FILE_PER_TERM:
+            continue
+        if seen == 0 and len(per_file) >= max_files:
+            continue
+        per_file[path] = seen + 1
+        matches.append(
+            Match(keyword=keyword, tier=tier, file=path, line_number=line_number, line=text.strip())
+        )
+    return matches, total
 
 
 def _parse_rg_line(line: str) -> tuple[str, int, str] | None:
@@ -279,14 +452,21 @@ def _parse_rg_line(line: str) -> tuple[str, int, str] | None:
 
 
 def _is_included_path(path: str) -> bool:
-    name = Path(path).name
-    suffix = Path(path).suffix.lower()
-    return name == "CMakeLists.txt" or suffix in {".cpp", ".cxx", ".cc", ".h", ".hpp", ".ui", ".qrc", ".py", ".cmake", ".md"}
+    return is_searchable(path)
 
 
 def _match_weight(match: Match, high_set: set[str], normal_set: set[str]) -> tuple[int, str]:
     """Per-keyword weight + quality. Specificity beats frequency: an exact
     phrase or a qualified `Foo::bar` name is near-unique and weighted highest."""
+    if match.weight:
+        # §33.3: the term already knows what it is worth, from its own shape and
+        # provenance rather than from which list it landed in. Quality is the
+        # same three bands the confidence rules have always read.
+        if match.weight >= WEIGHT_IDENTIFIER:
+            return match.weight, "high"
+        if match.weight >= WEIGHT_PROSE:
+            return match.weight, "medium"
+        return match.weight, "low"
     if match.tier == "phrase":
         return 12, "high"
     if match.tier == "expanded":
@@ -359,10 +539,31 @@ def _rank_related_files(
         _assign_confidence(item)
     # The only place the file cap is applied, so a caller's max_files cannot be
     # honored in one view of the results and ignored in another.
-    return sorted(
-        list(scores.values()),
-        key=lambda item: (-item.score, item.file),
-    )[:max_files]
+    ordered = sorted(list(scores.values()), key=lambda item: (-item.score, item.file))
+    return _select_with_reserved_slots(ordered, max_files)
+
+
+def _select_with_reserved_slots(ordered: list[FileScore], max_files: int) -> list[FileScore]:
+    """Take the top files, keeping room at the front for implementation.
+
+    Score order is otherwise untouched: this decides *which* files survive the
+    cap and in what order, not what any of them scored.
+
+    Files the developer pointed at go first whatever they are. A --focus-file is
+    an instruction, and a reservation that could demote one would be this
+    function quietly overruling it.
+    """
+    pinned = [item for item in ordered if FOCUS_REASON in item.reasons]
+    rest = [item for item in ordered if FOCUS_REASON not in item.reasons]
+    implementation = [item for item in rest if is_implementation(item.file)]
+
+    reserved_count = max(0, min(RESERVED_IMPLEMENTATION_SLOTS, max_files - len(pinned)))
+    reserved = implementation[:reserved_count]
+    taken = {id(item) for item in pinned} | {id(item) for item in reserved}
+    remainder = [item for item in ordered if id(item) not in taken]
+
+    selected = pinned + reserved
+    return (selected + remainder)[:max_files]
 
 
 def _matches_any_path(path: str, patterns: list[str]) -> bool:
@@ -395,7 +596,7 @@ def _apply_focus_bonus(item: FileScore, focus_files: list[str]) -> None:
     """
     if _matches_any_path(item.file, focus_files):
         item.score += FOCUS_FILE_BONUS
-        item.reasons.append("developer marked this file as a focus area")
+        item.reasons.append(FOCUS_REASON)
 
 
 def _apply_header_implementation_bonus(scores: dict[str, FileScore]) -> None:

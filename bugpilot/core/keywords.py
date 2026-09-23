@@ -19,6 +19,8 @@ import json
 import re
 from collections import Counter
 
+from .code_files import CODE_SUFFIXES
+
 
 # Generic English + bug-report boilerplate that is never a useful search term.
 # Domain nouns (button, list, tab, filter, dialog, widget, selection, ...) are
@@ -54,10 +56,9 @@ STOP_WORDS = {
     "last", "most", "first", "next",
 }
 
-_CODE_EXT = {
-    "cpp", "cxx", "cc", "c", "h", "hpp", "hxx", "py", "ui", "qrc", "qml",
-    "cmake", "js", "ts", "java", "cs", "go", "rs",
-}
+#: The same set the search uses, so a bug naming `reader.ts` cannot produce a
+#: keyword for a file the search would never open.
+_CODE_EXT = CODE_SUFFIXES
 
 # Structural / framework parts of compound identifiers that are too generic to
 # search on their own (they'd match half the codebase). Used only to filter the
@@ -187,6 +188,142 @@ def _expanded_keywords(compounds: list[str], existing: set[str], max_expanded: i
     return list(picked.values())
 
 
+# --- bridging prose to identifier shape ---------------------------------------
+#
+# The gap §33.7 measured and could not close. A report says "issue details are
+# loaded" and the code says `loadIssueDetails`; a report says "output type" and
+# the code says `outputType`. The words are all present and no weighting reaches
+# across, because what differs is the *shape*.
+#
+# This bridges shape and nothing else:
+#
+#     issue details  ->  issueDetails, IssueDetails, issue_details
+#
+# and deliberately not:
+#
+#     issue details  ->  loadIssueDetails, IssueDetailsLoader, refreshIssueDetails
+#
+# Those invent a verb the report never used. A generated string is a guess, so
+# every one of them has to be confirmed against the repository before it can
+# affect ranking — which is what makes the guessing safe.
+
+#: How many source phrases may be expanded. Each produces up to three shapes,
+#: and each surviving shape is one more ripgrep invocation.
+MAX_EXPANDED_PHRASES = 6
+#: Words per phrase. Two and three cover `outputType` and
+#: `processOutputSelection`; four produces strings no codebase contains.
+PHRASE_MIN_WORDS = 2
+PHRASE_MAX_WORDS = 3
+
+
+#: Grammar, which never appears inside an identifier.
+#:
+#: Deliberately *not* `STOP_WORDS` or `GENERIC_PROSE`. Those lists exist to stop
+#: a word being treated as evidence on its own, and the words a compound
+#: identifier is made of are exactly that kind: `issue`, `output`, `type`,
+#: `details`, `selection` are all in one list or the other, and
+#: `issueDetails` / `outputType` are the identifiers this phase exists to find.
+#: Excluding them here would have made the feature unable to do its one job.
+#:
+#: So only function words are blocked — enough to keep "does not work" and
+#: "when using" from becoming candidates. Everything else is allowed through and
+#: killed by the repository probe if the codebase does not actually use it,
+#: which is a better filter than any word list.
+_PHRASE_FUNCTION_WORDS = frozenset(
+    {
+        "a", "an", "the", "and", "or", "but", "if", "then", "else", "for", "from",
+        "into", "of", "on", "in", "to", "with", "without", "about", "after",
+        "before", "until", "while", "as", "at", "by", "per", "via", "than",
+        "be", "is", "are", "was", "were", "been", "being", "am", "not", "no",
+        "have", "has", "had", "do", "does", "did", "done", "can", "cannot",
+        "could", "would", "should", "will", "shall", "may", "might", "must",
+        "it", "its", "this", "that", "these", "those", "they", "them", "their",
+        "we", "our", "you", "your", "he", "she", "his", "her", "who", "which",
+        "when", "where", "what", "how", "why", "there", "here", "also", "still",
+        "very", "just", "only", "some", "any", "all", "each", "every", "both",
+        "using", "used", "please", "again", "such", "same", "other", "another",
+    }
+)
+
+
+def _is_phrase_word(value: str) -> bool:
+    """Whether a token may take part in a phrase.
+
+    Already-compound tokens are excluded: `VolumeDescriptor` is a shape, not a
+    word to build one from.
+    """
+    if len(value) < 3 or not value.isalpha():
+        return False
+    if value.lower() in _PHRASE_FUNCTION_WORDS:
+        return False
+    return not _is_identifier_shaped(value)
+
+
+def candidate_phrases(text: str) -> list[list[str]]:
+    """Adjacent runs of meaningful words, longest first.
+
+    Adjacency is the whole heuristic, and it is enough: `outputType` comes from
+    "output type" being next to each other in the sentence. Anything cleverer
+    would be a parser, and the repository probe is the real filter.
+    """
+    phrases: list[list[str]] = []
+    for sentence in re.split(r"[.!?;:\n]", text):
+        words = [word for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", sentence)]
+        run: list[str] = []
+        for word in words:
+            if _is_phrase_word(word):
+                run.append(word)
+                continue
+            phrases.extend(_windows(run))
+            run = []
+        phrases.extend(_windows(run))
+    # Longest first: `processOutputSelection` is a better lead than `outputType`,
+    # and the budget should be spent on the more specific one.
+    seen: set[tuple[str, ...]] = set()
+    ordered: list[list[str]] = []
+    for phrase in sorted(phrases, key=len, reverse=True):
+        key = tuple(word.lower() for word in phrase)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(phrase)
+    return ordered[:MAX_EXPANDED_PHRASES]
+
+
+def _windows(run: list[str]) -> list[list[str]]:
+    out: list[list[str]] = []
+    for size in range(PHRASE_MIN_WORDS, PHRASE_MAX_WORDS + 1):
+        for start in range(len(run) - size + 1):
+            out.append(run[start : start + size])
+    return out
+
+
+def identifier_shapes(words: list[str]) -> list[str]:
+    """camelCase, PascalCase and snake_case, and nothing invented.
+
+    Case-only variants are not both returned: the search is case-insensitive, so
+    `outputType` and `OutputType` find exactly the same lines, and searching both
+    would spend two processes to score one piece of evidence twice.
+    """
+    parts = [word.lower() for word in words]
+    camel = parts[0] + "".join(part.capitalize() for part in parts[1:])
+    snake = "_".join(parts)
+    return [camel, snake]
+
+
+def shape_expansions(text: str) -> list[str]:
+    """Every identifier shape worth trying for one piece of text."""
+    shapes: list[str] = []
+    seen: set[str] = set()
+    for phrase in candidate_phrases(text):
+        for shape in identifier_shapes(phrase):
+            if shape.lower() in seen:
+                continue
+            seen.add(shape.lower())
+            shapes.append(shape)
+    return shapes
+
+
 def extract_keywords(text: str, max_keywords: int = 15, priority_text: str = "") -> dict[str, object]:
     """Rank keywords from ``text``. Tokens that also appear in ``priority_text``
     (stack traces / error messages) are boosted so they lead the ranking."""
@@ -229,11 +366,23 @@ def extract_keywords(text: str, max_keywords: int = 15, priority_text: str = "")
     keywords = [best[low] for low in ranked]
     compounds = [best[low] for low in ranked if _identifier_score(best[low]) >= 5]
     return {
+        # The five legacy lists, unchanged: `extracted_keywords.json` is a
+        # published artifact and the CLI prints from it. The tiering here is
+        # still positional, and §33.3 is why nothing downstream weights by it
+        # any more — `search_terms.py` decides worth from the term itself.
         "high_value_keywords": keywords[:5],
         "normal_keywords": keywords[5:max_keywords],
         "dropped_keywords": keywords[max_keywords:],
         "phrase_keywords": _extract_phrases(text),
         "expanded_keywords": _expanded_keywords(compounds, existing=set(best)),
+        # Which of them the software itself printed, in a stack trace or an
+        # error message. The strongest signal a report carries, and the one
+        # thing the five lists above cannot express.
+        "priority_keywords": [best[low] for low in ranked if low in priority],
+        # Identifier shapes built from adjacent words (§33.7B). Candidates only:
+        # each is a guess until the repository confirms it, which `search.py`
+        # does before any of them can affect a ranking.
+        "shape_candidates": shape_expansions(text),
     }
 
 

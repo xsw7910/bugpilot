@@ -384,12 +384,19 @@ def test_copilot_task_branch_uses_normalized_summary_fallback(tmp_path):
 
 
 def test_keyword_schema_matches_phase_2_plan():
+    """The five lists are a published contract; new keys may be added beside them.
+
+    `extracted_keywords.json` is written into every work item and printed by the
+    CLI, so the five must not move. §33.3 added `priority_keywords` next to them
+    — which tokens the software itself printed — because the five cannot express
+    it and the weighting needs it.
+    """
     keywords = extract_keywords("EmployeeSearch stale filter query cache actual expected cache")
 
-    assert set(keywords) == {
+    assert {
         "high_value_keywords", "normal_keywords", "dropped_keywords",
         "phrase_keywords", "expanded_keywords",
-    }
+    } <= set(keywords)
     for key in keywords:
         assert isinstance(keywords[key], list)
 
@@ -661,14 +668,27 @@ def test_search_quality_json_has_full_field_structure(tmp_path, monkeypatch):
     assert main(["search", "JR-12345"]) == 0
     quality = json.loads((issue_dir / "search_quality.json").read_text(encoding="utf-8"))
 
-    assert set(quality) == {
+    # The published fields, which must not move. §33.4 added `terms` beside them:
+    # the same file already answers "should I trust this search", and "half your
+    # terms match four thousand lines each" is the same question.
+    assert {
         "confidence",
         "reasons",
         "high_confidence_files",
         "medium_confidence_files",
         "low_confidence_files",
         "noise_indicators",
-    }
+    } <= set(quality)
+    assert isinstance(quality["terms"], list)
+    for term in quality["terms"]:
+        assert {
+            "value", "source", "weight", "effective_weight", "match_count",
+            # §33.7B: where a generated identifier shape came from, and whether
+            # the repository confirmed it.
+            "classification", "derived_from", "status",
+        } == set(term)
+        assert term["classification"] in {"zero", "specific", "broad"}
+        assert term["status"] in {"retained", "dropped"}
 
 
 def test_mixed_confidence_scenario_populates_multiple_buckets(tmp_path, monkeypatch):

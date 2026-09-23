@@ -14,6 +14,12 @@ node_modules/
 extension/out/
 *.vsix
 
+# A developer's own retrieval corpus: real issue text and the files that fixed
+# it. Internal Jira prose does not belong in a public repository, so the format
+# and the loader are committed and the cases are not. `python
+# tests/retrieval_corpus.py --format` prints the shape.
+tests/retrieval_corpus/
+
 # The real forbidden-word list for tests/test_publishable.py. Local only: a
 # guard that names a company in a public repository discloses the thing it
 # exists to keep out. `tests/forbidden_words.example` is the committed template.
