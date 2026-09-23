@@ -37,6 +37,15 @@ export interface RunOptions {
   readonly signal?: AbortSignal;
   /** Milliseconds before the run is abandoned. 0 disables the timeout. */
   readonly timeoutMs?: number;
+  /**
+   * Text to write to the child's stdin, which is then closed.
+   *
+   * The way untrusted content reaches a tool without going near a command
+   * line: a developer's hint is prose that may contain quotes, newlines and
+   * shell metacharacters, and argv is where those stop being text. Absent
+   * means stdin stays closed, which is what every bugpilot call wants.
+   */
+  readonly input?: string;
 }
 
 export interface RunResult {
@@ -165,7 +174,7 @@ export class Runner {
       // A process group is what makes killing the whole tree possible on POSIX.
       // On Windows the group is created by taskkill /T instead (see #kill).
       detached: this.#platform !== "win32",
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       windowsHide: true,
     });
     // An unlistened 'error' on a stream or a child takes down the whole
@@ -174,6 +183,13 @@ export class Runner {
     // the child's own 'error'/'close' handlers.
     child.stdout?.on("error", () => {});
     child.stderr?.on("error", () => {});
+    if (options.input !== undefined) {
+      // Errors here are the ordinary ones — a tool that exits before reading,
+      // a closed pipe — and they are the child's outcome to report, not a
+      // reason to take the extension host down.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(options.input);
+    }
     return child;
   }
 

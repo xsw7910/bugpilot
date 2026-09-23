@@ -45,6 +45,15 @@ export interface FormState {
   readonly title: string;
   readonly description: string;
   readonly hint: string;
+  /**
+   * Whether improving the hint may read the issue's own title and description.
+   *
+   * On by default: the issue text is what makes a two-word hint improvable at
+   * all. It gates only the hint improver — it is not a run option and
+   * contributes no flag — and it never reaches the repository, the history or
+   * the files.
+   */
+  readonly useIssueDetails: boolean;
   /** Free text; comma- or newline-separated. */
   readonly keywords: string;
   /** Free text; newline-separated, because a path may contain a comma. */
@@ -106,6 +115,7 @@ export const DEFAULT_FORM: FormState = {
   title: "",
   description: "",
   hint: "",
+  useIssueDetails: true,
   keywords: "",
   focusFiles: "",
   ignorePaths: "",

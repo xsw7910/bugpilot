@@ -81,6 +81,16 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_mock.add_argument("--no-mock", action="store_true", help="Require real Jira data. This is the default.")
     _add_json_flag(fetch_parser)
 
+    issue_details_parser = subparsers.add_parser(
+        "issue-details",
+        help="Print one issue's title and description. Reads Jira; writes nothing.",
+    )
+    issue_details_parser.add_argument("issue_key")
+    issue_details_mock = issue_details_parser.add_mutually_exclusive_group()
+    issue_details_mock.add_argument("--allow-mock", action="store_true", help="Allow mock/demo fallback when Jira fetch fails.")
+    issue_details_mock.add_argument("--no-mock", action="store_true", help="Require real Jira data. This is the default.")
+    _add_json_flag(issue_details_parser)
+
     jira_validate_parser = subparsers.add_parser("jira-validate", help="Validate Jira issue fetch and field mapping (requires real Jira credentials).")
     jira_validate_parser.add_argument("issue_key")
 
@@ -421,6 +431,48 @@ def _dispatch(args, repo_root: Path) -> int:
         if mock_warning:
             print(f"WARN: {mock_warning}")
         print(f"Fetched Jira data for {args.issue_key} into .ai/{args.issue_key}/")
+        return 0
+
+    if args.command == "issue-details":
+        # Read-only, and deliberately not a step: `fetch` writes `.ai/<issue>/`
+        # because a run needs those artifacts, and the editor's hint improver
+        # needs two strings. Creating a work item as a side effect of improving
+        # a sentence would be a surprise, so this reuses the same Jira client
+        # and the same parser and writes nothing.
+        refusal = _refuse_for_manual(repo_root, "issue-details", args.issue_key, args.json_output)
+        if refusal is not None:
+            return refusal
+        try:
+            result = fetch_issue(repo_root, args.issue_key, allow_mock=_allow_mock(args))
+        except JiraFetchError as exc:
+            if args.json_output:
+                cli_json.emit_failure(
+                    "issue-details",
+                    errors.code_for_jira_error_type(exc.result.error_type),
+                    exc.result.error_message or str(exc),
+                    work_item_id=args.issue_key,
+                )
+                return 1
+            _print_jira_error(exc)
+            return 1
+        parsed = parse_issue(result.data)
+        title = str(parsed.get("summary") or "")
+        description = str(parsed.get("description") or "")
+        if args.json_output:
+            cli_json.emit(
+                cli_json.success(
+                    "issue-details",
+                    work_item_id=args.issue_key,
+                    title=title,
+                    description=description,
+                    jira_source=result.source,
+                )
+            )
+            return 0
+        print(f"{args.issue_key}: {title}")
+        if description:
+            print()
+            print(description)
         return 0
 
     if args.command == "parse":

@@ -54,7 +54,7 @@ const CAPS: Readonly<Record<keyof FormTextFields, number>> = {
 
 type FormTextFields = Omit<
   FormState,
-  "source" | "plan" | "fresh" | "fixWithAI" | "agent" | "attachments"
+  "source" | "plan" | "fresh" | "fixWithAI" | "agent" | "attachments" | "useIssueDetails"
 >;
 
 /**
@@ -133,6 +133,8 @@ export interface PanelState {
    * a mode one scope shadows still has to be editable in the scope that owns it.
    */
   readonly manage?: ManageView;
+  /** What the hint improver is doing, and what it has to show for it. */
+  readonly hintImprovement?: HintImprovementView;
 }
 
 /**
@@ -206,6 +208,9 @@ export type PanelMessage =
   | { readonly type: "action"; readonly id: PanelAction }
   | { readonly type: "command"; readonly id: string }
   | { readonly type: "openArtifact"; readonly name: string }
+  | { readonly type: "improveHint"; readonly form: FormState }
+  | { readonly type: "useImprovedHint" }
+  | { readonly type: "dismissImprovedHint" }
   | { readonly type: "manageFixModes" }
   | { readonly type: "closeFixModes" }
   | {
@@ -230,6 +235,15 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     case "ready":
     case "stop":
     case "retry":
+    case "improveHint": {
+      // Carries the form for the same reason `run` does: the host's copy can be
+      // one debounce interval stale, and the hint being improved is whatever is
+      // on screen right now.
+      const form = parseForm(message?.["form"]);
+      return form ? { type: "improveHint", form } : undefined;
+    }
+    case "useImprovedHint":
+    case "dismissImprovedHint":
     case "manageFixModes":
     case "closeFixModes":
       return { type };
@@ -285,12 +299,42 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
  * Present only while the developer has it open, so the page has one thing to
  * check before rendering any of it.
  */
+/**
+ * The hint improver's whole visible state.
+ *
+ * `suggestion` is deliberately not the hint: it sits beside the field until the
+ * developer takes it, so an improvement can never overwrite what they wrote.
+ */
+export interface HintImprovementView {
+  readonly busy: boolean;
+  readonly suggestion?: string;
+  readonly error?: string;
+  /** Said when the improvement ran without the issue text, and why. */
+  readonly notice?: string;
+}
+
 export interface ManageView {
   readonly catalog: ManagedFixModes;
   /** The mode in the editor, if one is open. */
   readonly editor?: FixModeDraft;
   /** Why the last management command was refused. */
   readonly error?: string;
+  /** The mode a create just wrote, for the page to confirm and point at. */
+  readonly created?: CreatedFixMode;
+}
+
+/**
+ * What a successful create wrote.
+ *
+ * Reported by the host from the draft it saved, rather than worked out by the
+ * page from what happens to be selected or from a name: an id can exist in both
+ * the user and the project scope, and only the pair says which row is the new
+ * one.
+ */
+export interface CreatedFixMode {
+  readonly id: string;
+  readonly scope: string;
+  readonly name: string;
 }
 
 /**
@@ -387,6 +431,9 @@ function parseForm(raw: unknown): FormState | undefined {
       ? (agent as AgentChoice)
       : "auto",
     fresh: record["fresh"] === true,
+    // Absent means on: the box ships ticked, and a page too old to send it
+    // should not silently turn the issue context off.
+    useIssueDetails: record["useIssueDetails"] !== false,
   };
 }
 

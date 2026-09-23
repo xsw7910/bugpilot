@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 
 import { panelHtml } from "../src/panel/html.ts";
 import type { PanelState } from "../src/panel/messages.ts";
+import type { FixModeDraft } from "../src/app/fixModes.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
 import { buildWorkflow, overallStatus } from "../src/app/workflow.ts";
 import type { WorkflowStep } from "../src/app/workflow.ts";
@@ -135,6 +136,19 @@ class FakeElement {
   focus(): void {
     page!.focused = this.id;
     this.focused = true;
+  }
+
+  /**
+   * What the page asked to bring into view.
+   *
+   * There is no layout here and no smooth scrolling to wait for, so the test
+   * reads the request rather than a pixel offset: what matters is that the page
+   * asked for the right element, once it was visible.
+   */
+  scrolledIntoView: Record<string, unknown> | undefined;
+
+  scrollIntoView(options?: Record<string, unknown>): void {
+    this.scrolledIntoView = options ?? {};
   }
 }
 
@@ -1203,6 +1217,7 @@ const DRAFT = {
   constraints: "Constraints.",
   completion: "Completion.",
   scope: "user" as const,
+  source: "user",
   version: 3,
   basedOn: "standard",
   basedOnVersion: 1,
@@ -1212,10 +1227,10 @@ test("the management view is hidden until the host opens it", () => {
   const page = load();
   page.send(state({ fixModes: MODES }));
 
-  assert.equal(page.byId("manage").hidden, true);
+  assert.equal(page.byId("fix-mode-manager-view").hidden, true);
 
   page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
-  assert.equal(page.byId("manage").hidden, false);
+  assert.equal(page.byId("fix-mode-manager-view").hidden, false);
 });
 
 test("the gear asks the host to open it", () => {
@@ -1250,7 +1265,7 @@ test("the editor fills every section and fixes what may not change", () => {
   const page = load();
   page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
 
-  assert.equal(page.byId("manage-editor").hidden, false);
+  assert.equal(page.byId("fix-mode-editor-view").hidden, false);
   assert.equal(page.byId("editor-objective").value, "Objective.");
   assert.equal(page.byId("editor-completion").value, "Completion.");
   assert.equal(page.byId("editor-name").value, "My Safe Fix");
@@ -1277,19 +1292,33 @@ test("a new mode may choose its id and scope", () => {
   assert.equal(page.byId("editor-save").textContent, "Create Fix Mode");
 });
 
-test("a built-in is shown but never editable", () => {
+test("a built-in is shown as something to read, not a form to fail to type into", () => {
+  // It used to open the editor with every box disabled, which reads as an edit
+  // the developer is being refused. Reading a mode is now its own view.
   const page = load();
   page.send(
     state({
       fixModes: MODES,
-      manage: { catalog: MANAGED_READY, editor: { ...DRAFT, intent: "view" } },
+      manage: {
+        catalog: MANAGED_READY,
+        editor: { ...DRAFT, intent: "view", source: "builtin", name: "Standard Fix" },
+      },
     }),
   );
 
-  assert.equal(page.byId("editor-objective").disabled, true);
-  assert.equal(page.byId("editor-name").disabled, true);
-  assert.equal(page.byId("editor-save").hidden, true);
-  assert.equal(page.byId("editor-readonly").hidden, false);
+  assert.equal(page.byId("fix-mode-preview-view").hidden, false);
+  assert.equal(page.byId("fix-mode-editor-view").hidden, true);
+  assert.equal(page.byId("preview-heading").textContent, "Standard Fix");
+  assert.match(page.byId("preview-meta").textContent, /Built-in/);
+  const body = JSON.stringify(page.byId("preview-body"));
+  assert.ok(body.includes("Objective"), "the preview does not show the instructions");
+  assert.ok(body.includes("Objective."), "the preview does not show the mode's own text");
+
+  // A built-in is copied, never written.
+  const actions = JSON.stringify(page.byId("preview-actions"));
+  assert.ok(actions.includes("Duplicate & Customize"));
+  assert.ok(!actions.includes("Edit"), "a built-in offers an edit");
+  assert.ok(!actions.includes("Delete"), "a built-in offers a delete");
 });
 
 test("saving sends what the editor holds, not what it was opened with", () => {
@@ -1341,6 +1370,8 @@ test("an unreadable custom file is reported without emptying the list", () => {
 });
 
 test("a refused command is shown beside the editor", () => {
+  // On the editor's own view: the editor is what stays open when a save is
+  // refused, so a reason left on the manager would be on a hidden page.
   const page = load();
   page.send(
     state({
@@ -1349,8 +1380,8 @@ test("a refused command is shown beside the editor", () => {
     }),
   );
 
-  assert.equal(page.byId("manage-error").hidden, false);
-  assert.match(page.byId("manage-error").textContent, /Reload it before saving/);
+  assert.equal(page.byId("editor-error").hidden, false);
+  assert.match(page.byId("editor-error").textContent, /Reload it before saving/);
 });
 
 test("the prepared line distinguishes gone from not-checked", () => {
@@ -1364,4 +1395,673 @@ test("the prepared line distinguishes gone from not-checked", () => {
 
   assert.match(page.byId("prepared-fix-mode").textContent, /availability unknown/);
   assert.ok(!page.byId("prepared-fix-mode").textContent.includes("(unavailable)"));
+});
+
+// --- moving between the panel's three views ---------------------------------
+
+/**
+ * The views, and the rule that holds for all of them: exactly one is on screen.
+ *
+ * Asserted as a list rather than three `hidden` checks, because the failure
+ * worth catching is two of them being visible at once — which reads as the old
+ * behaviour, a manager appended below the form.
+ */
+const VIEWS = [
+  "main-view",
+  "fix-mode-manager-view",
+  "fix-mode-preview-view",
+  // New and Edit share this one; the title is what tells them apart.
+  "fix-mode-editor-view",
+];
+
+function visible(page: Page): string[] {
+  return VIEWS.filter((id) => !page.byId(id).hidden);
+}
+
+test("the panel starts on the form, with both Fix Mode views out of the way", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+
+  assert.deepEqual(visible(page), ["main-view"]);
+});
+
+test("opening the manager replaces the form instead of appearing under it", () => {
+  // The whole point of the change: the catalogue used to unhide *below* the
+  // form, which in a 300px sidebar is off-screen — pressing the gear looked
+  // like it had done nothing.
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+});
+
+test("opening a mode replaces the manager with the editor", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
+
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+});
+
+test("every state the host can push shows exactly one view", () => {
+  const page = load();
+  for (const manage of [
+    undefined,
+    { catalog: { kind: "loading" as const } },
+    { catalog: MANAGED_READY },
+    { catalog: MANAGED_READY, editor: DRAFT },
+    { catalog: MANAGED_READY, editor: DRAFT, error: "refused" },
+    { catalog: { kind: "unavailable" as const, detail: "no" }, error: "refused" },
+  ]) {
+    page.send(state({ fixModes: MODES, ...(manage ? { manage } : {}) }));
+    assert.equal(visible(page).length, 1, JSON.stringify(manage));
+  }
+});
+
+test("each of the five views hides all three of the others", () => {
+  // Spelled out per view rather than counted, because the regression manual
+  // testing found was not "two views visible" in the abstract — it was the
+  // manager, the preview and the editor all laid out under the form at once,
+  // before anything had been clicked.
+  const page = load();
+  const shows = (expected: string) => {
+    for (const id of VIEWS) {
+      assert.equal(
+        page.byId(id).hidden,
+        id !== expected,
+        `${id} should be ${id === expected ? "visible" : "hidden"} while showing ${expected}`,
+      );
+    }
+  };
+
+  page.send(state({ fixModes: MODES }));
+  shows("main-view");
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+  shows("fix-mode-manager-view");
+
+  page.send(opened({ ...DRAFT, intent: "view", source: "builtin" }));
+  shows("fix-mode-preview-view");
+
+  page.send(opened({ ...DRAFT, intent: "create", version: 0 }));
+  shows("fix-mode-editor-view");
+
+  page.send(opened(DRAFT)); // intent: edit
+  shows("fix-mode-editor-view");
+
+  page.send(state({ fixModes: MODES }));
+  shows("main-view");
+});
+
+test("the back controls ask for one step each, never for a reset", () => {
+  // Editor to manager, manager to form. Two destinations, so no history stack.
+  const page = load();
+  const before = page.posted.length; // the page says "ready" when it loads
+
+  page.byId("editor-back").dispatch("click");
+  page.byId("manage-back").dispatch("click");
+
+  assert.deepEqual(
+    page.posted.slice(before).map((message) => message["type"]),
+    ["manageFixModes", "closeFixModes"],
+  );
+});
+
+test("each view takes focus as it opens, and the gear gets it back", () => {
+  // Otherwise the caret stays on a control that is no longer on screen, and a
+  // screen reader never hears that the panel became something else.
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+  assert.equal(page.focused, "manage-heading");
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
+  assert.equal(page.focused, "editor-title");
+
+  page.send(state({ fixModes: MODES }));
+  assert.equal(page.focused, "manage-fix-modes");
+});
+
+test("going to the manager and back leaves the form exactly as it was", () => {
+  // Navigation is a view change and nothing else: it must not re-write the
+  // form, reset the chosen mode, or tell the host anything happened.
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+  assert.equal(page.byId("fixModeId").value, "investigate-first");
+  const before = page.posted.length;
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+  page.send(state({ fixModes: MODES }));
+
+  assert.equal(page.byId("fixModeId").value, "investigate-first");
+  assert.deepEqual(page.posted.slice(before), [], "navigation told the host something");
+});
+
+test("the manager opens on its own loading line rather than leaving the form up", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+
+  page.send(state({ fixModes: MODES, manage: { catalog: { kind: "loading" } } }));
+
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+  assert.match(page.byId("manage-detail").textContent, /Reading Fix Modes/);
+});
+
+test("a refused save keeps the editor up, with what was typed still in it", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
+
+  page.send(
+    state({
+      fixModes: MODES,
+      manage: { catalog: MANAGED_READY, editor: DRAFT, error: "Version 3 was expected." },
+    }),
+  );
+
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+  assert.match(page.byId("editor-error").textContent, /Version 3 was expected/);
+  assert.equal(page.byId("editor-name").value, "My Safe Fix");
+  assert.equal(page.byId("editor-objective").value, "Objective.");
+});
+
+test("a failed management command does not drop the developer back on the form", () => {
+  const page = load();
+  page.send(
+    state({
+      fixModes: MODES,
+      manage: { catalog: MANAGED_READY, error: "Fix Mode storage is not writable." },
+    }),
+  );
+
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+  assert.equal(page.byId("manage-error").hidden, false);
+  assert.match(page.byId("manage-error").textContent, /not writable/);
+});
+
+test("a saved mode lands back on the manager, with the catalogue it refreshed", () => {
+  // The round trip every CRUD action makes: the manager opens the editor, and
+  // the host closing the editor is what brings the manager back. The page does
+  // not decide that — it follows the state it is given.
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+
+  const saved = {
+    ...MANAGED_READY,
+    user: [{ ...MANAGED_READY.user[0]!, name: "Renamed Fix", version: 4 }],
+  };
+  page.send(state({ fixModes: MODES, manage: { catalog: saved } }));
+
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+  assert.match(JSON.stringify(page.byId("manage-list")), /Renamed Fix/);
+});
+
+// --- reading a mode, and copying it from either place ------------------------
+
+function flatten(node: FakeElement): FakeElement[] {
+  return [node, ...node.children.flatMap(flatten)];
+}
+
+/** The button a developer would press on the row for `mode`. */
+function rowAction(page: Page, mode: string, label: string): FakeElement {
+  const rows = flatten(page.byId("manage-list")).filter((node) => node.classes.has("manage-row"));
+  const row = rows.find((candidate) =>
+    flatten(candidate).some((node) => node.textContent.includes(mode)),
+  );
+  assert.ok(row, `the manager has no row for ${mode}`);
+  const button = flatten(row).find((node) => node.textContent === label);
+  assert.ok(button, `the row for ${mode} has no ${label}`);
+  return button;
+}
+
+function previewAction(page: Page, label: string): FakeElement {
+  const button = flatten(page.byId("preview-actions")).find((node) => node.textContent === label);
+  assert.ok(button, `the preview has no ${label}`);
+  return button;
+}
+
+const manager = () => state({ fixModes: MODES, manage: { catalog: MANAGED_READY } });
+const opened = (editor: FixModeDraft, error?: string) =>
+  state({
+    fixModes: MODES,
+    manage: { catalog: MANAGED_READY, editor, ...(error === undefined ? {} : { error }) },
+  });
+
+const BUILTIN_VIEW = {
+  ...DRAFT,
+  intent: "view" as const,
+  id: "standard",
+  name: "Standard Fix",
+  source: "builtin",
+};
+const CUSTOM_VIEW = { ...DRAFT, intent: "view" as const, source: "user" };
+/** What the controller builds for Duplicate & Customize on a built-in. */
+const COPY = {
+  ...DRAFT,
+  intent: "create" as const,
+  id: "my-standard",
+  name: "Standard Fix (copy)",
+  version: 0,
+  basedOn: "standard",
+  basedOnVersion: 1,
+  source: "builtin",
+};
+
+test("the manager opens with no preview and no editor behind it", () => {
+  const page = load();
+  page.send(manager());
+
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+});
+
+test("a built-in row offers reading and copying; a custom row offers all four", () => {
+  const page = load();
+  page.send(manager());
+
+  for (const label of ["View", "Duplicate & Customize"]) rowAction(page, "Standard Fix", label);
+  for (const label of ["View", "Edit", "Duplicate", "Delete"]) {
+    rowAction(page, "My Safe Fix", label);
+  }
+});
+
+test("View opens the preview on its own", () => {
+  const page = load();
+  page.send(manager());
+
+  rowAction(page, "Standard Fix", "View").dispatch("click");
+  assert.deepEqual(page.posted.at(-1), {
+    type: "fixModeAction",
+    action: "view",
+    id: "standard",
+    scope: "builtin",
+  });
+
+  page.send(opened(BUILTIN_VIEW));
+  assert.deepEqual(visible(page), ["fix-mode-preview-view"]);
+  assert.equal(page.focused, "preview-heading");
+});
+
+test("a custom mode's preview offers edit, duplicate and delete", () => {
+  const page = load();
+  page.send(opened(CUSTOM_VIEW));
+
+  const actions = JSON.stringify(page.byId("preview-actions"));
+  for (const label of ["Edit", "Duplicate", "Delete"]) {
+    assert.ok(actions.includes(label), `the custom preview has no ${label}`);
+  }
+  // Addressed by the scope that owns it, which on a draft is `source`: `scope`
+  // is where a save would go and is never "builtin".
+  previewAction(page, "Edit").dispatch("click");
+  assert.deepEqual(page.posted.at(-1), {
+    type: "fixModeAction",
+    action: "edit",
+    id: "my-safe",
+    scope: "user",
+  });
+});
+
+test("duplicating from the manager opens New Fix Mode and comes back to the manager", () => {
+  const page = load();
+  page.send(manager());
+  rowAction(page, "Standard Fix", "Duplicate & Customize").dispatch("click");
+
+  page.send(opened(COPY));
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+  assert.equal(page.byId("editor-title").textContent, "New Fix Mode");
+  assert.equal(page.byId("editor-back-label").textContent, "Back to Fix Mode Manager");
+
+  page.byId("editor-cancel").dispatch("click");
+  page.send(manager()); // the host dropped the draft
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+});
+
+test("duplicating from a preview comes back to the preview, not the list", () => {
+  // The distinction the origin exists for: one editor, reached two ways, has to
+  // return to whichever place opened it.
+  const page = load();
+  page.send(manager());
+  rowAction(page, "Standard Fix", "View").dispatch("click");
+  page.send(opened(BUILTIN_VIEW));
+
+  previewAction(page, "Duplicate & Customize").dispatch("click");
+  page.send(opened(COPY));
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+  assert.equal(page.byId("editor-back-label").textContent, "Back to Fix Mode Preview");
+
+  page.byId("editor-save").dispatch("click");
+  page.send(manager()); // a successful create closes the editor
+  assert.deepEqual(visible(page), ["fix-mode-preview-view"]);
+  assert.equal(page.byId("preview-heading").textContent, "Standard Fix");
+});
+
+test("Back out of a preview-born duplicate also returns to the preview", () => {
+  const page = load();
+  page.send(opened(BUILTIN_VIEW));
+  previewAction(page, "Duplicate & Customize").dispatch("click");
+  page.send(opened(COPY));
+
+  page.byId("editor-back").dispatch("click");
+  page.send(manager());
+
+  assert.deepEqual(visible(page), ["fix-mode-preview-view"]);
+});
+
+test("both ways into New Fix Mode are the same editor", () => {
+  // One editor, or the two routes drift and only one of them keeps based_on.
+  const fromManager = load();
+  fromManager.send(manager());
+  rowAction(fromManager, "Standard Fix", "Duplicate & Customize").dispatch("click");
+  fromManager.send(opened(COPY));
+  fromManager.byId("editor-save").dispatch("click");
+
+  const fromPreview = load();
+  fromPreview.send(opened(BUILTIN_VIEW));
+  previewAction(fromPreview, "Duplicate & Customize").dispatch("click");
+  fromPreview.send(opened(COPY));
+  fromPreview.byId("editor-save").dispatch("click");
+
+  const saved = (page: Page) => page.posted.find((message) => message["type"] === "saveFixMode");
+  assert.deepEqual(saved(fromManager), saved(fromPreview));
+});
+
+test("Edit opens Edit Fix Mode, and never New", () => {
+  const page = load();
+  page.send(manager());
+  rowAction(page, "My Safe Fix", "Edit").dispatch("click");
+
+  page.send(opened(DRAFT));
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+  assert.equal(page.byId("editor-title").textContent, "Edit Fix Mode");
+  assert.equal(page.byId("editor-back-label").textContent, "Back to Fix Mode Manager");
+  assert.match(page.byId("editor-origin").textContent, /My Safe Fix/);
+
+  page.byId("editor-save").dispatch("click");
+  page.send(manager());
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+});
+
+test("a refused create keeps New Fix Mode up, and still remembers the preview", () => {
+  const page = load();
+  page.send(opened(BUILTIN_VIEW));
+  previewAction(page, "Duplicate & Customize").dispatch("click");
+  page.send(opened(COPY));
+
+  page.byId("editor-objective").value = "Edited before saving.";
+  page.byId("editor-save").dispatch("click");
+  // The host keeps the draft it was sent, and says why it was refused.
+  page.send(opened({ ...COPY, objective: "Edited before saving." }, "That id is already taken."));
+
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+  assert.equal(page.byId("editor-error").hidden, false);
+  assert.match(page.byId("editor-error").textContent, /already taken/);
+  assert.equal(page.byId("editor-objective").value, "Edited before saving.");
+
+  page.byId("editor-cancel").dispatch("click");
+  page.send(manager());
+  assert.deepEqual(visible(page), ["fix-mode-preview-view"], "the origin was forgotten");
+});
+
+test("the chosen Fix Mode survives the whole management walk", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+  const before = page.posted.length;
+
+  page.send(manager());
+  page.send(opened(BUILTIN_VIEW));
+  page.send(opened(COPY));
+  page.send(manager());
+  page.send(state({ fixModes: MODES }));
+
+  assert.deepEqual(visible(page), ["main-view"]);
+  assert.equal(page.byId("fixModeId").value, "investigate-first");
+  assert.deepEqual(page.posted.slice(before), [], "navigation told the host something");
+});
+
+// --- confirming a create, and finding what it wrote --------------------------
+
+function rowFor(page: Page, name: string): FakeElement {
+  const rows = flatten(page.byId("manage-list")).filter((node) => node.classes.has("manage-row"));
+  const row = rows.find((candidate) =>
+    flatten(candidate).some((node) => node.textContent.includes(name)),
+  );
+  assert.ok(row, `the manager has no row for ${name}`);
+  return row;
+}
+
+const CREATED = { id: "my-safe", scope: "project", name: "Team Safe Fix" };
+
+test("a created mode is confirmed in words, not only in a notification", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, created: CREATED } }));
+
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+  assert.equal(page.byId("manage-success").hidden, false);
+  assert.match(page.byId("manage-success").textContent, /Team Safe Fix/);
+  assert.match(page.byId("manage-success").textContent, /created successfully/);
+  // And it is not dressed as a failure.
+  assert.equal(page.byId("manage-error").hidden, true);
+});
+
+test("the created row is the one with that id in that scope", () => {
+  // `my-safe` exists in both the user and the project scope. A create that
+  // wrote the project one must not light up the user's.
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, created: CREATED } }));
+
+  assert.ok(
+    rowFor(page, "Team Safe Fix").classes.has("recently-created"),
+    "the project row was not marked",
+  );
+  assert.ok(
+    !rowFor(page, "My Safe Fix").classes.has("recently-created"),
+    "the user's row of the same id was marked instead",
+  );
+});
+
+test("the created row is brought into view, once", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, created: CREATED } }));
+
+  const row = rowFor(page, "Team Safe Fix");
+  assert.ok(row.scrolledIntoView, "the new row was never scrolled to");
+  assert.equal(row.scrolledIntoView["block"], "center");
+
+  // A catalog refresh pushes state again; the list must not keep dragging
+  // itself back while the developer is reading it.
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, created: CREATED } }));
+  assert.equal(rowFor(page, "Team Safe Fix").scrolledIntoView, undefined, "it scrolled again");
+});
+
+test("nothing is marked or scrolled when no mode was created", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+
+  assert.equal(page.byId("manage-success").hidden, true);
+  for (const name of ["Team Safe Fix", "My Safe Fix", "Standard Fix"]) {
+    assert.ok(!rowFor(page, name).classes.has("recently-created"), `${name} was marked`);
+  }
+});
+
+test("a refused create says nothing about success", () => {
+  const page = load();
+  page.send(opened(BUILTIN_VIEW));
+  previewAction(page, "Duplicate & Customize").dispatch("click");
+  page.send(opened(COPY));
+  page.byId("editor-objective").value = "Typed before the refusal.";
+  page.byId("editor-save").dispatch("click");
+
+  page.send(opened({ ...COPY, objective: "Typed before the refusal." }, "That id is taken."));
+
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+  assert.equal(page.byId("editor-error").hidden, false);
+  assert.equal(page.byId("manage-success").hidden, true);
+  assert.equal(page.byId("preview-success").hidden, true);
+  assert.equal(page.byId("editor-objective").value, "Typed before the refusal.");
+});
+
+test("a create made from a preview is confirmed there, and says where it went", () => {
+  // The navigation stays as agreed — a preview-born create returns to the
+  // preview — so the confirmation has to carry the route to the new mode.
+  const page = load();
+  page.send(opened(BUILTIN_VIEW));
+  previewAction(page, "Duplicate & Customize").dispatch("click");
+  page.send(opened(COPY));
+  page.byId("editor-save").dispatch("click");
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, created: CREATED } }));
+
+  assert.deepEqual(visible(page), ["fix-mode-preview-view"]);
+  assert.equal(page.byId("preview-success").hidden, false);
+  assert.match(page.byId("preview-success").textContent, /created successfully/);
+  assert.match(page.byId("preview-success").textContent, /Fix Mode list/);
+});
+
+// --- previewing what the editor holds ---------------------------------------
+
+test("Preview Generated Instructions brings its own output into view", () => {
+  const page = load();
+  page.send(opened(DRAFT));
+  assert.equal(page.byId("editor-preview-pane").hidden, true);
+
+  page.byId("editor-preview").dispatch("click");
+
+  assert.equal(page.byId("editor-preview-pane").hidden, false);
+  const pane = page.byId("editor-preview-pane");
+  assert.ok(pane.scrolledIntoView, "the preview was shown but never scrolled to");
+  assert.equal(pane.scrolledIntoView["block"], "start");
+  assert.equal(page.focused, "editor-preview-heading");
+});
+
+test("previewing the instructions changes nothing about the editor", () => {
+  // It reads the unsaved fields and shows them. It does not save, navigate, or
+  // touch what the developer typed.
+  const page = load();
+  page.send(opened(COPY));
+  page.byId("editor-objective").value = "Unsaved text.";
+  const before = page.posted.length;
+
+  page.byId("editor-preview").dispatch("click");
+
+  assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
+  assert.equal(page.byId("editor-title").textContent, "New Fix Mode");
+  assert.equal(page.byId("editor-objective").value, "Unsaved text.");
+  assert.deepEqual(page.posted.slice(before), [], "previewing told the host something");
+  // And it previews what is in the boxes now, not what was loaded.
+  assert.match(JSON.stringify(page.byId("editor-preview-body")), /Unsaved text\./);
+});
+
+// --- improving the hint ------------------------------------------------------
+
+test("the improve button carries the hint that is on screen now", () => {
+  const page = load();
+  page.send(state({ form: { ...DEFAULT_FORM, hint: "maybe cache" } }));
+  const before = page.posted.length;
+
+  page.byId("improve-hint").dispatch("click");
+
+  const sent = page.posted.slice(before);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!["type"], "improveHint");
+  assert.equal((sent[0]!["form"] as Record<string, unknown>)["hint"], "maybe cache");
+});
+
+test("the issue-details box travels with the form, and starts on", () => {
+  const page = load();
+  page.send(state({ form: DEFAULT_FORM }));
+  assert.equal(page.byId("useIssueDetails").checked, true);
+
+  page.byId("useIssueDetails").checked = false;
+  page.byId("improve-hint").dispatch("click");
+
+  const sent = page.posted.at(-1) as Record<string, unknown>;
+  assert.equal((sent["form"] as Record<string, unknown>)["useIssueDetails"], false);
+});
+
+test("a request in flight says so, and cannot be started twice", () => {
+  const page = load();
+
+  page.send(state({ hintImprovement: { busy: true } }));
+
+  assert.equal(page.byId("improve-hint-label").textContent, "Improving…");
+  assert.equal(page.byId("improve-hint").disabled, true);
+  // The theme's own spinner, not a word that jumps.
+  assert.match(page.byId("improve-hint-icon").className, /codicon-loading/);
+
+  page.send(state({ hintImprovement: { busy: false } }));
+  assert.equal(page.byId("improve-hint-label").textContent, "Improve with AI");
+  assert.equal(page.byId("improve-hint").disabled, false);
+});
+
+test("a suggestion is shown beside the hint, never written into it", () => {
+  const page = load();
+  page.send(state({ form: { ...DEFAULT_FORM, hint: "maybe cache" } }));
+
+  page.send(
+    state({
+      form: { ...DEFAULT_FORM, hint: "maybe cache" },
+      hintImprovement: { busy: false, suggestion: "Investigate cache invalidation." },
+    }),
+  );
+
+  assert.equal(page.byId("hint-suggestion").hidden, false);
+  assert.equal(page.byId("hint-suggestion-text").textContent, "Investigate cache invalidation.");
+  assert.equal(page.byId("hint").value, "maybe cache", "the hint was replaced without being accepted");
+});
+
+test("the two answers to a suggestion are the two messages", () => {
+  const page = load();
+  page.send(state({ hintImprovement: { busy: false, suggestion: "Investigate." } }));
+  const before = page.posted.length;
+
+  page.byId("hint-use").dispatch("click");
+  page.byId("hint-keep").dispatch("click");
+
+  assert.deepEqual(
+    page.posted.slice(before).map((message) => message["type"]),
+    ["useImprovedHint", "dismissImprovedHint"],
+  );
+});
+
+test("an accepted suggestion arrives as an ordinary form update", () => {
+  // Which is what keeps it editable: it lands in the field the developer was
+  // already typing in, not in a mode of its own.
+  const page = load();
+  page.send(state({ revision: 1, form: { ...DEFAULT_FORM, hint: "maybe cache" } }));
+
+  page.send(state({ revision: 2, form: { ...DEFAULT_FORM, hint: "Investigate cache invalidation." } }));
+
+  assert.equal(page.byId("hint").value, "Investigate cache invalidation.");
+  assert.equal(page.byId("hint-suggestion").hidden, true);
+});
+
+test("a fallback is said quietly and a failure is said loudly", () => {
+  const page = load();
+
+  page.send(state({ hintImprovement: { busy: false, notice: "Issue details unavailable — improving from hint only." } }));
+  assert.equal(page.byId("hint-improve-notice").hidden, false);
+  assert.equal(page.byId("hint-improve-error").hidden, true);
+
+  page.send(state({ hintImprovement: { busy: false, error: "claude was not found on PATH." } }));
+  assert.equal(page.byId("hint-improve-error").hidden, false);
+  assert.match(page.byId("hint-improve-error").textContent, /not found on PATH/);
+});
+
+test("improving a hint never asks for a run", () => {
+  // The separation the whole feature rests on: this is a text rewrite, and Run
+  // is what builds context. Pressing one must never start the other.
+  const page = load();
+  page.send(state({ form: { ...DEFAULT_FORM, hint: "maybe cache" } }));
+  const before = page.posted.length;
+
+  page.byId("improve-hint").dispatch("click");
+  page.send(state({ hintImprovement: { busy: false, suggestion: "Investigate." } }));
+  page.byId("hint-use").dispatch("click");
+
+  const types = page.posted.slice(before).map((message) => message["type"]);
+  assert.ok(!types.includes("run"), "improving a hint asked for a run");
 });

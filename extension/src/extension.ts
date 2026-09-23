@@ -28,6 +28,8 @@ import { CredentialStore } from "./secrets.ts";
 import { PanelHost } from "./panel/provider.ts";
 import { ArtifactsTree, HistoryTree } from "./views/trees.ts";
 import {
+  improveHintWithProvider,
+  loadIssueDetails,
   canRun,
   createFilesPort,
   createUiPort,
@@ -146,6 +148,17 @@ export function activate(context: vscode.ExtensionContext): void {
         () => controller.root,
         (args, cwd) => new Runner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
       ),
+      // Improving a hint reads the issue and asks an AI CLI; it never builds
+      // context, and it never runs when there is no repository to read from.
+      loadIssueDetails: async (issueKey) => {
+        const root = controller.root;
+        if (!root) return undefined;
+        const environment = await credentials.environment();
+        const runJson = (args: readonly string[]) =>
+          new Runner(executable).runJson(args, { cwd: root, env: environment, timeoutMs: 30_000 });
+        return loadIssueDetails(runJson, issueKey);
+      },
+      improveHint: improveHintWithProvider,
       canRun,
     },
     context.workspaceState.get<FormState>(FORM_STATE_KEY) ?? DEFAULT_FORM,

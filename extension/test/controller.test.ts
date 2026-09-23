@@ -50,6 +50,10 @@ interface Harness {
   readonly fixModeCalls: { count: number };
   /** The fake file contents, live: a test may add or remove one mid-scenario. */
   readonly files: Record<string, string>;
+  /** Every prompt the hint improver sent, in order. */
+  readonly hintPrompts: string[];
+  /** Every issue key the lightweight lookup was asked for. */
+  readonly issueLookups: string[];
   readonly last: () => PanelState;
 }
 
@@ -82,6 +86,15 @@ interface HarnessOptions {
   readonly managed?: ManagedFixModes;
   /** What a Fix Mode management command does, and what it answers. */
   readonly runFixMode?: (request: FixModeRequest) => Promise<Envelope>;
+  /** What the AI CLI answers when asked to improve a hint. */
+  readonly improveHint?: (request: {
+    provider: { id: string; label: string; command: string; args: readonly string[] };
+    prompt: string;
+  }) => Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
+  /** The issue text the lightweight lookup returns; absent means it fails. */
+  readonly issueDetails?: { title: string; description: string };
+  /** Make the issue lookup throw rather than come back empty. */
+  readonly issueDetailsThrows?: Error;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -104,6 +117,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const files: Record<string, string> = { ...(options.files ?? {}) };
   let release = () => {};
 
+  const hintPrompts: string[] = [];
+  const issueLookups: string[] = [];
   const ports: ControllerPorts = {
     runner: {
       runStreaming: async (args, runOptions, onEvent) => {
@@ -208,11 +223,24 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       ? {}
       : { listManagedFixModes: async () => options.managed! }),
     ...(options.runFixMode === undefined ? {} : { runFixModeCommand: options.runFixMode }),
+    improveHint: async (request) => {
+      hintPrompts.push(request.prompt);
+      return options.improveHint
+        ? options.improveHint(request)
+        : { ok: true as const, text: "Improved hint." };
+    },
+    loadIssueDetails: async (issueKey) => {
+      issueLookups.push(issueKey);
+      if (options.issueDetailsThrows) throw options.issueDetailsThrows;
+      return options.issueDetails;
+    },
   };
 
   const controller = new Controller(ports, options.form ?? DEFAULT_FORM);
   return {
     controller,
+    hintPrompts,
+    issueLookups,
     folders,
     probed,
     states,
@@ -2037,4 +2065,295 @@ test("a bugpilot that cannot manage modes says so instead of failing quietly", a
   await h.controller.handle({ type: "manageFixModes" });
 
   assert.equal(h.last().manage!.catalog.kind, "unavailable");
+});
+
+test("a successful create reports what it wrote, by id and scope", async () => {
+  // The page needs to point at the new row, and a name cannot do it: the same
+  // id can exist in the user and the project scope. So the host says which,
+  // taken from the draft core accepted rather than guessed from the catalog.
+  const h = manageHarness({
+    envelopes: [DEFINITION_ENVELOPE, { ok: true, command: "fix-mode", warnings: [] }],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+  await h.controller.handle({
+    type: "fixModeAction",
+    action: "duplicate",
+    id: "my-safe",
+    scope: "user",
+  });
+  const draft = { ...h.last().manage!.editor!, scope: "project" as const, name: "Team Copy" };
+
+  await h.controller.handle({ type: "saveFixMode", draft });
+
+  assert.deepEqual(h.last().manage!.created, {
+    id: draft.id,
+    scope: "project",
+    name: "Team Copy",
+  });
+});
+
+test("a saved edit is not reported as a creation", async () => {
+  const h = manageHarness({
+    envelopes: [DEFINITION_ENVELOPE, { ok: true, command: "fix-mode", warnings: [] }],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+  await h.controller.handle({ type: "fixModeAction", action: "edit", id: "my-safe", scope: "user" });
+
+  await h.controller.handle({ type: "saveFixMode", draft: h.last().manage!.editor! });
+
+  assert.equal(h.last().manage!.created, undefined);
+});
+
+test("a refused create reports no creation", async () => {
+  const h = manageHarness({
+    envelopes: [
+      DEFINITION_ENVELOPE,
+      { ok: false, command: "fix-mode", error: { code: "INVALID_INPUT", message: "taken" } },
+    ],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+  await h.controller.handle({
+    type: "fixModeAction",
+    action: "duplicate",
+    id: "my-safe",
+    scope: "user",
+  });
+
+  await h.controller.handle({ type: "saveFixMode", draft: h.last().manage!.editor! });
+
+  assert.equal(h.last().manage!.created, undefined);
+  assert.match(h.last().manage!.error!, /taken/);
+  assert.ok(h.last().manage!.editor, "the editor closed on a refused create");
+});
+
+test("the creation notice stops following the developer once they act again", async () => {
+  const h = manageHarness({
+    envelopes: [
+      DEFINITION_ENVELOPE,
+      { ok: true, command: "fix-mode", warnings: [] },
+      DEFINITION_ENVELOPE,
+    ],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+  await h.controller.handle({
+    type: "fixModeAction",
+    action: "duplicate",
+    id: "my-safe",
+    scope: "user",
+  });
+  await h.controller.handle({ type: "saveFixMode", draft: h.last().manage!.editor! });
+  assert.ok(h.last().manage!.created, "nothing was reported as created");
+
+  await h.controller.handle({ type: "fixModeAction", action: "view", id: "my-safe", scope: "user" });
+
+  assert.equal(h.last().manage!.created, undefined);
+});
+
+// --- improving a hint --------------------------------------------------------
+
+const HINTED: FormState = {
+  ...DEFAULT_FORM,
+  source: "jira",
+  issueKey: "JR-1",
+  hint: "maybe output validation, don't change VolumeDescriptor",
+};
+
+function hintHarness(options: HarnessOptions = {}) {
+  return harness({ agentOnPath: true, form: HINTED, ...options });
+}
+
+test("a hint is improved from the issue's own words, and nothing else", async () => {
+  const h = hintHarness({ issueDetails: { title: "Empty volume crash", description: "No traces." } });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+
+  assert.deepEqual(h.issueLookups, ["JR-1"]);
+  assert.equal(h.hintPrompts.length, 1);
+  assert.match(h.hintPrompts[0]!, /Empty volume crash/);
+  assert.match(h.hintPrompts[0]!, /No traces\./);
+  // The constraint the developer wrote reaches the model untouched.
+  assert.match(h.hintPrompts[0]!, /don't change VolumeDescriptor/);
+  // And nothing built context on the way.
+  assert.equal(h.streamRuns.length, 0, "improving a hint started a run");
+});
+
+test("improving a hint never touches what the developer wrote", async () => {
+  const h = hintHarness({ improveHint: async () => ({ ok: true, text: "Investigate validation." }) });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+
+  assert.equal(h.last().hintImprovement?.suggestion, "Investigate validation.");
+  assert.equal(h.last().form?.hint, HINTED.hint, "the hint was overwritten before it was accepted");
+});
+
+test("Use Improved takes the suggestion into the hint; Keep Original does not", async () => {
+  const h = hintHarness({ improveHint: async () => ({ ok: true, text: "Investigate validation." }) });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+
+  await h.controller.handle({ type: "useImprovedHint" });
+  assert.equal(h.last().form?.hint, "Investigate validation.");
+  assert.equal(h.last().hintImprovement?.suggestion, undefined, "the suggestion outlived its use");
+
+  const kept = hintHarness({ improveHint: async () => ({ ok: true, text: "Something else." }) });
+  await kept.controller.refreshEnvironment();
+  await kept.controller.handle({ type: "improveHint", form: HINTED });
+  await kept.controller.handle({ type: "dismissImprovedHint" });
+  assert.equal(kept.last().form?.hint, HINTED.hint);
+  assert.equal(kept.last().hintImprovement?.suggestion, undefined);
+});
+
+test("a hand-written bug uses its own description, and asks Jira nothing", async () => {
+  const form: FormState = {
+    ...DEFAULT_FORM,
+    source: "manual",
+    title: "Crash on empty volume",
+    description: "It crashes when the volume has no traces.",
+    hint: "maybe the reader",
+  };
+  const h = harness({ agentOnPath: true, form });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "improveHint", form });
+
+  assert.deepEqual(h.issueLookups, [], "a hand-written bug went to Jira");
+  assert.match(h.hintPrompts[0]!, /Crash on empty volume/);
+  assert.match(h.hintPrompts[0]!, /It crashes when the volume has no traces\./);
+});
+
+test("turning the issue context off keeps the request to the hint alone", async () => {
+  const form = { ...HINTED, useIssueDetails: false };
+  const h = harness({ agentOnPath: true, form, issueDetails: { title: "t", description: "d" } });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "improveHint", form });
+
+  assert.deepEqual(h.issueLookups, [], "the issue was read although the box was off");
+  assert.match(h.hintPrompts[0]!, /No issue details or repository context are available/);
+});
+
+test("an issue that cannot be read improves the hint anyway, and says so", async () => {
+  // Jira being unreachable is a reason to improve the wording alone, not a
+  // reason to refuse.
+  const h = hintHarness({ issueDetailsThrows: new Error("network") });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+
+  assert.equal(h.hintPrompts.length, 1, "the improvement was abandoned");
+  assert.match(h.hintPrompts[0]!, /No issue details or repository context are available/);
+  assert.match(h.last().hintImprovement?.notice ?? "", /Issue details unavailable/);
+  assert.equal(h.last().hintImprovement?.error, undefined, "a fallback was reported as an error");
+});
+
+test("an empty hint is not worth a model call", async () => {
+  const form = { ...HINTED, hint: "   " };
+  const h = harness({ agentOnPath: true, form });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "improveHint", form });
+
+  assert.equal(h.hintPrompts.length, 0);
+  assert.match(h.last().hintImprovement?.error ?? "", /Enter a hint first/);
+});
+
+test("a second press while the first is still out costs nothing", async () => {
+  let release: (() => void) | undefined;
+  const h = hintHarness({
+    improveHint: async () =>
+      new Promise((resolve) => {
+        release = () => resolve({ ok: true, text: "Improved." });
+      }),
+  });
+  await h.controller.refreshEnvironment();
+
+  const first = h.controller.handle({ type: "improveHint", form: HINTED });
+  // Wait for the request to actually be out before pressing again; otherwise
+  // the test would be asserting that an unstarted request is not duplicated.
+  while (h.hintPrompts.length === 0) await new Promise((resolve) => setImmediate(resolve));
+
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+  assert.equal(h.hintPrompts.length, 1, "a duplicate press made a second model call");
+  assert.equal(h.last().hintImprovement?.busy, true);
+
+  release?.();
+  await first;
+  assert.equal(h.last().hintImprovement?.busy, false);
+  assert.equal(h.last().hintImprovement?.suggestion, "Improved.");
+});
+
+test("the same question twice is answered from memory", async () => {
+  const h = hintHarness({ improveHint: async () => ({ ok: true, text: "Improved." }) });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+  await h.controller.handle({ type: "dismissImprovedHint" });
+
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+
+  assert.equal(h.hintPrompts.length, 1, "the same request was asked twice");
+  assert.equal(h.last().hintImprovement?.suggestion, "Improved.");
+});
+
+test("a provider that is not installed says which one, and asks nothing", async () => {
+  const h = harness({ agentOnPath: false, form: HINTED });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+
+  assert.equal(h.hintPrompts.length, 0);
+  // Auto looked for both and found neither, so the message names both.
+  assert.match(h.last().hintImprovement?.error ?? "", /No AI CLI was found on PATH/);
+  assert.match(h.last().hintImprovement?.error ?? "", /claude, codex/);
+});
+
+test("a failing AI CLI is reported, not thrown", async () => {
+  const h = hintHarness({
+    improveHint: async () => ({ ok: false, reason: "Claude Code could not improve the hint: boom" }),
+  });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+
+  assert.match(h.last().hintImprovement?.error ?? "", /could not improve the hint: boom/);
+  assert.equal(h.last().hintImprovement?.suggestion, undefined);
+  assert.equal(h.last().form?.hint, HINTED.hint);
+});
+
+test("editing the hint drops a suggestion made for the old one", async () => {
+  const h = hintHarness({ improveHint: async () => ({ ok: true, text: "Improved." }) });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+  assert.ok(h.last().hintImprovement?.suggestion);
+
+  await h.controller.handle({ type: "formChanged", form: { ...HINTED, hint: "something else" } });
+
+  assert.equal(h.last().hintImprovement?.suggestion, undefined);
+});
+
+test("moving to another issue drops the suggestion too", async () => {
+  const h = hintHarness({ improveHint: async () => ({ ok: true, text: "Improved." }) });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+
+  await h.controller.handle({ type: "formChanged", form: { ...HINTED, issueKey: "JR-2" } });
+
+  assert.equal(h.last().hintImprovement?.suggestion, undefined);
+});
+
+test("the issue is read once, and reused by a later improvement", async () => {
+  const h = hintHarness({ issueDetails: { title: "t", description: "d" } });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+  await h.controller.handle({ type: "dismissImprovedHint" });
+
+  await h.controller.handle({ type: "improveHint", form: { ...HINTED, hint: "another hint" } });
+
+  assert.deepEqual(h.issueLookups, ["JR-1"], "the same issue was fetched twice");
+  assert.equal(h.hintPrompts.length, 2);
 });

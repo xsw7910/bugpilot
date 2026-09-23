@@ -28,13 +28,24 @@ from bugpilot.core.fix_mode_state import (
     FIX_MODE_FILE,
     FIX_MODE_SCHEMA_VERSION,
     fix_mode_metadata,
-    fix_mode_registry,
     persist_fix_mode,
     select_fix_mode,
 )
-from bugpilot.core.fix_modes import FixModeError, FixModeNotFoundError
+from bugpilot.core.fix_modes import (
+    FixModeError,
+    FixModeNotFoundError,
+    builtin_fix_mode_registry,
+)
 
-REGISTRY = fix_mode_registry()
+# The packaged modes, and deliberately not the effective ones.
+#
+# This runs at import, before any fixture — including the autouse one that
+# points BUGPILOT_CONFIG_DIR at a temporary directory. `fix_mode_registry()`
+# here therefore read the *developer's own* ~/.bugpilot, so these tests passed
+# or failed depending on whether the person running them happened to have
+# custom modes. They do not: every id below is a built-in, and what the CLI
+# lists in the isolated home the tests actually run in is exactly this set.
+REGISTRY = builtin_fix_mode_registry()
 COMMIT_OFFER = "Do you want me to commit and push this branch to origin?"
 
 

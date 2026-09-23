@@ -68,6 +68,8 @@ interface TextField {
   readonly icon?: string;
   /** Which of the six semantic tones colours it. Defaults to `muted`. */
   readonly tone?: IconTone;
+  /** Markup rendered under the control, for a field with its own actions. */
+  readonly extra?: string;
 }
 
 /**
@@ -88,6 +90,38 @@ export type IconTone = "primary" | "hint" | "danger" | "muted" | "success" | "wa
  * used to sit between the issue key and the button are still there for the runs
  * that need them.
  */
+/**
+ * The hint's own actions: let an AI tidy it up, and decide what it may read.
+ *
+ * Rendered under the hint rather than as a section of its own, because it is
+ * one field's affordance and not a second feature. The suggestion appears
+ * beside the field and never in it — the developer's own words are not
+ * something this replaces without being asked.
+ */
+const HINT_IMPROVEMENT = `      <div class="hint-actions">
+        <label class="choice" for="useIssueDetails">
+          <input type="checkbox" id="useIssueDetails" name="useIssueDetails" checked
+                 aria-describedby="useIssueDetails-hint">
+          Use issue details
+        </label>
+        <button type="button" id="improve-hint" class="link">
+          <span class="codicon codicon-hubot" id="improve-hint-icon" aria-hidden="true"></span>
+          <span id="improve-hint-label">Improve with AI</span>
+        </button>
+      </div>
+      <p class="hint" id="useIssueDetails-hint">The issue title and description only. No repository, history or files are read.</p>
+      <p class="muted" id="hint-improve-notice" hidden></p>
+      <p class="error" id="hint-improve-error" role="alert" hidden></p>
+      <div id="hint-suggestion" class="hint-suggestion" hidden>
+        <p class="card-title" id="hint-suggestion-heading" tabindex="-1">AI Suggested Hint</p>
+        <p class="preview-text" id="hint-suggestion-text"></p>
+        <div class="run-buttons">
+          <button type="button" id="hint-use" class="primary">Use Improved</button>
+          <button type="button" id="hint-keep">Keep Original</button>
+        </div>
+      </div>
+`;
+
 const MAIN_FIELDS: readonly TextField[] = [
   {
     id: "issueKey",
@@ -139,6 +173,7 @@ const ADVANCED_FIELDS: readonly TextField[] = [
     icon: "lightbulb",
     tone: "hint",
     placeholder: "e.g. Check initialization logic in the affected component",
+    extra: HINT_IMPROVEMENT,
   },
   {
     id: "keywords",
@@ -256,200 +291,244 @@ export function panelHtml(options: PanelHtmlOptions): string {
 <body>
 <main class="panel">
 
-  <p id="checking" class="muted" role="status">Checking bugpilot…</p>
+  <!--
+    One webview, three views: the workflow form, the Fix Mode catalogue, and the
+    editor for one mode. Exactly one is ever visible, chosen by showView() in
+    panel.js from the host's state. Management used to unhide below the form,
+    which in a 300px sidebar meant it appeared off-screen and looked like the
+    click had done nothing.
+  -->
+  <section id="main-view">
+    <p id="checking" class="muted" role="status">Checking bugpilot…</p>
 
-  <section id="blocked" class="card card-blocked" role="alert" hidden>
-    <p id="blocked-summary" class="card-title"></p>
-    <p id="blocked-action" class="muted"></p>
-    <div id="blocked-actions" class="actions"></div>
-  </section>
-
-  <form id="form" autocomplete="off">
-
-    <div class="radios" role="radiogroup" aria-label="Input source">
-      <label class="choice"><input type="radio" name="source" id="source-jira" value="jira" checked> Jira issue</label>
-      <label class="choice"><input type="radio" name="source" id="source-manual" value="manual"> Bug description</label>
-    </div>
-
-${MAIN_FIELDS.map(field).join("\n")}
-
-    <div class="field" id="field-fixModeId">
-${settingHeader({
-      forId: "fixModeId",
-      label: "Fix Mode",
-      icon: "lightbulb",
-      tone: "primary",
-      hint: "How the AI works on this bug.",
-    })}
-      <div class="fix-mode-row">
-        <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-description">
-          <option value="">Loading Fix Modes…</option>
-        </select>
-        <button type="button" id="manage-fix-modes" class="icon" title="Manage Fix Modes" aria-label="Manage Fix Modes">
-          <span class="codicon codicon-settings-gear" aria-hidden="true"></span>
-        </button>
-      </div>
-      <p class="hint fix-mode-note" id="fixModeId-description"></p>
-    </div>
-
-    <div class="run">
-      <div class="run-buttons">
-        <button type="submit" id="run" class="primary">
-          <span class="codicon codicon-play" aria-hidden="true"></span>
-          Run
-        </button>
-        <button type="button" id="stop" hidden disabled>Stop</button>
-        <button type="button" id="retry" hidden>Retry</button>
-      </div>
-      <span class="kbd">Ctrl+Enter</span>
-    </div>
-    <p class="hint" id="run-hint">Prepare context and optionally fix with AI.</p>
-
-    <section class="group" id="workflow" aria-labelledby="workflow-heading">
-      <div class="workflow-head">
-        <h2 id="workflow-heading">Investigation &amp; AI Fix</h2>
-        <span id="workflow-status" class="workflow-status" role="status">Ready to run</span>
-      </div>
-      <p id="prepared-fix-mode" class="muted" hidden></p>
-      <ol class="steps">
-${WORKFLOW_STEP_IDS.map(step).join("\n")}
-      </ol>
-      <p id="activity" class="muted" aria-live="polite"></p>
-      <p id="plan-note" class="muted" hidden>Without Build context, bugpilot only normalizes the report — search, history, similar fixes and the AI fix are skipped too.</p>
+    <section id="blocked" class="card card-blocked" role="alert" hidden>
+      <p id="blocked-summary" class="card-title"></p>
+      <p id="blocked-action" class="muted"></p>
+      <div id="blocked-actions" class="actions"></div>
     </section>
 
-    <details class="group advanced" id="advanced">
-      <summary>
-        <span class="codicon codicon-settings-gear adv-gear icon-primary" aria-hidden="true"></span>
-        <span class="adv-heading">
-          <span class="adv-title">Advanced Settings (Optional)</span>
-          <span class="adv-subtitle">Fine-tune the investigation to get better results</span>
-        </span>
-        <span class="adv-toggle">
-          <span class="codicon codicon-chevron-up" aria-hidden="true"></span>
-          Hide Advanced
-        </span>
-      </summary>
+    <form id="form" autocomplete="off">
 
-${ADVANCED_FIELDS.map(field).join("\n")}
-
-      <div class="limits">
-${LIMIT_FIELDS.map(field).join("\n")}
+      <div class="radios" role="radiogroup" aria-label="Input source">
+        <label class="choice"><input type="radio" name="source" id="source-jira" value="jira" checked> Jira issue</label>
+        <label class="choice"><input type="radio" name="source" id="source-manual" value="manual"> Bug description</label>
       </div>
 
-      <div class="field" id="field-agent">
-${settingHeader({
-        forId: "agent",
-        label: "AI agent",
-        icon: "hubot",
+  ${MAIN_FIELDS.map(field).join("\n")}
+
+      <div class="field" id="field-fixModeId">
+  ${settingHeader({
+        forId: "fixModeId",
+        label: "Fix Mode",
+        icon: "lightbulb",
         tone: "primary",
+        hint: "How the AI works on this bug.",
       })}
-        <select id="agent" name="agent">
-          <option value="auto">Auto-detect (Recommended)</option>
-          <option value="claude">Claude Code</option>
-          <option value="custom">Custom command…</option>
-        </select>
-      </div>
-${field(AGENT_COMMAND_FIELD)}
-
-      <div class="field" id="field-attachments">
-${settingHeader({
-        forId: "add-attachment",
-        label: "Attachments",
-        icon: "attach",
-        tone: "muted",
-        hint: "Copied into the work item and named in the agent's task file.",
-      })}
-        <ul id="attachment-list" class="attachments" hidden></ul>
-        <button type="button" id="add-attachment">
-          <span class="codicon codicon-add" aria-hidden="true"></span>
-          Add files…
-        </button>
+        <div class="fix-mode-row">
+          <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-description">
+            <option value="">Loading Fix Modes…</option>
+          </select>
+          <button type="button" id="manage-fix-modes" class="icon" title="Manage Fix Modes" aria-label="Manage Fix Modes">
+            <span class="codicon codicon-settings-gear" aria-hidden="true"></span>
+          </button>
+        </div>
+        <p class="hint fix-mode-note" id="fixModeId-description"></p>
       </div>
 
-      <div class="field field-check">
-${settingHeader({
-        forId: "fresh",
-        label: "Delete previous artifacts first",
-        control: '<input type="checkbox" id="fresh" aria-describedby="fresh-hint"> ',
-        labelClass: "choice",
-        // Kept, and the only helper text in the section that describes a
-        // consequence rather than a field: this one deletes an agent's work.
-        hint: "Removes existing generated artifacts before running. Off by default to avoid accidental data loss.",
-      })}
+      <div class="run">
+        <div class="run-buttons">
+          <button type="submit" id="run" class="primary">
+            <span class="codicon codicon-play" aria-hidden="true"></span>
+            Run
+          </button>
+          <button type="button" id="stop" hidden disabled>Stop</button>
+          <button type="button" id="retry" hidden>Retry</button>
+        </div>
+        <span class="kbd">Ctrl+Enter</span>
       </div>
-    </details>
-  </form>
+      <p class="hint" id="run-hint">Prepare context and optionally fix with AI.</p>
 
-  <section id="manage" class="group manage" aria-labelledby="manage-heading" hidden>
-    <div class="manage-head">
-      <h2 id="manage-heading">Manage Fix Modes</h2>
-      <button type="button" id="manage-close" class="link">Close</button>
+      <section class="group" id="workflow" aria-labelledby="workflow-heading">
+        <div class="workflow-head">
+          <h2 id="workflow-heading">Investigation &amp; AI Fix</h2>
+          <span id="workflow-status" class="workflow-status" role="status">Ready to run</span>
+        </div>
+        <p id="prepared-fix-mode" class="muted" hidden></p>
+        <ol class="steps">
+  ${WORKFLOW_STEP_IDS.map(step).join("\n")}
+        </ol>
+        <p id="activity" class="muted" aria-live="polite"></p>
+        <p id="plan-note" class="muted" hidden>Without Build context, bugpilot only normalizes the report — search, history, similar fixes and the AI fix are skipped too.</p>
+      </section>
+
+      <details class="group advanced" id="advanced">
+        <summary>
+          <span class="codicon codicon-settings-gear adv-gear icon-primary" aria-hidden="true"></span>
+          <span class="adv-heading">
+            <span class="adv-title">Advanced Settings (Optional)</span>
+            <span class="adv-subtitle">Fine-tune the investigation to get better results</span>
+          </span>
+          <span class="adv-toggle">
+            <span class="codicon codicon-chevron-up" aria-hidden="true"></span>
+            Hide Advanced
+          </span>
+        </summary>
+
+  ${ADVANCED_FIELDS.map(field).join("\n")}
+
+        <div class="limits">
+  ${LIMIT_FIELDS.map(field).join("\n")}
+        </div>
+
+        <div class="field" id="field-agent">
+  ${settingHeader({
+          forId: "agent",
+          label: "AI agent",
+          icon: "hubot",
+          tone: "primary",
+        })}
+          <select id="agent" name="agent">
+            <option value="auto">Auto-detect (Recommended)</option>
+            <option value="claude">Claude Code</option>
+            <option value="custom">Custom command…</option>
+          </select>
+        </div>
+  ${field(AGENT_COMMAND_FIELD)}
+
+        <div class="field" id="field-attachments">
+  ${settingHeader({
+          forId: "add-attachment",
+          label: "Attachments",
+          icon: "attach",
+          tone: "muted",
+          hint: "Copied into the work item and named in the agent's task file.",
+        })}
+          <ul id="attachment-list" class="attachments" hidden></ul>
+          <button type="button" id="add-attachment">
+            <span class="codicon codicon-add" aria-hidden="true"></span>
+            Add files…
+          </button>
+        </div>
+
+        <div class="field field-check">
+  ${settingHeader({
+          forId: "fresh",
+          label: "Delete previous artifacts first",
+          control: '<input type="checkbox" id="fresh" aria-describedby="fresh-hint"> ',
+          labelClass: "choice",
+          // Kept, and the only helper text in the section that describes a
+          // consequence rather than a field: this one deletes an agent's work.
+          hint: "Removes existing generated artifacts before running. Off by default to avoid accidental data loss.",
+        })}
+        </div>
+      </details>
+    </form>
+
+    <section id="failure" class="card card-failure" role="alert" hidden>
+      <p id="failure-summary" class="card-title"></p>
+      <p id="failure-action" class="muted"></p>
+    </section>
+
+    <section id="notices" class="notices" role="status" hidden></section>
+
+  </section>
+
+  <section id="fix-mode-manager-view" class="view" aria-labelledby="manage-heading" hidden>
+    <div class="view-head">
+      <button type="button" id="manage-back" class="link view-back">
+        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
+        Back
+      </button>
+      <h2 id="manage-heading" class="view-title" tabindex="-1">Manage Fix Modes</h2>
+      <p class="muted view-lede">The AI workflows available to this repository.</p>
     </div>
     <p id="manage-error" class="error" role="alert" hidden></p>
+    <p id="manage-success" class="success" role="status" hidden></p>
     <p id="manage-detail" class="muted" hidden></p>
     <div id="manage-list"></div>
+  </section>
 
-    <div id="manage-editor" hidden>
-      <p id="editor-title" class="card-title"></p>
+  <section id="fix-mode-preview-view" class="view" aria-labelledby="preview-heading" hidden>
+    <div class="view-head">
+      <button type="button" id="preview-back" class="link view-back">
+        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
+        Back to Fix Mode Manager
+      </button>
+      <h2 id="preview-heading" class="view-title" tabindex="-1"></h2>
+      <p id="preview-description" class="muted"></p>
+      <p id="preview-meta" class="preview-meta"></p>
+    </div>
+    <p id="preview-error" class="error" role="alert" hidden></p>
+    <p id="preview-success" class="success" role="status" hidden></p>
+    <!--
+      Rendered text, not disabled inputs: this is a mode being read, and a form
+      full of greyed-out boxes reads as one the developer is failing to edit.
+    -->
+    <div id="preview-body" class="preview-body"></div>
+    <div class="run-buttons" id="preview-actions"></div>
+  </section>
+
+  <section id="fix-mode-editor-view" class="view" aria-labelledby="editor-title" hidden>
+    <div class="view-head">
+      <button type="button" id="editor-back" class="link view-back">
+        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
+        <span id="editor-back-label">Back to Fix Mode Manager</span>
+      </button>
+      <h2 id="editor-title" class="view-title" tabindex="-1"></h2>
       <p id="editor-origin" class="muted"></p>
-      <p id="editor-readonly" class="muted" hidden>
-        Built-in Fix Modes are read-only. Use Duplicate &amp; Customize to make your own.
-      </p>
+    </div>
+    <!--
+      The same message the manager shows, rendered again here: a refused save
+      keeps the editor open, and an error left behind in the manager would be on
+      a view the developer cannot see.
+    -->
+    <p id="editor-error" class="error" role="alert" hidden></p>
 
-      <div class="field">
-        <label for="editor-name">Name</label>
-        <input type="text" id="editor-name">
-      </div>
-      <div class="field">
-        <label for="editor-id">ID</label>
-        <input type="text" id="editor-id">
-        <p class="hint" id="editor-id-hint">Lowercase letters, digits and hyphens. Fixed once the mode exists.</p>
-      </div>
-      <div class="field">
-        <label for="editor-description">Description</label>
-        <input type="text" id="editor-description">
-      </div>
-      <div class="field">
-        <label for="editor-executionKind">Execution kind</label>
-        <select id="editor-executionKind">
-          <option value="fix">Fix — change source code</option>
-          <option value="investigate">Investigate — diagnose first, no source changes</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="editor-scope">Scope</label>
-        <select id="editor-scope">
-          <option value="user">User — your home directory</option>
-          <option value="project">Project — this repository, shareable</option>
-        </select>
-        <p class="hint" id="editor-scope-hint">Fixed once the mode exists. Duplicate it to move it.</p>
-      </div>
+    <div class="field">
+      <label for="editor-name">Name</label>
+      <input type="text" id="editor-name">
+    </div>
+    <div class="field">
+      <label for="editor-id">ID</label>
+      <input type="text" id="editor-id">
+      <p class="hint" id="editor-id-hint">Lowercase letters, digits and hyphens. Fixed once the mode exists.</p>
+    </div>
+    <div class="field">
+      <label for="editor-description">Description</label>
+      <input type="text" id="editor-description">
+    </div>
+    <div class="field">
+      <label for="editor-executionKind">Execution kind</label>
+      <select id="editor-executionKind">
+        <option value="fix">Fix — change source code</option>
+        <option value="investigate">Investigate — diagnose first, no source changes</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="editor-scope">Scope</label>
+      <select id="editor-scope">
+        <option value="user">User — your home directory</option>
+        <option value="project">Project — this repository, shareable</option>
+      </select>
+      <p class="hint" id="editor-scope-hint">Fixed once the mode exists. Duplicate it to move it.</p>
+    </div>
 
 ${EDITOR_SECTIONS.map(section).join("\n")}
 
-      <div class="run-buttons">
-        <button type="button" id="editor-save" class="primary">Save Fix Mode</button>
-        <button type="button" id="editor-preview">Preview instructions</button>
-        <button type="button" id="editor-cancel">Cancel</button>
-      </div>
-      <div id="editor-preview-pane" hidden>
-        <p class="card-title">Fix Mode Instructions Preview</p>
-        <p class="muted">
-          What this mode tells the agent. BugPilot's own evidence, branch, Jira and
-          delivery rules are added around it and are not editable here.
-        </p>
-        <div id="editor-preview-body"></div>
-      </div>
+    <div class="run-buttons">
+      <button type="button" id="editor-save" class="primary">Save Fix Mode</button>
+      <button type="button" id="editor-preview">Preview Generated Instructions</button>
+      <button type="button" id="editor-cancel">Cancel</button>
+    </div>
+    <div id="editor-preview-pane" hidden>
+      <p id="editor-preview-heading" class="card-title" tabindex="-1">Instruction Preview</p>
+      <p class="muted">
+        What this mode tells the agent. BugPilot's own evidence, branch, Jira and
+        delivery rules are added around it and are not editable here.
+      </p>
+      <div id="editor-preview-body"></div>
     </div>
   </section>
-
-  <section id="failure" class="card card-failure" role="alert" hidden>
-    <p id="failure-summary" class="card-title"></p>
-    <p id="failure-action" class="muted"></p>
-  </section>
-
-  <section id="notices" class="notices" role="status" hidden></section>
 
   <footer class="footer">
     <p class="footer-line">
@@ -542,7 +621,7 @@ ${settingHeader({
   })}
       ${control}
       <p class="error" id="${entry.id}-error" hidden></p>
-    </div>`;
+${entry.extra ?? ""}    </div>`;
 }
 
 /**
@@ -602,10 +681,10 @@ export const EDITOR_SECTIONS: readonly { readonly id: string; readonly label: st
 ];
 
 function section(entry: { readonly id: string; readonly label: string }): string {
-  return `      <div class="field">
-        <label for="editor-${entry.id}">${entry.label}</label>
-        <textarea id="editor-${entry.id}" rows="4"></textarea>
-      </div>`;
+  return `    <div class="field">
+      <label for="editor-${entry.id}">${entry.label}</label>
+      <textarea id="editor-${entry.id}" rows="4"></textarea>
+    </div>`;
 }
 
 /** The text field ids the page owns, exported so tests can compare them to `FormState`. */

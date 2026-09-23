@@ -21,6 +21,13 @@ import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
 import { buildWorkflow, overallStatus } from "./workflow.ts";
 import type { FixWithAiOutcome } from "./workflow.ts";
+import {
+  buildHintPrompt,
+  cleanImprovedHint,
+  hintCacheKey,
+  resolveHintProvider,
+} from "./hintImprovement.ts";
+import type { HintContext, HintProvider, IssueDetails } from "./hintImprovement.ts";
 import { ProgressTracker, viewFromStatus } from "./progress.ts";
 import type { ProgressView } from "./progress.ts";
 import { buildArtifactList } from "./artifacts.ts";
@@ -47,7 +54,13 @@ import type {
 import type { Log } from "./log.ts";
 import type { Envelope, StreamEvent } from "../protocol.ts";
 import { MAX_ATTACHMENTS } from "../panel/messages.ts";
-import type { Notice, PanelMessage, PanelState, Readiness } from "../panel/messages.ts";
+import type {
+  CreatedFixMode,
+  Notice,
+  PanelMessage,
+  PanelState,
+  Readiness,
+} from "../panel/messages.ts";
 
 export interface RunOptions {
   readonly cwd: string;
@@ -174,6 +187,24 @@ export interface ControllerPorts {
   readonly listFixModes?: () => Promise<FixModeCatalog>;
   /** Every physical definition, for the management view. */
   readonly listManagedFixModes?: () => Promise<ManagedFixModes>;
+  /**
+   * One issue's title and description, for improving a hint.
+   *
+   * `bugpilot issue-details --json`: the same Jira client a run uses, reading
+   * only, writing nothing. A port rather than an inline call so the spawn stays
+   * with the host, and so a test can answer it without a process.
+   */
+  readonly loadIssueDetails?: (issueKey: string) => Promise<IssueDetails | undefined>;
+  /**
+   * Ask an AI CLI to rewrite a hint, and read what it says.
+   *
+   * The prompt goes to the child on stdin, never in argv. Absent means the
+   * host cannot do this at all, which the panel reports rather than pretends.
+   */
+  readonly improveHint?: (request: {
+    readonly provider: HintProvider;
+    readonly prompt: string;
+  }) => Promise<{ readonly ok: true; readonly text: string } | { readonly ok: false; readonly reason: string }>;
   /** One management command, with its definition written to a temporary file. */
   readonly runFixModeCommand?: (request: FixModeRequest) => Promise<Envelope>;
 }
@@ -273,6 +304,22 @@ export class Controller {
   #editor: FixModeDraft | undefined;
   /** Why the last management command was refused, kept beside the editor. */
   #manageError: string | undefined;
+  /** The mode the last successful create wrote, until the developer moves on. */
+  #created: CreatedFixMode | undefined;
+
+  // --- improving a hint ------------------------------------------------------
+
+  /** The suggestion on screen, which has not touched the form. */
+  #hintSuggestion: string | undefined;
+  /** True while one request is in flight, which is what stops a second. */
+  #hintBusy = false;
+  #hintError: string | undefined;
+  /** Said when the improvement ran on the hint alone, and why. */
+  #hintNotice: string | undefined;
+  /** Same inputs, same answer: a repeat press costs nothing. */
+  readonly #hintCache = new Map<string, string>();
+  /** Issue text already fetched this session, keyed by work item. */
+  readonly #issueDetails = new Map<string, IssueDetails>();
   /**
    * The work item the current Fix Mode selection was derived for.
    *
@@ -417,6 +464,15 @@ export class Controller {
         return;
       case "fixModeAction":
         await this.fixModeAction(message.action, message.id, message.scope);
+        return;
+      case "improveHint":
+        await this.improveHint(message.form);
+        return;
+      case "useImprovedHint":
+        this.useImprovedHint();
+        return;
+      case "dismissImprovedHint":
+        this.dismissImprovedHint();
         return;
       case "saveFixMode":
         await this.saveFixMode(message.draft);
@@ -860,6 +916,149 @@ export class Controller {
     if (selected !== this.#form.fixModeId) this.#replaceForm({ ...this.#form, fixModeId: selected });
   }
 
+
+  // --- improving a hint --------------------------------------------------------
+
+  /**
+   * Rewrite the developer's hint with the configured AI CLI.
+   *
+   * Deliberately not a step of a run: no repository is read, no context is
+   * built, nothing is written, and the form is not touched. The result is a
+   * suggestion the developer accepts or discards.
+   */
+  async improveHint(form: FormState): Promise<void> {
+    // A second press while the first is still out would spend another model
+    // call on the same question.
+    if (this.#hintBusy) return;
+    this.#form = form;
+    this.#hintError = undefined;
+    this.#hintNotice = undefined;
+
+    const hint = form.hint.trim();
+    if (hint === "") {
+      this.#hintSuggestion = undefined;
+      this.#hintError = "Enter a hint first.";
+      this.#push();
+      return;
+    }
+    if (!this.#ports.improveHint || !this.#ports.canRun) {
+      this.#hintError = "This BugPilot version cannot improve hints.";
+      this.#push();
+      return;
+    }
+
+    const plan = await resolveHintProvider(form.agent, this.#ports.canRun);
+    if (plan.kind === "unavailable") {
+      this.#hintError = plan.reason;
+      this.#push();
+      return;
+    }
+
+    const context = await this.#hintContext(form);
+    const key = hintCacheKey({ hint, context, provider: plan.provider.id });
+    const remembered = this.#hintCache.get(key);
+    if (remembered !== undefined) {
+      this.#hintSuggestion = remembered;
+      this.#push();
+      return;
+    }
+
+    this.#hintBusy = true;
+    this.#hintSuggestion = undefined;
+    this.#push();
+    let outcome;
+    try {
+      outcome = await this.#ports.improveHint({
+        provider: plan.provider,
+        prompt: buildHintPrompt(hint, context),
+      });
+    } catch (error) {
+      outcome = { ok: false as const, reason: `${plan.provider.label} could not be run: ${(error as Error).message}` };
+    }
+    this.#hintBusy = false;
+
+    if (!outcome.ok) {
+      this.#hintError = outcome.reason;
+      this.#push();
+      return;
+    }
+    const improved = cleanImprovedHint(outcome.text);
+    if (improved === "") {
+      this.#hintError = `${plan.provider.label} returned nothing to use.`;
+      this.#push();
+      return;
+    }
+    this.#hintCache.set(key, improved);
+    this.#hintSuggestion = improved;
+    this.#push();
+  }
+
+  /**
+   * What the improver is allowed to read.
+   *
+   * The issue's own words when the developer allows it, and nothing else — no
+   * repository, no history, no files. A Jira lookup that fails is a reason to
+   * improve the wording alone, said out loud, not a reason to refuse.
+   */
+  async #hintContext(form: FormState): Promise<HintContext> {
+    if (!form.useIssueDetails) return { kind: "hint-only" };
+    if (form.source === "manual") {
+      const title = form.title.trim();
+      const description = form.description.trim();
+      if (title === "" && description === "") return { kind: "hint-only" };
+      return { kind: "issue", title, description };
+    }
+    const key = form.issueKey.trim().toUpperCase();
+    if (key === "") return { kind: "hint-only" };
+    const remembered = this.#issueDetails.get(key);
+    if (remembered) return { kind: "issue", ...remembered };
+    if (!this.#ports.loadIssueDetails) return { kind: "hint-only" };
+    let details: IssueDetails | undefined;
+    try {
+      details = await this.#ports.loadIssueDetails(key);
+    } catch {
+      details = undefined;
+    }
+    if (!details) {
+      this.#hintNotice = "Issue details unavailable — improving from hint only.";
+      return { kind: "hint-only" };
+    }
+    // Kept for the rest of the session, so pressing Improve twice, or running
+    // afterwards, does not ask Jira the same question again.
+    this.#issueDetails.set(key, details);
+    return { kind: "issue", ...details };
+  }
+
+  /** Take the suggestion into the editable hint, where it can still be edited. */
+  useImprovedHint(): void {
+    const improved = this.#hintSuggestion;
+    if (improved === undefined) return;
+    this.#hintSuggestion = undefined;
+    this.#hintNotice = undefined;
+    this.#hintError = undefined;
+    // The revision bump is what makes the page write the new hint into the
+    // field; without the push it would never see it.
+    this.#replaceForm({ ...this.#form, hint: improved });
+    this.#push();
+  }
+
+  /** Drop the suggestion. The developer's own hint was never touched. */
+  dismissImprovedHint(): void {
+    this.#hintSuggestion = undefined;
+    this.#hintNotice = undefined;
+    this.#hintError = undefined;
+    this.#push();
+  }
+
+  /** The suggestion belongs to the hint it was made from, and to no other. */
+  #forgetHintSuggestion(): boolean {
+    if (this.#hintSuggestion === undefined && this.#hintError === undefined) return false;
+    this.#hintSuggestion = undefined;
+    this.#hintError = undefined;
+    this.#hintNotice = undefined;
+    return true;
+  }
+
   // --- managing custom Fix Modes ---------------------------------------------
 
   /** Open the management view and read what is on disk. */
@@ -876,6 +1075,7 @@ export class Controller {
     this.#manageOpen = false;
     this.#editor = undefined;
     this.#manageError = undefined;
+    this.#created = undefined;
     this.#push();
   }
 
@@ -887,6 +1087,9 @@ export class Controller {
    * would make the shadowed one impossible to open or remove.
    */
   async fixModeAction(action: FixModeActionId, id: string, scope: string): Promise<void> {
+    // Whatever was created a moment ago has been acknowledged by doing
+    // something else, so its confirmation stops following the developer around.
+    this.#created = undefined;
     if (action === "delete") {
       await this.#deleteFixMode(id, scope);
       return;
@@ -909,9 +1112,11 @@ export class Controller {
     } else {
       this.#editor = {
         ...definition,
-        // A built-in can be read and copied, never written: it is packaged, and
-        // the developer's own version of it is what `duplicate` is for.
-        intent: scope === "builtin" ? "view" : "edit",
+        // `view` means read it, whatever owns it — the preview is a place a
+        // custom mode can be read from too. And a built-in is only ever read:
+        // it is packaged, and the developer's own version of it is what
+        // `duplicate` is for.
+        intent: action === "view" || scope === "builtin" ? "view" : "edit",
       };
     }
     this.#manageError = undefined;
@@ -927,6 +1132,7 @@ export class Controller {
    */
   async saveFixMode(draft: FixModeDraft): Promise<void> {
     if (draft.intent === "view") return;
+    this.#created = undefined;
     const envelope = await this.#runFixMode({
       args: (payloadPath) => saveArgsForDraft(draft, payloadPath),
       payload: payloadFromDraft(draft),
@@ -940,6 +1146,13 @@ export class Controller {
     }
     this.#editor = undefined;
     this.#manageError = undefined;
+    // From the draft that was accepted, not from the refreshed catalog: the id
+    // and scope that were written are exactly what the page has to point at,
+    // and re-deriving them from a list would be a second, weaker answer.
+    this.#created =
+      draft.intent === "create"
+        ? { id: draft.id, scope: draft.scope, name: draft.name }
+        : undefined;
     await this.#refreshAfterFixModeChange();
     this.#ports.ui.notify(
       "info",
@@ -1054,12 +1267,22 @@ export class Controller {
    * key is a different bug, and a different bug gets its own mode.
    */
   async #formChanged(form: FormState): Promise<void> {
+    const previous = this.#form;
     this.#form = form;
     this.#ports.saveForm?.(form);
+    // Editing the hint, or moving to another issue, makes the suggestion an
+    // answer to a question nobody asked any more.
+    let changed = false;
+    if (previous.hint !== form.hint || workItemScopeOf(previous) !== workItemScopeOf(form)) {
+      changed = this.#forgetHintSuggestion();
+    }
     const scope = workItemScopeOf(form);
     // `undefined` is a half-typed key: not yet any work item, so not yet a
     // reason to conclude the developer moved to another one.
-    if (scope === undefined || scope === this.#fixModeWorkItem) return;
+    if (scope === undefined || scope === this.#fixModeWorkItem) {
+      if (changed) this.#push();
+      return;
+    }
     const prepared =
       scope === MANUAL_WORK_ITEM_SCOPE
         ? undefined
@@ -1067,7 +1290,7 @@ export class Controller {
     // Only the selection follows the typed key. `#preparedFixMode` keeps
     // describing the work item whose artifacts and progress are on screen,
     // which is still the one that was opened.
-    if (this.#deriveFixModeFor(scope, prepared)) this.#push();
+    if (this.#deriveFixModeFor(scope, prepared) || changed) this.#push();
   }
 
   /**
@@ -1156,9 +1379,16 @@ export class Controller {
               catalog: this.#managed,
               ...(this.#editor === undefined ? {} : { editor: this.#editor }),
               ...(this.#manageError === undefined ? {} : { error: this.#manageError }),
+              ...(this.#created === undefined ? {} : { created: this.#created }),
             },
           }
         : {}),
+      hintImprovement: {
+        busy: this.#hintBusy,
+        ...(this.#hintSuggestion === undefined ? {} : { suggestion: this.#hintSuggestion }),
+        ...(this.#hintError === undefined ? {} : { error: this.#hintError }),
+        ...(this.#hintNotice === undefined ? {} : { notice: this.#hintNotice }),
+      },
       readiness: this.#readiness,
       form: this.#form,
       problems: this.#problems,

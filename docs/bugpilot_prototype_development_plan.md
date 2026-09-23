@@ -3329,6 +3329,156 @@ git diff --check                                                             -> 
 | 2026-09-22 | Phase 5 cleanup | Completed | Independent Phase 5 review corrections. Closed a path-containment escape: a symlinked `fix_modes` directory (or `.bugpilot`) passed the check because resolving both sides followed the same link, so project modes could be read from and written outside the repository. `FixModeStore` now refuses a redirecting scope directory — reported as an issue on the read path, refused before any write on every mutation — with the guard's coverage (symlinks, plus Windows junctions where the interpreter reports them) documented rather than overclaimed. The extension's CRUD port no longer falls back to `process.cwd()` when there is no workspace root, `asManagedMode` no longer assumes `effective`, and `create` preserving `based_on` is now pinned by a test. Python: 880 passed; extension: 489 passed; typecheck clean. |
 | 2026-09-22 | Phase 6 | Completed | MCP Fix Mode support, read and select only. Added `list_fix_modes` (effective modes for the bound repository, `default_mode_id`, and diagnostics for unreadable custom files) and `show_fix_mode` (one mode including its six sections), plus an optional `fix_mode_id` on both prepare tools carried as `InvestigationRequest.fix_mode_id`. Prepare results now return the `fix_mode` metadata shape already used by `workflow_status.json` and `--json`, together with core's `warnings` so source/version drift reaches the client; `get_status` reports the recorded mode. No CRUD, no storage paths, no registry logic and no enum of built-ins in MCP — the tools call `fix_mode_registry(repo_root)` and `catalog_for(repo_root)` and report what comes back. Python: 910 passed; extension untouched. |
 | 2026-09-22 | Final review cleanup | Completed | Pre-commit corrections from the final Phases 1–6 review. Caller text now follows `execution_kind`: the CLI launch lines, the MCP `next_step`, the MCP `fix_bug` prompt and the Claude Code skill no longer tell an agent to "implement the smallest safe fix" under an investigate-kind mode — the handoff points at `agent_task.md`, and the task file decides. `refine_investigation` resolves the persisted mode once and carries it on its result, so the MCP refine response reports `fix_mode` instead of `null`. `fix-mode list <id>` is refused with a pointer to `show`. The extension maps an older core's "invalid choice: 'fix-mode'" to the upgrade message. Persistence timing documented as implemented (recorded once the selection resolves, before the pipeline). README, extension README and CHANGELOG gained the feature. |
+| 2026-09-23 | AI Hint Improvement | Completed | Optional AI rewrite of the developer's hint, in Advanced settings. New `bugpilot issue-details <KEY> --json`: the same Jira client and parser a run uses, read-only, writing nothing — `fetch` was not reused because it mints `.ai/<issue>/`. New `extension/src/app/hintImprovement.ts` holds the prompt, the response cleanup, the cache key and its own provider table (`claude -p`, `codex exec -`), separate from `KNOWN_AGENTS` because a terminal handoff and a one-shot text transform are different contracts. The prompt travels on stdin and the child runs in an empty temporary directory, so no hint reaches argv and no CLI with file tools has the repository within reach; a custom agent command is refused rather than shell-interpolated. Issue text is optional (`Use issue details`, on by default), falls back to hint-only with a notice when Jira cannot be read, and is cached per work item. A suggestion is shown beside the field and never replaces the hint until Use Improved. Extension: 581 passed; Python: 925 passed; typecheck clean. |
 | 2026-09-22 | AI Fix Mode | Complete | Six phases: model and registry, prompt integration, CLI selection and persistence, VS Code selection, custom user/project modes, MCP discovery and selection. Remaining known limitations are recorded with their phases rather than closed: manual-edit version discipline, changing the mode of a hand-written work item, and nested-directory repository discovery. |
 
 For every later Fix Mode phase, update this table in the same change set so the original development plan remains the source of truth for both planned and completed work.
+
+## 32. AI Hint Improvement
+
+**Status:** Implemented and validated. Extension: 581 tests passed, typecheck
+clean, activation smoke ok. Python: 925 passed (6 added).
+
+### 32.1 Goal
+
+A hint is a pointer at where the fix belongs, and developers write them fast:
+"maybe cache issue", "output validation? don't touch VolumeDescriptor". An agent
+reading that gets tone and guesswork. This turns one of those into something an
+agent can act on — and stops there.
+
+It is a text rewrite, not a step of a run. Nothing is searched, nothing is
+built, nothing is written, and the developer's own hint is never replaced
+without them pressing a button.
+
+The three rules the prompt exists to hold:
+
+```text
+- it rewrites, it never investigates — no repository, no git history, no files
+- it never asserts a cause — "maybe cache" comes back as something to
+  investigate, because a confident wrong hint stops the agent looking
+- it never drops a constraint — "do not modify VolumeDescriptor" is the most
+  valuable thing in a hint and the easiest thing for a rewrite to smooth away
+```
+
+### 32.2 UI
+
+Under the hint field in Advanced settings, and nowhere else:
+
+```text
+Hint
+[ maybe output validation, don't change VolumeDescriptor        ]
+☑ Use issue details                            🤖 Improve with AI
+The issue title and description only. No repository, history or files are read.
+```
+
+A suggestion arrives beside the field, never in it:
+
+```text
+AI Suggested Hint
+Investigate whether output-type validation could be excluding the expected
+volume type. Do not modify VolumeDescriptor while investigating or implementing
+the fix.
+[ Use Improved ]  [ Keep Original ]
+```
+
+`Use Improved` writes it into the editable hint, where it can still be edited.
+`Keep Original` drops it. While a request is out, the action reads `Improving…`
+with the theme's own spinner and is disabled; nothing else in the panel is.
+
+### 32.3 Issue context
+
+`Use issue details` is on by default and gates one thing: whether the improver
+may read the issue's **title and description**. Never the repository.
+
+```text
+Jira issue      -> bugpilot issue-details <KEY> --json
+Hand-written    -> the title and description already in the form; no Jira call
+Box unticked    -> hint only, and the prompt says so out loud
+Jira unreachable-> hint only, plus "Issue details unavailable — improving from
+                   hint only." A fallback, not an error.
+```
+
+`issue-details` is a new read-only CLI command: the same `fetch_issue` and
+`parse_issue` a run uses, and **no writes**. `fetch` was not reused because it
+creates `.ai/<issue>/` — a run needs those artifacts, and minting a work item as
+a side effect of improving a sentence would be a surprise. The extension has no
+Jira client of its own and gains none here; credentials stay in the CLI.
+
+Issue text is cached per work item for the session, so pressing Improve twice —
+or running afterwards — does not ask Jira the same question again.
+
+### 32.4 Provider
+
+`HINT_PROVIDERS` in `app/hintImprovement.ts`, deliberately **not**
+`KNOWN_AGENTS`:
+
+```text
+claude  ->  claude -p        prompt on stdin, answer on stdout
+codex   ->  codex exec -     same
+auto    ->  the first of those that is on PATH
+custom  ->  refused, with a reason
+```
+
+`KNOWN_AGENTS` describes an agent being handed a repository in a terminal; this
+describes a one-shot text transform whose answer is read from stdout. The
+argument shapes differ and so do the stakes, so they are separate tables rather
+than one table with a flag. A custom agent command is a shell template with
+`{prompt}` in it: substituting a hint into one would put untrusted prose on a
+command line, which is the thing this feature is built to avoid.
+
+### 32.5 Security boundaries
+
+```text
+- the prompt travels on stdin; no hint ever reaches argv or a shell string
+- argv is the provider's own fixed arguments, nothing interpolated
+- the child runs in an empty temporary directory, not the repository, so a CLI
+  with file tools has no project files within reach. Stronger than a permission
+  flag this code would have to guess at, and true for every provider.
+- no Jira credentials and no secrets are passed to the AI process
+- issue text is marked in the prompt as context, not instructions
+- the panel renders every suggestion with textContent
+```
+
+### 32.6 Caching
+
+In memory, for the session. The key is everything that changes the answer:
+provider, issue context (kind and text), and the hint itself. Editing the hint,
+unticking the box or moving to another issue all miss rather than return a stale
+suggestion, and a displayed suggestion is dropped outright when the hint or the
+work item changes.
+
+### 32.7 Tests
+
+```text
+prompt    role and rules present; hint-only says so; issue text marked as
+          context; the hint arrives last and verbatim; long descriptions
+          truncated
+response  fences, labels and wrapping quotes removed; capped at HINT_LIMIT so an
+          accepted suggestion can never be a hint the run refuses
+cache     every input that changes the answer changes the key
+provider  auto picks the first installed; a missing one is named; a custom
+          command is refused and not even probed; no provider carries the prompt
+          in argv
+flow      hint-only, with Jira details, with a hand-written description, box
+          unticked, Jira failure falling back with a notice, empty hint making
+          no call, a duplicate press making no second call, provider missing,
+          provider failing, the issue read once and reused
+state     the hint is untouched until Use Improved; Keep Original leaves it;
+          editing the hint or changing the issue drops the suggestion
+panel     the form travels with the request; busy disables the one control;
+          the suggestion renders beside the field; both answers post their
+          message; no run is ever requested
+cli       title and description reported; nothing written; human form; a Jira
+          failure is a clean envelope; a hand-written work item refused; mock
+          data still opt-in
+```
+
+### 32.8 Deferred
+
+Named in the brief and deliberately not built: generating a hint when there is
+none, repository-aware hints, rewrite styles, hint history, improvement while
+typing, and anything that changes the hint without the developer accepting it.
+
+Not deferred but worth recording: a custom agent command cannot improve hints,
+because doing it safely needs that provider's non-interactive argument shape,
+which only the developer who configured it knows.

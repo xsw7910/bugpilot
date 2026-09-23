@@ -167,6 +167,9 @@ test("every message the page sends is one the host understands", () => {
     "closeFixModes",
     "fixModeAction",
     "saveFixMode",
+    "improveHint",
+    "useImprovedHint",
+    "dismissImprovedHint",
   ]);
   for (const type of sent) {
     assert.ok(understood.has(type), `the page sends "${type}", which the host drops`);
@@ -241,8 +244,19 @@ test("the form's fields are exactly the model's fields", () => {
     // `attachments` is a list built by a file dialog, not a text field, and
     // `agent` and `fixModeId` are selects whose options come from elsewhere —
     // the agent list from the markup, the Fix Modes from the CLI.
+    // `useIssueDetails` is a checkbox beside the hint: it gates what the hint
+    // improver may read and contributes no argument to a run.
     (key) =>
-      !["source", "plan", "fresh", "fixWithAI", "agent", "attachments", "fixModeId"].includes(key),
+      ![
+        "source",
+        "plan",
+        "fresh",
+        "fixWithAI",
+        "agent",
+        "attachments",
+        "fixModeId",
+        "useIssueDetails",
+      ].includes(key),
   );
   assert.deepEqual([...TEXT_FIELD_IDS].sort(), modelFields.sort());
 });
@@ -405,7 +419,7 @@ test("helper text survives only where a placeholder could not carry it", () => {
   );
   assert.deepEqual(
     [...withHelper].sort(),
-    ["add-attachment", "agentCommand", "fresh"],
+    ["add-attachment", "agentCommand", "fresh", "useIssueDetails"],
     "helper text should remain only where a placeholder could not carry it",
   );
   // Where the files go and who reads them: not inferable from "Attachments",
@@ -415,6 +429,9 @@ test("helper text survives only where a placeholder could not carry it", () => {
   // And what each of them says is the reason it survived.
   assert.match(advanced, /\{prompt\} is replaced with the handoff prompt, already quoted\./);
   assert.match(advanced, /Off by default to avoid accidental data loss/);
+  // A checkbox with no input to hang a placeholder on, saying what it lets the
+  // improver read — and, just as importantly, what it does not.
+  assert.match(advanced, /No repository, history or files are read\./);
 });
 
 test("a field with nothing to explain says nothing, and points at nothing", () => {
@@ -888,6 +905,77 @@ test("the page markup does not name any Fix Mode", () => {
   }
 });
 
+test("the panel declares its views, and only the form starts visible", () => {
+  // The contract showView() rests on: one section per view, all siblings, and
+  // every Fix Mode one hidden in the markup — so a webview that never receives
+  // a state push is still a plain, working form.
+  //
+  // Four sections carry five views: New Fix Mode and Edit Fix Mode share the
+  // editor form rather than declaring eleven fields and their ids twice. What
+  // separates them is the title and the way back, which `page.test.ts` checks.
+  const views = [
+    "main-view",
+    "fix-mode-manager-view",
+    "fix-mode-preview-view",
+    "fix-mode-editor-view",
+  ];
+  for (const id of views) {
+    assert.match(HTML, new RegExp(`<section id="${id}"`), `no #${id} in the document`);
+  }
+  const opening = (id: string) => new RegExp(`<section id="${id}"[^>]*>`).exec(HTML)?.[0] ?? "";
+  assert.equal(/ hidden/.test(opening("main-view")), false);
+  for (const id of views.slice(1)) {
+    assert.equal(/ hidden/.test(opening(id)), true, `#${id} does not start hidden`);
+  }
+});
+
+test("the Fix Mode views sit beside the form, never inside it", () => {
+  // Inside <form> they would submit with it, and Ctrl+Enter typed in a mode's
+  // instructions would start a run.
+  const form = HTML.slice(HTML.indexOf('<form id="form"'), HTML.indexOf("</form>"));
+  for (const id of [
+    "fix-mode-manager-view",
+    "fix-mode-preview-view",
+    "fix-mode-editor-view",
+    "manage-list",
+    "preview-body",
+    "editor-save",
+  ]) {
+    assert.ok(!form.includes(`id="${id}"`), `#${id} is inside the run form`);
+  }
+});
+
+test("each Fix Mode view says where back goes, and can take focus on arrival", () => {
+  for (const [view, back, heading] of [
+    ["fix-mode-manager-view", "manage-back", "manage-heading"],
+    ["fix-mode-preview-view", "preview-back", "preview-heading"],
+    ["fix-mode-editor-view", "editor-back", "editor-title"],
+  ]) {
+    const start = HTML.indexOf(`id="${back}"`);
+    const button = HTML.slice(start, HTML.indexOf("</button>", start));
+    assert.match(button, /Back/, `${view} has no back control with a readable name`);
+    // Focused when the view opens, so assistive tech announces the new place.
+    // A heading is not focusable on its own.
+    assert.match(
+      new RegExp(`id="${heading}"[^>]*`).exec(HTML)?.[0] ?? "",
+      /tabindex="-1"/,
+      `#${heading} cannot take focus when its view opens`,
+    );
+    assert.match(
+      new RegExp(`<section id="${view}"[^>]*`).exec(HTML)?.[0] ?? "",
+      new RegExp(`aria-labelledby="${heading}"`),
+      `${view} is not named by its own heading`,
+    );
+  }
+});
+
+test("a view header stacks, so a narrow sidebar never has to fit it on one line", () => {
+  // The panel is resizable down to about 200px. Back above the heading rather
+  // than beside it also puts the way out first in the tab order.
+  const rule = /\.view-head \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  assert.match(rule, /flex-direction: column/, "the view header is not stacked");
+});
+
 test("a Fix Mode id from the page is shape-checked before it can become a flag", () => {
   const base = { type: "run", form: { ...DEFAULT_FORM, issueKey: "JR-1" } };
   const parsed = parsePanelMessage({ ...base, form: { ...base.form, fixModeId: "conservative" } });
@@ -900,5 +988,128 @@ test("a Fix Mode id from the page is shape-checked before it can become a flag",
       "",
       `${JSON.stringify(hostile)} should not survive as a mode id`,
     );
+  }
+});
+
+test("a class that sets display must let the hidden attribute win", () => {
+  // The bug this exists for: `hidden` is only a UA-stylesheet
+  // `display: none`, so ANY author rule that sets `display` on the same
+  // element beats it and the "hidden" section renders. It shipped as three Fix
+  // Mode views laid out down the Main view, under Advanced settings.
+  //
+  // The file already answers this for `.field`, `.attachments`, `.notices` and
+  // the step rows. This is the same answer, enforced: every class the markup
+  // ever pairs with `hidden` and that CSS gives a `display` must also carry a
+  // `[hidden]` rule turning it back off.
+  const hiddenClasses = new Set<string>();
+  for (const tag of HTML.matchAll(/<[a-z][^>]*>/g)) {
+    if (!/\shidden(\s|>|=)/.test(tag[0])) continue;
+    const classes = /class="([^"]+)"/.exec(tag[0])?.[1] ?? "";
+    for (const name of classes.split(/\s+/).filter(Boolean)) hiddenClasses.add(name);
+  }
+  assert.ok(hiddenClasses.size > 0, "no element in the markup uses hidden with a class");
+
+  const declaresDisplay = (selector: string): boolean => {
+    const rule = new RegExp(`(^|[,}])\\s*\\${selector}\\s*\\{([^}]*)\\}`, "m").exec(CSS);
+    return rule !== null && /(^|[;{\s])display\s*:/.test(rule[2] ?? "");
+  };
+
+  for (const name of hiddenClasses) {
+    if (!declaresDisplay(`.${name}`)) continue;
+    assert.ok(
+      new RegExp(`\\.${name}\\[hidden\\]\\s*\\{[^}]*display\\s*:\\s*none`).test(CSS),
+      `.${name} sets display, so a .${name}[hidden] { display: none } rule is ` +
+        "what stops a hidden element from laying itself out anyway",
+    );
+  }
+});
+
+/**
+ * Every element with an id, and the ids of the elements it sits inside.
+ *
+ * A structural read rather than a string search: "is the editor inside
+ * Advanced settings" is a question about ancestry, and `HTML.includes(...)`
+ * answers a different one. Outermost ancestor first.
+ */
+function ancestorsById(html: string): Map<string, string[]> {
+  const VOID = new Set([
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+  ]);
+  const found = new Map<string, string[]>();
+  const open: { tag: string; id: string }[] = [];
+  const tags = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g;
+  for (let match = tags.exec(html); match; match = tags.exec(html)) {
+    const tag = match[2];
+    if (tag === undefined) continue; // a comment
+    const name = tag.toLowerCase();
+    if (match[1]) {
+      for (let i = open.length - 1; i >= 0; i--) {
+        if (open[i]!.tag === name) {
+          open.length = i;
+          break;
+        }
+      }
+      continue;
+    }
+    const attributes = match[3] ?? "";
+    if (VOID.has(name) || attributes.trimEnd().endsWith("/")) continue;
+    const id = /id="([^"]+)"/.exec(attributes)?.[1] ?? "";
+    if (id) found.set(id, open.map((element) => element.id).filter(Boolean));
+    open.push({ tag: name, id });
+  }
+  return found;
+}
+
+const FIX_MODE_VIEWS = [
+  "fix-mode-manager-view",
+  "fix-mode-preview-view",
+  "fix-mode-editor-view",
+];
+
+test("the Fix Mode views are siblings of the main view, not part of it", () => {
+  // Manual testing found all three laid out down the main view, under Advanced
+  // settings. The cause was CSS rather than nesting, but the nesting is what
+  // made the symptom that shape, and it is worth pinning: inside #main-view
+  // they would be hidden and shown along with the form, and inside <details>
+  // they would inherit its open/closed state.
+  const tree = ancestorsById(HTML);
+  for (const view of [...FIX_MODE_VIEWS, "main-view"]) {
+    assert.ok(tree.has(view), `the document has no #${view}`);
+  }
+  for (const view of FIX_MODE_VIEWS) {
+    const above = tree.get(view)!;
+    for (const forbidden of ["main-view", "advanced", "form"]) {
+      assert.ok(!above.includes(forbidden), `#${view} is inside #${forbidden}: ${above}`);
+    }
+    assert.deepEqual(above, tree.get("main-view"), `#${view} is not a sibling of #main-view`);
+  }
+  // And the other way round: the form's own things stayed where they were.
+  assert.deepEqual(tree.get("advanced"), ["main-view", "form"]);
+});
+
+test("the management and editor controls live in their own views", () => {
+  const tree = ancestorsById(HTML);
+  for (const [id, view] of [
+    ["manage-list", "fix-mode-manager-view"],
+    ["manage-back", "fix-mode-manager-view"],
+    ["preview-body", "fix-mode-preview-view"],
+    ["preview-actions", "fix-mode-preview-view"],
+    ["editor-save", "fix-mode-editor-view"],
+    ["editor-objective", "fix-mode-editor-view"],
+  ]) {
+    assert.ok(tree.get(id!)?.includes(view!), `#${id} is not inside #${view}`);
+    assert.ok(!tree.get(id!)?.includes("main-view"), `#${id} is inside the main view`);
+  }
+});
+
+test("the markup alone hides everything but the form", () => {
+  // Before any state arrives. A page that needs a message to stop showing three
+  // views is one that shows them for however long the first run of the CLI
+  // takes — which is exactly when a developer is looking at it.
+  const opening = (id: string) => new RegExp(`<section id="${id}"[^>]*>`).exec(HTML)?.[0] ?? "";
+  assert.equal(/\shidden(\s|>)/.test(opening("main-view")), false);
+  for (const view of FIX_MODE_VIEWS) {
+    assert.ok(/\shidden(\s|>)/.test(opening(view)), `#${view} does not start hidden`);
   }
 });

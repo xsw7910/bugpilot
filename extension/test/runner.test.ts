@@ -11,6 +11,15 @@ import { ProtocolError } from "../src/protocol.ts";
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter() as EventEmitter & { setEncoding(encoding: string): void };
   stderr = new EventEmitter() as EventEmitter & { setEncoding(encoding: string): void };
+  /** What was written to stdin and whether it was closed, for `input`. */
+  stdin = Object.assign(new EventEmitter(), {
+    written: [] as string[],
+    ended: false,
+    end(chunk?: string) {
+      if (chunk !== undefined) this.written.push(chunk);
+      this.ended = true;
+    },
+  });
   pid: number | undefined = 4242;
   exitCode: number | null = null;
   killed: string[] = [];
@@ -375,4 +384,35 @@ test("a stream from a newer contract reports the version instead of looking like
   assert.equal(foreignVersion, 2);
   assert.equal(terminated, false);
   assert.deepEqual(seen, []);
+});
+
+test("input reaches the child on stdin, and the pipe is then closed", async () => {
+  // How untrusted text gets to a tool without going near a command line. A
+  // hint is prose that may contain quotes, newlines and shell metacharacters;
+  // argv is where those stop being text.
+  const harness = fakeSpawn();
+  const promise = harness.runner("claude").run(["-p"], { cwd: "/repo", input: "improve this\nhint" });
+  const child = harness.child();
+  child.out("improved");
+  child.close(0);
+
+  const result = await promise;
+
+  assert.deepEqual(harness.calls[0]!.args, ["-p"], "something was added to argv");
+  assert.equal(harness.calls[0]!.options.stdio?.[0], "pipe", "stdin was not opened");
+  assert.deepEqual(child.stdin.written, ["improve this\nhint"]);
+  assert.equal(child.stdin.ended, true, "the child would wait forever on an open pipe");
+  assert.equal(result.stdout, "improved");
+});
+
+test("a run with no input leaves stdin closed", async () => {
+  // Every bugpilot call: nothing to write, and an open pipe is a way to hang.
+  const harness = fakeSpawn();
+  const promise = harness.runner().run(["status"], { cwd: "/repo" });
+  const child = harness.child();
+  child.close(0);
+  await promise;
+
+  assert.equal(harness.calls[0]!.options.stdio?.[0], "ignore");
+  assert.deepEqual(child.stdin.written, []);
 });

@@ -312,6 +312,20 @@ export interface FixModeDraft {
   readonly constraints: string;
   readonly completion: string;
   readonly scope: WritableScope;
+  /**
+   * Where the definition actually lives: `builtin`, `user` or `project`.
+   *
+   * Distinct from `scope`, which is the writable scope a *save* would use and
+   * is therefore never `builtin`. Preview needs the real one — to say where a
+   * mode comes from, and to address it again when Edit or Delete is pressed
+   * from there.
+   *
+   * Optional because only the host sets it, from a definition it just read. A
+   * draft coming back from the webview does not carry one and must not: core
+   * derives a mode's source from the directory it writes the file to, and a
+   * value that travelled through the page is not evidence of anything.
+   */
+  readonly source?: string;
   /** The version this draft was opened at, sent back so a stale save is refused. */
   readonly version: number;
   readonly basedOn?: string;
@@ -418,6 +432,7 @@ export function draftFromDefinition(
     constraints: text("constraints"),
     completion: text("completion"),
     scope,
+    source: summary.source,
     version: summary.version,
     ...(typeof basedOn === "string" && basedOn !== "" ? { basedOn } : {}),
     ...(typeof basedOnVersion === "number" ? { basedOnVersion } : {}),

@@ -135,10 +135,12 @@ dropdown, so nobody is surprised when the agent stops without editing.
 
 ### Manage Fix Modes
 
-The gear beside the dropdown opens **Manage Fix Modes**. You cannot edit a
-built-in mode, but you can **duplicate** one and change the copy: its name, its
-description and the six instruction sections an agent reads. Each custom mode
-lives in one of two scopes:
+The gear beside the dropdown opens **Manage Fix Modes**, which takes over the
+panel; **‹ Back** returns you to the form with your selection intact. You
+cannot edit a built-in mode, but **View** reads any of them in full, and
+**Duplicate & Customize** — from the list or from what you are reading — opens a
+new mode prefilled from it: its name, its description and the six instruction
+sections an agent reads. Each custom mode lives in one of two scopes:
 
 | Scope | Where it lives | Who sees it |
 | --- | --- | --- |

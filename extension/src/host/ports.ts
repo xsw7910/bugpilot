@@ -7,8 +7,9 @@
  * enough to read in one go.
  */
 
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import * as vscode from "vscode";
 
 import { historyFromPayload } from "../app/artifacts.ts";
@@ -21,6 +22,7 @@ import {
   managedFixModesFromPayload,
 } from "../app/fixModes.ts";
 import type { FixModeCatalog, ManagedFixModes } from "../app/fixModes.ts";
+import type { IssueDetails } from "../app/hintImprovement.ts";
 import { launcherNames } from "../executable.ts";
 import { pickLatestSession, sessionIdFromFileName } from "../app/session.ts";
 import { Runner } from "../runner.ts";
@@ -361,4 +363,82 @@ async function existsOnPath(executable: string): Promise<boolean> {
     }
   }
   return false;
+}
+
+/**
+ * One issue's title and description, for improving a hint.
+ *
+ * `bugpilot issue-details --json` rather than `fetch`: the same Jira client and
+ * the same parser, reading only. `fetch` writes `.ai/<issue>/` because a run
+ * needs those artifacts, and creating a work item as a side effect of improving
+ * a sentence would be a surprise.
+ *
+ * Every failure is `undefined`, never a throw. Jira being unreachable is a
+ * reason to improve the wording alone, which the controller says out loud.
+ */
+export async function loadIssueDetails(
+  runJson: (args: readonly string[]) => Promise<unknown>,
+  issueKey: string,
+): Promise<IssueDetails | undefined> {
+  let payload: unknown;
+  try {
+    payload = await runJson(["issue-details", issueKey]);
+  } catch {
+    return undefined;
+  }
+  const record = payload as { ok?: unknown; title?: unknown; description?: unknown } | undefined;
+  if (!record || record.ok !== true) return undefined;
+  const title = typeof record.title === "string" ? record.title : "";
+  const description = typeof record.description === "string" ? record.description : "";
+  if (title === "" && description === "") return undefined;
+  return { title, description };
+}
+
+/**
+ * Ask an AI CLI to rewrite a hint.
+ *
+ * Three things make this safe to point at untrusted prose:
+ *
+ *  - the prompt goes on **stdin**, so no hint ever reaches a command line;
+ *  - argv is the provider's own fixed arguments, nothing interpolated;
+ *  - the child runs in an **empty temporary directory**, not the repository, so
+ *    a CLI that has file tools has no project files within reach. That is a
+ *    stronger guarantee than a permission flag this code would have to guess at,
+ *    and it holds for every provider.
+ *
+ * Nothing of the developer's environment is added: no Jira credentials, no
+ * secrets. stderr is kept for the message when the tool fails.
+ */
+export async function improveHintWithProvider(request: {
+  readonly provider: { readonly label: string; readonly command: string; readonly args: readonly string[] };
+  readonly prompt: string;
+}): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
+  const scratch = await mkdtemp(path.join(tmpdir(), "bugpilot-hint-"));
+  try {
+    const result = await new Runner(request.provider.command).run([...request.provider.args], {
+      cwd: scratch,
+      input: request.prompt,
+      timeoutMs: 120_000,
+    });
+    if (result.aborted) {
+      return { ok: false, reason: `${request.provider.label} did not answer in time.` };
+    }
+    if (result.code !== 0) {
+      const detail = firstLine(result.stderr) || `exit code ${result.code}`;
+      return { ok: false, reason: `${request.provider.label} could not improve the hint: ${detail}` };
+    }
+    return { ok: true, text: result.stdout };
+  } catch (error) {
+    const code = (error as { code?: string } | undefined)?.code;
+    if (code === "ENOENT") {
+      return { ok: false, reason: `${request.provider.command} was not found on PATH.` };
+    }
+    return { ok: false, reason: `${request.provider.label} could not be run: ${(error as Error).message}` };
+  } finally {
+    await rm(scratch, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function firstLine(text: string): string {
+  return text.trim().split("\n")[0]?.trim() ?? "";
 }

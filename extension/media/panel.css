@@ -99,13 +99,145 @@ h2 {
   flex: 1 1 auto;
 }
 
-/* Manage Fix Modes: the panel's own list idiom, not a second visual language. */
-.manage-head {
+/*
+ * A view: the manager and the editor each fill the panel in turn.
+ *
+ * No overlay, no card, no shadow — this is not a dialog floating over the form,
+ * it is the panel showing something else. The only chrome is a Back control and
+ * a heading, which is what makes it read as a place rather than as a popup.
+ */
+.view {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
 }
+
+/*
+ * And the rule that makes `hidden` mean it.
+ *
+ * `hidden` is only a `display: none` in the user-agent stylesheet, so the
+ * `display: flex` above beats it and a hidden view lays itself out anyway. That
+ * shipped once: all three Fix Mode views rendered down the main view, under
+ * Advanced settings, before anything had been clicked. Same answer as
+ * `.field`, `.attachments` and `.notices` below.
+ */
+.view[hidden] {
+  display: none;
+}
+
+.view-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+/* Stacked above the heading, so a narrow sidebar never has to fit both on one
+   line and the way out is the first thing in the tab order. */
+.view-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+}
+
+.view-back:hover {
+  text-decoration: underline;
+}
+
+/* A text chevron rather than a codicon: the vendored font is subsetted and has
+   no left-facing one, and a whole glyph for one back arrow is not worth it. */
+.view-back-mark {
+  font-size: 1.2em;
+  line-height: 1;
+}
+
+.view-title {
+  margin: 0;
+  font-size: 1.1em;
+}
+
+/* A heading focused on arrival should not draw the caret box a click would. */
+.view-title:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.view-title:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.view-lede {
+  margin: 0;
+}
+
+/*
+ * Reading one mode: a document, not a form.
+ *
+ * The instructions are prose an agent is given, so they are set as prose —
+ * wrapped, selectable, and without the box-per-field rhythm that would make a
+ * read look like an edit that is refusing to take input.
+ */
+.preview-meta {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preview-text {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The hint's own action row: a checkbox and a text button on one line.
+ *
+ * Wraps rather than truncates, because the panel is resizable to about 200px
+ * and "Improve with AI" dropping off the edge would hide the feature.
+ */
+.hint-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+
+.hint-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/*
+ * A suggestion, sitting next to the field it is offering to replace.
+ *
+ * Bordered and inset so it reads as something arriving rather than as the
+ * hint itself — the difference between "here is a proposal" and "your text has
+ * been changed".
+ */
+.hint-suggestion {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 2px;
+  background: var(--vscode-editorWidget-background, transparent);
+}
+
+.hint-suggestion[hidden] {
+  display: none;
+}
+
+/* Manage Fix Modes: the panel's own list idiom, not a second visual language. */
 
 .manage-group {
   margin-top: 10px;
@@ -130,6 +262,38 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+/*
+ * The vendored `.codicon` sets `display: inline-block`, which beats `hidden`
+ * the same way. `#jira-ok` is a codicon the page hides when Jira is not
+ * configured, and without this the tick showed next to "Not configured".
+ */
+.codicon[hidden] {
+  display: none;
+}
+
+/*
+ * Something went right. The same token the check icons use, so a confirmation
+ * cannot be mistaken for the error line directly above it.
+ */
+.success {
+  color: var(--bugpilot-icon-success);
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The row a create just wrote, marked long enough to find it.
+ *
+ * A background tint from the theme's own list-highlight, not a colour of our
+ * own, and no animation: the point is to answer "where did it go", not to
+ * perform.
+ */
+.recently-created {
+  background: var(--vscode-list-inactiveSelectionBackground);
+  border-left: 2px solid var(--bugpilot-icon-success);
+  padding-left: 6px;
 }
 
 .error {
