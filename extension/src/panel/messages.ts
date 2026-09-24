@@ -24,6 +24,7 @@ import { FIX_MODE_ID_RE } from "../app/form.ts";
 import type { UserFacingError } from "../app/failures.ts";
 import type { HandoffOutcome } from "../app/handoff.ts";
 import type { RetrievalTerm } from "../app/retrievalDetails.ts";
+import type { DiagnosticsView } from "../app/diagnostics.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
 import type { RelevantFile } from "../app/contextSummary.ts";
 import { WRITABLE_SCOPES } from "../app/fixModes.ts";
@@ -166,6 +167,13 @@ export interface PanelState {
    * retrieval to fix a PATH problem.
    */
   readonly handoffError?: UserFacingError;
+  /**
+   * What BugPilot is configured with.
+   *
+   * Always present, unlike the result: the question it answers — is this the
+   * environment I think it is — is asked most urgently when nothing has run.
+   */
+  readonly diagnostics: DiagnosticsView;
 }
 
 /**

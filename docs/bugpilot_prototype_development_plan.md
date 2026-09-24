@@ -4495,7 +4495,7 @@ UI-B2 Better Error UX                     Complete     what failed, and what to 
 UI-B3 Run / AI Handoff Summary            Complete     the successful handoff, said out loud
 UI-V1 Visual & Interaction Review         Complete     4 issues found by looking, 4 fixed
 UI-C1 Retrieval Details                   Complete     why those terms, and how they behaved
-UI-C  Diagnostics                         Planned      environment, provider and Jira health
+UI-C2 Diagnostics                         Complete     what BugPilot is configured with
 ```
 
 Nothing in this section changes the CLI, the retrieval pipeline, the prompts or
@@ -6115,3 +6115,158 @@ no telemetry, and nothing persisted anywhere new.
 
 Deferred: Diagnostics, provider/Jira/environment health, per-term matched files,
 focus-file promotion, AI semantic expansion, run history.
+
+## 36. UI-C2 Diagnostics
+
+**Status:** Complete and verified.
+
+One question: *is BugPilot configured and operating in the environment I think it
+is?* On a machine with a pipx copy of the CLI and a checkout of it, with two
+repositories open and an agent that may or may not be on PATH, that is not
+obvious — and the panel currently answers none of it.
+
+**It is not a health check.** Opening Diagnostics makes no request, spawns no
+probe, reads no directory and starts no timer. It shows state the extension
+already holds, and every word is chosen so that it cannot be read as something
+stronger: "Configured" means a credential is stored, not that Jira answered.
+
+### Checkpoint 1 — what is already known, and what is not
+
+Read from the controller rather than assumed:
+
+```text
+RELIABLE, and used
+  #root                  the repository, absolute
+  readiness.executable   which bugpilot is being run
+  readiness.version      that CLI's version, from `bugpilot --version`
+  #jiraConfigured        a credential is in SecretStorage. Nothing more.
+  #form.agent            the developer's selection: auto | claude | custom
+  #workItemId            the current work item, when a run has established one
+  #form.source           whether that work item is a Jira issue or hand-written
+
+RELIABLE, and rejected
+  #fix / #handoffError   handoff state — UI-B2 and UI-B3 already show it in
+                         cards a developer is looking at (§12)
+  #contextReady          "Context Ready" is on screen two inches above (§14)
+  #counts, #terms        already shown by §34 and §35, twice would be noise
+  #artifactNames         a file list belongs behind Open Folder (§15)
+  #form.agentCommand     a custom command line may carry paths, arguments or
+                         a token; never displayed (§11, §25)
+  Jira base URL, account the URL is company-specific and the account is a
+                         person; neither is diagnostic enough to be worth it
+  the CLI's environment  that is where the token travels (§25)
+
+NOT AVAILABLE, so added rather than guessed
+  the resolved agent     `resolveAgent` returns a typed plan and the label went
+                         only into prose — "Handed to Claude Code in a
+                         terminal". §21 forbids deriving it from that text, so
+                         the one place resolution already happens now records
+                         the typed outcome. Nothing new is probed: the field
+                         stays "Not checked" until a handoff is attempted.
+  the extension version  `readiness.version` is the *CLI's*. The extension's own
+                         comes from `context.extension.packageJSON.version`
+                         through a port, because the two can differ and on this
+                         project routinely do.
+```
+
+**Both versions are shown.** The footer already prints the CLI's, but the useful
+diagnostic on a machine with several installs is *which* bugpilot, at *what*
+path, against *which* extension. That is the failure this section exists to make
+visible.
+
+### Checkpoint 2 — the model
+
+`src/app/diagnostics.ts` turns controller state into rows of plain strings:
+
+```ts
+interface DiagnosticsRow { label: string; value: string; detail?: string }
+```
+
+Its input is eight fields, and that list *is* the privacy guarantee: the token,
+the custom command line and the bug's own description are not parameters, which
+is a stronger statement than "not displayed". A test asserts the input keys and
+fails if one ever contains `token`, `credential`, `secret`, `command`,
+`description`, `email` or `prompt`.
+
+**Every word is chosen so it cannot be read as stronger than it is.** A stored
+credential is "Credentials configured", never "Connected"; a test fails on
+"Connected", "Healthy", "Online", "Verified" or "Working" appearing anywhere in
+the rendered rows. An agent nobody has resolved is "Not checked yet" rather than
+an error or a blank.
+
+Lifecycle is the existing state push and nothing else — no timer, no poll, no
+cache. One gap was found and closed: `#formChanged` deliberately does not push
+per keystroke, so the agent row lagged a push behind a selection change. It now
+pushes when `form.agent` differs, which is a comparison rather than a new push
+per keystroke.
+
+**One typed field was added rather than guessed.** `resolveAgent` already
+returns a plan and its label went only into prose; `#resolvedAgent` now records
+the typed outcome at the one place resolution happens. Nothing new is probed —
+the field stays "Not checked yet" until a handoff is attempted, which is what
+keeps opening Diagnostics free.
+
+### Checkpoint 3 — the UI
+
+```text
+v Diagnostics
+
+  Repository        seismic-platform
+                    C:/work/seismic-platform
+  Jira              Credentials configured
+  AI agent          Auto-detect
+                    Resolved: Claude Code
+  Work item         JR-45678
+                    From a Jira issue
+  Extension         0.1.0
+  BugPilot CLI      0.1.0
+                    C:/Users/dev/.../pipx/venvs/bugpilot/Scripts/bugpilot.exe
+```
+
+A `dl`: label-and-value is a pairing, and putting it in the markup is what makes
+it survive a screen reader. Label above value, both full width, because a
+two-column table needs a width a 200px sidebar does not have. No dot, no badge,
+no colour — a green dot beside "Credentials configured" would claim something
+nobody checked. Read-only: a test fails if a `button`, `input`, `select`,
+`textarea` or `a` ever appears inside the section.
+
+**Placed last in the form, after Advanced settings — a deliberate departure from
+UI-C2's sketch, which put it inside the result.** Four of its five rows are
+environment facts that exist before any run, and the question it answers is
+asked most urgently when nothing has run or when a run has just failed. Inside
+Context Ready it could be opened in neither case. It still reads last in the
+details, after Relevant Files and Retrieval Details, and the frozen result did
+not move: the diff into `html.ts` is additions only.
+
+**One overlap accepted.** The footer has shown the CLI version, the repository
+root and "Jira: Configured" since phase 5. Diagnostics repeats those and adds
+what the footer cannot fit — the executable's path, the extension's own version,
+the agent and the work item. The footer is the glance and this is the detail;
+changing the footer would mean reopening frozen §34 for a cosmetic reason.
+
+Visual: 60 pages — 10 states x 2 themes x 3 widths — with zero overflowing
+elements. Read at 200px dark (a pipx executable path wrapping across three
+lines) and 300px light with nothing configured.
+
+### Checkpoint 4 — verification
+
+```text
+extension tests   823 passed, 0 failed   (785 before UI-C2's own tests)
+typecheck         tsc --noEmit clean
+smoke             activated, 22 commands, 3 views, panel HTML built
+git diff --check  clean
+publishability    tests/test_publishable.py 8 passed
+```
+
+**Passive, and tested to be.** A focused test drives the two messages that can
+cause a render without asking for work, then asserts the stream, JSON, probe and
+terminal counters are unchanged. Opening Diagnostics contacts nothing.
+
+**Fields rejected, with the reason**: handoff state (UI-B2 and UI-B3 already
+show it), context state and counts (§34 and §35 show them), the artifact list
+(Open Folder reaches it), the custom command line, the Jira URL and account, and
+anything from the CLI's environment.
+
+Deferred: Jira connectivity or latency, agent version detection, provider
+installation probes, Node/Python/PATH display, a log viewer, diagnostic export,
+run history, telemetry, and productizing the visual harness.

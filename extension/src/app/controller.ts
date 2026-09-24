@@ -33,9 +33,12 @@ import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
 import { buildWorkflow, overallStatus } from "./workflow.ts";
 import type { FixWithAiOutcome, WorkflowStep } from "./workflow.ts";
+import type { DiagnosticsView } from "./diagnostics.ts";
 import { handoffError, runError } from "./failures.ts";
 import { handoffOutcome } from "./handoff.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
+import { diagnostics } from "./diagnostics.ts";
+import type { ResolvedAgent } from "./diagnostics.ts";
 import type { RetrievalTerm } from "./retrievalDetails.ts";
 import type { UserFacingError } from "./failures.ts";
 import {
@@ -195,6 +198,13 @@ export interface ControllerPorts {
    */
   readonly saveWorkItem?: (workItemId: string) => void;
   /**
+   * This extension's own version, which is not the CLI's.
+   *
+   * Passed in rather than read here: `context.extension.packageJSON` is VS
+   * Code's, and the controller knows nothing about VS Code.
+   */
+  readonly extensionVersion?: string | undefined;
+  /**
    * The AI Fix Modes this bugpilot offers.
    *
    * A port rather than a `runner.runJson` call inline, for the same reason the
@@ -335,6 +345,15 @@ export class Controller {
   #readiness: Readiness = { kind: "checking" };
   #root: string | undefined;
   #jiraConfigured = false;
+  /**
+   * What a handoff actually resolved, when one has run.
+   *
+   * Recorded where resolution already happens rather than derived from the
+   * sentence it produced, and never filled in by anything else: Diagnostics
+   * opening must not spend a process per candidate to answer a question nobody
+   * pressed a button about.
+   */
+  #resolvedAgent: ResolvedAgent | undefined;
   #warnings: readonly Notice[] = [];
   /**
    * The Fix Mode catalog, read once per environment resolution.
@@ -827,6 +846,7 @@ export class Controller {
     if (plan.kind === "run") {
       // A retry that works clears the card the previous attempt left behind.
       this.#handoffError = undefined;
+      this.#resolvedAgent = { kind: "resolved", label: plan.label };
       this.#ports.log.info(`Handing ${workItemId} to ${plan.label}: ${plan.commandLine}`);
       this.#ports.ui.runInTerminal(`Fix with AI · ${workItemId}`, root, plan.commandLine);
       // "success" means handed over, and the detail says so. The agent runs in
@@ -850,6 +870,7 @@ export class Controller {
     // The same event, said twice on purpose: a status on the workflow row, and
     // a card beside the result that says what to do about it. `plan.reason` is
     // `resolveAgent`'s own sentence and is the Details text, never the headline.
+    this.#resolvedAgent = { kind: "unavailable" };
     this.#handoffError = handoffError(plan.reason);
     // The push is `fixWithAI`'s, for the same reason as the success branch. A
     // notification is a toast rather than panel state, so its order is its own.
@@ -1370,6 +1391,11 @@ export class Controller {
     if (previous.hint !== form.hint || workItemScopeOf(previous) !== workItemScopeOf(form)) {
       changed = this.#forgetHintSuggestion();
     }
+    // Diagnostics reports the agent selection, and this method deliberately
+    // does not push for every keystroke. A comparison rather than a push per
+    // change: the selection moves when somebody picks from a list, not while
+    // they type, so this costs nothing and stops the row lagging a push behind.
+    if (previous.agent !== form.agent) changed = true;
     const scope = workItemScopeOf(form);
     // `undefined` is a half-typed key: not yet any work item, so not yet a
     // reason to conclude the developer moved to another one.
@@ -1464,6 +1490,28 @@ export class Controller {
     if (this.#offered.has(command)) return true;
     const cards = [this.#runFailure(), this.#handoffError];
     return cards.some((card) => card?.action?.command === command);
+  }
+
+  /**
+   * What BugPilot is configured with, from state it already holds.
+   *
+   * Built per push rather than cached, because every field here is already a
+   * field of this object — and because a cached copy of "what is configured" is
+   * exactly the thing that goes stale when somebody sets a credential.
+   */
+  #diagnostics(): DiagnosticsView {
+    const ready = this.#readiness.kind === "ready" ? this.#readiness : undefined;
+    return diagnostics({
+      root: this.#root,
+      executable: ready?.executable,
+      cliVersion: ready?.version,
+      extensionVersion: this.#ports.extensionVersion,
+      jiraConfigured: this.#jiraConfigured,
+      agent: this.#form.agent,
+      resolvedAgent: this.#resolvedAgent,
+      workItemId: this.#workItemId,
+      source: this.#form.source,
+    });
   }
 
   #itemFile(workItemId: string, name: string): string {
@@ -1633,6 +1681,7 @@ export class Controller {
       // both known. The page receives a rendered card and decides nothing.
       ...(failed === undefined ? {} : { runError: failed }),
       ...(this.#handoffError === undefined ? {} : { handoffError: this.#handoffError }),
+      diagnostics: this.#diagnostics(),
       warnings: this.#warnings,
       jiraConfigured: this.#jiraConfigured,
       canRetry: this.#canRetry,

@@ -105,6 +105,13 @@ export function activate(context: vscode.ExtensionContext): void {
         runJson: (args, options) => new Runner(executable).runJson(args, options),
       },
       files: createFilesPort(),
+      // This extension's own version, which is not the CLI's — on a machine
+      // with a pipx copy and a checkout, telling them apart is the whole point
+      // of showing either. VS Code parses the manifest already.
+      extensionVersion:
+        typeof context.extension?.packageJSON?.version === "string"
+          ? context.extension.packageJSON.version
+          : undefined,
       ui: createUiPort({
         render: (state) => panel.render(state),
         refreshViews: () => {

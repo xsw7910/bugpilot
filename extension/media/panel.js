@@ -390,6 +390,9 @@
     renderWorkflow(state);
     renderRun(state);
     renderContextReady(state);
+    // Outside the result on purpose: whether this is the environment the
+    // developer thinks it is has nothing to do with whether a run succeeded.
+    renderDiagnostics(state);
     renderNotices(state);
     renderManage(state);
     renderHintImprovement(state);
@@ -679,6 +682,44 @@
 
     renderRelevantFiles(ready);
     renderRetrievalDetails(ready);
+  }
+
+  /**
+   * What BugPilot is configured with.
+   *
+   * A definition list, because that is what label-and-value is: the pairing is
+   * in the markup rather than only in the layout, so it survives a screen
+   * reader. Everything goes through `textContent` — a repository path and a
+   * work item id are both text from outside this panel.
+   *
+   * The host decided every word. The page knows nothing about what "Configured"
+   * means and cannot ask.
+   */
+  function renderDiagnostics(state) {
+    const rows = (state.diagnostics || {}).rows || [];
+    const list = byId("diagnostics-list");
+    list.replaceChildren();
+    byId("diagnostics").hidden = rows.length === 0;
+
+    for (const row of rows) {
+      const label = document.createElement("dt");
+      label.className = "diagnostic-label";
+      label.textContent = row.label;
+
+      const value = document.createElement("dd");
+      value.className = "diagnostic-value";
+      value.textContent = row.value;
+      list.append(label, value);
+
+      // A path, or a qualifier. Quieter, and its own `dd` so the pairing stays
+      // one label to one reading.
+      if (row.detail) {
+        const detail = document.createElement("dd");
+        detail.className = "diagnostic-detail";
+        detail.textContent = row.detail;
+        list.append(detail);
+      }
+    }
   }
 
   /**

@@ -1203,7 +1203,7 @@ test("the markup alone hides everything but the form", () => {
 
 // --- UI-A1: what an untouched panel shows ----------------------------------
 
-test("the default view is the Issue field, Run, and two disclosures", () => {
+test("the default view is the Issue field, Run, and three disclosures", () => {
   // The whole of UI-A1 in one assertion. What a developer sees before typing
   // anything should be the sentence the tool is about — enter the issue, press
   // Run — and not every control the panel owns at equal weight.
@@ -1217,8 +1217,21 @@ test("the default view is the Issue field, Run, and two disclosures", () => {
 
   // And everything after it is behind one of exactly two closed disclosures,
   // so no optional control is on screen until it is asked for.
-  const disclosures = [...form.matchAll(/<details[^>]*id="([a-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(disclosures, ["workflow", "advanced"]);
+  //
+  // The result section's own disclosures are not among them: it is hidden until
+  // a run produces something, so what is inside it is not on screen either.
+  // Sliced out rather than filtered by name — an earlier version of this
+  // matched `id="([a-z]+)"`, which excluded `relevant-files` and
+  // `retrieval-details` by accident and would have let a third top-level
+  // disclosure through the day one was named without a hyphen.
+  const outsideResult = form.replace(/<section id="context-ready"[\s\S]*?<\/section>/, "");
+  const disclosures = [...outsideResult.matchAll(/<details[^>]*id="([a-z-]+)"/g)].map(
+    (match) => match[1],
+  );
+  // Three since UI-C2. Diagnostics is last and always reachable rather than
+  // inside the result, because "is this the environment I think it is" is asked
+  // most urgently when nothing has run or a run has just failed.
+  assert.deepEqual(disclosures, ["workflow", "advanced", "diagnostics"]);
   assert.equal(/<details[^>]*\bopen\b/.test(form), false, "a disclosure starts open");
 });
 
@@ -1757,5 +1770,93 @@ test("the panel never names the ranker's own constants", () => {
   const visible = HTML.replace(/<!--[\s\S]*?-->/g, "").toLowerCase();
   for (const internal of ["weight", "effective_weight", "threshold", "rank points"]) {
     assert.equal(visible.includes(internal), false, `the panel names "${internal}"`);
+  }
+});
+
+// --- UI-C2: Diagnostics ------------------------------------------------------
+
+test("Diagnostics is a collapsed disclosure over a definition list", () => {
+  const block = /<details class="diagnostics" id="diagnostics"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(block, "", "no Diagnostics section");
+
+  assert.match(block, /<summary id="diagnostics-summary">Diagnostics<\/summary>/);
+  assert.equal(/<details[^>]*id="diagnostics"[^>]*\bopen\b/.test(block), false);
+  assert.match(block, /^<details[^>]*\bhidden\b/);
+  // A `dl`: label-and-value is a pairing, and putting it in the markup is what
+  // makes it survive a screen reader.
+  assert.match(block, /<dl id="diagnostics-list"><\/dl>/);
+});
+
+test("Diagnostics is read-only, and offers nothing to configure", () => {
+  // If something needs changing, the existing Open Settings and Set Jira
+  // Credentials actions are where that happens. A control here would make this
+  // a second settings page over state it only observes.
+  const block = /<details class="diagnostics" id="diagnostics"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  for (const control of ["<button", "<input", "<select", "<textarea", "<a "]) {
+    assert.equal(block.includes(control), false, `Diagnostics contains a ${control}`);
+  }
+});
+
+test("Diagnostics is last, and below the result rather than inside it", () => {
+  // Last in the details hierarchy, as §36 asks — and a sibling of the result,
+  // because a panel that can only answer "is this configured correctly" after a
+  // successful run cannot answer it when the run failed.
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  assert.equal(result.includes('id="diagnostics"'), false, "Diagnostics is inside the result");
+
+  assert.ok(HTML.indexOf('id="relevant-files"') < HTML.indexOf('id="retrieval-details"'));
+  assert.ok(HTML.indexOf('id="retrieval-details"') < HTML.indexOf('id="diagnostics"'));
+  // Last in the form, after Advanced settings: never above something it should
+  // sit under, and reachable whether or not a run has happened.
+  assert.ok(HTML.indexOf('id="advanced"') < HTML.indexOf('id="diagnostics"'));
+  assert.match(HTML.slice(HTML.indexOf('id="diagnostics"')), /^[\s\S]*?<\/details>\s*<\/form>/);
+});
+
+test("the frozen result did not move for Diagnostics", () => {
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  const order = [
+    "result-heading",
+    "result-counts",
+    "result-strategy",
+    "result-handoff",
+    "fix-with-ai",
+    "handoff-error",
+    "result-links",
+    "relevant-files",
+    "retrieval-details",
+  ];
+  const positions = order.map((id) => result.indexOf(`id="${id}"`));
+  assert.ok(positions.every((at) => at !== -1), "a section of the result is missing");
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "the result reordered itself");
+
+  const primary = [...result.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)];
+  assert.deepEqual(primary.map((match) => match[1]), ["fix-with-ai"]);
+});
+
+test("a diagnostic is a label above a value, not a two-column table", () => {
+  // A table needs a width a 200px sidebar does not have.
+  assert.match(CSS, /\.diagnostic-value \{[^}]*overflow-wrap: anywhere/s);
+  assert.match(CSS, /\.diagnostic-detail \{[^}]*overflow-wrap: anywhere/s);
+  assert.equal(/\.diagnostic[^{]*\{[^}]*display: (table|grid|flex)/s.test(CSS), false);
+  // No dot, no badge, no colour: this is information, not monitoring.
+  assert.equal(/\.diagnostic[^{]*\{[^}]*(background|border)/s.test(CSS), false);
+});
+
+test("the page decides nothing about what a diagnostic means", () => {
+  // Every word comes from the host. A webview working out whether Jira is
+  // configured would be inspecting things a webview must not reach.
+  // "Configured" is excluded deliberately: the footer's Jira line has said it
+  // since phase 5, which is frozen §34 code rather than a decision this phase
+  // introduced.
+  for (const smell of [
+    "Credentials configured",
+    "Not checked",
+    "No repository",
+    "Auto-detect",
+    "secrets",
+    "packageJSON",
+    "process.env",
+  ]) {
+    assert.equal(PAGE_JS.includes(smell), false, `the page decides "${smell}" for itself`);
   }
 });

@@ -265,6 +265,9 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
   return {
     revision: 1,
     readiness: { kind: "ready", executable: "bugpilot", root: "/work/app" },
+    // Always present, like the readiness beside it: the question Diagnostics
+    // answers is asked most urgently when nothing has run.
+    diagnostics: { rows: [] },
     problems: [],
     progress,
     workflow,
@@ -3100,4 +3103,103 @@ test("a failed run shows no retrieval story", () => {
 
   assert.equal(p.byId("retrieval-details").hidden, true);
   assert.equal(p.byId("context-ready").hidden, true);
+});
+
+// --- UI-C2: Diagnostics ------------------------------------------------------
+
+const DIAGNOSTICS = {
+  rows: [
+    { label: "Repository", value: "sample-repo", detail: "/work/sample-repo" },
+    { label: "Jira", value: "Credentials configured" },
+    { label: "AI agent", value: "Auto-detect", detail: "Not checked yet" },
+    { label: "Work item", value: "JR-12345", detail: "From a Jira issue" },
+    { label: "Extension", value: "0.1.0" },
+  ],
+};
+
+test("Diagnostics is empty until the host has something to say", () => {
+  const p = load();
+  p.send(state());
+
+  assert.equal(p.byId("diagnostics").hidden, true);
+  assert.equal(p.byId("diagnostics-list").children.length, 0);
+});
+
+test("each diagnostic is a label, a value, and sometimes a quieter line", () => {
+  const p = load();
+  p.send(state({ diagnostics: DIAGNOSTICS }));
+
+  assert.equal(p.byId("diagnostics").hidden, false);
+  const items = p.byId("diagnostics-list").children;
+
+  // A definition list: the pairing is in the markup, not only in the layout.
+  assert.deepEqual(
+    items.map((child) => `${child.className}=${child.textContent}`),
+    [
+      "diagnostic-label=Repository",
+      "diagnostic-value=sample-repo",
+      "diagnostic-detail=/work/sample-repo",
+      "diagnostic-label=Jira",
+      "diagnostic-value=Credentials configured",
+      "diagnostic-label=AI agent",
+      "diagnostic-value=Auto-detect",
+      "diagnostic-detail=Not checked yet",
+      "diagnostic-label=Work item",
+      "diagnostic-value=JR-12345",
+      "diagnostic-detail=From a Jira issue",
+      "diagnostic-label=Extension",
+      "diagnostic-value=0.1.0",
+    ],
+  );
+});
+
+test("Diagnostics is there whether or not a run has happened", () => {
+  // The question it answers — is this the environment I think it is — is asked
+  // most urgently when nothing has run, or when a run has just failed.
+  const p = load();
+
+  p.send(state({ diagnostics: DIAGNOSTICS }));
+  assert.equal(p.byId("diagnostics").hidden, false);
+  assert.equal(p.byId("context-ready").hidden, true, "no run has happened");
+
+  p.send(
+    state({
+      progress: { state: "failed", rows: [], artifacts: [] },
+      runError: { kind: "run", title: "Run failed", message: "It stopped." },
+      diagnostics: DIAGNOSTICS,
+    }),
+  );
+  assert.equal(p.byId("diagnostics").hidden, false, "a failed run took Diagnostics with it");
+
+  p.send(state({ contextReady: READY, diagnostics: DIAGNOSTICS }));
+  assert.equal(p.byId("diagnostics").hidden, false);
+});
+
+test("the rows are replaced rather than appended as state arrives", () => {
+  const p = load();
+  p.send(state({ diagnostics: DIAGNOSTICS }));
+  p.send(state({ diagnostics: DIAGNOSTICS }));
+
+  assert.equal(p.byId("diagnostics-list").children.length, 13);
+});
+
+test("a diagnostic changes when the state behind it does", () => {
+  const p = load();
+  p.send(state({ diagnostics: { rows: [{ label: "Jira", value: "Credentials not configured" }] } }));
+  assert.equal(p.byId("diagnostics-list").children[1]!.textContent, "Credentials not configured");
+
+  p.send(state({ diagnostics: { rows: [{ label: "Jira", value: "Credentials configured" }] } }));
+  assert.equal(p.byId("diagnostics-list").children[1]!.textContent, "Credentials configured");
+});
+
+test("a hostile diagnostic renders as text", () => {
+  // A repository path and a work item id both come from outside this panel.
+  const hostile = "<script>alert(1)</script>";
+  const p = load();
+  p.send(state({ diagnostics: { rows: [{ label: "Repository", value: hostile, detail: hostile }] } }));
+
+  const items = p.byId("diagnostics-list").children;
+  assert.equal(items[1]!.textContent, hostile);
+  assert.equal(items[1]!.children.length, 0, "the value became markup");
+  assert.equal(items[2]!.textContent, hostile);
 });

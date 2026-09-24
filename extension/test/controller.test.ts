@@ -76,6 +76,10 @@ interface HarnessOptions {
   readonly directoryError?: string;
   /** Called for every file the controller reads, so a test can count them. */
   readonly onReadFile?: (file: string) => void;
+  /** Whether a Jira credential is stored. Configured unless a test says not. */
+  readonly credentialsConfigured?: boolean;
+  /** This extension's own version, which is not the CLI's. */
+  readonly extensionVersion?: string;
   readonly confirm?: boolean;
   readonly form?: FormState;
   /** Hold the stream open so a Stop can be observed mid-run. */
@@ -206,10 +210,13 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     },
     environment: async () => options.environment ?? READY,
     credentials: async () => ({
-      configured: true,
+      configured: options.credentialsConfigured ?? true,
       environment: { JIRA_EMAIL: "me@example.com", JIRA_TOKEN: TOKEN },
     }),
     descriptionFilePath: () => "/tmp/bugpilot-description.md",
+    ...(options.extensionVersion === undefined
+      ? {}
+      : { extensionVersion: options.extensionVersion }),
     canRun: async (command) => {
       probed.push(command);
       return options.agentOnPath ?? false;
@@ -3280,4 +3287,165 @@ test("the artifact is read once for both the counts and the terms", async () => 
 
   const quality = reads.filter((file) => file.endsWith("search_quality.json"));
   assert.equal(quality.length, 1, `search_quality.json was read ${quality.length} times`);
+});
+
+// --- UI-C2: Diagnostics ------------------------------------------------------
+
+const rowOf = (h: Harness, label: string) =>
+  h.last().diagnostics.rows.find((row) => row.label === label);
+
+test("a ready environment reports itself without being asked anything", async () => {
+  const h = harness({ extensionVersion: "0.1.0" });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(rowOf(h, "Repository")?.value, "app");
+  assert.equal(rowOf(h, "Repository")?.detail, ROOT);
+  assert.equal(rowOf(h, "Jira")?.value, "Credentials configured");
+  assert.equal(rowOf(h, "AI agent")?.value, "Auto-detect");
+  assert.equal(rowOf(h, "AI agent")?.detail, "Not checked yet");
+  assert.equal(rowOf(h, "Extension")?.value, "0.1.0");
+  assert.equal(rowOf(h, "Work item"), undefined, "nothing has run");
+});
+
+test("opening the panel probes nothing", async () => {
+  // The rule this section is built around. Diagnostics reports state the host
+  // already holds, so the counters that would move if it checked anything are
+  // exactly the ones that must not.
+  const h = harness();
+  await h.controller.refreshEnvironment();
+  const before = {
+    streams: h.streamRuns.length,
+    json: h.jsonRuns.length,
+    probes: h.probed.length,
+    terminals: h.terminals.length,
+  };
+
+  // Every way the page can cause a render, short of asking for work.
+  await h.controller.handle({ type: "ready" });
+  await h.controller.handle({ type: "formChanged", form: jiraForm() });
+
+  assert.ok(h.last().diagnostics.rows.length > 0, "Diagnostics reported nothing");
+  assert.deepEqual(
+    {
+      streams: h.streamRuns.length,
+      json: h.jsonRuns.length,
+      probes: h.probed.length,
+      terminals: h.terminals.length,
+    },
+    before,
+    "Diagnostics caused work to happen",
+  );
+});
+
+test("no repository is said plainly rather than left blank", async () => {
+  const h = harness({
+    environment: { kind: "no-folder", summary: "No folder is open. Open the repository you are fixing bugs in." },
+  });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(rowOf(h, "Repository")?.value, "No repository open");
+  assert.equal(rowOf(h, "Repository")?.detail, undefined);
+  // And the blocked card remains the thing that stops a run.
+  assert.equal(h.last().readiness.kind, "blocked");
+});
+
+test("the agent row follows the selection", async () => {
+  const h = harness();
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ agent: "custom", agentCommand: "my-agent --prompt {prompt} --token abc123" }) });
+
+  assert.equal(rowOf(h, "AI agent")?.value, "Custom command");
+  // The command line can carry a path, an argument or a token. None of it is
+  // anywhere in the diagnostics model.
+  const text = JSON.stringify(h.last().diagnostics);
+  assert.equal(text.includes("abc123"), false, "a custom command reached Diagnostics");
+  assert.equal(text.includes("my-agent"), false);
+});
+
+test("the resolved agent appears only once a handoff has resolved one", async () => {
+  const h = harness({ ...WITH_FILES, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  assert.equal(rowOf(h, "AI agent")?.detail, "Not checked yet");
+
+  await h.controller.handle({ type: "action", id: "fixWithAI" });
+
+  assert.equal(rowOf(h, "AI agent")?.detail, "Resolved: Claude Code");
+});
+
+test("a handoff that found nothing says so, without guessing why", async () => {
+  const h = harness({ ...WITH_FILES, agentOnPath: false });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  await h.controller.handle({ type: "action", id: "fixWithAI" });
+
+  assert.equal(rowOf(h, "AI agent")?.detail, "Resolved: none available");
+});
+
+test("the work item row follows the run", async () => {
+  const h = harness(WITH_FILES);
+  await h.controller.refreshEnvironment();
+  assert.equal(rowOf(h, "Work item"), undefined);
+
+  await h.controller.run(jiraForm());
+
+  assert.equal(rowOf(h, "Work item")?.value, "JR-12345");
+  assert.equal(rowOf(h, "Work item")?.detail, "From a Jira issue");
+});
+
+test("a hand-written bug is named by the id the CLI minted", async () => {
+  // Never by its description, which is the bug report and not an identity.
+  const h = harness({
+    ...WITH_FILES,
+    events: [
+      { type: "started", work_item_id: "local_20260101120000", source: "manual" },
+      { type: "completed", ok: true },
+    ],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(
+    jiraForm({ source: "manual", issueKey: "", description: "The export dialog crashes on save." }),
+  );
+
+  assert.equal(rowOf(h, "Work item")?.value, "local_20260101120000");
+  assert.equal(rowOf(h, "Work item")?.detail, "From a bug description");
+  assert.equal(
+    JSON.stringify(h.last().diagnostics).includes("export dialog"),
+    false,
+    "the bug's own text reached Diagnostics",
+  );
+});
+
+test("Jira follows the credential, and claims nothing more", async () => {
+  const h = harness({ credentialsConfigured: false });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(rowOf(h, "Jira")?.value, "Credentials not configured");
+  // Never a claim about Jira itself, which nobody has contacted.
+  const text = JSON.stringify(h.last().diagnostics);
+  for (const claim of ["Connected", "Healthy", "Online", "Verified"]) {
+    assert.equal(text.includes(claim), false, `Diagnostics claims "${claim}"`);
+  }
+});
+
+test("no credential material is anywhere in the model", async () => {
+  const h = harness();
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  const text = JSON.stringify(h.last().diagnostics);
+  for (const secret of [TOKEN, "JIRA_TOKEN", "JIRA_EMAIL", "me@example.com", "Bearer"]) {
+    assert.equal(text.includes(secret), false, `Diagnostics carries ${secret}`);
+  }
+});
+
+test("both versions are reported, and they are not the same field", async () => {
+  const h = harness({ extensionVersion: "0.2.0" });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(rowOf(h, "Extension")?.value, "0.2.0");
+  // The CLI's own, from the environment probe that already ran.
+  assert.ok(rowOf(h, "BugPilot CLI"), "the CLI row is missing");
+  assert.equal(rowOf(h, "BugPilot CLI")?.detail, "bugpilot");
 });

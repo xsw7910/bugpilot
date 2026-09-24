@@ -605,6 +605,25 @@ ${CONTEXT_READY}
         })}
         </div>
       </details>
+
+      <!--
+        What BugPilot is configured with, for the developer who is not sure
+        which install, which repository or which agent is in play.
+
+        A sibling of the result rather than a child of it, which is a deliberate
+        departure from UI-C2's sketch: the question this answers — is this the
+        environment I think it is — is asked most urgently when nothing has run
+        or when a run has just failed, and a section inside Context Ready could
+        be opened in neither case. It still reads last in the details, directly
+        after Retrieval Details.
+
+        Read-only and passive: opening it makes no request and spawns no probe,
+        which is why it is a definition list and not a single control.
+      -->
+      <details class="diagnostics" id="diagnostics" hidden>
+        <summary id="diagnostics-summary">Diagnostics</summary>
+        <dl id="diagnostics-list"></dl>
+      </details>
     </form>
 
 ${errorCard("failure")}

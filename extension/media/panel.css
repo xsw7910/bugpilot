@@ -1101,6 +1101,51 @@ button.icon .codicon {
   overflow-wrap: anywhere;
 }
 
+/*
+ * Diagnostics: what BugPilot is configured with.
+ *
+ * Label above value, both full width, because a two-column table needs a width
+ * a 200px sidebar does not have. No dot, no badge, no colour — this is
+ * information, not monitoring, and a green dot beside "Credentials configured"
+ * would be claiming something nobody checked.
+ */
+.diagnostics {
+  margin-top: 2px;
+}
+
+.diagnostics[hidden] {
+  display: none;
+}
+
+#diagnostics-list {
+  margin: 0;
+}
+
+.diagnostic-label {
+  margin: 6px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.diagnostic-label:first-child {
+  margin-top: 0;
+}
+
+.diagnostic-value {
+  margin: 0;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* An absolute path, usually. Allowed to wrap anywhere and never truncated:
+   which of two checkouts this is can be the last segment. */
+.diagnostic-detail {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
 /* --- the workflow --------------------------------------------------------- */
 
 /* The workflow's summary line, which is the whole section while it is closed.
