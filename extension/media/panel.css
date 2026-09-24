@@ -201,7 +201,9 @@ h2 {
  * The hint's own action row: a checkbox and a text button on one line.
  *
  * Wraps rather than truncates, because the panel is resizable to about 200px
- * and "Improve with AI" dropping off the edge would hide the feature.
+ * and Improve dropping off the edge would hide the feature. `space-between`
+ * puts them at opposite ends while they fit and stacks them when they do not;
+ * neither is allowed to overlap the other, which is the only rule here.
  */
 .hint-actions {
   display: flex;
@@ -406,6 +408,30 @@ details[open] > summary {
   }
 }
 
+/* A group inside Advanced settings: Guidance, Retrieval Overrides, Run Options.
+
+   A heading and a hairline, not a card. The section is already a <details>
+   inside a bordered panel, so a box around each group would be three borders
+   deep before the first label — and the question UI-A2 answers ("does this
+   talk to the AI, or does it steer the search?") is answered by a word, not by
+   a container. The rule is one pixel of the same panel border everything else
+   uses; no tint, no weight, nothing that reads as a state. */
+.setting-group {
+  margin: 0 0 8px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-size: var(--vscode-font-size);
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* The first group sits right under the summary, which has its own gap. The
+   others need air above them or they read as part of the field before. */
+.setting-group ~ .setting-group {
+  margin-top: 16px;
+}
+
 /* The two search limits, side by side while they fit. `flex-wrap` with a floor
    rather than a breakpoint: the panel is resizable to about 200px and lives in
    both a sidebar and an editor tab, so the row decides for itself. */
@@ -478,6 +504,15 @@ label {
   /* Stronger than the helper beside it: normal foreground, medium weight. */
   font-weight: 600;
   color: var(--vscode-foreground);
+}
+
+/* Except the checkbox rows, where the label is not a name but the whole
+   sentence. `flex: none` stopped "Delete previous artifacts first" shrinking,
+   so at 200px it pushed 19px past the panel and gave the whole page a
+   horizontal scrollbar. Measured, not guessed. */
+.field-check .setting-header > label {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .setting-header > .hint {
@@ -601,10 +636,16 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.radios {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
+/* How the one Issue field was read: a ticket, or prose. It replaced a radio
+   pair, so it says the same thing in the same place — but only once there is
+   something to say, which is what keeps an untouched panel quiet. */
+.issue-note {
+  font-size: 0.9em;
+  margin-top: 4px;
+}
+
+.issue-note[hidden] {
+  display: none;
 }
 
 /* --- run ------------------------------------------------------------------ */
@@ -632,6 +673,16 @@ button:focus-visible {
   justify-content: center;
   gap: 6px;
   padding: 5px 12px;
+}
+
+/* And the rule that makes `hidden` mean it — the third time this stylesheet has
+   needed one. `hidden` is only a UA-stylesheet `display: none`, so the rule
+   above beat it and Stop sat beside Run, greyed out, in every state including
+   an untouched panel. It was invisible to the tests because the DOM stub
+   records the property rather than laying anything out; a screenshot found it
+   in one look. Retry had the same fault. */
+.run-buttons > button[hidden] {
+  display: none;
 }
 
 /* Run takes whatever the others leave: it is the primary action, and it stays
@@ -760,14 +811,273 @@ button.icon .codicon {
   font-size: 0.9em;
 }
 
+/* --- the result ----------------------------------------------------------- */
+
+/*
+ * Context Ready: what the run produced, and the one thing to press.
+ *
+ * No card. The section earns its prominence from where it is — directly under
+ * Run, above the workflow disclosure — and from the primary button, not from a
+ * border, a tint or a shadow. A success banner in a 200px sidebar is a banner
+ * that wraps to four lines.
+ */
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.result[hidden] {
+  display: none;
+}
+
+.result-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.result-title {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.result-counts,
+.result-strategy {
+  margin: 0;
+}
+
+.result-counts[hidden],
+.result-strategy[hidden] {
+  display: none;
+}
+
+/* "Strategy" labels the mode beside it; the mode is the part worth reading. */
+.result-label {
+  color: var(--vscode-descriptionForeground);
+}
+
+.result-strategy > #result-strategy-value {
+  color: var(--vscode-foreground);
+}
+
+/* A handoff that started an agent. The same shape as the Context Ready line
+   above it, because it is the same kind of statement — something happened, and
+   here is what — and deliberately not a bigger one: this is the end of what
+   BugPilot can honestly report, not a celebration. */
+.result-handoff {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.result-handoff[hidden] {
+  display: none;
+}
+
+.result-handoff-message,
+.result-handoff-detail {
+  margin: 0;
+}
+
+.result-handoff-detail[hidden] {
+  display: none;
+}
+
+/* Full width, like Run: this is the next step, and at 200px a button that
+   shrinks to its text reads as one option among several. */
+.result-primary {
+  display: flex;
+  margin-top: 4px;
+}
+
+.result-primary > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 12px;
+}
+
+.result-primary > button[hidden] {
+  display: none;
+}
+
+/* The three artifact actions, secondary by size and by staying on one row
+   until they cannot. `flex-wrap` rather than a breakpoint, for the same reason
+   as everywhere else here: the panel is dragged, not chosen. */
+.result-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.result-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 0.9em;
+}
+
+.result-link[hidden] {
+  display: none;
+}
+
+/*
+ * Relevant Files: which files the run found, one question below how many.
+ *
+ * Part of the result section rather than a thing of its own — no card, no
+ * border, no badge. The disclosure is what keeps it secondary to Fix with AI;
+ * the styling only has to make a filename findable and a long path survivable.
+ */
+.files {
+  margin-top: 2px;
+}
+
+.files[hidden] {
+  display: none;
+}
+
+.files-group {
+  margin: 8px 0 2px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.file-row {
+  padding: 2px 0;
+}
+
+/* A button, because it does something. Styled as a link because a stack of
+   bordered buttons in a 200px sidebar is a wall, and because the filename is
+   the thing being pressed. `text-align: left` matters: the shared button rule
+   centres its text, which on two stacked lines of different length reads as
+   an accident. */
+.file-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  text-align: left;
+}
+
+.file-open:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
+.file-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The path is orientation, not the label. Allowed to wrap anywhere rather than
+   truncated: a middle-elided path in a sidebar hides the part that says which
+   of four same-named files this is. */
+.file-path,
+.file-matched {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.file-matched {
+  margin: 0;
+}
+
+/*
+ * A failure card: the run's, and the handoff's.
+ *
+ * Not a red panel. The icon carries the tone and the rest is ordinary text, so
+ * a failure reads as information rather than as an alarm — and so it survives a
+ * high-contrast theme, where a tinted block is a tinted block whatever the
+ * foreground does.
+ */
+.failure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 0;
+}
+
+.failure[hidden] {
+  display: none;
+}
+
+.failure-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+}
+
+.failure-title {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+.failure-message {
+  margin: 0;
+}
+
+/* Wraps rather than stretching: one button today, and a row that already knows
+   what to do if a category ever earns a second. */
+.failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.failure-actions:empty {
+  display: none;
+}
+
+.failure-details {
+  margin-top: 2px;
+}
+
+.failure-details[hidden] {
+  display: none;
+}
+
+/* Preformatted, because a traceback's line breaks are the information — but
+   wrapped, because a sidebar is 200px and a horizontal scrollbar inside a
+   disclosure is a scrollbar nobody finds. */
+.failure-detail {
+  margin: 4px 0 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- the workflow --------------------------------------------------------- */
 
-.workflow-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
+/* The workflow's summary line, which is the whole section while it is closed.
+   The heading goes inline so the native disclosure triangle, the heading and
+   the status share one line and wrap together at sidebar width — a block
+   heading would push the status onto a line of its own, and setting `display`
+   on the summary itself would take the triangle away. */
+.workflow-summary > h2 {
+  display: inline;
+}
+
+.workflow-summary > .workflow-status {
+  margin-left: 8px;
 }
 
 .workflow-status {
@@ -816,16 +1126,6 @@ button.icon .codicon {
   min-width: 0;
   overflow-wrap: anywhere;
   cursor: pointer;
-}
-
-.step-actions {
-  display: flex;
-  flex: none;
-  gap: 1px;
-}
-
-.step-actions[hidden] {
-  display: none;
 }
 
 .step-duration {
@@ -921,10 +1221,6 @@ button.icon .codicon {
 
 .card-blocked {
   border-left-color: var(--vscode-editorWarning-foreground, var(--vscode-focusBorder));
-}
-
-.card-failure {
-  border-left-color: var(--vscode-errorForeground);
 }
 
 /* --- notices -------------------------------------------------------------- */

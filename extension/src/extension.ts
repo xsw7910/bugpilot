@@ -53,6 +53,16 @@ const ROOT_STATE_KEY = "bugpilot.repoRoot";
 const FORM_STATE_KEY = "bugpilot.form";
 const WORK_ITEM_STATE_KEY = "bugpilot.workItem";
 
+/**
+ * This extension's id, as the marketplace and an `@ext:` settings filter spell
+ * it.
+ *
+ * Written here rather than read from the manifest at runtime: the filter has to
+ * match `publisher.name` exactly, and `test/manifest.test.ts` compares this
+ * against package.json so the two cannot drift apart.
+ */
+export const EXTENSION_ID = "ShiweiX.bugpilot";
+
 export function activate(context: vscode.ExtensionContext): void {
   const channel = vscode.window.createOutputChannel("BugPilot");
   const log = channelLog(channel);
@@ -257,6 +267,13 @@ export function activate(context: vscode.ExtensionContext): void {
   register(COMMANDS.setCredentials, () =>
     setCredentials(credentials, log, () => controller.refreshEnvironment()),
   );
+
+  register(COMMANDS.openSettings, async () => {
+    // Filtered to this extension's own section rather than the whole settings
+    // page: the button exists because something is misconfigured, and landing
+    // on three thousand unrelated settings is not an answer.
+    await vscode.commands.executeCommand("workbench.action.openSettings", `@ext:${EXTENSION_ID}`);
+  });
 
   register(COMMANDS.clearCredentials, async () => {
     await credentials.clear();

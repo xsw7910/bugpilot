@@ -9,7 +9,12 @@
  * The shape is one column, read top to bottom, because that is the order the
  * work happens in:
  *
- *     input → Run → the six workflow steps → advanced settings
+ *     Issue → Fix Mode → Run → the six workflow steps → advanced settings
+ *
+ * Only the first three of those are open on an untouched panel. §34's UI-A1
+ * made the workflow a disclosure beside Advanced settings, so what greets a
+ * developer is the one sentence the tool is about — type the issue, press
+ * Run — rather than every control the panel owns laid out at equal weight.
  *
  * It replaced three separate places that described the same run: an
  * "Investigate" fieldset of checkboxes, a "Progress" checklist repeating the
@@ -83,13 +88,27 @@ interface TextField {
 export type IconTone = "primary" | "hint" | "danger" | "muted" | "success" | "warning";
 
 /**
- * The input area: the one field the chosen source needs, and nothing else.
+ * The input area: one field, and nothing else.
  *
- * Everything optional moved into Advanced settings. A developer preparing
- * JR-12345 types six characters and presses Run; the seven tuning fields that
- * used to sit between the issue key and the button are still there for the runs
- * that need them.
+ * It was a radio pair and two fields — "Jira issue" with an issue key box,
+ * "Bug description" with a textarea — which asked the developer to classify
+ * their input before entering it. §34's UI-A1 removed the question, because the
+ * answer is derivable from the input: a Jira key matches `JIRA_ISSUE_KEY_RE`
+ * and everything else is prose. `media/panel.js` derives `source` and fills
+ * `issueKey` or `description` from this one control, so `FormState`, the
+ * message protocol and `buildPrepareArgs` never learn that the switch is gone.
+ *
+ * Multi-line because the same box now holds a six-character key and a pasted
+ * bug report; two rows at rest, growing with what is typed like every other
+ * textarea here.
  */
+const ISSUE_FIELD = `      <div class="field" id="field-issue">
+${settingHeader({ forId: "issue", label: "Issue" })}
+        <textarea id="issue" name="issue" rows="2" placeholder="Jira ticket or bug description" aria-describedby="issue-note issue-error"></textarea>
+        <p class="muted issue-note" id="issue-note" hidden></p>
+        <p class="error" id="issue-error" hidden></p>
+      </div>`;
+
 /**
  * The hint's own actions: let an AI tidy it up, and decide what it may read.
  *
@@ -104,16 +123,17 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
                  aria-describedby="useIssueDetails-hint">
           Use issue details
         </label>
-        <button type="button" id="improve-hint" class="link">
+        <button type="button" id="improve-hint" class="link"
+                title="Improve clarity and technical precision using the configured AI provider.">
           <span class="codicon codicon-hubot" id="improve-hint-icon" aria-hidden="true"></span>
-          <span id="improve-hint-label">Improve with AI</span>
+          <span id="improve-hint-label">Improve</span>
         </button>
       </div>
       <p class="hint" id="useIssueDetails-hint">The issue title and description only. No repository, history or files are read.</p>
       <p class="muted" id="hint-improve-notice" hidden></p>
       <p class="error" id="hint-improve-error" role="alert" hidden></p>
       <div id="hint-suggestion" class="hint-suggestion" hidden>
-        <p class="card-title" id="hint-suggestion-heading" tabindex="-1">AI Suggested Hint</p>
+        <p class="card-title" id="hint-suggestion-heading" tabindex="-1">AI Suggestion</p>
         <p class="preview-text" id="hint-suggestion-text"></p>
         <div class="run-buttons">
           <button type="button" id="hint-use" class="primary">Use Improved</button>
@@ -122,44 +142,15 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
       </div>
 `;
 
-const MAIN_FIELDS: readonly TextField[] = [
-  {
-    id: "issueKey",
-    label: "Issue key",
-    kind: "input",
-    placeholder: "JR-12345",
-  },
-  {
-    id: "description",
-    label: "Bug description",
-    kind: "textarea",
-    rows: 5,
-    hint: "What happens, and how to reproduce it.",
-  },
-];
-
 /**
- * Collapsed by default. Nothing in here is needed for a normal run.
+ * Guidance: what the AI is told, beyond the bug report itself.
  *
- * The label says what the setting is and the placeholder shows an example, so
- * most of these carry no helper text at all: a line reading "One path per line"
- * above a box already showing three paths on three lines is clutter that has to
- * be read before it can be dismissed.
- *
- * Helper text is kept for exactly one kind of thing — a rule or a consequence
- * that a placeholder cannot carry, because **a placeholder disappears the
- * moment somebody types**. Two survive on that test: the custom command's
- * `{prompt}` substitution, and the destructive checkbox.
+ * One field, and that is the point of giving it a heading of its own. UI-A2's
+ * question was which of these settings talk to the agent and which decide what
+ * BugPilot searches, and a developer who cannot answer it types keywords into
+ * the hint.
  */
-const ADVANCED_FIELDS: readonly TextField[] = [
-  {
-    id: "title",
-    label: "Title",
-    kind: "input",
-    icon: "edit",
-    tone: "muted",
-    placeholder: "e.g. Crash when saving with no selection",
-  },
+const GUIDANCE_FIELDS: readonly TextField[] = [
   {
     id: "hint",
     label: "Hint",
@@ -172,30 +163,49 @@ const ADVANCED_FIELDS: readonly TextField[] = [
     rows: 3,
     icon: "lightbulb",
     tone: "hint",
+    hint: "Add technical guidance, constraints, or suspected areas.",
     placeholder: "e.g. Check initialization logic in the affected component",
     extra: HINT_IMPROVEMENT,
   },
+];
+
+/**
+ * Retrieval overrides: expert boosts on a search that already runs itself.
+ *
+ * The heading and the two "(optional)" labels exist to say the thing the old
+ * flat list did not: BugPilot retrieves without either of these, and a blank
+ * Keywords box is not a job half done. Both carry helper text for the same
+ * reason — "Keywords" alone does not distinguish a required input from a
+ * thumb on the scale, and a placeholder cannot say so because it disappears the
+ * moment somebody types.
+ *
+ * Nothing here names a weight, a term budget or a search surface. Those are
+ * §33's concepts and the panel has no business teaching them.
+ */
+const RETRIEVAL_FIELDS: readonly TextField[] = [
   {
     id: "keywords",
-    label: "Keywords",
-    // The same reason, plus one of its own: `parseKeywords` splits on newlines
-    // as well as commas, so a list written one term per line already worked —
-    // there was simply nowhere to type it.
+    label: "Keywords (optional)",
+    // Multi-line for visibility, plus one reason of its own: `parseKeywords`
+    // splits on newlines as well as commas, so a list written one term per line
+    // already worked — there was simply nowhere to type it.
     kind: "textarea",
     rows: 2,
     icon: "search",
     tone: "primary",
-    placeholder: "e.g. initialization, configuration, crash, validation",
+    hint: "Boost retrieval with known identifiers or technical terms.",
+    placeholder: "e.g. VolumeDescriptor, OpenVDS, outputType",
   },
   {
     id: "focusFiles",
-    label: "Focus files",
+    label: "Focus Files (optional)",
     kind: "textarea",
     rows: 4,
     icon: "file",
     tone: "muted",
+    hint: "Prioritize files you already suspect are relevant.",
     // A multi-line placeholder, which is what makes "one path per line" obvious
-    // without a paragraph saying so — and is why that paragraph is gone.
+    // without a paragraph saying so.
     placeholder: "e.g.\nsrc/core/\nsrc/services/example.cpp\ninclude/example.h",
   },
   {
@@ -206,6 +216,35 @@ const ADVANCED_FIELDS: readonly TextField[] = [
     icon: "circle-slash",
     tone: "danger",
     placeholder: "e.g.\nbuild/\nthird_party/\ngenerated/",
+  },
+];
+
+/**
+ * Everything that is about the run rather than about what it searches.
+ *
+ * Title is the odd one and is here for want of a better home: it is part of the
+ * bug report, not of the run, and it only applies to a hand-written bug. The
+ * rest — the agent, its command, attachments and the destructive checkbox — are
+ * rendered inline below rather than listed here, because none of them is a
+ * plain text field.
+ *
+ * Ignore paths, Max files and Max search lines used to be here. UI-A2c moved
+ * them into Retrieval Overrides, which is what they are.
+ *
+ * The label says what the setting is and the placeholder shows an example, so
+ * none of these carries helper text except where a **rule or a consequence**
+ * has to stay readable after somebody starts typing — which a placeholder
+ * cannot do. Two survive that test: the custom command's `{prompt}`
+ * substitution, and the destructive checkbox.
+ */
+const RUN_OPTION_FIELDS: readonly TextField[] = [
+  {
+    id: "title",
+    label: "Title",
+    kind: "input",
+    icon: "edit",
+    tone: "muted",
+    placeholder: "e.g. Crash when saving with no selection",
   },
 ];
 
@@ -252,22 +291,143 @@ const AGENT_COMMAND_FIELD: TextField = {
 };
 
 /**
- * The icons on the Build context row, in the order they appear.
+ * The secondary actions on a finished package.
  *
- * Icons rather than three more buttons, because the row is the label: an
- * "Open generated context" button says nothing that the row above it plus a
- * file icon does not. Each carries `title` and `aria-label`, so the meaning is
- * available to a mouse and to a screen reader alike.
+ * They were three icons on the Build context row until UI-A3 — the right place
+ * while that row was the only thing a finished run had to show, and the wrong
+ * one once there is a result section whose entire job is what to do next. Same
+ * ids, same messages, same tooltips; what changed is that they now sit under
+ * the primary button rather than inside a checklist.
+ *
+ * Icon *and* label, unlike the bare icons they replace. A row of three glyphs
+ * under a full-width button reads as decoration; the words are what make them
+ * findable, and the `title` still carries the longer sentence for a hover.
  */
-const STEP_ACTIONS: Readonly<
-  Partial<Record<WorkflowStepId, readonly { id: string; icon: string; label: string }[]>>
-> = {
-  buildContext: [
-    { id: "open-context", icon: "go-to-file", label: "Open generated context" },
-    { id: "copy-context", icon: "copy", label: "Copy context prompt" },
-    { id: "open-folder", icon: "folder-opened", label: "Open artifacts folder" },
-  ],
-};
+const RESULT_ACTIONS: readonly {
+  readonly id: string;
+  readonly action: string;
+  readonly icon: string;
+  readonly label: string;
+  readonly title: string;
+}[] = [
+  {
+    id: "open-context",
+    action: "openContext",
+    icon: "go-to-file",
+    label: "Open Context",
+    title: "Open the generated bug_context.md",
+  },
+  {
+    id: "copy-context",
+    action: "copyHandoff",
+    icon: "copy",
+    label: "Copy",
+    title: "Copy the handoff prompt to the clipboard",
+  },
+  {
+    id: "open-folder",
+    action: "openFolder",
+    icon: "folder-opened",
+    label: "Open Folder",
+    title: "Reveal the generated artifacts in the explorer",
+  },
+];
+
+/**
+ * The result section: what the run produced, and the one thing to press.
+ *
+ * Hidden in the markup and unhidden only when the host sends a `contextReady`,
+ * which is what keeps §19's promise — no "0 files" card, no empty Artifacts
+ * heading, nothing at all before a run has produced something.
+ *
+ * A tick and two words rather than a banner. The tick is the vendored
+ * `pass-filled`, tinted with the palette's success tone, and "Context Ready" is
+ * a heading so the transition is announced rather than only seen.
+ */
+const CONTEXT_READY = `      <section id="context-ready" class="result" aria-labelledby="result-heading" hidden>
+        <p class="result-head">
+          <span class="codicon codicon-pass-filled icon-success" aria-hidden="true"></span>
+          <span class="result-title" id="result-heading" role="status">Context Ready</span>
+        </p>
+        <p class="muted result-counts" id="result-counts" hidden></p>
+        <p class="muted result-strategy" id="result-strategy" hidden><span class="result-label">Strategy</span> <span id="result-strategy-value"></span></p>
+        <!--
+          A handoff that started an agent, and the furthest claim BugPilot can
+          make about it. The extension launches a terminal and stops watching,
+          so the words stop at "started" — never fixed, never finished, never
+          tested. The tick is the same vendored glyph Context Ready uses; the
+          status is in the text beside it, not in the icon.
+        -->
+        <div class="result-handoff" id="result-handoff" hidden>
+          <p class="result-head">
+            <span class="codicon codicon-pass-filled icon-success" aria-hidden="true"></span>
+            <span class="result-title" id="result-handoff-title" role="status"></span>
+          </p>
+          <p class="muted result-handoff-message" id="result-handoff-message"></p>
+          <p class="muted result-handoff-detail" id="result-handoff-detail" hidden></p>
+        </div>
+        <div class="result-primary">
+          <button type="button" id="fix-with-ai" class="primary">
+            <span class="codicon codicon-hubot" id="fix-with-ai-icon" aria-hidden="true"></span>
+            <span id="fix-with-ai-label">Fix with AI</span>
+          </button>
+        </div>
+        <!--
+          Directly under the button it is about. It sat below the artifact
+          actions until UI-V1 looked at it, which put three things a developer
+          can still do between "Fix with AI" and the reason it did not work.
+        -->
+${errorCard("handoff-error")}
+        <div class="result-links" id="result-links">
+${RESULT_ACTIONS.map(
+  (entry) =>
+    `          <button type="button" class="result-link" id="${entry.id}" title="${entry.title}" hidden><span class="codicon codicon-${entry.icon}" aria-hidden="true"></span>${entry.label}</button>`,
+).join("\n")}
+        </div>
+        <!--
+          Which files, one question below "how many". A disclosure rather than a
+          list, and collapsed, because the answer to "what now" is the button
+          above it — this is for the developer who has already read that and
+          wants to look before pressing it.
+
+          The rows are built by the page from what the host read out of
+          related_files.json. Nothing here names a file, a score or a rank.
+        -->
+        <details class="files" id="relevant-files" hidden>
+          <summary id="relevant-files-summary">Relevant Files</summary>
+          <div id="relevant-files-list"></div>
+          <p class="muted" id="relevant-files-more" hidden></p>
+        </details>
+      </section>`;
+
+/**
+ * A failure card: what failed, what to do next, and the original underneath.
+ *
+ * One shape rendered in two places — a run that could not finish, and a handoff
+ * that could not start — because they are the same three questions with
+ * different answers, and two markups for that would drift apart within a phase.
+ *
+ * The Details disclosure is collapsed and its contents are written with
+ * `textContent`: the text inside it is a CLI's stderr and a Jira response, and
+ * an error message is exactly the string an attacker would reach for.
+ */
+function errorCard(id: string): string {
+  // A div rather than a section: one of the two lives *inside* the result
+  // section, and a nested <section> makes every "the result section is
+  // everything up to its closing tag" reading of this document wrong.
+  return `      <div id="${id}" class="failure" role="alert" hidden>
+        <p class="failure-head">
+          <span class="codicon codicon-error icon-danger" aria-hidden="true"></span>
+          <span class="failure-title" id="${id}-title"></span>
+        </p>
+        <p class="muted failure-message" id="${id}-message"></p>
+        <div class="failure-actions" id="${id}-actions"></div>
+        <details class="failure-details" id="${id}-details" hidden>
+          <summary>Details</summary>
+          <pre class="failure-detail" id="${id}-detail"></pre>
+        </details>
+      </div>`;
+}
 
 export function panelHtml(options: PanelHtmlOptions): string {
   const csp = [
@@ -309,12 +469,7 @@ export function panelHtml(options: PanelHtmlOptions): string {
 
     <form id="form" autocomplete="off">
 
-      <div class="radios" role="radiogroup" aria-label="Input source">
-        <label class="choice"><input type="radio" name="source" id="source-jira" value="jira" checked> Jira issue</label>
-        <label class="choice"><input type="radio" name="source" id="source-manual" value="manual"> Bug description</label>
-      </div>
-
-  ${MAIN_FIELDS.map(field).join("\n")}
+${ISSUE_FIELD}
 
       <div class="field" id="field-fixModeId">
   ${settingHeader({
@@ -338,28 +493,38 @@ export function panelHtml(options: PanelHtmlOptions): string {
       <div class="run">
         <div class="run-buttons">
           <button type="submit" id="run" class="primary">
-            <span class="codicon codicon-play" aria-hidden="true"></span>
-            Run
+            <span class="codicon codicon-play" id="run-icon" aria-hidden="true"></span>
+            <span id="run-label">Run</span>
           </button>
           <button type="button" id="stop" hidden disabled>Stop</button>
           <button type="button" id="retry" hidden>Retry</button>
         </div>
         <span class="kbd">Ctrl+Enter</span>
       </div>
-      <p class="hint" id="run-hint">Prepare context and optionally fix with AI.</p>
+      <p class="hint" id="run-hint">Run prepares the issue context for AI-assisted fixing.</p>
 
-      <section class="group" id="workflow" aria-labelledby="workflow-heading">
-        <div class="workflow-head">
+${CONTEXT_READY}
+
+      <!--
+        A disclosure rather than a section, since UI-A1: the six rows were the
+        largest thing on an untouched panel and said nothing a developer who has
+        not typed an issue yet needs. They carry two different things — the
+        checkboxes that choose what runs, and the statuses of a run in flight —
+        so hiding them until a run starts would take away the only pre-run way
+        to reach Fix with AI. Collapsed instead, and the page script opens it
+        the moment a run begins.
+      -->
+      <details class="group" id="workflow" aria-labelledby="workflow-heading">
+        <summary class="workflow-summary">
           <h2 id="workflow-heading">Investigation &amp; AI Fix</h2>
           <span id="workflow-status" class="workflow-status" role="status">Ready to run</span>
-        </div>
-        <p id="prepared-fix-mode" class="muted" hidden></p>
+        </summary>
         <ol class="steps">
   ${WORKFLOW_STEP_IDS.map(step).join("\n")}
         </ol>
         <p id="activity" class="muted" aria-live="polite"></p>
         <p id="plan-note" class="muted" hidden>Without Build context, bugpilot only normalizes the report — search, history, similar fixes and the AI fix are skipped too.</p>
-      </section>
+      </details>
 
       <details class="group advanced" id="advanced">
         <summary>
@@ -374,11 +539,18 @@ export function panelHtml(options: PanelHtmlOptions): string {
           </span>
         </summary>
 
-  ${ADVANCED_FIELDS.map(field).join("\n")}
+  ${groupHeading("guidance", "Guidance")}
+  ${GUIDANCE_FIELDS.map(field).join("\n")}
+
+  ${groupHeading("retrieval", "Retrieval Overrides")}
+  ${RETRIEVAL_FIELDS.map(field).join("\n")}
 
         <div class="limits">
   ${LIMIT_FIELDS.map(field).join("\n")}
         </div>
+
+  ${groupHeading("run-options", "Run Options")}
+  ${RUN_OPTION_FIELDS.map(field).join("\n")}
 
         <div class="field" id="field-agent">
   ${settingHeader({
@@ -424,10 +596,7 @@ export function panelHtml(options: PanelHtmlOptions): string {
       </details>
     </form>
 
-    <section id="failure" class="card card-failure" role="alert" hidden>
-      <p id="failure-summary" class="card-title"></p>
-      <p id="failure-action" class="muted"></p>
-    </section>
+${errorCard("failure")}
 
     <section id="notices" class="notices" role="status" hidden></section>
 
@@ -589,6 +758,21 @@ function settingHeader(options: {
       </div>`;
 }
 
+/**
+ * One heading inside Advanced settings, with a rule under it.
+ *
+ * A heading and a hairline rather than a bordered card: the section already
+ * sits inside a `<details>` inside a panel, and a third box around each group
+ * would be three borders deep before the first label. `aria-labelledby` points
+ * the group at it, so the grouping is available to a screen reader and not only
+ * to the eye.
+ *
+ * `h3`, because Advanced settings' own title is the `h2` above it.
+ */
+function groupHeading(id: string, title: string): string {
+  return `        <h3 class="setting-group" id="group-${id}">${title}</h3>`;
+}
+
 function field(entry: TextField): string {
   // `aria-describedby` names only descriptions that exist. Most fields now have
   // no helper text, and pointing a screen reader at an element that was never
@@ -639,23 +823,13 @@ function step(id: WorkflowStepId): string {
   const checked = id === "fixWithAI" ? "" : " checked";
   const box = `<input type="checkbox" id="plan-${id}"${checked}${required ? " disabled" : ""}>`;
   const note = required ? `<span class="step-note">Always runs</span>` : "";
-  const actions = STEP_ACTIONS[id];
   // The Jira wording, because that is the source the form starts on; the host
   // replaces it with the manual wording on the first push after a switch.
   const description = stepDescription(id, "jira");
   return `        <li class="step" id="step-${id}">
           <div class="step-head">
             <label class="step-label" for="plan-${id}">${box}<span>${STEP_LABELS[id]}</span></label>
-${
-  actions
-    ? `            <span class="step-actions" id="actions-${id}" hidden>${actions
-        .map(
-          (action) =>
-            `<button type="button" class="icon" id="${action.id}" title="${action.label}" aria-label="${action.label}"><span class="codicon codicon-${action.icon}" aria-hidden="true"></span></button>`,
-        )
-        .join("")}</span>\n`
-    : ""
-}            <span class="step-duration" id="duration-${id}"></span>
+            <span class="step-duration" id="duration-${id}"></span>
             <span class="step-status codicon" id="status-${id}" aria-hidden="true" hidden></span>
           </div>
           <div class="step-foot">
@@ -687,17 +861,24 @@ function section(entry: { readonly id: string; readonly label: string }): string
     </div>`;
 }
 
-/** The text field ids the page owns, exported so tests can compare them to `FormState`. */
-export const TEXT_FIELD_IDS: readonly string[] = [
-  ...MAIN_FIELDS,
-  ...ADVANCED_FIELDS,
+/** The ids of the fields Advanced settings hides, so a test can check it hides them. */
+export const ADVANCED_FIELD_IDS: readonly string[] = [
+  ...GUIDANCE_FIELDS,
+  ...RETRIEVAL_FIELDS,
   ...LIMIT_FIELDS,
+  ...RUN_OPTION_FIELDS,
   AGENT_COMMAND_FIELD,
 ].map((entry) => entry.id);
 
-/** The ids of the fields Advanced settings hides, so a test can check it hides them. */
-export const ADVANCED_FIELD_IDS: readonly string[] = [
-  ...ADVANCED_FIELDS.map((entry) => entry.id),
-  ...LIMIT_FIELDS.map((entry) => entry.id),
-  AGENT_COMMAND_FIELD.id,
-];
+/**
+ * The text field ids the page owns, exported so tests can compare them to
+ * `FormState`.
+ *
+ * `issue` is the one that is not a `FormState` key: it carries both `issueKey`
+ * and `description`, and which of the two it fills is derived from what is in
+ * it. `test/panel.test.ts` states that mapping rather than exempting it.
+ *
+ * Everything else is what Advanced settings holds, in the order it holds it —
+ * one list, so a field cannot be added to a group and forgotten here.
+ */
+export const TEXT_FIELD_IDS: readonly string[] = ["issue", ...ADVANCED_FIELD_IDS];

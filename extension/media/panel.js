@@ -25,11 +25,16 @@
 
   const vscode = acquireVsCodeApi();
 
-  /** Ids that match `FormState` keys exactly. */
+  /**
+   * The text controls the document has, which is not quite `FormState`.
+   *
+   * `issue` is the exception and the only one: it carries `issueKey` *or*
+   * `description`, decided by what is in it. Everything after it matches a
+   * `FormState` key exactly.
+   */
   const TEXT_FIELDS = [
-    "issueKey",
+    "issue",
     "title",
-    "description",
     "hint",
     "keywords",
     "focusFiles",
@@ -38,6 +43,26 @@
     "maxSearchLines",
     "agentCommand",
   ];
+
+  /**
+   * A Jira issue key, as `form.ts` and `bugpilot/core/identity.py` spell it.
+   *
+   * Duplicated because a webview cannot import the extension's modules, and
+   * guarded the same way the other two copies are: `test/panel.test.ts` compares
+   * this literal against `JIRA_ISSUE_KEY_RE`. It is what decides, on every
+   * keystroke, whether the one Issue field is naming a ticket or describing a
+   * bug — the question the removed radio pair used to ask out loud.
+   */
+  const JIRA_ISSUE_KEY_RE = /^[A-Z][A-Z0-9]+-\d+$/;
+
+  /**
+   * Which `FormState` field a host-reported problem belongs to on screen.
+   *
+   * The host validates `issueKey` and `description`, because those are what a
+   * command line is built from; the page has one box for both, and a message
+   * attached to a field with no control would be a message nobody sees.
+   */
+  const PROBLEM_CONTROLS = { issueKey: "issue", description: "issue" };
 
   /**
    * Fields that live inside Advanced settings, which starts collapsed.
@@ -56,10 +81,6 @@
     "agentCommand",
   ];
 
-  /** Which fields belong to which input source. */
-  const JIRA_ONLY = ["issueKey"];
-  const MANUAL_ONLY = ["title", "description"];
-
   /**
    * The multi-line fields, which grow to fit what has been typed into them.
    *
@@ -68,7 +89,7 @@
    * the developer has to discover. `rows` in the markup is the height each one
    * starts at; `max-height` in `panel.css` is where growing stops.
    */
-  const GROWING_FIELDS = ["description", "hint", "keywords", "focusFiles", "ignorePaths"];
+  const GROWING_FIELDS = ["issue", "hint", "keywords", "focusFiles", "ignorePaths"];
 
   /** The five the CLI runs, which are the ones that go into `form.plan`. */
   const PLAN_FIELDS = [
@@ -105,8 +126,6 @@
   };
 
   const byId = (id) => document.getElementById(id);
-  /** For ids only some rows have, such as a row's action icons. */
-  const maybe = (id) => document.getElementById(id);
 
   let appliedRevision = -1;
   let running = false;
@@ -129,6 +148,13 @@
   let fixModeCatalog;
   /** The coupled checkboxes as they were before Build context forced them off. */
   let planBeforeCoupling;
+  /**
+   * Whether the last render saw a run in flight.
+   *
+   * Only used to notice the moment one finishes, which is when the checklist
+   * stops being the thing to look at and the result above it starts.
+   */
+  let wasRunning = false;
 
   // --- growing fields ------------------------------------------------------
 
@@ -162,9 +188,31 @@
 
   // --- reading the form ----------------------------------------------------
 
+  /**
+   * What the one Issue field is naming: a ticket, prose, or nothing yet.
+   *
+   * Empty reads as `jira` rather than as an empty description, which keeps
+   * `workItemScopeOf` returning `undefined` — "not yet any work item, so not yet
+   * a reason to conclude the developer moved to another one". Reading it as a
+   * blank manual bug would make every cleared field look like a new work item.
+   */
+  function issueSource() {
+    const typed = byId("issue").value.trim();
+    if (typed === "") return "jira";
+    return JIRA_ISSUE_KEY_RE.test(typed.toUpperCase()) ? "jira" : "manual";
+  }
+
   function readForm() {
-    const form = { source: byId("source-manual").checked ? "manual" : "jira", plan: {} };
+    const issue = byId("issue").value;
+    const source = issueSource();
+    const form = { source, plan: {} };
     for (const field of TEXT_FIELDS) form[field] = byId(field).value;
+    // The one box, split into the two fields the host and the CLI expect. The
+    // unused one is cleared rather than left behind: a stale description under
+    // a Jira key would reach `--description` the moment the key was deleted.
+    delete form.issue;
+    form.issueKey = source === "jira" ? issue.trim() : "";
+    form.description = source === "manual" ? issue : "";
     for (const field of PLAN_FIELDS) form.plan[field] = byId(`plan-${field}`).checked;
     form.plan.issueDetails = true;
     // Not part of the plan: it is what happens after the run, not a flag on it.
@@ -179,9 +227,10 @@
   }
 
   function writeForm(form) {
-    byId("source-jira").checked = form.source !== "manual";
-    byId("source-manual").checked = form.source === "manual";
     for (const field of TEXT_FIELDS) byId(field).value = form[field] ?? "";
+    // Whichever of the two the stored form actually used, which is also what
+    // makes a form saved before the switch was removed restore correctly.
+    byId("issue").value = (form.source === "manual" ? form.description : form.issueKey) ?? "";
     for (const field of PLAN_FIELDS) {
       byId(`plan-${field}`).checked = form.plan?.[field] !== false;
     }
@@ -208,11 +257,28 @@
     growAll();
   }
 
-  /** Show only the fields the chosen input source uses. */
+  /**
+   * What the Issue field is taken to mean, and the one setting that depends on
+   * it.
+   *
+   * Title is for a hand-written bug only — a Jira issue brings its own, and
+   * `buildPrepareArgs` sends `--title` on the manual path alone — so a Title box
+   * beside a ticket number is a field that does nothing. It lives inside
+   * Advanced settings, which is why this can follow what is typed without
+   * anything moving under the developer's hands.
+   *
+   * The note is what the radio pair used to say. It appears only once there is
+   * something to classify, so an untouched panel stays as quiet as UI-A1 asks.
+   */
   function applySourceVisibility() {
-    const manual = byId("source-manual").checked;
-    for (const field of JIRA_ONLY) byId(`field-${field}`).hidden = manual;
-    for (const field of MANUAL_ONLY) byId(`field-${field}`).hidden = !manual;
+    const typed = byId("issue").value.trim();
+    const manual = issueSource() === "manual";
+    byId("field-title").hidden = !manual;
+
+    const note = byId("issue-note");
+    note.textContent =
+      typed === "" ? "" : manual ? "Bug description" : `Jira issue ${typed.toUpperCase()}`;
+    note.hidden = note.textContent === "";
   }
 
   /**
@@ -323,6 +389,7 @@
     renderFixModes(state);
     renderWorkflow(state);
     renderRun(state);
+    renderContextReady(state);
     renderNotices(state);
     renderManage(state);
     renderHintImprovement(state);
@@ -376,10 +443,9 @@
     fixModeCatalog = catalog;
   }
 
-  /** The note and the prepared line, once the form has settled on a selection. */
+  /** The note under the selector, once the form has settled on a selection. */
   function renderFixModes(state) {
     renderFixModeNote((state.problems || []).find((entry) => entry.field === "fixModeId"));
-    renderPreparedFixMode(state);
   }
 
   /**
@@ -417,36 +483,6 @@
     select.setAttribute("aria-invalid", problem ? "true" : "false");
   }
 
-  /**
-   * What the package on disk was prepared with — not what the dropdown says.
-   *
-   * They differ as soon as someone changes the selection without running, and
-   * labelling an old package with a new choice would misreport what the agent
-   * was actually told.
-   */
-  function renderPreparedFixMode(state) {
-    const prepared = state.preparedFixMode;
-    const line = byId("prepared-fix-mode");
-    if (!prepared) {
-      line.textContent = "";
-      line.hidden = true;
-      return;
-    }
-    const kind =
-      prepared.executionKind === "investigate" ? " · investigation only" : "";
-    // Three states, not two. "This mode is gone" and "BugPilot could not check"
-    // look alike and mean opposite things: one needs a new mode chosen, the
-    // other needs nothing at all.
-    const suffix =
-      prepared.availability === "unavailable"
-        ? " (unavailable)"
-        : prepared.availability === "unknown"
-          ? " · availability unknown"
-          : kind;
-    line.textContent = `Prepared with Fix Mode: ${prepared.name}${suffix}`;
-    line.hidden = false;
-  }
-
   function renderReadiness(readiness) {
     const checking = !readiness || readiness.kind === "checking";
     const blocked = Boolean(readiness) && readiness.kind === "blocked";
@@ -476,9 +512,14 @@
     byId("add-attachment").disabled = blocked || checking || running;
   }
 
+  /** The control a problem is shown on, which is not always its own name. */
+  function controlFor(field) {
+    return PROBLEM_CONTROLS[field] || field;
+  }
+
   function renderProblems(problems) {
     for (const field of TEXT_FIELDS) {
-      const problem = problems.find((entry) => entry.field === field);
+      const problem = problems.find((entry) => controlFor(entry.field) === field);
       const error = byId(`${field}-error`);
       error.textContent = problem ? problem.message : "";
       error.hidden = !problem;
@@ -490,11 +531,11 @@
     // on each of those yanks the cursor out of whatever field the developer
     // moved to after reading the message.
     const signature = problems.map((entry) => `${entry.field}:${entry.message}`).join("|");
-    const first = problems.find((entry) => TEXT_FIELDS.includes(entry.field));
+    const first = problems.find((entry) => TEXT_FIELDS.includes(controlFor(entry.field)));
     if (first && signature !== shownProblems) {
       // A problem in a collapsed section is a problem nobody can see.
       if (ADVANCED_FIELDS.includes(first.field)) byId("advanced").open = true;
-      byId(first.field).focus();
+      byId(controlFor(first.field)).focus();
     }
     shownProblems = signature;
   }
@@ -527,9 +568,6 @@
       // `detail` is what actually happened, when the icon alone would be
       // ambiguous — "handed to Claude Code in a terminal" against a tick.
       byId(`description-${step.id}`).textContent = step.detail || step.description || "";
-
-      const actions = maybe(`actions-${step.id}`);
-      if (actions) actions.hidden = (step.actions || []).length === 0;
     }
 
     const overall = state.overall || { kind: "idle", text: "" };
@@ -537,16 +575,253 @@
     status.textContent = overall.text;
     status.className = `workflow-status is-${overall.kind}`;
     byId("activity").textContent = (state.progress || {}).activity || "";
+
+    // Open while a run is in flight, and folded away once as it finishes.
+    //
+    // UI-A3 left it open afterwards because the artifact icons lived on the
+    // Build context row — and UI-B1 moved them into the result section, which
+    // took that reason away. What a screenshot then showed was 314px of
+    // checklist under a 412px result, its summary reading "Context ready"
+    // directly below a block reading "Context Ready", and a "Fix with AI" row
+    // directly below the "Fix with AI" button.
+    //
+    // Only on the transition, so a developer who opens it again is not
+    // overruled by the next state push.
+    const runState = (state.progress || {}).state;
+    if (runState === "running") byId("workflow").open = true;
+    else if (wasRunning) byId("workflow").open = false;
+    wasRunning = runState === "running";
+  }
+
+  /**
+   * Which artifact action each secondary button asks for.
+   *
+   * The ids are the page's and the actions are the protocol's, and the two are
+   * not the same word. Keeping the map here rather than deriving one from the
+   * other is what lets `PANEL_ACTIONS` be a closed list the host re-checks.
+   */
+  const RESULT_ACTIONS = {
+    "open-context": "openContext",
+    "copy-context": "copyHandoff",
+    "open-folder": "openFolder",
+  };
+
+  /**
+   * The finished package: what it holds, and the one thing to press.
+   *
+   * Entirely host-decided. `state.contextReady` arriving *is* the signal — a
+   * run in flight, a run that failed, and a panel that has never run all leave
+   * it absent, so there is no zero-count card and no tick over a failure. The
+   * page's whole job here is to fill four lines and show the right buttons.
+   */
+  function renderContextReady(state) {
+    const ready = state.contextReady;
+    // What Run does, said until it has been done. Once there is a result or a
+    // failure on screen the sentence is advice about a button the developer has
+    // already pressed, sitting directly above the proof of what it did.
+    byId("run-hint").hidden = Boolean(ready) || Boolean(state.runError);
+    byId("context-ready").hidden = !ready;
+    if (!ready) {
+      // Hidden with it, so a later run that reads no counts cannot inherit the
+      // previous one's numbers for a frame.
+      for (const id of ["result-counts", "result-strategy", "result-handoff"]) {
+        byId(id).hidden = true;
+      }
+      for (const id of Object.keys(RESULT_ACTIONS)) byId(id).hidden = true;
+      // And the files with them, so the previous bug's list cannot outlive the
+      // result it belonged to.
+      byId("relevant-files").hidden = true;
+      byId("relevant-files-list").replaceChildren();
+      byId("relevant-files-more").hidden = true;
+      return;
+    }
+
+    const counts = byId("result-counts");
+    counts.textContent = ready.counts || "";
+    // Omitted rather than shown empty: neither artifact being readable is not
+    // a fact worth a line, and "Context Ready" already said the useful thing.
+    counts.hidden = counts.textContent === "";
+
+    const strategy = byId("result-strategy");
+    byId("result-strategy-value").textContent = ready.strategy || "";
+    strategy.hidden = !ready.strategy;
+
+    // A handoff that started an agent. Present only for that — a skip is
+    // explained by the error card, and the button stays for it.
+    const outcome = ready.handoffOutcome;
+    byId("result-handoff").hidden = !outcome;
+    byId("result-handoff-title").textContent = outcome ? outcome.title || "" : "";
+    byId("result-handoff-message").textContent = outcome ? outcome.message || "" : "";
+    const detail = byId("result-handoff-detail");
+    // Which agent, from the host's own record of the launch. The two lines
+    // above it name no vendor, and this one is the answer to the obvious next
+    // question rather than a claim about what the agent did.
+    detail.textContent = outcome && outcome.detail ? outcome.detail : "";
+    detail.hidden = detail.textContent === "";
+
+    // Absent after a handoff that worked: a second press would only open a
+    // second terminal for the same package.
+    byId("fix-with-ai").hidden = ready.canFix !== true;
+    // Resolving an agent spawns a probe, so the press is not instant.
+    const busy = ready.handoffBusy === true;
+    byId("fix-with-ai").disabled = busy;
+    byId("fix-with-ai-label").textContent = busy ? "Starting AI fix…" : "Fix with AI";
+    byId("fix-with-ai-icon").className = busy
+      ? "codicon codicon-loading codicon-spin"
+      : "codicon codicon-hubot";
+
+    const available = ready.actions || [];
+    for (const [id, action] of Object.entries(RESULT_ACTIONS)) {
+      byId(id).hidden = !available.includes(action);
+    }
+
+    renderRelevantFiles(ready);
+  }
+
+  /**
+   * Which files the run found, in the order the artifact ranked them.
+   *
+   * Built rather than templated, like the notices and the manage list, and
+   * every string goes through `textContent`: a path comes off the developer's
+   * disk by way of a JSON file, and has no business becoming markup.
+   *
+   * The order is the artifact's. Nothing here sorts, and the one partition —
+   * implementation before prose — keeps each group's relative ranking, because
+   * re-ranking in the panel would mean the list and the context disagree about
+   * which file matters most.
+   */
+  function renderRelevantFiles(ready) {
+    const files = ready.files || [];
+    const section = byId("relevant-files");
+    const list = byId("relevant-files-list");
+    list.replaceChildren();
+    // Hidden rather than shown empty: a "Relevant Files / none" row is a line
+    // to read and dismiss, and Context Ready already said how many there were.
+    section.hidden = files.length === 0;
+
+    const implementation = files.filter((file) => file.documentation !== true);
+    const supporting = files.filter((file) => file.documentation === true);
+    // Headings only when there is something to separate. One heading over one
+    // group is a label for a distinction the list does not make.
+    const grouped = implementation.length > 0 && supporting.length > 0;
+    for (const [label, group] of [
+      ["Implementation", implementation],
+      ["Supporting", supporting],
+    ]) {
+      if (group.length === 0) continue;
+      if (grouped) {
+        const heading = document.createElement("p");
+        heading.className = "files-group";
+        heading.textContent = label;
+        list.append(heading);
+      }
+      for (const file of group) list.append(fileRow(file));
+    }
+
+    const more = byId("relevant-files-more");
+    more.textContent =
+      typeof ready.moreFiles === "number" && ready.moreFiles > 0
+        ? `${ready.moreFiles} more in related_files.json`
+        : "";
+    more.hidden = more.textContent === "";
+  }
+
+  /**
+   * One file: its name as a button, its path under it, what matched it.
+   *
+   * The name is the control and the path is description, which is what makes
+   * the row usable at 200px — the accessible name is "Open <file>" rather than
+   * a path read out character by character, and the full path is the tooltip.
+   * Matched terms sit outside the button so they do not lengthen that name.
+   */
+  function fileRow(file) {
+    const row = document.createElement("div");
+    row.className = "file-row";
+
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "file-open";
+    open.setAttribute("aria-label", `Open ${file.name}`);
+    open.setAttribute("title", file.path);
+
+    const name = document.createElement("span");
+    name.className = "file-name";
+    name.textContent = file.name;
+    const location = document.createElement("span");
+    location.className = "file-path";
+    location.textContent = file.path;
+    open.append(name, location);
+    // The path travels back as the host gave it; the host resolves it against
+    // the repository and refuses anything that lands outside.
+    open.addEventListener("click", () =>
+      vscode.postMessage({ type: "openRelevantFile", path: file.path }),
+    );
+
+    row.append(open);
+    const matched = Array.isArray(file.matched) ? file.matched : [];
+    if (matched.length > 0) {
+      const terms = document.createElement("p");
+      terms.className = "file-matched";
+      // Which terms, never how strongly: a weight is how the ranking works.
+      terms.textContent = `Matched: ${matched.join(" · ")}`;
+      row.append(terms);
+    }
+    return row;
+  }
+
+  /**
+   * One failure card, from one host-classified error.
+   *
+   * Data in, DOM out, and no decisions: which category this is, what it should
+   * be called and whether it deserves a button were all settled on the host,
+   * where the error code and the operation that produced it are known. A
+   * webview asking "does this message contain 401" would be guessing from the
+   * least informed position in the system.
+   *
+   * Every string goes through `textContent`, including the technical detail —
+   * that text is a CLI's stderr and a Jira response, which is exactly where a
+   * `<script>` would arrive from.
+   */
+  function renderError(id, error) {
+    byId(id).hidden = !error;
+    if (!error) {
+      // Emptied as well as hidden, so nothing of the previous failure is left
+      // to flash into view if the next one renders a frame before its text.
+      byId(`${id}-title`).textContent = "";
+      byId(`${id}-message`).textContent = "";
+      byId(`${id}-detail`).textContent = "";
+      byId(`${id}-actions`).replaceChildren();
+      byId(`${id}-details`).hidden = true;
+      return;
+    }
+
+    byId(`${id}-title`).textContent = error.title || "";
+    byId(`${id}-message`).textContent = error.message || "";
+
+    const details = byId(`${id}-details`);
+    const detail = typeof error.detail === "string" ? error.detail : "";
+    byId(`${id}-detail`).textContent = detail;
+    details.hidden = detail === "";
+
+    const actions = byId(`${id}-actions`);
+    actions.replaceChildren();
+    if (error.action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = error.action.title;
+      // The command id came from the host, and the host re-checks it against
+      // its own table before executing — the same path the blocked card uses.
+      button.addEventListener("click", () =>
+        vscode.postMessage({ type: "command", id: error.action.command }),
+      );
+      actions.append(button);
+    }
   }
 
   function renderRun(state) {
     const progress = state.progress || {};
-    const failure = progress.failure;
-    byId("failure").hidden = !failure;
-    if (failure) {
-      byId("failure-summary").textContent = failure.summary || "";
-      byId("failure-action").textContent = failure.action || "";
-    }
+    renderError("failure", state.runError);
+    renderError("handoff-error", state.handoffError);
     // Shown only when it is the thing to do, in the row beside Run.
     // Disabled-but-visible was worse than absent: a greyed Stop under an idle
     // panel is a control that has never once been usable when it was on screen.
@@ -558,6 +833,15 @@
     byId("stop").disabled = !canStop;
     byId("retry").hidden = !canRetry;
     byId("retry").disabled = !canRetry;
+
+    // The button says what it is doing. It is already disabled while a run is
+    // in flight — `renderReadiness` does that, and `submit()` refuses a second
+    // one regardless — but a greyed button still reading "Run" says the click
+    // was ignored rather than that the run is under way.
+    byId("run-label").textContent = running ? "Running…" : "Run";
+    byId("run-icon").className = running
+      ? "codicon codicon-loading codicon-spin"
+      : "codicon codicon-play";
   }
 
   /**
@@ -616,8 +900,6 @@
 
   function setFormEnabled(enabled) {
     for (const field of TEXT_FIELDS) byId(field).disabled = !enabled;
-    byId("source-jira").disabled = !enabled;
-    byId("source-manual").disabled = !enabled;
     byId("agent").disabled = !enabled;
     // Disabled until the catalog is in: an enabled selector with nothing real
     // in it invites a choice that does not exist.
@@ -665,7 +947,10 @@
     const busy = view.busy === true;
 
     const label = byId("improve-hint-label");
-    label.textContent = busy ? "Improving…" : "Improve with AI";
+    // "Improve", not "Improve with AI": it sits under a Guidance heading next
+    // to a robot icon, and the third mention of AI in one row was noise. The
+    // button's `title` says what it does and with what.
+    label.textContent = busy ? "Improving…" : "Improve";
     // A spinner from the theme's own icon set rather than a word that moves.
     byId("improve-hint-icon").className = busy
       ? "codicon codicon-loading codicon-spin"
@@ -1252,6 +1537,10 @@
 
   byId("form").addEventListener("input", (event) => {
     grow(event.target);
+    // Since UI-A1 the input source is derived from the Issue field rather than
+    // chosen with a radio, so it can change on a keystroke — which is why this
+    // is here and not only in the `change` handler below.
+    if (event.target && event.target.id === "issue") applySourceVisibility();
     formChanged();
   });
 
@@ -1261,10 +1550,7 @@
   byId("advanced").addEventListener("toggle", growAll);
   byId("form").addEventListener("change", (event) => {
     const target = event.target;
-    if (target && (target.name === "source" || target.id === "plan-buildContext")) {
-      applySourceVisibility();
-      applyPlanCoupling();
-    }
+    if (target && target.id === "plan-buildContext") applyPlanCoupling();
     if (target && target.id === "agent") applyAgentVisibility();
     if (target && target.id === "fixModeId") renderFixModeNote();
     formChanged();
@@ -1272,14 +1558,14 @@
 
   byId("stop").addEventListener("click", () => vscode.postMessage({ type: "stop" }));
   byId("retry").addEventListener("click", () => vscode.postMessage({ type: "retry" }));
-  byId("open-context").addEventListener("click", () =>
-    vscode.postMessage({ type: "action", id: "openContext" }),
-  );
-  byId("copy-context").addEventListener("click", () =>
-    vscode.postMessage({ type: "action", id: "copyHandoff" }),
-  );
-  byId("open-folder").addEventListener("click", () =>
-    vscode.postMessage({ type: "action", id: "openFolder" }),
+  for (const [id, action] of Object.entries(RESULT_ACTIONS)) {
+    byId(id).addEventListener("click", () => vscode.postMessage({ type: "action", id: action }));
+  }
+  // The action the host has handled since phase 5 and nothing on the page ever
+  // sent. Hidden until there is a package, so a press can never reach a work
+  // item that has nothing to hand over.
+  byId("fix-with-ai").addEventListener("click", () =>
+    vscode.postMessage({ type: "action", id: "fixWithAI" }),
   );
   // The dialog can only be opened by the host, so this asks — and carries the
   // form, because the host's copy can be a debounce interval stale.

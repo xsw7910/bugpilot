@@ -9,7 +9,7 @@ import {
   parsePanelMessage,
 } from "../src/panel/messages.ts";
 import { ADVANCED_FIELD_IDS, TEXT_FIELD_IDS, panelHtml } from "../src/panel/html.ts";
-import { DEFAULT_FORM } from "../src/app/form.ts";
+import { DEFAULT_FORM, JIRA_ISSUE_KEY_RE } from "../src/app/form.ts";
 import { WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
 
 const HTML = panelHtml({
@@ -50,6 +50,29 @@ function stripComments(source: string): string {
 
 const CSS = stripComments(CSS_SOURCE);
 const PAGE_JS = stripComments(PAGE_JS_SOURCE);
+
+/**
+ * The `FormState` keys that are text a developer types.
+ *
+ * Everything else is a select, a checkbox, a list built by a file dialog, or
+ * the plan — none of which is a text control the document has to carry.
+ */
+const MODEL_TEXT_FIELDS = Object.keys(DEFAULT_FORM).filter(
+  (key) =>
+    ![
+      "source",
+      "plan",
+      "fresh",
+      "fixWithAI",
+      "agent",
+      "attachments",
+      "fixModeId",
+      "useIssueDetails",
+    ].includes(key),
+);
+
+/** The two model fields the single Issue control stands in for. */
+const ISSUE_FIELD_CARRIES = ["issueKey", "description"];
 
 /** Hex, rgb(), hsl() — the literals a theme cannot override. */
 const COLOUR_LITERAL = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
@@ -102,7 +125,9 @@ test("missing text fields become empty strings, not undefined", () => {
   const message = parsePanelMessage({ type: "run", form: { source: "jira" } });
   assert.equal(message?.type, "run");
   if (message?.type !== "run") return;
-  for (const field of TEXT_FIELD_IDS) {
+  // The model's text fields, not the document's controls — `issue` is one box
+  // standing for two of these and never arrives under its own name.
+  for (const field of MODEL_TEXT_FIELDS) {
     assert.equal(typeof message.form[field as keyof typeof message.form], "string");
   }
 });
@@ -163,6 +188,7 @@ test("every message the page sends is one the host understands", () => {
     "action",
     "command",
     "openArtifact",
+    "openRelevantFile",
     "manageFixModes",
     "closeFixModes",
     "fixModeAction",
@@ -240,25 +266,27 @@ test("the form's fields are exactly the model's fields", () => {
   // Both directions: a field added to FormState but not to the page can never
   // be filled in, and a field on the page that the model does not have is
   // silently discarded on the way to argv.
-  const modelFields = Object.keys(DEFAULT_FORM).filter(
-    // `attachments` is a list built by a file dialog, not a text field, and
-    // `agent` and `fixModeId` are selects whose options come from elsewhere —
-    // the agent list from the markup, the Fix Modes from the CLI.
-    // `useIssueDetails` is a checkbox beside the hint: it gates what the hint
-    // improver may read and contributes no argument to a run.
-    (key) =>
-      ![
-        "source",
-        "plan",
-        "fresh",
-        "fixWithAI",
-        "agent",
-        "attachments",
-        "fixModeId",
-        "useIssueDetails",
-      ].includes(key),
+  //
+  // With one stated exception since UI-A1. `#issue` is a control, not a model
+  // field: it carries `issueKey` or `description` depending on what is typed
+  // into it, and the page decides which. Expanding it here rather than
+  // exempting it is what keeps the guard honest — add a third thing to that
+  // box and this fails until the mapping is written down.
+  assert.deepEqual(
+    [...TEXT_FIELD_IDS.filter((id) => id !== "issue"), ...ISSUE_FIELD_CARRIES].sort(),
+    [...MODEL_TEXT_FIELDS].sort(),
   );
-  assert.deepEqual([...TEXT_FIELD_IDS].sort(), modelFields.sort());
+  assert.ok(TEXT_FIELD_IDS.includes("issue"), "the one input field is gone");
+});
+
+test("the one Issue field reads a Jira key the way the argv builder does", () => {
+  // The page cannot import `form.ts`, so it carries its own copy of the pattern
+  // — and a copy that drifted would classify input one way on screen and the
+  // other way on the command line. The same duplication the Python identity
+  // rule has, guarded the same way.
+  const literal = /const JIRA_ISSUE_KEY_RE = \/(.+?)\/;/.exec(PAGE_JS)?.[1];
+  assert.ok(literal, "the page has no Jira key pattern");
+  assert.equal(literal, JIRA_ISSUE_KEY_RE.source);
 });
 
 test("there is one row, with one checkbox, for every workflow step", () => {
@@ -351,21 +379,64 @@ test("every icon the panel asks for is one the vendored font declares", () => {
   }
 });
 
-test("Build context carries its actions as icons on its own row", () => {
+test("the artifact actions live in the result, not on a checklist row", () => {
+  // They were three icons on the Build context row until UI-A3 — the right
+  // place while that row was the only thing a finished run had to show, and the
+  // wrong one once the result section exists to answer "what now".
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(result, "", "no result section");
   const row = /<li[^>]*id="step-buildContext"[\s\S]*?<\/li>/.exec(HTML)?.[0] ?? "";
-  assert.notEqual(row, "", "no Build context row");
-  const buttons = [...row.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(buttons, ["open-context", "copy-context", "open-folder"]);
-  // Icons only, which is only usable if each says what it does — on hover and
-  // to a screen reader.
-  for (const id of buttons) {
-    const tag = new RegExp(`<button[^>]*id="${id}"[^>]*>`).exec(row)?.[0] ?? "";
+  assert.equal(/<button/.test(row), false, "the Build context row still carries buttons");
+
+  const buttons = [...result.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(buttons, ["fix-with-ai", "open-context", "copy-context", "open-folder"]);
+  // Icon *and* label now, so a row of three under a full-width button is
+  // findable rather than decorative — and each keeps the sentence for a hover.
+  for (const id of ["open-context", "copy-context", "open-folder"]) {
+    const tag = new RegExp(`<button[^>]*id="${id}"[^>]*>`).exec(result)?.[0] ?? "";
     assert.match(tag, /title="[^"]+"/, `${id} has no tooltip`);
-    assert.match(tag, /aria-label="[^"]+"/, `${id} has no accessible name`);
+    assert.match(tag, /\bhidden\b/, `${id} should start hidden`);
   }
-  // Hidden until the step has produced them; the host decides when.
-  assert.match(row, /id="actions-buildContext"[^>]*hidden/);
-  assert.match(row, /codicon-go-to-file/);
+  assert.match(result, /Open Context/);
+  assert.match(result, /Open Folder/);
+  assert.match(result, /codicon-go-to-file/);
+});
+
+test("the result section is absent until a run has produced something", () => {
+  // §19: no empty card, no "0 files", nothing at all before the first run. The
+  // host sends `contextReady` or it does not, and the markup starts hidden.
+  const result = /<section id="context-ready"[^>]*>/.exec(HTML)?.[0] ?? "";
+  assert.match(result, /\bhidden\b/, "the result section starts visible");
+  // Directly under Run and above the workflow disclosure, which is the whole
+  // hierarchy: result first, checklist one step back.
+  assert.ok(HTML.indexOf('id="run-hint"') < HTML.indexOf('id="context-ready"'));
+  assert.ok(HTML.indexOf('id="context-ready"') < HTML.indexOf('id="workflow"'));
+});
+
+test("Context Ready is a tick and two words, not a banner", () => {
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  // The vendored tick, tinted from the shared palette — no colour literal, and
+  // no glyph the subsetted font does not declare.
+  assert.match(result, /codicon-pass-filled[^"]*icon-success/);
+  assert.match(result, /Context Ready/);
+  assert.match(result, /id="result-heading"[^>]*role="status"/);
+  // Fix with AI is the one primary button in it.
+  const primary = [...result.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)];
+  assert.deepEqual(primary.map((match) => match[1]), ["fix-with-ai"]);
+  // No card: the prominence comes from position and from the button.
+  assert.equal(/\.result \{[^}]*border:/s.test(CSS), false);
+  assert.equal(/\.result \{[^}]*box-shadow/s.test(CSS), false);
+});
+
+test("the result survives a narrow sidebar", () => {
+  // Full-width primary, wrapping secondaries, no absolute positioning. The
+  // panel is dragged to about 200px, so none of this can assume a width.
+  assert.match(CSS, /\.result-primary > button \{[^}]*flex: 1/s);
+  assert.match(CSS, /\.result-links \{[^}]*flex-wrap: wrap/s);
+  assert.equal(/\.result[^{]*\{[^}]*position: absolute/s.test(CSS), false);
+  // A pixel width, not `min-width: 0`, which is the opposite thing: it is what
+  // lets a flex child shrink below its content.
+  assert.equal(/\.result[^{]*\{[^}]*[^-]width: \d+px/s.test(CSS), false);
 });
 
 test("Advanced settings has a heading that says what it is for", () => {
@@ -406,10 +477,15 @@ test("every setting has a header row with a real label in it", () => {
 });
 
 test("helper text survives only where a placeholder could not carry it", () => {
-  // The rule: label says what it is, placeholder shows an example, helper text
-  // is for a rule or a consequence. A placeholder disappears the moment
-  // somebody types, so anything that must stay readable while they type cannot
-  // live in one.
+  // The rule as it stands after UI-A2. A placeholder disappears the moment
+  // somebody types, so helper text is for what must stay readable: a rule, a
+  // consequence, or — new in UI-A2 — what a whole group of settings is *for*.
+  //
+  // The three that were added are the three the grouping is about. "Keywords"
+  // alone does not say whether the search needs them, and a developer who
+  // cannot tell an expert boost from a required field fills it in every time.
+  // The ones that are still bare are the ones whose label and example say
+  // everything: Ignore paths, Max files, Max search lines, Title.
   const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
   // `[a-zA-Z-]+`, with the hyphen: the first version of this pattern could not
   // match `add-attachment-hint`, so a whole row's helper text slipped past the
@@ -419,7 +495,12 @@ test("helper text survives only where a placeholder could not carry it", () => {
   );
   assert.deepEqual(
     [...withHelper].sort(),
-    ["add-attachment", "agentCommand", "fresh", "useIssueDetails"],
+    [
+      // A rule or a consequence.
+      "add-attachment", "agentCommand", "fresh", "useIssueDetails",
+      // What the setting is for, which is what UI-A2's grouping asserts.
+      "focusFiles", "hint", "keywords",
+    ].sort(),
     "helper text should remain only where a placeholder could not carry it",
   );
   // Where the files go and who reads them: not inferable from "Attachments",
@@ -429,6 +510,10 @@ test("helper text survives only where a placeholder could not carry it", () => {
   // And what each of them says is the reason it survived.
   assert.match(advanced, /\{prompt\} is replaced with the handoff prompt, already quoted\./);
   assert.match(advanced, /Off by default to avoid accidental data loss/);
+  // And the three group-purpose lines, which are the reason the list grew.
+  assert.match(advanced, /Add technical guidance, constraints, or suspected areas\./);
+  assert.match(advanced, /Boost retrieval with known identifiers or technical terms\./);
+  assert.match(advanced, /Prioritize files you already suspect are relevant\./);
   // A checkbox with no input to hang a placeholder on, saying what it lets the
   // improver read — and, just as importantly, what it does not.
   assert.match(advanced, /No repository, history or files are read\./);
@@ -437,7 +522,7 @@ test("helper text survives only where a placeholder could not carry it", () => {
 test("a field with nothing to explain says nothing, and points at nothing", () => {
   // Not an empty paragraph left where the helper text was, and not an
   // `aria-describedby` naming an element that was never rendered.
-  for (const id of ["hint", "keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"]) {
+  for (const id of ["title", "ignorePaths", "maxFiles", "maxSearchLines"]) {
     assert.equal(
       HTML.includes(`id="${id}-hint"`),
       false,
@@ -592,7 +677,7 @@ test("every field that can hold a paragraph is multi-line", () => {
   // developer who typed a sentence could no longer see the start of it. The
   // list is also what `parseKeywords` assumes — it splits on newlines, which
   // needs somewhere to type one.
-  for (const id of ["description", "hint", "keywords", "focusFiles", "ignorePaths"]) {
+  for (const id of ["issue", "hint", "keywords", "focusFiles", "ignorePaths"]) {
     assert.match(HTML, new RegExp(`<textarea[^>]*id="${id}"`), `${id} is not multi-line`);
     assert.equal(
       new RegExp(`<input[^>]*id="${id}"`).test(HTML),
@@ -734,7 +819,9 @@ test("Run is one prominent button with its shortcut spelled out", () => {
   assert.match(HTML, /<button type="submit" id="run" class="primary">/);
   assert.match(HTML, /codicon-play/);
   assert.match(HTML, /Ctrl\+Enter/);
-  assert.match(HTML, /Prepare context and optionally fix with AI\./);
+  // What Run does, and — since UI-A1 — what it does not: preparing context is
+  // not fixing code, and the sentence has to survive a developer skimming it.
+  assert.match(HTML, /Run prepares the issue context for AI-assisted fixing\./);
 });
 
 test("issue details is shown as fixed, not as an option that does nothing", () => {
@@ -1112,4 +1199,497 @@ test("the markup alone hides everything but the form", () => {
   for (const view of FIX_MODE_VIEWS) {
     assert.ok(/\shidden(\s|>)/.test(opening(view)), `#${view} does not start hidden`);
   }
+});
+
+// --- UI-A1: what an untouched panel shows ----------------------------------
+
+test("the default view is the Issue field, Run, and two disclosures", () => {
+  // The whole of UI-A1 in one assertion. What a developer sees before typing
+  // anything should be the sentence the tool is about — enter the issue, press
+  // Run — and not every control the panel owns at equal weight.
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(form, "", "could not find the form");
+
+  // Everything the form shows before the first disclosure, in reading order.
+  const visible = form.slice(0, form.indexOf("<details"));
+  const open = [...visible.matchAll(/id="(field-[A-Za-z]+|run)"/g)].map((match) => match[1]);
+  assert.deepEqual(open, ["field-issue", "field-fixModeId", "run"]);
+
+  // And everything after it is behind one of exactly two closed disclosures,
+  // so no optional control is on screen until it is asked for.
+  const disclosures = [...form.matchAll(/<details[^>]*id="([a-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(disclosures, ["workflow", "advanced"]);
+  assert.equal(/<details[^>]*\bopen\b/.test(form), false, "a disclosure starts open");
+});
+
+test("the Issue field is one box that says it takes either kind of input", () => {
+  assert.match(HTML, /<label[^>]*for="issue">Issue<\/label>/, "the label is not 'Issue'");
+  // Multi-line, because the same box holds a six-character key and a pasted
+  // bug report.
+  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*placeholder="Jira ticket or bug description"/);
+  // Exactly one input above Run — the thing UI-A1 is for.
+  const beforeRun = HTML.slice(0, HTML.indexOf('id="run"'));
+  const controls = [...beforeRun.matchAll(/<(?:input|textarea)[^>]*id="([A-Za-z]+)"/g)].map(
+    (match) => match[1],
+  );
+  assert.deepEqual(controls, ["issue"], "something else is competing with the Issue field");
+});
+
+test("the input source is no longer a question the panel asks", () => {
+  // The radio pair it replaced. Named here because its return would not fail
+  // anything else: the page would simply stop deriving the source.
+  for (const gone of ['id="source-jira"', 'id="source-manual"', 'role="radiogroup"']) {
+    assert.equal(HTML.includes(gone), false, `${gone} is back`);
+  }
+  assert.equal(/class="radios"/.test(CSS), false, "the radio row's styling outlived it");
+});
+
+test("the workflow is a disclosure whose summary carries its status", () => {
+  // Collapsed, it is one line: what the section is, and where the run got to.
+  // That line is the "Ready" UI-A1 asks for, and it needs no second element.
+  const summary = /<summary class="workflow-summary">[\s\S]*?<\/summary>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(summary, "", "the workflow has no summary line");
+  assert.match(summary, /id="workflow-heading"/);
+  assert.match(summary, /id="workflow-status"[^>]*role="status"/);
+  // Inline, so the triangle, the heading and the status share a line and wrap
+  // together; `display` on the summary itself would take the triangle away.
+  assert.match(CSS, /\.workflow-summary > h2 \{[^}]*display: inline/s);
+});
+
+test("Run says what it is doing, in a label the page can replace", () => {
+  assert.match(HTML, /<span class="codicon codicon-play" id="run-icon"/);
+  assert.match(HTML, /<span id="run-label">Run<\/span>/);
+});
+
+// --- UI-A2: how Advanced Settings is organised -----------------------------
+
+/** The markup of one group inside Advanced settings, heading excluded. */
+function advancedGroup(id: string): string {
+  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  const start = advanced.indexOf(`id="group-${id}"`);
+  assert.notEqual(start, -1, `no group heading #group-${id}`);
+  const rest = advanced.slice(start);
+  const next = rest.indexOf('<h3 class="setting-group"', 1);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+test("Advanced settings is three named groups, in reading order", () => {
+  // The question UI-A2 answers: does this setting talk to the AI, or does it
+  // steer what BugPilot searches? A flat list of nine could not say.
+  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  const headings = [...advanced.matchAll(/<h3 class="setting-group" id="group-([a-z-]+)">([^<]+)</g)];
+  assert.deepEqual(
+    headings.map((match) => [match[1], match[2]]),
+    [
+      ["guidance", "Guidance"],
+      ["retrieval", "Retrieval Overrides"],
+      ["run-options", "Run Options"],
+    ],
+  );
+  // Still one disclosure, still closed. No tabs, no group that opens on its own.
+  assert.equal(/<details[^>]*\bopen\b/.test(HTML), false);
+  // One `<details>` in the slice, which is the section's own opening tag.
+  assert.equal(
+    (advanced.match(/<details/g) ?? []).length,
+    1,
+    "a group became a nested disclosure",
+  );
+});
+
+test("Run Options is what is left, and none of it steers the search", () => {
+  const runOptions = advancedGroup("run-options");
+  const fields = [...runOptions.matchAll(/id="field-([A-Za-z-]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(fields, ["title", "agent", "agentCommand", "attachments"]);
+  // The destructive checkbox has no `field-` id of its own; it is the last row.
+  assert.match(runOptions, /id="fresh"/);
+  for (const id of ["ignorePaths", "maxFiles", "maxSearchLines", "keywords", "focusFiles"]) {
+    assert.equal(
+      runOptions.includes(`id="field-${id}"`),
+      false,
+      `${id} steers retrieval and should not be a Run Option`,
+    );
+  }
+});
+
+test("Guidance is the Hint and the things that act on it", () => {
+  const guidance = advancedGroup("guidance");
+  assert.match(guidance, /id="field-hint"/);
+  assert.match(guidance, /Add technical guidance, constraints, or suspected areas\./);
+  // Use issue details belongs to Hint improvement, not to retrieval, and stays
+  // in the row with the button it qualifies.
+  assert.match(guidance, /id="useIssueDetails"/);
+  assert.match(guidance, /id="improve-hint"/);
+  assert.match(guidance, /id="hint-suggestion"/);
+  // And nothing else: a retrieval field here would defeat the heading.
+  for (const id of ["keywords", "focusFiles", "ignorePaths", "title", "maxFiles"]) {
+    assert.equal(guidance.includes(`id="field-${id}"`), false, `${id} is under Guidance`);
+  }
+});
+
+test("Retrieval Overrides is everything that steers the search", () => {
+  // UI-A2 fixed this group at Keywords and Focus Files and recorded the
+  // question; UI-A2c answered it. Ignore paths and the two limits decide what
+  // the search walks and how much of it reaches the context, which is the same
+  // kind of thing the first two do.
+  const retrieval = advancedGroup("retrieval");
+  const fields = [...retrieval.matchAll(/id="field-([A-Za-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(fields, [
+    "keywords",
+    "focusFiles",
+    "ignorePaths",
+    "maxFiles",
+    "maxSearchLines",
+  ]);
+
+  // "(optional)" in the label, not in a helper line: it is the first thing read,
+  // and the point is that a blank box is not a job half done.
+  assert.match(retrieval, /<label[^>]*for="keywords">[\s\S]*?Keywords \(optional\)<\/label>/);
+  assert.match(retrieval, /<label[^>]*for="focusFiles">[\s\S]*?Focus Files \(optional\)<\/label>/);
+  assert.match(retrieval, /Boost retrieval with known identifiers or technical terms\./);
+  assert.match(retrieval, /Prioritize files you already suspect are relevant\./);
+});
+
+test("the panel never teaches the retrieval pipeline's own vocabulary", () => {
+  // §33's concepts — weights, term budgets, probing, the search surface — are
+  // how retrieval works, not something a developer types a keyword against.
+  for (const term of [
+    "SearchTerm",
+    "weight",
+    "weighting",
+    "term budget",
+    "search surface",
+    "shape expansion",
+    "MRR",
+  ]) {
+    assert.equal(
+      HTML.toLowerCase().includes(term.toLowerCase()),
+      false,
+      `the panel names "${term}"`,
+    );
+  }
+});
+
+test("Improve is one word, with a tooltip that says what it will do", () => {
+  const button = /<button type="button" id="improve-hint"[\s\S]*?<\/button>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(button, "", "the Improve button is gone");
+  assert.match(button, /<span id="improve-hint-label">Improve<\/span>/);
+  assert.match(button, /title="Improve clarity and technical precision using the configured AI provider\."/);
+  // The vendored font has no spark glyph; hubot is its AI icon and is already
+  // what the AI agent setting uses. A name not in the subset renders as a box.
+  assert.match(button, /codicon-hubot/);
+});
+
+test("the group headings are a rule, not a card", () => {
+  // §12: whitespace and typography, not containers. A border on three sides
+  // would be the third box deep before the first label.
+  assert.match(CSS, /\.setting-group \{[^}]*border-bottom: 1px solid var\(--vscode-panel-border\)/s);
+  assert.equal(/\.setting-group \{[^}]*border-radius/s.test(CSS), false);
+  assert.equal(/\.setting-group \{[^}]*background/s.test(CSS), false);
+  // Air above every group but the first, which already has the summary's gap.
+  assert.match(CSS, /\.setting-group ~ \.setting-group \{[^}]*margin-top/s);
+});
+
+test("the hint row puts its two controls at opposite ends and lets them stack", () => {
+  // At 200px "Use issue details" and "Improve" cannot share a line. Wrapping is
+  // the answer; overlapping or clipping would hide the feature.
+  assert.match(CSS, /\.hint-actions \{[^}]*flex-wrap: wrap/s);
+  assert.match(CSS, /\.hint-actions \{[^}]*justify-content: space-between/s);
+  assert.equal(/\.hint-actions \{[^}]*white-space: nowrap/s.test(CSS), false);
+  assert.equal(/\.hint-actions \{[^}]*position: absolute/s.test(CSS), false);
+});
+
+test("every advanced field is still there, with the id its state is stored under", () => {
+  // The regrouping moved markup. A field that lost its id would silently stop
+  // restoring, and its validation message would have nowhere to land.
+  for (const id of [
+    "hint", "keywords", "focusFiles", "title", "ignorePaths",
+    "maxFiles", "maxSearchLines", "agentCommand",
+  ]) {
+    assert.ok(ADVANCED_FIELD_IDS.includes(id), `${id} left ADVANCED_FIELD_IDS`);
+    assert.match(HTML, new RegExp(`id="field-${id}"`), `${id} has no row`);
+  }
+  // And the three that are not text fields.
+  for (const id of ["agent", "add-attachment", "fresh"]) {
+    assert.match(HTML, new RegExp(`id="${id}"`), `${id} is gone`);
+  }
+});
+
+// --- UI-B1: Relevant Files --------------------------------------------------
+
+test("Relevant Files is a collapsed disclosure inside the result", () => {
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  const files = /<details class="files" id="relevant-files"[\s\S]*?<\/details>/.exec(result)?.[0] ?? "";
+  assert.notEqual(files, "", "Relevant Files is not inside the result section");
+
+  // A real disclosure, so it opens from the keyboard without any script.
+  assert.match(files, /<summary id="relevant-files-summary">Relevant Files<\/summary>/);
+  assert.equal(/<details[^>]*\bopen\b/.test(files), false, "it starts expanded");
+  // Hidden until the host sends files, which is what keeps §17's promise.
+  assert.match(files, /^<details[^>]*\bhidden\b/);
+  // Below the primary action and the artifact actions: last in the result.
+  assert.ok(result.indexOf('id="fix-with-ai"') < result.indexOf('id="relevant-files"'));
+  assert.ok(result.indexOf('id="result-links"') < result.indexOf('id="relevant-files"'));
+  // The rows are the page's, built from what the host read.
+  assert.match(files, /id="relevant-files-list"><\/div>/);
+});
+
+test("nothing about the ranking is named anywhere in the panel", () => {
+  // §13: the result section answers "what did it find", not "how does the
+  // ranker work". These are the artifact's other five fields.
+  // Comments stripped first, for the same reason the colour scan strips them:
+  // the markup documents that these are *not* shown, so a plain grep finds the
+  // sentence saying so and the guard becomes lenient exactly where it matters.
+  const visible = HTML.replace(/<!--[\s\S]*?-->/g, "").toLowerCase();
+  for (const internal of ["score", "match_count", "noise_flag", "confidence:", "rank"]) {
+    assert.equal(visible.includes(internal.toLowerCase()), false, `the panel names "${internal}"`);
+  }
+});
+
+test("a relevant file row is a button and a description, not a clickable div", () => {
+  // §22. The page builds these, so the guard is on the page source: a filename
+  // that opens a file has to be something a keyboard can reach.
+  assert.match(PAGE_JS, /createElement\("button"\)/);
+  assert.match(PAGE_JS, /className = "file-open"/);
+  assert.equal(/createElement\("div"\)[\s\S]{0,200}addEventListener\("click"/.test(PAGE_JS), false);
+});
+
+test("a file name stays readable and a long path cannot scroll the panel", () => {
+  assert.match(CSS, /\.file-name \{[^}]*overflow-wrap: anywhere/s);
+  assert.match(CSS, /\.file-path,[\s\S]*?\{[^}]*overflow-wrap: anywhere/s);
+  // The row is a column so the name and the path stack at any width, and the
+  // button is full width rather than a fixed one.
+  assert.match(CSS, /\.file-open \{[^}]*flex-direction: column/s);
+  assert.match(CSS, /\.file-open \{[^}]*width: 100%/s);
+  assert.equal(/\.file[^{]*\{[^}]*position: absolute/s.test(CSS), false);
+  assert.equal(/\.file[^{]*\{[^}]*white-space: nowrap/s.test(CSS), false);
+  assert.equal(/\.file[^{]*\{[^}]*text-overflow/s.test(CSS), false);
+});
+
+test("a relevant-file path is shape-checked before the host will look at it", () => {
+  // The page only echoes paths the host gave it, but this is the untrusted side
+  // of the boundary and the value becomes a file the editor opens.
+  for (const bad of [
+    undefined,
+    null,
+    7,
+    "",
+    "   ",
+    "../../outside.txt",
+    "src/../../outside.txt",
+    "/etc/passwd",
+    "C:/Windows/win.ini",
+  ]) {
+    assert.equal(
+      parsePanelMessage({ type: "openRelevantFile", path: bad }),
+      undefined,
+      JSON.stringify(bad),
+    );
+  }
+  assert.deepEqual(parsePanelMessage({ type: "openRelevantFile", path: "src/a.cpp" }), {
+    type: "openRelevantFile",
+    path: "src/a.cpp",
+  });
+});
+
+// --- UI-B2: the failure card's markup ----------------------------------------
+
+test("both failure cards are the same shape, built once", () => {
+  // Two surfaces, one markup. A run that could not finish and a handoff that
+  // could not start are the same three questions with different answers, and
+  // two templates for that drift apart within a phase.
+  for (const id of ["failure", "handoff-error"]) {
+    const card = new RegExp(`<div id="${id}" class="failure"[\\s\\S]*?</div>\\s*</div>`).exec(HTML)?.[0] ?? "";
+    assert.notEqual(card, "", `no card for ${id}`);
+    assert.match(card, new RegExp(`<div id="${id}"[^>]*role="alert"`), id);
+    assert.match(card, new RegExp(`<div id="${id}"[^>]*\\bhidden\\b`), `${id} starts visible`);
+    for (const part of ["title", "message", "actions", "details", "detail"]) {
+      assert.ok(card.includes(`id="${id}-${part}"`), `${id} has no ${part}`);
+    }
+  }
+});
+
+test("Details is a collapsed disclosure over preformatted text", () => {
+  const card = /<div id="failure" class="failure"[\s\S]*?<\/div>\s*<\/div>/.exec(HTML)?.[0] ?? "";
+  assert.match(card, /<details class="failure-details" id="failure-details" hidden>/);
+  assert.match(card, /<summary>Details<\/summary>/);
+  assert.equal(/<details[^>]*id="failure-details"[^>]*\bopen\b/.test(card), false);
+  // `pre`, because a traceback's line breaks are the information.
+  assert.match(card, /<pre class="failure-detail" id="failure-detail"><\/pre>/);
+});
+
+test("the two cards sit where their failures belong", () => {
+  // The run's below the form, where a run's outcome has always been. The
+  // handoff's inside the result, beside the package it did not spoil.
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  assert.ok(result.includes('id="handoff-error"'), "the handoff card is outside the result");
+  assert.equal(result.includes('id="failure"'), false, "the run card is inside the result");
+  assert.ok(HTML.indexOf('id="context-ready"') < HTML.indexOf('id="failure"'));
+});
+
+test("a failure is an icon and text, not a red panel", () => {
+  // §15 and the panel's own rule: state is never colour alone, and a tinted
+  // block is a tinted block whatever a high-contrast theme does to it.
+  assert.match(HTML, /<span class="codicon codicon-error icon-danger"/);
+  assert.equal(/\.failure \{[^}]*background/s.test(CSS), false);
+  assert.equal(/\.failure \{[^}]*border:/s.test(CSS), false);
+  // The old two-line card is gone with its classes.
+  assert.equal(HTML.includes("card-failure"), false);
+  assert.equal(HTML.includes('id="failure-summary"'), false);
+});
+
+test("a failure survives a narrow sidebar without a scrollbar", () => {
+  assert.match(CSS, /\.failure-title \{[^}]*overflow-wrap: anywhere/s);
+  assert.match(CSS, /\.failure-actions \{[^}]*flex-wrap: wrap/s);
+  // Preformatted but wrapped: a horizontal scrollbar inside a disclosure is a
+  // scrollbar nobody finds.
+  assert.match(CSS, /\.failure-detail \{[^}]*white-space: pre-wrap/s);
+  assert.match(CSS, /\.failure-detail \{[^}]*overflow-wrap: anywhere/s);
+  assert.equal(/\.failure[^{]*\{[^}]*position: absolute/s.test(CSS), false);
+  assert.equal(/\.failure[^{]*\{[^}]*[^-]width: \d+px/s.test(CSS), false);
+});
+
+test("the page classifies nothing about a failure", () => {
+  // §5. The page has neither the error code nor the operation that produced it,
+  // so a webview deciding "this looks like auth" would be guessing from the
+  // least informed position in the system.
+  // The error codes themselves, not the word Jira: the page legitimately knows
+  // what a Jira *issue key* looks like, which is a different subject entirely.
+  for (const smell of [
+    'includes("401',
+    "includes('401",
+    'includes("claude',
+    "JIRA_AUTH_FAILED",
+    "JIRA_ISSUE_NOT_FOUND",
+    "JIRA_NOT_CONFIGURED",
+    "INTERNAL_ERROR",
+    "HTTP ",
+  ]) {
+    assert.equal(PAGE_JS.includes(smell), false, `the page inspects failure text with ${smell}`);
+  }
+  // And it no longer reads the raw failure at all.
+  assert.equal(PAGE_JS.includes("progress.failure"), false);
+});
+
+// --- UI-B3: the handoff outcome ----------------------------------------------
+
+test("the handoff outcome sits inside the result, above the actions", () => {
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  const block = /<div class="result-handoff" id="result-handoff"[\s\S]*?<\/div>/.exec(result)?.[0] ?? "";
+  assert.notEqual(block, "", "no handoff outcome in the result section");
+
+  // Hidden until a handoff has actually started something.
+  assert.match(block, /^<div class="result-handoff" id="result-handoff" hidden>/);
+  for (const part of ["title", "message", "detail"]) {
+    assert.ok(block.includes(`id="result-handoff-${part}"`), `no ${part}`);
+  }
+  // Between the strategy line and the button it replaces, and above the
+  // secondary actions — which is the reading order of the whole section.
+  assert.ok(result.indexOf('id="result-strategy"') < result.indexOf('id="result-handoff"'));
+  assert.ok(result.indexOf('id="result-handoff"') < result.indexOf('id="result-links"'));
+});
+
+test("the outcome is a tick and two lines, in the shape Context Ready already uses", () => {
+  const block = /<div class="result-handoff"[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
+  // The vendored glyph, tinted from the shared palette — no new icon.
+  assert.match(block, /codicon-pass-filled[^"]*icon-success/);
+  // The status is in the text, so it survives a monochrome theme.
+  assert.match(block, /id="result-handoff-title"[^>]*role="status"/);
+  // No banner, no card, no colour of its own.
+  assert.equal(/\.result-handoff \{[^}]*background/s.test(CSS), false);
+  assert.equal(/\.result-handoff \{[^}]*border:/s.test(CSS), false);
+});
+
+test("the panel never claims a bug was fixed", () => {
+  // BugPilot starts a terminal and stops watching. These are the claims a
+  // developer would believe and the panel cannot check — and the markup is
+  // where a stray one would end up.
+  const visible = HTML.replace(/<!--[\s\S]*?-->/g, "").toLowerCase();
+  for (const claim of [
+    "bug fixed",
+    "fix completed",
+    "issue resolved",
+    "changes applied",
+    "tests passed",
+    "files changed",
+  ]) {
+    assert.equal(visible.includes(claim), false, `the panel claims "${claim}"`);
+  }
+});
+
+test("Fix with AI carries a label the page can replace", () => {
+  assert.match(HTML, /<span class="codicon codicon-hubot" id="fix-with-ai-icon"/);
+  assert.match(HTML, /<span id="fix-with-ai-label">Fix with AI<\/span>/);
+});
+
+// --- UI-V1: what rendering the page found ------------------------------------
+
+test("a rule that reaches a hidden element through its parent must let hidden win", () => {
+  // The same bug as the test above, through a shape that one cannot see.
+  // `#stop` and `#retry` carry `hidden` and no class, so nothing matched them —
+  // and `.run-buttons > button { display: flex }` reached them anyway. A greyed
+  // Stop sat beside Run in every state, including an untouched panel, which is
+  // the exact thing the markup's own comment says it avoids.
+  //
+  // Invisible to every test in this repository until UI-V1 rendered the page in
+  // a browser and looked: the DOM stub records the `hidden` property and lays
+  // nothing out, so it reported the button hidden while Chromium drew it.
+  // A tag stack rather than a regex: `<div class="run">` wraps
+  // `<div class="run-buttons">`, and a non-overlapping pattern match swallows
+  // the inner opening tag along with the outer one — which is exactly how the
+  // first attempt at this guard reported nothing to check.
+  const parents = new Map<string, Set<string>>();
+  const stack: string[][] = [];
+  for (const tag of HTML.matchAll(/<\/?([a-z][a-z0-9]*)([^>]*)>/g)) {
+    const [whole, name, attributes] = [tag[0], tag[1]!, tag[2] ?? ""];
+    if (whole.startsWith("</")) {
+      stack.pop();
+      continue;
+    }
+    if (/\shidden(\s|>|=)/.test(whole)) {
+      for (const parentClass of stack.at(-1) ?? []) {
+        const tags = parents.get(parentClass) ?? new Set<string>();
+        tags.add(name);
+        parents.set(parentClass, tags);
+      }
+    }
+    // Void elements never open a scope; `input` is the only one the panel uses.
+    if (name === "input" || name === "br" || name === "meta" || name === "link") continue;
+    stack.push((/class="([^"]*)"/.exec(attributes)?.[1] ?? "").split(/\s+/).filter(Boolean));
+  }
+
+  assert.ok(parents.size > 0, "no hidden element sits inside a classed container");
+
+  let checked = 0;
+  for (const [parentClass, tags] of parents) {
+    for (const tag of tags) {
+      const rule = new RegExp(`\\.${parentClass}\\s*>\\s*${tag}\\s*\\{([^}]*)\\}`).exec(CSS);
+      if (!rule || !/(^|[;{\s])display\s*:/.test(rule[1] ?? "")) continue;
+      checked += 1;
+      assert.ok(
+        new RegExp(
+          `\\.${parentClass}\\s*>\\s*${tag}\\[hidden\\]\\s*\\{[^}]*display\\s*:\\s*none`,
+        ).test(CSS),
+        `.${parentClass} > ${tag} sets display on an element the markup hides, so a ` +
+          `.${parentClass} > ${tag}[hidden] { display: none } rule is what stops it rendering`,
+      );
+    }
+  }
+  assert.ok(checked > 0, "the scan found no parent rule to check, so it proves nothing");
+});
+
+test("a label that is a whole sentence is allowed to wrap", () => {
+  // "Delete previous artifacts first" is a sentence, not a name, and
+  // `.setting-header > label { flex: none }` would not let it shrink — so at
+  // 200px it pushed 19px past the panel and gave the page a horizontal
+  // scrollbar. Measured in a browser at 200px rather than inferred.
+  assert.match(CSS, /\.field-check \.setting-header > label \{[^}]*flex: 1 1 auto/s);
+  assert.match(CSS, /\.field-check \.setting-header > label \{[^}]*min-width: 0/s);
+});
+
+test("the agent error sits under the button it is about", () => {
+  // It was below the artifact actions, which put three things a developer can
+  // still do between "Fix with AI" and the reason it did not work.
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  assert.ok(result.indexOf('id="fix-with-ai"') < result.indexOf('id="handoff-error"'));
+  assert.ok(result.indexOf('id="handoff-error"') < result.indexOf('id="result-links"'));
 });

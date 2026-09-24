@@ -4477,3 +4477,1468 @@ duration                  5.3s          4.0s
 - parallel rg, result caching, threshold tuning, search indexing
 - real C++/Qt corpus population, and §33.8 AI semantic expansion
 ```
+
+---
+
+## 34. Existing Feature & UI/UX Optimization
+
+**Status: COMPLETE / FROZEN.** UI-A1 through UI-B3 and UI-V1 are done,
+verified and committed. UI-C is planned and not started.
+
+```text
+UI-A1 Main UI Simplification              Complete     default panel = Issue, Run, Advanced
+UI-A2 Advanced Settings Organization      Complete     Guidance / Retrieval Overrides / Run Options
+UI-A2c Retrieval controls regrouped       Complete     Ignore Paths + the two limits move group
+UI-A3 Context Ready / Fix with AI         Complete     result state + primary next action
+UI-B1 Relevant Files                      Complete     which files, and click to open
+UI-B2 Better Error UX                     Complete     what failed, and what to do next
+UI-B3 Run / AI Handoff Summary            Complete     the successful handoff, said out loud
+UI-V1 Visual & Interaction Review         Complete     4 issues found by looking, 4 fixed
+UI-C  Diagnostics / Retrieval Details     Planned      search_quality.json made visible
+```
+
+Nothing in this section changes the CLI, the retrieval pipeline, the prompts or
+the providers. It is about what the panel shows first.
+
+### 34.0 Why
+
+Every feature since phase 5 arrived as another control in the same column. The
+default panel now opens on an input-source switch, two possible input fields, a
+Fix Mode selector, a Run button, a six-row workflow checklist with its own
+heading and status, and a collapsed Advanced section — before the developer has
+typed anything. Each control was right on its own; together they read as a
+collection of equally important developer utilities rather than as a workflow.
+
+The workflow is one sentence:
+
+```text
+enter the issue -> Run -> BugPilot prepares context -> later, Fix with AI
+```
+
+The default view should be that sentence and nothing else.
+
+### UI-A1 Main UI Simplification
+
+**Goal.** The panel's initial state is the primary path, and everything
+optional is one disclosure away.
+
+Target initial state:
+
+```text
+Issue
+[ Jira ticket or bug description ]
+
+[ Run ]   Ctrl+Enter
+Run prepares the issue context for AI-assisted fixing.
+
+> Investigation & AI Fix            Ready to run
+> Advanced Settings (Optional)
+```
+
+**Acceptance criteria.**
+
+```text
+1. One Issue field, labelled "Issue", accepting a Jira key or a description.
+2. Run is the one primary button and visually dominates everything else.
+3. Advanced Settings stays collapsed, with every control and value intact.
+4. The workflow checklist is not expanded before a run, and opens by itself
+   when one starts.
+5. No empty result section is rendered before the first run.
+6. A second Run click while running is impossible; Stop and Retry behave as
+   they did.
+7. Build context, Fix with AI, Open, Copy and Open folder remain reachable and
+   keep their current post-run behaviour.
+8. The label is associated with the field, every control is keyboard
+   reachable, and both disclosures open from the keyboard.
+9. No backend, CLI, prompt, retrieval or provider change.
+```
+
+**Decisions taken.**
+
+*One Issue field instead of a source switch and two fields.* The radio pair
+asked the developer to classify their input before entering it, and the
+classification is derivable from the input itself: a Jira key is
+`JIRA_ISSUE_KEY_RE` and everything else is prose. The page derives `source` and
+fills `issueKey` or `description` accordingly, so `FormState`, the message
+protocol, `buildPrepareArgs` and every downstream consumer are unchanged. A
+multi-line control, because the same box now has to hold a six-character key
+and a pasted bug report; it grows with what is typed, like the other textareas.
+
+*The Fix Mode selector stays above Run and outside Advanced Settings.* This was
+a documented decision with a test defending it — an execution choice, not
+retrieval tuning, and burying it would make Investigate First a setting nobody
+finds. Revisit in UI-A2 or UI-A3 if at all, not here.
+
+*The workflow becomes a disclosure rather than a hidden section.* Its rows carry
+two different things: the checkboxes that choose what runs, which the developer
+needs before pressing Run, and the statuses of a run in flight, which they need
+during one. Hiding it until a run starts would remove the only pre-run access to
+Fix with AI and Build context; so it collapses instead, and opens itself the
+moment a run begins and stays open afterwards.
+
+**Out of scope, by phase.**
+
+```text
+UI-A2  regrouping Advanced Settings; Strategy / Guidance / Retrieval Overrides
+UI-A3  the Context Ready layout and the Fix with AI hierarchy after a run
+UI-B   Relevant Files, run summary, new error UX, Focus File chips, file picker
+UI-C   retrieval diagnostics, search_quality.json surfaced in the panel
+```
+
+**UI-A1 checkpoint.**
+
+Files changed:
+
+```text
+production  extension/src/panel/html.ts      one Issue field; workflow -> <details>; run label
+            extension/media/panel.js         source derived; problems routed; running state
+            extension/media/panel.css        .issue-note; .workflow-summary; .radios removed
+            extension/src/app/form.ts        two messages that named the removed switch
+tests       extension/test/panel.test.ts     6 added, 4 updated
+            extension/test/page.test.ts       9 added, 1 replaced, ~12 references retargeted
+plan        docs/bugpilot_prototype_development_plan.md
+```
+
+Initial layout, as `panelHtml()` now renders it:
+
+```text
+Issue
+[ Jira ticket or bug description ]
+
+Fix Mode                            How the AI works on this bug.
+[ Standard Fix          v ]  [gear]
+
+[ > Run ]                           Ctrl+Enter
+Run prepares the issue context for AI-assisted fixing.
+
+> Investigation & AI Fix            Ready to run
+> Advanced Settings (Optional)
+```
+
+What was simplified:
+
+```text
+- the "Jira issue / Bug description" radio pair and its two fields became one
+  Issue field; the source is derived from what is typed
+- the six-row workflow checklist, previously always expanded, became the
+  collapsed "Investigation & AI Fix" disclosure
+- the run hint says what Run does and, by saying it, what it does not
+- Run carries a Running... label and a spinner while a run is in flight
+```
+
+Behaviours preserved deliberately:
+
+```text
+- FormState, the page/host message protocol, buildPrepareArgs and every CLI
+  argument: the page still sends `source`, `issueKey` and `description`
+- the Fix Mode selector's position above Run and outside Advanced Settings,
+  which is a documented decision with a test defending it
+- Advanced Settings' contents, order, values and state persistence
+- Build context's Open / Copy / Open folder icons, hidden until the run has
+  produced something and reachable afterwards
+- Fix with AI as a workflow row that starts unticked (R5)
+- Hint, Improve with AI, Keywords, Focus files, Stop, Retry, attachments
+- Title, now shown only when the Issue field is being read as prose, which is
+  the only run that sends --title
+```
+
+Tests added or updated:
+
+```text
+panel.test.ts  default view is Issue + Fix Mode + Run and two closed
+               disclosures; the Issue field is the only input above Run; the
+               radio pair and its styling are gone; the workflow summary
+               carries its own status; Run's label is replaceable; the page's
+               copy of JIRA_ISSUE_KEY_RE matches form.ts
+page.test.ts   source derived both ways; an empty field is not a manual bug;
+               the note that replaced the radio; Title follows the reading;
+               the workflow opens on a run and stays open; a developer's own
+               collapse is not overruled mid-run; Running... and no second
+               run; the post-run actions still post their actions
+```
+
+Verification:
+
+```text
+extension tests   595 passed, 0 failed   (was 585 before UI-A1's own tests)
+typecheck         tsc --noEmit clean
+smoke             activated, 21 commands, 3 views, panel HTML built
+git diff --check  clean
+python            not run: no shared interface changed
+```
+
+Deferred to UI-A2 and UI-A3:
+
+```text
+UI-A2  regrouping Advanced Settings into Strategy / Guidance / Retrieval
+       Overrides, and revisiting where the Fix Mode selector belongs
+UI-A3  the Context Ready layout, and the Fix with AI hierarchy after a run —
+       including whether the workflow disclosure should present its result
+       differently from its plan
+```
+
+**Not validated interactively.** Every claim above is from the rendered markup
+and the page script under its DOM stub. The panel was not opened in a running
+VS Code window, so the visual result — spacing, how the summary line wraps at
+200px, the disclosure triangle in each of the four required themes — is
+unverified.
+
+### UI-A2 Advanced Settings Organization
+
+**Goal.** A developer opening Advanced Settings can tell at a glance which
+controls talk to the AI and which control what BugPilot searches. Today it is
+one undifferentiated list of nine settings in the order they were added.
+
+**Scope.** Headings, labels, helper text and order inside the collapsed
+section, plus the Improve control's label and tooltip. No new control, no
+control removed, no change to what any of them does.
+
+Intended hierarchy:
+
+```text
+> Advanced Settings (Optional)
+
+  Guidance
+  ----------------------------------
+  Hint
+  Add technical guidance, constraints, or suspected areas.
+  [                                  ]
+  [x] Use issue details        [AI] Improve
+
+  Retrieval Overrides
+  ----------------------------------
+  Keywords (optional)
+  Boost retrieval with known identifiers or technical terms.
+  [                                  ]
+
+  Focus Files (optional)
+  Prioritize files you already suspect are relevant.
+  [                                  ]
+
+  Run Options
+  ----------------------------------
+  Title, Ignore paths, Max files, Max search lines, AI agent,
+  Custom agent command, Attachments, Delete previous artifacts first
+```
+
+**The third group is a decision this phase had to make.** UI-A2 named two
+groups and enumerated four controls; the section has nine. The other seven —
+Title, Ignore paths, the two limits, the agent pair, Attachments and the
+destructive checkbox — cannot be deleted and cannot go into a group whose
+contents were specified as "only Keywords and Focus Files", so they keep their
+current order under a third heading.
+
+Ignore paths, Max files and Max search lines are arguably retrieval overrides
+by the definition this phase gives, and sit under Run Options only because the
+brief fixed the second group's membership. Recorded as the open question for
+UI-A3 rather than decided here.
+
+**Must not change.**
+
+```text
+- FormState, the page/host protocol, buildPrepareArgs, and every CLI argument
+- keyword and path parsing (parseKeywords splits on commas and newlines;
+  parsePaths on newlines only)
+- the Fix Mode selector's position above Run, outside Advanced Settings
+- Hint improvement: the issue-details lookup, the provider selection, the
+  suggestion-beside-the-field rule, Use Improved, Keep Original, the error and
+  fallback messages
+- Advanced Settings collapsed by default, and opening itself for a validation
+  problem in one of its fields
+- every field's id, so restored state and reported problems still land
+```
+
+**Acceptance criteria.**
+
+```text
+1. Advanced Settings still starts collapsed and still holds every control it
+   held before, with the same ids and values.
+2. Guidance and Retrieval Overrides exist as headings, in that order.
+3. Retrieval Overrides holds Keywords and Focus Files, and nothing else.
+4. Keywords and Focus Files read "(optional)" and carry their helper text.
+5. The Improve control reads "Improve", keeps its icon, and gains a tooltip.
+6. Use issue details stays beside Improve and wraps rather than overlapping.
+7. No tabs, no nested disclosure, no card, no colour literal.
+8. No backend, CLI, prompt, retrieval or provider change.
+```
+
+**UI-A2 checkpoint.**
+
+Final grouping, as `panelHtml()` renders it:
+
+```text
+Guidance
+  Hint                  Add technical guidance, constraints, or suspected areas.
+                        [x] Use issue details            [AI] Improve
+                        (the AI Suggestion panel, unchanged)
+
+Retrieval Overrides
+  Keywords (optional)   Boost retrieval with known identifiers or technical terms.
+  Focus Files (optional) Prioritize files you already suspect are relevant.
+
+Run Options
+  Title, Ignore paths, Max files, Max search lines, AI agent,
+  Custom agent command, Attachments, Delete previous artifacts first
+```
+
+Labels and text changed:
+
+```text
+Keywords          -> Keywords (optional)     + helper
+Focus files       -> Focus Files (optional)  + helper
+Hint              -> Hint                    + helper
+Improve with AI   -> Improve                 + title="Improve clarity and
+                                                technical precision using the
+                                                configured AI provider."
+AI Suggested Hint -> AI Suggestion
+```
+
+**The icon stayed `codicon-hubot`.** UI-A2 preferred a spark icon "if
+consistent with the existing icon system". The vendored codicon subset is 25
+glyphs and has no `sparkle`; a name outside it renders as an empty box, which
+a guard test catches. `hubot` is the subset's AI glyph and is already what the
+AI agent setting uses.
+
+**No provider name was added to the suggestion panel.** UI-A2 sketched an
+"Improved with Claude Code" line. A test forbids Claude-specific wording
+anywhere in the panel outside the agent picker's own option — the mechanism is
+Claude-shaped, the workflow must not be — so the heading says "AI Suggestion"
+and stops there.
+
+Behaviour preserved, checked by test:
+
+```text
+- every field id, so restored state and reported problems still land; a
+  problem in a regrouped field still opens the section and takes focus
+- keywords, focus files, hint and ignore paths round-trip through `run`
+  byte for byte
+- the Fix Mode selector above Run, outside Advanced Settings
+- Hint improvement end to end: the busy state, the suggestion beside the
+  field, Use Improved, Keep Original, the notice and the error
+- Advanced Settings collapsed by default; one disclosure, no nesting, no tabs
+```
+
+Files changed:
+
+```text
+production  extension/src/panel/html.ts   three field lists + groupHeading();
+                                          labels, helper text, Improve, tooltip
+            extension/media/panel.js      the Improve label
+            extension/media/panel.css     .setting-group; .hint-actions comment
+tests       extension/test/panel.test.ts  8 added, 3 updated
+            extension/test/page.test.ts   3 added, 1 updated
+            extension/test/unwired.test.ts ADVANCED_FIELD_IDS left the
+                                          allowlist: it now has a production
+                                          consumer inside html.ts
+plan        docs/bugpilot_prototype_development_plan.md
+```
+
+Verification:
+
+```text
+extension tests      606 passed, 0 failed
+typecheck            tsc --noEmit clean
+smoke                activated, 21 commands, 3 views, panel HTML built
+python               tests/test_publishable.py 8 passed — run because the new
+                     Keywords placeholder adds text to a published artifact
+git diff --check     clean
+```
+
+**Not validated interactively.** No VS Code Extension Host was available, so
+dark/light themes and the 200px / 300px / 400px sidebar widths were not looked
+at. What is checked instead is mechanical: no colour literal, no fixed width,
+no `white-space: nowrap` or absolute positioning on the hint row, `flex-wrap`
+with a 200px floor under every helper, and `overflow-wrap: anywhere` on the
+group headings. The one arrangement worth a human eye is Use issue details
+beside Improve at 200px, where the two are expected to stack.
+
+Deferred to UI-A3:
+
+```text
+- the Context Ready layout and the Fix with AI hierarchy after a run
+- whether Ignore paths, Max files and Max search lines belong under Retrieval
+  Overrides: they are retrieval overrides by this phase's own definition and
+  sit under Run Options only because UI-A2 fixed that group at Keywords and
+  Focus Files
+- whether Title belongs in Advanced Settings at all, now that it is the only
+  Run Option that is part of the bug report rather than of the run
+```
+
+### UI-A2c Retrieval controls regrouped
+
+The open question UI-A2 recorded, now answered: Ignore paths, Max files and Max
+search lines are retrieval overrides by this section's own definition, and sat
+under Run Options only because UI-A2 fixed the second group at Keywords and
+Focus Files. They move.
+
+```text
+Guidance             Hint
+Retrieval Overrides  Keywords (optional), Focus Files (optional),
+                     Ignore paths, Max files, Max search lines
+Run Options          Title, AI agent, Custom agent command, Attachments,
+                     Delete previous artifacts first
+```
+
+Markup order and group membership only: no field id, serialization, parsing,
+validation or default changes. `ADVANCED_FIELD_IDS` still lists all eight text
+fields, so the existing guards — every advanced field inside the collapsed
+section, none above Run — keep applying unchanged.
+
+### UI-A3 Context Ready and the Fix with AI hierarchy
+
+**Goal.** A finished run reads as a result with a next action, not as a
+checklist with six ticks. Before Run the panel is configuration; during a run it
+is progress; afterwards it is "here is what you have, here is what to do with
+it".
+
+```text
+before        Issue / Fix Mode / Run / > Investigation & AI Fix  Ready to run
+during        Run says Running...; the disclosure opens itself; rows tick over
+after         [v] Context Ready
+              8 relevant files - 53 search terms
+              Strategy: Standard Fix
+              [ Fix with AI ]
+              [Open Context] [Copy] [Open Folder]
+              > Investigation & AI Fix                          Context ready
+```
+
+**What the counts come from, and nothing else.** The extension reads two files
+the run itself wrote, through the `readFile` port it already uses for
+`workflow_status.json` and `agent_handoff.md`:
+
+```text
+related_files.json   a JSON array -> "N relevant files"
+search_quality.json  an object with `terms` -> "N search terms"
+```
+
+Both are already read by `bugpilot/core/context.py`, so this is the contract
+BugPilot relies on internally rather than a new one. Parsing is defensive at
+every step — missing file, unreadable file, invalid JSON, wrong shape — and
+each of those omits the count rather than showing a wrong one. No count is
+invented, no field is added to any artifact, and nothing in Python changes.
+
+Deliberately not shown: implementation-versus-document splits, retained-versus-
+dropped term counts, weights, or anything else that would teach §33's
+vocabulary. "N relevant files" and "N search terms" are what a developer can
+act on.
+
+**Decisions.**
+
+*The result is its own section above the workflow disclosure.* Not a redesign of
+the rows: they stay exactly as they are, one step back, still the place to
+change the plan or read what each step did.
+
+*The three artifact actions move into it.* Open Context, Copy and Open Folder
+were icons on the Build context row — the right place when the row was the only
+result surface, and the wrong one now that there is a result section whose whole
+job is "what to do next". Same ids, same messages, same tooltips; they become
+icon-and-label buttons under the primary one, secondary by size rather than by
+being hidden.
+
+*The Strategy line is the prepared mode, relocated.* `Prepared with Fix Mode: X`
+already existed inside the disclosure and already distinguishes prepared from
+selected, available from missing. It moves into the result section under the
+word Strategy. No second selector, and no repetition of the mode's description.
+
+*Fix with AI is a button only when pressing it would do something new.* The
+`fixWithAI` panel action has been wired on the host since phase 5 with no page
+sender; this is its button. It is offered when no handoff has been attempted for
+this run, and after a handoff that was skipped or failed — but not after one
+that succeeded, where the outcome line stands in its place. That is what keeps
+§11's promise: a developer who preselected Fix with AI before the run is not
+asked to click again, and no click can produce a second handoff of a run that
+already had one.
+
+*Failure shows no result.* Context Ready requires `bug_context.md` on disk, a
+run that is not in flight, and a run that did not fail. A stopped run that got
+as far as writing the context does show it, because the context is genuinely
+there. The existing failure card is untouched.
+
+**Acceptance criteria.**
+
+```text
+1.  Nothing is rendered before the first run that was not rendered before.
+2.  The workflow disclosure and all its checkboxes survive, pre-run and after.
+3.  A run in flight shows no Context Ready.
+4.  A failed run shows no Context Ready and keeps its failure card.
+5.  A successful run shows Context Ready with whichever counts were readable.
+6.  Fix with AI is the one primary button in the result, and sends the
+    `fixWithAI` action the host already handles.
+7.  A succeeded handoff replaces the button with its outcome; no second run
+    can be started by clicking.
+8.  Open Context, Copy and Open Folder send exactly the messages they sent
+    before, and appear only when their files exist.
+9.  No new codicon, no colour literal, no fixed width, no absolute layout.
+10. No Python, CLI, prompt, provider, retrieval or artifact change.
+```
+
+**UI-A2c checkpoint.** Moved: Ignore paths into `RETRIEVAL_FIELDS`, and the
+`.limits` row rendered inside Retrieval Overrides rather than after Run Options.
+`RUN_OPTION_FIELDS` is now Title alone, with the agent pair, Attachments and the
+destructive checkbox rendered inline below it as before.
+`ADVANCED_FIELD_IDS` was reordered to follow the rendered order, so the export
+and the document can be read against each other.
+
+Files: `extension/src/panel/html.ts`. Tests: the group-membership test now
+expects five fields under Retrieval Overrides, and a new one asserts Run Options
+holds Title, the agent pair, Attachments and the checkbox and none of the five.
+607 passed.
+
+**UI-A3 checkpoint.**
+
+Files changed:
+
+```text
+production  extension/src/app/contextSummary.ts   new: counts, defensively read
+            extension/src/app/controller.ts       #readCounts, #contextReady,
+                                                  #strategyLine, state wiring
+            extension/src/panel/messages.ts       ContextReadyView
+            extension/src/panel/html.ts           the result section; the three
+                                                  artifact buttons moved into it
+            extension/media/panel.js              renderContextReady; the
+                                                  Fix with AI sender
+            extension/media/panel.css             .result and its parts
+tests       extension/test/contextSummary.test.ts new: 7
+            extension/test/controller.test.ts     10 added
+            extension/test/page.test.ts           9 added, 5 rewritten
+            extension/test/panel.test.ts          3 added, 1 rewritten
+plan        docs/bugpilot_prototype_development_plan.md
+```
+
+State transition, as the page renders it:
+
+```text
+before a run   nothing. The section is `hidden` in the markup and the host
+               sends no `contextReady`, so there is no empty card to ignore.
+during a run   still nothing. Run reads Running..., the disclosure opens
+               itself, the rows tick over. No result can appear mid-run.
+after success  [v] Context Ready
+               2 relevant files - 11 search terms
+               Strategy  Standard Fix
+               [ Fix with AI ]
+               [Open Context] [Copy] [Open Folder]
+after failure  nothing, and the existing failure card unchanged.
+```
+
+Summary data, in full — these two numbers and nothing else:
+
+```text
+related_files.json    length of the top-level array   -> "N relevant files"
+search_quality.json   length of `terms`               -> "N search terms"
+```
+
+Verified against a real CLI run rather than a fixture: a two-file repository
+prepared through `bugpilot bug --description ... --prepare-only` produced
+`2 relevant files - 11 search terms`, which matches the artifacts on disk.
+
+Fix with AI hierarchy: one full-width primary button, and the three artifact
+actions below it as small icon-and-label buttons that wrap. The button sends
+`{type: "action", id: "fixWithAI"}` — the action the host has handled since
+phase 5 and which nothing on the page had ever sent. It is hidden after a
+handoff that succeeded, so no press can produce a second terminal for one
+package; after a handoff that was skipped it stays, because installing an agent
+and trying again is a real thing to do.
+
+Verification:
+
+```text
+extension tests   636 passed, 0 failed   (607 before UI-A3's own tests)
+typecheck         tsc --noEmit clean
+smoke             activated, 21 commands, 3 views, panel HTML built
+git diff --check  clean
+python            not run: no Python, CLI, artifact or protocol change
+```
+
+**Not validated interactively.** No VS Code Extension Host was available, so
+neither theme and none of the three sidebar widths were looked at. What is
+checked mechanically: no colour literal, no new codicon (the tick is
+`pass-filled` and the button's icon is `hubot`, both already in the vendored
+subset), no fixed pixel width under `.result`, no absolute positioning, a
+full-width primary and a wrapping secondary row.
+
+Deferred, unchanged by this phase:
+
+```text
+UI-B  Relevant Files as a list, Retrieval Details, Diagnostics, Run Summary,
+      Better Error UX, Focus File chips, a file picker
+UI-C  search_quality.json surfaced beyond the one count
+      — and, still open: whether Title belongs in Advanced Settings at all
+```
+
+### UI-B1 Relevant Files
+
+**Goal.** Context Ready says "2 relevant files · 11 search terms" and the next
+question is which ones. A collapsed disclosure inside the result section answers
+it and opens any of them in the editor.
+
+**Source artifact, and the fields actually used.** A real
+`related_files.json` from `bugpilot bug --prepare-only`:
+
+```json
+[
+  {
+    "confidence": "medium",
+    "documentation": false,
+    "file": "src/Selector.cpp",
+    "match_count": 3,
+    "matched_keywords": ["Output", "outputType", "type"],
+    "noise_flags": [],
+    "reasons": ["matched keyword in application source path", "..."],
+    "score": 10
+  }
+]
+```
+
+Three fields are read and the other five are deliberately not:
+
+```text
+file               -> the row's path, exactly as written. Never guessed,
+                      never resolved by basename against the workspace.
+documentation      -> Implementation / Supporting grouping. Python's
+                      `code_files.is_documentation` stays the only opinion;
+                      the extension re-derives nothing.
+matched_keywords   -> the "Matched:" line. Already bounded by the ranker.
+
+score, confidence, match_count, reasons, noise_flags -> not shown. They are
+how the ranking works, not what it found; §31's Retrieval Details is where
+that belongs, if anywhere.
+```
+
+**Intended UI.** Inside the result section, below the artifact actions, so the
+hierarchy stays Fix with AI first:
+
+```text
+[v] Context Ready
+2 relevant files - 11 search terms
+Strategy  Standard Fix
+[ Fix with AI ]
+[Open Context] [Copy] [Open Folder]
+> Relevant Files
+```
+
+Expanded, with grouping only when there is something to separate:
+
+```text
+v Relevant Files
+  Implementation
+    Selector.cpp
+    src/Selector.cpp
+    Matched: Output - outputType - type
+  Supporting
+    README.md
+    README.md
+    Matched: Output - outputType - restored - type
+```
+
+**Click to open.** The filename is a `<button>`; pressing it posts
+`{type: "openRelevantFile", path}` with the artifact's own relative path. The
+host resolves it against the repository root, refuses anything that does not
+land inside it, and hands it to the same `ui.openFile` port `openArtifact`
+already uses. No shell, no OS-specific call, no absolute path from the page.
+
+**Compatibility constraints.**
+
+```text
+- the entries render in the artifact's order; nothing is re-sorted, and
+  grouping is a stable partition that keeps each group's relative ranking
+- the list belongs to `contextReady`, so it inherits that lifecycle exactly:
+  cleared when a run starts, absent while one is in flight, absent after a
+  failure, replaced when another work item is opened
+- the artifact is read once per refresh, as it already was for the count
+- nothing in Python, the CLI, the artifact schema or the ranker changes
+```
+
+**Acceptance criteria.**
+
+```text
+1.  Nothing named Relevant Files exists before a run, or after a failed one.
+2.  The section is a collapsed disclosure, keyboard-operable, secondary to
+    Fix with AI by position and by size.
+3.  Rows appear in the artifact's order.
+4.  A malformed artifact, a malformed entry or a missing optional field never
+    breaks Context Ready: bad entries are dropped, and a list with nothing
+    valid in it hides the section.
+5.  A path is used exactly as the artifact wrote it; none is constructed.
+6.  Clicking a row opens that file through the existing editor port.
+7.  A path that escapes the repository is refused on the host, not only on
+    the page.
+8.  No score, confidence, match count, reason or noise flag reaches the UI.
+9.  No new codicon, no colour literal, no fixed width, no horizontal scroll.
+10. No Python, CLI, retrieval, ranking or artifact change.
+```
+
+**UI-B1 checkpoint.**
+
+*Artifact model and parser.* `relevantFiles()` lives beside `contextCounts()` in
+`contextSummary.ts` — option B of the three §19 offered. The file is read once
+and this is a second `JSON.parse` of a string already in memory, which buys two
+functions that each do one thing. Fields consumed: `file`, `documentation`,
+`matched_keywords`. Fields deliberately not consumed: `score`, `confidence`,
+`match_count`, `reasons`, `noise_flags` — and because they never enter the
+`RelevantFile` type, they cannot reach the page. A test asserts the type has
+exactly four keys.
+
+Defensive decisions, each with a test: a missing, empty, non-JSON, non-array or
+object-shaped artifact yields `[]`; an entry that is not an object, or whose
+`file` is absent, non-string, empty or unsafe, is dropped while its neighbours
+survive; `documentation` absent means implementation (the ranker's own default);
+`matched_keywords` is accepted only as a list of non-empty strings. A malformed
+list costs the list and never Context Ready — verified from both sides.
+
+*Click to open.* The filename is a `<button>`; pressing it posts
+`{type: "openRelevantFile", path}`. `parsePanelMessage` requires a string of at
+most 1024 characters that passes `isSafeRelativePath` — non-empty, relative, no
+`..` segment, no `/` or `\` prefix, no drive letter. The controller then resolves
+it against the repository root and checks `isWithin` (the same utility focus-file
+and ignore-path validation uses) before calling `ui.openFile`, which is the port
+`openArtifact` already goes through. A path that escapes is logged and refused.
+Both layers are tested, and the host-side test drives `openRelevantFile`
+directly so it cannot be satisfied by page-side validation alone.
+
+*UI.* A collapsed `<details>` last in the result section, after the primary
+button and the artifact actions, so the hierarchy stays Fix with AI first. Rows
+are built by the page through `textContent`. Grouping is Implementation before
+Supporting, from the artifact's own `documentation` flag, and the headings appear
+only when both groups have entries — one heading over one group labels a
+distinction the list does not make. Order inside each group is the artifact's;
+nothing is sorted. Ten rows at most, with `N more in related_files.json` beyond
+that rather than pagination, because `MAX_TOTAL_RELATED_FILES` is 10 and only a
+raised Max files setting can exceed it.
+
+Responsive: the row is a column, so the name and the path stack at any width;
+both wrap with `overflow-wrap: anywhere` and neither is truncated, because a
+middle-elided path hides the part that says which of four same-named files this
+is. No fixed width, no absolute positioning, no `nowrap`.
+
+Verified against a real run, not a fixture. A three-file repository prepared
+through `bugpilot bug --description ... --prepare-only` rendered:
+
+```text
+3 relevant files - 11 search terms
+
+Implementation
+  Selector.cpp        platform/sample/plugins/Selector.cpp
+                      Matched: Output - outputType - type
+  VolumeDescriptor.h  platform/sample/VolumeDescriptor.h
+                      Matched: Output - outputType - type
+Supporting
+  architecture.md     docs/architecture.md
+                      Matched: Output - outputType - restored - selection - type
+```
+
+*One known inconsistency, left alone.* The count line is the artifact's length
+and the list is the entries that parsed, so a malformed entry would make them
+disagree by one. Reconciling them would mean the count reporting fewer files
+than the run actually found, which is the worse of the two. BugPilot writes this
+file, so the case is theoretical.
+
+Files changed:
+
+```text
+production  extension/src/app/contextSummary.ts   RelevantFile, relevantFiles,
+                                                  isSafeRelativePath, MAX_LISTED_FILES
+            extension/src/app/controller.ts       #readSummary, #files,
+                                                  openRelevantFile, state wiring
+            extension/src/panel/messages.ts       openRelevantFile; files on the view
+            extension/src/panel/html.ts           the Relevant Files disclosure
+            extension/media/panel.js              renderRelevantFiles, fileRow
+            extension/media/panel.css             .files, .file-row, .file-open
+tests       extension/test/contextSummary.test.ts 11 added
+            extension/test/controller.test.ts      8 added
+            extension/test/page.test.ts           12 added
+            extension/test/panel.test.ts           5 added, 1 updated
+plan        docs/bugpilot_prototype_development_plan.md
+```
+
+Verification:
+
+```text
+extension tests   671 passed, 0 failed   (636 before UI-B1's own tests)
+typecheck         tsc --noEmit clean
+smoke             activated, 21 commands, 3 views, panel HTML built
+git diff --check  clean
+python            not run: no Python, CLI, artifact or ranking change
+```
+
+**Not validated interactively.** No VS Code Extension Host was available, so
+neither theme, none of the three sidebar widths, and no real click-to-open were
+looked at. What is checked mechanically: no new codicon (the section adds none),
+no colour literal, no fixed width or absolute positioning under `.file*`, a
+column row that stacks, and both text lines allowed to wrap anywhere.
+
+Deferred, unchanged:
+
+```text
+UI-B  Status / Errors / Run Summary, Better Error UX, Focus File chips, a file
+      picker, promoting a relevant file into Focus Files
+UI-C  Retrieval Details and Diagnostics — term weights, match counts,
+      broad-term handling, the rest of search_quality.json
+      — and, still open: whether Title belongs in Advanced Settings at all
+```
+
+### UI-B2 Better Error UX
+
+**What is wrong today.** The failure card shows `diagnose()`'s summary and
+action, which is already good copy — but three things are missing. The CLI's own
+error message is thrown away by `ProgressTracker.#markFailure`, so a developer
+who wants the technical detail has to go to the output channel. There is no
+action button on a failure, so "Jira rejected the stored credentials" is a
+sentence with no way to act on it. And a Fix with AI that cannot start is
+reported as a *step detail* — `"claude is not on PATH. The handoff prompt is on
+the clipboard instead."` — sitting in the result section as though it were a
+status, which conflates "the package could not be built" with "the package is
+fine and the agent would not start".
+
+**Not a second error architecture.** `errors.ts` already maps the CLI's error
+codes to a summary, an action and a retryable flag, and the contract says a
+consumer branches on `error.code` and never parses `error.message`. That stays
+the classifier. UI-B2 adds a category and a title on top of it, preserves the
+raw message beside it, and gives the card a button.
+
+**Categories, and the signal each is decided by.**
+
+```text
+jira-access     code JIRA_NOT_CONFIGURED, JIRA_AUTH_FAILED
+                -> "Unable to access Jira"
+jira-not-found  code JIRA_ISSUE_NOT_FOUND
+                -> "Issue not found", naming the key when one is known
+agent           AgentPlan.kind === "unavailable" from resolveAgent
+                -> "AI agent unavailable"
+run             every other code, including one this extension does not know
+                -> "Run failed"
+```
+
+No message parsing anywhere. Every category comes from a code the CLI declared
+or from a typed result the extension itself produced.
+
+**Category 4 (repository unavailable) already exists and is not duplicated.**
+`chooseRepoRoot` returns "No folder is open. Open the repository you are fixing
+bugs in.", which readiness renders as the blocked card, and `run()` refuses
+while that is true. Adding a second card saying the same thing would stack two
+explanations of one fact. A test pins the existing behaviour instead.
+
+**Preserving the technical detail.** `ProgressView.failure` gains `detail` —
+the CLI's own `error.message`, untouched. The page renders it inside a
+collapsed `<details>` through `textContent`, so a message containing markup
+stays text. Nothing is redacted here that was not already redacted upstream, and
+no new redaction is invented.
+
+**The two failures are different states.**
+
+```text
+run failed        -> no Context Ready, no Relevant Files, the run error card,
+                     the form and the workflow still usable for a retry
+handoff failed    -> Context Ready stays, Relevant Files stays, the artifact
+                     actions stay, and the agent error appears beside them
+```
+
+**Lifecycle.**
+
+```text
+a new run starts          both errors cleared
+a new handoff starts      the handoff error cleared, Context Ready untouched
+a run succeeds            the run error is gone with the failure it came from
+a handoff succeeds        the handoff error is replaced by the outcome line
+another work item opens   neither error follows it
+```
+
+**Acceptance criteria.**
+
+```text
+1.  Classification happens in the host; the page receives a rendered model and
+    does no string matching.
+2.  Every category carries a title, a sentence, the original detail, and at
+    most one action.
+3.  An unknown code falls back to "Run failed" with the CLI's own message.
+4.  A failed run shows no Context Ready and no Relevant Files.
+5.  A failed handoff leaves Context Ready and Relevant Files exactly as they
+    were.
+6.  Details is a collapsed disclosure rendered with textContent.
+7.  The action button reuses an existing command through the existing
+    `{type:"command"}` path, re-checked against COMMANDS on arrival.
+8.  No health check, no probe, no provider change, no Python change.
+```
+
+**UI-B2 checkpoint 1 — the error model.** `failures.ts` is one small module with
+two functions and no state. `runError(failure, workItemId?)` maps a CLI error
+code to a category; `handoffError(reason)` turns `resolveAgent`'s typed refusal
+into the same shape. Both return
+
+```text
+{ kind, title, message, detail?, action? }
+```
+
+`message` is `diagnose()`'s existing summary and action joined — copy a previous
+phase already got right, not rewritten. `detail` is the CLI's own message,
+which `ProgressTracker.#markFailure` used to discard and now keeps. A test reads
+`failures.ts` itself and fails if `includes`, `match`, `indexOf`, `toLowerCase`
+or `RegExp` appears in it, which is the guard that keeps classification off
+message text.
+
+Categories and their fallback:
+
+```text
+jira-access     JIRA_NOT_CONFIGURED, JIRA_AUTH_FAILED   -> Set Jira Credentials
+jira-not-found  JIRA_ISSUE_NOT_FOUND                    -> names the key
+agent           resolveAgent -> unavailable             -> Open Settings
+run             everything else, known code or not      -> no button
+```
+
+A timeout, a rate limit, a network error and an unreadable response stay in
+`run`: telling somebody to check their token when their VPN is down sends them
+to the wrong place. A code this extension has never seen also lands in `run`,
+where `diagnose()` has already fallen back to the CLI's own words.
+
+**Checkpoint 2 — state and lifecycle.** Two fields on `PanelState`, and the
+difference between them is the point:
+
+```text
+runError      never present with contextReady; a run that failed built nothing
+handoffError  deliberately present *with* contextReady; the package is fine
+```
+
+```text
+a run starts             both cleared, before the first push
+a handoff starts         handoffError cleared, contextReady untouched
+a handoff succeeds       handoffError cleared, the outcome line takes its place
+a run succeeds           no error, because there is no failure to classify
+another work item opens  neither follows it
+a run in flight          runError suppressed, so a stale card cannot sit
+                         beside a Running... button
+```
+
+**Category 4 was already implemented and is not duplicated.** `chooseRepoRoot`
+returns "No folder is open. Open the repository you are fixing bugs in.",
+readiness renders it as the blocked card, and `run()` refuses while that is
+true. A test presses Run with no repository and asserts the blocked card
+explains it, no `runError` appears, and no process is started. Two cards saying
+the same thing would be worse than one.
+
+**Checkpoint 3 — the UI.** One `errorCard(id)` helper builds both, so the two
+cannot drift:
+
+```text
+(!) Unable to access Jira
+Jira rejected the stored credentials. Re-run `bugpilot setup`.
+[ Set Jira Credentials ]
+> Details
+  HTTP 401 Unauthorized
+```
+
+An icon and text, not a red panel — `codicon-error` tinted from the existing
+danger tone, no background, no border, which is also what survives a
+high-contrast theme. The run's card sits below the form where a run's outcome
+has always been; the handoff's sits inside the result section, beside the
+package it did not spoil. `Details` is a collapsed `<details>` over a `<pre>`
+written with `textContent`, wrapped with `pre-wrap` and `overflow-wrap: anywhere`
+so a traceback keeps its line breaks without a horizontal scrollbar. The button
+posts `{type: "command", id}` — the path the blocked card already used, which
+the host re-checks against `COMMANDS`.
+
+One new command, `bugpilot.openSettings`, opening the editor's settings filtered
+to `@ext:ShiweiX.bugpilot`. Jira failures get `setCredentials` instead, which
+already existed: a Jira credential lives in SecretStorage, and pointing at the
+settings page for it would be wrong.
+
+**Checkpoint 4 — verification.**
+
+```text
+extension tests   712 passed, 0 failed   (671 before UI-B2's own tests)
+typecheck         tsc --noEmit clean
+smoke             activated, 22 commands, 3 views, panel HTML built
+git diff --check  clean
+python            not run: no Python, CLI, artifact or protocol change
+```
+
+Files changed:
+
+```text
+production  extension/src/app/failures.ts      new: the categories
+            extension/src/app/progress.ts      failure keeps the CLI's message
+            extension/src/app/controller.ts    classify, hold, and clear
+            extension/src/panel/messages.ts    runError, handoffError
+            extension/src/panel/html.ts        errorCard(), used twice
+            extension/media/panel.js           renderError(), one renderer
+            extension/media/panel.css          .failure and its parts
+            extension/src/commands.ts          openSettings
+            extension/src/extension.ts         its handler, EXTENSION_ID
+            extension/package.json             contributes the command
+tests       extension/test/failures.test.ts    new: 13
+            extension/test/controller.test.ts  12 added
+            extension/test/page.test.ts        11 added, 2 updated
+            extension/test/panel.test.ts        6 added
+plan        docs/bugpilot_prototype_development_plan.md
+```
+
+**Not validated interactively.** No VS Code Extension Host was available, so no
+theme, no sidebar width and no real Jira or agent failure was seen on screen.
+Mechanically checked: no colour literal, no background or border on the card, a
+wrapping action row, a wrapping `<pre>`, no fixed pixel width or absolute
+positioning under `.failure`, and a page source that contains none of the error
+codes it would need to classify anything itself.
+
+Deferred, unchanged:
+
+```text
+UI-B  Run Summary: what an agent did with the package after the handoff
+UI-C  Diagnostics and Retrieval Details
+      — proactive health checks, provider installation detection and a
+        telemetry or logging architecture stay out of scope entirely
+      — and, still open: whether Title belongs in Advanced Settings at all
+```
+
+### UI-B3 Run / AI Handoff Summary
+
+**What is missing.** Every other end of the journey says something. A handoff
+that cannot start gets a card with a title, a reason and a button (UI-B2). A
+handoff that *works* gets the Fix with AI button quietly disappearing and a
+muted sentence in its place — the one outcome the developer most wants
+confirmed, communicated by an absence.
+
+**What BugPilot knows, and what it must never claim.** The extension launches a
+terminal and stops watching. So:
+
+```text
+knows        context was prepared; a handoff was attempted; an agent was
+             resolved; a terminal was started with the handoff prompt; or the
+             handoff was skipped and why
+does not     whether the bug was fixed, which files changed, whether tests
+             passed, whether the agent finished, or whether the root cause was
+             found
+```
+
+`overallStatus` has said this since phase 5 — "Complete" is not among its
+answers, and "AI fix started" is the furthest it goes. UI-B3 reuses that exact
+phrase rather than inventing a second vocabulary for the same fact.
+
+**The existing state model already distinguishes what is needed**, so nothing is
+renamed and no boolean is added beside it:
+
+```text
+#fix undefined          not attempted    -> the Fix with AI button
+#fix.status "success"   handed over      -> the outcome, and no button
+#fix.status "skipped"   nothing started  -> the UI-B2 error card, button stays
+```
+
+A skip is never a success. It happens two ways — no agent could be resolved
+(the prompt goes to the clipboard instead, and UI-B2 already explains it), or
+the run did not finish, in which case there is no result section at all.
+
+**Target.**
+
+```text
+[v] Context Ready
+3 relevant files - 11 search terms
+Strategy  Standard Fix
+
+[v] AI fix started
+The prepared context was handed to the configured AI agent.
+Handed to Claude Code in a terminal.
+
+[Open Context] [Copy] [Open Folder]
+> Relevant Files
+```
+
+The headline and the explanation are provider-neutral. The third line is the
+host's own record of what it did and names whatever agent resolved — that line
+already existed as the workflow row's detail and is not new copy.
+
+**Lifecycle.**
+
+```text
+a handoff starts        the button reads Starting AI fix... and is disabled
+it succeeds             the outcome replaces the button; Context Ready,
+                        Relevant Files and the artifact actions are untouched
+it cannot start         the UI-B2 card; the button comes back, because
+                        installing an agent and pressing again is real
+a retry succeeds        the card goes, the outcome appears, Context Ready
+                        never moved
+a new run starts        the outcome is cleared with everything else
+another work item       the same
+```
+
+**Acceptance criteria.**
+
+```text
+1.  A successful handoff shows a title and a sentence, not a vanished button.
+2.  The copy claims only that an agent was started.
+3.  Context Ready, its counts, Strategy, the three artifact actions and
+    Relevant Files all survive a handoff unchanged.
+4.  The automatic path (Fix with AI ticked before Run) reaches exactly the
+    same state as the manual one.
+5.  A skipped handoff shows no success, and keeps the button.
+6.  Success and the handoff error are never both present.
+7.  No terminal polling, no completion detection, no new artifact data.
+8.  No Python, CLI, provider or retrieval change.
+```
+
+**UI-B3 checkpoint 1 — the state model.** Nothing was renamed and no boolean was
+added beside the existing outcome. `#fix: FixWithAiOutcome | undefined` already
+distinguished the three states this phase needs, and `handoff.ts` reads it:
+
+```text
+undefined            not attempted     the Fix with AI button
+status "success"     an agent started  the outcome; no button
+status "skipped"     nothing started   the UI-B2 card; the button returns
+```
+
+One state was added, because the press is not instant: `#handoffBusy`, true
+while `resolveAgent` spawns its probes. It is exclusive with the outcome by
+construction — the success and skip branches no longer push, so the single
+`finally` push carries a cleared flag and the result together. A test walks
+every pushed state and asserts no two of busy, succeeded and failed were ever
+reported at once.
+
+`handoffOutcome()` returns `undefined` for everything but `success`, which is
+what keeps a skip from being dressed up. A skip means no agent was launched and
+the prompt went to the clipboard for the developer to use themselves; saying
+"AI fix started" there would tell them an agent is working on their bug when
+none is.
+
+**Checkpoint 2 — the UI.**
+
+```text
+[v] AI fix started
+The prepared context was handed to the configured AI agent.
+Handed to Claude Code in a terminal.
+```
+
+The title is the phrase `overallStatus` has used since phase 5 — one vocabulary
+for one fact. The headline and the sentence name no vendor; the third line is
+the host's own record of the launch, the same sentence the workflow row carries,
+and it is optional. The tick is `codicon-pass-filled` from the vendored subset,
+tinted from the existing success tone: no new icon, no colour literal, no
+banner. The status is in the text with `role="status"`, so it survives a
+monochrome theme and a screen reader.
+
+While the handoff is being resolved the button reads `Starting AI fix…` with the
+theme's own spinner and is disabled — the same pattern Run and Improve already
+use.
+
+Preserved through a successful handoff, and asserted field by field on both
+sides of the boundary: Context Ready, the counts, Strategy, Relevant Files, and
+Open Context / Copy / Open Folder with their existing messages.
+
+**Checkpoint 3 — lifecycle.**
+
+```text
+a retry that works        the failure card goes, the outcome appears, and
+                          Context Ready never moved
+the automatic path        Fix with AI ticked before Run reaches an identical
+                          `handoffOutcome` to the manual press; asserted by
+                          comparing the two states directly
+a new run                 the outcome is cleared with the rest of the result
+another work item         `#fix` is now cleared there too, which it was not
+a run that failed         no package, so no result and no outcome — even with
+                          Fix with AI ticked
+```
+
+**Checkpoint 4 — verification.**
+
+```text
+extension tests   740 passed, 0 failed   (712 before UI-B3's own tests)
+typecheck         tsc --noEmit clean
+smoke             activated, 22 commands, 3 views, panel HTML built
+git diff --check  clean
+python            not run: no Python, CLI, artifact or protocol change
+```
+
+Files changed:
+
+```text
+production  extension/src/app/handoff.ts       new: the outcome and its copy
+            extension/src/app/controller.ts    busy flag, outcome, work-item clear
+            extension/src/panel/messages.ts    handoffOutcome, handoffBusy
+            extension/src/panel/html.ts        the outcome block; a Run-style label
+            extension/media/panel.js           renders it; the busy button
+            extension/media/panel.css          .result-handoff
+tests       extension/test/handoff.test.ts     new: 6
+            extension/test/controller.test.ts  10 added, 2 updated
+            extension/test/page.test.ts         8 added, 3 updated
+            extension/test/panel.test.ts        4 added
+plan        docs/bugpilot_prototype_development_plan.md
+```
+
+**The claims this phase is careful not to make.** Two tests, one on the copy and
+one on the markup, fail if "bug fixed", "fix completed", "issue resolved",
+"changes applied", "tests passed" or "files changed" ever appears. BugPilot
+launches a terminal and stops watching, so none of those is knowable — and the
+one that would be most believed is the one most worth guarding.
+
+**Not validated interactively.** No VS Code Extension Host was available, so no
+theme, no sidebar width, and no real handoff was seen on screen.
+
+Deferred, unchanged:
+
+```text
+UI-C  Diagnostics and Retrieval Details
+      — actual agent completion tracking stays out of scope permanently rather
+        than temporarily: terminal polling, diff watching and output parsing
+        are what this phase deliberately did not build
+      — and, still open: whether Title belongs in Advanced Settings at all
+```
+
+### UI-V1 Visual & Interaction Review
+
+Six phases were built and verified against markup, a DOM stub and the page
+script. None of them was ever looked at. This phase looks.
+
+**Review targets.**
+
+```text
+initial state        hierarchy, the Issue field, the Fix Mode block, Run
+narrow sidebar       200px, 300px, 400px: overflow, wrapping, clipping, height
+Advanced Settings    group spacing, heading weight, helper density, the hint row
+Context Ready        counts, Strategy, the primary button
+secondary actions    Open Context / Copy / Open Folder at 200px
+Relevant Files       filename hierarchy, long paths, Matched density
+error states         agent unavailable, run failed, Jira access
+handoff success      whether three lines are two lines too many
+duplication          Context Ready beside Investigation & AI Fix
+themes               dark and light contrast, borders, focus, disabled
+```
+
+**How it was reviewed, and the limit of that.** A real VS Code Extension Host
+opens a window that this environment cannot see, so the panel was rendered in
+headless Chromium instead — the real `panelHtml()` output, the real
+`panel.css`, the real vendored codicon font and the real `panel.js`, driven
+through actual state messages, with VS Code's Dark Modern and Light Modern
+tokens supplied as `--vscode-*` variables. Screenshots at each width and theme
+were then read.
+
+That is real layout from the real stylesheet, so it answers overflow, wrapping,
+clipping, spacing, hierarchy and contrast. It cannot answer anything that needs
+VS Code itself: the editor's own fonts and density, a live Jira or agent
+failure, whether clicking a relevant file opens the right editor tab, real focus
+rings, or how the panel behaves inside the sidebar's own chrome. Those stay
+unverified and are recorded as such rather than claimed.
+
+**Rule for changes.** Nothing is adjusted without a screenshot behind it. Each
+change records what was seen, why it is a problem, and the smallest fix; each
+thing reviewed and left alone is recorded too, so a later phase does not reopen
+a decision that has already been looked at.
+
+**UI-V1 findings.** Nine states, two themes, three widths — 54 rendered pages,
+measured and screenshotted.
+
+*1. Stop and Retry rendered while hidden.* **Fixed.**
+
+```text
+Observed    #stop computed `display: flex` with hiddenAttr=true in every state,
+            including an untouched panel: a greyed Stop sat beside Run in both
+            themes. Retry the same when canRetry was false.
+Problem     `.run-buttons > button { display: flex }` beats the UA
+            `[hidden] { display: none }`. The markup's own comment says the
+            opposite is intended — "a greyed Stop under an idle panel is a
+            control that has never once been usable when it was on screen" —
+            and Run was squeezed to 55% of the row to make space for it.
+            Third occurrence of this bug class in this stylesheet.
+Change      `.run-buttons > button[hidden] { display: none }`, and a new guard
+            that walks the markup with a tag stack: any rule reaching a hidden
+            element through its parent's class must carry a `[hidden]`
+            companion. The existing guard only modelled classes on the hidden
+            element itself, and #stop has none.
+Verified    Re-measured: Stop absent, Run back to full width. Removing the CSS
+            fix makes the new guard fail.
+```
+
+**Why no test caught it.** The DOM stub records the `hidden` property and lays
+nothing out, so it reported the button hidden while a browser drew it. No amount
+of markup assertion reaches this; rendering does.
+
+*2. A label pushed the panel into horizontal scroll at 200px.* **Fixed.**
+
+```text
+Observed    At 200px with Advanced Settings open, body scrollWidth exceeded the
+            panel by 19px. The culprit measured as
+            <label.choice[for=fresh]> :: Delete previous artifacts first,
+            right edge 219 against a 200px panel.
+Problem     `.setting-header > label { flex: none }` is right for a label that
+            is a name and wrong for the one that is a whole sentence, which
+            could not shrink and so could not wrap.
+Change      `.field-check .setting-header > label { flex: 1 1 auto; min-width: 0 }`
+Verified    Zero overflowing elements across all nine states at 200px.
+```
+
+*3. The run hint outlived its usefulness.* **Fixed.**
+
+```text
+Observed    "Run prepares the issue context for AI-assisted fixing." sat
+            between the Run row and the Context Ready block in every post-run
+            screenshot.
+Problem     Advice about a button, directly above the proof of what that button
+            already did.
+Change      The page hides it once there is a result or a failure, and brings
+            it back for the next untouched state.
+```
+
+*4. The checklist repeated the result under it.* **Fixed.**
+
+```text
+Observed    After a run: 412px of result, then 314px of auto-expanded
+            checklist whose summary read "Context ready" directly below a block
+            reading "Context Ready", and whose last row was "Fix with AI"
+            directly below the "Fix with AI" button.
+Problem     UI-A3 kept the disclosure open after a run for one stated reason —
+            the artifact icons lived on the Build context row. UI-B1 moved them
+            into the result section, which took the reason away and left the
+            duplication behind.
+Change      Open while a run is in flight; fold once as it finishes, and only
+            on that transition, so a developer who opens it again is not
+            overruled by the next state push. Every control, status and
+            duration is still there, one click away.
+Verified    Re-rendered: the post-run panel is about half its previous height
+            and Fix with AI is the one blue button below Run.
+```
+
+*5. The agent error sat below the artifact actions.* **Fixed** (markup order):
+three things a developer can still do were between "Fix with AI" and the reason
+it did not work.
+
+**Reviewed and deliberately unchanged** — so a later phase does not reopen these
+without new evidence:
+
+```text
+Fix Mode block      88px with its label, helper, selector, gear and mode
+                    description. Reads as an execution choice rather than a
+                    form field; not compacted.
+Artifact actions    at 200px they wrap to "Open Context" / "Copy  Open Folder".
+                    Uneven but not clipped, and all three reachable. §13's own
+                    acceptable outcome.
+Long paths          `overflow-wrap: anywhere` breaks a deep path mid-token. Two
+                    lines at 300px, readable. Not truncated: a middle-elided
+                    path hides the part that says which of four same-named
+                    files this is.
+"Jira issue JR-45678" under a field containing JR-45678. Redundant only for a
+                    key; for prose it reads "Bug description", which is the
+                    signal the removed radio pair used to carry.
+Run and Fix with AI both being blue and full width. They are the primary action
+                    of their own step, and Retry shares Run's row after a run.
+Handoff success     three lines. The generic sentence carries the claim, the
+                    detail names the agent. Neither is redundant.
+Themes              Dark Modern and Light Modern both read correctly. No
+                    contrast problem, no colour literal, no custom colour.
+```
+
+**The tool.** `extension/.review/` renders the real `panelHtml()` output with the
+real stylesheet, the vendored codicon font and the real page script, driven by
+real state messages, with VS Code's tokens supplied as variables:
+`npx tsx .review/harness.ts` then `python3 .review/run.py shoot "*.dark.300"` or
+`measure "*.200"`. Its output is git-ignored. It exists because four of these
+five findings were invisible to every other kind of check this repository has.
+
+**What this could not check.** No VS Code Extension Host: the editor's own fonts
+and density, a live Jira or agent failure, whether clicking a relevant file
+opens the right editor tab, real focus rings, and the sidebar's own chrome
+remain unverified. Keyboard flow was reviewed structurally — real disclosures,
+real buttons, real labels, no clickable divs — but not driven by hand.
+
+**Verification.**
+
+```text
+extension tests   744 passed, 0 failed   (740 before UI-V1's own guards)
+typecheck         tsc --noEmit clean
+smoke             activated, 22 commands, 3 views, panel HTML built
+git diff --check  clean
+```
+
+Deferred, recorded rather than built: Retrieval Details, Diagnostics, Focus File
+chips, a file picker, a provider selector redesign, run history, agent
+completion tracking.
+
+### 34.F Freeze
+
+The main-flow UI work is closed. Everything below is what the freeze pass found
+reviewing the whole diff from `13973e8` to here, rather than only the last
+phase's changes.
+
+```text
+frozen     UI-A1  one Issue field, Run primary, the rest behind disclosures
+           UI-A2  Guidance / Retrieval Overrides / Run Options
+           UI-A2c Ignore paths and the two limits joined Retrieval Overrides
+           UI-A3  Context Ready, and Fix with AI as the next action
+           UI-B1  Relevant Files, and click to open one
+           UI-B2  failures with a title, an action and the original underneath
+           UI-B3  the successful handoff, said out loud
+           UI-V1  four issues found by rendering the panel and looking
+
+deferred   Retrieval Details, Diagnostics, Focus File chips, a file picker, a
+           provider selector redesign, run history, agent completion tracking,
+           and whether Title belongs in Advanced Settings at all
+```
+
+**One blocker, found by the review and fixed.**
+
+```text
+Observed    UI-B2 gave the failure cards an action button and routed it through
+            the `{type:"command"}` path the blocked card already used. That
+            path accepts only ids the host is offering — and it built that list
+            from `readiness.actions` alone, which an error card's action never
+            entered. "Set Jira Credentials" and "Open Settings" posted their
+            message and the controller refused it. Both buttons did nothing.
+Why missed  The page test asserted the message went out, which it did. No host
+            test received it. Two halves, each green, with the gap between them.
+Change      `#isOffered(command)` replaces the cached set at the point of use:
+            the blocked card's actions, plus whichever action the current run
+            or handoff card is showing. Derived per call, because a cached copy
+            of "what is on screen" is exactly what drifted.
+Verified    Four tests: each button reaches its command; an id the host never
+            offered is still refused; and an offer expires when a retry clears
+            the card that made it.
+```
+
+**Minor, recorded and not done during a freeze:** the run failure card renders
+after the form, so it sits below Advanced Settings; the red "Run failed" on the
+workflow summary is above it and carries the signal. Three dead CSS blocks left
+by the completed phases — `.card-failure`, `.result-fix`, `.step-actions` —
+were removed, since they were debris from this very diff.
+
+**An invariant this section learned the hard way.**
+
+```text
+An element controlled by the `hidden` attribute must stay hidden whatever a
+component rule says about its `display`.
+```
+
+`hidden` is only a user-agent `display: none`, so any author rule setting
+`display` on the same element beats it. It has now shipped three times here: the
+Fix Mode views laid out down the main view, a stray tick beside "Not
+configured", and a greyed Stop button beside Run in every state. Two guards
+enforce it — one for classes on the hidden element, one for rules that reach it
+through its parent — and neither would have found the third case without
+somebody rendering the page. A blanket `[hidden] { display: none !important }`
+was considered and not added: there is no unresolved instance, and the guards
+name the rule at the place it is broken.
+
+**How the UI was validated, and what that does not cover.** The panel was
+rendered in headless Chromium from the real `panelHtml()` output, the real
+stylesheet, the vendored codicon font and the real page script, driven by real
+state messages, with VS Code's Dark Modern and Light Modern tokens supplied as
+variables — 9 states x 2 themes x 3 widths, 54 pages, re-run after the freeze
+pass's changes with zero overflowing elements.
+
+```text
+validated      layout, wrapping, overflow, spacing, hierarchy, and contrast
+               against supplied theme tokens
+not validated  a real Extension Host: VS Code's own chrome and fonts, live
+               editor focus, whether click-to-open lands in the right tab, a
+               real Jira or agent failure, and keyboard interaction by hand
+```
+
+**Nothing here claims an agent finished anything.** "AI fix started" means a
+terminal was launched with the prepared prompt, and two guards fail if the panel
+ever says a bug was fixed, tests passed or files changed.
+
+**Verification at the freeze.**
+
+```text
+extension tests   748 passed, 0 failed
+typecheck         tsc --noEmit clean
+smoke             activated, 22 commands, 3 views, panel HTML built
+git diff --check  clean
+python            not run: no Python, CLI, artifact or protocol file changed
+```
+
+The visual harness in `extension/.review/` is deliberately **not** part of this
+commit. Whether it becomes a permanent visual-regression tool is its own
+decision, and a product freeze is not the place to make it.

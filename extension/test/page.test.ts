@@ -174,9 +174,6 @@ function load(savedState?: unknown): Page {
     element.hidden = initial?.hidden ?? false;
     elements.set(id, element);
   }
-  // Radios are read by `name` in the change handler.
-  elements.get("source-jira")!.name = "source";
-  elements.get("source-manual")!.name = "source";
   // The stub has no notion of <option>, so the select's default selection has
   // to be stated: in the real document the first option is selected, which is
   // what makes the auto-detect note visible on load.
@@ -281,6 +278,20 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
   };
 };
 
+/**
+ * A finished package, as the host reports one.
+ *
+ * All three artifact files present and no handoff attempted yet, which is the
+ * ordinary case a developer lands in after Run.
+ */
+const READY = {
+  counts: "8 relevant files · 53 search terms",
+  actions: ["openContext", "copyHandoff", "openFolder"] as const,
+  canFix: true,
+  handoffBusy: false,
+  files: [],
+};
+
 /** One capability row of a `ProgressView`, for driving the model. */
 const row = (capability: string, rowState: string, durationMs?: number) => ({
   capability: capability as "code_search",
@@ -311,7 +322,7 @@ test("a saved form is restored before the host answers", () => {
   // The webview is destroyed when hidden, so this is what makes half-typed
   // input survive a hide/show.
   const p = load({ form: { ...DEFAULT_FORM, issueKey: "JR-77", hint: "look here" } });
-  assert.equal(p.byId("issueKey").value, "JR-77");
+  assert.equal(p.byId("issue").value, "JR-77");
   assert.equal(p.byId("hint").value, "look here");
 });
 
@@ -362,7 +373,7 @@ test("a ready readiness enables the form and names the executable", () => {
   const p = load();
   p.send(state());
   assert.equal(p.byId("run").disabled, false);
-  assert.equal(p.byId("issueKey").disabled, false);
+  assert.equal(p.byId("issue").disabled, false);
   assert.match(p.byId("environment").textContent, /bugpilot · \/work\/app/);
 });
 
@@ -370,14 +381,16 @@ test("a ready readiness enables the form and names the executable", () => {
 
 test("a field problem is shown next to its field and focuses it once", () => {
   const p = load();
+  // Reported against `issueKey`, shown on `#issue`: the host validates the
+  // field a command line is built from, and the page has one box for both.
   const problems = [{ field: "issueKey" as const, message: "An issue key is required." }];
   p.send(state({ problems }));
 
-  assert.equal(p.byId("issueKey-error").textContent, "An issue key is required.");
-  assert.equal(p.byId("issueKey-error").hidden, false);
-  assert.ok(p.byId("field-issueKey").classes.has("field-invalid"));
-  assert.equal(p.byId("issueKey").getAttribute("aria-invalid"), "true");
-  assert.equal(p.focused, "issueKey");
+  assert.equal(p.byId("issue-error").textContent, "An issue key is required.");
+  assert.equal(p.byId("issue-error").hidden, false);
+  assert.ok(p.byId("field-issue").classes.has("field-invalid"));
+  assert.equal(p.byId("issue").getAttribute("aria-invalid"), "true");
+  assert.equal(p.focused, "issue");
 
   // The developer moves to another field; further state pushes (a stream event,
   // an environment refresh) must not yank the cursor back.
@@ -399,8 +412,8 @@ test("clearing the problems clears the message and the invalid styling", () => {
   const p = load();
   p.send(state({ problems: [{ field: "issueKey", message: "nope" }] }));
   p.send(state());
-  assert.equal(p.byId("issueKey-error").hidden, true);
-  assert.equal(p.byId("field-issueKey").classes.has("field-invalid"), false);
+  assert.equal(p.byId("issue-error").hidden, true);
+  assert.equal(p.byId("field-issue").classes.has("field-invalid"), false);
 });
 
 // --- the plan coupling -----------------------------------------------------
@@ -448,17 +461,78 @@ test("re-ticking Build context restores the selection it cleared", () => {
 
 // --- input source ----------------------------------------------------------
 
-test("switching the input source shows only the fields it uses", () => {
+/** Type into the one Issue field, as the developer would. */
+function type(p: Page, text: string): void {
+  p.byId("issue").value = text;
+  p.byId("form").dispatch("input", { target: p.byId("issue") });
+}
+
+test("the input source is derived from the Issue field, not chosen", () => {
+  // UI-A1 removed the radio pair. The classification it asked for is in the
+  // text: a Jira key matches the pattern and everything else is prose.
   const p = load();
   p.send(state());
-  assert.equal(p.byId("field-issueKey").hidden, false);
-  assert.equal(p.byId("field-description").hidden, true);
 
-  p.byId("source-manual").checked = true;
-  p.byId("form").dispatch("change", { target: p.byId("source-manual") });
-  assert.equal(p.byId("field-issueKey").hidden, true);
-  assert.equal(p.byId("field-description").hidden, false);
+  type(p, "JR-12345");
+  p.flush();
+  const jira = p.posted.at(-1) as { form: Record<string, unknown> };
+  assert.equal(jira.form["source"], "jira");
+  assert.equal(jira.form["issueKey"], "JR-12345");
+  assert.equal(jira.form["description"], "", "a key must not also arrive as prose");
+
+  type(p, "The export dialog crashes when nothing is selected.");
+  p.flush();
+  const manual = p.posted.at(-1) as { form: Record<string, unknown> };
+  assert.equal(manual.form["source"], "manual");
+  assert.equal(manual.form["description"], "The export dialog crashes when nothing is selected.");
+  assert.equal(manual.form["issueKey"], "", "prose must not also arrive as a key");
+});
+
+test("an empty Issue field is not yet a hand-written bug", () => {
+  // `workItemScopeOf` returns undefined for an empty Jira key and "manual" for
+  // anything else, and the controller reads undefined as "no work item yet".
+  // Reading an empty box as a blank description would make every clear look
+  // like a move to another bug.
+  const p = load();
+  p.send(state());
+
+  type(p, "");
+  p.flush();
+  const message = p.posted.at(-1) as { form: Record<string, unknown> };
+  assert.equal(message.form["source"], "jira");
+  assert.equal(message.form["issueKey"], "");
+});
+
+test("the Issue field says how it was read, once there is something to read", () => {
+  // What the radio pair used to say out loud. Silent while the panel is
+  // untouched, which is the state UI-A1 is about.
+  const p = load();
+  p.send(state());
+  assert.equal(p.byId("issue-note").hidden, true);
+
+  type(p, "jr-12345");
+  assert.equal(p.byId("issue-note").hidden, false);
+  assert.equal(p.byId("issue-note").textContent, "Jira issue JR-12345");
+
+  type(p, "It crashes on export.");
+  assert.equal(p.byId("issue-note").textContent, "Bug description");
+
+  type(p, "  ");
+  assert.equal(p.byId("issue-note").hidden, true);
+});
+
+test("Title appears only for a bug the developer is writing themselves", () => {
+  // A Jira issue brings its own title, and `buildPrepareArgs` sends `--title`
+  // on the manual path alone — so the box would do nothing beside a key.
+  const p = load();
+  p.send(state());
+  assert.equal(p.byId("field-title").hidden, true);
+
+  type(p, "Crash on export");
   assert.equal(p.byId("field-title").hidden, false);
+
+  type(p, "JR-99");
+  assert.equal(p.byId("field-title").hidden, true);
 });
 
 test("the custom agent command appears only when a custom agent is chosen", () => {
@@ -478,7 +552,7 @@ test("the custom agent command appears only when a custom agent is chosen", () =
 test("Ctrl+Enter runs without the button being clicked", () => {
   const p = load();
   p.send(state());
-  p.byId("issueKey").value = "JR-12345";
+  p.byId("issue").value = "JR-12345";
   p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
 
   const message = p.posted.at(-1) as { type: string; form: Record<string, unknown> };
@@ -509,12 +583,14 @@ test("Ctrl+Enter is ignored while Run is disabled", () => {
 test("submitting sends the typed form", () => {
   const p = load();
   p.send(state());
-  p.byId("issueKey").value = "jr-1";
+  p.byId("issue").value = "jr-1";
   p.byId("keywords").value = "save, crash";
   p.byId("form").dispatch("submit");
 
   const message = p.posted.at(-1) as { type: string; form: Record<string, unknown> };
   assert.equal(message.type, "run");
+  // Not uppercased here: `buildPrepareArgs` owns that, and a box that rewrote
+  // what was typed would fight the developer mid-word.
   assert.equal(message.form["issueKey"], "jr-1");
   assert.equal(message.form["keywords"], "save, crash");
   assert.equal((message.form["plan"] as Record<string, unknown>)["issueDetails"], true);
@@ -541,7 +617,7 @@ test("a run in flight disables the form and enables Stop", () => {
 
   assert.equal(p.byId("stop").disabled, false);
   assert.equal(p.byId("run").disabled, true);
-  assert.equal(p.byId("issueKey").disabled, true);
+  assert.equal(p.byId("issue").disabled, true);
 });
 
 test("submitting again while running does nothing", () => {
@@ -674,29 +750,33 @@ test("durations are readable rather than arithmetically honest", () => {
   assert.deepEqual(durations, ["<0.1s", "0.9s", "1m 05s"]);
 });
 
-test("the Build context icons appear only once it has produced something", () => {
+test("the artifact actions appear only once their files exist", () => {
   const p = load();
   p.send(state());
-  assert.equal(p.byId("actions-buildContext").hidden, true);
+  for (const id of ["open-context", "copy-context", "open-folder"]) {
+    assert.equal(p.byId(id).hidden, true, id);
+  }
 
-  p.send(
-    state(
-      {
-        workItemId: "JR-1",
-        progress: { state: "done", rows: [row("build_context", "done")], artifacts: [] },
-      },
-      // The icons follow the files, so this is what puts them on screen.
-      ["agent_task.md", "bug_context.md"],
-    ),
-  );
-  assert.equal(p.byId("actions-buildContext").hidden, false);
+  p.send(state({ contextReady: { ...READY, actions: ["openContext", "openFolder"] } }));
+  assert.equal(p.byId("open-context").hidden, false);
+  assert.equal(p.byId("open-folder").hidden, false);
+  // The host said this one has no file yet, so it stays away rather than
+  // greying out — a disabled icon invites a click that explains nothing.
+  assert.equal(p.byId("copy-context").hidden, true);
+});
 
-  p.byId("open-context").dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "action", id: "openContext" });
-  p.byId("copy-context").dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "action", id: "copyHandoff" });
-  p.byId("open-folder").dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "action", id: "openFolder" });
+test("each artifact action still asks for exactly the action it always did", () => {
+  const p = load();
+  p.send(state({ contextReady: READY }));
+
+  for (const [id, action] of [
+    ["open-context", "openContext"],
+    ["copy-context", "copyHandoff"],
+    ["open-folder", "openFolder"],
+  ] as const) {
+    p.byId(id).dispatch("click");
+    assert.deepEqual(p.posted.at(-1), { type: "action", id: action });
+  }
 });
 
 test("what happened to the AI step is spelled out on its own row", () => {
@@ -759,12 +839,19 @@ test("a failure is shown as an alert with its next step", () => {
           retryable: false,
         },
       },
+      runError: {
+        kind: "jira-access",
+        title: "Unable to access Jira",
+        message: "Jira rejected the credentials. Run BugPilot: Set Jira Credentials.",
+      },
     }),
   );
 
   assert.equal(p.byId("failure").hidden, false);
-  assert.equal(p.byId("failure-summary").textContent, "Jira rejected the credentials.");
-  assert.match(p.byId("failure-action").textContent, /Set Jira Credentials/);
+  // The card is the host's classification of that failure, not the page's
+  // reading of `progress.failure` — which the page no longer looks at.
+  assert.equal(p.byId("failure-title").textContent, "Unable to access Jira");
+  assert.match(p.byId("failure-message").textContent, /Set Jira Credentials/);
   assert.equal(p.byId("workflow-status").textContent, "Run failed");
   assert.ok(p.byId("workflow-status").classes.has("is-failed"));
 });
@@ -831,9 +918,9 @@ test("opening Advanced settings sizes the text already restored into it", () => 
 
 test("a single-line field is not resized", () => {
   const p = load();
-  const issueKey = sized(p, "issueKey", 24, 24);
-  p.byId("form").dispatch("input", { target: issueKey });
-  assert.equal(issueKey.style["height"], undefined);
+  const title = sized(p, "title", 24, 24);
+  p.byId("form").dispatch("input", { target: title });
+  assert.equal(title.style["height"], undefined);
 });
 
 // --- persistence -----------------------------------------------------------
@@ -859,14 +946,14 @@ test("typing is persisted immediately and reported to the host once", () => {
 test("a state push does not overwrite the form unless the revision changed", () => {
   const p = load();
   p.send(state({ revision: 1, form: { ...DEFAULT_FORM, issueKey: "JR-1" } }));
-  assert.equal(p.byId("issueKey").value, "JR-1");
+  assert.equal(p.byId("issue").value, "JR-1");
 
-  p.byId("issueKey").value = "JR-2-being-typed";
+  p.byId("issue").value = "JR-2-being-typed";
   p.send(state({ revision: 1, form: { ...DEFAULT_FORM, issueKey: "JR-1" } }));
-  assert.equal(p.byId("issueKey").value, "JR-2-being-typed", "the host must not stomp on typing");
+  assert.equal(p.byId("issue").value, "JR-2-being-typed", "the host must not stomp on typing");
 
   p.send(state({ revision: 2, form: { ...DEFAULT_FORM, issueKey: "JR-9" } }));
-  assert.equal(p.byId("issueKey").value, "JR-9", "a deliberate replacement must land");
+  assert.equal(p.byId("issue").value, "JR-9", "a deliberate replacement must land");
 });
 
 test("the footer names the version when the CLI reports one", () => {
@@ -1002,7 +1089,7 @@ test("the list is hidden while there is nothing attached", () => {
 test("Add files asks the host, because only the host can open a dialog", () => {
   const p = load();
   p.send(state());
-  p.byId("issueKey").value = "JR-9";
+  p.byId("issue").value = "JR-9";
   p.byId("add-attachment").dispatch("click");
 
   const sent = p.posted.at(-1) as { type: string; form: { issueKey: string } };
@@ -1119,46 +1206,40 @@ test("the run message carries the selected Fix Mode", () => {
   assert.equal((run?.["form"] as { fixModeId?: string } | undefined)?.fixModeId, "investigate-first");
 });
 
-test("the prepared mode is reported separately from the current selection", () => {
+test("the Strategy line reports the package, not the selector", () => {
+  // They differ the moment somebody changes the dropdown without running, and
+  // labelling an old package with a new choice would misdescribe what the agent
+  // was told. The host composes the line; the page shows it where UI-A3 put it.
   const page = load();
   page.send(
     state({
       fixModes: MODES,
       form: { ...DEFAULT_FORM, fixModeId: "standard" },
-      preparedFixMode: {
-        id: "investigate-first",
-        name: "Investigate First",
-        executionKind: "investigate",
-        availability: "available",
+      contextReady: {
+        counts: "",
+        strategy: "Investigate First · investigation only",
+        actions: [],
+        canFix: true,
+        handoffBusy: false,
+        files: [],
       },
     }),
   );
 
-  const line = page.byId("prepared-fix-mode");
-  assert.equal(line.hidden, false);
-  assert.match(line.textContent, /Prepared with Fix Mode: Investigate First/);
-  assert.match(line.textContent, /investigation only/);
+  assert.equal(page.byId("result-strategy").hidden, false);
+  assert.equal(
+    page.byId("result-strategy-value").textContent,
+    "Investigate First · investigation only",
+  );
   // The selector still shows what the *next* run would use.
   assert.equal(page.byId("fixModeId").value, "standard");
 });
 
-test("a prepared mode that is no longer available is named, not replaced", () => {
+test("a package with no recorded mode shows no Strategy line", () => {
   const page = load();
-  page.send(
-    state({
-      fixModes: MODES,
-      preparedFixMode: { id: "team-safe-fix", name: "Team Safe Fix", availability: "unavailable" },
-    }),
-  );
+  page.send(state({ fixModes: MODES, contextReady: READY }));
 
-  assert.match(page.byId("prepared-fix-mode").textContent, /Team Safe Fix \(unavailable\)/);
-});
-
-test("a work item with no recorded mode shows no prepared line", () => {
-  const page = load();
-  page.send(state({ fixModes: MODES }));
-
-  assert.equal(page.byId("prepared-fix-mode").hidden, true);
+  assert.equal(page.byId("result-strategy").hidden, true);
 });
 
 // --- the management view -----------------------------------------------------
@@ -1384,17 +1465,19 @@ test("a refused command is shown beside the editor", () => {
   assert.match(page.byId("editor-error").textContent, /Reload it before saving/);
 });
 
-test("the prepared line distinguishes gone from not-checked", () => {
-  const page = load();
-  page.send(
-    state({
-      fixModes: MODES,
-      preparedFixMode: { id: "my-safe", name: "My Safe Fix", availability: "unknown" },
-    }),
-  );
-
-  assert.match(page.byId("prepared-fix-mode").textContent, /availability unknown/);
-  assert.ok(!page.byId("prepared-fix-mode").textContent.includes("(unavailable)"));
+test("whatever the host says about the mode is what the line shows", () => {
+  // The three states — available, gone, not checked — are the host's to tell
+  // apart; UI-A3 moved that sentence out of the page along with the line. The
+  // page must not edit it, which is what this pins.
+  for (const strategy of [
+    "My Safe Fix · availability unknown",
+    "Team Safe Fix (unavailable)",
+    "Standard Fix",
+  ]) {
+    const page = load();
+    page.send(state({ fixModes: MODES, contextReady: { ...READY, strategy } }));
+    assert.equal(page.byId("result-strategy-value").textContent, strategy);
+  }
 });
 
 // --- moving between the panel's three views ---------------------------------
@@ -1993,7 +2076,7 @@ test("a request in flight says so, and cannot be started twice", () => {
   assert.match(page.byId("improve-hint-icon").className, /codicon-loading/);
 
   page.send(state({ hintImprovement: { busy: false } }));
-  assert.equal(page.byId("improve-hint-label").textContent, "Improve with AI");
+  assert.equal(page.byId("improve-hint-label").textContent, "Improve");
   assert.equal(page.byId("improve-hint").disabled, false);
 });
 
@@ -2064,4 +2147,772 @@ test("improving a hint never asks for a run", () => {
 
   const types = page.posted.slice(before).map((message) => message["type"]);
   assert.ok(!types.includes("run"), "improving a hint asked for a run");
+});
+
+// --- UI-A1: the workflow disclosure ----------------------------------------
+
+test("the workflow stays closed until there is a run to watch", () => {
+  // Collapsed is the default in the markup; this is the page agreeing with it.
+  // An untouched panel showing six checked rows was the largest thing on it and
+  // said nothing a developer who has not typed an issue yet needs.
+  const p = load();
+  p.send(state());
+  assert.equal(p.byId("workflow").open, false);
+});
+
+test("a run opens the workflow, and folds it away as it finishes", () => {
+  // Open while the statuses are the thing to look at, closed once they are
+  // not. UI-A3 left it open because the artifact icons lived on the Build
+  // context row; UI-B1 moved them into the result section, and UI-V1's
+  // screenshots showed what was left — a checklist repeating the result above
+  // it, "Context ready" under "Context Ready", a Fix with AI row under a Fix
+  // with AI button.
+  const p = load();
+  p.send(state({ progress: { state: "running", rows: [row("code_search", "running")], artifacts: [] } }));
+  assert.equal(p.byId("workflow").open, true);
+
+  p.send(state({ progress: { state: "done", rows: [row("code_search", "done")], artifacts: ["bug_context.md"] } }));
+  assert.equal(p.byId("workflow").open, false);
+  // Still there, and still one click away: the plan, the statuses and the
+  // durations are not removed, only folded.
+  assert.equal(p.byId("plan-buildContext").checked, true);
+});
+
+test("a developer who opens the workflow after a run is not overruled", () => {
+  // The fold happens on the transition and only there. The host pushes state
+  // for every stream event and every refresh, and a rule that closed it on each
+  // of those would fight anybody trying to read a step description.
+  const p = load();
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  assert.equal(p.byId("workflow").open, true);
+
+  p.send(state({ progress: { state: "done", rows: [], artifacts: ["bug_context.md"] } }));
+  assert.equal(p.byId("workflow").open, false, "it should fold once the run ends");
+
+  p.byId("workflow").open = true;
+  p.send(state({ progress: { state: "done", rows: [], artifacts: ["bug_context.md"] } }));
+  p.send(state({ progress: { state: "done", rows: [], artifacts: ["bug_context.md"] } }));
+  assert.equal(p.byId("workflow").open, true, "a later push closed it again");
+});
+
+test("Run says it is running, and cannot be pressed again while it is", () => {
+  const p = load();
+  p.send(state());
+  assert.equal(p.byId("run-label").textContent, "Run");
+
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  assert.equal(p.byId("run-label").textContent, "Running…");
+  assert.match(p.byId("run-icon").className, /codicon-spin/);
+  assert.equal(p.byId("run").disabled, true);
+
+  // Disabled is not the guard — a keyboard shortcut does not go through the
+  // button at all, so `submit()` refuses on its own.
+  const before = p.posted.length;
+  p.byId("form").dispatch("submit");
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  assert.equal(p.posted.length, before, "a second run was started");
+
+  p.send(state({ progress: { state: "done", rows: [], artifacts: [] } }));
+  assert.equal(p.byId("run-label").textContent, "Run");
+  assert.match(p.byId("run-icon").className, /codicon-play/);
+});
+
+test("the post-run actions are still where a finished run leaves them", () => {
+  // UI-A1 simplified the initial state and UI-A3 moved these out of the
+  // checklist; neither may make a finished run harder to act on. The workflow
+  // is still open and still readable, and the actions are one section above it.
+  const p = load();
+  p.send(
+    state(
+      {
+        progress: { state: "done", rows: [row("build_context", "done")], artifacts: ["bug_context.md"] },
+        contextReady: READY,
+      },
+      ["bug_context.md"],
+    ),
+  );
+
+  // The checklist folds away as the run ends; the actions moved to the result.
+  assert.equal(p.byId("workflow").open, false);
+  assert.equal(p.byId("context-ready").hidden, false);
+  for (const [id, action] of [
+    ["open-context", "openContext"],
+    ["copy-context", "copyHandoff"],
+    ["open-folder", "openFolder"],
+  ] as const) {
+    assert.equal(p.byId(id).hidden, false, id);
+    p.byId(id).dispatch("click");
+    assert.deepEqual(p.posted.at(-1), { type: "action", id: action });
+  }
+});
+
+// --- UI-A2: the regrouped fields still carry their state -------------------
+
+test("the regrouped fields round-trip through the form unchanged", () => {
+  // UI-A2 moved markup, renamed two labels and added helper text. None of that
+  // may reach the message: a keyword list and a focus path are parsed by the
+  // host, and a field that arrived under a new name would simply stop working.
+  const p = load();
+  p.send(state());
+
+  p.byId("keywords").value = "VolumeDescriptor, OpenVDS\noutputType";
+  p.byId("focusFiles").value = "src/core/\nsrc/services/example.cpp";
+  p.byId("hint").value = "check the output validation";
+  p.byId("ignorePaths").value = "build/";
+  p.byId("form").dispatch("submit");
+
+  const message = p.posted.at(-1) as { type: string; form: Record<string, unknown> };
+  assert.equal(message.type, "run");
+  assert.equal(message.form["keywords"], "VolumeDescriptor, OpenVDS\noutputType");
+  assert.equal(message.form["focusFiles"], "src/core/\nsrc/services/example.cpp");
+  assert.equal(message.form["hint"], "check the output validation");
+  assert.equal(message.form["ignorePaths"], "build/");
+});
+
+test("a restored form still fills every regrouped field", () => {
+  const p = load({
+    form: {
+      ...DEFAULT_FORM,
+      keywords: "outputType",
+      focusFiles: "src/a.cpp",
+      hint: "look here",
+      title: "Crash on export",
+      ignorePaths: "build/",
+      maxFiles: "5",
+    },
+  });
+  assert.equal(p.byId("keywords").value, "outputType");
+  assert.equal(p.byId("focusFiles").value, "src/a.cpp");
+  assert.equal(p.byId("hint").value, "look here");
+  assert.equal(p.byId("title").value, "Crash on export");
+  assert.equal(p.byId("ignorePaths").value, "build/");
+  assert.equal(p.byId("maxFiles").value, "5");
+});
+
+test("a problem in a regrouped field still opens Advanced settings and lands", () => {
+  // The messages are attached by field id, and the section they live in is now
+  // one of three groups. A message in a closed section is a message nobody sees.
+  const p = load();
+  p.send(state({ problems: [{ field: "focusFiles", message: "outside the repository" }] }));
+
+  assert.equal(p.byId("advanced").open, true);
+  assert.equal(p.byId("focusFiles-error").textContent, "outside the repository");
+  assert.equal(p.byId("focusFiles-error").hidden, false);
+  assert.equal(p.focused, "focusFiles");
+});
+
+// --- UI-A3: the result section ---------------------------------------------
+
+test("nothing about a result is shown before the first run", () => {
+  // §19: no empty card, no zero counts, no artifact row waiting to be filled.
+  const p = load();
+  p.send(state());
+
+  assert.equal(p.byId("context-ready").hidden, true);
+  assert.equal(p.byId("result-counts").hidden, true);
+  assert.equal(p.byId("result-strategy").hidden, true);
+  for (const id of ["open-context", "copy-context", "open-folder"]) {
+    assert.equal(p.byId(id).hidden, true, id);
+  }
+  // And the workflow is still the place the plan is chosen.
+  assert.equal(p.byId("plan-buildContext").checked, true);
+  assert.equal(p.byId("plan-fixWithAI").checked, false);
+});
+
+test("a run in flight shows progress, never a result", () => {
+  const p = load();
+  p.send(state({ progress: { state: "running", rows: [row("code_search", "running")], artifacts: [] } }));
+
+  assert.equal(p.byId("context-ready").hidden, true, "a running run claimed a result");
+  assert.equal(p.byId("run-label").textContent, "Running…");
+  assert.equal(p.byId("workflow").open, true);
+});
+
+test("a finished run reads as a result with counts and a next action", () => {
+  const p = load();
+  p.send(
+    state({
+      progress: { state: "done", rows: [row("build_context", "done")], artifacts: ["bug_context.md"] },
+      contextReady: { ...READY, strategy: "Standard Fix" },
+    }),
+  );
+
+  assert.equal(p.byId("context-ready").hidden, false);
+  assert.equal(p.byId("result-counts").textContent, "8 relevant files · 53 search terms");
+  assert.equal(p.byId("result-counts").hidden, false);
+  assert.equal(p.byId("result-strategy-value").textContent, "Standard Fix");
+  assert.equal(p.byId("fix-with-ai").hidden, false);
+});
+
+test("a result with no readable counts says nothing rather than zero", () => {
+  // Both artifacts unreadable is not a fact worth a line, and "0 relevant
+  // files" about a run that found eight is how a panel stops being believed.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, counts: "" } }));
+
+  assert.equal(p.byId("context-ready").hidden, false);
+  assert.equal(p.byId("result-counts").hidden, true);
+});
+
+test("Fix with AI asks for the action the host has always handled", () => {
+  const p = load();
+  p.send(state({ contextReady: READY }));
+
+  p.byId("fix-with-ai").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "fixWithAI" });
+});
+
+test("a handoff that already happened is reported, and cannot happen twice", () => {
+  // A developer who ticked Fix with AI before the run is not asked to click
+  // again, and no click can produce a second terminal for one package.
+  const p = load();
+  p.send(
+    state({
+      contextReady: {
+        ...READY,
+        canFix: false,
+        handoffOutcome: {
+          title: "AI fix started",
+          message: "The prepared context was handed to the configured AI agent.",
+          detail: "Handed to Claude Code in a terminal.",
+        },
+      },
+    }),
+  );
+
+  assert.equal(p.byId("result-handoff").hidden, false);
+  assert.equal(p.byId("result-handoff-title").textContent, "AI fix started");
+  assert.equal(p.byId("result-handoff-detail").textContent, "Handed to Claude Code in a terminal.");
+  assert.equal(p.byId("fix-with-ai").hidden, true, "a second handoff was on offer");
+});
+
+test("a handoff that could not run leaves the button, because a retry means something", () => {
+  // A skip is not a quieter success: nothing was launched, so there is no
+  // outcome block — the UI-B2 card explains it and the button comes back.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, canFix: true } }));
+
+  assert.equal(p.byId("result-handoff").hidden, true);
+  assert.equal(p.byId("fix-with-ai").hidden, false);
+});
+
+test("a failed run keeps its failure and claims no result", () => {
+  const p = load();
+  p.send(
+    state({
+      progress: {
+        state: "failed",
+        rows: [row("code_search", "failed")],
+        artifacts: [],
+        failure: {
+          code: "JIRA_AUTH",
+          summary: "Jira refused the credential.",
+          action: "Set it again.",
+          retryable: false,
+        },
+      },
+      runError: {
+        kind: "jira-access",
+        title: "Unable to access Jira",
+        message: "Jira refused the credential. Set it again.",
+      },
+    }),
+  );
+
+  assert.equal(p.byId("context-ready").hidden, true, "a failed run showed Context Ready");
+  assert.equal(p.byId("failure").hidden, false);
+  assert.equal(p.byId("failure-title").textContent, "Unable to access Jira");
+  // And the plan is still there to change before trying again.
+  assert.equal(p.byId("plan-buildContext").disabled, false);
+  assert.equal(p.byId("plan-buildContext").checked, true);
+});
+
+test("a result from one run does not survive into the next", () => {
+  // Every line is cleared with the section, so a second run that reads no
+  // counts cannot inherit the first one's numbers for a frame.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, strategy: "Standard Fix" } }));
+  assert.equal(p.byId("result-counts").hidden, false);
+
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  assert.equal(p.byId("result-counts").hidden, true);
+  assert.equal(p.byId("result-strategy").hidden, true);
+  for (const id of ["open-context", "copy-context", "open-folder"]) {
+    assert.equal(p.byId(id).hidden, true, id);
+  }
+});
+
+// --- UI-B1: Relevant Files --------------------------------------------------
+
+/** Two files, as the host hands them over: implementation first, then prose. */
+const FOUND = [
+  {
+    path: "platform/sample/Selector.cpp",
+    name: "Selector.cpp",
+    documentation: false,
+    matched: ["Output", "outputType"],
+  },
+  { path: "README.md", name: "README.md", documentation: true, matched: ["restored"] },
+];
+
+test("Relevant Files does not exist before a run", () => {
+  const p = load();
+  p.send(state());
+
+  assert.equal(p.byId("relevant-files").hidden, true);
+  assert.equal(p.byId("relevant-files-list").children.length, 0);
+});
+
+test("a result with no files hides the section rather than saying none", () => {
+  // §17: an empty-state line is a line to read and dismiss, and the counts
+  // above already said how many there were.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, files: [] } }));
+
+  assert.equal(p.byId("context-ready").hidden, false);
+  assert.equal(p.byId("relevant-files").hidden, true);
+});
+
+test("each file is a row with a name, a path and what matched it", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, files: FOUND } }));
+
+  assert.equal(p.byId("relevant-files").hidden, false);
+  const rows = p.byId("relevant-files-list").children;
+  // Two group headings and two rows, because both groups have something in them.
+  assert.deepEqual(
+    rows.map((child) => child.className),
+    ["files-group", "file-row", "files-group", "file-row"],
+  );
+  assert.deepEqual(
+    rows.filter((child) => child.className === "files-group").map((child) => child.textContent),
+    ["Implementation", "Supporting"],
+  );
+
+  const [button, matched] = rows[1]!.children;
+  assert.equal(button!.className, "file-open");
+  assert.deepEqual(
+    button!.children.map((span) => span.textContent),
+    ["Selector.cpp", "platform/sample/Selector.cpp"],
+  );
+  // The name is the accessible label; the path is the tooltip, not the name.
+  assert.equal(button!.getAttribute("aria-label"), "Open Selector.cpp");
+  assert.equal(button!.getAttribute("title"), "platform/sample/Selector.cpp");
+  assert.equal(matched!.textContent, "Matched: Output · outputType");
+});
+
+test("one kind of file needs no heading to separate it from the other", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, files: [FOUND[0]!] } }));
+
+  assert.deepEqual(
+    p.byId("relevant-files-list").children.map((child) => child.className),
+    ["file-row"],
+  );
+});
+
+test("a file with nothing recorded against it shows no Matched line", () => {
+  const p = load();
+  p.send(
+    state({
+      contextReady: {
+        ...READY,
+        files: [{ path: "src/a.cpp", name: "a.cpp", documentation: false, matched: [] }],
+      },
+    }),
+  );
+
+  const row = p.byId("relevant-files-list").children[0]!;
+  assert.equal(row.children.length, 1, "an empty Matched line was rendered");
+});
+
+test("the order is the host's, and grouping keeps it inside each group", () => {
+  // Ranking is Python's. A sort here would mean the list and the context
+  // disagree about which file matters most.
+  const p = load();
+  p.send(
+    state({
+      contextReady: {
+        ...READY,
+        files: [
+          { path: "z.cpp", name: "z.cpp", documentation: false, matched: [] },
+          { path: "readme.md", name: "readme.md", documentation: true, matched: [] },
+          { path: "a.cpp", name: "a.cpp", documentation: false, matched: [] },
+          { path: "design.md", name: "design.md", documentation: true, matched: [] },
+        ],
+      },
+    }),
+  );
+
+  const names = p
+    .byId("relevant-files-list")
+    .children.filter((child) => child.className === "file-row")
+    .map((row) => row.children[0]!.children[0]!.textContent);
+  // z before a, readme before design: the artifact's order, partitioned.
+  assert.deepEqual(names, ["z.cpp", "a.cpp", "readme.md", "design.md"]);
+});
+
+test("a click asks the host to open exactly the path the artifact gave", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, files: FOUND } }));
+
+  const row = p.byId("relevant-files-list").children[1]!;
+  row.children[0]!.dispatch("click");
+
+  assert.deepEqual(p.posted.at(-1), {
+    type: "openRelevantFile",
+    path: "platform/sample/Selector.cpp",
+  });
+});
+
+test("a longer list says how many it is not showing", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, files: FOUND, moreFiles: 7 } }));
+
+  assert.equal(p.byId("relevant-files-more").hidden, false);
+  assert.equal(p.byId("relevant-files-more").textContent, "7 more in related_files.json");
+});
+
+test("a list that shows everything says nothing about more", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, files: FOUND } }));
+
+  assert.equal(p.byId("relevant-files-more").hidden, true);
+});
+
+test("one bug's files never outlive the result they belonged to", () => {
+  // §18: the list is part of `contextReady`, so a run in flight, a failure and
+  // another work item each take it away with the rest of the result.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, files: FOUND, moreFiles: 3 } }));
+  assert.equal(p.byId("relevant-files-list").children.length, 4);
+
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  assert.equal(p.byId("relevant-files").hidden, true);
+  assert.equal(p.byId("relevant-files-list").children.length, 0, "stale rows survived");
+  assert.equal(p.byId("relevant-files-more").hidden, true);
+});
+
+test("Relevant Files stays below the primary action, in the result", () => {
+  // The hierarchy UI-A3 established: Fix with AI first, artifact actions next,
+  // this last. A disclosure is what keeps it from competing.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, files: FOUND } }));
+
+  assert.equal(p.byId("fix-with-ai").hidden, false);
+  assert.equal(p.byId("relevant-files").hidden, false);
+});
+
+// --- UI-B2: the failure cards ------------------------------------------------
+
+/** A classified error, as the host hands one over. */
+const JIRA_ERROR = {
+  kind: "jira-access" as const,
+  title: "Unable to access Jira",
+  message: "Jira rejected the stored credentials. Set them again.",
+  detail: "HTTP 401 Unauthorized",
+  action: { title: "Set Jira Credentials", command: "bugpilot.setCredentials" },
+};
+
+const AGENT_ERROR = {
+  kind: "agent" as const,
+  title: "AI agent unavailable",
+  message: "BugPilot couldn't start the selected AI agent.",
+  detail: "claude is not on PATH.",
+  action: { title: "Open Settings", command: "bugpilot.openSettings" },
+};
+
+test("no failure means no card, on either surface", () => {
+  const p = load();
+  p.send(state());
+
+  assert.equal(p.byId("failure").hidden, true);
+  assert.equal(p.byId("handoff-error").hidden, true);
+});
+
+test("a run failure is a title, a sentence, a button and the original underneath", () => {
+  const p = load();
+  p.send(state({ runError: JIRA_ERROR }));
+
+  assert.equal(p.byId("failure").hidden, false);
+  assert.equal(p.byId("failure-title").textContent, "Unable to access Jira");
+  assert.equal(p.byId("failure-message").textContent, JIRA_ERROR.message);
+  // Collapsed, and holding exactly what the CLI said.
+  assert.equal(p.byId("failure-details").hidden, false);
+  assert.equal(p.byId("failure-detail").textContent, "HTTP 401 Unauthorized");
+  assert.equal(p.byId("failure-details").open, false);
+
+  const actions = p.byId("failure-actions").children;
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0]!.textContent, "Set Jira Credentials");
+});
+
+test("the action button asks the host to run the command the host named", () => {
+  const p = load();
+  p.send(state({ runError: JIRA_ERROR }));
+
+  p.byId("failure-actions").children[0]!.dispatch("click");
+
+  assert.deepEqual(p.posted.at(-1), { type: "command", id: "bugpilot.setCredentials" });
+});
+
+test("a failure with nothing technical to add shows no Details control", () => {
+  const p = load();
+  p.send(state({ runError: { kind: "run", title: "Run failed", message: "It stopped." } }));
+
+  assert.equal(p.byId("failure").hidden, false);
+  assert.equal(p.byId("failure-details").hidden, true);
+  assert.equal(p.byId("failure-actions").children.length, 0);
+});
+
+test("technical detail arrives as text, whatever it contains", () => {
+  // It is a CLI's stderr and a Jira response — which is exactly where a script
+  // tag would come from. The page writes it with textContent and nothing else.
+  const hostile = '<script>alert("x")</script> & <img src=x onerror=1>';
+  const p = load();
+  p.send(state({ runError: { kind: "run", title: "Run failed", message: "x", detail: hostile } }));
+
+  assert.equal(p.byId("failure-detail").textContent, hostile);
+  assert.equal(p.byId("failure-detail").children.length, 0, "the detail became markup");
+});
+
+test("a multi-line traceback keeps its lines", () => {
+  const traceback = "Traceback (most recent call last):\n  File \"a.py\", line 1\nValueError: x";
+  const p = load();
+  p.send(state({ runError: { kind: "run", title: "Run failed", message: "x", detail: traceback } }));
+
+  assert.equal(p.byId("failure-detail").textContent, traceback);
+});
+
+test("a handoff failure is its own card, beside a result that stays", () => {
+  const p = load();
+  p.send(
+    state({
+      contextReady: { ...READY, files: FOUND },
+      handoffError: AGENT_ERROR,
+    }),
+  );
+
+  // The result is untouched: counts, actions and files all still there.
+  assert.equal(p.byId("context-ready").hidden, false);
+  assert.equal(p.byId("result-counts").hidden, false);
+  assert.equal(p.byId("relevant-files").hidden, false);
+  assert.equal(p.byId("open-context").hidden, false);
+  // And the agent error is the only thing new.
+  assert.equal(p.byId("handoff-error").hidden, false);
+  assert.equal(p.byId("handoff-error-title").textContent, "AI agent unavailable");
+  assert.equal(p.byId("handoff-error-detail").textContent, "claude is not on PATH.");
+  assert.equal(p.byId("failure").hidden, true, "a handoff failure claimed the run card");
+});
+
+test("the handoff card's button takes the same path as the run card's", () => {
+  const p = load();
+  p.send(state({ contextReady: READY, handoffError: AGENT_ERROR }));
+
+  p.byId("handoff-error-actions").children[0]!.dispatch("click");
+
+  assert.deepEqual(p.posted.at(-1), { type: "command", id: "bugpilot.openSettings" });
+});
+
+test("a failed run shows the card and neither the result nor the files", () => {
+  const p = load();
+  p.send(
+    state({
+      progress: { state: "failed", rows: [], artifacts: [] },
+      runError: JIRA_ERROR,
+    }),
+  );
+
+  assert.equal(p.byId("failure").hidden, false);
+  assert.equal(p.byId("context-ready").hidden, true);
+  assert.equal(p.byId("relevant-files").hidden, true);
+  assert.equal(p.byId("handoff-error").hidden, true);
+  // The plan is still there to change before trying again.
+  assert.equal(p.byId("plan-buildContext").disabled, false);
+  assert.equal(p.byId("run").disabled, false);
+});
+
+test("a card is emptied as well as hidden when its failure goes away", () => {
+  // Otherwise the previous reason flashes into view for a frame if the next
+  // render sets `hidden` before it sets the text.
+  const p = load();
+  p.send(state({ runError: JIRA_ERROR, handoffError: AGENT_ERROR }));
+  assert.equal(p.byId("failure-title").textContent, "Unable to access Jira");
+
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+
+  for (const id of ["failure", "handoff-error"]) {
+    assert.equal(p.byId(id).hidden, true, id);
+    assert.equal(p.byId(`${id}-title`).textContent, "", id);
+    assert.equal(p.byId(`${id}-message`).textContent, "", id);
+    assert.equal(p.byId(`${id}-detail`).textContent, "", id);
+    assert.equal(p.byId(`${id}-actions`).children.length, 0, id);
+    assert.equal(p.byId(`${id}-details`).hidden, true, id);
+  }
+});
+
+test("a handoff error disappears when the next attempt works", () => {
+  const p = load();
+  p.send(state({ contextReady: READY, handoffError: AGENT_ERROR }));
+  assert.equal(p.byId("handoff-error").hidden, false);
+
+  p.send(
+    state({
+      contextReady: {
+        ...READY,
+        canFix: false,
+        handoffOutcome: {
+          title: "AI fix started",
+          message: "The prepared context was handed to the configured AI agent.",
+        },
+      },
+    }),
+  );
+
+  assert.equal(p.byId("handoff-error").hidden, true);
+  assert.equal(p.byId("result-handoff-title").textContent, "AI fix started");
+});
+
+// --- UI-B3: the successful handoff -------------------------------------------
+
+const STARTED = {
+  title: "AI fix started",
+  message: "The prepared context was handed to the configured AI agent.",
+  detail: "Handed to Claude Code in a terminal.",
+};
+
+test("before a handoff there is a button and no outcome", () => {
+  const p = load();
+  p.send(state({ contextReady: READY }));
+
+  assert.equal(p.byId("fix-with-ai").hidden, false);
+  assert.equal(p.byId("fix-with-ai-label").textContent, "Fix with AI");
+  assert.equal(p.byId("result-handoff").hidden, true);
+});
+
+test("a successful handoff replaces the button with what actually happened", () => {
+  const p = load();
+  p.send(
+    state({
+      contextReady: { ...READY, files: FOUND, canFix: false, handoffOutcome: STARTED },
+    }),
+  );
+
+  assert.equal(p.byId("result-handoff").hidden, false);
+  assert.equal(p.byId("result-handoff-title").textContent, "AI fix started");
+  assert.equal(
+    p.byId("result-handoff-message").textContent,
+    "The prepared context was handed to the configured AI agent.",
+  );
+  assert.equal(p.byId("result-handoff-detail").textContent, "Handed to Claude Code in a terminal.");
+  assert.equal(p.byId("fix-with-ai").hidden, true);
+
+  // And nothing the run produced moved.
+  assert.equal(p.byId("context-ready").hidden, false);
+  assert.equal(p.byId("result-counts").textContent, READY.counts);
+  assert.equal(p.byId("relevant-files").hidden, false);
+  for (const id of ["open-context", "copy-context", "open-folder"]) {
+    assert.equal(p.byId(id).hidden, false, id);
+  }
+  assert.equal(p.byId("handoff-error").hidden, true);
+  assert.equal(p.byId("failure").hidden, true);
+});
+
+test("the artifact actions still work after a handoff", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, canFix: false, handoffOutcome: STARTED } }));
+
+  p.byId("open-context").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "openContext" });
+});
+
+test("a handoff with nothing to say about the agent shows two lines, not three", () => {
+  const p = load();
+  p.send(
+    state({
+      contextReady: {
+        ...READY,
+        canFix: false,
+        handoffOutcome: { title: STARTED.title, message: STARTED.message },
+      },
+    }),
+  );
+
+  assert.equal(p.byId("result-handoff").hidden, false);
+  assert.equal(p.byId("result-handoff-detail").hidden, true);
+});
+
+test("the button says it is working, and refuses a second press meanwhile", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, handoffBusy: true } }));
+
+  assert.equal(p.byId("fix-with-ai-label").textContent, "Starting AI fix…");
+  assert.match(p.byId("fix-with-ai-icon").className, /codicon-spin/);
+  assert.equal(p.byId("fix-with-ai").disabled, true);
+  // Busy is not an outcome.
+  assert.equal(p.byId("result-handoff").hidden, true);
+});
+
+test("a handoff that failed shows the card, not the outcome", () => {
+  const p = load();
+  p.send(
+    state({
+      contextReady: { ...READY, files: FOUND },
+      handoffError: {
+        kind: "agent",
+        title: "AI agent unavailable",
+        message: "BugPilot couldn't start the selected AI agent.",
+      },
+    }),
+  );
+
+  assert.equal(p.byId("result-handoff").hidden, true, "a failure was reported as a success");
+  assert.equal(p.byId("handoff-error").hidden, false);
+  // And the button is back, because installing an agent and pressing again is
+  // a real thing to do.
+  assert.equal(p.byId("fix-with-ai").hidden, false);
+  assert.equal(p.byId("relevant-files").hidden, false);
+});
+
+test("the outcome goes away with the result it belonged to", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, canFix: false, handoffOutcome: STARTED } }));
+  assert.equal(p.byId("result-handoff").hidden, false);
+
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+
+  assert.equal(p.byId("result-handoff").hidden, true);
+  assert.equal(p.byId("context-ready").hidden, true);
+});
+
+test("the outcome is announced as text, not as a tick", () => {
+  // The status has to survive a screen reader and a monochrome theme, so the
+  // words carry it and the icon is decoration. The `role="status"` that
+  // announces them is markup, and `panel.test.ts` checks that; this checks the
+  // half the page owns — that there are words there at all.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, canFix: false, handoffOutcome: STARTED } }));
+
+  assert.notEqual(p.byId("result-handoff-title").textContent, "");
+  assert.notEqual(p.byId("result-handoff-message").textContent, "");
+});
+
+// --- UI-V1: what rendering the page found ------------------------------------
+
+test("the run hint stops explaining Run once Run has been pressed", () => {
+  // Advice about a button, sitting directly above the proof of what that button
+  // did. Visible in every post-run screenshot until UI-V1.
+  const p = load();
+  p.send(state());
+  assert.equal(p.byId("run-hint").hidden, false);
+
+  p.send(state({ contextReady: READY }));
+  assert.equal(p.byId("run-hint").hidden, true);
+
+  p.send(state({ runError: { kind: "run", title: "Run failed", message: "It stopped." } }));
+  assert.equal(p.byId("run-hint").hidden, true);
+
+  // And it comes back for the next untouched state.
+  p.send(state());
+  assert.equal(p.byId("run-hint").hidden, false);
 });

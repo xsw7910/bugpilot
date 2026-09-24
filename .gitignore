@@ -14,6 +14,16 @@ node_modules/
 extension/out/
 *.vsix
 
+# The visual review harness and what it renders.
+#
+# `extension/.review/` holds a tool that lays the panel out in headless
+# Chromium so UI work can be looked at rather than inferred. Whether it becomes
+# a permanent visual-regression tool is a separate decision, so the tool itself
+# is deliberately untracked for now — but its output is many megabytes of
+# generated HTML and PNGs, and these lines are what stop a stray `git add .`
+# from committing them.
+extension/.review/
+
 # A developer's own retrieval corpus: real issue text and the files that fixed
 # it. Internal Jira prose does not belong in a public repository, so the format
 # and the loader are committed and the cases are not. `python

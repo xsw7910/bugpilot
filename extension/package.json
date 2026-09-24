@@ -90,6 +90,11 @@
         "category": "BugPilot"
       },
       {
+        "command": "bugpilot.openSettings",
+        "title": "Open Settings",
+        "category": "BugPilot"
+      },
+      {
         "command": "bugpilot.clearCredentials",
         "title": "Clear Jira Credentials",
         "category": "BugPilot"

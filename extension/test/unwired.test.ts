@@ -37,8 +37,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "A guard export: the manifest test checks these are hidden from the command palette.",
   "messages.ts:WORKFLOW_CHECKBOX_IDS":
     "A guard export: the checkbox id per workflow step, compared against the document.",
-  "html.ts:ADVANCED_FIELD_IDS":
-    "A guard export: test/panel.test.ts checks each of these is inside the collapsed section and not above Run.",
 };
 
 const EXPORTED =

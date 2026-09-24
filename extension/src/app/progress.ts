@@ -105,6 +105,15 @@ export interface ProgressView {
     readonly summary: string;
     readonly action?: string;
     readonly retryable: boolean;
+    /**
+     * What the CLI actually said, kept beside the translation of it.
+     *
+     * `diagnose()` deliberately prefers the table's wording to the message for
+     * a code it knows, which is right for the sentence a developer reads first
+     * and wrong for the one they need when that sentence is not enough. Both
+     * survive: the summary is the card, this is the Details disclosure.
+     */
+    readonly detail?: string;
     /** The capability that was in flight, when there was one. */
     readonly capability?: Capability;
   };
@@ -332,6 +341,10 @@ export class ProgressTracker {
       summary: diagnosis.summary,
       ...(diagnosis.action === undefined ? {} : { action: diagnosis.action }),
       retryable: diagnosis.retryable,
+      // Kept even when `diagnose` used it as the summary, which is the unknown
+      // code case: the same text twice is better than a Details disclosure that
+      // is sometimes empty for reasons nobody can predict.
+      ...(message.trim() === "" ? {} : { detail: message.trim() }),
       ...(capability === undefined ? {} : { capability }),
     };
   }

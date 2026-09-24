@@ -21,6 +21,10 @@ import type { OverallStatus, WorkflowStep } from "../app/workflow.ts";
 import type { ArtifactList } from "../app/artifacts.ts";
 import type { CommandAction } from "../app/environment.ts";
 import { FIX_MODE_ID_RE } from "../app/form.ts";
+import type { UserFacingError } from "../app/failures.ts";
+import type { HandoffOutcome } from "../app/handoff.ts";
+import { isSafeRelativePath } from "../app/contextSummary.ts";
+import type { RelevantFile } from "../app/contextSummary.ts";
 import { WRITABLE_SCOPES } from "../app/fixModes.ts";
 import type {
   FixModeCatalog,
@@ -135,6 +139,82 @@ export interface PanelState {
   readonly manage?: ManageView;
   /** What the hint improver is doing, and what it has to show for it. */
   readonly hintImprovement?: HintImprovementView;
+  /**
+   * The finished package, when there is one to act on.
+   *
+   * Present is the whole signal: the page renders the result section when this
+   * arrives and hides it when it does not, so "before the first run" needs no
+   * empty card and no zero counts. The host decides — a run in flight and a run
+   * that failed both leave it absent.
+   */
+  readonly contextReady?: ContextReadyView;
+  /**
+   * Why the last run did not finish, classified and worded for a human.
+   *
+   * Never present at the same time as `contextReady`: a run that failed did not
+   * produce a package, and the two cards would be answering the same question
+   * with opposite answers.
+   */
+  readonly runError?: UserFacingError;
+  /**
+   * Why the last handoff could not start.
+   *
+   * Deliberately *not* mutually exclusive with `contextReady`. The package is
+   * built and every artifact action still works; only the agent would not
+   * start. Clearing the result for that would make the developer rerun
+   * retrieval to fix a PATH problem.
+   */
+  readonly handoffError?: UserFacingError;
+}
+
+/**
+ * What a developer can do with a package that exists.
+ *
+ * Deliberately not the workflow rows in another arrangement. Those say what
+ * each step did; this says what the run produced and what to press next, which
+ * is the question a checklist could never answer.
+ */
+export interface ContextReadyView {
+  /** One line of counts, or empty when neither artifact could be read. */
+  readonly counts: string;
+  /**
+   * The mode the package on disk was prepared with, as one short line.
+   *
+   * The same string `preparedFixMode` produced before UI-A3 moved it here, for
+   * the same reason: what the agent was actually told, never what the selector
+   * happens to say now.
+   */
+  readonly strategy?: string;
+  /** Which of the three artifact actions have their file. */
+  readonly actions: readonly PanelAction[];
+  /**
+   * Whether pressing Fix with AI would do something that has not been done.
+   *
+   * False after a handoff that succeeded, which is what stops a second press
+   * from producing a second terminal for the same run.
+   */
+  readonly canFix: boolean;
+  /**
+   * A handoff that started an agent, said out loud.
+   *
+   * Present only for a handoff that actually launched something. A skip is not
+   * a quieter success: it is explained by `handoffError`, and the button stays.
+   * The two are never both present, which a test pins.
+   */
+  readonly handoffOutcome?: HandoffOutcome;
+  /** True while a handoff is being resolved, which spawns a probe. */
+  readonly handoffBusy: boolean;
+  /**
+   * Which files the run found, in the order the artifact ranked them.
+   *
+   * Part of this view rather than a field of its own, which is what ties them
+   * to one work item: a run in flight, a failed run and a freshly typed issue
+   * all leave `contextReady` absent, so there is no path by which the previous
+   * bug's files stay on screen.
+   */
+  readonly files: readonly RelevantFile[];
+  /** How many the artifact held beyond `files`, when it held more. */
+  readonly moreFiles?: number;
 }
 
 /**
@@ -208,6 +288,16 @@ export type PanelMessage =
   | { readonly type: "action"; readonly id: PanelAction }
   | { readonly type: "command"; readonly id: string }
   | { readonly type: "openArtifact"; readonly name: string }
+  /**
+   * "Open this file from the Relevant Files list."
+   *
+   * A repository-relative path the *artifact* named, echoed back by the page.
+   * Unlike `openArtifact`, whose names are plain files inside one directory,
+   * this one has separators in it — so the host resolves it against the
+   * repository root and refuses anything that lands outside, rather than
+   * trusting a shape check made on the far side of the boundary.
+   */
+  | { readonly type: "openRelevantFile"; readonly path: string }
   | { readonly type: "improveHint"; readonly form: FormState }
   | { readonly type: "useImprovedHint" }
   | { readonly type: "dismissImprovedHint" }
@@ -278,6 +368,14 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       // against COMMANDS, because a page could otherwise ask for any command in
       // the editor, including ones that write files.
       return id === undefined ? undefined : { type, id };
+    }
+    case "openRelevantFile": {
+      const value = asString(message?.["path"], 1_024);
+      // Shape here, boundary on the host: this says "a plausible relative
+      // path", and the controller says "inside the repository", which is the
+      // question only something that knows the root can answer.
+      if (value === undefined || !isSafeRelativePath(value)) return undefined;
+      return { type, path: value };
     }
     case "openArtifact": {
       const name = asString(message?.["name"], 256);

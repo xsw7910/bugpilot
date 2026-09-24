@@ -20,6 +20,16 @@ export const COMMANDS = {
   chooseExecutable: "bugpilot.chooseExecutable",
   /** Store the Jira email and API token in SecretStorage. */
   setCredentials: "bugpilot.setCredentials",
+  /**
+   * The editor's own settings, filtered to this extension's section.
+   *
+   * One generic destination rather than a button per thing that can be
+   * misconfigured. It is what a failure card offers when the useful next step
+   * is "look at how this is set up" and the extension cannot be more specific
+   * than that — a Jira failure gets `setCredentials` instead, because that is
+   * where a Jira credential actually lives.
+   */
+  openSettings: "bugpilot.openSettings",
   clearCredentials: "bugpilot.clearCredentials",
 
   // --- the panel ---

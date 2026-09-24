@@ -16,11 +16,26 @@
 
 import path from "node:path";
 
+import { isWithin } from "../workspace.ts";
+
 import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE } from "./form.ts";
+import {
+  MAX_LISTED_FILES,
+  RELATED_FILES_ARTIFACT,
+  SEARCH_QUALITY_ARTIFACT,
+  contextCounts,
+  describeCounts,
+  isSafeRelativePath,
+  relevantFiles,
+} from "./contextSummary.ts";
+import type { RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
 import { buildWorkflow, overallStatus } from "./workflow.ts";
-import type { FixWithAiOutcome } from "./workflow.ts";
+import type { FixWithAiOutcome, WorkflowStep } from "./workflow.ts";
+import { handoffError, runError } from "./failures.ts";
+import { handoffOutcome } from "./handoff.ts";
+import type { UserFacingError } from "./failures.ts";
 import {
   buildHintPrompt,
   cleanImprovedHint,
@@ -55,8 +70,10 @@ import type { Log } from "./log.ts";
 import type { Envelope, StreamEvent } from "../protocol.ts";
 import { MAX_ATTACHMENTS } from "../panel/messages.ts";
 import type {
+  ContextReadyView,
   CreatedFixMode,
   Notice,
+  PanelAction,
   PanelMessage,
   PanelState,
   Readiness,
@@ -283,6 +300,34 @@ export class Controller {
    */
   #fix: FixWithAiOutcome | undefined;
   #canRetry = false;
+  /**
+   * The counts for the result section, as the last artifact refresh read them.
+   *
+   * Held rather than re-read per push: `#push` runs on every stream event, and
+   * two file reads per event would be a lot of syscalls for a number that only
+   * changes when the directory does.
+   */
+  #counts = "";
+  /** The rows of the Relevant Files list, as the last refresh read them. */
+  #files: readonly RelevantFile[] = [];
+  /** How many the artifact held beyond the ones being shown. */
+  #moreFiles = 0;
+  /**
+   * Why the last handoff could not start.
+   *
+   * Held separately from `#fix`, which records what happened to the workflow's
+   * last row. The same event feeds both — one as a status, one as a card — and
+   * a card is what a developer can act on.
+   */
+  #handoffError: UserFacingError | undefined;
+  /**
+   * True while a handoff is being worked out.
+   *
+   * Resolving an agent spawns a probe per candidate and reads the handoff file,
+   * so the press is not instant. Without this the button sits there looking
+   * ignored, which is the thing UI-A1 fixed for Run.
+   */
+  #handoffBusy = false;
   #readiness: Readiness = { kind: "checking" };
   #root: string | undefined;
   #jiraConfigured = false;
@@ -456,6 +501,9 @@ export class Controller {
       case "openArtifact":
         await this.openArtifact(message.name);
         return;
+      case "openRelevantFile":
+        await this.openRelevantFile(message.path);
+        return;
       case "manageFixModes":
         await this.openFixModeManager();
         return;
@@ -485,10 +533,10 @@ export class Controller {
         else await this.#ports.ui.editCredentials();
         return;
       case "command": {
-        // Only ids this host offered in `readiness.actions`, and only while the
-        // offer stands. Executing an arbitrary editor command on a webview's
-        // word is a privilege the page must not have.
-        if (!this.#offered.has(message.id)) {
+        // Only ids this host is currently offering, and only while the offer
+        // stands. Executing an arbitrary editor command on a webview's word is
+        // a privilege the page must not have.
+        if (!this.#isOffered(message.id)) {
           this.#ports.log.error(`Refusing to run a command the page asked for: ${message.id}`);
           return;
         }
@@ -549,6 +597,12 @@ export class Controller {
       this.#artifactNames = [];
     }
     this.#canRetry = false;
+    this.#counts = "";
+    this.#files = [];
+    this.#moreFiles = 0;
+    // Both, before anything is pushed: a stale card beside a Running… button
+    // reads as the new run having failed instantly.
+    this.#handoffError = undefined;
     // A previous run's handoff says nothing about this one.
     this.#fix = undefined;
     this.#progress = tracker.view();
@@ -729,12 +783,34 @@ export class Controller {
    * that requirement asks for, which is why the box starts empty.
    */
   async fixWithAI(): Promise<void> {
+    // Cleared as the attempt starts rather than when it succeeds: the developer
+    // pressed the button, and the old reason is about the press before it.
+    if (this.#handoffError) {
+      this.#handoffError = undefined;
+      this.#push();
+    }
     const workItemId = this.#workItemId;
     const root = this.#root;
     if (!workItemId || !root) {
       this.#ports.ui.notify("warning", "Prepare a bug first; there is nothing to hand over yet.");
       return;
     }
+
+    // Said before the probe rather than after it: resolving an agent spawns a
+    // process per candidate, and a button that does nothing visible for half a
+    // second reads as a click that was dropped.
+    this.#handoffBusy = true;
+    this.#push();
+    try {
+      await this.#handOver(workItemId, root);
+    } finally {
+      this.#handoffBusy = false;
+      this.#push();
+    }
+  }
+
+  /** The handoff itself, wrapped by `fixWithAI` so the busy flag always clears. */
+  async #handOver(workItemId: string, root: string): Promise<void> {
     const text = await this.#handoffText(workItemId);
     const plan = await resolveAgent({
       choice: this.#form.agent,
@@ -744,13 +820,16 @@ export class Controller {
     });
 
     if (plan.kind === "run") {
+      // A retry that works clears the card the previous attempt left behind.
+      this.#handoffError = undefined;
       this.#ports.log.info(`Handing ${workItemId} to ${plan.label}: ${plan.commandLine}`);
       this.#ports.ui.runInTerminal(`Fix with AI · ${workItemId}`, root, plan.commandLine);
       // "success" means handed over, and the detail says so. The agent runs in
       // a terminal this extension does not own, so whether it *fixed* anything
       // is not knowable here and is not claimed.
       this.#fix = { status: "success", detail: `Handed to ${plan.label} in a terminal.` };
-      this.#push();
+      // No push here: `fixWithAI`'s `finally` does one, and pushing before it
+      // would put a state on screen that is both busy and finished at once.
       return;
     }
 
@@ -763,7 +842,12 @@ export class Controller {
       status: "skipped",
       detail: `${plan.reason} The handoff prompt is on the clipboard instead.`,
     };
-    this.#push();
+    // The same event, said twice on purpose: a status on the workflow row, and
+    // a card beside the result that says what to do about it. `plan.reason` is
+    // `resolveAgent`'s own sentence and is the Details text, never the headline.
+    this.#handoffError = handoffError(plan.reason);
+    // The push is `fixWithAI`'s, for the same reason as the success branch. A
+    // notification is a toast rather than panel state, so its order is its own.
     this.#ports.ui.notify(
       "info",
       revealed
@@ -851,6 +935,7 @@ export class Controller {
     const names = listing.kind === "ok" ? listing.names : [];
     this.#artifactNames = names;
     this.#artifacts = buildArtifactList({ names });
+    await this.#readSummary(workItemId, names);
     // Retry needs a package to retry: `bug --retry` reads the prepared
     // artifacts, so offering it after a run that was stopped before producing
     // any would send the developer into WORK_ITEM_NOT_FOUND.
@@ -880,6 +965,10 @@ export class Controller {
     this.#setWorkItem(workItemId);
     const parsed = await this.#readStatus(workItemId);
     this.#progress = viewFromStatus(parsed);
+    // Another bug entirely: nothing of the previous one's handoff belongs to
+    // it — not the error, and not the outcome either.
+    this.#handoffError = undefined;
+    this.#fix = undefined;
     this.#preparedFixMode = preparedFixModeFromStatus(parsed, this.#fixModes);
     this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
     await this.refreshArtifacts();
@@ -1353,8 +1442,141 @@ export class Controller {
     this.#ports.saveWorkItem?.(workItemId);
   }
 
+  /**
+   * Whether the page is allowed to ask for this command right now.
+   *
+   * Two sources, because there are two surfaces that offer one: the blocked
+   * readiness card, and the failure cards UI-B2 added. The second was missed —
+   * the cards rendered a button, the page posted the command, and this refused
+   * it, so "Set Jira Credentials" and "Open Settings" did nothing at all. The
+   * page test saw the message go out and the host test never received it.
+   *
+   * Derived on each call rather than cached in a set, which is what let the two
+   * drift apart in the first place: an offer is a button being on screen, and
+   * the state that puts it there is right here.
+   */
+  #isOffered(command: string): boolean {
+    if (this.#offered.has(command)) return true;
+    const cards = [this.#runFailure(), this.#handoffError];
+    return cards.some((card) => card?.action?.command === command);
+  }
+
   #itemFile(workItemId: string, name: string): string {
     return path.join(this.#root ?? "", ".ai", workItemId, name);
+  }
+
+  /**
+   * What the run found: the counts, and which files.
+   *
+   * Only files the listing actually named are opened, so the normal
+   * before-the-first-run case costs no syscalls at all. Everything past that is
+   * `contextSummary`'s business, which omits a number and drops an entry rather
+   * than guessing at either.
+   */
+  async #readSummary(workItemId: string, names: readonly string[]): Promise<void> {
+    const read = async (name: string): Promise<string | undefined> =>
+      names.includes(name)
+        ? await this.#ports.files.readFile(this.#itemFile(workItemId, name))
+        : undefined;
+    const related = await read(RELATED_FILES_ARTIFACT);
+    this.#counts = describeCounts(contextCounts(related, await read(SEARCH_QUALITY_ARTIFACT)));
+    const found = relevantFiles(related);
+    this.#files = found.slice(0, MAX_LISTED_FILES);
+    this.#moreFiles = Math.max(0, found.length - this.#files.length);
+  }
+
+  /**
+   * Open one file from the Relevant Files list.
+   *
+   * The path came out of `related_files.json` and went through a webview, which
+   * is the part that matters: by the time it arrives here it is untrusted input
+   * that happens to look like something BugPilot wrote. So it is resolved
+   * against the repository and checked with the same `isWithin` the focus-file
+   * and ignore-path validation uses, and a path that lands outside is refused
+   * and logged rather than opened.
+   */
+  async openRelevantFile(relativePath: string): Promise<void> {
+    const root = this.#root;
+    if (!root) return;
+    if (!isSafeRelativePath(relativePath)) {
+      this.#ports.log.error(`Refusing to open a suspicious file path: ${relativePath}`);
+      return;
+    }
+    const target = path.resolve(root, relativePath);
+    if (!isWithin(root, target)) {
+      // Belt and braces: `isSafeRelativePath` already rejects `..` and absolute
+      // forms, and this catches whatever a symlink or an odd separator turned
+      // them into after resolution.
+      this.#ports.log.error(`Refusing to open a file outside the repository: ${relativePath}`);
+      return;
+    }
+    await this.#ports.ui.openFile(target);
+  }
+
+  /**
+   * The result section, or nothing at all.
+   *
+   * Three conditions, and each rules out a state that would otherwise read as
+   * success: `bug_context.md` on disk means a package genuinely exists, not
+   * running means the numbers are not about to change under the developer, and
+   * not failed means a run that died is never crowned with a tick. A *stopped*
+   * run that got as far as writing the context does show it, because the
+   * context is there — and the failure card is what says the run did not
+   * finish.
+   */
+  #contextReady(workflow: readonly WorkflowStep[]): ContextReadyView | undefined {
+    if (this.#running) return undefined;
+    if (this.#progress.state === "failed") return undefined;
+    if (!this.#artifactNames.includes("bug_context.md")) return undefined;
+
+    const actions = workflow.find((step) => step.id === "buildContext")?.actions ?? [];
+    const strategy = this.#strategyLine();
+    const outcome = handoffOutcome(this.#fix);
+    return {
+      counts: this.#counts,
+      ...(strategy === undefined ? {} : { strategy }),
+      actions: actions as readonly PanelAction[],
+      files: this.#files,
+      ...(this.#moreFiles > 0 ? { moreFiles: this.#moreFiles } : {}),
+      // Offered while a press would do something new. After a handoff that
+      // worked it would only open a second terminal for the same package.
+      canFix: this.#fix?.status !== "success",
+      handoffBusy: this.#handoffBusy,
+      ...(outcome === undefined ? {} : { handoffOutcome: outcome }),
+    };
+  }
+
+  /**
+   * Why the last run did not finish, as a card.
+   *
+   * Nothing is classified while a run is in flight: the tracker's failure is
+   * from the attempt before this one, and showing it next to a Running… button
+   * would read as this run having failed instantly.
+   */
+  #runFailure(): UserFacingError | undefined {
+    if (this.#running) return undefined;
+    return runError(this.#progress.failure, this.#workItemId);
+  }
+
+  /**
+   * The mode the package was prepared with, as one line.
+   *
+   * Moved here from the page in UI-A3, unchanged in substance: three states,
+   * because "this mode is gone" and "BugPilot could not check" look alike and
+   * mean opposite things.
+   */
+  #strategyLine(): string | undefined {
+    const prepared = this.#preparedFixMode;
+    if (!prepared) return undefined;
+    const suffix =
+      prepared.availability === "unavailable"
+        ? " (unavailable)"
+        : prepared.availability === "unknown"
+          ? " · availability unknown"
+          : prepared.executionKind === "investigate"
+            ? " · investigation only"
+            : "";
+    return `${prepared.name}${suffix}`;
   }
 
   #push(): void {
@@ -1369,6 +1591,8 @@ export class Controller {
       artifacts: this.#artifactNames,
       ...(this.#fix === undefined ? {} : { fix: this.#fix }),
     });
+    const contextReady = this.#contextReady(workflow);
+    const failed = this.#runFailure();
     this.#ports.ui.render({
       revision: this.#revision,
       fixModes: this.#fixModes,
@@ -1396,6 +1620,11 @@ export class Controller {
       workflow,
       overall: overallStatus(workflow, this.#progress),
       artifacts: this.#artifacts,
+      ...(contextReady === undefined ? {} : { contextReady }),
+      // Classified here, where the code and the operation that produced it are
+      // both known. The page receives a rendered card and decides nothing.
+      ...(failed === undefined ? {} : { runError: failed }),
+      ...(this.#handoffError === undefined ? {} : { handoffError: this.#handoffError }),
       warnings: this.#warnings,
       jiraConfigured: this.#jiraConfigured,
       canRetry: this.#canRetry,

@@ -330,7 +330,13 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   if (form.source === "jira") {
     const key = form.issueKey.trim().toUpperCase();
     if (key === "") {
-      problems.push({ field: "issueKey", message: "An issue key is required, for example JR-12345." });
+      // The panel has one Issue box for both paths since §34's UI-A1, and an
+      // empty one is read as the Jira path — so this message has to offer both
+      // ways out rather than name a switch that no longer exists.
+      problems.push({
+        field: "issueKey",
+        message: "Enter a Jira issue key like JR-12345, or describe the bug.",
+      });
     } else if (!JIRA_ISSUE_KEY_RE.test(key)) {
       problems.push({
         field: "issueKey",
@@ -346,7 +352,7 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
     if (description === "") {
       problems.push({
         field: "description",
-        message: "Describe the bug, or switch the input source to a Jira issue.",
+        message: "Describe the bug, or enter a Jira issue key like JR-12345.",
       });
     } else if (description.length <= ARGV_TEXT_LIMIT) {
       args.push(flag("--description", description));
