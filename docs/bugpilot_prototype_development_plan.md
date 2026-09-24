@@ -4494,7 +4494,8 @@ UI-B1 Relevant Files                      Complete     which files, and click to
 UI-B2 Better Error UX                     Complete     what failed, and what to do next
 UI-B3 Run / AI Handoff Summary            Complete     the successful handoff, said out loud
 UI-V1 Visual & Interaction Review         Complete     4 issues found by looking, 4 fixed
-UI-C  Diagnostics / Retrieval Details     Planned      search_quality.json made visible
+UI-C1 Retrieval Details                   Complete     why those terms, and how they behaved
+UI-C  Diagnostics                         Planned      environment, provider and Jira health
 ```
 
 Nothing in this section changes the CLI, the retrieval pipeline, the prompts or
@@ -5942,3 +5943,175 @@ python            not run: no Python, CLI, artifact or protocol file changed
 The visual harness in `extension/.review/` is deliberately **not** part of this
 commit. Whether it becomes a permanent visual-regression tool is its own
 decision, and a product freeze is not the place to make it.
+
+## 35. UI-C1 Retrieval Details
+
+**Status:** Complete and verified.
+
+Context Ready says "11 search terms" and stops. The question a developer asks
+next is which ones, and why BugPilot searched a word they never typed. §33 built
+all of that and wrote it to disk; nothing has ever shown it.
+
+This is transparency, not configuration. Nothing here is editable, nothing is
+recomputed, and no retrieval behaviour changes.
+
+### Checkpoint 1 — the artifact, read rather than assumed
+
+A real `search_quality.json`, from `bugpilot bug --description ... --keywords
+VolumeDescriptor --hint "check output validation" --prepare-only`:
+
+```json
+{
+  "classification": "specific",
+  "derived_from": "",
+  "effective_weight": 8,
+  "match_count": 1,
+  "source": "user",
+  "status": "retained",
+  "value": "VolumeDescriptor",
+  "weight": 8
+}
+```
+
+Top level: `confidence`, `high_confidence_files`, `medium_confidence_files`,
+`low_confidence_files`, `noise_indicators`, `reasons`, `terms`.
+
+**What each field actually means**, read from `search._term_diagnostics` and
+`TermSearchResult` rather than inferred from its name:
+
+```text
+value           the string given to ripgrep
+source          TermSource: issue | hint | user | identifier | phrase |
+                expanded | shape_expansion
+match_count     `total_match_count` — the number of matching *lines* across the
+                repository. Not files, and not the evidence kept downstream:
+                `TermSearchResult` says so in as many words, and `_collect`
+                increments it once per parsed rg line.
+classification  zero | specific | broad, derived from match_count alone against
+                BROAD_MATCH_THRESHOLD
+derived_from    the phrase a generated shape was built from; "" for everything
+                else, because a term present in the text is its own explanation
+status          retained | dropped, and `dropped` means exactly match_count == 0
+weight          the scale in `search_terms.py`
+effective_weight the same after a broad term is demoted
+```
+
+**The subset the UI consumes, and why the rest is left out:**
+
+```text
+consumed   value, source, match_count, classification, derived_from
+left out   weight and effective_weight — the user-facing question is "why was
+           this searched", not "what constant did the ranker use" (§8)
+left out   status — it is `match_count == 0` restated, and `classification`
+           already carries that as `zero`
+```
+
+**One label this changes.** "18 matches" would have been wrong: the number is
+matching lines. The UI says **lines**, and a term that found none says "no
+matches" rather than "0 lines".
+
+**Bounded already.** `MAX_SEARCHED_TERMS` is 28, so the whole set renders inside
+the collapsed disclosure and no pagination is invented for it.
+
+### Checkpoint 2 — the parser
+
+`src/app/retrievalDetails.ts`, a sibling of `contextSummary.ts` rather than part
+of it: the two answer different questions from different files, and one module
+with two unrelated shapes in it is not one module.
+
+```ts
+interface RetrievalTerm {
+  term: string; source?: string; lines?: number;
+  broad: boolean; empty: boolean; derivedFrom?: string;
+}
+```
+
+**Every degradation drops the row, never the result.** A missing, empty,
+non-JSON, non-object or `terms`-less artifact yields `[]`; an entry that is not
+an object, or whose `value` is absent, non-string or blank, is dropped while its
+neighbours survive; a `match_count` that is not a whole non-negative number is
+omitted rather than shown; `derived_from: ""` is the artifact saying "nothing to
+add", not a missing field. A malformed `search_quality.json` costs the terms and
+leaves Context Ready and Relevant Files untouched — asserted from both sides.
+
+**Broad is read, never computed.** `BROAD_MATCH_THRESHOLD` lives in `search.py`
+and stays there. Three tests pin it: a huge count the artifact did not call
+broad is not broad, a tiny one it did call broad is, and the flag comes only
+from `classification`.
+
+**An unknown source degrades to itself.** A newer bugpilot may add one, so a
+value this table does not know is shown raw — but only if it looks like the
+identifier it is meant to be, because the string reaches the panel and an
+artifact is a file something else could have written.
+
+**One read, not two.** `search_quality.json` answers both "how many terms" and
+"which", so the controller reads it once and hands the text to both parsers. A
+test counts the reads.
+
+### Checkpoint 3 — the UI
+
+Last in the result, collapsed, after Relevant Files:
+
+```text
+v Retrieval Details
+
+  VolumeDescriptor
+  User keyword - 18 lines
+
+  outputType
+  Shape expansion - 7 lines
+  From: output type
+
+  validation
+  Hint - 821 lines - Broad
+
+  reload
+  Issue text - no matches
+```
+
+Source labels, the full `TermSource` union: `user` -> User keyword, `hint` ->
+Hint, `issue` -> Issue text, `identifier` -> Identifier, `phrase` -> Phrase,
+`expanded` -> Expanded term, `shape_expansion` -> Shape expansion.
+
+"Broad" is a word, not a colour and not a badge: it is what the repository had
+to say about the term, not a warning, and a fact carried only by a colour is one
+a screen reader never gets. Typography and spacing rather than a card per term —
+twenty-eight bordered boxes in a 200px sidebar is a wall.
+
+Nothing in the section is editable; a test fails if a `button`, `input`,
+`select` or `textarea` ever appears inside it.
+
+**Found by running the parser over a real artifact:** "1 lines". Fixed, and
+pinned by a test. Also observed there — of 16 terms in a small repository, 10
+were shape expansions that matched nothing. Kept: "BugPilot tried
+`output_type_selection` and your repository does not have it" is exactly the
+transparency this section exists for, and the disclosure is collapsed.
+
+### Checkpoint 4 — verification
+
+```text
+extension tests   785 passed, 0 failed   (748 before UI-C1's own tests)
+typecheck         tsc --noEmit clean
+smoke             activated, 22 commands, 3 views, panel HTML built
+git diff --check  clean
+publishability    tests/test_publishable.py 8 passed
+```
+
+Visual: the harness's 54-page matrix re-rendered with a Retrieval Details
+scenario added — 9 states x 2 themes x 3 widths, zero overflowing elements, and
+the expanded section read at 200px dark and 400px light. A 35-character
+identifier wraps without overflow. Still not a real Extension Host: VS Code's
+own chrome and fonts, live focus, and real keyboard interaction remain unseen.
+
+**§34 did not move.** The diff into the frozen files is 110 insertions and no
+deletions, and a test asserts the result's reading order end to end — Context
+Ready, counts, Strategy, handoff outcome, Fix with AI, the agent error, the
+artifact actions, Relevant Files, Retrieval Details — with Fix with AI still the
+only primary button in it.
+
+**Non-goals held.** No retrieval behaviour changed, no Python touched, no score
+or weight shown, no per-term file list, no tuning control, no Suggest Keywords,
+no telemetry, and nothing persisted anywhere new.
+
+Deferred: Diagnostics, provider/Jira/environment health, per-term matched files,
+focus-file promotion, AI semantic expansion, run history.

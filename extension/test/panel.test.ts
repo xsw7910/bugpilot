@@ -1693,3 +1693,69 @@ test("the agent error sits under the button it is about", () => {
   assert.ok(result.indexOf('id="fix-with-ai"') < result.indexOf('id="handoff-error"'));
   assert.ok(result.indexOf('id="handoff-error"') < result.indexOf('id="result-links"'));
 });
+
+// --- UI-C1: Retrieval Details ------------------------------------------------
+
+test("Retrieval Details is a collapsed disclosure, last in the result", () => {
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  const terms = /<details class="terms" id="retrieval-details"[\s\S]*?<\/details>/.exec(result)?.[0] ?? "";
+  assert.notEqual(terms, "", "Retrieval Details is not inside the result section");
+
+  assert.match(terms, /<summary id="retrieval-details-summary">Retrieval Details<\/summary>/);
+  assert.equal(/<details[^>]*id="retrieval-details"[^>]*\bopen\b/.test(terms), false);
+  assert.match(terms, /^<details[^>]*\bhidden\b/);
+  // The rows are the page's, built from what the host read.
+  assert.match(terms, /id="retrieval-details-list"><\/div>/);
+});
+
+test("the frozen result hierarchy still reads top to bottom", () => {
+  // §34 is frozen. Retrieval Details goes last and changes nothing above it:
+  // Fix with AI stays the one primary button, the artifact actions stay next,
+  // and Relevant Files keeps its place.
+  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  const order = [
+    "result-heading",
+    "result-counts",
+    "result-strategy",
+    "result-handoff",
+    "fix-with-ai",
+    "handoff-error",
+    "result-links",
+    "relevant-files",
+    "retrieval-details",
+  ];
+  const positions = order.map((id) => result.indexOf(`id="${id}"`));
+  assert.ok(positions.every((at) => at !== -1), `a section of the result is missing: ${order}`);
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "the result reordered itself");
+
+  // And Fix with AI is still the only primary button in it.
+  const primary = [...result.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)];
+  assert.deepEqual(primary.map((match) => match[1]), ["fix-with-ai"]);
+});
+
+test("Retrieval Details offers nothing to change", () => {
+  // Transparency, not configuration. A control in here would be a tuning knob
+  // over a record of something that already happened.
+  const terms = /<details class="terms" id="retrieval-details"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  for (const control of ["<button", "<input", "<select", "<textarea"]) {
+    assert.equal(terms.includes(control), false, `Retrieval Details contains a ${control}`);
+  }
+});
+
+test("a term row is typography, not a card or a chart", () => {
+  // Twenty-eight bordered boxes in a 200px sidebar is a wall, and a bar chart
+  // of match counts is an analytics dashboard.
+  assert.equal(/\.term-row \{[^}]*border/s.test(CSS), false);
+  assert.equal(/\.term-row \{[^}]*background/s.test(CSS), false);
+  assert.equal(/\.term-(name|meta|origin) \{[^}]*(background|border)/s.test(CSS), false);
+  // Long identifiers have no spaces to break at.
+  assert.match(CSS, /\.term-name \{[^}]*overflow-wrap: anywhere/s);
+  assert.match(CSS, /\.term-meta,[\s\S]*?\{[^}]*overflow-wrap: anywhere/s);
+});
+
+test("the panel never names the ranker's own constants", () => {
+  const visible = HTML.replace(/<!--[\s\S]*?-->/g, "").toLowerCase();
+  for (const internal of ["weight", "effective_weight", "threshold", "rank points"]) {
+    assert.equal(visible.includes(internal), false, `the panel names "${internal}"`);
+  }
+});

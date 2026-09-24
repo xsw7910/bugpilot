@@ -633,6 +633,8 @@
       byId("relevant-files").hidden = true;
       byId("relevant-files-list").replaceChildren();
       byId("relevant-files-more").hidden = true;
+      byId("retrieval-details").hidden = true;
+      byId("retrieval-details-list").replaceChildren();
       return;
     }
 
@@ -676,6 +678,67 @@
     }
 
     renderRelevantFiles(ready);
+    renderRetrievalDetails(ready);
+  }
+
+  /**
+   * Which terms the run searched, and how each behaved.
+   *
+   * Built through `textContent` like every other list here: a search term comes
+   * out of a Jira description by way of a JSON file, which is exactly the path
+   * a `<script>` would take.
+   *
+   * The order is the artifact's — strongest term first, as the weighting left
+   * them — so nothing sorts or regroups. Nothing here decides anything either:
+   * whether a term is broad, what its source is called and where a shape came
+   * from were all settled by the host from the artifact's own fields.
+   */
+  function renderRetrievalDetails(ready) {
+    const terms = (ready && ready.terms) || [];
+    const section = byId("retrieval-details");
+    const list = byId("retrieval-details-list");
+    list.replaceChildren();
+    section.hidden = terms.length === 0;
+
+    for (const term of terms) {
+      const row = document.createElement("div");
+      row.className = "term-row";
+
+      const name = document.createElement("p");
+      name.className = "term-name";
+      name.textContent = term.term;
+      row.append(name);
+
+      // Source, then what it found, then whether that was everything. Joined
+      // into one line so twenty-eight terms stay scannable.
+      const facts = [];
+      if (term.source) facts.push(term.source);
+      if (term.empty) facts.push("no matches");
+      else if (typeof term.lines === "number") {
+        // "1 lines" is the kind of detail that makes a panel look unfinished.
+        facts.push(`${term.lines} line${term.lines === 1 ? "" : "s"}`);
+      }
+      // Said plainly rather than coloured: "broad" is not a warning, it is what
+      // the repository had to say about the term.
+      if (term.broad) facts.push("Broad");
+      if (facts.length > 0) {
+        const meta = document.createElement("p");
+        meta.className = "term-meta";
+        meta.textContent = facts.join(" · ");
+        row.append(meta);
+      }
+
+      // The whole reason this section is worth having: it explains a term the
+      // developer never typed.
+      if (term.derivedFrom) {
+        const origin = document.createElement("p");
+        origin.className = "term-origin";
+        origin.textContent = `From: ${term.derivedFrom}`;
+        row.append(origin);
+      }
+
+      list.append(row);
+    }
   }
 
   /**

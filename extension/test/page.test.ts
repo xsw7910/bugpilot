@@ -290,6 +290,7 @@ const READY = {
   canFix: true,
   handoffBusy: false,
   files: [],
+  terms: [],
 };
 
 /** One capability row of a `ProgressView`, for driving the model. */
@@ -1222,6 +1223,7 @@ test("the Strategy line reports the package, not the selector", () => {
         canFix: true,
         handoffBusy: false,
         files: [],
+        terms: [],
       },
     }),
   );
@@ -2915,4 +2917,187 @@ test("the run hint stops explaining Run once Run has been pressed", () => {
   // And it comes back for the next untouched state.
   p.send(state());
   assert.equal(p.byId("run-hint").hidden, false);
+});
+
+// --- UI-C1: Retrieval Details ------------------------------------------------
+
+/** Terms as the host hands them over: an ordinary one, a shape, a broad one. */
+const TERMS = [
+  { term: "WidgetController", source: "User keyword", lines: 18, broad: false, empty: false },
+  {
+    term: "outputType",
+    source: "Shape expansion",
+    lines: 7,
+    broad: false,
+    empty: false,
+    derivedFrom: "output type",
+  },
+  { term: "validation", source: "Hint", lines: 821, broad: true, empty: false },
+  { term: "reload", source: "Issue text", lines: 0, broad: false, empty: true },
+];
+
+test("Retrieval Details does not exist before a run", () => {
+  const p = load();
+  p.send(state());
+
+  assert.equal(p.byId("retrieval-details").hidden, true);
+  assert.equal(p.byId("retrieval-details-list").children.length, 0);
+});
+
+test("a result with no terms hides the section rather than saying none", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, terms: [] } }));
+
+  assert.equal(p.byId("context-ready").hidden, false);
+  assert.equal(p.byId("retrieval-details").hidden, true);
+});
+
+test("each term shows what it was, what it found, and where it came from", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, terms: TERMS } }));
+
+  assert.equal(p.byId("retrieval-details").hidden, false);
+  const rows = p.byId("retrieval-details-list").children;
+  assert.equal(rows.length, 4);
+
+  // An ordinary term: name, then source and what it matched.
+  assert.deepEqual(
+    rows[0]!.children.map((child) => child.textContent),
+    ["WidgetController", "User keyword · 18 lines"],
+  );
+
+  // A generated shape, which is the one a developer never typed.
+  assert.deepEqual(
+    rows[1]!.children.map((child) => child.textContent),
+    ["outputType", "Shape expansion · 7 lines", "From: output type"],
+  );
+
+  // Broad said in a word, not a colour.
+  assert.equal(rows[2]!.children[1]!.textContent, "Hint · 821 lines · Broad");
+
+  // And one that found nothing says so rather than "0 lines".
+  assert.equal(rows[3]!.children[1]!.textContent, "Issue text · no matches");
+});
+
+test("one line is one line", () => {
+  // Caught by running the parser over a real artifact, where most terms match
+  // once or twice: "1 lines" is the kind of detail that makes a panel look
+  // unfinished.
+  const p = load();
+  p.send(
+    state({
+      contextReady: {
+        ...READY,
+        terms: [{ term: "VolumeDescriptor", source: "User keyword", lines: 1, broad: false, empty: false }],
+      },
+    }),
+  );
+
+  assert.equal(
+    p.byId("retrieval-details-list").children[0]!.children[1]!.textContent,
+    "User keyword · 1 line",
+  );
+});
+
+test("the count is labelled lines, because that is what the artifact counts", () => {
+  // `total_match_count` in search.py is incremented once per matching ripgrep
+  // line. "18 matches" would be a quiet lie about a number a developer might
+  // act on.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, terms: TERMS } }));
+
+  const meta = p.byId("retrieval-details-list").children[0]!.children[1]!.textContent;
+  assert.match(meta, /18 lines/);
+  assert.equal(/18 matches|18 files|18 hits/.test(meta), false);
+});
+
+test("the order is the artifact's, not the alphabet's", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, terms: TERMS } }));
+
+  assert.deepEqual(
+    p.byId("retrieval-details-list").children.map((row) => row.children[0]!.textContent),
+    ["WidgetController", "outputType", "validation", "reload"],
+  );
+});
+
+test("a term with nothing recorded against it is still listed", () => {
+  const p = load();
+  p.send(
+    state({
+      contextReady: { ...READY, terms: [{ term: "bare", broad: false, empty: false }] },
+    }),
+  );
+
+  const row = p.byId("retrieval-details-list").children[0]!;
+  assert.equal(row.children.length, 1, "an empty metadata line was rendered");
+  assert.equal(row.children[0]!.textContent, "bare");
+});
+
+test("a hostile term renders as text", () => {
+  // It came out of a Jira description by way of a JSON file.
+  const hostile = '<script>alert(1)</script>';
+  const p = load();
+  p.send(
+    state({
+      contextReady: {
+        ...READY,
+        terms: [{ term: hostile, broad: false, empty: false, derivedFrom: hostile }],
+      },
+    }),
+  );
+
+  const row = p.byId("retrieval-details-list").children[0]!;
+  assert.equal(row.children[0]!.textContent, hostile);
+  assert.equal(row.children[0]!.children.length, 0, "the term became markup");
+  assert.equal(row.children[1]!.textContent, `From: ${hostile}`);
+});
+
+test("the terms go away with the result they belonged to", () => {
+  const p = load();
+  p.send(state({ contextReady: { ...READY, terms: TERMS } }));
+  assert.equal(p.byId("retrieval-details-list").children.length, 4);
+
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+
+  assert.equal(p.byId("retrieval-details").hidden, true);
+  assert.equal(p.byId("retrieval-details-list").children.length, 0, "stale rows survived");
+});
+
+test("a handoff leaves the retrieval story exactly where it was", () => {
+  // Retrieval describes preparing the context, not what an agent did with it.
+  const p = load();
+  p.send(state({ contextReady: { ...READY, terms: TERMS } }));
+
+  for (const overrides of [
+    { handoffBusy: true },
+    { canFix: false, handoffOutcome: { title: "AI fix started", message: "Handed over." } },
+  ]) {
+    p.send(state({ contextReady: { ...READY, terms: TERMS, ...overrides } }));
+    assert.equal(p.byId("retrieval-details").hidden, false);
+    assert.equal(p.byId("retrieval-details-list").children.length, 4);
+  }
+
+  // Including when the handoff could not start at all.
+  p.send(
+    state({
+      contextReady: { ...READY, terms: TERMS },
+      handoffError: { kind: "agent", title: "AI agent unavailable", message: "Not on PATH." },
+    }),
+  );
+  assert.equal(p.byId("retrieval-details").hidden, false);
+  assert.equal(p.byId("retrieval-details-list").children.length, 4);
+});
+
+test("a failed run shows no retrieval story", () => {
+  const p = load();
+  p.send(
+    state({
+      progress: { state: "failed", rows: [], artifacts: [] },
+      runError: { kind: "run", title: "Run failed", message: "It stopped." },
+    }),
+  );
+
+  assert.equal(p.byId("retrieval-details").hidden, true);
+  assert.equal(p.byId("context-ready").hidden, true);
 });

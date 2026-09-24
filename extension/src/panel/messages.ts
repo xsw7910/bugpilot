@@ -23,6 +23,7 @@ import type { CommandAction } from "../app/environment.ts";
 import { FIX_MODE_ID_RE } from "../app/form.ts";
 import type { UserFacingError } from "../app/failures.ts";
 import type { HandoffOutcome } from "../app/handoff.ts";
+import type { RetrievalTerm } from "../app/retrievalDetails.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
 import type { RelevantFile } from "../app/contextSummary.ts";
 import { WRITABLE_SCOPES } from "../app/fixModes.ts";
@@ -215,6 +216,15 @@ export interface ContextReadyView {
   readonly files: readonly RelevantFile[];
   /** How many the artifact held beyond `files`, when it held more. */
   readonly moreFiles?: number;
+  /**
+   * Which terms the run searched, and how each behaved.
+   *
+   * Part of this view for one reason: it must share Context Ready's lifecycle
+   * exactly. A run in flight, a failed run and another work item all leave
+   * `contextReady` absent, so there is no path by which one bug's retrieval
+   * story stays on screen for another's.
+   */
+  readonly terms: readonly RetrievalTerm[];
 }
 
 /**

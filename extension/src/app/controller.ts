@@ -35,6 +35,8 @@ import { buildWorkflow, overallStatus } from "./workflow.ts";
 import type { FixWithAiOutcome, WorkflowStep } from "./workflow.ts";
 import { handoffError, runError } from "./failures.ts";
 import { handoffOutcome } from "./handoff.ts";
+import { retrievalTerms } from "./retrievalDetails.ts";
+import type { RetrievalTerm } from "./retrievalDetails.ts";
 import type { UserFacingError } from "./failures.ts";
 import {
   buildHintPrompt,
@@ -312,6 +314,8 @@ export class Controller {
   #files: readonly RelevantFile[] = [];
   /** How many the artifact held beyond the ones being shown. */
   #moreFiles = 0;
+  /** The searched terms, as the last artifact refresh read them. */
+  #terms: readonly RetrievalTerm[] = [];
   /**
    * Why the last handoff could not start.
    *
@@ -600,6 +604,7 @@ export class Controller {
     this.#counts = "";
     this.#files = [];
     this.#moreFiles = 0;
+    this.#terms = [];
     // Both, before anything is pushed: a stale card beside a Running… button
     // reads as the new run having failed instantly.
     this.#handoffError = undefined;
@@ -1479,7 +1484,9 @@ export class Controller {
         ? await this.#ports.files.readFile(this.#itemFile(workItemId, name))
         : undefined;
     const related = await read(RELATED_FILES_ARTIFACT);
-    this.#counts = describeCounts(contextCounts(related, await read(SEARCH_QUALITY_ARTIFACT)));
+    const quality = await read(SEARCH_QUALITY_ARTIFACT);
+    this.#counts = describeCounts(contextCounts(related, quality));
+    this.#terms = retrievalTerms(quality);
     const found = relevantFiles(related);
     this.#files = found.slice(0, MAX_LISTED_FILES);
     this.#moreFiles = Math.max(0, found.length - this.#files.length);
@@ -1538,6 +1545,7 @@ export class Controller {
       actions: actions as readonly PanelAction[],
       files: this.#files,
       ...(this.#moreFiles > 0 ? { moreFiles: this.#moreFiles } : {}),
+      terms: this.#terms,
       // Offered while a press would do something new. After a handoff that
       // worked it would only open a second terminal for the same package.
       canFix: this.#fix?.status !== "success",

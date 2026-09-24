@@ -74,6 +74,8 @@ interface HarnessOptions {
   readonly directory?: readonly string[];
   /** Make the artifact directory unreadable rather than absent. */
   readonly directoryError?: string;
+  /** Called for every file the controller reads, so a test can count them. */
+  readonly onReadFile?: (file: string) => void;
   readonly confirm?: boolean;
   readonly form?: FormState;
   /** Hold the stream open so a Stop can be observed mid-run. */
@@ -162,6 +164,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
             ? { kind: "ok", names: [...options.directory] }
             : { kind: "missing" },
       readFile: async (file) => {
+        options.onReadFile?.(file);
         const key = Object.keys(files).find((name) => file.endsWith(name));
         return key ? files[key] : undefined;
       },
@@ -3125,4 +3128,156 @@ test("an offer expires with the card that made it", async () => {
   await h.controller.handle({ type: "command", id: COMMANDS.openSettings });
 
   assert.deepEqual(h.ranCommands, [], "a withdrawn offer was still honoured");
+});
+
+// --- UI-C1: the terms the host reads back ------------------------------------
+
+/** A run whose `search_quality.json` records what each term did. */
+const WITH_TERMS = {
+  ...WITH_FILES,
+  files: {
+    ...WITH_FILES.files,
+    "search_quality.json": JSON.stringify({
+      confidence: "high",
+      terms: [
+        {
+          value: "WidgetController",
+          source: "user",
+          weight: 8,
+          effective_weight: 8,
+          match_count: 18,
+          classification: "specific",
+          derived_from: "",
+          status: "retained",
+        },
+        {
+          value: "outputType",
+          source: "shape_expansion",
+          weight: 5,
+          effective_weight: 5,
+          match_count: 7,
+          classification: "specific",
+          derived_from: "output type",
+          status: "retained",
+        },
+        {
+          value: "validation",
+          source: "hint",
+          weight: 4,
+          effective_weight: 1,
+          match_count: 821,
+          classification: "broad",
+          derived_from: "",
+          status: "retained",
+        },
+      ],
+    }),
+  },
+};
+
+test("a finished run reports the terms it searched, in the artifact's order", async () => {
+  const h = harness(WITH_TERMS);
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  const terms = h.last().contextReady?.terms ?? [];
+  assert.deepEqual([...terms], [
+    { term: "WidgetController", source: "User keyword", lines: 18, broad: false, empty: false },
+    {
+      term: "outputType",
+      source: "Shape expansion",
+      lines: 7,
+      broad: false,
+      empty: false,
+      derivedFrom: "output type",
+    },
+    { term: "validation", source: "Hint", lines: 821, broad: true, empty: false },
+  ]);
+  // And nothing of the ranker's arithmetic crossed the boundary.
+  for (const term of terms) {
+    assert.equal("weight" in term, false);
+    assert.equal("effectiveWeight" in term, false);
+  }
+});
+
+test("a broken search_quality costs the terms, never the result", async () => {
+  const h = harness({
+    ...WITH_TERMS,
+    files: { ...WITH_TERMS.files, "search_quality.json": "{ half written" },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  const ready = h.last().contextReady;
+  assert.ok(ready, "a malformed supplementary artifact took Context Ready with it");
+  assert.deepEqual([...ready.terms], []);
+  // The file list comes from the other artifact and is untouched.
+  assert.ok(ready.files.length > 0);
+});
+
+test("a failed run carries no terms, even with an artifact on disk", async () => {
+  const h = harness({
+    ...WITH_TERMS,
+    events: [
+      { type: "started", work_item_id: "JR-12345", source: "jira" },
+      { type: "completed", ok: false, error: { code: "JIRA_AUTH_FAILED", message: "401" } },
+    ],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  assert.equal(h.last().contextReady, undefined);
+});
+
+test("the terms do not follow the developer to another work item", async () => {
+  const h = harness(WITH_TERMS);
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  assert.equal(h.last().contextReady?.terms.length, 3);
+
+  await h.controller.showWorkItem("JR-999");
+
+  // A different bug, read from its own directory — which in this harness holds
+  // the same artifact, so what matters is that it was re-read rather than kept.
+  assert.ok(h.last().contextReady);
+});
+
+test("a handoff leaves the terms exactly where they were", async () => {
+  // Retrieval describes preparing the context, not what an agent did with it.
+  const h = harness({ ...WITH_TERMS, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  const before = h.last().contextReady?.terms ?? [];
+
+  await h.controller.handle({ type: "action", id: "fixWithAI" });
+
+  assert.ok(h.last().contextReady?.handoffOutcome, "the handoff did not happen");
+  assert.deepEqual([...(h.last().contextReady?.terms ?? [])], [...before]);
+});
+
+test("a handoff that could not start leaves them too", async () => {
+  const h = harness({ ...WITH_TERMS, agentOnPath: false });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  const before = h.last().contextReady?.terms ?? [];
+
+  await h.controller.handle({ type: "action", id: "fixWithAI" });
+
+  assert.ok(h.last().handoffError);
+  assert.deepEqual([...(h.last().contextReady?.terms ?? [])], [...before]);
+});
+
+test("the artifact is read once for both the counts and the terms", async () => {
+  // `search_quality.json` answers two questions — how many terms, and which —
+  // and reading it twice per refresh would be two syscalls for one file.
+  const reads: string[] = [];
+  const h = harness({
+    ...WITH_TERMS,
+    onReadFile: (file: string) => reads.push(file),
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  const quality = reads.filter((file) => file.endsWith("search_quality.json"));
+  assert.equal(quality.length, 1, `search_quality.json was read ${quality.length} times`);
 });

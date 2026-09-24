@@ -1065,6 +1065,42 @@ button.icon .codicon {
   overflow-wrap: anywhere;
 }
 
+/*
+ * Retrieval Details: which terms were searched, and how each behaved.
+ *
+ * Typography and spacing, not a card per term — twenty-eight bordered boxes in
+ * a 200px sidebar is a wall, and this is a record to scan rather than a
+ * dashboard to read. No badge, no bar, no colour: "Broad" is a word because it
+ * is a fact about the repository and not a warning, and a fact carried only by
+ * a colour is one a screen reader never gets.
+ */
+.terms {
+  margin-top: 2px;
+}
+
+.terms[hidden] {
+  display: none;
+}
+
+.term-row {
+  padding: 3px 0;
+}
+
+.term-name {
+  margin: 0;
+  font-weight: 600;
+  /* An identifier can be long and has no spaces to break at. */
+  overflow-wrap: anywhere;
+}
+
+.term-meta,
+.term-origin {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
 /* --- the workflow --------------------------------------------------------- */
 
 /* The workflow's summary line, which is the whole section while it is closed.

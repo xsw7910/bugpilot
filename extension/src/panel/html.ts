@@ -398,6 +398,17 @@ ${RESULT_ACTIONS.map(
           <div id="relevant-files-list"></div>
           <p class="muted" id="relevant-files-more" hidden></p>
         </details>
+        <!--
+          Why those files, for the developer who asks. Last in the result and
+          collapsed, because it answers a question most runs never raise — and
+          read-only, because it is a record of what happened rather than a set
+          of knobs. The rows are built by the page from what the host read out
+          of search_quality.json.
+        -->
+        <details class="terms" id="retrieval-details" hidden>
+          <summary id="retrieval-details-summary">Retrieval Details</summary>
+          <div id="retrieval-details-list"></div>
+        </details>
       </section>`;
 
 /**
