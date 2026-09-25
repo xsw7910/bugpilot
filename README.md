@@ -375,7 +375,7 @@ A Fix Mode decides *how* the agent approaches a bug — how far to investigate, 
 - **Standard Fix** (`standard`) is the default. The other built-ins are **Conservative Fix**, **Investigate First** (investigation only — no source changes in that pass), **Test-Driven Fix** and **Deep Analysis**.
 - Select one per run with `--fix-mode <id>`. The choice is recorded in `.ai/<issue>/issue.json` (`guidance.fix_mode`) and reused by `--resume`, `prompt`, `agent-task` and `retry-prompt`; a fresh run starts from Standard Fix again.
 - Custom modes are JSON files: yours in `~/.bugpilot/fix_modes/<id>.json`, the project's in `<repo>/.bugpilot/fix_modes/<id>.json` (commit that directory to share them). A project mode shadows a user mode with the same id; built-in ids cannot be overridden. Start from `bugpilot fix-mode duplicate <builtin> <new-id> --scope user|project`.
-- The VS Code extension selects a mode above **Run** and edits custom ones under **Manage Fix Modes**. The MCP server can list, inspect and select modes (`list_fix_modes`, `show_fix_mode`, `fix_mode_id` on the prepare tools) but cannot create, change or delete them — that stays with the developer.
+- The VS Code extension selects a mode under **Advanced settings → Strategy** and edits custom ones under **Manage Fix Modes**. The MCP server can list, inspect and select modes (`list_fix_modes`, `show_fix_mode`, `fix_mode_id` on the prepare tools) but cannot create, change or delete them — that stays with the developer.
 
 ## Safety Rules
 - bugpilot does not automatically modify product source code.

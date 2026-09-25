@@ -116,9 +116,10 @@ prepared attempt exists. Neither is ever shown greyed out.
 
 ## Fix Mode
 
-Above **Run** sits a **Fix Mode** dropdown: how the agent should approach this
-bug. The list comes from your `bugpilot` install, so it shows exactly what that
-version can run:
+**Advanced settings → Strategy → Fix Mode** decides how the agent should
+approach this bug. Standard Fix is the default, so most runs never need to open
+the section; the choice holds while it is collapsed. The list comes from your
+`bugpilot` install, so it shows exactly what that version can run:
 
 | Mode | What the agent does |
 | --- | --- |
@@ -128,10 +129,14 @@ version can run:
 | Test-Driven Fix | Reproduce with a focused test, fix the cause, then rerun verification |
 | Deep Analysis | Deeper evidence review for complex crashes, regressions, or cross-module bugs |
 
-The choice travels with the work item: reopening one from **History** shows
-**Prepared with Fix Mode: …** for what actually ran, separately from what you
-would pick next. Choosing an investigate-only mode shows that beneath the
-dropdown, so nobody is surprised when the agent stops without editing.
+The choice travels with the work item: reopening one from **History**, or
+typing its key, selects the mode it was prepared with — so a package prepared
+as investigation only is prepared that way again unless you change it. While
+Advanced settings is collapsed, its heading names any mode other than Standard
+Fix, so a restored choice is visible before you press **Run**. An
+investigate-only mode says so beneath the dropdown, and after a run the **Fix
+with AI** row's **Strategy** line names the mode the package was actually
+prepared with, before you hand it over.
 
 ### Manage Fix Modes
 
@@ -241,9 +246,10 @@ the only purpose of the loop.
 
 ## Advanced settings
 
-Collapsed, and nothing in it is needed for a normal run: Title, Hint, Keywords,
-Focus files, Ignore paths, Max files, Max search lines, the AI agent, and
-whether to delete previous artifacts first.
+Collapsed, and nothing in it is needed for a normal run: the Fix Mode
+(**Strategy**), Hint, Keywords, Focus files, Ignore paths, Max files, Max search
+lines, Title, the AI agent, attachments, and whether to delete previous
+artifacts first.
 
 **AI agent** decides what **Fix with AI** runs:
 

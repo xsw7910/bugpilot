@@ -9,12 +9,15 @@
  * The shape is one column, read top to bottom, because that is the order the
  * work happens in:
  *
- *     Issue → Fix Mode → Run → the six workflow steps → advanced settings
+ *     Issue → Run → the six workflow steps → advanced settings
  *
- * Only the first three of those are open on an untouched panel. §34's UI-A1
+ * Only the first two of those are open on an untouched panel. §34's UI-A1
  * made the workflow a disclosure beside Advanced settings, so what greets a
  * developer is the one sentence the tool is about — type the issue, press
  * Run — rather than every control the panel owns laid out at equal weight.
+ * Batch 7 took Fix Mode out of that sentence too: Standard Fix is what almost
+ * every run uses, so choosing another is a setting, under Advanced settings →
+ * Strategy, rather than a question asked before every Run.
  *
  * It replaced three separate places that described the same run: an
  * "Investigate" fieldset of checkboxes, a "Progress" checklist repeating the
@@ -141,6 +144,46 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
         </div>
       </div>
 `;
+
+/**
+ * Strategy: how the agent approaches the bug — the one Fix Mode selector.
+ *
+ * Under Advanced settings since Batch 7, first in the section. It is an input
+ * to the run like everything else here, and Standard Fix is what almost every
+ * run uses; on the main form it asked a question before every Run that the
+ * default already answers. Moving it is placement only: the selection is
+ * `FormState.fixModeId` whether the section is open or closed, the host still
+ * restores and normalizes it, and the selected mode's description — including
+ * "Investigation only" — stays directly under the selector it describes.
+ *
+ * The gear opens Manage Fix Modes (view, duplicate, create, edit, delete),
+ * which is why it sits beside the selector rather than anywhere else.
+ *
+ * While the section is closed, its summary names a non-default mode on the
+ * title line (`#advanced-strategy`): the host can change the selection without
+ * a click — reopening a work item restores the mode it was prepared with — so a
+ * closed section still says when Run will not use the default. The visible
+ * label is aria-hidden so the disclosure's name stays what it was; the same
+ * fact reaches assistive tech as the summary's description.
+ */
+const FIX_MODE_FIELD = `        <div class="field" id="field-fixModeId">
+${settingHeader({
+  forId: "fixModeId",
+  label: "Fix Mode",
+  icon: "lightbulb",
+  tone: "primary",
+  hint: "How the AI works on this bug.",
+})}
+          <div class="fix-mode-row">
+            <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-hint fixModeId-description">
+              <option value="">Loading Fix Modes…</option>
+            </select>
+            <button type="button" id="manage-fix-modes" class="icon" title="Manage Fix Modes" aria-label="Manage Fix Modes">
+              <span class="codicon codicon-settings-gear" aria-hidden="true"></span>
+            </button>
+          </div>
+          <p class="hint fix-mode-note" id="fixModeId-description"></p>
+        </div>`;
 
 /**
  * Guidance: what the AI is told, beyond the bug report itself.
@@ -412,25 +455,6 @@ export function panelHtml(options: PanelHtmlOptions): string {
 
 ${ISSUE_FIELD}
 
-      <div class="field" id="field-fixModeId">
-  ${settingHeader({
-        forId: "fixModeId",
-        label: "Fix Mode",
-        icon: "lightbulb",
-        tone: "primary",
-        hint: "How the AI works on this bug.",
-      })}
-        <div class="fix-mode-row">
-          <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-description">
-            <option value="">Loading Fix Modes…</option>
-          </select>
-          <button type="button" id="manage-fix-modes" class="icon" title="Manage Fix Modes" aria-label="Manage Fix Modes">
-            <span class="codicon codicon-settings-gear" aria-hidden="true"></span>
-          </button>
-        </div>
-        <p class="hint fix-mode-note" id="fixModeId-description"></p>
-      </div>
-
       <div class="run">
         <div class="run-buttons">
           <button type="submit" id="run" class="primary">
@@ -475,17 +499,27 @@ ${errorCard("failure")}
       </details>
 
       <details class="group advanced" id="advanced">
-        <summary>
+        <summary aria-describedby="advanced-strategy-description">
           <span class="codicon codicon-settings-gear adv-gear icon-primary" aria-hidden="true"></span>
           <span class="adv-heading">
-            <span class="adv-title">Advanced Settings (Optional)</span>
+            <span class="adv-title-row">
+              <span class="adv-title">Advanced Settings (Optional)</span>
+              <span class="adv-strategy" id="advanced-strategy" aria-hidden="true" hidden>
+                <span class="codicon codicon-lightbulb icon-primary" aria-hidden="true"></span>
+                <span class="adv-strategy-name" id="advanced-strategy-name"></span>
+              </span>
+            </span>
             <span class="adv-subtitle">Fine-tune the investigation to get better results</span>
           </span>
           <span class="adv-toggle">
             <span class="codicon codicon-chevron-up" aria-hidden="true"></span>
             Hide Advanced
           </span>
+          <span id="advanced-strategy-description" hidden></span>
         </summary>
+
+  ${groupHeading("strategy", "Strategy")}
+${FIX_MODE_FIELD}
 
   ${groupHeading("guidance", "Guidance")}
   ${GUIDANCE_FIELDS.map(field).join("\n")}

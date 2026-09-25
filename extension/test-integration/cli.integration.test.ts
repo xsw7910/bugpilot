@@ -302,6 +302,85 @@ test("list --json feeds the history view", async () => {
   assert.equal(history.items[0]!.title, "Save crash");
 });
 
+// --- the Fix Mode a form carries, all the way to the artifacts --------------
+
+/**
+ * The audit record's keys, as `fix_mode_state.fix_mode_metadata` writes them.
+ *
+ * All of them, not only the id: `issue.json` records which definition ran —
+ * its version, where it came from and what it was based on — and a record cut
+ * down to an id would stop answering that.
+ */
+const FIX_MODE_RECORD_KEYS = [
+  "based_on",
+  "based_on_version",
+  "execution_kind",
+  "id",
+  "name",
+  "source",
+  "version",
+];
+
+test("the Fix Mode a form carries reaches issue.json and task.md, for a built-in and a custom mode", async () => {
+  // Batch 7 moved the selector into Advanced settings. The form's `fixModeId`
+  // is the whole contract between the panel and a run, so this drives it end
+  // to end: the panel's form, `buildPrepareArgs`, the real CLI, the artifacts.
+  const root = repository();
+  // A project custom mode, created the way Duplicate & Customize creates one.
+  execFileSync(PYTHON, [...MODULE, "fix-mode", "duplicate", "conservative", "team-safe", "--scope", "project"], {
+    cwd: root,
+    env: { ...process.env, ...ENVIRONMENT },
+    stdio: "ignore",
+  });
+
+  const expected = [
+    { fixModeId: "standard", source: "builtin", kind: "fix", basedOn: null },
+    { fixModeId: "investigate-first", source: "builtin", kind: "investigate", basedOn: null },
+    { fixModeId: "team-safe", source: "project", kind: "fix", basedOn: "conservative" },
+  ];
+  for (const mode of expected) {
+    const built = buildPrepareArgs(manualForm({ fixModeId: mode.fixModeId }), { root });
+    assert.equal(built.ok, true, mode.fixModeId);
+    if (!built.ok) return;
+    assert.ok(built.args.includes(`--fix-mode=${mode.fixModeId}`), mode.fixModeId);
+
+    const tracker = new ProgressTracker(DEFAULT_FORM.plan);
+    const outcome = await runner().runStreaming(
+      [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+      { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+      (event) => tracker.apply(event),
+    );
+    assert.equal(outcome.terminated, true, mode.fixModeId);
+    assert.equal(tracker.view().state, "done", mode.fixModeId);
+    const directory = path.join(root, ".ai", tracker.view().workItemId!);
+
+    // issue.json: the whole audit record, unchanged in shape.
+    const issue = JSON.parse(readFileSync(path.join(directory, "issue.json"), "utf8")) as {
+      guidance: { fix_mode: Record<string, unknown> };
+    };
+    const record = issue.guidance.fix_mode;
+    assert.deepEqual(Object.keys(record).sort(), FIX_MODE_RECORD_KEYS, mode.fixModeId);
+    assert.equal(record["id"], mode.fixModeId);
+    assert.equal(record["source"], mode.source, mode.fixModeId);
+    assert.equal(record["execution_kind"], mode.kind, mode.fixModeId);
+    assert.equal(record["based_on"], mode.basedOn, mode.fixModeId);
+
+    // run.json carries the same record — it is what the panel's Strategy line reads.
+    const run = JSON.parse(readFileSync(path.join(directory, "run.json"), "utf8")) as {
+      fix_mode: Record<string, unknown>;
+    };
+    assert.deepEqual(run.fix_mode, record, mode.fixModeId);
+
+    // task.md names the mode the agent is to follow. Line endings are the
+    // platform's (Python writes text mode), so they are normalised first.
+    const task = readFileSync(path.join(directory, "task.md"), "utf8").replaceAll("\r\n", "\n");
+    const section = /## AI Fix Mode\n([\s\S]*?)\n## /.exec(task)?.[1] ?? "";
+    assert.match(section, new RegExp(`- Mode ID: \`${mode.fixModeId}\``), mode.fixModeId);
+    assert.match(section, new RegExp(`- Source: ${mode.source}`), mode.fixModeId);
+    assert.match(section, new RegExp(`- Execution: ${mode.kind}`), mode.fixModeId);
+  }
+});
+
 // --- the install matrix ----------------------------------------------------
 
 test("whatever bugpilot is on PATH is classified, not misread", async () => {

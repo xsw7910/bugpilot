@@ -6275,7 +6275,7 @@ run history, telemetry, and productizing the visual harness.
 
 ## 37. Artifact Simplification + Workflow Result Integration
 
-**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) committed at `adc3c53`; Batch 6 (`WorkflowStepResult`: the workflow rows are the result view) complete, visually reviewed, independently reviewed and verified, uncommitted. A Fix Result row is not started.
+**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) committed at `adc3c53`; Batch 6 (`WorkflowStepResult`: the workflow rows are the result view) committed at `594ac5c`; Batch 7 (Fix Mode under Advanced settings → Strategy) complete, visually reviewed, independently reviewed and verified, uncommitted. A Fix Result row is not started.
 
 **Canonical reference:** `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`
 (kept outside the repository). This section records what has landed against it.
@@ -7898,3 +7898,174 @@ re-checked, relevant files `isSafeRelativePath` + `isWithin`), `textContent`
 throughout with `innerHTML` still banned, no timers, probes or I/O from
 `panel.js`, `[hidden]` guards on every new container, and no artifact contract,
 retrieval, Fix Result, Git history, Similar fixes, Fix Mode or delivery change.
+
+### 37.47 Checkpoint — Fix Mode placement inventory (Batch 7 start)
+
+Read from the committed tree (`594ac5c`).
+
+| Concern | Where | Owner |
+|---|---|---|
+| The selector | `<div id="field-fixModeId">` on the main form between Issue and Run (`html.ts`): `<select id="fixModeId">`, the Manage Fix Modes gear `#manage-fix-modes`, the note `#fixModeId-description`, helper `#fixModeId-hint` | markup |
+| Options | `renderFixModeOptions` from `PanelState.fixModes` (`bugpilot fix-mode list --json`; built-ins and custom modes alike, `defaultModeId` from the CLI) — no mode name in the page | host → page |
+| Note | `renderFixModeNote`: the mode's description, "Investigation only — no source changes in this pass." for `executionKind: "investigate"`, the catalog's `unavailable` detail, or a `fixModeId` field problem | page |
+| Selection | `FormState.fixModeId`: `readForm` / `writeForm`, persisted with the rest of the form (`setState`, `formChanged` → host `saveForm`) | page owns while typing, host by revision |
+| Default and fallback | `selectedFixModeId` (`fixModes.ts`): a mode the catalog offers, else `defaultModeId`; applied when the catalog arrives and when a work item is shown (`#deriveFixModeFor`, from `run.json`'s `fix_mode`) | host |
+| Validation | `buildPrepareArgs`: `FIX_MODE_ID_RE`, else a `fixModeId` field problem; else `--fix-mode=<id>` | host |
+| Management | the gear → `manageFixModes` → manager / preview / editor views (`showView`; focus returns to the gear) | page + host |
+| Artifacts | the CLI writes the full audit record to `issue.json` `guidance.fix_mode` and `run.json` `fix_mode`, and renders `task.md`'s `## AI Fix Mode` | Python, unchanged |
+| Result display | the Fix with AI row's Strategy line (`#strategyLine`, from `run.json`) | host |
+
+There is no Jira / Bug description switch to preserve: UI-A1 replaced it with
+one Issue field whose source is derived, and Batch 7 leaves it as it is.
+
+### 37.48 Checkpoint — Strategy subsection and the relocation
+
+`FIX_MODE_FIELD` (`html.ts`) is the same field, moved: same ids, label, helper,
+gear and note. It is the first group inside Advanced settings, under a new
+`groupHeading("strategy", "Strategy")`, before Guidance, Retrieval Overrides
+and Run Options, which are untouched. The main form is now the Issue field and
+Run. Two small additions keep a closed section from hiding anything:
+
+- A `fixModeId` problem opens Advanced settings once and focuses the selector
+  (`renderFixModes`, keyed on the message) — the rule every field in the section
+  already follows (`ADVANCED_FIELDS`), applied to the one control whose problem
+  is shown in its note rather than an error line. Defensive: the message parser
+  and `buildPrepareArgs` leave almost no way to reach it.
+- Returning to the form from a Fix Mode view opens Advanced settings before
+  focusing the gear (`showView`). In the normal path it is already open; a
+  reloaded panel can restore the manager with the section closed, and focus
+  cannot land inside a closed disclosure.
+
+The selector's `aria-describedby` now names its helper as well as its note, as
+the section's text fields do. An unavailable catalog is explained in
+the note and does not force the section open: Run still works on the CLI's
+default.
+
+### 37.49 Checkpoint — state, persistence and run payload
+
+No host, protocol or artifact change: `FormState`, `PanelMessage`,
+`buildPrepareArgs`, the controller and the Python side are untouched, so the
+run request is byte-for-byte what it was. Pinned anyway:
+
+- Page (`test/page.test.ts`): the closed section holds the real selection and
+  its description; nothing chosen → the CLI's default, and Run sends it; a mode
+  chosen and then folded away — with pushes arriving meanwhile — is what Run
+  sends and what the page persists; Ctrl+Enter likewise; a restored custom mode;
+  a mode problem opens the section once; an unavailable catalog does not; the
+  way back from the manager opens the section and focuses the gear; a load, a
+  run and a finished run leave the section closed.
+- Controller (`test/controller.test.ts`): exactly one `--fix-mode=<id>` for
+  Standard, Investigate First and a custom mode; a restored custom mode survives
+  the catalog arriving; a deleted one falls back to the default.
+- Integration (`test-integration`, real CLI): the panel's form with
+  `standard`, `investigate-first` and a project custom mode (created with
+  `fix-mode duplicate`) → `buildPrepareArgs` → a real prepare → `issue.json`
+  `guidance.fix_mode` carries the full seven-key audit record (id, name,
+  version, source, execution_kind, based_on, based_on_version), `run.json`
+  carries the same record, and `task.md`'s `## AI Fix Mode` names the mode, its
+  source and its execution kind.
+- Markup (`test/panel.test.ts`): exactly one `select#fixModeId`, one field, one
+  gear; inside Advanced settings, after the Strategy heading and before
+  Guidance, with its note and gear in the same field; nothing of it above Run;
+  no control of any kind above Run but the Issue field; four named groups.
+
+### 37.50 Checkpoint — responsive, theme and accessibility review
+
+Harness: the ignored `extension/.review/`, now 18 states — Batch 6's thirteen
+plus Advanced open with Standard Fix, Investigate First, a custom mode, a mode
+problem and an unavailable catalog — in dark and light at 200, 300 and 400 px:
+**108 pages, zero horizontal overflow**.
+
+The harness laid pages out by constraining `body`, but headless Chrome's
+viewport never goes below 500 px, so `panel.css`'s one `@media (max-width:
+380px)` rule (which hides "Hide Advanced" in a narrow sidebar) never applied
+and the open section's heading overlapped at 200 px. The harness now applies
+that rule at its narrow widths; the stylesheet did not change.
+
+Findings: the main form is visibly shorter — Issue, Run, the workflow,
+Advanced settings, Diagnostics. Inside Advanced settings, Strategy reads as one
+more group: the selector takes the row with the gear beside it (a long custom
+name is truncated by the native select, and its description wraps below); the
+Investigation-only line, the problem text and the unavailable detail sit where
+the mode's description does. Both themes use only existing `--vscode-*`
+variables; nothing new was styled. The label stays associated
+(`<label for="fixModeId">`), the gear keeps `title` and `aria-label`, and the
+tab order follows reading order: Advanced settings' summary, then the
+selector, the gear, then Guidance.
+
+### 37.51 Checkpoint — Batch 7 verification and review
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1117 passed (unchanged: no Python change) |
+| `npm test` (extension) | 888 passed (baseline 866: +18 page, +1 panel, +3 controller; the panel placement tests were rewritten in place) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` (real CLI, temp repositories, no Jira) | 9 passed (baseline 8: + the form → `issue.json` → `task.md` Fix Mode test) |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean; no untracked files |
+| `python tests/retrieval_corpus.py` | frozen pre-Batch-3 tree: all six cases **byte-identical**. Live tree: the same summary (top-3 2/5, MRR 0.292, docs 10), lower ranks shuffled among edited files as the self-referential corpus does |
+
+**Independent review** (whole diff vs `594ac5c`): no blocker, no hard-constraint
+violation. **Important, a product decision rather than a defect**: the host
+still re-selects the mode a work item was prepared with when it is reopened or
+its key is typed (and resets to the default for a new one) — behaviour tested
+since phase 7 — and with the selector collapsed that change is visible only by
+opening Advanced settings. Before the run nothing on the main form says so;
+after it, the Fix with AI row's Strategy line names the real mode before any
+handoff. Fixing it on the page would mean new main-form text or an automatic
+open, both outside this batch's constraints, so it is recorded as open for
+review in the canonical plan's Batch 7 decisions, and the README sentence that
+promised "nobody is surprised" was rewritten to say what actually happens.
+**Resolved** before freezing (below).
+Fixed from its minors: a mode problem now focuses the selector as well as
+opening the section (defensive — the parser and `buildPrepareArgs` leave almost
+no way to reach it); the collapsed-state page test now pushes the host's older
+form under the same revision and fails if the revision guard is removed (it
+previously passed without the change, as most of the new page tests do — the
+stub DOM does not model `<details>` containment; the two that pin the new
+behaviour, problem-opens-once and back-from-the-manager, both fail without it);
+§37.48 no longer claims every field in the section names its helper (the
+Attachments button, pre-existing, does not). Kept, deliberately: an
+unavailable catalog is explained inside the section and does not open it.
+
+**The open item, resolved: the collapsed summary names a non-default mode.**
+Decision: Advanced settings exposes the active non-default Fix Mode in its
+collapsed summary, so restored strategy changes remain visible without
+returning the selector to the primary form. Presentation only — `FormState`,
+persistence, the run payload, the controller and protocol, the artifacts,
+`WorkflowStepResult` and the section's auto-open rules are untouched.
+
+- Markup (`html.ts`): the summary's title line became `.adv-title-row` — the
+  title, then `#advanced-strategy` (a lightbulb and `#advanced-strategy-name`),
+  `hidden` in the markup and `aria-hidden`, so the disclosure's name is what it
+  was. The summary carries `aria-describedby="advanced-strategy-description"`,
+  a `hidden` span holding "Fix Mode: <name>" — the mode reaches assistive
+  technology as the description.
+- Page (`renderStrategySummary`, called from `renderFixModeNote`): named when
+  the catalog is ready and the selected mode is not the CLI's `defaultModeId`
+  (the display name, custom modes included); empty otherwise, including with no
+  catalog, when Run sends no mode at all. Because it reads the selector, it
+  follows a click, a restored work item (a new form revision), a reset to the
+  default and a catalog fallback on the same render. `title` carries the full
+  name.
+- Style (`panel.css`): secondary (`descriptionForeground`, 0.9em, the Fix Mode
+  lightbulb in the primary tone); hidden while the section is open, where the
+  selector itself is on screen. The title row wraps with
+  `justify-content: space-between`: the label sits at the far end while it
+  shares the title's line (400 px) and starts its own line under the title
+  once it wraps (300 and 200 px); the name is cut with an ellipsis rather than
+  widening the panel.
+- Tests: Standard Fix adds no label (chosen, or the default with nothing
+  chosen); Investigate First and a custom mode are named, with the description
+  and hover title; a click to and from the default; a restored mode on a new
+  revision, before Run; a reset to the default clears a stale label; a deleted
+  custom mode falls back and takes its label; no catalog, no label; Run from the
+  closed section unchanged; the markup keeps the name, holds no control, and
+  still has exactly one selector. Seven of the page tests fail with the renderer
+  removed (the other two assert the empty case).
+- Visual: harness states for Investigate First collapsed, a 66-character
+  custom name collapsed, and a prepared work item whose package used Standard
+  Fix while the next run is set to Investigate First — the Fix with AI row's
+  Strategy line and the summary label now say both. 21 states in dark and light
+  at 200, 300 and 400 px: 126 pages, zero horizontal overflow.

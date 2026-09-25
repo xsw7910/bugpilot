@@ -1286,6 +1286,273 @@ test("the run message carries the selected Fix Mode", () => {
   assert.equal((run?.["form"] as { fixModeId?: string } | undefined)?.fixModeId, "investigate-first");
 });
 
+// --- Batch 7: the selector lives in Advanced settings → Strategy ------------
+
+/** The same catalog with a project custom mode in it, as `fix-mode list --json` reports one. */
+const WITH_CUSTOM = {
+  ...MODES,
+  modes: [
+    ...MODES.modes,
+    {
+      id: "team-safe",
+      name: "Team Safe Fix",
+      description: "Our conservative variant.",
+      version: 1,
+      source: "project",
+      executionKind: "fix" as const,
+    },
+  ],
+};
+
+/** The form of the last run message the page sent. */
+const lastRun = (page: Page) =>
+  page.posted.filter((message) => message["type"] === "run").at(-1)?.["form"] as
+    | { fixModeId?: string }
+    | undefined;
+
+test("Advanced settings starts closed, and the selector inside it is already filled in", () => {
+  // Placement is visual. A closed section still holds the real selection and
+  // its description, so opening it shows what Run will use.
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+
+  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("fixModeId").value, "investigate-first");
+  assert.match(page.byId("fixModeId-description").textContent, /Investigation only/);
+});
+
+test("with nothing chosen, the closed selector holds the default the CLI declared, and Run sends it", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+
+  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("fixModeId").value, "standard");
+  page.byId("form").dispatch("submit");
+  assert.equal(lastRun(page)?.fixModeId, "standard");
+});
+
+test("a mode chosen and then folded away is still the one Run sends", () => {
+  // The regression Batch 7 must not introduce: a section being closed says
+  // nothing about the setting inside it.
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  page.byId("advanced").open = true;
+  page.byId("fixModeId").value = "investigate-first";
+  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
+  page.byId("advanced").open = false;
+  page.byId("advanced").dispatch("toggle");
+
+  // Pushes keep arriving while it is closed — every stream event is one — and
+  // none of them may reset the choice: not a plain push, and not one that
+  // carries the host's older copy of the form under the same revision.
+  page.send(state({ fixModes: MODES }));
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  assert.equal(page.byId("fixModeId").value, "investigate-first", "a same-revision push reset the choice");
+  page.byId("form").dispatch("submit");
+
+  assert.equal(lastRun(page)?.fixModeId, "investigate-first");
+  // And it is what the page persisted, so a reloaded panel starts from it.
+  const stored = page.stored.at(-1) as { form?: { fixModeId?: string } } | undefined;
+  assert.equal(stored?.form?.fixModeId, "investigate-first");
+});
+
+test("Ctrl+Enter from the Issue field uses the folded-away mode too", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+  page.byId("issue").value = "JR-12345";
+  page.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
+
+  assert.equal(page.byId("advanced").open, false);
+  assert.equal(lastRun(page)?.fixModeId, "investigate-first");
+});
+
+test("a restored custom mode is what the closed section holds, and what Run sends", () => {
+  const page = load();
+  page.send(state({ fixModes: WITH_CUSTOM, form: { ...DEFAULT_FORM, fixModeId: "team-safe" } }));
+
+  assert.deepEqual(
+    page.byId("fixModeId").children.map((option) => option.value),
+    ["standard", "investigate-first", "team-safe"],
+  );
+  assert.equal(page.byId("fixModeId").value, "team-safe");
+  assert.equal(page.byId("fixModeId-description").textContent, "Our conservative variant.");
+  page.byId("form").dispatch("submit");
+  assert.equal(lastRun(page)?.fixModeId, "team-safe");
+});
+
+test("a problem with the chosen mode opens Advanced settings once, to show it", () => {
+  // The rule every field in the section already follows: a message in a
+  // closed section is a message nobody sees.
+  const problem = { field: "fixModeId" as const, message: '"bad id" is not a Fix Mode id. Pick one from the list.' };
+  const withProblem = () =>
+    state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" }, problems: [problem] });
+  const page = load();
+  page.send(withProblem());
+
+  assert.equal(page.byId("advanced").open, true);
+  // And lands on the selector, which also brings it into view.
+  assert.equal(page.focused, "fixModeId");
+  assert.equal(page.byId("fixModeId-description").textContent, problem.message);
+  assert.ok(page.byId("field-fixModeId").classes.has("field-invalid"));
+  assert.equal(page.byId("fixModeId").getAttribute("aria-invalid"), "true");
+
+  // Once: closing it again is not overruled by the same problem pushed again,
+  // and focus is not pulled back to the selector either.
+  page.byId("advanced").open = false;
+  page.byId("hint").focus();
+  page.send(withProblem());
+  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.focused, "hint");
+});
+
+test("an unavailable catalog is explained inside the section, and does not force it open", () => {
+  // Not a problem with anything the developer chose — Run still works on the
+  // CLI's default — so it is said where Fix Mode lives, not pushed in their face.
+  const page = load();
+  page.send(state({ fixModes: { kind: "unavailable", detail: "AI Fix Modes could not be read." } }));
+
+  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("fixModeId-description").textContent, "AI Fix Modes could not be read.");
+  assert.equal(page.byId("run").disabled, false);
+});
+
+test("coming back from Manage Fix Modes lands on the gear, with its section open", () => {
+  // The gear is inside Advanced settings. A reloaded panel can restore the
+  // manager with the section closed, and focus cannot land inside a closed
+  // disclosure — so the way back opens it.
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+  assert.equal(page.byId("advanced").open, false);
+
+  page.send(state({ fixModes: MODES }));
+
+  assert.equal(page.byId("advanced").open, true);
+  assert.equal(page.focused, "manage-fix-modes");
+});
+
+test("opening the panel on the form does not open Advanced settings", () => {
+  // Only the way back from Fix Mode management does; a panel that loads, or a
+  // run that starts, leaves the section as it was.
+  const page = load();
+  page.send(state({ fixModes: MODES }));
+  page.send(state({ fixModes: MODES, progress: { state: "running", rows: [], artifacts: [] } }));
+  page.send(prepared({}, { fixModes: MODES }));
+
+  assert.equal(page.byId("advanced").open, false);
+});
+
+/** What the collapsed Advanced settings summary says about the Fix Mode. */
+const strategyLabel = (page: Page) => ({
+  shown: !page.byId("advanced-strategy").hidden,
+  name: page.byId("advanced-strategy-name").textContent,
+  description: page.byId("advanced-strategy-description").textContent,
+});
+
+const NO_LABEL = { shown: false, name: "", description: "" };
+
+test("Standard Fix adds nothing to the collapsed summary", () => {
+  // The ordinary case stays exactly as quiet as it was: no label, no text.
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  assert.deepEqual(strategyLabel(page), NO_LABEL);
+
+  // Nor does the default reached with nothing chosen.
+  const fresh = load();
+  fresh.send(state({ fixModes: MODES }));
+  assert.deepEqual(strategyLabel(fresh), NO_LABEL);
+});
+
+test("a non-default built-in mode is named in the collapsed summary", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+
+  assert.deepEqual(strategyLabel(page), {
+    shown: true,
+    name: "Investigate First",
+    description: "Fix Mode: Investigate First",
+  });
+  // The full name on hover, for when a narrow sidebar cuts it short.
+  assert.equal(page.byId("advanced-strategy").getAttribute("title"), "Fix Mode: Investigate First");
+  // Said, not opened: the section stays as the developer left it.
+  assert.equal(page.byId("advanced").open, false);
+});
+
+test("a custom mode is named by its display name", () => {
+  const page = load();
+  page.send(state({ fixModes: WITH_CUSTOM, form: { ...DEFAULT_FORM, fixModeId: "team-safe" } }));
+
+  assert.equal(strategyLabel(page).name, "Team Safe Fix");
+  assert.equal(strategyLabel(page).shown, true);
+});
+
+test("the label follows the selector the moment the developer changes it", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+
+  page.byId("fixModeId").value = "investigate-first";
+  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
+  assert.equal(strategyLabel(page).name, "Investigate First");
+
+  // And back to the default: the label goes, rather than lingering.
+  page.byId("fixModeId").value = "standard";
+  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
+  assert.deepEqual(strategyLabel(page), NO_LABEL);
+});
+
+test("a reopened work item's restored mode is named before Run", () => {
+  // The case the label exists for: the host restores the mode a work item was
+  // prepared with — a new form revision, no click — while the section is closed.
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  assert.deepEqual(strategyLabel(page), NO_LABEL);
+
+  page.send(state({ revision: 2, fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+  assert.equal(strategyLabel(page).name, "Investigate First");
+  assert.equal(page.byId("advanced").open, false);
+});
+
+test("switching to a new work item that resets to the default clears a stale label", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+  assert.equal(strategyLabel(page).shown, true);
+
+  page.send(state({ revision: 2, fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  assert.deepEqual(strategyLabel(page), NO_LABEL);
+});
+
+test("a deleted custom mode falls back to the default, and takes its label with it", () => {
+  // The page's own fallback when the catalog stops offering the chosen mode;
+  // the host makes the same choice and pushes it as a new form.
+  const page = load();
+  page.send(state({ fixModes: WITH_CUSTOM, form: { ...DEFAULT_FORM, fixModeId: "team-safe" } }));
+  assert.equal(strategyLabel(page).name, "Team Safe Fix");
+
+  page.send(state({ fixModes: MODES }));
+  assert.equal(page.byId("fixModeId").value, "standard");
+  assert.deepEqual(strategyLabel(page), NO_LABEL);
+});
+
+test("no catalog, no label: Run would send no mode at all", () => {
+  for (const fixModes of [
+    { kind: "loading" as const },
+    { kind: "unavailable" as const, detail: "AI Fix Modes could not be read." },
+  ]) {
+    const page = load();
+    page.send(state({ fixModes, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+    assert.deepEqual(strategyLabel(page), NO_LABEL, fixModes.kind);
+  }
+});
+
+test("with the label showing, Run from the closed section is unchanged", () => {
+  const page = load();
+  page.send(state({ fixModes: WITH_CUSTOM, form: { ...DEFAULT_FORM, fixModeId: "team-safe" } }));
+  assert.equal(strategyLabel(page).shown, true);
+
+  page.byId("form").dispatch("submit");
+  assert.equal(lastRun(page)?.fixModeId, "team-safe");
+  assert.equal(page.byId("advanced").open, false);
+});
+
 test("the Strategy line reports the package, not the selector", () => {
   // They differ the moment somebody changes the dropdown without running, and
   // labelling an old package with a new choice would misdescribe what the agent

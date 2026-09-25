@@ -365,7 +365,56 @@ details[open] > summary {
 .adv-heading {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-width: 0;
+}
+
+/* The title, and beside it a non-default Fix Mode while the section is closed.
+   It wraps under the title rather than squeezing it: the section must stay
+   recognisable as Advanced Settings at sidebar width. `space-between` puts it
+   at the far end while it shares the title's line, and at the start of its
+   own line once it wraps, where it reads as a second line of the heading. */
+.adv-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0 8px;
+  min-width: 0;
+}
+
+/* Secondary, like the subtitle, with the Fix Mode label's own lightbulb so it
+   reads as the strategy rather than as another heading. A long custom name is
+   cut with an ellipsis; the title attribute carries it in full. */
+.adv-strategy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.adv-strategy[hidden] {
+  display: none;
+}
+
+/* Open, the selector itself is on screen and the label would say it twice. */
+.advanced[open] .adv-strategy {
+  display: none;
+}
+
+.adv-strategy .codicon {
+  flex: none;
+  font-size: 12px;
+}
+
+.adv-strategy-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .adv-title {
@@ -408,7 +457,8 @@ details[open] > summary {
   }
 }
 
-/* A group inside Advanced settings: Guidance, Retrieval Overrides, Run Options.
+/* A group inside Advanced settings: Strategy, Guidance, Retrieval Overrides,
+   Run Options.
 
    A heading and a hairline, not a card. The section is already a <details>
    inside a bordered panel, so a box around each group would be three borders

@@ -1178,6 +1178,39 @@ Investigation & AI Fix    Context ready
     the controller still accepts only commands a rendered card currently
     offers.
 
+### Confirmed decisions (Batch 7): Fix Mode placement
+
+1. **Fix Mode is an Advanced settings → Strategy input.** The primary form is
+   the Issue field and Run; Strategy is the first group inside Advanced
+   settings, and it holds the one Fix Mode selector, the selected mode's
+   description (including "Investigation only") and the Manage Fix Modes gear.
+2. **Standard Fix remains the default.** The selection is still
+   `FormState.fixModeId`, restored and normalized by the host against the CLI's
+   catalog (a missing or removed mode falls back to the declared default); the
+   section being collapsed never changes it, and Run sends the same
+   `--fix-mode` either way.
+3. **Placement only.** No Fix Mode semantics, built-in definitions, custom-mode
+   storage, run payload, `issue.json` `guidance.fix_mode` record or `task.md`
+   AI Fix Mode section changed.
+4. **Input and result stay separate.** Fix Mode is chosen in Strategy; what a
+   package was prepared with is reported by the Fix with AI row's Strategy
+   line. The workflow rows carry no selector.
+5. **A closed section never hides a problem.** A problem with the chosen mode
+   opens Advanced settings once and focuses the selector, like a problem in any
+   field there; returning from Manage Fix Modes reopens it so focus lands back
+   on the gear.
+
+6. **Advanced settings exposes the active non-default Fix Mode in its
+   collapsed summary**, so restored strategy changes remain visible without
+   returning the selector to the primary form. The host re-selects the mode a
+   work item was prepared with when it is reopened or its key is typed, and the
+   default for a new one; while the section is closed, its title line names any
+   mode other than the CLI's declared default (Standard Fix adds nothing, a
+   custom mode shows its display name, a long one is cut with an ellipsis). It
+   is presentation only — read from the selector, never a second control — it
+   never opens the section, and the disclosure's accessible name is unchanged:
+   the mode reaches assistive technology as the summary's description.
+
 ---
 
 # 17. Artifact Label 显示原则

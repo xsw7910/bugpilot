@@ -452,7 +452,7 @@ test("a row with nothing but its summary is exactly as tall as before", () => {
 
 test("Advanced settings has a heading that says what it is for", () => {
   const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  const summary = /<summary>[\s\S]*?<\/summary>/.exec(advanced)?.[0] ?? "";
+  const summary = /<summary[^>]*>[\s\S]*?<\/summary>/.exec(advanced)?.[0] ?? "";
   assert.notEqual(summary, "", "no summary");
   assert.match(summary, /codicon-settings-gear/);
   assert.match(summary, /Advanced Settings \(Optional\)/);
@@ -471,9 +471,9 @@ test("every setting has a header row with a real label in it", () => {
   const rows = [...advanced.matchAll(/<div class="setting-header">([\s\S]*?)<\/div>/g)].map(
     (match) => match[1]!,
   );
-  // The text fields, plus the three rows that are not text fields: the agent
-  // picker, the attachment list and the checkbox.
-  assert.equal(rows.length, ADVANCED_FIELD_IDS.length + 3, "a row is missing the pattern");
+  // The text fields, plus the four rows that are not text fields: the Fix
+  // Mode selector, the agent picker, the attachment list and the checkbox.
+  assert.equal(rows.length, ADVANCED_FIELD_IDS.length + 4, "a row is missing the pattern");
 
   for (const row of rows) {
     const label = /<label[^>]*for="([^"]+)"/.exec(row);
@@ -509,6 +509,8 @@ test("helper text survives only where a placeholder could not carry it", () => {
     [
       // A rule or a consequence.
       "add-attachment", "agentCommand", "fresh", "useIssueDetails",
+      // A select, which has no placeholder to say what it is for.
+      "fixModeId",
       // What the setting is for, which is what UI-A2's grouping asserts.
       "focusFiles", "hint", "keywords",
     ].sort(),
@@ -652,7 +654,7 @@ test("every field in the section carries an icon, so it can be scanned", () => {
   // A gap in that column is more distracting than an icon, which is why this
   // checks all of them rather than the ones the design named.
   const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  for (const id of [...ADVANCED_FIELD_IDS, "agent", "add-attachment"]) {
+  for (const id of [...ADVANCED_FIELD_IDS, "fixModeId", "agent", "add-attachment"]) {
     const label = new RegExp(`<label[^>]*for="${id}"[^>]*>(.*?)</label>`, "s").exec(advanced)?.[1];
     assert.ok(label, `no label for ${id}`);
     assert.match(label, /codicon-[a-z-]+/, `${id} has no icon`);
@@ -977,22 +979,69 @@ test("the attachment ceiling is the one the CLI enforces", () => {
 
 // --- fix mode --------------------------------------------------------------
 
-test("the page has a Fix Mode selector outside Advanced settings", () => {
-  // Outside on purpose: this is an execution choice, not retrieval tuning, and
-  // burying it would make Investigate First a setting nobody finds.
-  const advanced = HTML.slice(HTML.indexOf('id="advanced"'));
-  assert.ok(HTML.includes('<select id="fixModeId"'), "no Fix Mode selector in the page");
-  assert.ok(!advanced.includes('id="fixModeId"'), "the Fix Mode selector is inside Advanced settings");
-  assert.ok(
-    HTML.indexOf('id="field-fixModeId"') < HTML.indexOf('id="run"'),
-    "the Fix Mode selector should sit above the run button",
-  );
+test("the one Fix Mode selector lives in Advanced settings, under Strategy", () => {
+  // Batch 7. Standard Fix is what almost every run uses, so choosing another is
+  // a setting rather than a question on the main form. It was outside Advanced
+  // settings from phase 7 until then; this pins the new home and that there is
+  // still exactly one of it.
+  assert.equal((HTML.match(/<select[^>]*id="fixModeId"/g) ?? []).length, 1, "not exactly one Fix Mode selector");
+  assert.equal(HTML.split('id="field-fixModeId"').length - 1, 1);
+  assert.equal(HTML.split('id="manage-fix-modes"').length - 1, 1);
+
+  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  const field = /<div class="field" id="field-fixModeId">[\s\S]*?id="fixModeId-description"[^>]*><\/p>\s*<\/div>/.exec(advanced)?.[0] ?? "";
+  assert.notEqual(field, "", "the Fix Mode field is not inside Advanced settings");
+  // Under the Strategy heading and before the next group, so it reads as that
+  // group's one setting.
+  const at = advanced.indexOf('id="field-fixModeId"');
+  assert.ok(advanced.indexOf('id="group-strategy"') < at, "Fix Mode is above its heading");
+  assert.ok(at < advanced.indexOf('id="group-guidance"'), "Fix Mode is not in Strategy");
+  // Its description and its gear moved with it: nothing about the mode is left
+  // on the main form, and the gear still sits beside the selector it manages.
+  assert.ok(field.includes('<select id="fixModeId"'));
+  assert.ok(field.includes('id="manage-fix-modes"'), "the gear did not move with the selector");
+  assert.ok(field.includes('id="fixModeId-description"'), "the mode's description stayed behind");
+  // And none of it above Run.
+  const beforeRun = HTML.slice(0, HTML.indexOf('id="run"'));
+  for (const id of ["fixModeId", "field-fixModeId", "manage-fix-modes", "fixModeId-description"]) {
+    assert.equal(beforeRun.includes(`id="${id}"`), false, `#${id} is still on the main form`);
+  }
+});
+
+test("the collapsed summary can name the Fix Mode without renaming the disclosure", () => {
+  // The label is on the title line of Advanced settings' own summary — not a
+  // new line on the main form, and not a second selector.
+  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  const summary = /<summary[^>]*>[\s\S]*?<\/summary>/.exec(advanced)?.[0] ?? "";
+  const label = /<span class="adv-strategy" id="advanced-strategy"[^>]*>/.exec(summary)?.[0] ?? "";
+  assert.notEqual(label, "", "no strategy label in the summary");
+  // Hidden until the page has a non-default mode to name.
+  assert.match(label, /\shidden(\s|>)/);
+  // Out of the accessible name, which stays "Advanced Settings (Optional)…";
+  // the same fact is the summary's description instead.
+  assert.match(label, /aria-hidden="true"/);
+  assert.match(summary, /^<summary aria-describedby="advanced-strategy-description">/);
+  assert.match(summary, /<span id="advanced-strategy-description" hidden><\/span>/);
+  assert.ok(summary.indexOf("adv-title") < summary.indexOf('id="advanced-strategy"'), "the label is not on the title line");
+  // No control of any kind in the summary: it is a label, not a selector.
+  assert.equal(/<(select|input|button)\b/.test(summary), false);
+  assert.equal((HTML.match(/<select[^>]*id="fixModeId"/g) ?? []).length, 1);
+  // Shown only while the section is closed, and cut short rather than
+  // widening the panel.
+  assert.match(CSS, /\.advanced\[open\] \.adv-strategy \{\s*display: none/);
+  assert.match(CSS, /\.adv-strategy-name \{[^}]*text-overflow: ellipsis/s);
+  assert.match(CSS, /\.adv-strategy-name \{[^}]*white-space: nowrap/s);
 });
 
 test("the Fix Mode selector is labelled and described for assistive tech", () => {
   assert.ok(HTML.includes('<label for="fixModeId"'), "the selector has no label");
-  assert.ok(HTML.includes('aria-describedby="fixModeId-description"'));
+  // What the setting is for and what the chosen mode does, both announced.
+  const described = /<select id="fixModeId"[^>]*aria-describedby="([^"]+)"/.exec(HTML)?.[1] ?? "";
+  assert.deepEqual(described.split(" ").sort(), ["fixModeId-description", "fixModeId-hint"]);
   assert.ok(HTML.includes('id="fixModeId-description"'));
+  assert.ok(HTML.includes('id="fixModeId-hint"'));
+  // The gear names what it does, for a screen reader and for a hover.
+  assert.match(HTML, /id="manage-fix-modes"[^>]*title="Manage Fix Modes"[^>]*aria-label="Manage Fix Modes"/);
 });
 
 test("the page markup does not name any Fix Mode", () => {
@@ -1224,7 +1273,8 @@ test("the default view is the Issue field, Run, and three disclosures", () => {
   // Everything the form shows before the first disclosure, in reading order.
   const visible = form.slice(0, form.indexOf("<details"));
   const open = [...visible.matchAll(/id="(field-[A-Za-z]+|run)"/g)].map((match) => match[1]);
-  assert.deepEqual(open, ["field-issue", "field-fixModeId", "run"]);
+  // Batch 7 took Fix Mode out of it: Issue, then Run.
+  assert.deepEqual(open, ["field-issue", "run"]);
 
   // And everything after it is behind one of exactly three closed disclosures,
   // so no optional control is on screen until it is asked for.
@@ -1253,9 +1303,10 @@ test("the Issue field is one box that says it takes either kind of input", () =>
   // Multi-line, because the same box holds a six-character key and a pasted
   // bug report.
   assert.match(HTML, /<textarea[^>]*id="issue"[^>]*placeholder="Jira ticket or bug description"/);
-  // Exactly one input above Run — the thing UI-A1 is for.
+  // Exactly one control above Run — the thing UI-A1 is for, and since Batch 7
+  // not even a select beside it.
   const beforeRun = HTML.slice(0, HTML.indexOf('id="run"'));
-  const controls = [...beforeRun.matchAll(/<(?:input|textarea)[^>]*id="([A-Za-z]+)"/g)].map(
+  const controls = [...beforeRun.matchAll(/<(?:input|textarea|select)[^>]*id="([A-Za-z]+)"/g)].map(
     (match) => match[1],
   );
   assert.deepEqual(controls, ["issue"], "something else is competing with the Issue field");
@@ -1299,14 +1350,17 @@ function advancedGroup(id: string): string {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-test("Advanced settings is three named groups, in reading order", () => {
+test("Advanced settings is four named groups, in reading order", () => {
   // The question UI-A2 answers: does this setting talk to the AI, or does it
-  // steer what BugPilot searches? A flat list of nine could not say.
+  // steer what BugPilot searches? A flat list of nine could not say. Batch 7
+  // added Strategy first: how the agent approaches the bug, which is the one
+  // setting here that shapes the task rather than the context.
   const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
   const headings = [...advanced.matchAll(/<h3 class="setting-group" id="group-([a-z-]+)">([^<]+)</g)];
   assert.deepEqual(
     headings.map((match) => [match[1], match[2]]),
     [
+      ["strategy", "Strategy"],
       ["guidance", "Guidance"],
       ["retrieval", "Retrieval Overrides"],
       ["run-options", "Run Options"],

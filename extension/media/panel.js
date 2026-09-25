@@ -68,7 +68,9 @@
    * Fields that live inside Advanced settings, which starts collapsed.
    *
    * A validation message in a collapsed section is a message nobody can see,
-   * so a problem in one of these opens it.
+   * so a problem in one of these opens it. The Fix Mode selector lives there
+   * too (Batch 7) and follows the same rule, but its problem is shown in the
+   * note under it rather than in an error line, so `renderFixModes` handles it.
    */
   const ADVANCED_FIELDS = [
     "title",
@@ -159,6 +161,8 @@
   let fixModesReady = false;
   /** The catalog as the host last described it, for the note under the select. */
   let fixModeCatalog;
+  /** The Fix Mode problem already revealed, so the section opens once per problem. */
+  let shownFixModeProblem = "";
   /** The coupled checkboxes as they were before Build context forced them off. */
   let planBeforeCoupling;
   /**
@@ -485,7 +489,17 @@
 
   /** The note under the selector, once the form has settled on a selection. */
   function renderFixModes(state) {
-    renderFixModeNote((state.problems || []).find((entry) => entry.field === "fixModeId"));
+    const problem = (state.problems || []).find((entry) => entry.field === "fixModeId");
+    renderFixModeNote(problem);
+    // The selector is inside Advanced settings, which may be closed: a problem
+    // with the chosen mode opens it once and lands on the selector, like a
+    // problem in any field there.
+    const signature = problem ? problem.message : "";
+    if (signature && signature !== shownFixModeProblem) {
+      byId("advanced").open = true;
+      byId("fixModeId").focus();
+    }
+    shownFixModeProblem = signature;
   }
 
   /**
@@ -521,6 +535,27 @@
       Boolean(problem) || catalog.kind === "unavailable",
     );
     select.setAttribute("aria-invalid", problem ? "true" : "false");
+    renderStrategySummary(catalog, selected);
+  }
+
+  /**
+   * The Advanced settings summary's Fix Mode label, for a non-default mode.
+   *
+   * Presentation only: it reads the selector the note above just described,
+   * so it follows a click, a restored work item and a fallback alike. Nothing
+   * for the default the CLI declared — the ordinary case adds no text — and
+   * nothing when there is no catalog, because then Run sends no mode at all.
+   */
+  function renderStrategySummary(catalog, selected) {
+    const name =
+      catalog.kind === "ready" && selected && selected.id !== catalog.defaultModeId
+        ? selected.name || selected.id
+        : "";
+    const label = byId("advanced-strategy");
+    byId("advanced-strategy-name").textContent = name;
+    label.setAttribute("title", name ? `Fix Mode: ${name}` : "");
+    label.hidden = name === "";
+    byId("advanced-strategy-description").textContent = name ? `Fix Mode: ${name}` : "";
   }
 
   function renderReadiness(readiness) {
@@ -1257,6 +1292,10 @@
       focusElement(previewDuplicate);
       return;
     }
+    // The gear lives in Advanced settings. It was open when the gear was
+    // pressed, but a reloaded panel restores the manager with the section
+    // closed — and focus cannot land on a button inside a closed disclosure.
+    if (view === "main") byId("advanced").open = true;
     focusView(VIEW_FOCUS[view]);
   }
 

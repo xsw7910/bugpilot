@@ -1696,6 +1696,50 @@ test("the selected mode reaches the command line", async () => {
   );
 });
 
+/** The catalog with a project custom mode in it. */
+const CATALOG_WITH_CUSTOM = fixModesFromPayload({
+  ...MODE_PAYLOAD,
+  modes: [
+    ...MODE_PAYLOAD.modes,
+    {
+      id: "team-safe",
+      name: "Team Safe Fix",
+      description: "Our conservative variant.",
+      version: 1,
+      source: "project",
+      execution_kind: "fix",
+      based_on: "conservative",
+    },
+  ],
+});
+
+test("the run request carries exactly the mode the form holds: Standard, a built-in, a custom mode", async () => {
+  // Batch 7 moved the selector; the request must not notice. One --fix-mode,
+  // spelled as the id the form holds, for each kind of mode.
+  for (const fixModeId of ["standard", "investigate-first", "team-safe"]) {
+    const h = harness({ fixModes: CATALOG_WITH_CUSTOM, events: successfulRun });
+    await h.controller.refreshEnvironment();
+    await h.controller.run(jiraForm({ fixModeId }));
+
+    const flags = h.streamRuns[0]!.args.filter((arg) => arg.startsWith("--fix-mode"));
+    assert.deepEqual(flags, [`--fix-mode=${fixModeId}`], fixModeId);
+  }
+});
+
+test("a restored custom mode survives the catalog arriving", async () => {
+  const h = harness({ fixModes: CATALOG_WITH_CUSTOM, form: jiraForm({ fixModeId: "team-safe" }) });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().form?.fixModeId, "team-safe");
+});
+
+test("a custom mode that was deleted falls back to the default, like any other", async () => {
+  const h = harness({ fixModes: CATALOG, form: jiraForm({ fixModeId: "team-safe" }) });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().form?.fixModeId, "standard");
+});
+
 test("opening a prepared work item shows the mode it was prepared with", async () => {
   const h = harness({
     fixModes: CATALOG,
