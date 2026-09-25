@@ -1,4 +1,4 @@
-"""What actually reaches `bug_context.md` (§33.6).
+"""What actually reaches `context.md` (§33.6).
 
 Only the top five related files are written into the context, and the context is
 what the agent reads. A ranking mistake here is not a slightly worse list — it is
@@ -11,12 +11,12 @@ because the scores were right in cases where the context still was not.
 
 from __future__ import annotations
 
-import json
 import shutil
 
 import pytest
 
 from bugpilot.core.context import build_context
+from bugpilot.core.issue import IssueArtifact
 from bugpilot.core.keywords import extract_keywords
 from bugpilot.core.models import InvestigationOptions
 from bugpilot.core.workflow import code_search_step
@@ -54,12 +54,9 @@ def _repo(tmp_path):
 
 def _context(tmp_path, options: InvestigationOptions | None = None) -> str:
     keywords = extract_keywords(ISSUE)
-    issue_dir = tmp_path / ".ai" / "JR-1"
-    issue_dir.mkdir(parents=True, exist_ok=True)
-    (issue_dir / "extracted_keywords.json").write_text(json.dumps(keywords), encoding="utf-8")
-    code_search_step(tmp_path, "JR-1", options or InvestigationOptions())
-    parsed = {"issue_key": "JR-1", "summary": ISSUE, "description": ISSUE, "combined_text": ISSUE}
-    return build_context(tmp_path, "JR-1", parsed, keywords)
+    retrieval = code_search_step(tmp_path, "JR-1", options or InvestigationOptions(), keywords=keywords)
+    issue = IssueArtifact(id="JR-1", source="jira", title=ISSUE, description=ISSUE)
+    return build_context(issue, keywords, retrieval)
 
 
 def _listed(context: str) -> list[str]:

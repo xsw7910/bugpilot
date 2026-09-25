@@ -1,7 +1,7 @@
 """Build and send the post-fix notification email.
 
 The email is assembled entirely from local bugpilot artifacts (result_summary.md
-and jira_summary.md) and sent over SMTP using credentials supplied through the
+and issue.json) and sent over SMTP using credentials supplied through the
 environment. bugpilot never hardcodes SMTP secrets and never commits, pushes, or
 updates Jira as part of sending this notification.
 """
@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from .config import EmailConfig, GraphConfig, issue_dir, load_config
-from .input_adapters import load_bug_spec
+from .issue import read_issue_quietly
 from .jira import sanitize_comment_text
 from .models import SOURCE_MANUAL
 
@@ -57,26 +57,17 @@ class EmailSendError(Exception):
 def build_email_draft(repo_root: Path, issue_key: str) -> EmailDraft:
     target = issue_dir(repo_root, issue_key)
     result_summary = _read(target / "result_summary.md")
-    jira_summary = _read(target / "jira_summary.md")
 
-    # A hand-written bug has no jira_summary.md, so the title and the original
-    # problem come from the stored BugSpec instead. Without this the notification
+    # The title and the original problem come from the normalized issue, which a
+    # Jira work item and a hand-written one share. Without them the notification
     # says "not available" for the one thing the reader most needs.
-    spec = load_bug_spec(repo_root, issue_key)
-    is_manual = spec is not None and spec.source == SOURCE_MANUAL
+    issue = read_issue_quietly(repo_root, issue_key)
+    is_manual = issue is not None and issue.source == SOURCE_MANUAL
 
-    summary_line = (
-        _section(jira_summary, "## Summary")
-        or (spec.title if is_manual and spec else "")
-        or _section(result_summary, "## Issue")
-    )
+    summary_line = (issue.title if issue else "") or _section(result_summary, "## Issue")
     summary_line = _first_meaningful_line(summary_line)
 
-    original_problem = (
-        _section(jira_summary, "## Description")
-        or (spec.description if is_manual and spec else "")
-        or _NOT_AVAILABLE
-    )
+    original_problem = (issue.description if issue else "") or _NOT_AVAILABLE
     root_cause = _section(result_summary, "## Root Cause Summary") or _NOT_AVAILABLE
     fix_summary = _section(result_summary, "## Fix Summary") or _NOT_AVAILABLE
     diff_summary = _section(result_summary, "## Diff Summary") or _NOT_AVAILABLE

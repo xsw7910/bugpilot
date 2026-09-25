@@ -154,17 +154,18 @@ test("a hand-written bug runs end to end, and the models describe it correctly",
   if (artifacts.kind !== "ready") return;
   const handoff = artifacts.sections.find((section) => section.group === "handoff");
   assert.ok(handoff, "no handoff section, so the panel would offer nothing to hand over");
-  assert.equal(handoff.entries[0]?.name, "agent_task.md");
+  assert.equal(handoff.entries[0]?.name, "task.md");
   // Every result file is still missing, which is exactly what the tree shows
   // before an agent has run.
   const results = artifacts.sections.find((section) => section.group === "results");
   assert.ok(results?.entries.every((entry) => entry.missing));
 
-  // And the restore path: the status file the run left behind must rebuild the
+  // And the restore path: the run state the run left behind must rebuild the
   // same checklist, because that is all a reopened window has.
   const status = JSON.parse(
-    readFileSync(path.join(root, ".ai", workItemId, "workflow_status.json"), "utf8"),
+    readFileSync(path.join(root, ".ai", workItemId, "run.json"), "utf8"),
   );
+  assert.equal((status as { status?: string }).status, "prepared");
   const restored = viewFromStatus(status);
   assert.equal(restored.state, "done");
   assert.deepEqual(

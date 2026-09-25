@@ -160,7 +160,7 @@ in the repository and not in the Jira ticket: a crash log, a screenshot of the
 broken dialog, a config that reproduces it.
 
 The files are copied into `.ai/<work-item>/attachments/` and **named one by one
-in `agent_task.md`**, which is what makes the agent read them — dropping a file
+in `task.md`**, which is what makes the agent read them — dropping a file
 into that directory by hand does nothing, because the task file lists its inputs
 explicitly.
 
@@ -184,7 +184,7 @@ the right says how it went. A step that has not started shows nothing there. Unt
 Issue details always runs, because it is the input rather than an option.
 
 When **Build context** finishes, three icons appear on its own row: open the
-generated context, copy the handoff prompt, reveal the artifacts folder.
+generated `context.md`, copy it to the clipboard, reveal the artifacts folder.
 
 **Fix with AI** is the last step, and it starts unticked. Tick it and Run does
 everything above it and then hands the finished package to your coding agent in
@@ -214,10 +214,10 @@ changed first. Each row's icon says what became of it:
 
 Hover a row for the source, when it last changed, and that sentence in full.
 **Click** it to reopen the whole investigation in the panel — the six steps come
-back from `workflow_status.json` and the Artifacts view follows.
+back from `run.json` and the Artifacts view follows.
 
 **Right-click** for the things worth doing to a past work item: open
-`agent_task.md`, copy the handoff prompt, reveal the artifacts folder, retry, or
+`task.md`, copy the handoff prompt, reveal the artifacts folder, retry, or
 clean it up. Each one switches the panel to that row first, so nothing happens
 to a work item you cannot see.
 
@@ -302,7 +302,7 @@ worth knowing:
 | "runs, but its environment check failed" | The CLI is fine; something it needs is not. The message names which |
 | A run stops with "ran longer than BugPilot waits" | Narrow the search: ignore vendored or generated directories, or lower Max files |
 | "not on PATH" after Fix with AI | The prompt is on your clipboard instead. Install an agent CLI, or set **Advanced settings → AI agent** to a custom command |
-| The icons on Build context never appear | They follow the files: they arrive when `bug_context.md` and `agent_task.md` do |
+| The icons on Build context never appear | They follow the file: they arrive when `context.md` does |
 
 The **BugPilot** output channel (**BugPilot: Show Log**) records every command
 line it ran, which is the fastest way to reproduce a problem in a terminal.

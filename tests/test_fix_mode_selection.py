@@ -9,7 +9,7 @@ every regeneration entry point is tested for the mode it produces, not merely
 for producing something.
 
 The second rule these tests hold is that a selection which cannot be honored is
-an error rather than a fallback. `fix_mode.json` records an id, and the id is
+an error rather than a fallback. `issue.json` records an id, and the id is
 re-resolved through the registry on every read; a stored mode that no longer
 exists has to say so, because "quietly became Standard" is the failure that a
 project-scoped custom mode would hit first.
@@ -25,12 +25,11 @@ import pytest
 from bugpilot.cli import main
 from bugpilot.core import workflow
 from bugpilot.core.fix_mode_state import (
-    FIX_MODE_FILE,
-    FIX_MODE_SCHEMA_VERSION,
     fix_mode_metadata,
     persist_fix_mode,
     select_fix_mode,
 )
+from bugpilot.core.issue import IssueGuidance, issue_to_dict, jira_stub
 from bugpilot.core.fix_modes import (
     FixModeError,
     FixModeNotFoundError,
@@ -54,19 +53,27 @@ def prepare(tmp_path: Path, *args: str) -> int:
     return main(["bug", "JR-12345", "--allow-mock", "--prepare-only", *args])
 
 
-def task_text(tmp_path: Path, name: str = "agent_task.md") -> str:
+def task_text(tmp_path: Path, name: str = "task.md") -> str:
     return (tmp_path / ".ai" / "JR-12345" / name).read_text(encoding="utf-8")
 
 
 def stored(tmp_path: Path) -> dict:
-    return json.loads(
-        (tmp_path / ".ai" / "JR-12345" / FIX_MODE_FILE).read_text(encoding="utf-8")
-    )
+    issue = json.loads((tmp_path / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))
+    return issue["guidance"]["fix_mode"]
+
+
+def record(tmp_path: Path, fix_mode: object) -> None:
+    """An issue.json for JR-1 whose recorded selection is ``fix_mode``, verbatim."""
+    target = tmp_path / ".ai" / "JR-1"
+    target.mkdir(parents=True, exist_ok=True)
+    payload = issue_to_dict(jira_stub("JR-1", IssueGuidance()))
+    payload["guidance"]["fix_mode"] = fix_mode
+    (target / "issue.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def status(tmp_path: Path) -> dict:
     return json.loads(
-        (tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text(encoding="utf-8")
+        (tmp_path / ".ai" / "JR-12345" / "run.json").read_text(encoding="utf-8")
     )
 
 
@@ -119,13 +126,13 @@ def test_an_unknown_explicit_id_raises_rather_than_falling_back(tmp_path):
 # --- the persisted file ------------------------------------------------------
 
 
-def test_the_selection_file_records_resolvable_audit_metadata(tmp_path):
-    path = persist_fix_mode(tmp_path, "JR-1", REGISTRY.resolve("investigate-first"))
+def test_the_selection_is_recorded_in_issue_json_as_resolvable_audit_metadata(tmp_path):
+    recorded = persist_fix_mode(tmp_path, "JR-1", REGISTRY.resolve("investigate-first"))
+    path = tmp_path / ".ai" / "JR-1" / "issue.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
 
-    assert path.name == FIX_MODE_FILE
-    assert payload == {
-        "schema_version": FIX_MODE_SCHEMA_VERSION,
+    assert payload["schema_version"] == 1
+    assert payload["guidance"]["fix_mode"] == {
         "id": "investigate-first",
         "name": "Investigate First",
         "version": 1,
@@ -134,9 +141,18 @@ def test_the_selection_file_records_resolvable_audit_metadata(tmp_path):
         "based_on": None,
         "based_on_version": None,
     }
-    # Deterministic on disk, so a re-run is not a diff.
-    assert path.read_text(encoding="utf-8").endswith("}\n")
-    assert path.read_text(encoding="utf-8") == json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    # What was written is what the caller gets back to keep working with.
+    assert recorded.guidance.fix_mode == payload["guidance"]["fix_mode"]
+    assert not (tmp_path / ".ai" / "JR-1" / "fix_mode.json").exists()
+
+
+def test_recording_a_mode_keeps_the_rest_of_the_issue(tmp_path):
+    persist_fix_mode(tmp_path, "JR-1", REGISTRY.resolve("conservative"))
+    persist_fix_mode(tmp_path, "JR-1", REGISTRY.resolve("test-driven"))
+
+    payload = json.loads((tmp_path / ".ai" / "JR-1" / "issue.json").read_text(encoding="utf-8"))
+    assert payload["id"] == "JR-1"
+    assert payload["guidance"]["fix_mode"]["id"] == "test-driven"
 
 
 def test_metadata_is_one_shape_everywhere(tmp_path):
@@ -157,22 +173,20 @@ def test_metadata_is_one_shape_everywhere(tmp_path):
     "contents",
     ["not json at all", "[]", '"conservative"', "null"],
 )
-def test_an_unreadable_selection_file_fails_clearly(tmp_path, contents):
+def test_an_unreadable_issue_file_fails_clearly(tmp_path, contents):
     target = tmp_path / ".ai" / "JR-1"
     target.mkdir(parents=True)
-    (target / FIX_MODE_FILE).write_text(contents, encoding="utf-8")
+    (target / "issue.json").write_text(contents, encoding="utf-8")
 
     with pytest.raises(FixModeError) as excinfo:
         select_fix_mode(tmp_path, "JR-1")
-    assert FIX_MODE_FILE in str(excinfo.value)
+    assert "issue.json" in str(excinfo.value)
     assert "--fix-mode" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("payload", [{}, {"name": "Conservative Fix"}, {"id": "   "}, {"id": 7}])
-def test_a_selection_file_without_a_usable_id_fails_clearly(tmp_path, payload):
-    target = tmp_path / ".ai" / "JR-1"
-    target.mkdir(parents=True)
-    (target / FIX_MODE_FILE).write_text(json.dumps(payload), encoding="utf-8")
+def test_a_recorded_selection_without_a_usable_id_fails_clearly(tmp_path, payload):
+    record(tmp_path, payload)
 
     with pytest.raises(FixModeError, match="does not record a Fix Mode id"):
         select_fix_mode(tmp_path, "JR-1")
@@ -180,11 +194,7 @@ def test_a_selection_file_without_a_usable_id_fails_clearly(tmp_path, payload):
 
 def test_a_stored_id_that_no_longer_resolves_fails_instead_of_becoming_standard(tmp_path):
     """The case a project-scoped custom mode hits the day its file is deleted."""
-    target = tmp_path / ".ai" / "JR-1"
-    target.mkdir(parents=True)
-    (target / FIX_MODE_FILE).write_text(
-        json.dumps({"schema_version": 1, "id": "team-safe-fix"}), encoding="utf-8"
-    )
+    record(tmp_path, {"id": "team-safe-fix"})
 
     with pytest.raises(FixModeNotFoundError) as excinfo:
         select_fix_mode(tmp_path, "JR-1")
@@ -198,19 +208,14 @@ def test_only_the_id_selects_the_mode(tmp_path):
     A stale or hand-edited file must not be able to describe one mode and
     deliver another, so everything but the id is re-derived from the registry.
     """
-    target = tmp_path / ".ai" / "JR-1"
-    target.mkdir(parents=True)
-    (target / FIX_MODE_FILE).write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "id": "conservative",
-                "name": "Something Else Entirely",
-                "execution_kind": "investigate",
-                "source": "project",
-            }
-        ),
-        encoding="utf-8",
+    record(
+        tmp_path,
+        {
+            "id": "conservative",
+            "name": "Something Else Entirely",
+            "execution_kind": "investigate",
+            "source": "project",
+        },
     )
 
     mode = select_fix_mode(tmp_path, "JR-1").mode
@@ -221,12 +226,7 @@ def test_only_the_id_selects_the_mode(tmp_path):
 
 
 def test_a_recorded_version_that_has_moved_on_warns_and_uses_the_installed_one(tmp_path):
-    target = tmp_path / ".ai" / "JR-1"
-    target.mkdir(parents=True)
-    (target / FIX_MODE_FILE).write_text(
-        json.dumps({"schema_version": 1, "id": "conservative", "version": 99}),
-        encoding="utf-8",
-    )
+    record(tmp_path, {"id": "conservative", "version": 99})
 
     selection = select_fix_mode(tmp_path, "JR-1")
 
@@ -327,12 +327,14 @@ def test_prompt_step_regeneration_keeps_the_chosen_mode(tmp_path, monkeypatch):
     assert "- Mode: Test-Driven Fix" in task_text(tmp_path)
 
 
-def test_the_selection_file_is_reported_as_a_generated_artifact(tmp_path, monkeypatch):
+def test_the_issue_file_is_reported_as_a_generated_artifact(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert prepare(tmp_path, "--fix-mode", "conservative") == 0
 
-    assert f".ai/JR-12345/{FIX_MODE_FILE}" in status(tmp_path)["generated_files"]
+    generated = status(tmp_path)["generated_files"]
+    assert ".ai/JR-12345/issue.json" in generated
+    assert ".ai/JR-12345/fix_mode.json" not in generated
 
 
 def test_a_rejected_mode_costs_no_artifacts(tmp_path, monkeypatch):
@@ -481,7 +483,7 @@ def test_an_unknown_mode_on_a_run_is_a_clear_error(tmp_path, monkeypatch, capsys
 def test_regeneration_reports_an_unusable_selection_without_a_traceback(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert prepare(tmp_path, "--fix-mode", "conservative") == 0
-    (tmp_path / ".ai" / "JR-12345" / FIX_MODE_FILE).write_text("{oh dear", encoding="utf-8")
+    (tmp_path / ".ai" / "JR-12345" / "issue.json").write_text("{oh dear", encoding="utf-8")
 
     assert main(["agent-task", "JR-12345"]) == 1
     err = capsys.readouterr().err
@@ -520,7 +522,7 @@ def test_json_output_carries_the_selected_mode(tmp_path, monkeypatch, capsys):
     }
     # The keys that were there before are still there.
     assert payload["work_item_id"] == "JR-12345"
-    assert payload["agent_task"] == ".ai/JR-12345/agent_task.md"
+    assert payload["agent_task"] == ".ai/JR-12345/task.md"
 
 
 def test_json_output_defaults_to_standard_metadata(tmp_path, monkeypatch, capsys):
@@ -542,7 +544,7 @@ def test_status_json_exposes_the_recorded_mode(tmp_path, monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
 
     assert payload["fix_mode"]["id"] == "conservative"
-    assert payload["mode"] == "prepare-only"
+    assert payload["status"] == "prepared"
 
 
 # --- machine-readable discovery ---------------------------------------------

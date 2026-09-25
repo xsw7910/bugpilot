@@ -1,5 +1,5 @@
 /**
- * Reading the searched terms out of `search_quality.json`.
+ * Reading the searched terms out of `retrieval.json`.
  *
  * Two rules run through this file. **The artifact decides**: whether a term is
  * broad, what its source is called and where a generated shape came from are
@@ -13,8 +13,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { retrievalTerms } from "../src/app/retrievalDetails.ts";
+import { parseRetrieval } from "../src/app/retrieval.ts";
 
-/** One entry with every field a real artifact writes. */
+/** One `terms` entry with every field a real artifact writes. */
 const ENTRY = {
   classification: "specific",
   derived_from: "",
@@ -26,10 +27,12 @@ const ENTRY = {
   weight: 8,
 };
 
-const quality = (...terms: unknown[]) => JSON.stringify({ confidence: "high", terms });
+/** A version-1 `retrieval.json` holding these terms, parsed the way the host parses it. */
+const withTerms = (...terms: unknown[]) =>
+  parseRetrieval(JSON.stringify({ schema_version: 1, confidence: "high", terms, related_files: [] }));
 
 test("a real entry becomes exactly the fields the UI needs", () => {
-  assert.deepEqual([...retrievalTerms(quality(ENTRY))], [
+  assert.deepEqual([...retrievalTerms(withTerms(ENTRY))], [
     {
       term: "WidgetController",
       source: "User keyword",
@@ -44,7 +47,7 @@ test("the ranker's own arithmetic stays out of the UI", () => {
   // The question this section answers is "why was this searched", not "what
   // constant did the ranker use". A weight is a number a developer cannot act
   // on, which is exactly the kind that invites them to try.
-  const [term] = retrievalTerms(quality(ENTRY));
+  const [term] = retrievalTerms(withTerms(ENTRY));
   assert.ok(term);
 
   for (const internal of ["weight", "effective_weight", "effectiveWeight", "status", "score"]) {
@@ -57,7 +60,7 @@ test("the artifact's order is the list's order", () => {
   // Strongest term first, as the weighting left them. That ordering is part of
   // the retrieval story, so nothing here sorts it into alphabetical nonsense.
   const terms = retrievalTerms(
-    quality(
+    withTerms(
       { ...ENTRY, value: "VDS" },
       { ...ENTRY, value: "outputType" },
       { ...ENTRY, value: "validation" },
@@ -71,7 +74,7 @@ test("every source the model can produce has a readable name", () => {
   // `TermSource` in search_terms.py, in full.
   const labels = Object.fromEntries(
     ["issue", "hint", "user", "identifier", "phrase", "expanded", "shape_expansion"].map(
-      (source) => [source, retrievalTerms(quality({ ...ENTRY, source }))[0]?.source],
+      (source) => [source, retrievalTerms(withTerms({ ...ENTRY, source }))[0]?.source],
     ),
   );
 
@@ -89,12 +92,12 @@ test("every source the model can produce has a readable name", () => {
 test("a source this extension has not heard of survives as itself", () => {
   // A newer bugpilot may add one. Degrading to the raw value says more than
   // dropping the row, and it cannot be mistaken for a label somebody chose.
-  assert.equal(retrievalTerms(quality({ ...ENTRY, source: "co_occurrence" }))[0]?.source, "co_occurrence");
+  assert.equal(retrievalTerms(withTerms({ ...ENTRY, source: "co_occurrence" }))[0]?.source, "co_occurrence");
   // But only if it looks like the identifier it is meant to be: the string
   // reaches the panel, and an artifact is a file something else could write.
   for (const hostile of ["<script>alert(1)</script>", "a".repeat(200), "", 7, null, {}]) {
     assert.equal(
-      retrievalTerms(quality({ ...ENTRY, source: hostile }))[0]?.source,
+      retrievalTerms(withTerms({ ...ENTRY, source: hostile }))[0]?.source,
       undefined,
       JSON.stringify(hostile),
     );
@@ -105,21 +108,21 @@ test("broad is read from the artifact, never worked out from the count", () => {
   // The threshold lives in search.py and belongs there. A copy of it here would
   // disagree with the ranker the day somebody tuned it — and would disagree
   // silently, which is worse.
-  const broad = retrievalTerms(quality({ ...ENTRY, classification: "broad", match_count: 821 }))[0];
+  const broad = retrievalTerms(withTerms({ ...ENTRY, classification: "broad", match_count: 821 }))[0];
   assert.equal(broad?.broad, true);
   assert.equal(broad?.lines, 821);
 
   // A huge count that the artifact did *not* call broad is not broad.
-  const huge = retrievalTerms(quality({ ...ENTRY, classification: "specific", match_count: 99_999 }))[0];
+  const huge = retrievalTerms(withTerms({ ...ENTRY, classification: "specific", match_count: 99_999 }))[0];
   assert.equal(huge?.broad, false);
 
   // And a tiny one the artifact *did* call broad is broad.
-  const tiny = retrievalTerms(quality({ ...ENTRY, classification: "broad", match_count: 3 }))[0];
+  const tiny = retrievalTerms(withTerms({ ...ENTRY, classification: "broad", match_count: 3 }))[0];
   assert.equal(tiny?.broad, true);
 });
 
 test("a term that found nothing says so", () => {
-  const empty = retrievalTerms(quality({ ...ENTRY, classification: "zero", match_count: 0 }))[0];
+  const empty = retrievalTerms(withTerms({ ...ENTRY, classification: "zero", match_count: 0 }))[0];
 
   assert.equal(empty?.empty, true);
   assert.equal(empty?.broad, false);
@@ -130,7 +133,7 @@ test("a generated shape carries the phrase it was built from", () => {
   // The whole reason this section is worth having: it explains a term the
   // developer never typed.
   const shape = retrievalTerms(
-    quality({
+    withTerms({
       ...ENTRY,
       value: "outputType",
       source: "shape_expansion",
@@ -149,7 +152,7 @@ test("a term that was simply in the text explains itself", () => {
   // is the common case.
   for (const derived of ["", "   ", undefined, null, 7]) {
     assert.equal(
-      retrievalTerms(quality({ ...ENTRY, derived_from: derived }))[0]?.derivedFrom,
+      retrievalTerms(withTerms({ ...ENTRY, derived_from: derived }))[0]?.derivedFrom,
       undefined,
       JSON.stringify(derived),
     );
@@ -158,19 +161,22 @@ test("a term that was simply in the text explains itself", () => {
 
 test("an unreadable artifact is an empty list, never a crash", () => {
   for (const broken of [undefined, "", "   ", "{half", "not json", "null", "42", '"text"', "[]"]) {
-    assert.deepEqual([...retrievalTerms(broken)], [], JSON.stringify(broken));
+    assert.deepEqual([...retrievalTerms(parseRetrieval(broken))], [], JSON.stringify(broken));
   }
   // The right shape with the wrong `terms`.
   for (const terms of ["[]", "null", "7", '{"a":1}']) {
-    assert.deepEqual([...retrievalTerms(`{"terms": ${terms}}`)], [], terms);
+    assert.deepEqual([...retrievalTerms(parseRetrieval(`{"schema_version": 1, "terms": ${terms}}`))], [], terms);
   }
-  // And no `terms` at all, which is what an older artifact looks like.
-  assert.deepEqual([...retrievalTerms('{"confidence": "high"}')], []);
+  // No `terms` at all.
+  assert.deepEqual([...retrievalTerms(parseRetrieval('{"schema_version": 1, "confidence": "high"}'))], []);
+  // And the old search_quality.json shape, which has no schema_version: not read.
+  const legacy = JSON.stringify({ confidence: "high", terms: [ENTRY] });
+  assert.deepEqual([...retrievalTerms(parseRetrieval(legacy))], []);
 });
 
 test("a malformed entry is dropped and its neighbours survive", () => {
   const terms = retrievalTerms(
-    quality(
+    withTerms(
       { ...ENTRY, value: "good" },
       null,
       "a string, not an entry",
@@ -188,7 +194,7 @@ test("a malformed entry is dropped and its neighbours survive", () => {
 
 test("every optional field is absent rather than invented", () => {
   // A bare entry: a name, and nothing else the artifact chose to record.
-  const [term] = retrievalTerms(quality({ value: "bare" }));
+  const [term] = retrievalTerms(withTerms({ value: "bare" }));
   assert.ok(term);
 
   assert.equal(term.term, "bare");
@@ -202,7 +208,7 @@ test("every optional field is absent rather than invented", () => {
 
 test("a match count is accepted only as a whole number of lines", () => {
   const linesOf = (match_count: unknown) =>
-    retrievalTerms(quality({ ...ENTRY, match_count }))[0]?.lines;
+    retrievalTerms(withTerms({ ...ENTRY, match_count }))[0]?.lines;
 
   assert.equal(linesOf(0), 0);
   assert.equal(linesOf(821), 821);
@@ -217,7 +223,7 @@ test("a hostile artifact reaches the page as data, not as markup", () => {
   // writes them with textContent.
   const hostile = '<script>alert(1)</script>';
   const [term] = retrievalTerms(
-    quality({ ...ENTRY, value: hostile, derived_from: hostile }),
+    withTerms({ ...ENTRY, value: hostile, derived_from: hostile }),
   );
 
   assert.equal(term?.term, hostile);

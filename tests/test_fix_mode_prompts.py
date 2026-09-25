@@ -1,4 +1,4 @@
-"""The selected Fix Mode reaches agent_task.md, and safety does not leave with it.
+"""The selected Fix Mode reaches task.md, and safety does not leave with it.
 
 Three things are being protected here, and they pull against each other.
 
@@ -32,7 +32,7 @@ from bugpilot.core.fix_modes import (
     FixModeNotFoundError,
     builtin_fix_mode_registry,
 )
-from bugpilot.core.prompts import generate_copilot_task_files, generate_prompts
+from bugpilot.core.prompts import generate_task
 
 REGISTRY = builtin_fix_mode_registry()
 
@@ -62,7 +62,7 @@ INVARIANT_RULES: tuple[str, ...] = (
     "Run `git add` only for intended source, test, or documentation files.",
     "Do not add `.ai/`.",
     "Do not add `.ai_memory/`.",
-    "Do not add `jira.json`.",
+    "Do not add `issue.json`.",
     "Do not add `jira_field_report.md`.",
     "Do not add files containing `JIRA_TOKEN`, `password`, `api_key`, `secret`, "
     "`access_token`, `refresh_token`, or `key=...`.",
@@ -105,14 +105,18 @@ COMMIT_OFFER = "Do you want me to commit and push this branch to origin?"
 
 
 def task(mode_id: str | None = None, **kwargs) -> str:
-    """Render agent_task.md the way a caller will: resolve the ID, pass the mode."""
+    """Render task.md the way a caller will: resolve the ID, pass the mode."""
     fix_mode = None if mode_id is None else REGISTRY.resolve(mode_id)
-    return generate_prompts("JR-1", "Stale search results", fix_mode=fix_mode, **kwargs)[
-        "agent_task.md"
-    ]
+    return generate_task("JR-1", "Stale search results", fix_mode=fix_mode, **kwargs)
 
 
 # --- the default stays the default ------------------------------------------
+
+
+def _without_team_instructions(text: str) -> str:
+    start = text.index("## Team Instructions")
+    end = text.index("\n## ", start + 1)
+    return text[:start] + text[end:]
 
 
 def test_no_mode_renders_standard_fix():
@@ -138,14 +142,6 @@ def test_standard_metadata_is_recorded_for_audit():
     assert "- Based on version:" not in text
 
 
-def test_both_generators_agree_on_the_selected_mode():
-    """`agent-task` regeneration must not quietly change the workflow."""
-    mode = REGISTRY.resolve("conservative")
-    assert generate_prompts("JR-1", "Stale", fix_mode=mode)["agent_task.md"] == (
-        generate_copilot_task_files("JR-1", "Stale", fix_mode=mode)["agent_task.md"]
-    )
-
-
 # --- the renderer takes a resolved mode, not an id --------------------------
 
 
@@ -158,10 +154,10 @@ def test_a_mode_id_string_is_refused_with_a_pointer_to_the_registry():
     built-ins and quietly ignore custom modes later.
     """
     with pytest.raises(FixModeError, match="resolved FixMode object"):
-        generate_prompts("JR-1", "Stale", fix_mode="conservative")
+        generate_task("JR-1", "Stale", fix_mode="conservative")
 
     with pytest.raises(FixModeError, match="FixModeRegistry.resolve"):
-        generate_copilot_task_files("JR-1", "Stale", fix_mode="standard")
+        generate_task("JR-1", "Stale", fix_mode="standard")
 
 
 def test_unknown_ids_still_fail_at_the_registry_not_by_falling_back():
@@ -309,8 +305,12 @@ def test_mode_owned_workflow_text_is_not_duplicated_outside_the_mode():
     Under Investigate First these two headings used to tell the agent to
     implement the smallest safe fix and run tests, which is the opposite of what
     the developer selected.
+
+    Checked outside the Team Instructions section: those are general rules the
+    agent has always been given, and they already say their testing advice
+    applies to a pass that changes source code.
     """
-    text = task("investigate-first")
+    text = _without_team_instructions(task("investigate-first"))
 
     assert "## Analysis Workflow" not in text
     assert "## Implementation Workflow" not in text
@@ -343,7 +343,7 @@ def test_investigate_first_keeps_delivery_safety_while_dropping_the_offer():
     assert "## BugPilot Delivery Safety" in text
     assert "Do not add `.ai/`." in text
     assert "Do not add `.ai_memory/`." in text
-    assert "Do not add `jira.json`." in text
+    assert "Do not add `issue.json`." in text
     assert "Do not add `jira_field_report.md`." in text
     assert "`JIRA_TOKEN`" in text and "`refresh_token`" in text
     assert "Verify the current branch is not `main` or `master`." in text
@@ -419,23 +419,28 @@ def test_the_jira_status_comment_is_unchanged_for_fix_modes():
     assert "do it before asking about commit" in text
 
 
-def test_investigate_mode_reaches_the_handoff_file_too():
-    """No delivery summary exists in this pass, so nothing may promise one."""
-    mode = REGISTRY.resolve("investigate-first")
-    handoff = generate_prompts("JR-1", "Stale", fix_mode=mode)["agent_handoff.md"]
+def test_an_investigation_task_says_what_the_old_handoff_file_repeated():
+    """agent_handoff.md is gone; what it told an investigating agent is in the task.
 
-    assert "Investigation only: do not modify source code in this pass." in handoff
-    assert "Do not commit or push." in handoff
-    assert "ask whether to continue with implementation" in handoff
-    assert "after a delivery summary" not in handoff
+    No delivery summary exists in this pass, so nothing may promise one.
+    """
+    text = task("investigate-first")
+
+    assert "- Mode: Investigate First" in text
+    assert "This Fix Mode is investigation-only. There is no fix to deliver in this pass." in text
+    assert "Do not offer to commit or push" in text
+    assert "Do you want me to continue with implementation?" in text
+    assert COMMIT_OFFER not in text
 
 
-def test_fix_mode_handoff_names_the_mode_without_an_investigation_stop():
-    handoff = generate_prompts("JR-1", "Stale")["agent_handoff.md"]
+def test_a_fix_task_says_what_the_old_handoff_file_repeated():
+    text = task()
 
-    assert "AI Fix Mode: Standard Fix (`standard`)" in handoff
-    assert "Investigation only" not in handoff
-    assert "Do not commit or push unless the developer explicitly approves" in handoff
+    assert "- Mode: Standard Fix" in text
+    assert "This Fix Mode is investigation-only" not in text
+    assert "Do not commit or push without explicit developer approval." in text
+    assert "- Run your AI agent from the target repo root" in text
+    assert "- Do not run your AI agent from the bugpilot tool source directory." in text
 
 
 # --- custom mode objects -----------------------------------------------------
@@ -461,9 +466,7 @@ def custom_mode(**overrides):
 
 
 def task_for(mode, **kwargs) -> str:
-    return generate_prompts("JR-1", "Stale search results", fix_mode=mode, **kwargs)[
-        "agent_task.md"
-    ]
+    return generate_task("JR-1", "Stale search results", fix_mode=mode, **kwargs)
 
 
 def test_a_custom_mode_object_renders_without_being_registered():

@@ -289,7 +289,7 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
  */
 const READY = {
   counts: "8 relevant files · 53 search terms",
-  actions: ["openContext", "copyHandoff", "openFolder"] as const,
+  actions: ["openContext", "copyContext", "openFolder"] as const,
   canFix: true,
   handoffBusy: false,
   files: [],
@@ -775,7 +775,7 @@ test("each artifact action still asks for exactly the action it always did", () 
 
   for (const [id, action] of [
     ["open-context", "openContext"],
-    ["copy-context", "copyHandoff"],
+    ["copy-context", "copyContext"],
     ["open-folder", "openFolder"],
   ] as const) {
     p.byId(id).dispatch("click");
@@ -2176,7 +2176,7 @@ test("a run opens the workflow, and folds it away as it finishes", () => {
   p.send(state({ progress: { state: "running", rows: [row("code_search", "running")], artifacts: [] } }));
   assert.equal(p.byId("workflow").open, true);
 
-  p.send(state({ progress: { state: "done", rows: [row("code_search", "done")], artifacts: ["bug_context.md"] } }));
+  p.send(state({ progress: { state: "done", rows: [row("code_search", "done")], artifacts: ["context.md"] } }));
   assert.equal(p.byId("workflow").open, false);
   // Still there, and still one click away: the plan, the statuses and the
   // durations are not removed, only folded.
@@ -2191,12 +2191,12 @@ test("a developer who opens the workflow after a run is not overruled", () => {
   p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
   assert.equal(p.byId("workflow").open, true);
 
-  p.send(state({ progress: { state: "done", rows: [], artifacts: ["bug_context.md"] } }));
+  p.send(state({ progress: { state: "done", rows: [], artifacts: ["context.md"] } }));
   assert.equal(p.byId("workflow").open, false, "it should fold once the run ends");
 
   p.byId("workflow").open = true;
-  p.send(state({ progress: { state: "done", rows: [], artifacts: ["bug_context.md"] } }));
-  p.send(state({ progress: { state: "done", rows: [], artifacts: ["bug_context.md"] } }));
+  p.send(state({ progress: { state: "done", rows: [], artifacts: ["context.md"] } }));
+  p.send(state({ progress: { state: "done", rows: [], artifacts: ["context.md"] } }));
   assert.equal(p.byId("workflow").open, true, "a later push closed it again");
 });
 
@@ -2230,10 +2230,10 @@ test("the post-run actions are still where a finished run leaves them", () => {
   p.send(
     state(
       {
-        progress: { state: "done", rows: [row("build_context", "done")], artifacts: ["bug_context.md"] },
+        progress: { state: "done", rows: [row("build_context", "done")], artifacts: ["context.md"] },
         contextReady: READY,
       },
-      ["bug_context.md"],
+      ["context.md"],
     ),
   );
 
@@ -2242,7 +2242,7 @@ test("the post-run actions are still where a finished run leaves them", () => {
   assert.equal(p.byId("context-ready").hidden, false);
   for (const [id, action] of [
     ["open-context", "openContext"],
-    ["copy-context", "copyHandoff"],
+    ["copy-context", "copyContext"],
     ["open-folder", "openFolder"],
   ] as const) {
     assert.equal(p.byId(id).hidden, false, id);
@@ -2337,7 +2337,7 @@ test("a finished run reads as a result with counts and a next action", () => {
   const p = load();
   p.send(
     state({
-      progress: { state: "done", rows: [row("build_context", "done")], artifacts: ["bug_context.md"] },
+      progress: { state: "done", rows: [row("build_context", "done")], artifacts: ["context.md"] },
       contextReady: { ...READY, strategy: "Standard Fix" },
     }),
   );
@@ -2452,8 +2452,8 @@ test("a result from one run does not survive into the next", () => {
 /** Two files, as the host hands them over: implementation first, then prose. */
 const FOUND = [
   {
-    path: "platform/sample/Selector.cpp",
-    name: "Selector.cpp",
+    path: "src/widgets/WidgetController.cpp",
+    name: "WidgetController.cpp",
     documentation: false,
     matched: ["Output", "outputType"],
   },
@@ -2498,11 +2498,11 @@ test("each file is a row with a name, a path and what matched it", () => {
   assert.equal(button!.className, "file-open");
   assert.deepEqual(
     button!.children.map((span) => span.textContent),
-    ["Selector.cpp", "platform/sample/Selector.cpp"],
+    ["WidgetController.cpp", "src/widgets/WidgetController.cpp"],
   );
   // The name is the accessible label; the path is the tooltip, not the name.
-  assert.equal(button!.getAttribute("aria-label"), "Open Selector.cpp");
-  assert.equal(button!.getAttribute("title"), "platform/sample/Selector.cpp");
+  assert.equal(button!.getAttribute("aria-label"), "Open WidgetController.cpp");
+  assert.equal(button!.getAttribute("title"), "src/widgets/WidgetController.cpp");
   assert.equal(matched!.textContent, "Matched: Output · outputType");
 });
 
@@ -2566,7 +2566,7 @@ test("a click asks the host to open exactly the path the artifact gave", () => {
 
   assert.deepEqual(p.posted.at(-1), {
     type: "openRelevantFile",
-    path: "platform/sample/Selector.cpp",
+    path: "src/widgets/WidgetController.cpp",
   });
 });
 
@@ -2575,7 +2575,7 @@ test("a longer list says how many it is not showing", () => {
   p.send(state({ contextReady: { ...READY, files: FOUND, moreFiles: 7 } }));
 
   assert.equal(p.byId("relevant-files-more").hidden, false);
-  assert.equal(p.byId("relevant-files-more").textContent, "7 more in related_files.json");
+  assert.equal(p.byId("relevant-files-more").textContent, "7 more in retrieval.json");
 });
 
 test("a list that shows everything says nothing about more", () => {

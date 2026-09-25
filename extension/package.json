@@ -116,7 +116,7 @@
       },
       {
         "command": "bugpilot.openAgentTask",
-        "title": "Open agent_task.md",
+        "title": "Open task.md",
         "category": "BugPilot"
       },
       {

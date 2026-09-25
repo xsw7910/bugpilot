@@ -165,7 +165,7 @@ def test_prerequisite_closure_is_transitive():
         "doctor",
         "fetch",
         "parse",
-        "keywords",  # context_step reads extracted_keywords.json
+        "keywords",  # context_step reads the keyword extraction
         "context",
         "prompt",
         "memory_add",

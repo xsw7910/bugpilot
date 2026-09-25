@@ -11,8 +11,8 @@ from bugpilot.core.search import (
     Match,
     _apply_focus_bonus,
     _matches_any_path,
+    _budgeted_snippets,
     _rank_related_files,
-    _render_markdown,
 )
 
 
@@ -83,7 +83,8 @@ def test_max_files_defaults_to_the_module_constant():
     assert len(_rank_related_files(matches, ["alpha"], [])) == 10
 
 
-def test_max_search_lines_bounds_the_matched_lines_section():
+def test_max_search_lines_bounds_the_kept_snippets():
+    """The option still bounds the evidence now that the report it budgeted is gone."""
     ranked = [
         FileScore(
             file=f"src/f{index}.cpp",
@@ -96,9 +97,13 @@ def test_max_search_lines_bounds_the_matched_lines_section():
         )
         for index in range(5)
     ]
-    small = _render_markdown("JR-1", ["alpha"], [], [], [], ranked, [], {}, max_search_lines=5)
-    large = _render_markdown("JR-1", ["alpha"], [], [], [], ranked, [], {}, max_search_lines=200)
-    assert len(small.splitlines()) < len(large.splitlines())
+    small = _budgeted_snippets(ranked, max_search_lines=5)
+    large = _budgeted_snippets(ranked, max_search_lines=200)
+
+    # Two heading lines, then three snippets, and the budget is spent.
+    assert [len(kept) for kept in small] == [3, 0, 0, 0, 0]
+    assert [len(kept) for kept in large] == [20, 20, 20, 20, 20]
+    assert [snippet.line for snippet in small[0]] == [0, 1, 2]
 
 
 # --- helpers ----------------------------------------------------------------

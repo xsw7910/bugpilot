@@ -158,9 +158,9 @@ test("an artifact name that tries to leave the work item directory is refused", 
   for (const name of ["../../etc/passwd", "sub/dir.md", "..\\..\\secrets", ".."]) {
     assert.equal(parsePanelMessage({ type: "openArtifact", name }), undefined, name);
   }
-  assert.deepEqual(parsePanelMessage({ type: "openArtifact", name: "agent_task.md" }), {
+  assert.deepEqual(parsePanelMessage({ type: "openArtifact", name: "task.md" }), {
     type: "openArtifact",
-    name: "agent_task.md",
+    name: "task.md",
   });
 });
 
@@ -905,7 +905,7 @@ test("an artifact name must be a plain file name", () => {
   for (const name of ["", ".", "..", "-rf", "a/b", "a\b", "a b.md"]) {
     assert.equal(parsePanelMessage({ type: "openArtifact", name }), undefined, JSON.stringify(name));
   }
-  for (const name of ["agent_task.md", "bug_context.md", "search_quality.json", "execution.log"]) {
+  for (const name of ["task.md", "context.md", "retrieval.json", "run.json"]) {
     assert.ok(parsePanelMessage({ type: "openArtifact", name }), name);
   }
 });

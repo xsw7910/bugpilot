@@ -1,5 +1,14 @@
 # bugpilot — Architecture & Code Guide
 
+> **Status note:** this guide predates the artifact consolidation
+> (`docs/bugpilot_prototype_development_plan.md` §37). The current prepare
+> contract is five artifacts — `issue.json`, `retrieval.json`, `context.md`,
+> `task.md`, `run.json` — and the files this guide still describes
+> (`bug_context.md`, `agent_task.md`, `workflow_status.json`,
+> `execution.log`, and the per-stage issue/search files) are no longer
+> written or read. Treat those sections as historical until the
+> documentation pass rewrites them.
+
 This guide explains how the codebase is put together: the layers, the two
 orchestrators, every core module, and the artifact pipeline that flows through
 `.ai/<issue>/`. It is aimed at a developer who needs to change bugpilot itself,

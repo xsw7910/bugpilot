@@ -51,7 +51,7 @@ def delivery_safety_block(
         "- Run `git add` only for intended source, test, or documentation files.\n"
         "- Do not add `.ai/`.\n"
         "- Do not add `.ai_memory/`.\n"
-        "- Do not add `jira.json`.\n"
+        "- Do not add `issue.json`.\n"
         "- Do not add `jira_field_report.md`.\n"
         "- Do not add files containing `JIRA_TOKEN`, `password`, `api_key`, `secret`, `access_token`, `refresh_token`, or `key=...`.\n\n"
         "Do not push main/master. Do not force push. Do not use `--force` or `--force-with-lease`. "

@@ -125,18 +125,17 @@ def test_a_shape_with_no_repository_evidence_never_reaches_the_ranking(tmp_path)
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "reader.py").write_text("value = 1\n", encoding="utf-8")
 
-    _markdown, related, quality = run_code_search(
+    retrieval = run_code_search(
         tmp_path,
-        "JR-1",
         extract_keywords("Output type selection is not restored."),
         InvestigationOptions(),
     )
 
-    shapes = [term for term in quality["terms"] if term["source"] == "shape_expansion"]
+    shapes = [term for term in retrieval.terms if term.source == "shape_expansion"]
     assert shapes, "no shape was even tried"
-    assert all(term["match_count"] == 0 for term in shapes)
-    assert all(term["status"] == "dropped" for term in shapes)
-    assert related == [], "a made-up identifier ranked a file"
+    assert all(term.match_count == 0 for term in shapes)
+    assert all(term.status == "dropped" for term in shapes)
+    assert retrieval.related_files == (), "a made-up identifier ranked a file"
 
 
 @needs_rg
@@ -146,18 +145,17 @@ def test_a_confirmed_shape_is_retained_and_says_where_it_came_from(tmp_path):
         "def outputType():\n    return 1\n", encoding="utf-8"
     )
 
-    _markdown, related, quality = run_code_search(
+    retrieval = run_code_search(
         tmp_path,
-        "JR-1",
         extract_keywords("Output type is not restored."),
         InvestigationOptions(),
     )
 
-    confirmed = next(term for term in quality["terms"] if term["value"] == "outputType")
-    assert confirmed["match_count"] == 1
-    assert confirmed["status"] == "retained"
-    assert confirmed["derived_from"] == "output type"
-    assert any("selector.py" in item["file"] for item in related)
+    confirmed = next(term for term in retrieval.terms if term.value == "outputType")
+    assert confirmed.match_count == 1
+    assert confirmed.status == "retained"
+    assert confirmed.derived_from == "output type"
+    assert any("selector.py" in item.file for item in retrieval.related_files)
 
 
 @needs_rg
@@ -180,16 +178,12 @@ def test_the_bridge_moves_a_file_that_prose_alone_could_not_reach(tmp_path):
     keywords = extract_keywords("Output type selection is not restored after reload.")
 
     without = keywords | {"shape_candidates": []}
-    before = run_code_search(tmp_path, "JR-1", without, InvestigationOptions())[1]
-    after = run_code_search(tmp_path, "JR-1", keywords, InvestigationOptions())[1]
+    before = run_code_search(tmp_path, without, InvestigationOptions()).top_files(100)
+    after = run_code_search(tmp_path, keywords, InvestigationOptions()).top_files(100)
 
-    before_rank = next(
-        (index for index, item in enumerate(before, 1) if "Selector.cpp" in item["file"]), None
-    )
-    after_rank = next(
-        (index for index, item in enumerate(after, 1) if "Selector.cpp" in item["file"]), None
-    )
-    assert after_rank == 1, [item["file"] for item in after]
+    before_rank = next((index for index, file in enumerate(before, 1) if "Selector.cpp" in file), None)
+    after_rank = next((index for index, file in enumerate(after, 1) if "Selector.cpp" in file), None)
+    assert after_rank == 1, after
     assert before_rank is None or before_rank > after_rank, (before_rank, after_rank)
 
 
@@ -203,7 +197,7 @@ def test_expansion_stays_deterministic(tmp_path):
     keywords = extract_keywords("Output type selection is not restored.")
 
     rankings = [
-        [item["file"] for item in run_code_search(tmp_path, "JR-1", keywords, InvestigationOptions())[1]]
+        run_code_search(tmp_path, keywords, InvestigationOptions()).top_files(100)
         for _ in range(3)
     ]
 

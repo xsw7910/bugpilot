@@ -37,10 +37,10 @@ CAPABILITY_STEPS: dict[str, tuple[str, ...]] = {
     "build_context": ("context", "prompt", "memory_add"),
 }
 
-# Step -> the steps whose artifacts it reads. Declaring these is what stops a
+# Step -> the steps whose output it reads. Declaring these is what stops a
 # partial plan from producing a run that crashes halfway: `context_step` always
-# reads extracted_keywords.json, and every step that calls `_parsed_issue` needs
-# a parsed issue, which for a Jira work item means `fetch` ran first.
+# reads the keyword extraction, and every step that reads the normalized issue
+# needs one with content, which for a Jira work item means `fetch` ran first.
 #
 # A prerequisite is pulled in even when its own capability is off. Running the
 # prerequisite is strictly better than failing, and it is what "core resolves
@@ -153,7 +153,7 @@ class InvestigationPlan:
     def skipped_steps(self, source: str = SOURCE_JIRA) -> list[str]:
         """The capability-gated steps this plan turns off, in canonical order.
 
-        Callers mark these ``skipped`` in ``workflow_status.json`` so a disabled
+        Callers mark these ``skipped`` in ``run.json`` so a disabled
         capability reads as a deliberate choice rather than a failure.
         """
         resolved = set(self.resolve_steps(source))

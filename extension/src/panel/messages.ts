@@ -281,7 +281,7 @@ export type Readiness =
  */
 export const PANEL_ACTIONS = [
   "openContext",
-  "copyHandoff",
+  "copyContext",
   "openFolder",
   "fixWithAI",
   "setCredentials",

@@ -21,13 +21,12 @@ import { isWithin } from "../workspace.ts";
 import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE } from "./form.ts";
 import {
   MAX_LISTED_FILES,
-  RELATED_FILES_ARTIFACT,
-  SEARCH_QUALITY_ARTIFACT,
   contextCounts,
   describeCounts,
   isSafeRelativePath,
   relevantFiles,
 } from "./contextSummary.ts";
+import { RETRIEVAL_ARTIFACT, parseRetrieval } from "./retrieval.ts";
 import type { RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
@@ -50,7 +49,7 @@ import {
 import type { HintContext, HintProvider, IssueDetails } from "./hintImprovement.ts";
 import { ProgressTracker, viewFromStatus } from "./progress.ts";
 import type { ProgressView } from "./progress.ts";
-import { buildArtifactList } from "./artifacts.ts";
+import { CONTEXT_ARTIFACT, RUN_ARTIFACT, TASK_ARTIFACT, buildArtifactList } from "./artifacts.ts";
 import type { ArtifactList } from "./artifacts.ts";
 import { COMMANDS } from "../commands.ts";
 import { diagnose } from "../errors.ts";
@@ -193,7 +192,7 @@ export interface ControllerPorts {
    * Persist which work item is being shown.
    *
    * §5.4 requires the progress view to come back after a restart, and
-   * `workflow_status.json` is the only record that survives the process — but
+   * `run.json` is the only record that survives the process — but
    * only if the window remembers *which* work item to read it from.
    */
   readonly saveWorkItem?: (workItemId: string) => void;
@@ -549,8 +548,8 @@ export class Controller {
         await this.saveFixMode(message.draft);
         return;
       case "action":
-        if (message.id === "openContext") await this.openArtifact("bug_context.md");
-        else if (message.id === "copyHandoff") await this.copyHandoff();
+        if (message.id === "openContext") await this.openArtifact(CONTEXT_ARTIFACT);
+        else if (message.id === "copyContext") await this.copyContext();
         else if (message.id === "openFolder") await this.openArtifactsFolder();
         else if (message.id === "fixWithAI") await this.fixWithAI();
         else await this.#ports.ui.editCredentials();
@@ -782,12 +781,30 @@ export class Controller {
     await this.#ports.ui.openFile(this.#itemFile(workItemId, name));
   }
 
-  /** Put the agent handoff on the clipboard. */
+  /** The handoff sentence, for the "Copy Handoff Prompt" command. */
   async copyHandoff(): Promise<void> {
     const workItemId = this.#workItemId;
     if (!workItemId) return;
-    await this.#ports.ui.copyToClipboard(await this.#handoffText(workItemId));
+    await this.#ports.ui.copyToClipboard(this.#handoffText(workItemId));
     this.#ports.ui.notify("info", "Handoff prompt copied. Paste it into your agent.");
+  }
+
+  /**
+   * The panel's Copy: `context.md` itself, for pasting wherever it is needed.
+   *
+   * Read when pressed rather than cached, so it is the file on disk now — a
+   * refinement may have rewritten it since the panel last looked.
+   */
+  async copyContext(): Promise<void> {
+    const workItemId = this.#workItemId;
+    if (!workItemId) return;
+    const context = await this.#ports.files.readFile(this.#itemFile(workItemId, CONTEXT_ARTIFACT));
+    if (context === undefined) {
+      this.#ports.ui.notify("warning", `There is no ${CONTEXT_ARTIFACT} for ${workItemId} to copy yet.`);
+      return;
+    }
+    await this.#ports.ui.copyToClipboard(context);
+    this.#ports.ui.notify("info", `${CONTEXT_ARTIFACT} copied.`);
   }
 
   /**
@@ -799,7 +816,7 @@ export class Controller {
    * would be guessing at an undocumented argument shape that breaks on its next
    * update. A terminal is the mechanism `resumeAgentSession` already uses, it
    * works for any CLI, and it runs in the repository root — which is what
-   * `agent_task.md` itself insists on.
+   * `task.md` itself insists on.
    *
    * This is a step a person ticks, which is the whole point. The CLI's
    * automatic launch was deprecated in phase 7 because it involved a model *by
@@ -835,7 +852,20 @@ export class Controller {
 
   /** The handoff itself, wrapped by `fixWithAI` so the busy flag always clears. */
   async #handOver(workItemId: string, root: string): Promise<void> {
-    const text = await this.#handoffText(workItemId);
+    // The prompt points at task.md, so a package without one has nothing to
+    // hand over: an agent told to read a missing file starts by looking for it.
+    if (!this.#artifactNames.includes(TASK_ARTIFACT)) {
+      this.#fix = {
+        status: "skipped",
+        detail: `No ${TASK_ARTIFACT} was prepared, so nothing was handed to an agent.`,
+      };
+      this.#ports.ui.notify(
+        "warning",
+        `There is no ${TASK_ARTIFACT} for ${workItemId}. Run BugPilot with Build context enabled first.`,
+      );
+      return;
+    }
+    const text = this.#handoffText(workItemId);
     const plan = await resolveAgent({
       choice: this.#form.agent,
       customCommand: this.#form.agentCommand,
@@ -924,17 +954,15 @@ export class Controller {
     await this.#ports.ui.openFolder(path.join(this.#root, ".ai", workItemId));
   }
 
-  /** The sentence that tells an agent what to do with this package. */
-  async #handoffText(workItemId: string): Promise<string> {
-    const handoff = await this.#ports.files.readFile(this.#itemFile(workItemId, "agent_handoff.md"));
-    return (
-      handoff?.trim() ||
-      // Not every plan writes a handoff file, so fall back to the instruction
-      // that file would have contained rather than handing over nothing. Kept
-      // identical to `handoff_prompt()` in bugpilot/core/handoff.py, which a
-      // cross-language test compares against.
-      `Read .ai/${workItemId}/agent_task.md and complete the workflow.`
-    );
+  /**
+   * The sentence that tells an agent what to do with this package.
+   *
+   * One sentence, the same one the CLI launches its agent with: everything else
+   * the agent needs is in `task.md`. Kept identical to `handoff_prompt()` in
+   * bugpilot/core/handoff.py, which a cross-language test compares against.
+   */
+  #handoffText(workItemId: string): string {
+    return `Read .ai/${workItemId}/${TASK_ARTIFACT} and complete the workflow.`;
   }
 
   /** Re-read the artifact directory of the current work item. */
@@ -965,7 +993,7 @@ export class Controller {
     // Retry needs a package to retry: `bug --retry` reads the prepared
     // artifacts, so offering it after a run that was stopped before producing
     // any would send the developer into WORK_ITEM_NOT_FOUND.
-    this.#canRetry = names.includes("agent_task.md");
+    this.#canRetry = names.includes(TASK_ARTIFACT);
     // Pushed here rather than only by the callers: `refreshArtifacts` is also a
     // command of its own, and without this the panel keeps showing "loading".
     this.#push();
@@ -974,7 +1002,7 @@ export class Controller {
   /**
    * Show a work item that was prepared earlier.
    *
-   * Progress comes from `workflow_status.json`, which is the only record that
+   * Progress comes from `run.json`, which is the only record that
    * outlives the process (§5.1) — the event stream is gone once the run ends.
    */
   async showWorkItem(workItemId: string): Promise<void> {
@@ -1457,7 +1485,7 @@ export class Controller {
   async #readStatus(workItemId: string): Promise<unknown> {
     if (!this.#root) return undefined;
     const text = await this.#ports.files.readFile(
-      path.join(this.#root, ".ai", workItemId, "workflow_status.json"),
+      path.join(this.#root, ".ai", workItemId, RUN_ARTIFACT),
     );
     try {
       return text === undefined ? undefined : JSON.parse(text);
@@ -1519,23 +1547,22 @@ export class Controller {
   }
 
   /**
-   * What the run found: the counts, and which files.
+   * What the run found: the counts, which files, and which terms.
    *
-   * Only files the listing actually named are opened, so the normal
-   * before-the-first-run case costs no syscalls at all. Everything past that is
-   * `contextSummary`'s business, which omits a number and drops an entry rather
-   * than guessing at either.
+   * One file, read once and parsed once: the three are projections of the same
+   * `retrieval.json`, so they cannot describe different searches. It is only
+   * opened when the listing names it, so the normal before-the-first-run case
+   * costs no syscalls at all. Everything past the parse is the projections'
+   * business, which omit a number and drop an entry rather than guess at either.
    */
   async #readSummary(workItemId: string, names: readonly string[]): Promise<void> {
-    const read = async (name: string): Promise<string | undefined> =>
-      names.includes(name)
-        ? await this.#ports.files.readFile(this.#itemFile(workItemId, name))
-        : undefined;
-    const related = await read(RELATED_FILES_ARTIFACT);
-    const quality = await read(SEARCH_QUALITY_ARTIFACT);
-    this.#counts = describeCounts(contextCounts(related, quality));
-    this.#terms = retrievalTerms(quality);
-    const found = relevantFiles(related);
+    const text = names.includes(RETRIEVAL_ARTIFACT)
+      ? await this.#ports.files.readFile(this.#itemFile(workItemId, RETRIEVAL_ARTIFACT))
+      : undefined;
+    const retrieval = parseRetrieval(text);
+    this.#counts = describeCounts(contextCounts(retrieval));
+    this.#terms = retrievalTerms(retrieval);
+    const found = relevantFiles(retrieval);
     this.#files = found.slice(0, MAX_LISTED_FILES);
     this.#moreFiles = Math.max(0, found.length - this.#files.length);
   }
@@ -1543,7 +1570,7 @@ export class Controller {
   /**
    * Open one file from the Relevant Files list.
    *
-   * The path came out of `related_files.json` and went through a webview, which
+   * The path came out of `retrieval.json` and went through a webview, which
    * is the part that matters: by the time it arrives here it is untrusted input
    * that happens to look like something BugPilot wrote. So it is resolved
    * against the repository and checked with the same `isWithin` the focus-file
@@ -1572,7 +1599,7 @@ export class Controller {
    * The result section, or nothing at all.
    *
    * Three conditions, and each rules out a state that would otherwise read as
-   * success: `bug_context.md` on disk means a package genuinely exists, not
+   * success: `context.md` on disk means a package genuinely exists, not
    * running means the numbers are not about to change under the developer, and
    * not failed means a run that died is never crowned with a tick. A *stopped*
    * run that got as far as writing the context does show it, because the
@@ -1582,7 +1609,7 @@ export class Controller {
   #contextReady(workflow: readonly WorkflowStep[]): ContextReadyView | undefined {
     if (this.#running) return undefined;
     if (this.#progress.state === "failed") return undefined;
-    if (!this.#artifactNames.includes("bug_context.md")) return undefined;
+    if (!this.#artifactNames.includes(CONTEXT_ARTIFACT)) return undefined;
 
     const actions = workflow.find((step) => step.id === "buildContext")?.actions ?? [];
     const strategy = this.#strategyLine();

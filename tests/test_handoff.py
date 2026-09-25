@@ -33,9 +33,9 @@ def _normalize(text: str) -> str:
 
 def test_launch_prompts_are_unchanged():
     """R1: these reach a spawned agent's command line and are asserted elsewhere."""
-    assert HANDOFF_PROMPT == "Read .ai/{issue_key}/agent_task.md and complete the workflow."
+    assert HANDOFF_PROMPT == "Read .ai/{issue_key}/task.md and complete the workflow."
     assert RETRY_HANDOFF_PROMPT == "Read {prompt_file} and continue the workflow."
-    assert handoff.handoff_prompt("JR-1") == "Read .ai/JR-1/agent_task.md and complete the workflow."
+    assert handoff.handoff_prompt("JR-1") == "Read .ai/JR-1/task.md and complete the workflow."
 
 
 def test_mcp_prompt_is_exactly_the_agreed_wording():
@@ -48,7 +48,7 @@ def test_mcp_prompt_is_exactly_the_agreed_wording():
     """
     assert handoff.mcp_prompt("prepare_jira_bug", 'issue_key="JR-1"').splitlines() == [
         'Call prepare_jira_bug with issue_key="JR-1".',
-        "Then read the returned agent_task.md and bug_context.md and complete the "
+        "Then read the returned task.md and context.md and complete the "
         "workflow they describe for the selected AI Fix Mode, then write the required "
         "result files.",
         "Stop before committing. Do not commit, push, or post to Jira.",
@@ -60,7 +60,8 @@ def test_no_handoff_assumes_the_workflow_implements_a_fix(text):
     """The task file decides that, per mode; the handoff only points at it."""
     assert "smallest safe fix" not in text
     assert "implement the fix" not in text
-    assert "agent_task.md" in text
+    assert "task.md" in text
+    assert "agent_task.md" not in text
 
 
 def test_the_forbidden_sentence_reads_as_english():

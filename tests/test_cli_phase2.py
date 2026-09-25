@@ -64,7 +64,7 @@ def test_artifacts_are_reported_before_completion(tmp_path, monkeypatch, capsys)
     events = _events(capsys)
 
     artifacts = [e["path"] for e in events if e["type"] == "artifact"]
-    assert any(path.endswith("agent_task.md") for path in artifacts)
+    assert any(path.endswith("task.md") for path in artifacts)
     assert events[-1]["type"] == "completed"
 
 
@@ -353,7 +353,7 @@ def test_only_issue_details_reports_no_agent_task(tmp_path, monkeypatch, capsys)
     ])
     payload = json.loads(capsys.readouterr().out)
     assert payload["agent_task"] is None
-    assert not (tmp_path / ".ai" / payload["work_item_id"] / "agent_task.md").exists()
+    assert not (tmp_path / ".ai" / payload["work_item_id"] / "task.md").exists()
 
 
 def test_only_issue_details_does_not_launch_an_agent(tmp_path, monkeypatch, capsys):
@@ -367,7 +367,7 @@ def test_only_issue_details_does_not_launch_an_agent(tmp_path, monkeypatch, caps
 
 
 def test_manual_bug_refuses_the_jira_comment_flag(tmp_path, monkeypatch, capsys):
-    """Otherwise agent_task.md instructs a post that jira-comment later refuses."""
+    """Otherwise task.md instructs a post that jira-comment later refuses."""
     monkeypatch.chdir(tmp_path)
     assert main(["bug", "--description", "crash on save", "--jira-comment", "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
@@ -391,14 +391,13 @@ def test_supplied_keywords_reach_the_extraction(tmp_path, monkeypatch, capsys):
     ])
     work_item = json.loads(capsys.readouterr().out)["work_item_id"]
 
-    extracted = json.loads(
-        (tmp_path / ".ai" / work_item / "extracted_keywords.json").read_text(encoding="utf-8")
-    )
-    assert extracted["high_value_keywords"][0] == "OpenVdsStatistics"
+    retrieval = json.loads((tmp_path / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
+    # Searched as the developer's own keyword, at the strongest weight there is.
+    assert {"value": "OpenVdsStatistics", "source": "user"}.items() <= retrieval["terms"][0].items()
 
 
-def test_manual_email_draft_falls_back_to_the_spec(tmp_path, monkeypatch, capsys):
-    """No jira_summary.md exists, so title and problem come from the BugSpec."""
+def test_manual_email_draft_reads_the_issue(tmp_path, monkeypatch, capsys):
+    """Title and problem come from issue.json, the same place a Jira item keeps them."""
     monkeypatch.chdir(tmp_path)
     work_item = _prepare_manual(capsys, "三维视图切换层位后崩溃\n\n打开 VDS 后切换层位即崩溃。")
     main(["summarize-results", work_item])

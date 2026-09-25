@@ -18,7 +18,7 @@ from bugpilot.core.attachments import (
     attachment_names,
     copy_attachments,
 )
-from bugpilot.core.prompts import generate_prompts
+from bugpilot.core.prompts import generate_task
 
 
 def _file(directory: Path, name: str, content: bytes = b"data") -> Path:
@@ -131,7 +131,7 @@ def test_names_are_read_back_from_disk(tmp_path):
 
 
 def test_the_task_file_names_each_attachment(tmp_path):
-    task = generate_prompts("JR-1", "Crash", attachments=["crash.log", "shot.png"])["agent_task.md"]
+    task = generate_task("JR-1", "Crash", attachments=["crash.log", "shot.png"])
 
     assert "## Developer Attachments" in task
     assert "`.ai/JR-1/attachments/crash.log`" in task
@@ -144,7 +144,7 @@ def test_the_task_file_names_each_attachment(tmp_path):
 def test_no_attachments_means_no_section(tmp_path):
     """An empty heading is a question the agent has to ask and answer itself."""
     for attachments in ([], None):
-        task = generate_prompts("JR-1", "Crash", attachments=attachments)["agent_task.md"]
+        task = generate_task("JR-1", "Crash", attachments=attachments)
         assert "Developer Attachments" not in task
 
 
@@ -160,7 +160,7 @@ def test_the_task_file_can_only_name_files_that_arrived(tmp_path):
     good = _file(tmp_path / "elsewhere", "crash.log", b"stack")
 
     result = copy_attachments(target, [str(good), str(tmp_path / "vanished.png")])
-    task = generate_prompts("JR-1", "Crash", attachments=attachment_names(target))["agent_task.md"]
+    task = generate_task("JR-1", "Crash", attachments=attachment_names(target))
 
     assert "crash.log" in task
     assert "vanished.png" not in task

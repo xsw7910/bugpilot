@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
@@ -11,6 +10,7 @@ from pathlib import Path
 from .code_files import is_documentation, is_implementation, is_searchable, search_globs
 from .git_ops import command_available
 from .models import InvestigationOptions
+from .retrieval import RelatedFile, RetrievalArtifact, RetrievalTerm, Snippet
 from .search_terms import (
     WEIGHT_IDENTIFIER,
     WEIGHT_PROSE,
@@ -75,7 +75,7 @@ BROAD_TERM_FILE_BUDGET = 4
 BROAD_MATCH_THRESHOLD = 250
 MAX_SNIPPETS_PER_FILE = 5
 MAX_TOTAL_RELATED_FILES = 10
-# How many of the files that reach `bug_context.md` are kept for implementation.
+# How many of the files that reach `context.md` are kept for implementation.
 #
 # Measured before this existed (§33.1): documentation held 15 of the 30 top-5
 # slots across the corpus, because prose terms match prose files and `.md` is
@@ -84,7 +84,6 @@ MAX_TOTAL_RELATED_FILES = 10
 # decide what an agent reads. Three of five: enough that implementation leads,
 # few enough that a genuinely better document still appears.
 RESERVED_IMPLEMENTATION_SLOTS = 3
-MAX_TOTAL_CODE_SEARCH_LINES = 300
 # Large enough to outrank keyword evidence: an explicit --focus-file is a
 # stronger signal than any automatic ranking heuristic.
 FOCUS_FILE_BONUS = 25
@@ -214,29 +213,20 @@ class FileScore:
 
 def run_code_search(
     repo_root: Path,
-    issue_key: str,
     keywords: dict[str, object],
     options: InvestigationOptions | None = None,
-) -> tuple[str, list[dict[str, object]], dict[str, object]]:
+) -> RetrievalArtifact:
+    """Search the repository for the extracted terms and rank what they hit.
+
+    ``keywords`` is the extractor's output, handed over in memory by the step
+    that produced it. The result is the whole retrieval, ready to persist.
+    """
     options = options or InvestigationOptions()
     high_value = _keyword_list(keywords.get("high_value_keywords", []))
     normal = _keyword_list(keywords.get("normal_keywords", []))
-    phrases = _keyword_list(keywords.get("phrase_keywords", []))
-    expanded = _keyword_list(keywords.get("expanded_keywords", []))
 
     if not command_available("rg"):
-        quality = _overall_quality([], ["rg is unavailable; code search was skipped."])
-        markdown = _render_markdown(
-            issue_key,
-            high_value,
-            normal,
-            phrases,
-            expanded,
-            [],
-            ["rg is unavailable; code search was skipped."],
-            quality,
-        )
-        return markdown, [], quality
+        return _retrieval([], [], ["rg is unavailable; code search was skipped."], options)
 
     # §33.3: one weighted list, ordered by what each term is worth, instead of
     # four tiers whose membership was decided by position.
@@ -271,67 +261,94 @@ def run_code_search(
     )
     if not ranked:
         warnings.append("No code search results found for extracted keywords.")
+    return _retrieval(probes, ranked, warnings, options)
 
-    related = _related_files(ranked)
-    quality = _overall_quality(related, warnings)
-    quality["terms"] = _term_diagnostics(probes)
-    markdown = _render_markdown(
-        issue_key, high_value, normal, phrases, expanded, ranked, warnings, quality,
-        max_search_lines=options.max_search_lines,
+
+def _retrieval(
+    probes: list[TermSearchResult],
+    ranked: list[FileScore],
+    warnings: list[str],
+    options: InvestigationOptions,
+) -> RetrievalArtifact:
+    related = _related_files(ranked, options.max_search_lines)
+    confidence, reasons, noise_indicators = _overall_quality(related, warnings)
+    return RetrievalArtifact(
+        confidence=confidence,
+        reasons=tuple(reasons),
+        noise_indicators=tuple(noise_indicators),
+        terms=tuple(_term_diagnostics(probes)),
+        related_files=tuple(related),
     )
-    return markdown, related, quality
 
 
-def _term_diagnostics(probes: list[TermSearchResult]) -> list[dict[str, object]]:
+def _term_diagnostics(probes: list[TermSearchResult]) -> list[RetrievalTerm]:
     """What each term was worth, what it matched, and what that did to it.
 
-    Lives in `search_quality.json` rather than a new artifact: that file already
-    answers "should I trust this search", and "half your terms match four
-    thousand lines each" is the same question.
+    Beside the files in the same artifact: "should I trust this search" and
+    "half your terms match four thousand lines each" are the same question.
     """
     return [
-        {
-            "value": probe.term.value,
-            "source": probe.term.source,
-            "weight": probe.term.weight,
-            "effective_weight": probe.effective_weight,
-            "match_count": probe.total_match_count,
-            "classification": probe.classification,
+        RetrievalTerm(
+            value=probe.term.value,
+            source=probe.term.source,
+            weight=probe.term.weight,
+            effective_weight=probe.effective_weight,
+            match_count=probe.total_match_count,
+            classification=probe.classification,
             # Why this term exists at all, and whether it survived. Only a
             # generated shape has an answer to the first; everything else was
             # simply present in the text.
-            "derived_from": probe.term.derived_from,
-            "status": "dropped" if probe.total_match_count == 0 else "retained",
-        }
+            derived_from=probe.term.derived_from,
+            status="dropped" if probe.total_match_count == 0 else "retained",
+        )
         for probe in probes
     ]
 
 
-def _related_files(ranked: list[FileScore]) -> list[dict[str, object]]:
-    related = [
-        {
-            "file": item.file,
+def _related_files(ranked: list[FileScore], max_search_lines: int) -> list[RelatedFile]:
+    snippets = _budgeted_snippets(ranked, max_search_lines)
+    return [
+        RelatedFile(
+            file=item.file,
             # Why a file sits where it does: §33.2 keeps the leading slots for
             # implementation, and without this the artifact cannot show it.
-            "documentation": is_documentation(item.file),
-            "score": item.score,
-            "confidence": item.confidence,
-            "matched_keywords": sorted(item.matched_keywords),
-            "match_count": item.match_count,
-            "reasons": item.reasons,
-            "noise_flags": item.noise_flags,
-        }
-        for item in ranked
+            documentation=is_documentation(item.file),
+            score=item.score,
+            confidence=item.confidence,
+            match_count=item.match_count,
+            matched_keywords=tuple(sorted(item.matched_keywords)),
+            reasons=tuple(item.reasons),
+            noise_flags=tuple(item.noise_flags),
+            snippets=kept,
+        )
+        for item, kept in zip(ranked, snippets)
     ]
-    return related
 
 
-def related_files_json(related_files: list[dict[str, object]]) -> str:
-    return json.dumps(related_files, indent=2, sort_keys=True) + "\n"
+def _budgeted_snippets(ranked: list[FileScore], max_search_lines: int) -> list[tuple[Snippet, ...]]:
+    """Each file's matched lines, under the line budget the report used to spend.
 
-
-def search_quality_json(search_quality: dict[str, object]) -> str:
-    return json.dumps(search_quality, indent=2, sort_keys=True) + "\n"
+    `max_search_lines` bounds what an agent has to read, and it used to be spent
+    rendering `code_search.md`: two lines of heading per file, one per matched
+    line, one blank after. The same arithmetic decides what is kept here, so the
+    option still bounds the evidence even though the report is gone.
+    """
+    kept: list[tuple[Snippet, ...]] = []
+    budget = max_search_lines
+    for item in ranked:
+        if budget <= 0:
+            kept.append(())
+            continue
+        budget -= 2
+        lines: list[Snippet] = []
+        for match in item.snippets:
+            if budget <= 0:
+                break
+            lines.append(Snippet(line=match.line_number, text=match.line))
+            budget -= 1
+        budget -= 1
+        kept.append(tuple(lines))
+    return kept
 
 
 def _keyword_list(value: object) -> list[str]:
@@ -709,17 +726,12 @@ def _assign_confidence(item: FileScore) -> None:
         item.reasons.append("keyword match candidate")
 
 
-def _overall_quality(related: list[dict[str, object]], warnings: list[str]) -> dict[str, object]:
-    high_files = [str(item["file"]) for item in related if item.get("confidence") == "high"]
-    medium_files = [str(item["file"]) for item in related if item.get("confidence") == "medium"]
-    low_files = [str(item["file"]) for item in related if item.get("confidence") == "low"]
-    noise_indicators = sorted(
-        {
-            str(flag)
-            for item in related
-            for flag in item.get("noise_flags", [])
-        }
-    )
+def _overall_quality(related: list[RelatedFile], warnings: list[str]) -> tuple[str, list[str], list[str]]:
+    """Confidence, the reasons for it, and the noisy-path flags seen."""
+    high_files = [item.file for item in related if item.confidence == "high"]
+    medium_files = [item.file for item in related if item.confidence == "medium"]
+    low_files = [item.file for item in related if item.confidence == "low"]
+    noise_indicators = sorted({flag for item in related for flag in item.noise_flags})
     reasons: list[str] = []
     if high_files:
         confidence = "high"
@@ -742,97 +754,4 @@ def _overall_quality(related: list[dict[str, object]], warnings: list[str]) -> d
         confidence = "low"
         reasons.append("No related files were found.")
     reasons.extend(warnings)
-    return {
-        "confidence": confidence,
-        "reasons": reasons,
-        "high_confidence_files": high_files,
-        "medium_confidence_files": medium_files,
-        "low_confidence_files": low_files,
-        "noise_indicators": noise_indicators,
-    }
-
-
-def _render_markdown(
-    issue_key: str,
-    high_value: list[str],
-    normal: list[str],
-    phrases: list[str],
-    expanded: list[str],
-    ranked: list[FileScore],
-    warnings: list[str],
-    quality: dict[str, object],
-    max_search_lines: int = MAX_TOTAL_CODE_SEARCH_LINES,
-) -> str:
-    lines = [
-        f"# Code Search: {issue_key}",
-        "",
-        "## Search Quality",
-        "",
-        f"Confidence: {str(quality.get('confidence', 'low')).title()}",
-        "",
-        "Reasons:",
-    ]
-    reasons = quality.get("reasons", [])
-    if isinstance(reasons, list) and reasons:
-        lines.extend(f"- {reason}" for reason in reasons)
-    else:
-        lines.append("- No search quality reasons available.")
-    phrase_str = ", ".join('"' + phrase + '"' for phrase in phrases) or "_None_"
-    lines.extend(
-        [
-            "",
-            "## Search Keywords",
-            "",
-            f"- High value: {', '.join(high_value) or '_None_'}",
-            f"- Normal: {', '.join(normal) or '_None_'}",
-            f"- Phrases: {phrase_str}",
-            f"- Expanded: {', '.join(expanded) or '_None_'}",
-            "",
-        ]
-    )
-    if warnings:
-        lines.extend(["## Warnings", ""])
-        lines.extend(f"- {warning}" for warning in warnings)
-        lines.append("")
-
-    lines.extend(["## High-Confidence Matches", ""])
-    high_ranked = [item for item in ranked if item.confidence == "high"]
-    if high_ranked:
-        for item in high_ranked:
-            lines.append(f"- `{item.file}` score={item.score} matches={item.match_count}")
-    else:
-        lines.append("_No high-confidence matches found._")
-    lines.extend(["", "## Low-Confidence / Possible False Positives", ""])
-    low_ranked = [item for item in ranked if item.confidence == "low"]
-    if low_ranked:
-        for item in low_ranked:
-            flags = ", ".join(item.noise_flags) or "none"
-            lines.append(f"- `{item.file}` score={item.score} noise={flags}")
-    else:
-        lines.append("_No low-confidence matches found._")
-    lines.append("")
-
-    lines.extend(["## Top Related Files", ""])
-    if ranked:
-        for item in ranked:
-            keywords = ", ".join(sorted(item.matched_keywords))
-            lines.append(f"- `{item.file}` confidence={item.confidence} score={item.score} matches={item.match_count} keywords={keywords}")
-    else:
-        lines.append("_No related files found._")
-    lines.extend(["", "## Matched Lines", ""])
-
-    line_budget = max_search_lines
-    for item in ranked:
-        if line_budget <= 0:
-            break
-        lines.append(f"### {item.file}")
-        lines.append("")
-        line_budget -= 2
-        for match in item.snippets:
-            if line_budget <= 0:
-                break
-            lines.append(f"- Line {match.line_number}: `{match.line}`")
-            line_budget -= 1
-        lines.append("")
-        line_budget -= 1
-    return "\n".join(lines).rstrip() + "\n"
+    return confidence, reasons, noise_indicators

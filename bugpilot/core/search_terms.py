@@ -196,9 +196,9 @@ def terms_from_extraction(
 ) -> list[SearchTerm]:
     """Everything worth searching for, weighed and deduplicated.
 
-    Reads the legacy lists rather than replacing them: `extracted_keywords.json`
-    is a published artifact, and this is a second reading of the same data — one
-    that asks what each term *is* instead of which list it landed in.
+    Reads the extractor's lists rather than replacing them, because the context
+    and the memory search still read them: this is a second reading of the same
+    data — one that asks what each term *is* instead of which list it landed in.
     """
     from .keywords import extract_keywords  # local: keywords imports code_files, not this
 
@@ -241,7 +241,7 @@ def _allocate(merged: list[SearchTerm], budget: int) -> list[SearchTerm]:
 
     User keywords weigh 8 and therefore sort first, so a straight truncation
     handed the whole budget to them: twenty `--keywords` left room for nothing
-    else, and a `SampleFoo::bar` from the stack trace was dropped in favour of the
+    else, and a `WidgetFoo::bar` from the stack trace was dropped in favour of the
     twentieth word the developer typed. That inverts what the field is for —
     Keywords is an expert *boost*, not a replacement for the automatic search.
 

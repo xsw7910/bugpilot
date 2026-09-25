@@ -144,7 +144,7 @@ def test_prepare_bug_description_returns_paths_not_the_whole_package(tmp_path):
 
     assert payload["source"] == "manual"
     assert payload["title"] == "OpenVdsStatistics crashes"
-    assert payload["agent_task"].endswith("agent_task.md")
+    assert payload["agent_task"].endswith("task.md")
     assert "Stop before committing" in payload["next_step"]
     assert payload["context_excerpt"]
 
@@ -175,12 +175,10 @@ def test_refine_reuses_the_prepared_work_item(tmp_path):
     )
     assert refined["work_item_id"] == work_item
 
-    extracted = json.loads(
-        (tmp_path / ".ai" / work_item / "extracted_keywords.json").read_text(encoding="utf-8")
-    )
-    assert extracted["high_value_keywords"][0] == "OpenVdsStatistics"
-    hint = (tmp_path / ".ai" / work_item / "developer_hint.md").read_text(encoding="utf-8")
-    assert hint.strip() == "look in the writer"
+    retrieval = json.loads((tmp_path / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
+    assert {"value": "OpenVdsStatistics", "source": "user"}.items() <= retrieval["terms"][0].items()
+    issue = json.loads((tmp_path / ".ai" / work_item / "issue.json").read_text(encoding="utf-8"))
+    assert issue["guidance"]["hint"] == "look in the writer"
 
 
 def test_refine_never_refetches_jira(tmp_path, monkeypatch):
@@ -683,10 +681,10 @@ def test_a_selected_builtin_reaches_the_task_and_the_record(tmp_path, mock_jira,
     result = _prepare(build_server(tmp_path), fix_mode_id=mode_id)
 
     assert result["fix_mode"]["id"] == mode_id
-    task = (tmp_path / ".ai" / "JR-12345" / "agent_task.md").read_text(encoding="utf-8")
+    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
     assert f"- Mode ID: `{mode_id}`" in task
     status = json.loads(
-        (tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text(encoding="utf-8")
+        (tmp_path / ".ai" / "JR-12345" / "run.json").read_text(encoding="utf-8")
     )
     assert status["fix_mode"]["id"] == mode_id
 
@@ -699,7 +697,7 @@ def test_a_custom_project_mode_is_selected_like_any_other(tmp_path, home, mock_j
     result = _prepare(build_server(repo), fix_mode_id="team-safe")
 
     assert result["fix_mode"]["source"] == "project"
-    assert "- Source: project" in (repo / ".ai" / "JR-12345" / "agent_task.md").read_text(
+    assert "- Source: project" in (repo / ".ai" / "JR-12345" / "task.md").read_text(
         encoding="utf-8"
     )
 
@@ -711,7 +709,7 @@ def test_a_custom_investigate_mode_gets_the_investigation_task(tmp_path, home, m
     _store(repo, home).duplicate("investigate-first", "team-triage", "user")
 
     result = _prepare(build_server(repo), fix_mode_id="team-triage")
-    task = (repo / ".ai" / "JR-12345" / "agent_task.md").read_text(encoding="utf-8")
+    task = (repo / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
     assert result["fix_mode"]["execution_kind"] == "investigate"
     assert "## Investigation Handoff" in task
@@ -732,7 +730,7 @@ def test_a_hostile_custom_mode_does_not_gain_authority_through_mcp(tmp_path, hom
     )
 
     _prepare(build_server(repo), fix_mode_id="hostile")
-    task = (repo / ".ai" / "JR-12345" / "agent_task.md").read_text(encoding="utf-8")
+    task = (repo / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
     for heading in (
         "## BugPilot Rule Precedence",
@@ -804,7 +802,7 @@ def test_an_explicit_mode_overrides_the_persisted_one(tmp_path, mock_jira):
     assert result["fix_mode"]["id"] == "standard"
     # Which is how an investigation becomes an implementation pass: the next
     # call names a fix mode. No workflow state to advance.
-    task = (tmp_path / ".ai" / "JR-12345" / "agent_task.md").read_text(encoding="utf-8")
+    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
     assert "Do you want me to commit and push this branch to origin?" in task
 
 
@@ -817,7 +815,7 @@ def test_refining_keeps_the_mode_the_work_item_was_prepared_with(tmp_path, home,
 
     _call(server, "refine_investigation", {"work_item_id": "JR-12345"})
 
-    assert "- Mode ID: `my-safe`" in (repo / ".ai" / "JR-12345" / "agent_task.md").read_text(
+    assert "- Mode ID: `my-safe`" in (repo / ".ai" / "JR-12345" / "task.md").read_text(
         encoding="utf-8"
     )
 
@@ -918,7 +916,7 @@ def test_an_investigate_prepare_does_not_tell_the_client_to_implement(tmp_path, 
 
     result = _prepare(build_server(repo), fix_mode_id="team-triage")
 
-    assert "agent_task.md" in result["next_step"]
+    assert "task.md" in result["next_step"]
     assert "Do not change source code in this pass." in result["next_step"]
     assert "implement" not in result["next_step"].lower()
 
@@ -939,7 +937,7 @@ def test_refine_reports_the_mode_it_regenerated_under(tmp_path, home, mock_jira)
     prepared = _prepare(server, fix_mode_id="team-triage")
 
     refined = _call(server, "refine_investigation", {"work_item_id": "JR-12345", "hint": "reader"})
-    task = (repo / ".ai" / "JR-12345" / "agent_task.md").read_text(encoding="utf-8")
+    task = (repo / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
     assert refined["fix_mode"] == prepared["fix_mode"]
     assert refined["fix_mode"]["source"] == "project"

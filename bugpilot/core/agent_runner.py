@@ -13,7 +13,7 @@ reason this path is going away rather than being extended.
 
 What to use instead:
 
-- ``bugpilot bug <ID> --prepare-only``, then hand ``.ai/<ID>/agent_task.md`` to
+- ``bugpilot bug <ID> --prepare-only``, then hand ``.ai/<ID>/task.md`` to
   whatever agent you use. The extension's "Copy handoff prompt" does exactly
   this, and the Claude Code skill in ``skills/`` tells the agent to do it
   itself.
@@ -104,7 +104,7 @@ def _warn_deprecated(agent: str) -> None:
         file=sys.stderr,
     )
     print(
-        "      Prefer --prepare-only and hand agent_task.md over yourself "
+        "      Prefer --prepare-only and hand task.md over yourself "
         "(the VS Code extension's Copy handoff prompt does this).",
         file=sys.stderr,
     )

@@ -332,7 +332,7 @@ def test_history_guidance_points_at_supplied_evidence_not_broad_exploration():
 
 # --- document containment ----------------------------------------------------
 #
-# Instruction text is interpolated into agent_task.md as Markdown, and BugPilot
+# Instruction text is interpolated into task.md as Markdown, and BugPilot
 # owns that document's structure. A mode section is prose, not a document: one
 # that could carry its own "## Forbidden Actions" could forge a second copy of a
 # safety heading above the real one, and textual precedence is no defense

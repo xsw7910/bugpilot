@@ -15,7 +15,6 @@ matches case-insensitively regardless.
 
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter
 
@@ -366,10 +365,10 @@ def extract_keywords(text: str, max_keywords: int = 15, priority_text: str = "")
     keywords = [best[low] for low in ranked]
     compounds = [best[low] for low in ranked if _identifier_score(best[low]) >= 5]
     return {
-        # The five legacy lists, unchanged: `extracted_keywords.json` is a
-        # published artifact and the CLI prints from it. The tiering here is
-        # still positional, and §33.3 is why nothing downstream weights by it
-        # any more — `search_terms.py` decides worth from the term itself.
+        # The five original lists, unchanged: the context prints them and the
+        # memory search scores with them. The tiering here is still positional,
+        # and §33.3 is why nothing downstream weights by it any more —
+        # `search_terms.py` decides worth from the term itself.
         "high_value_keywords": keywords[:5],
         "normal_keywords": keywords[5:max_keywords],
         "dropped_keywords": keywords[max_keywords:],
@@ -384,7 +383,3 @@ def extract_keywords(text: str, max_keywords: int = 15, priority_text: str = "")
         # does before any of them can affect a ranking.
         "shape_candidates": shape_expansions(text),
     }
-
-
-def keywords_json(keywords: dict[str, object]) -> str:
-    return json.dumps(keywords, indent=2, sort_keys=True) + "\n"

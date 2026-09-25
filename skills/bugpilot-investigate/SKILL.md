@@ -17,18 +17,18 @@ already assembled around them.
 
 1. Run `bugpilot bug <ISSUE>` from the repository root. For a bug with no issue
    key, run `bugpilot bug --description="..."` instead.
-2. Read `.ai/<ISSUE>/agent_task.md` and `.ai/<ISSUE>/bug_context.md`. They
-   contain the issue details, the ranked candidate files and the relevant git
-   history — read them instead of searching the repository from scratch.
-3. Complete the workflow `agent_task.md` describes for the selected AI Fix
+2. Read `.ai/<ISSUE>/task.md` and `.ai/<ISSUE>/context.md`. They contain the
+   issue details, the ranked candidate files and the relevant git history —
+   read them instead of searching the repository from scratch.
+3. Complete the workflow `task.md` describes for the selected AI Fix
    Mode — it says whether this pass investigates only or implements — and
    write the required result files.
 4. Stop at the commit gate. Do not commit, push, or post to Jira.
 
 The developer chooses the AI Fix Mode, not you: `bugpilot bug <ISSUE>
 --fix-mode <id>` selects one, `bugpilot fix-mode list` names them, and Standard
-Fix is the default. `agent_task.md` is authoritative for what the selected mode
-asks of you.
+Fix is the default. `task.md` is authoritative for what the selected mode asks
+of you.
 
 ## If the fix did not work
 

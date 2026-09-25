@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import subprocess
@@ -74,7 +73,12 @@ def artifacts_ignored(repo_root: Path) -> bool | None:
     )
 
 
-def generate_git_context(repo_root: Path, issue_key: str) -> str:
+def generate_git_context(repo_root: Path, issue_key: str, related_files: list[str] | None = None) -> str:
+    """Branch, status and recent commits for the files the search ranked highest.
+
+    ``related_files`` comes from the retrieval the caller already holds, so this
+    reads no artifact of its own.
+    """
     lines = [f"# Git Context: {issue_key}", ""]
     if not command_available("git"):
         lines.extend(["## Warning", "", "git command is not available."])
@@ -103,7 +107,7 @@ def generate_git_context(repo_root: Path, issue_key: str) -> str:
         ]
     )
 
-    related_files = _related_files(repo_root, issue_key)
+    related_files = related_files or []
     if not related_files:
         lines.append("_No related files available yet._")
     for file_name in related_files:
@@ -135,16 +139,3 @@ def summary_slug(description: str | None, max_length: int = 80) -> str:
         capped.append(word)
         current_length = next_length
     return "-".join(capped)
-
-
-def _related_files(repo_root: Path, issue_key: str) -> list[str]:
-    path = repo_root / ".ai" / issue_key / "related_files.json"
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(data, list):
-        return []
-    return [str(item.get("file")) for item in data[:5] if isinstance(item, dict) and item.get("file")]

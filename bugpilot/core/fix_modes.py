@@ -25,7 +25,7 @@ ExecutionKind = Literal["fix", "investigate"]
 
 DEFAULT_FIX_MODE_ID = "standard"
 
-# Editable instruction text is interpolated into agent_task.md as Markdown, and
+# Editable instruction text is interpolated into task.md as Markdown, and
 # BugPilot owns that document's structure: the safety headings an agent looks for
 # ("## Forbidden Actions", "## BugPilot Rule Precedence") must mean what BugPilot
 # put there. A mode section carrying its own headings could forge a second copy

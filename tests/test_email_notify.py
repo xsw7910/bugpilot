@@ -10,6 +10,7 @@ import pytest
 
 from bugpilot.cli import main
 from bugpilot.core.config import load_email_config, load_graph_config
+from bugpilot.core.issue import IssueArtifact, save_issue
 
 
 @pytest.fixture(autouse=True)
@@ -73,11 +74,14 @@ def _set_email_env(monkeypatch, *, auth=False):
 def _seed_result_artifacts(tmp_path, issue_key="JR-12345"):
     issue_dir = tmp_path / ".ai" / issue_key
     issue_dir.mkdir(parents=True, exist_ok=True)
-    (issue_dir / "jira_summary.md").write_text(
-        "# Jira Summary\n\n"
-        "## Summary\n\nStale results after filter change\n\n"
-        "## Description\n\nApplying a department filter leaves stale results visible.\n",
-        encoding="utf-8",
+    save_issue(
+        tmp_path,
+        IssueArtifact(
+            id=issue_key,
+            source="jira",
+            title="Stale results after filter change",
+            description="Applying a department filter leaves stale results visible.",
+        ),
     )
     (issue_dir / "result_summary.md").write_text(
         "# Result Summary\n\n"
@@ -171,7 +175,7 @@ def test_notify_execute_sends_over_smtp(tmp_path, monkeypatch, capsys):
     assert message["To"] == "dev@example.test"
     assert "JR-12345" in message["Subject"]
     assert "Sent notification email via smtp to: dev@example.test" in output
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
     assert status["steps"]["notify"] == "pass"
 
 
@@ -186,7 +190,7 @@ def test_notify_execute_without_config_skips_gracefully(tmp_path, monkeypatch, c
     assert sent == []
     assert "email not sent" in captured.out
     assert "SMTP_HOST" in captured.err
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
     assert status["steps"]["notify"] == "skipped"
 
 
@@ -369,7 +373,7 @@ def test_graph_transport_sends_over_https(tmp_path, monkeypatch, capsys):
     assert payload["message"]["toRecipients"][0]["emailAddress"]["address"] == "dev@example.test"
     assert "Stale React Query cache key" in payload["message"]["body"]["content"]
     assert "Sent notification email via graph to: dev@example.test" in output
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
     assert status["steps"]["notify"] == "pass"
 
 

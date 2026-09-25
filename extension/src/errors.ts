@@ -92,7 +92,7 @@ const TABLE: Record<string, Entry> = {
   },
   INTERNAL_ERROR: {
     summary: "bugpilot hit an unexpected error.",
-    action: "Check the work item's execution.log for the full trace.",
+    action: "Check the BugPilot output channel (BugPilot: Show Log) for the trace.",
   },
 };
 

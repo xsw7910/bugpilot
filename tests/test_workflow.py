@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import socket
 import urllib.error
 from pathlib import Path
@@ -11,17 +12,66 @@ import pytest
 from bugpilot.core import workflow
 from bugpilot.cli import main
 from bugpilot.core.agent_runner import AgentRunResult
-from bugpilot.core.context import _code_search_summary
+from bugpilot.core.context import _issue_details_markdown, _relevant_files_markdown, build_context
 from bugpilot.core.git_ops import branch_name, summary_slug
 from bugpilot.core.jira import JiraFetchError, classify_attachment, fetch_issue
-from bugpilot.core.jira import jira_field_report_markdown, jira_summary_markdown, normalize_core_fields, normalize_attachments, parse_issue, parsed_markdown
+from bugpilot.core.jira import jira_field_report_markdown, normalize_core_fields, normalize_attachments, parse_issue
+from bugpilot.core.issue import IssueArtifact, IssueDetails, IssueGuidance, issue_from_jira, load_issue, save_issue
 from bugpilot.core.jira_parse import extract_parsed_details
 from bugpilot.core.jira_adf import adf_to_markdown
 from bugpilot.core.keywords import extract_keywords
 from bugpilot.core.memory import build_memory_entry, search_memory
 from bugpilot.core.prompts import _fallback_team_instructions, copilot_team_instructions
+from bugpilot.core.retrieval import RelatedFile, RetrievalArtifact, save_retrieval
 from bugpilot.core.search import INCLUDE_GLOBS, _noise_flags, run_code_search
 from bugpilot.core.workflow import copilot_task_step, git_context_step, run_bug_workflow
+
+# The issue-stage files `issue.json` replaced. Normal execution writes none of them.
+LEGACY_ISSUE_FILES = (
+    "jira.json",
+    "jira_summary.md",
+    "jira_parsed.md",
+    "bug_spec.json",
+    "developer_hint.md",
+    "fix_mode.json",
+)
+
+
+def _normalized(payload: dict) -> IssueArtifact:
+    """A raw Jira payload as the fetch step records it."""
+    return issue_from_jira(payload, str(payload.get("key") or "JR-12345"), IssueGuidance())
+
+
+def _summary_of(payload: dict) -> str:
+    """The Issue Details section: description, Jira fields, comments, attachments."""
+    return _issue_details_markdown(_normalized(payload))
+
+
+def _context_of(payload: dict) -> str:
+    return build_context(_normalized(payload), {}, None)
+
+
+def _details_of(payload: dict) -> str:
+    return _issue_details_markdown(_normalized(payload))
+
+
+# The context- and task-stage files context.md and task.md replaced.
+LEGACY_CONTEXT_TASK_FILES = (
+    "bug_context.md", "git_context.md", "memory_search.md",
+    "agent_task.md", "agent_handoff.md", "agent_team_instructions.md",
+)
+
+# The retrieval-stage files retrieval.json replaced. Normal execution writes none.
+LEGACY_RETRIEVAL_FILES = ("extracted_keywords.json", "code_search.md", "search_quality.json", "related_files.json")
+
+
+def _search(tmp_path: Path, keywords: dict, work_item: str = "JR-12345") -> dict:
+    """The search step given an extraction in memory, as the pipeline hands it over."""
+    workflow.code_search_step(tmp_path, work_item, keywords=keywords)
+    target = tmp_path / ".ai" / work_item
+    for name in LEGACY_RETRIEVAL_FILES:
+        assert not (target / name).exists(), name
+    return json.loads((target / "retrieval.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(autouse=True)
@@ -74,12 +124,13 @@ def test_summary_slug_rules():
     assert len(summary_slug("word " * 40)) <= 85
 
 
-def test_workflow_status_json_generation(tmp_path):
+def test_run_json_generation(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
-    assert status["issue_key"] == "JR-12345"
-    assert status["mode"] == "prepare-only"
+    assert status["schema_version"] == 1
+    assert status["work_item_id"] == "JR-12345"
+    assert status["status"] == "prepared"
     assert status["steps"] == {
         "doctor": "pass",
         "fetch": "pass",
@@ -106,17 +157,13 @@ def test_workflow_status_json_generation(tmp_path):
         "retry_prompt": "skipped",
         "manual_result": "skipped",
     }
-    assert ".ai/JR-12345/agent_task.md" in status["generated_files"]
-    assert ".ai/JR-12345/agent_handoff.md" in status["generated_files"]
-    assert ".ai/JR-12345/agent_team_instructions.md" in status["generated_files"]
-    assert ".ai/JR-12345/code_search.md" in status["generated_files"]
-    assert ".ai/JR-12345/related_files.json" in status["generated_files"]
-    assert ".ai/JR-12345/search_quality.json" in status["generated_files"]
-    # memory_search.md and git_context.md are intermediate and folded into
-    # bug_context.md, so they are not kept in the final output.
-    assert ".ai/JR-12345/memory_search.md" not in status["generated_files"]
-    assert ".ai/JR-12345/git_context.md" not in status["generated_files"]
-    assert ".ai/JR-12345/bug_context.md" in status["generated_files"]
+    assert ".ai/JR-12345/task.md" in status["generated_files"]
+    assert ".ai/JR-12345/context.md" in status["generated_files"]
+    for name in LEGACY_CONTEXT_TASK_FILES:
+        assert f".ai/JR-12345/{name}" not in status["generated_files"]
+    assert ".ai/JR-12345/retrieval.json" in status["generated_files"]
+    for name in LEGACY_RETRIEVAL_FILES:
+        assert f".ai/JR-12345/{name}" not in status["generated_files"]
     assert ".ai_memory/bugs/JR-12345.md" in status["generated_files"]
 
 
@@ -130,8 +177,8 @@ def test_bug_command_runs_in_temporary_directory(tmp_path, monkeypatch):
     exit_code = main(["bug", "JR-12345"])
 
     assert exit_code == 0
-    assert (tmp_path / ".ai" / "JR-12345" / "jira_summary.md").is_file()
-    assert (tmp_path / ".ai" / "JR-12345" / "workflow_status.json").is_file()
+    assert (tmp_path / ".ai" / "JR-12345" / "issue.json").is_file()
+    assert (tmp_path / ".ai" / "JR-12345" / "run.json").is_file()
 
 
 def test_bug_is_the_default_command(tmp_path, monkeypatch):
@@ -144,7 +191,7 @@ def test_bug_is_the_default_command(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["JR-12345"]) == 0
-    assert (tmp_path / ".ai" / "JR-12345" / "jira_summary.md").is_file()
+    assert (tmp_path / ".ai" / "JR-12345" / "issue.json").is_file()
 
 
 def test_bug_command_prints_progress_and_key_artifacts(tmp_path, monkeypatch, capsys):
@@ -168,11 +215,13 @@ def test_bug_command_prints_progress_and_key_artifacts(tmp_path, monkeypatch, ca
     assert "Building bug context" in output
     assert "Generating agent task package" in output
     assert "Generated:" in output
-    assert ".ai/JR-12345/jira_summary.md" in output
-    assert ".ai/JR-12345/jira_parsed.md" in output
-    assert ".ai/JR-12345/code_search.md" in output
-    assert ".ai/JR-12345/bug_context.md" in output
-    assert ".ai/JR-12345/agent_task.md" in output
+    assert ".ai/JR-12345/issue.json" in output
+    assert "jira_summary.md" not in output
+    assert "jira_parsed.md" not in output
+    assert ".ai/JR-12345/retrieval.json" in output
+    assert "code_search.md" not in output
+    assert ".ai/JR-12345/context.md" in output
+    assert ".ai/JR-12345/task.md" in output
     assert "Prepared bugpilot workflow package for JR-12345." in output
     assert "Artifacts: .ai/JR-12345" in output
 
@@ -189,7 +238,7 @@ def test_bug_command_fetch_failure_prints_clear_error(tmp_path, monkeypatch, cap
     assert "Fetching Jira issue JR-12345" in captured.out
     assert "ERROR" in captured.err
     assert "Fetching Jira issue failed" in captured.err
-    assert "See .ai/JR-12345/execution.log for details." in captured.err
+    assert "Run: bugpilot status JR-12345 for step status." in captured.err
 
 
 def test_bug_command_progress_does_not_print_jira_token(tmp_path, monkeypatch, capsys):
@@ -207,13 +256,15 @@ def test_bug_command_progress_does_not_print_jira_token(tmp_path, monkeypatch, c
     assert "token-value" not in captured.err
 
 
-def test_execution_log_contains_prepare_only_lifecycle(tmp_path, monkeypatch):
+def test_the_prepare_lifecycle_is_traced_through_logging_not_a_file(tmp_path, monkeypatch, execution_trace):
     monkeypatch.delenv("JIRA_BASE_URL", raising=False)
     monkeypatch.delenv("JIRA_EMAIL", raising=False)
     monkeypatch.delenv("JIRA_TOKEN", raising=False)
 
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    log_text = (tmp_path / ".ai" / "JR-12345" / "execution.log").read_text()
+    log_text = execution_trace.text
+    # The trace is diagnostics, not an artifact: no file in the work item holds it.
+    assert not (tmp_path / ".ai" / "JR-12345" / "execution.log").exists()
 
     assert "[START] command: bugpilot bug JR-12345" in log_text
     assert "[START] doctor" in log_text
@@ -239,23 +290,20 @@ def test_execution_log_contains_prepare_only_lifecycle(tmp_path, monkeypatch):
     assert "[START] memory_add" in log_text
     assert "[END] memory_add: pass" in log_text
     assert "[SKIP] agent_fix: prepare-only mode" in log_text
-    assert "[GENERATED] .ai/JR-12345/code_search.md" in log_text
-    assert "[GENERATED] .ai/JR-12345/related_files.json" in log_text
-    assert "[GENERATED] .ai/JR-12345/search_quality.json" in log_text
-    assert "folded into bug_context.md and removed: .ai/JR-12345/memory_search.md" in log_text
-    assert "folded into bug_context.md and removed: .ai/JR-12345/git_context.md" in log_text
-    assert "[GENERATED] .ai/JR-12345/memory_search.md" not in log_text
-    assert "[GENERATED] .ai/JR-12345/git_context.md" not in log_text
-    assert "[GENERATED] .ai/JR-12345/agent_task.md" in log_text
-    assert "[GENERATED] .ai/JR-12345/agent_handoff.md" in log_text
-    assert "[GENERATED] .ai/JR-12345/agent_team_instructions.md" in log_text
+    assert "[GENERATED] .ai/JR-12345/retrieval.json" in log_text
+    for name in LEGACY_RETRIEVAL_FILES:
+        assert f"[GENERATED] .ai/JR-12345/{name}" not in log_text
+    for name in LEGACY_CONTEXT_TASK_FILES:
+        assert f".ai/JR-12345/{name}" not in log_text
+    assert "[GENERATED] .ai/JR-12345/task.md" in log_text
+    assert "[GENERATED] .ai/JR-12345/context.md" in log_text
     assert "[GENERATED] .ai_memory/bugs/JR-12345.md" in log_text
     assert "[END] workflow: pass" in log_text
 
 
-def test_copilot_task_references_code_search(tmp_path):
+def test_copilot_task_references_retrieval(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    task = (tmp_path / ".ai" / "JR-12345" / "agent_task.md").read_text()
+    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text()
 
     assert "Run your AI agent from the target repo root" in task
     assert "Do not run your AI agent from the bugpilot tool source directory" in task
@@ -263,17 +311,18 @@ def test_copilot_task_references_code_search(tmp_path):
     assert "feature/JR-12345-demo-bug-employee-search-returns-stale-results-after" in task
     assert "Check the current branch before editing" in task
     assert "Create or switch to the feature branch before editing files" in task
-    assert ".ai/JR-12345/bug_context.md" in task
-    assert ".ai/JR-12345/agent_team_instructions.md" in task
-    assert "Before editing code" in task
-    assert "team instructions" in task
-    assert ".ai/JR-12345/code_search.md" in task
-    assert ".ai/JR-12345/related_files.json" in task
-    assert ".ai/JR-12345/search_quality.json" in task
-    # Historical issues and git context now come from bug_context.md, not standalone files.
-    assert ".ai/JR-12345/memory_search.md" not in task
-    assert ".ai/JR-12345/git_context.md" not in task
-    assert "included in `bug_context.md`" in task
+    assert ".ai/JR-12345/context.md" in task
+    # The team instructions are in the task, not in a file beside it.
+    assert "## Team Instructions" in task
+    assert "### Core Principles" in task
+    assert "Read these general team rules before editing code" in task
+    assert ".ai/JR-12345/retrieval.json" in task
+    for name in LEGACY_RETRIEVAL_FILES:
+        assert name not in task
+    # Similar fixes and git history come from context.md, not standalone files.
+    for name in LEGACY_CONTEXT_TASK_FILES:
+        assert name not in task
+    assert "included in `context.md`" in task
     assert "Do not edit code until after reviewing context and related files" in task
     assert "Do not use the Task tool or spawn any background or sub-agents" in task
     assert "If search confidence is Low" in task
@@ -302,23 +351,24 @@ def test_copilot_task_references_code_search(tmp_path):
 def test_default_omits_jira_status_section(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    task = (issue_dir / "agent_task.md").read_text()
-    handoff = (issue_dir / "agent_handoff.md").read_text()
+    task = (issue_dir / "task.md").read_text()
+    # The team rules name `jira-comment --execute` conditionally ("when the task
+    # instructions ask for it"); what must be absent is the task asking.
+    own = task[: task.index("## Team Instructions")] + task[task.index("## Branch Instructions"):]
 
     # No pre-commit Jira status section, and no marker, by default.
     assert "Report Status to Jira (before commit)" not in task
     assert "jira-comment-draft" not in task
-    assert "--execute" not in task
+    assert "--execute" not in own
     assert "- Do not update Jira.\n" in task
     assert "the only permitted Jira write" not in task
-    assert "the only permitted Jira write" not in handoff
     assert not (issue_dir / "jira_comment_on.flag").exists()
 
 
 def test_jira_comment_opt_in_includes_status_section(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True, jira_comment=True)
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    task = (issue_dir / "agent_task.md").read_text()
+    task = (issue_dir / "task.md").read_text()
 
     # --jira-comment adds the pre-commit status section and its commands.
     assert "Report Status to Jira (before commit)" in task
@@ -327,67 +377,40 @@ def test_jira_comment_opt_in_includes_status_section(tmp_path):
     # The marker persists so a standalone regeneration keeps the comment on.
     assert (issue_dir / "jira_comment_on.flag").exists()
     copilot_task_step(tmp_path, "JR-12345")
-    assert "Report Status to Jira (before commit)" in (issue_dir / "agent_task.md").read_text()
+    assert "Report Status to Jira (before commit)" in (issue_dir / "task.md").read_text()
 
 
 def test_copilot_task_step_jira_comment_flag(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    assert "Report Status to Jira (before commit)" not in (issue_dir / "agent_task.md").read_text()
+    assert "Report Status to Jira (before commit)" not in (issue_dir / "task.md").read_text()
 
     # Standalone regeneration can turn the status comment on after the fact.
     copilot_task_step(tmp_path, "JR-12345", jira_comment=True)
-    assert "Report Status to Jira (before commit)" in (issue_dir / "agent_task.md").read_text()
+    assert "Report Status to Jira (before commit)" in (issue_dir / "task.md").read_text()
 
 
-def test_copilot_task_branch_uses_jira_summary_slug(tmp_path):
-    issue_dir = tmp_path / ".ai" / "JR-23456"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "jira.json").write_text(
-        json.dumps(
-            {
-                "key": "JR-23456",
-                "fields": {
-                    "summary": "Output panel - min/max values are not converted to dB",
-                },
-            }
+def test_copilot_task_branch_uses_the_issue_title_slug(tmp_path):
+    save_issue(
+        tmp_path,
+        IssueArtifact(
+            id="JR-12345",
+            source="jira",
+            title="Output panel - min/max values are not converted to dB",
         ),
-        encoding="utf-8",
     )
 
-    workflow.prompt_step(tmp_path, "JR-23456")
-    task = (issue_dir / "agent_task.md").read_text(encoding="utf-8")
+    workflow.prompt_step(tmp_path, "JR-12345")
+    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
-    assert "feature/JR-23456-output-panel-min-max-values-not-converted-to-db" in task
-
-
-def test_copilot_task_branch_uses_normalized_summary_fallback(tmp_path):
-    issue_dir = tmp_path / ".ai" / "JR-77777"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "jira.json").write_text(
-        json.dumps(
-            {
-                "key": "JR-77777",
-                "fields": {},
-                "bugpilot_normalized": {
-                    "summary": "[Export] As a user, I can export a 2D, pre-stack SEG-Y file from a map view",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    workflow.prompt_step(tmp_path, "JR-77777")
-    task = (issue_dir / "agent_task.md").read_text(encoding="utf-8")
-
-    assert "feature/JR-77777-export-as-a-user-i-can-export-a-2d-pre-stack-seg-y-file" in task
+    assert "feature/JR-12345-output-panel-min-max-values-not-converted-to-db" in task
 
 
 def test_keyword_schema_matches_phase_2_plan():
     """The five lists are a published contract; new keys may be added beside them.
 
-    `extracted_keywords.json` is written into every work item and printed by the
-    CLI, so the five must not move. §33.3 added `priority_keywords` next to them
+    The context prints them and the memory search scores with them, so the five
+    must not move. §33.3 added `priority_keywords` next to them
     — which tokens the software itself printed — because the five cannot express
     it and the weighting needs it.
     """
@@ -435,17 +458,17 @@ def test_keywords_extract_quoted_phrases():
 def test_code_search_matches_exact_phrase(tmp_path):
     (tmp_path / "dialog.cpp").write_text('void f() { label->setText("Selection is lost"); }\n')
     keywords = {"high_value_keywords": [], "normal_keywords": [], "phrase_keywords": ["Selection is lost"]}
-    _markdown, related, _quality = run_code_search(tmp_path, "JR-12345", keywords)
-    assert any("dialog.cpp" in r["file"] for r in related)
+    related = run_code_search(tmp_path, keywords).related_files
+    assert any("dialog.cpp" in item.file for item in related)
 
 
 def test_keywords_rank_identifiers_above_prose():
-    text = "When the user clicks the button the SampleQtExportDialog should refresh but selection is lost"
+    text = "When the user clicks the button the WidgetController should refresh but selection is lost"
     kw = extract_keywords(text)
     hv = kw["high_value_keywords"]
 
     # The camelCase identifier is the standout, not the frequent prose words.
-    assert "SampleQtExportDialog" in hv
+    assert "WidgetController" in hv
     # Case is preserved so search.py's identifier detector can recognise it.
     assert any(c.isupper() for c in "".join(hv))
     # Generic prose / bug boilerplate never becomes a keyword at all.
@@ -454,34 +477,27 @@ def test_keywords_rank_identifiers_above_prose():
 
 
 def test_keywords_extract_qualified_and_file_names():
-    kw = extract_keywords("Crash in WidgetController::onTabChanged at sample_export_dialog.cxx line 42")
+    kw = extract_keywords("Crash in WidgetController::onTabChanged at widget_controller.cxx line 42")
     all_kw = kw["high_value_keywords"] + kw["normal_keywords"]
 
     assert "WidgetController::onTabChanged" in kw["high_value_keywords"]
-    assert "sample_export_dialog.cxx" in all_kw          # the file reference
-    assert "sample_export_dialog" in {k.lower() for k in all_kw}  # and its stem
+    assert "widget_controller.cxx" in all_kw          # the file reference
+    assert "widget_controller" in {k.lower() for k in all_kw}  # and its stem
 
 
-def test_search_command_generates_code_search_and_related_files(tmp_path, monkeypatch):
+def test_search_command_writes_retrieval_json(tmp_path, monkeypatch):
+    """A standalone `search` recomputes the keywords from issue.json."""
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "employee_search.py"
     source.write_text("class EmployeeSearch:\n    def refresh_filter_cache(self):\n        return 'filter cache'\n")
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps(
-            {
-                "high_value_keywords": ["EmployeeSearch", "filter"],
-                "normal_keywords": ["cache"],
-                "dropped_keywords": [],
-            }
-        )
-    )
+    save_issue(tmp_path, IssueArtifact(id="JR-12345", source="jira", title="EmployeeSearch filter cache"))
 
     assert main(["search", "JR-12345"]) == 0
-    related = json.loads((issue_dir / "related_files.json").read_text())
+    related = json.loads((issue_dir / "retrieval.json").read_text())["related_files"]
 
-    assert (issue_dir / "code_search.md").is_file()
+    for name in LEGACY_RETRIEVAL_FILES:
+        assert not (issue_dir / name).exists(), name
     assert related[0]["file"] == "employee_search.py"
     assert related[0]["score"] >= 3
     assert "confidence" in related[0]
@@ -491,54 +507,50 @@ def test_search_command_generates_code_search_and_related_files(tmp_path, monkey
 
 def test_rg_unavailable_fallback_generates_empty_results(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "")
-    markdown, related, quality = run_code_search(
+    retrieval = run_code_search(
         tmp_path,
-        "JR-12345",
         {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []},
     )
 
-    assert related == []
-    assert quality["confidence"] == "low"
-    assert "rg is unavailable" in markdown
+    assert retrieval.related_files == ()
+    assert retrieval.terms == ()
+    assert retrieval.confidence == "low"
+    assert any("rg is unavailable" in reason for reason in retrieval.reasons)
 
 
 def test_memory_search_with_no_memory_entries_writes_no_results(tmp_path):
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps({"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
-    )
+    extracted = {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []}
 
-    issue_key, markdown, results = search_memory(tmp_path, "JR-12345")
+    issue_key, markdown, results = search_memory(tmp_path, "JR-12345", extracted=extracted)
 
     assert issue_key == "JR-12345"
     assert results == []
     assert "No similar memory entries found." in markdown
-    assert "No similar memory entries found." in (issue_dir / "memory_search.md").read_text()
+    # Read-only: the report goes to the context in memory, never to a file.
+    assert not (issue_dir / "memory_search.md").exists()
 
 
 def test_git_context_outside_git_repo_does_not_crash(tmp_path):
-    git_context_step(tmp_path, "JR-12345")
+    text = git_context_step(tmp_path, "JR-12345")
 
-    text = (tmp_path / ".ai" / "JR-12345" / "git_context.md").read_text()
     assert "Current directory is not inside a git repository" in text
+    assert not (tmp_path / ".ai" / "JR-12345" / "git_context.md").exists()
 
 
 def test_bug_workflow_generates_phase_2_files_and_enriched_context(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    context = (issue_dir / "bug_context.md").read_text()
+    context = (issue_dir / "context.md").read_text()
 
-    assert (issue_dir / "code_search.md").is_file()
-    assert (issue_dir / "related_files.json").is_file()
-    assert (issue_dir / "search_quality.json").is_file()
-    # Folded into bug_context.md and not kept as standalone files.
-    assert not (issue_dir / "memory_search.md").exists()
-    assert not (issue_dir / "git_context.md").exists()
-    assert "## Code Search Summary" in context
-    assert "## Similar Historical Issues" in context
-    assert "## Git Context" in context
-    assert (issue_dir / "agent_handoff.md").is_file()
+    assert (issue_dir / "retrieval.json").is_file()
+    assert (issue_dir / "task.md").is_file()
+    for name in LEGACY_RETRIEVAL_FILES + LEGACY_CONTEXT_TASK_FILES:
+        assert not (issue_dir / name).exists(), name
+    assert "## Code Search" in context
+    assert "### Relevant Files" in context
+    assert "## Similar Fixes" in context
+    assert "## Git History" in context
 
 
 def test_rg_subprocess_uses_utf8_replace_and_include_globs(tmp_path, monkeypatch):
@@ -551,9 +563,8 @@ def test_rg_subprocess_uses_utf8_replace_and_include_globs(tmp_path, monkeypatch
     monkeypatch.setattr("bugpilot.core.search.command_available", lambda command: command == "rg")
     monkeypatch.setattr("bugpilot.core.search.subprocess.run", fake_run)
 
-    markdown, related, quality = run_code_search(
+    retrieval = run_code_search(
         tmp_path,
-        "JR-12345",
         {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []},
     )
 
@@ -563,9 +574,9 @@ def test_rg_subprocess_uses_utf8_replace_and_include_globs(tmp_path, monkeypatch
     assert "text" not in kwargs
     for glob in INCLUDE_GLOBS:
         assert ["-g", glob] in [args[index : index + 2] for index in range(len(args) - 1)]
-    assert related[0]["file"] == "employee_search.py"
-    assert "confidence" in related[0]
-    assert "EmployeeSearch cache" in markdown
+    assert retrieval.related_files[0].file == "employee_search.py"
+    assert retrieval.related_files[0].confidence
+    assert retrieval.related_files[0].snippets[0].text == "EmployeeSearch cache"
 
 
 def test_noisy_paths_reduce_search_confidence(tmp_path, monkeypatch):
@@ -574,19 +585,10 @@ def test_noisy_paths_reduce_search_confidence(tmp_path, monkeypatch):
     (tmp_path / "ci" / "build_script.py").write_text("stale result update\n", encoding="utf-8")
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "search.md").write_text("stale result change\n", encoding="utf-8")
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps({"high_value_keywords": ["stale"], "normal_keywords": ["result"], "dropped_keywords": []})
-    )
+    retrieval = _search(tmp_path, {"high_value_keywords": ["stale"], "normal_keywords": ["result"], "dropped_keywords": []})
+    related = retrieval["related_files"]
 
-    assert main(["search", "JR-12345"]) == 0
-    related = json.loads((issue_dir / "related_files.json").read_text(encoding="utf-8"))
-    quality = json.loads((issue_dir / "search_quality.json").read_text(encoding="utf-8"))
-    code_search = (issue_dir / "code_search.md").read_text(encoding="utf-8")
-
-    assert quality["confidence"] == "low"
-    assert "Confidence: Low" in code_search
+    assert retrieval["confidence"] == "low"
     assert any(item["noise_flags"] for item in related)
     assert all(item["confidence"] == "low" for item in related)
 
@@ -607,17 +609,8 @@ def test_noise_flags_use_exact_path_segments_not_filename_substrings(tmp_path, m
         path = tmp_path / file_name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps({"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
-    )
-
-    assert main(["search", "JR-12345"]) == 0
-    related = {
-        item["file"]: item
-        for item in json.loads((issue_dir / "related_files.json").read_text(encoding="utf-8"))
-    }
+    retrieval = _search(tmp_path, {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
+    related = {item["file"]: item for item in retrieval["related_files"]}
 
     for file_name in [
         "src/external_service.py",
@@ -639,48 +632,36 @@ def test_application_source_path_increases_search_confidence(tmp_path, monkeypat
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "EmployeeSearch.cpp").write_text("class EmployeeSearch { void refresh(); };\n", encoding="utf-8")
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps({"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
-    )
 
-    assert main(["search", "JR-12345"]) == 0
-    related = json.loads((issue_dir / "related_files.json").read_text(encoding="utf-8"))
-    quality = json.loads((issue_dir / "search_quality.json").read_text(encoding="utf-8"))
+    retrieval = _search(tmp_path, {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
+    related = retrieval["related_files"]
 
     assert related[0]["file"] == "src/EmployeeSearch.cpp"
     assert related[0]["confidence"] == "high"
-    assert quality["confidence"] == "high"
+    assert retrieval["confidence"] == "high"
 
 
-def test_search_quality_json_has_full_field_structure(tmp_path, monkeypatch):
+def test_retrieval_json_has_full_field_structure(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "EmployeeSearch.cpp").write_text("class EmployeeSearch {};\n", encoding="utf-8")
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps({"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
-    )
 
-    assert main(["search", "JR-12345"]) == 0
-    quality = json.loads((issue_dir / "search_quality.json").read_text(encoding="utf-8"))
+    retrieval = _search(tmp_path, {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
 
-    # The published fields, which must not move. §33.4 added `terms` beside them:
-    # the same file already answers "should I trust this search", and "half your
-    # terms match four thousand lines each" is the same question.
-    assert {
-        "confidence",
-        "reasons",
-        "high_confidence_files",
-        "medium_confidence_files",
-        "low_confidence_files",
-        "noise_indicators",
-    } <= set(quality)
-    assert isinstance(quality["terms"], list)
-    for term in quality["terms"]:
+    # Exactly these: the per-confidence file lists were a filter of
+    # related_files[].confidence and are gone, not renamed.
+    assert set(retrieval) == {
+        "schema_version", "confidence", "reasons", "noise_indicators", "terms", "related_files",
+    }
+    assert retrieval["schema_version"] == 1
+    assert isinstance(retrieval["terms"], list)
+    for item in retrieval["related_files"]:
+        assert set(item) == {
+            "file", "documentation", "score", "confidence", "match_count",
+            "matched_keywords", "reasons", "noise_flags", "snippets",
+        }
+    for term in retrieval["terms"]:
         assert {
             "value", "source", "weight", "effective_weight", "match_count",
             # §33.7B: where a generated identifier shape came from, and whether
@@ -701,41 +682,11 @@ def test_mixed_confidence_scenario_populates_multiple_buckets(tmp_path, monkeypa
         path = tmp_path / file_name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps({"high_value_keywords": ["EmployeeSearch"], "normal_keywords": ["search"], "dropped_keywords": []})
-    )
+    retrieval = _search(tmp_path, {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": ["search"], "dropped_keywords": []})
+    confidence = {item["file"]: item["confidence"] for item in retrieval["related_files"]}
 
-    assert main(["search", "JR-12345"]) == 0
-    quality = json.loads((issue_dir / "search_quality.json").read_text(encoding="utf-8"))
-
-    assert "src/EmployeeSearch.cpp" in quality["high_confidence_files"]
-    assert "docs/search.md" in quality["low_confidence_files"]
-
-
-def test_code_search_markdown_contains_quality_section_headers(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    source_dir = tmp_path / "src"
-    source_dir.mkdir()
-    (source_dir / "EmployeeSearch.cpp").write_text("class EmployeeSearch {};\n", encoding="utf-8")
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps({"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
-    )
-
-    assert main(["search", "JR-12345"]) == 0
-    code_search = (issue_dir / "code_search.md").read_text(encoding="utf-8")
-
-    for heading in [
-        "## Search Quality",
-        "## High-Confidence Matches",
-        "## Low-Confidence / Possible False Positives",
-        "## Top Related Files",
-        "## Matched Lines",
-    ]:
-        assert heading in code_search
+    assert confidence["src/EmployeeSearch.cpp"] == "high"
+    assert confidence["docs/search.md"] == "low"
 
 
 def test_case_insensitive_high_value_keyword_bonus(tmp_path, monkeypatch):
@@ -743,34 +694,28 @@ def test_case_insensitive_high_value_keyword_bonus(tmp_path, monkeypatch):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     (source_dir / "EmployeeSearch.cpp").write_text("void employeesearch_refresh();\n", encoding="utf-8")
-    issue_dir = tmp_path / ".ai" / "JR-12345"
-    issue_dir.mkdir(parents=True)
-    (issue_dir / "extracted_keywords.json").write_text(
-        json.dumps({"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
-    )
 
-    assert main(["search", "JR-12345"]) == 0
-    related = json.loads((issue_dir / "related_files.json").read_text(encoding="utf-8"))
+    related = _search(tmp_path, {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})["related_files"]
 
     assert related[0]["file"] == "src/EmployeeSearch.cpp"
     assert related[0]["confidence"] == "high"
     assert related[0]["score"] >= 14
 
 
-def test_bug_context_includes_code_search_quality(tmp_path):
+def test_context_includes_code_search_quality(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    context = (tmp_path / ".ai" / "JR-12345" / "bug_context.md").read_text(encoding="utf-8")
+    context = (tmp_path / ".ai" / "JR-12345" / "context.md").read_text(encoding="utf-8")
 
-    assert "## Code Search Quality" in context
+    assert "### Search Quality" in context
     assert "Confidence:" in context
     assert "If search confidence is Low" in context
 
 
-def test_workflow_generated_files_include_search_quality(tmp_path):
+def test_workflow_generated_files_include_retrieval(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text(encoding="utf-8"))
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text(encoding="utf-8"))
 
-    assert ".ai/JR-12345/search_quality.json" in status["generated_files"]
+    assert ".ai/JR-12345/retrieval.json" in status["generated_files"]
 
 
 def test_git_run_command_uses_utf8_replace(monkeypatch, tmp_path):
@@ -807,7 +752,8 @@ def test_free_text_memory_search_prints_markdown(tmp_path, monkeypatch, capsys):
 
 
 def test_memory_entry_uses_prepare_only_phase_2_wording():
-    entry = build_memory_entry("JR-12345", {"summary": "Demo", "is_mock": True}, ".ai/JR-12345/bug_context.md")
+    issue = IssueArtifact(id="JR-12345", source="jira", title="Demo", details=IssueDetails(mock=True))
+    entry = build_memory_entry("JR-12345", issue, ".ai/JR-12345/context.md")
 
     assert "Phase 1" not in entry
     assert "Prototype prepare-only workflow" in entry
@@ -815,40 +761,43 @@ def test_memory_entry_uses_prepare_only_phase_2_wording():
     assert "## Related Files" in entry
 
 
-def test_context_code_search_summary_prefers_related_files_over_warnings():
-    markdown = """# Code Search: JR-12345
+def test_context_relevant_files_lists_the_ranked_files():
+    """Search warnings are listed once, under Code Search Quality, not here too."""
+    retrieval = RetrievalArtifact(
+        confidence="medium",
+        reasons=("Some plausible application or implementation files were matched.", "warning first"),
+        related_files=(
+            RelatedFile(
+                file="src/EmployeeSearch.cpp", documentation=False, score=10, confidence="medium",
+                match_count=2, matched_keywords=("EmployeeSearch",),
+            ),
+        ),
+    )
 
-## Warnings
+    summary = _relevant_files_markdown(retrieval)
 
-- warning first
-
-## Top Related Files
-
-- `src/EmployeeSearch.cpp` score=10 matches=2 keywords=EmployeeSearch
-"""
-
-    summary = _code_search_summary(markdown)
-
-    assert summary.startswith("- `src/EmployeeSearch.cpp`")
-    assert "Warnings:" in summary
+    assert summary == "- `src/EmployeeSearch.cpp` confidence=medium score=10 matches=2 keywords=EmployeeSearch"
+    assert _relevant_files_markdown(None) == "_Code search has not been generated yet._"
+    assert _relevant_files_markdown(RetrievalArtifact()) == "_No related files found._"
 
 
-def test_copilot_handoff_is_generated(tmp_path):
+def test_the_task_carries_what_the_handoff_file_used_to(tmp_path):
+    """No agent_handoff.md: each of its reminders is a line of task.md."""
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    handoff = (tmp_path / ".ai" / "JR-12345" / "agent_handoff.md").read_text()
+    issue_dir = tmp_path / ".ai" / "JR-12345"
+    task = (issue_dir / "task.md").read_text()
 
-    assert "Read `.ai/JR-12345/agent_task.md` and complete the workflow." in handoff
-    assert ".ai/JR-12345/agent_team_instructions.md" in handoff
-    assert "Run your AI agent from the target repo root" in handoff
-    assert "Do not work directly on main/master" in handoff
-    assert "Do not commit or push unless the developer explicitly approves" in handoff
-    assert "Never push main/master" in handoff
+    assert not (issue_dir / "agent_handoff.md").exists()
+    assert "Run your AI agent from the target repo root" in task
+    assert "Do not work directly on main/master" in task
+    assert "Do not commit or push without explicit developer approval" in task
+    assert "Do not push main/master" in task
 
 
 def test_team_instructions_defer_to_the_task_fix_mode():
     """The generic team rules must not re-offer what a Fix Mode withheld.
 
-    `agent_task.md` tells the agent to read this file, and it used to say "you
+    `task.md` carries these rules, and they used to say "you
     may ask the developer whether they want you to commit and push" with no
     qualification — which handed an investigation-only pass back the commit
     offer that the task had deliberately omitted.
@@ -902,32 +851,34 @@ def test_docs_copilot_team_instructions_exists():
 def test_copilot_task_command_regenerates_task_files(tmp_path, monkeypatch):
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
-    (issue_dir / "bug_context.md").write_text("# Bug Context\n", encoding="utf-8")
-    (issue_dir / "agent_task.md").write_text("old", encoding="utf-8")
-    (issue_dir / "agent_team_instructions.md").write_text("UNIQUE_STALE_TEAM_INSTRUCTIONS", encoding="utf-8")
+    (issue_dir / "context.md").write_text("# Bug Context\n", encoding="utf-8")
+    save_issue(tmp_path, IssueArtifact(id="JR-12345", source="jira"))
+    (issue_dir / "task.md").write_text("old", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert main(["agent-task", "JR-12345"]) == 0
 
-    assert "Agent Task" in (issue_dir / "agent_task.md").read_text()
-    assert (issue_dir / "agent_handoff.md").is_file()
-    assert "UNIQUE_STALE_TEAM_INSTRUCTIONS" not in (issue_dir / "agent_team_instructions.md").read_text()
-    assert "Agent Team Instructions" in (issue_dir / "agent_team_instructions.md").read_text()
+    task = (issue_dir / "task.md").read_text()
+    assert "BugPilot Task" in task
+    assert "### Core Principles" in task
+    for name in ("agent_task.md", "agent_handoff.md", "agent_team_instructions.md"):
+        assert not (issue_dir / name).exists(), name
     # The standalone per-phase prompt files are no longer generated (their content
-    # is contained in agent_task.md).
+    # is contained in task.md).
     assert not (issue_dir / "agent_fix_prompt.md").exists()
     assert not (issue_dir / "review_prompt.md").exists()
 
 
 def test_bug_hint_is_injected_into_copilot_task(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    hint = "Fix in WidgetController.cxx: preserve non-Seismic input volume on tab switch"
+    hint = "Fix in WidgetController.cpp: preserve the selected input on tab switch"
 
     assert main(["bug", "JR-12345", "--allow-mock", "--hint", hint]) == 0
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    task = (issue_dir / "agent_task.md").read_text(encoding="utf-8")
+    task = (issue_dir / "task.md").read_text(encoding="utf-8")
 
-    assert (issue_dir / "developer_hint.md").read_text(encoding="utf-8").strip() == hint
+    assert load_issue(tmp_path, "JR-12345").guidance.hint == hint
+    assert not (issue_dir / "developer_hint.md").exists()
     assert "## Developer Hint" in task
     assert hint in task
     # High-priority guidance to verify, not ground truth to act on unchecked.
@@ -942,58 +893,44 @@ def test_bug_without_hint_has_no_developer_hint_section(tmp_path, monkeypatch):
     assert main(["bug", "JR-12345", "--allow-mock"]) == 0
     issue_dir = tmp_path / ".ai" / "JR-12345"
 
-    assert not (issue_dir / "developer_hint.md").exists()
-    assert "## Developer Hint" not in (issue_dir / "agent_task.md").read_text(encoding="utf-8")
+    assert load_issue(tmp_path, "JR-12345").guidance.hint is None
+    assert "## Developer Hint" not in (issue_dir / "task.md").read_text(encoding="utf-8")
 
 
 def test_bug_hint_persists_across_resume(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    hint = "Look at WidgetController.cxx"
+    hint = "Look at WidgetController.cpp"
 
     assert main(["bug", "JR-12345", "--allow-mock", "--hint", hint]) == 0
     # Resume without repeating --hint: the stored hint should still apply.
     assert main(["bug", "JR-12345", "--allow-mock", "--resume"]) == 0
-    task = (tmp_path / ".ai" / "JR-12345" / "agent_task.md").read_text(encoding="utf-8")
+    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
     assert hint in task
 
 
-def test_copilot_task_command_reports_missing_bug_context(tmp_path, monkeypatch, capsys):
+def test_copilot_task_command_reports_missing_context(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
 
     assert main(["agent-task", "JR-12345"]) == 1
     error = capsys.readouterr().err
 
-    assert "Missing .ai/JR-12345/bug_context.md." in error
+    assert "Missing .ai/JR-12345/context.md." in error
     assert "Run: bugpilot bug JR-12345" in error
 
 
-def test_copilot_instructions_command_generates_file(tmp_path, monkeypatch, capsys):
+def test_copilot_instructions_command_prints_them(tmp_path, monkeypatch, capsys):
+    """The team instructions are a section of task.md; the command shows them."""
     monkeypatch.chdir(tmp_path)
 
     assert main(["agent-instructions", "JR-12345"]) == 0
     output = capsys.readouterr().out
-    path = tmp_path / ".ai" / "JR-12345" / "agent_team_instructions.md"
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
-    log_text = (tmp_path / ".ai" / "JR-12345" / "execution.log").read_text()
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
-    assert str(path) in output
-    assert path.is_file()
-    assert "Agent Team Instructions" in path.read_text(encoding="utf-8")
+    assert "Agent Team Instructions" in output
+    assert "## Core Principles" in output
+    assert not (tmp_path / ".ai" / "JR-12345" / "agent_team_instructions.md").exists()
     assert status["steps"]["agent_instructions"] == "pass"
-    assert ".ai/JR-12345/agent_team_instructions.md" in status["generated_files"]
-    assert "[START] copilot_instructions" in log_text
-    assert "[GENERATED] .ai/JR-12345/agent_team_instructions.md" in log_text
-    assert "[END] copilot_instructions: pass" in log_text
-
-
-def test_copilot_instructions_command_creates_missing_issue_dir(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    assert not (tmp_path / ".ai" / "JR-12345").exists()
-
-    assert main(["agent-instructions", "JR-12345"]) == 0
-
-    assert (tmp_path / ".ai" / "JR-12345" / "agent_team_instructions.md").is_file()
 
 
 def test_check_results_reports_missing_files(tmp_path, monkeypatch, capsys):
@@ -1045,13 +982,10 @@ def test_bug_agent_fix_remains_manual_and_safe(tmp_path, monkeypatch, capsys):
 
     assert main(["bug", "JR-12345", "--agent-fix", "--allow-mock"]) == 0
     output = capsys.readouterr().out
-    log_text = (tmp_path / ".ai" / "JR-12345" / "execution.log").read_text()
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "Agent automatic invocation is not enabled." in output
-    assert "Read .ai/JR-12345/agent_task.md and complete the workflow." in output
-    assert "[INFO] Agent automatic invocation is not enabled, using manual handoff" in log_text
-    assert "[INFO] Next agent instruction: Read .ai/JR-12345/agent_task.md and complete the workflow." in log_text
+    assert "Read .ai/JR-12345/task.md and complete the workflow." in output
     assert status["steps"]["agent_fix"] == "skipped"
 
 
@@ -1060,13 +994,21 @@ def test_summarize_results_generates_summary_and_manual_validation(tmp_path, mon
     issue_dir.mkdir(parents=True)
     (issue_dir / "bug_analysis.md").write_text("Root cause: stale cache", encoding="utf-8")
     (issue_dir / "fix_summary.md").write_text("Cleared cache on filter change", encoding="utf-8")
-    (issue_dir / "related_files.json").write_text(json.dumps([{"file": "src/EmployeeSearch.cpp"}]), encoding="utf-8")
+    save_retrieval(
+        tmp_path,
+        "JR-12345",
+        RetrievalArtifact(
+            related_files=(
+                RelatedFile(file="src/EmployeeSearch.cpp", documentation=False, score=9, confidence="high", match_count=1),
+            )
+        ),
+    )
     monkeypatch.chdir(tmp_path)
 
     assert main(["summarize-results", "JR-12345"]) == 0
     summary = (issue_dir / "result_summary.md").read_text()
     manual = (issue_dir / "manual_validation.md").read_text()
-    status = json.loads((issue_dir / "workflow_status.json").read_text())
+    status = json.loads((issue_dir / "run.json").read_text())
 
     assert "- bug_analysis.md: present" in summary
     assert "- test_result.md: missing" in summary
@@ -1103,7 +1045,7 @@ def test_memory_update_replaces_final_result_section(tmp_path, monkeypatch):
 
     assert main(["memory", "update", "JR-12345"]) == 0
     memory = (memory_dir / "JR-12345.md").read_text()
-    status = json.loads((issue_dir / "workflow_status.json").read_text())
+    status = json.loads((issue_dir / "run.json").read_text())
 
     assert "Preserve me." in memory
     assert "Preserve code search." in memory
@@ -1122,7 +1064,7 @@ def test_memory_update_missing_result_summary_is_graceful(tmp_path, monkeypatch,
 
     assert main(["memory", "update", "JR-12345"]) == 0
     output = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "WARN: missing .ai/JR-12345/result_summary.md" in output
     assert status["steps"]["memory_update"] == "skipped"
@@ -1133,7 +1075,7 @@ def test_review_package_generates_final_review_prompt(tmp_path, monkeypatch):
 
     assert main(["review-package", "JR-12345"]) == 0
     prompt = (tmp_path / ".ai" / "JR-12345" / "final_review_prompt.md").read_text()
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "# Final Review Request" in prompt
     assert "Please review the completed fix for Jira issue JR-12345." in prompt
@@ -1143,7 +1085,7 @@ def test_review_package_generates_final_review_prompt(tmp_path, monkeypatch):
     assert status["steps"]["final_review_prompt"] == "pass"
 
 
-def test_phase_4_commands_log_generated_and_updated_files(tmp_path, monkeypatch):
+def test_phase_4_commands_trace_generated_and_updated_files(tmp_path, monkeypatch, execution_trace):
     issue_dir = tmp_path / ".ai" / "JR-12345"
     memory_dir = tmp_path / ".ai_memory" / "bugs"
     issue_dir.mkdir(parents=True)
@@ -1156,7 +1098,7 @@ def test_phase_4_commands_log_generated_and_updated_files(tmp_path, monkeypatch)
     main(["summarize-results", "JR-12345"])
     main(["memory", "update", "JR-12345"])
     main(["review-package", "JR-12345"])
-    log_text = (issue_dir / "execution.log").read_text()
+    log_text = execution_trace.text
 
     assert "[GENERATED] .ai/JR-12345/result_summary.md" in log_text
     assert "[GENERATED] .ai/JR-12345/manual_validation.md" in log_text
@@ -1182,7 +1124,7 @@ def test_delivery_check_warns_when_required_files_missing(tmp_path, monkeypatch,
 
     assert main(["delivery-check", "JR-12345"]) == 0
     output = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "WARN: delivery is not ready." in output
     assert "Missing required result file: .ai/JR-12345/bug_analysis.md" in output
@@ -1199,7 +1141,7 @@ def test_delivery_check_passes_when_ready(tmp_path, monkeypatch, capsys):
 
     assert main(["delivery-check", "JR-12345"]) == 0
     output = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "PASS: ready for manual commit/push." in output
     assert status["steps"]["delivery_check"] == "pass"
@@ -1273,21 +1215,18 @@ def test_delivery_commands_are_safe_outside_git_repo(tmp_path, monkeypatch, caps
     assert "Current branch is unavailable." in output
 
 
-def test_delivery_plan_status_and_log_entries(tmp_path, monkeypatch):
+def test_delivery_plan_updates_the_run_state(tmp_path, monkeypatch):
     monkeypatch.setattr("bugpilot.core.workflow.run_command", lambda args, repo_root: (0, "feature/JR-12345-demo"))
     monkeypatch.chdir(tmp_path)
 
     main(["commit-plan", "JR-12345"])
     main(["push-plan", "JR-12345"])
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "workflow_status.json").read_text())
-    log_text = (tmp_path / ".ai" / "JR-12345" / "execution.log").read_text()
+    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert status["steps"]["commit_plan"] == "pass"
     assert status["steps"]["push_plan"] == "pass"
     assert ".ai/JR-12345/commit_plan.md" in status["generated_files"]
     assert ".ai/JR-12345/push_plan.md" in status["generated_files"]
-    assert "[GENERATED] .ai/JR-12345/commit_plan.md" in log_text
-    assert "[GENERATED] .ai/JR-12345/push_plan.md" in log_text
 
 
 def test_commit_and_push_execute_placeholders_do_not_mutate_git(tmp_path, monkeypatch, capsys):
@@ -1396,11 +1335,8 @@ def test_bug_fresh_removes_old_later_phase_artifacts(tmp_path, monkeypatch):
 
     assert not (issue_dir / "result_summary.md").exists()
     assert not (issue_dir / "commit_plan.md").exists()
-    assert (issue_dir / "workflow_status.json").is_file()
-    assert (issue_dir / "bug_context.md").is_file()
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
-    assert "[INFO] fresh run requested" in log_text
-    assert "[INFO] memory entry preserved" in log_text
+    assert (issue_dir / "run.json").is_file()
+    assert (issue_dir / "context.md").is_file()
 
 
 def test_bug_default_is_fresh_and_removes_old_artifacts(tmp_path, monkeypatch):
@@ -1417,12 +1353,9 @@ def test_bug_default_is_fresh_and_removes_old_artifacts(tmp_path, monkeypatch):
     assert main(["bug", "JR-12345"]) == 0
 
     assert not (issue_dir / "old_artifact.md").exists()
-    assert (issue_dir / "bug_context.md").is_file()
-    status = json.loads((issue_dir / "workflow_status.json").read_text(encoding="utf-8"))
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
-    assert status["fresh"] is True
-    assert status["allow_mock"] is False
-    assert "[INFO] effective mode: fresh=true, allow_mock=false" in log_text
+    assert (issue_dir / "context.md").is_file()
+    status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
+    assert status["status"] == "prepared"
 
 
 def test_bug_resume_preserves_old_artifacts(tmp_path, monkeypatch):
@@ -1434,9 +1367,7 @@ def test_bug_resume_preserves_old_artifacts(tmp_path, monkeypatch):
     assert main(["bug", "JR-12345", "--resume", "--allow-mock"]) == 0
 
     assert (issue_dir / "old_artifact.md").exists()
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
-    assert "[INFO] effective mode: fresh=false, allow_mock=true" in log_text
-    assert "[INFO] previous workflow artifacts were preserved" in log_text
+    assert json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))["status"] == "prepared"
 
 
 def test_bug_fresh_preserves_memory_by_default(tmp_path, monkeypatch):
@@ -1531,11 +1462,13 @@ def test_missing_env_default_no_mock_fails_without_mock_artifacts(tmp_path, monk
     assert "ERROR: Jira environment variables are missing." in error
     assert "Mock fallback is disabled by default." in error
     assert "Use --allow-mock only for demo/testing fallback." in error
-    assert not (issue_dir / "jira.json").exists()
-    assert not (issue_dir / "jira_summary.md").exists()
-    status = json.loads((issue_dir / "workflow_status.json").read_text(encoding="utf-8"))
-    assert status["fresh"] is True
-    assert status["allow_mock"] is False
+    # Only the stub recorded before the fetch: guidance, and no mock content.
+    stub = load_issue(tmp_path, "JR-12345")
+    assert (stub.title, stub.description, stub.details.mock) == ("", "", False)
+    for name in LEGACY_ISSUE_FILES:
+        assert not (issue_dir / name).exists(), name
+    status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
+    assert status["status"] == "failed"
 
 
 def test_missing_env_allow_mock_marks_fallback(tmp_path, monkeypatch, capsys):
@@ -1547,20 +1480,18 @@ def test_missing_env_allow_mock_marks_fallback(tmp_path, monkeypatch, capsys):
     assert main(["bug", "JR-12345", "--allow-mock"]) == 0
     output = capsys.readouterr().out
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    jira = json.loads((issue_dir / "jira.json").read_text(encoding="utf-8"))
-    summary = (issue_dir / "jira_summary.md").read_text(encoding="utf-8")
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
+    raw = (issue_dir / "issue.json").read_text(encoding="utf-8")
+    issue = load_issue(tmp_path, "JR-12345")
+    context = (issue_dir / "context.md").read_text(encoding="utf-8")
 
     assert "WARN: Jira environment variables are missing." in output
-    assert jira["source"] == "mock"
-    assert jira["mock"] is True
-    assert jira["fallback_error_type"] == "missing_env"
-    assert "bugpilot_normalized" in jira
-    assert "comments" in jira["bugpilot_normalized"]
-    assert "attachments" in jira["bugpilot_normalized"]
-    assert "## Data Source\n\nmock/demo fallback" in summary
-    assert "Jira environment variables are missing" in summary
-    assert "[WARN] Jira fetch failed: missing_env" in log_text
+    assert issue.source == "jira"
+    assert issue.details.mock is True
+    assert issue.title
+    # Normalized, not the raw payload.
+    assert "bugpilot_normalized" not in raw
+    assert "fallback_error_type" not in raw
+    assert "- Data source: mock/demo fallback" in context
 
 
 def test_missing_env_no_mock_fails_without_mock_artifacts(tmp_path, monkeypatch, capsys):
@@ -1572,16 +1503,18 @@ def test_missing_env_no_mock_fails_without_mock_artifacts(tmp_path, monkeypatch,
     assert main(["bug", "JR-12345", "--no-mock"]) == 1
     error = capsys.readouterr().err
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    status = json.loads((issue_dir / "workflow_status.json").read_text(encoding="utf-8"))
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
+    status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert "ERROR: Jira environment variables are missing." in error
     assert "Mock fallback is disabled by default." in error
-    assert not (issue_dir / "jira_summary.md").exists()
+    assert load_issue(tmp_path, "JR-12345").title == ""
     assert not (issue_dir / "jira.json").exists()
     assert status["steps"]["fetch"] == "fail"
     assert status["steps"]["parse"] == "skipped"
-    assert "[ERROR] Jira fetch failed: missing_env" in log_text
+    # The failure is recorded where a reader will find it, not in a trace file.
+    assert status["status"] == "failed"
+    assert status["error"]["step"] == "fetch"
+    assert "Jira environment variables are missing" in status["error"]["message"]
 
 
 def test_fetch_default_no_mock_fails_without_mock_fallback(tmp_path, monkeypatch, capsys):
@@ -1595,8 +1528,7 @@ def test_fetch_default_no_mock_fails_without_mock_fallback(tmp_path, monkeypatch
     issue_dir = tmp_path / ".ai" / "JR-12345"
 
     assert "Mock fallback is disabled by default." in error
-    assert not (issue_dir / "jira.json").exists()
-    assert not (issue_dir / "jira_summary.md").exists()
+    assert not (issue_dir / "issue.json").exists()
 
 
 def test_fetch_allow_mock_generates_mock_files(tmp_path, monkeypatch, capsys):
@@ -1607,11 +1539,13 @@ def test_fetch_allow_mock_generates_mock_files(tmp_path, monkeypatch, capsys):
 
     assert main(["fetch", "JR-12345", "--allow-mock"]) == 0
     output = capsys.readouterr().out
-    jira = json.loads((tmp_path / ".ai" / "JR-12345" / "jira.json").read_text(encoding="utf-8"))
+    issue = load_issue(tmp_path, "JR-12345")
 
     assert "WARN: Jira environment variables are missing." in output
-    assert jira["source"] == "mock"
-    assert jira["mock"] is True
+    assert issue.source == "jira"
+    assert issue.details.mock is True
+    for name in LEGACY_ISSUE_FILES:
+        assert not (tmp_path / ".ai" / "JR-12345" / name).exists(), name
 
 
 def test_fetch_no_mock_fails_without_mock_fallback(tmp_path, monkeypatch, capsys):
@@ -1625,9 +1559,8 @@ def test_fetch_no_mock_fails_without_mock_fallback(tmp_path, monkeypatch, capsys
     issue_dir = tmp_path / ".ai" / "JR-12345"
 
     assert "Mock fallback is disabled by default." in error
-    assert not (issue_dir / "jira.json").exists()
-    assert not (issue_dir / "jira_summary.md").exists()
-    status = json.loads((issue_dir / "workflow_status.json").read_text(encoding="utf-8"))
+    assert not (issue_dir / "issue.json").exists()
+    status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
     assert status["steps"]["fetch"] == "fail"
 
 
@@ -1874,7 +1807,7 @@ def test_adf_media_nodes_do_not_crash():
     assert adf_to_markdown({"type": "mediaSingle", "content": [{"type": "media"}]}) == "[media omitted]"
 
 
-def test_jira_summary_uses_converted_adf_description():
+def test_issue_summary_uses_converted_adf_description():
     issue = {
         "key": "JR-12345",
         "fields": {
@@ -1895,7 +1828,7 @@ def test_jira_summary_uses_converted_adf_description():
         },
     }
 
-    summary = jira_summary_markdown(issue, "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(issue)
 
     assert "## Steps" in summary
     assert "Open search and filter." in summary
@@ -1904,7 +1837,7 @@ def test_jira_summary_uses_converted_adf_description():
     assert "Search" in summary
 
 
-def test_jira_summary_uses_converted_adf_comments():
+def test_issue_summary_uses_converted_adf_comments():
     issue = {
         "key": "JR-12345",
         "fields": {
@@ -1936,16 +1869,17 @@ def test_jira_summary_uses_converted_adf_comments():
         },
     }
 
-    summary = jira_summary_markdown(issue, "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(issue)
 
-    assert "### Comment 1" in summary
-    assert "Author: Dev User" in summary
+    assert "#### Comment 1" in summary
+    # Authors are not kept: nothing decides anything from who commented.
+    assert "Dev User" not in summary
     assert "Created: 2026-05-30T12:00:00.000+0000" in summary
     assert "Please check **EmployeeSearch**" in summary
     assert '"content"' not in summary
 
 
-def test_jira_comments_with_adf_body_include_author_and_created():
+def test_jira_comments_with_adf_body_include_created_but_no_author():
     issue = _jira_issue(
         comments=[
             _jira_comment("Dev One", "2026-05-30T10:00:00.000+0000", _adf_text("First **ignored literal**")),
@@ -1953,12 +1887,12 @@ def test_jira_comments_with_adf_body_include_author_and_created():
         ]
     )
 
-    summary = jira_summary_markdown(issue, "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(issue)
 
-    assert "### Comment 1" in summary
-    assert "Author: Dev One" in summary
+    assert "#### Comment 1" in summary
+    assert "Dev One" not in summary
     assert "Created: 2026-05-30T10:00:00.000+0000" in summary
-    assert "Author: Dev Two" in summary
+    assert "Dev Two" not in summary
     assert "**Regression**" in summary
 
 
@@ -1969,7 +1903,7 @@ def test_jira_comment_limit_renders_latest_ten():
     ]
     issue = _jira_issue(comments=comments)
 
-    summary = jira_summary_markdown(issue, "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(issue)
 
     assert "Showing latest 10 of 12 comments." in summary
     assert "Body 01" not in summary
@@ -1979,16 +1913,16 @@ def test_jira_comment_limit_renders_latest_ten():
 
 
 def test_jira_empty_comments_are_clear():
-    summary = jira_summary_markdown(_jira_issue(comments=[]), "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(_jira_issue(comments=[]))
 
-    assert "## Comments" in summary
+    assert "### Comments" in summary
     assert "No comments found." in summary
 
 
 def test_single_jira_comment_does_not_show_latest_note():
     issue = _jira_issue(comments=[_jira_comment("Dev", "2026-05-30T10:00:00.000+0000", _adf_text("Only comment"))])
 
-    summary = jira_summary_markdown(issue, "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(issue)
 
     assert "Only comment" in summary
     assert "Showing latest" not in summary
@@ -2003,7 +1937,7 @@ def test_attachment_metadata_is_rendered_without_download():
         ]
     )
 
-    summary = jira_summary_markdown(issue, "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(issue)
 
     assert "Attachment content is not downloaded by bugpilot." in summary
     assert "| screenshot.png | screenshot | 2 KB" in summary
@@ -2021,11 +1955,9 @@ def test_attachment_kind_classification():
     assert classify_attachment("data.bin", "application/octet-stream") == "unknown"
 
 
-def test_jira_parsed_comment_signals():
+def test_issue_details_comment_signals():
     issue = _jira_issue(comments=[_jira_comment("Dev", "2026-05-30T10:00:00.000+0000", _adf_text("Stack trace shows regression"))])
-    parsed = parse_issue(issue)
-
-    markdown = parsed_markdown(parsed)
+    markdown = _details_of(issue)
 
     assert "## Comment Signals" in markdown
     assert "- Number of comments: 1" in markdown
@@ -2033,16 +1965,14 @@ def test_jira_parsed_comment_signals():
     assert "regression" in markdown
 
 
-def test_jira_parsed_attachment_signals():
+def test_issue_details_attachment_signals():
     issue = _jira_issue(
         attachments=[
             _jira_attachment("screenshot.jpg", "image/jpeg", 1024, "QA"),
             _jira_attachment("error.log", "text/plain", 1024, "QA"),
         ]
     )
-    parsed = parse_issue(issue)
-
-    markdown = parsed_markdown(parsed)
+    markdown = _details_of(issue)
 
     assert "## Attachment Signals" in markdown
     assert "- Number of attachments: 2" in markdown
@@ -2050,14 +1980,14 @@ def test_jira_parsed_attachment_signals():
     assert "screenshot" in markdown
 
 
-def test_bug_context_includes_comment_and_attachment_signals(tmp_path):
+def test_context_includes_comment_and_attachment_signals(tmp_path):
     issue = _jira_issue(
         comments=[_jira_comment("Dev", "2026-05-30T10:00:00.000+0000", _adf_text("Regression in stack trace"))],
         attachments=[_jira_attachment("crash.log", "text/plain", 4096, "Dev")],
     )
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
-    (issue_dir / "jira.json").write_text(json.dumps(issue), encoding="utf-8")
+    save_issue(tmp_path, _normalized(issue))
 
     workflow.parse_step(tmp_path, "JR-12345")
     workflow.keywords_step(tmp_path, "JR-12345")
@@ -2066,19 +1996,19 @@ def test_bug_context_includes_comment_and_attachment_signals(tmp_path):
     workflow.git_context_step(tmp_path, "JR-12345")
     workflow.context_step(tmp_path, "JR-12345")
 
-    context = (issue_dir / "bug_context.md").read_text(encoding="utf-8")
-    assert "## Comment Signals" in context
-    assert "## Attachment Signals" in context
+    context = (issue_dir / "context.md").read_text(encoding="utf-8")
+    assert "### Comment Signals" in context
+    assert "### Attachment Signals" in context
     assert "Use Jira comments as additional context" in context
     assert "Do not assume attachment content was read" in context
 
 
 def test_copilot_task_includes_comment_attachment_guidance(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    task = (tmp_path / ".ai" / "JR-12345" / "agent_task.md").read_text(encoding="utf-8")
+    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
-    assert "Read Jira comments in `bug_context.md`" in task
-    assert "comments in `bug_context.md` as potentially newer than the original description" in task
+    assert "Read Jira comments in `context.md`" in task
+    assert "comments in `context.md` as potentially newer than the original description" in task
     assert "Review Jira attachment metadata" in task
     assert "Do not claim to have inspected attachment contents unless the content is present" in task
 
@@ -2130,7 +2060,7 @@ def _adf_marked_text(text, mark):
 
 
 # ---------------------------------------------------------------------------
-# Phase 8.3 — Richer jira_parsed.md / Missing Information Extraction
+# Phase 8.3 — Richer parsed details / Missing Information Extraction
 # ---------------------------------------------------------------------------
 
 
@@ -2272,7 +2202,7 @@ def test_jira_parse_log_signals_from_attachments():
     assert any("crash.log" in s for s in parsed["log_signals"])
 
 
-def test_jira_parsed_md_has_structured_sections():
+def test_issue_details_have_structured_sections():
     description = (
         "## Steps to Reproduce\n"
         "1. Open search\n"
@@ -2296,8 +2226,7 @@ def test_jira_parsed_md_has_structured_sections():
             "attachment": [],
         },
     }
-    parsed = parse_issue(issue)
-    markdown = parsed_markdown(parsed)
+    markdown = _details_of(issue)
 
     assert "## Reproduction Steps" in markdown
     assert "1. Open search" in markdown
@@ -2306,7 +2235,7 @@ def test_jira_parsed_md_has_structured_sections():
     assert "## Missing Information Checklist" in markdown
 
 
-def test_bug_context_includes_reproduction_and_missing_info(tmp_path):
+def test_context_includes_reproduction_and_missing_info(tmp_path):
     description = (
         "## Steps to Reproduce\n"
         "1. Open search\n"
@@ -2320,7 +2249,7 @@ def test_bug_context_includes_reproduction_and_missing_info(tmp_path):
     issue["fields"]["description"] = description  # plain string passthrough
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
-    (issue_dir / "jira.json").write_text(json.dumps(issue), encoding="utf-8")
+    save_issue(tmp_path, _normalized(issue))
 
     workflow.parse_step(tmp_path, "JR-12345")
     workflow.keywords_step(tmp_path, "JR-12345")
@@ -2329,16 +2258,17 @@ def test_bug_context_includes_reproduction_and_missing_info(tmp_path):
     workflow.git_context_step(tmp_path, "JR-12345")
     workflow.context_step(tmp_path, "JR-12345")
 
-    context = (issue_dir / "bug_context.md").read_text(encoding="utf-8")
-    assert "## Reproduction Steps" in context
-    assert "## Missing Information Checklist" in context
+    context = (issue_dir / "context.md").read_text(encoding="utf-8")
+    assert "### Reproduction Steps" in context
+    assert "### Missing Information Checklist" in context
 
 
-def test_copilot_task_includes_jira_parsed_guidance(tmp_path):
+def test_copilot_task_points_at_the_issue_details_in_context(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
-    task = (tmp_path / ".ai" / "JR-12345" / "agent_task.md").read_text(encoding="utf-8")
+    task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
-    assert "jira_parsed.md" in task
+    assert "Issue Details section of `context.md`" in task
+    assert "jira_parsed.md" not in task
     assert "Do not invent reproduction steps" in task
     assert "missing information" in task.lower()
 
@@ -2482,31 +2412,23 @@ def test_normalize_core_fields_handles_missing_and_null_fields():
     assert normalized["attachment_count"] == 0
 
 
-# C. jira_summary.md includes real Jira fields
-def test_jira_summary_includes_real_jira_fields():
+# C. the rendered issue carries the Jira fields BugPilot uses, and no people
+def test_issue_summary_includes_real_jira_fields_but_no_people():
     issue = _full_jira_issue()
-    summary = jira_summary_markdown(issue, "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(issue)
 
-    assert "## Issue Type" in summary
-    assert "Bug" in summary
-    assert "## Resolution" in summary
-    assert "Unresolved" in summary
-    assert "## Project" in summary
-    assert "HR — HR System" in summary
-    assert "## Assignee" in summary
-    assert "Jane Dev" in summary
-    assert "## Reporter" in summary
-    assert "QA User" in summary
-    assert "## Created / Updated" in summary
-    assert "2026-05-01T10:00:00.000+0000" in summary
-    assert "## Affected Versions" in summary
-    assert "2026.0" in summary
-    assert "## Fix Versions" in summary
-    assert "2026.2" in summary
+    assert "- Type: Bug" in _context_of(issue)
+    assert "- Resolution: Unresolved" in summary
+    assert "- Components: Search, Filters" in summary
+    # Names are not kept in issue.json, so they cannot reach the context.
+    for absent in ("Jane Dev", "QA User", "## Assignee", "## Reporter", "HR System"):
+        assert absent not in summary
+    assert "- Affected versions: 2026.0" in summary
+    assert "- Fix versions: 2026.2, 2026.1-patch" in summary
 
 
-# D. jira_parsed.md uses summary / version fields for environment detection
-def test_jira_parsed_uses_versions_for_environment():
+# D. the parser uses summary / version fields for environment detection
+def test_parser_uses_versions_for_environment():
     issue = _full_jira_issue()
     parsed = parse_issue(issue)
 
@@ -2527,13 +2449,13 @@ def test_jira_validate_success_generates_required_files(tmp_path, monkeypatch):
     assert main(["jira-validate", "JR-12345"]) == 0
 
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    assert (issue_dir / "jira.json").is_file()
-    assert (issue_dir / "jira_summary.md").is_file()
-    assert (issue_dir / "jira_parsed.md").is_file()
+    assert load_issue(tmp_path, "JR-12345").details.issue_type == "Bug"
     assert (issue_dir / "jira_field_report.md").is_file()
+    for name in LEGACY_ISSUE_FILES:
+        assert not (issue_dir / name).exists(), name
     # Must NOT generate code search or copilot task
-    assert not (issue_dir / "code_search.md").exists()
-    assert not (issue_dir / "agent_task.md").exists()
+    assert not (issue_dir / "retrieval.json").exists()
+    assert not (issue_dir / "task.md").exists()
 
 
 # F. jira-validate failure path
@@ -2545,7 +2467,7 @@ def test_jira_validate_fails_without_credentials(tmp_path, monkeypatch, capsys):
 
     err = capsys.readouterr().err
     assert "JIRA_BASE_URL" in err or "Jira environment variables" in err
-    assert not (tmp_path / ".ai" / "JR-12345" / "jira.json").exists()
+    assert not (tmp_path / ".ai" / "JR-12345" / "issue.json").exists()
 
 
 # G. jira_field_report.md content
@@ -2581,14 +2503,21 @@ def test_bug_fresh_no_mock_uses_real_jira_normalized_fields(tmp_path, monkeypatc
     assert main(["bug", "JR-12345", "--fresh", "--no-mock"]) == 0
 
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    jira = json.loads((issue_dir / "jira.json").read_text(encoding="utf-8"))
-    summary_md = (issue_dir / "jira_summary.md").read_text(encoding="utf-8")
+    raw = (issue_dir / "issue.json").read_text(encoding="utf-8")
+    issue = json.loads(raw)
+    context = (issue_dir / "context.md").read_text(encoding="utf-8")
 
-    assert jira.get("source") == "jira"
-    assert jira.get("mock") is False
-    assert "bugpilot_normalized" in jira
-    assert "## Issue Type" in summary_md
-    assert "## Fix Versions" in summary_md
+    assert issue["schema_version"] == 1
+    assert issue["source"] == "jira"
+    assert issue["details"]["mock"] is False
+    assert issue["details"]["fix_versions"] == ["2026.2", "2026.1-patch"]
+    # The raw payload is not persisted: no URLs, tokens, account ids or names.
+    for absent in ("bugpilot_normalized", "token=secret", "jira.example.test", "jane-id", "Jane Dev", "QA User"):
+        assert absent not in raw
+    assert "- Type: Bug" in context
+    assert "- Fix versions: 2026.2, 2026.1-patch" in context
+    for name in LEGACY_ISSUE_FILES:
+        assert not (issue_dir / name).exists(), name
 
 
 # I. bug --fresh --no-mock fails if Jira is unavailable
@@ -2600,7 +2529,7 @@ def test_bug_fresh_no_mock_fails_when_jira_unavailable(tmp_path, monkeypatch, ca
 
     err = capsys.readouterr().err
     assert "ERROR" in err
-    assert not (tmp_path / ".ai" / "JR-12345" / "jira.json").exists()
+    assert load_issue(tmp_path, "JR-12345").title == ""
 
 
 # ---------------------------------------------------------------------------
@@ -2659,7 +2588,7 @@ def test_malformed_attachment_size_renders_in_summary_without_crash():
     issue = _issue_with_attachments(_attachment_raw(size="abc"))
     from bugpilot.core.jira import enrich_issue
     enrich_issue(issue)
-    summary = jira_summary_markdown(issue, "Fetched Jira data from configured Jira instance.")
+    summary = _summary_of(issue)
     assert "file.log" in summary
     assert "0 B" in summary
 
@@ -2730,13 +2659,8 @@ def test_field_report_does_not_redact_innocent_key_words():
 def _write_comment_draft_package(tmp_path: Path, include_results: bool = True) -> Path:
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
-    (issue_dir / "bug_context.md").write_text("# Bug Context\n\nContext body", encoding="utf-8")
-    (issue_dir / "jira_parsed.md").write_text(
-        "# Jira Parsed Details\n\n"
-        "## Missing Information Checklist\n\n"
-        "- Environment/version information is missing.\n",
-        encoding="utf-8",
-    )
+    (issue_dir / "context.md").write_text("# Bug Context\n\nContext body", encoding="utf-8")
+    save_issue(tmp_path, IssueArtifact(id="JR-12345", source="jira", title="Save crash"))
     if include_results:
         (issue_dir / "result_summary.md").write_text("Root cause and fix are summarized.", encoding="utf-8")
         (issue_dir / "bug_analysis.md").write_text("Cache invalidation failed.", encoding="utf-8")
@@ -2806,9 +2730,12 @@ def test_jira_comment_draft_requires_workflow_package(tmp_path, monkeypatch, cap
     assert "No workflow package found for JR-12345. Run: bugpilot bug JR-12345" in err
 
 
-def test_jira_comment_draft_does_not_include_raw_jira_json(tmp_path, monkeypatch):
+def test_jira_comment_draft_does_not_include_the_issue_data(tmp_path, monkeypatch):
     issue_dir = _write_comment_draft_package(tmp_path, include_results=False)
-    (issue_dir / "jira.json").write_text('{"raw_secret":"token=secret"}', encoding="utf-8")
+    save_issue(
+        tmp_path,
+        IssueArtifact(id="JR-12345", source="jira", title="Save crash", description="raw_secret token=secret"),
+    )
     monkeypatch.chdir(tmp_path)
 
     assert main(["jira-comment-draft", "JR-12345"]) == 0
@@ -2837,10 +2764,7 @@ def test_jira_comment_draft_redacts_sensitive_values(tmp_path, monkeypatch):
 
 def test_jira_comment_draft_omits_search_and_diff_detail(tmp_path, monkeypatch):
     issue_dir = _write_comment_draft_package(tmp_path)
-    (issue_dir / "search_quality.json").write_text(
-        json.dumps({"confidence": "low", "reasons": ["Only documentation matched"]}),
-        encoding="utf-8",
-    )
+    save_retrieval(tmp_path, "JR-12345", RetrievalArtifact(confidence="low", reasons=("Only documentation matched",)))
     monkeypatch.chdir(tmp_path)
 
     assert main(["jira-comment-draft", "JR-12345"]) == 0
@@ -2880,19 +2804,15 @@ def test_markdown_to_adf_renders_headings_rule_and_bullets():
     assert len(adf["content"][3]["content"]) == 2      # two bullet items
 
 
-def test_jira_comment_draft_updates_status_and_log(tmp_path, monkeypatch):
+def test_jira_comment_draft_updates_the_run_state(tmp_path, monkeypatch):
     issue_dir = _write_comment_draft_package(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     assert main(["jira-comment-draft", "JR-12345"]) == 0
-    status = json.loads((issue_dir / "workflow_status.json").read_text(encoding="utf-8"))
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
+    status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["jira_comment_draft"] == "pass"
     assert ".ai/JR-12345/jira_comment_draft.md" in status["generated_files"]
-    assert "[START] jira_comment_draft" in log_text
-    assert "[GENERATED] .ai/JR-12345/jira_comment_draft.md" in log_text
-    assert "[END] jira_comment_draft: pass" in log_text
 
 
 # ---------------------------------------------------------------------------
@@ -3072,15 +2992,11 @@ def test_jira_comment_execute_status_includes_generated_files(tmp_path, monkeypa
     monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: _JiraPostResponse())
 
     assert main(["jira-comment", "JR-12345", "--execute"]) == 0
-    status = json.loads((issue_dir / "workflow_status.json").read_text(encoding="utf-8"))
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
+    status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["jira_comment"] == "pass"
     assert ".ai/JR-12345/jira_comment_post_result.json" in status["generated_files"]
     assert ".ai/JR-12345/jira_comment_post_summary.md" in status["generated_files"]
-    assert "[START] jira_comment execute" in log_text
-    assert "[GENERATED] .ai/JR-12345/jira_comment_post_result.json" in log_text
-    assert "[END] jira_comment: pass" in log_text
 
 
 # ---------------------------------------------------------------------------
@@ -3189,7 +3105,7 @@ def test_summarize_results_auto_post_failure_is_non_fatal(tmp_path, monkeypatch,
 def _write_retry_package(tmp_path: Path) -> Path:
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True, exist_ok=True)
-    (issue_dir / "bug_context.md").write_text("# Bug Context\n\nInvestigate stale results.", encoding="utf-8")
+    (issue_dir / "context.md").write_text("# Bug Context\n\nInvestigate stale results.", encoding="utf-8")
     return issue_dir
 
 
@@ -3236,14 +3152,14 @@ def test_retry_prompt_includes_assisted_delivery_rules(tmp_path, monkeypatch):
 
 def test_retry_prompt_lists_present_and_missing_previous_attempt_files(tmp_path, monkeypatch):
     issue_dir = _write_retry_package(tmp_path)
-    (issue_dir / "code_search.md").write_text("src/EmployeeSearch.cpp:42", encoding="utf-8")
+    save_retrieval(tmp_path, "JR-12345", RetrievalArtifact())
     (issue_dir / "test_result.md").write_text("Tests failed.", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert main(["retry-prompt", "JR-12345"]) == 0
     prompt = (issue_dir / "agent_retry_prompt.md").read_text(encoding="utf-8")
 
-    assert "- .ai/JR-12345/code_search.md" in prompt
+    assert "- .ai/JR-12345/retrieval.json" in prompt
     assert "### test_result.md" in prompt
     assert "present" in prompt
     assert "### bug_analysis.md" in prompt
@@ -3300,14 +3216,10 @@ def test_manual_result_updates_status_and_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["manual-result", "JR-12345"]) == 0
-    status = json.loads((issue_dir / "workflow_status.json").read_text(encoding="utf-8"))
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
+    status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["manual_result"] == "pass"
     assert ".ai/JR-12345/bug_analysis.md" in status["generated_files"]
-    assert "[START] manual_result" in log_text
-    assert "[GENERATED] .ai/JR-12345/bug_analysis.md" in log_text
-    assert "[END] manual_result: pass" in log_text
 
 
 def test_retry_prompt_updates_status_and_log(tmp_path, monkeypatch):
@@ -3315,12 +3227,8 @@ def test_retry_prompt_updates_status_and_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["retry-prompt", "JR-12345"]) == 0
-    status = json.loads((issue_dir / "workflow_status.json").read_text(encoding="utf-8"))
-    log_text = (issue_dir / "execution.log").read_text(encoding="utf-8")
+    status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["retry_prompt"] == "pass"
     assert ".ai/JR-12345/agent_retry_prompt.md" in status["generated_files"]
     assert ".ai/JR-12345/user_feedback.md" in status["generated_files"]
-    assert "[START] retry_prompt" in log_text
-    assert "[GENERATED] .ai/JR-12345/agent_retry_prompt.md" in log_text
-    assert "[END] retry_prompt: pass" in log_text

@@ -5,7 +5,7 @@
  * from the design doc:
  *
  *  1. **Not every step emits an event.** A run that reported `pass` for
- *     `memory_add` in `workflow_status.json` never emitted a `step_started` for
+ *     `memory_add` in `run.json` never emitted a `step_started` for
  *     it. So absence of an event is not absence of work, and the stream alone
  *     cannot be the source of truth after the fact.
  *  2. **Steps are not capabilities.** `keywords` belongs to two capabilities at
@@ -16,7 +16,7 @@
  *     is measured here from event arrival, with an injected clock.
  *
  * The checklist therefore has two sources: the live stream while a process is
- * running, and `workflow_status.json` after a restart (which is the only one
+ * running, and `run.json` after a restart (which is the only one
  * that survives the process, per §5.1).
  */
 
@@ -360,7 +360,7 @@ export class ProgressTracker {
 }
 
 /**
- * Rebuild the checklist from `workflow_status.json` after a restart.
+ * Rebuild the checklist from `run.json` after a restart.
  *
  * The JSONL stream only exists while the process does, so this is the only way
  * a reopened window can show what the last run did. Timings are gone — the file

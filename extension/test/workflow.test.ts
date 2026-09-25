@@ -119,23 +119,21 @@ test("a duration is carried through, and absent until there is one", () => {
 test("each icon appears only when the file it opens is there", () => {
   // Keyed off the files rather than off a step event, so a run that stopped
   // after writing one of them offers exactly one icon.
-  const partial = buildWorkflow(input({ artifacts: ["agent_task.md"] }));
-  assert.deepEqual(partial.find((step) => step.id === "buildContext")?.actions, [
-    "copyHandoff",
-    "openFolder",
-  ]);
+  // Open and Copy both need context.md; a task alone offers only the folder.
+  const partial = buildWorkflow(input({ artifacts: ["task.md"] }));
+  assert.deepEqual(partial.find((step) => step.id === "buildContext")?.actions, ["openFolder"]);
 
-  const complete = buildWorkflow(input({ artifacts: ["agent_task.md", "bug_context.md"] }));
+  const complete = buildWorkflow(input({ artifacts: ["task.md", "context.md"] }));
   assert.deepEqual(complete.find((step) => step.id === "buildContext")?.actions, [
     "openContext",
-    "copyHandoff",
+    "copyContext",
     "openFolder",
   ]);
 });
 
 test("no files means no icons, and no other row ever has any", () => {
   for (const step of buildWorkflow(input())) assert.deepEqual(step.actions, [], step.id);
-  const steps = buildWorkflow(input({ artifacts: ["agent_task.md", "bug_context.md"] }));
+  const steps = buildWorkflow(input({ artifacts: ["task.md", "context.md"] }));
   for (const step of steps.filter((entry) => entry.id !== "buildContext")) {
     assert.deepEqual(step.actions, [], step.id);
   }
@@ -221,7 +219,7 @@ test("auto takes the first known agent that is actually installed", async () => 
   const plan = await resolveAgent({
     choice: "auto",
     customCommand: "",
-    prompt: "Read .ai/JR-1/agent_task.md and complete the workflow.",
+    prompt: "Read .ai/JR-1/task.md and complete the workflow.",
     canRun: async (command) => {
       asked.push(command);
       return true;
@@ -232,7 +230,7 @@ test("auto takes the first known agent that is actually installed", async () => 
   assert.deepEqual(asked, [KNOWN_AGENTS[0]!.command]);
   assert.equal(
     plan.kind === "run" ? plan.commandLine : "",
-    'claude "Read .ai/JR-1/agent_task.md and complete the workflow."',
+    'claude "Read .ai/JR-1/task.md and complete the workflow."',
   );
 });
 

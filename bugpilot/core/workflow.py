@@ -18,16 +18,26 @@ from .delivery_instructions import delivery_instructions_block, delivery_safety_
 from .doctor import collect_doctor_report
 from .handoff import handoff_prompt
 from .git_ops import current_branch, generate_git_context, inside_git_repo, run_command, working_tree_status
-from .jira import JiraCommentPostError, JiraCommentPostResult, JiraFetchError, JiraFetchResult, enrich_issue, fetch_issue, jira_field_report_markdown, jira_summary_markdown, parse_issue, parsed_markdown, post_jira_comment, prepare_jira_comment_text, sanitize_comment_text
-from .keywords import extract_keywords, keywords_json
+from .jira import JiraCommentPostError, JiraCommentPostResult, JiraFetchError, JiraFetchResult, enrich_issue, fetch_issue, jira_field_report_markdown, post_jira_comment, prepare_jira_comment_text, sanitize_comment_text
+from .keywords import extract_keywords
 from .logging_utils import log
 from .identity import is_known_work_item_id
-from .input_adapters import bug_spec_from_jira, load_bug_spec, manual_issue_payload, save_bug_spec
+from .issue import (
+    IssueArtifact,
+    IssueGuidance,
+    issue_from_jira,
+    issue_from_spec,
+    jira_stub,
+    load_issue,
+    read_issue_quietly,
+    save_issue,
+)
 from .memory import add_memory_entry, build_memory_entry, search_memory
 from .models import SOURCE_MANUAL, BugSpec, InvestigationOptions, InvestigationPlan, InvestigationRequest
+from .artifacts import CONTEXT_ARTIFACT, ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT
+from .run import RunArtifact, RunError, load_run, read_run_quietly, save_run
 from .attachments import ATTACHMENTS_DIR, attachment_names, copy_attachments
 from .fix_mode_state import (
-    fix_mode_metadata,
     persist_fix_mode,
     select_fix_mode,
     stored_fix_mode_metadata,
@@ -35,11 +45,11 @@ from .fix_mode_state import (
 from .fix_modes import FixMode
 from .prompts import (
     copilot_team_instructions,
-    generate_copilot_task_files,
-    generate_prompts,
+    generate_task,
     investigation_handoff_block,
 )
-from .search import related_files_json, run_code_search, search_quality_json
+from .retrieval import RetrievalArtifact, read_retrieval_quietly, save_retrieval
+from .search import run_code_search
 
 
 @dataclass
@@ -75,41 +85,14 @@ REQUIRED_COPILOT_RESULT_FILES = [
 ]
 
 
-def _persist_resolved_spec(repo_root: Path, request: InvestigationRequest) -> None:
-    """Store the spec once its title and description are actually known.
+@dataclass
+class _RetrievalState:
+    """What refinement's investigation steps hand to the steps after them."""
 
-    For a Jira work item those arrive with ``parse_step``; a manual one already
-    has them. Failing to persist must not fail the run — the spec is a
-    convenience for later commands, not an input any step depends on (manual
-    input is saved earlier, before anything reads it).
-    """
-    spec = request.spec
-    try:
-        if spec.source != SOURCE_MANUAL:
-            parsed = _parsed_issue(repo_root, spec.work_item_id)
-            # Through the input adapter, not a second copy of its field mapping.
-            # Core re-implemented `summary`/`description` here while
-            # `bug_spec_from_jira` sat unused — two mappings that would drift the
-            # first time Jira renamed a field, and only one of them validated.
-            # Identity stays with the request: the adapter's job here is the
-            # content that only exists after parse_step ran.
-            fetched = bug_spec_from_jira(parsed)
-            spec = BugSpec(
-                work_item_id=spec.work_item_id,
-                source=spec.source,
-                title=fetched.title,
-                description=fetched.description,
-                source_ref=spec.source_ref,
-            )
-        save_bug_spec(repo_root, spec)
-    except Exception as exc:  # noqa: BLE001 - never break preparation over a cache file
-        log(issue_dir(repo_root, spec.work_item_id), f"[WARN] bug_spec not saved: {exc}")
-
-
-def _context_and_fold(repo_root: Path, work_item_id: str) -> None:
-    """Build the context, then drop the files it folded in."""
-    context_step(repo_root, work_item_id)
-    _remove_intermediate_files(repo_root, work_item_id)
+    keywords: dict[str, object] | None = None
+    retrieval: RetrievalArtifact | None = None
+    similar_fixes: str | None = None
+    git_history: str | None = None
 
 
 def refine_investigation(
@@ -126,8 +109,8 @@ def refine_investigation(
 
     It deliberately does **not** go through :func:`run_investigation`. That would
     pull ``fetch`` back in as a prerequisite of ``parse`` and re-hit Jira on every
-    refinement — slow, and impossible offline. The issue data already sits in
-    ``jira.json`` or ``bug_spec.json``, so refinement starts at ``keywords``.
+    refinement — slow, and impossible offline. The normalized issue already sits
+    in ``issue.json``, so refinement starts at ``keywords``.
 
     Which steps run still comes from an :class:`InvestigationPlan`, so a caller
     toggles capabilities here exactly as it does for a full run.
@@ -139,11 +122,35 @@ def refine_investigation(
         )
     options = options or InvestigationOptions()
     plan = plan or InvestigationPlan(issue_details=False)
-    spec = load_bug_spec(repo_root, work_item_id)
-    source = spec.source if spec else "jira"
+    issue = _require_issue(repo_root, work_item_id)
     # `fetch`/`parse` are the point of the exercise: their output is already on
     # disk. `doctor` re-checks an environment this run already passed.
-    resolved = set(plan.resolve_steps(source)) - {"fetch", "parse", "doctor"}
+    resolved = set(plan.resolve_steps(issue.source)) - {"fetch", "parse", "doctor"}
+
+    # A new hint replaces the recorded one before anything reads it, so the task
+    # file regenerated below carries the hint this refinement was asked for.
+    if options.hint and options.hint.strip():
+        issue = issue.with_guidance(replace(issue.guidance, hint=options.hint.strip()))
+        save_issue(repo_root, issue)
+    # And the search uses the same hint the task file will carry: the new one,
+    # else the one issue.json records. Searching without the recorded hint
+    # while the regenerated task still named it was the Batch 1 finding (§37.5).
+    hint = _effective_hint(options.hint, issue.guidance.hint)
+    search_options = replace(options, hint=hint) if hint else options
+    # What the retrieval steps produce, handed to the steps after them in memory.
+    found = _RetrievalState()
+
+    def extract() -> None:
+        found.keywords = keywords_step(repo_root, work_item_id, search_options, issue=issue)
+
+    def search() -> None:
+        found.retrieval = code_search_step(repo_root, work_item_id, search_options, keywords=found.keywords)
+
+    def similar() -> None:
+        found.similar_fixes = memory_search_step(repo_root, work_item_id, keywords=found.keywords)
+
+    def history() -> None:
+        found.git_history = git_context_step(repo_root, work_item_id, retrieval=found.retrieval)
 
     # A dispatch table rather than a chain of ifs, so a step that ends up in
     # `resolved` with no handler raises instead of being silently skipped. That is
@@ -152,19 +159,27 @@ def refine_investigation(
     # The mode the task file is regenerated under: the persisted selection,
     # resolved once here and handed to prompt_step, exactly as run_investigation
     # does — so the result reports the mode that actually ran rather than
-    # leaving a caller to re-read the selection file. Resolved only when the
-    # prompt step will run, since that is the only step that needs it and an
+    # leaving a caller to re-read the selection. Resolved only when the prompt
+    # step will run, since that is the only step that needs it and an
     # unresolvable selection should fail that step, not a refinement that never
     # touches the task file.
     mode = _selected_fix_mode(repo_root, work_item_id) if "prompt" in resolved else None
     handlers: dict[str, Callable[[], None]] = {
-        "keywords": lambda: keywords_step(repo_root, work_item_id, options),
-        "memory_search": lambda: memory_search_step(repo_root, work_item_id),
-        "code_search": lambda: code_search_step(repo_root, work_item_id, options),
-        "git_context": lambda: git_context_step(repo_root, work_item_id),
-        "context": lambda: _context_and_fold(repo_root, work_item_id),
-        "prompt": lambda: prompt_step(repo_root, work_item_id, fix_mode=mode),
-        "memory_add": lambda: memory_add_step(repo_root, work_item_id),
+        "keywords": extract,
+        "memory_search": similar,
+        "code_search": search,
+        "git_context": history,
+        "context": lambda: context_step(
+            repo_root,
+            work_item_id,
+            issue=issue,
+            keywords=found.keywords,
+            retrieval=found.retrieval,
+            git_history=found.git_history,
+            similar_fixes=found.similar_fixes,
+        ),
+        "prompt": lambda: prompt_step(repo_root, work_item_id, fix_mode=mode, issue=issue),
+        "memory_add": lambda: memory_add_step(repo_root, work_item_id, issue=issue),
     }
     unhandled = resolved - handlers.keys()
     if unhandled:
@@ -174,8 +189,7 @@ def refine_investigation(
         )
 
     log(target, f"[START] refine: {work_item_id}")
-    if options.hint and options.hint.strip():
-        (target / "developer_hint.md").write_text(options.hint.strip() + "\n", encoding="utf-8")
+    _set_run_status(repo_root, work_item_id, "running")
     # Refining takes the same options as a first run, so it takes attachments
     # too. Accepting them and copying nothing would be the quietest kind of
     # bug: the caller passed files and the agent never hears of them.
@@ -185,18 +199,24 @@ def refine_investigation(
     ]
     for warning in attachment_warnings:
         log(target, f"[WARN] {warning}")
+    failing: str | None = None
     try:
         for step in WORKFLOW_STEPS:
             if step in resolved:
+                failing = step
                 _progress(progress, step)
                 handlers[step]()
     except Exception as exc:
         log(target, f"[ERROR] refine: {exc}")
         log(target, "[END] refine: fail")
+        # Named explicitly: a refine keeps the marks of earlier runs, so scanning
+        # them could blame a step an old failure marked, not this one.
+        _fail_run(repo_root, work_item_id, exc, step=failing)
         raise
 
     generated = _generated_files(repo_root, work_item_id)
     log(target, "[END] refine: pass")
+    _set_run_status(repo_root, work_item_id, "prepared")
     return WorkflowResult(
         issue_key=work_item_id,
         issue_dir=target,
@@ -205,21 +225,6 @@ def refine_investigation(
         fresh=False,
         fix_mode=mode,
     )
-
-
-def _parsed_issue(repo_root: Path, work_item_id: str) -> dict[str, object]:
-    """The normalized issue dict every downstream step reads.
-
-    Jira work items parse the fetched ``jira.json``; manual ones are shaped from
-    their persisted ``BugSpec`` in memory. Keeping the manual path out of
-    ``jira.json`` means that file is always real fetched data, never a synthetic
-    stand-in. With no ``bug_spec.json`` present this behaves exactly as before,
-    which is what keeps existing work item directories readable.
-    """
-    spec = load_bug_spec(repo_root, work_item_id)
-    if spec is not None and spec.source == SOURCE_MANUAL:
-        return parse_issue(manual_issue_payload(spec))
-    return parse_issue(_read_json(issue_dir(repo_root, work_item_id) / "jira.json"))
 
 
 def looks_like_issue_key(value: str) -> bool:
@@ -235,9 +240,8 @@ def looks_like_issue_key(value: str) -> bool:
 def jira_request(issue_key: str, options: InvestigationOptions | None = None) -> InvestigationRequest:
     """A request for a Jira work item whose content is not fetched yet.
 
-    ``title``/``description`` stay empty here: they are only known after
-    ``parse_step`` runs, at which point :func:`run_investigation` rewrites the
-    persisted spec with the real values.
+    ``title``/``description`` stay empty here: they are only known once
+    ``fetch_step`` has normalized the fetched issue into ``issue.json``.
     """
     return InvestigationRequest(
         spec=BugSpec(work_item_id=issue_key, source="jira", title="", description="", source_ref=issue_key),
@@ -306,35 +310,32 @@ def run_investigation(
         _progress(progress, "clean_done" if f".ai/{issue_key}/" in clean_result.deleted_paths else "clean_none")
 
     target = _prepare_issue_dir(repo_root, issue_key)
+    # What an earlier run recorded, for --resume. A fresh run has just deleted it.
+    previous = None if fresh else load_issue(repo_root, issue_key)
     # A developer hint steers the agent straight to the fix location. An explicit
-    # --hint wins; otherwise a hint from a prior run is reused (survives --resume).
-    hint_path = target / "developer_hint.md"
-    # An explicit hint= wins, then the request's own options, then a hint left by
-    # a previous run (so --resume keeps it).
-    supplied_hint = hint if hint and hint.strip() else request.options.hint
-    # errors="replace" like every other read of this file (`_read_artifact`): a
-    # developer edits developer_hint.md by hand, and an editor that saves it as
-    # cp1252 or GB2312 would otherwise abort the whole run with a decode error.
-    effective_hint = (
-        supplied_hint
-        if supplied_hint and supplied_hint.strip()
-        else (
-            hint_path.read_text(encoding="utf-8", errors="replace")
-            if not fresh and hint_path.exists()
-            else None
-        )
+    # hint= wins, then the request's own options, then the hint the previous run
+    # recorded (so --resume keeps it). A hint accepted from the hint improver
+    # arrives here as the request's hint, so it is the one recorded and reused.
+    effective_hint = _effective_hint(
+        hint, request.options.hint, previous.guidance.hint if previous is not None else None
     )
-    if effective_hint and effective_hint.strip():
-        hint_path.write_text(effective_hint.strip() + "\n", encoding="utf-8")
     # The steps below now search with the hint, so they must be given the one
-    # actually in force (§33.5). On --resume the hint comes from the file rather
-    # than from this invocation's options, and without this the retrieval would
-    # quietly run without it while the agent's task file still carried it.
+    # actually in force (§33.5). On --resume the hint comes from issue.json
+    # rather than from this invocation's options, and without this the retrieval
+    # would quietly run without it while the agent's task file still carried it.
     search_options = (
-        replace(request.options, hint=effective_hint.strip())
-        if effective_hint and effective_hint.strip()
-        else request.options
+        replace(request.options, hint=effective_hint) if effective_hint else request.options
     )
+    # The issue this run works from, carried in memory from here on. A
+    # hand-written bug is complete already; a Jira one is a stub until fetched,
+    # or the previous run's copy on --resume until the fetch refreshes it.
+    guidance = IssueGuidance(hint=effective_hint)
+    if request.spec.source == SOURCE_MANUAL:
+        issue = issue_from_spec(request.spec, guidance)
+    elif previous is not None:
+        issue = previous.with_guidance(guidance)
+    else:
+        issue = jira_stub(issue_key, guidance)
 
     # Attachments are copied here, before any step runs, because the task file
     # written later has to name them — and it may only name the ones that
@@ -362,10 +363,11 @@ def run_investigation(
     # honored by prompt_step below; the marker survives --resume (fresh clears it).
     if jira_comment:
         _set_jira_comment_on(target)
-    # Recorded before the pipeline runs, so that every later path — resume,
-    # refine, standalone agent-task, retry — regenerates under the same mode
-    # even if this run fails halfway.
-    persist_fix_mode(repo_root, issue_key, selection.mode)
+    # Recorded before the pipeline runs, together with the hint and whatever of
+    # the issue is known, so that every later path — resume, refine, standalone
+    # agent-task, retry — regenerates under the same guidance even if this run
+    # fails halfway.
+    issue = persist_fix_mode(repo_root, issue_key, selection.mode, issue)
     log(target, f"[INFO] fix mode: {selection.mode.id} ({selection.origin})")
     for warning in selection.warnings:
         log(target, f"[WARN] {warning}")
@@ -403,14 +405,19 @@ def run_investigation(
         log(target, "[INFO] resume requested")
         log(target, "[INFO] previous workflow artifacts were preserved")
 
-    # A hand-written bug must be on disk before any step runs: _parsed_issue reads
-    # it back in place of the jira.json a Jira work item would have.
-    if request.spec.source == SOURCE_MANUAL:
-        save_bug_spec(repo_root, request.spec)
-
+    # A valid run.json exists from the first moment of the run: status
+    # `running`, the plan's disabled steps already marked, nothing invented.
+    _start_run(repo_root, issue_key, request.skipped_steps())
     for step in request.skipped_steps():
-        _mark_step(repo_root, issue_key, step, "skipped")
         log(target, f"[SKIP] {step}: not in investigation plan")
+
+    # Produced by the investigation steps and handed to the ones after them in
+    # memory. `None` when a step did not run this time; a later step then reads
+    # what an earlier run persisted (the retrieval), or says it has nothing.
+    keywords: dict[str, object] | None = None
+    retrieval: RetrievalArtifact | None = None
+    similar_fixes: str | None = None
+    git_history: str | None = None
 
     try:
         _progress(progress, "doctor")
@@ -422,50 +429,43 @@ def run_investigation(
 
         if "fetch" in resolved:
             _progress(progress, "fetch")
-            jira_result = fetch_step(repo_root, issue_key, allow_mock=allow_mock)
+            jira_result, issue = _fetch(repo_root, issue_key, allow_mock, issue.guidance)
         if "parse" in resolved:
             _progress(progress, "parse")
-            parse_step(repo_root, issue_key)
-            # Jira content is only known now; rewrite the spec so later commands
-            # and `bugpilot list` see the real title instead of the empty stub.
-            _persist_resolved_spec(repo_root, request)
+            issue = parse_step(repo_root, issue_key, issue=issue)
         if "keywords" in resolved:
             _progress(progress, "keywords")
-            keywords_step(repo_root, issue_key, search_options)
+            keywords = keywords_step(repo_root, issue_key, search_options, issue=issue)
         if "memory_search" in resolved:
             _progress(progress, "memory_search")
-            memory_search_step(repo_root, issue_key)
+            similar_fixes = memory_search_step(repo_root, issue_key, keywords=keywords)
         if "code_search" in resolved:
             _progress(progress, "code_search")
-            code_search_step(repo_root, issue_key, search_options)
+            retrieval = code_search_step(repo_root, issue_key, search_options, keywords=keywords)
         if "git_context" in resolved:
             _progress(progress, "git_context")
-            git_context_step(repo_root, issue_key)
+            git_history = git_context_step(repo_root, issue_key, retrieval=retrieval)
         if "context" in resolved:
             _progress(progress, "context")
-            context_step(repo_root, issue_key)
-            # memory_search.md and git_context.md are intermediate: their content
-            # is folded into bug_context.md. Only drop them once that fold has
-            # actually happened — without `context` they are the run's only output.
-            _remove_intermediate_files(repo_root, issue_key)
+            context_step(
+                repo_root,
+                issue_key,
+                issue=issue,
+                keywords=keywords,
+                retrieval=retrieval,
+                git_history=git_history,
+                similar_fixes=similar_fixes,
+            )
         if "prompt" in resolved:
             _progress(progress, "prompt")
-            prompt_step(repo_root, issue_key, fix_mode=selection.mode)
+            prompt_step(repo_root, issue_key, fix_mode=selection.mode, issue=issue)
         if "memory_add" in resolved:
-            memory_add_step(repo_root, issue_key)
+            memory_add_step(repo_root, issue_key, issue=issue)
     except Exception as exc:
         log(target, f"[ERROR] workflow: {exc}")
-        _write_status(
-            repo_root,
-            issue_key,
-            _read_step_status(repo_root, issue_key),
-            _generated_files(repo_root, issue_key),
-            fresh=fresh,
-            allow_mock=allow_mock,
-        )
+        _fail_run(repo_root, issue_key, exc)
         raise
 
-    _mark_step(repo_root, issue_key, "agent_fix", "skipped")
     log(target, "[SKIP] agent_fix: prepare-only mode")
     if agent_fix:
         log(target, "[INFO] Agent automatic invocation is not enabled, using manual handoff")
@@ -483,14 +483,7 @@ def run_investigation(
         elif step in skipped:
             statuses[step] = "skipped"
     statuses["agent_fix"] = "skipped"
-    _write_status(
-        repo_root,
-        issue_key,
-        statuses,
-        generated,
-        fresh=fresh,
-        allow_mock=allow_mock,
-    )
+    _finish_run(repo_root, issue_key, statuses)
     return WorkflowResult(
         issue_key=issue_key,
         issue_dir=target,
@@ -509,21 +502,28 @@ def _progress(progress: Callable[[str], None] | None, event: str) -> None:
         progress(event)
 
 
-# Intermediate artifacts whose content is folded into bug_context.md and are not
-# kept in the final .ai/<issue>/ output.
-_INTERMEDIATE_FILES = ("memory_search.md", "git_context.md")
-
-
-def _remove_intermediate_files(repo_root: Path, issue_key: str) -> None:
-    target = issue_dir(repo_root, issue_key)
-    for file_name in _INTERMEDIATE_FILES:
-        path = target / file_name
-        if path.exists():
-            path.unlink()
-            log(target, f"[INFO] folded into bug_context.md and removed: .ai/{issue_key}/{file_name}")
-
-
 def fetch_step(repo_root: Path, issue_key: str, allow_mock: bool = False) -> JiraFetchResult:
+    """Fetch a Jira issue and record it, normalized, in ``issue.json``.
+
+    Standalone use keeps whatever guidance the work item already records: a
+    re-fetch refreshes the bug, not the hint or the Fix Mode it is worked under.
+    """
+    # Quietly: a corrupt issue.json must not block the re-fetch that replaces it.
+    existing = read_issue_quietly(repo_root, issue_key)
+    guidance = existing.guidance if existing is not None else IssueGuidance()
+    result, _issue = _fetch(repo_root, issue_key, allow_mock, guidance)
+    return result
+
+
+def _fetch(
+    repo_root: Path, issue_key: str, allow_mock: bool, guidance: IssueGuidance
+) -> tuple[JiraFetchResult, IssueArtifact]:
+    """The fetch step: Jira payload in, normalized issue out, raw payload discarded.
+
+    The payload is normalized here and never written: every later step reads the
+    normalized issue, and the raw form carried attachment URLs, account ids and
+    custom fields nothing used.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] fetch")
     if allow_mock:
@@ -533,19 +533,16 @@ def fetch_step(repo_root: Path, issue_key: str, allow_mock: bool = False) -> Jir
         log(target, "[INFO] mock fallback disabled")
     try:
         result = fetch_issue(repo_root, issue_key, allow_mock=allow_mock)
-        issue = result.data
-        enrich_issue(issue)
-        message = _fetch_message(result)
-        (target / "jira.json").write_text(json.dumps(issue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        (target / "jira_summary.md").write_text(jira_summary_markdown(issue, message), encoding="utf-8")
+        issue = issue_from_jira(enrich_issue(result.data), issue_key, guidance)
+        save_issue(repo_root, issue)
         if result.source == "mock":
             log(target, f"[WARN] Jira fetch failed: {result.error_type} - {result.error_message}")
             log(target, "[WARN] Using mock/demo Jira data")
         else:
-            log(target, message)
+            log(target, _fetch_message(result))
         _mark_step(repo_root, issue_key, "fetch", "pass")
         log(target, "[END] fetch: pass")
-        return result
+        return result, issue
     except JiraFetchError as exc:
         _mark_step(repo_root, issue_key, "fetch", "fail")
         log(target, f"[ERROR] Jira fetch failed: {exc.result.error_type} - {exc.result.error_message}")
@@ -561,8 +558,9 @@ def fetch_step(repo_root: Path, issue_key: str, allow_mock: bool = False) -> Jir
 def jira_validate_step(repo_root: Path, issue_key: str) -> dict:
     """Fetch and validate a real Jira issue. No mock fallback.
 
-    Writes jira.json, jira_summary.md, jira_parsed.md, jira_field_report.md.
-    Returns a validation summary dict.
+    Writes the normalized ``issue.json`` — what a run would work from — and
+    ``jira_field_report.md``, the field-mapping diagnostic this command exists
+    for. Returns a validation summary dict.
     """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] jira_validate")
@@ -570,23 +568,23 @@ def jira_validate_step(repo_root: Path, issue_key: str) -> dict:
         result = fetch_issue(repo_root, issue_key, allow_mock=False)
         issue = result.data
         enrich_issue(issue)
-        message = "Fetched Jira data from configured Jira instance."
-        (target / "jira.json").write_text(json.dumps(issue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        (target / "jira_summary.md").write_text(jira_summary_markdown(issue, message), encoding="utf-8")
-        parsed = parse_issue(issue)
-        (target / "jira_parsed.md").write_text(parsed_markdown(parsed), encoding="utf-8")
+        existing = read_issue_quietly(repo_root, issue_key)
+        guidance = existing.guidance if existing is not None else IssueGuidance()
+        normalized = issue_from_jira(issue, issue_key, guidance)
+        save_issue(repo_root, normalized)
         (target / "jira_field_report.md").write_text(jira_field_report_markdown(issue), encoding="utf-8")
         log(target, "[END] jira_validate: pass")
+        details = normalized.details
         return {
             "source": "jira",
-            "issue_type": str(parsed.get("issue_type", "") or ""),
-            "status": str(parsed.get("status", "") or ""),
-            "priority": str(parsed.get("priority", "") or ""),
-            "comment_count": int(parsed.get("comment_total", 0)),
-            "attachment_count": len(parsed.get("attachments", []) or []),
-            "has_description": bool(parsed.get("description")),
-            "has_reproduction_steps": bool(parsed.get("reproduction_steps")),
-            "missing_information_count": len(parsed.get("missing_information", []) or []),
+            "issue_type": details.issue_type,
+            "status": details.status,
+            "priority": details.priority,
+            "comment_count": len(normalized.comments),
+            "attachment_count": len(details.attachments),
+            "has_description": bool(normalized.description),
+            "has_reproduction_steps": bool(details.reproduction_steps),
+            "missing_information_count": len(details.missing_information),
         }
     except JiraFetchError as exc:
         log(target, f"[ERROR] jira_validate Jira fetch failed: {exc.result.error_type} - {exc.result.error_message}")
@@ -597,119 +595,212 @@ def jira_validate_step(repo_root: Path, issue_key: str) -> dict:
         raise
 
 
-def parse_step(repo_root: Path, issue_key: str) -> None:
+def parse_step(repo_root: Path, issue_key: str, issue: IssueArtifact | None = None) -> IssueArtifact:
+    """Confirm the normalized issue is complete enough for the steps after it.
+
+    The normalizing itself happens where the content arrives — the fetch for a
+    Jira issue, the request for a hand-written one — so this step writes nothing.
+    What it catches is a Jira work item whose ``issue.json`` is still the stub
+    written before a fetch that never completed.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] parse")
     try:
-        parsed = _parsed_issue(repo_root, issue_key)
-        (target / "jira_parsed.md").write_text(parsed_markdown(parsed), encoding="utf-8")
+        issue = issue or _require_issue(repo_root, issue_key)
+        if issue.is_jira and not (issue.title or issue.description):
+            raise ValueError(
+                f"{issue_key} has not been fetched yet. Run: bugpilot fetch {issue_key}"
+            )
+        log(
+            target,
+            f"[INFO] issue: {issue.source}, {len(issue.comments)} comment(s), "
+            f"{len(issue.signals.stack_traces)} stack trace(s), "
+            f"{len(issue.signals.error_messages)} error message(s)",
+        )
         _mark_step(repo_root, issue_key, "parse", "pass")
         log(target, "[END] parse: pass")
+        return issue
     except Exception as exc:
         _mark_step(repo_root, issue_key, "parse", "fail")
         log(target, f"[ERROR] parse: {exc}")
         raise
 
 
-def keywords_step(repo_root: Path, issue_key: str, options: InvestigationOptions | None = None) -> None:
+def extract_issue_keywords(issue: IssueArtifact, supplied: list[str] | None = None) -> dict[str, object]:
+    """What the issue is searched for, before the repository has a say.
+
+    A pure function of the issue text and the developer's own keywords, which
+    is why it is not persisted: the pipeline hands it from step to step, and a
+    step run on its own recomputes it from ``issue.json`` plus the user terms
+    ``retrieval.json`` records (:func:`work_item_keywords`). What was actually
+    searched, and what each term found, is ``retrieval.json.terms``.
+    """
+    # Boost keywords found in stack traces / error messages — the richest
+    # source of real class/function/file names.
+    keywords = extract_keywords(issue.combined_text, priority_text=issue.priority_text)
+    # Developer-supplied keywords lead: an explicit --keywords is a stronger
+    # signal than anything mined from the bug text, and it is often the term
+    # the report never spelled out.
+    words = [word.strip() for word in (supplied or []) if word.strip()]
+    # Capped, because every keyword is one ripgrep invocation with a 20 second
+    # timeout of its own. The mined keywords are capped at five for the same
+    # reason; a pasted list of sixty would spend twenty minutes searching and
+    # then be abandoned by the caller's own timeout. What was dropped is
+    # recorded rather than discarded silently.
+    if len(words) > MAX_SUPPLIED_KEYWORDS:
+        keywords["dropped_supplied_keywords"] = words[MAX_SUPPLIED_KEYWORDS:]
+        words = words[:MAX_SUPPLIED_KEYWORDS]
+    if words:
+        existing = [word for word in keywords.get("high_value_keywords", []) if word not in words]  # type: ignore[union-attr]
+        keywords["high_value_keywords"] = words + existing
+    return keywords
+
+
+def work_item_keywords(repo_root: Path, work_item_id: str) -> dict[str, object] | None:
+    """The keyword extraction for a prepared work item, or ``None`` without one.
+
+    For callers outside a pipeline run — a standalone step, the MCP memory
+    search. The developer's own ``--keywords`` are folded back in from the
+    ``source: "user"`` terms ``retrieval.json`` records: they are not
+    re-derivable from ``issue.json``, and a context or memory search rebuilt
+    without them would disagree with the Relevant Files rendered from the very
+    search they led. A fresh ``bugpilot search`` is different — new options
+    replace the recording rather than replay it.
+    """
+    issue = read_issue_quietly(repo_root, work_item_id)
+    if issue is None:
+        return None
+    return extract_issue_keywords(issue, _user_terms(read_retrieval_quietly(repo_root, work_item_id)))
+
+
+def _user_terms(retrieval: RetrievalArtifact | None) -> list[str]:
+    """The ``--keywords`` the recorded search ran with, replayed for a rebuild."""
+    if retrieval is None:
+        return []
+    return [term.value for term in retrieval.terms if term.source == "user"]
+
+
+def keywords_step(
+    repo_root: Path,
+    issue_key: str,
+    options: InvestigationOptions | None = None,
+    issue: IssueArtifact | None = None,
+) -> dict[str, object]:
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] keywords")
     try:
-        parsed = _parsed_issue(repo_root, issue_key)
-        # Boost keywords found in stack traces / error messages — the richest
-        # source of real class/function/file names.
-        priority_parts: list[str] = []
-        for field in ("stack_traces", "error_messages", "log_signals"):
-            value = parsed.get(field)
-            if isinstance(value, list):
-                priority_parts.extend(str(item) for item in value)
-            elif value:
-                priority_parts.append(str(value))
-        keywords = extract_keywords(
-            str(parsed.get("combined_text", "")),
-            priority_text="\n".join(priority_parts),
-        )
-        # Developer-supplied keywords lead: an explicit --keywords is a stronger
-        # signal than anything mined from the bug text, and it is often the term
-        # the report never spelled out.
-        supplied = [word.strip() for word in (options.keywords if options else []) if word.strip()]
-        # Capped, because every keyword is one ripgrep invocation with a 20 second
-        # timeout of its own. The mined keywords are capped at five for the same
-        # reason; a pasted list of sixty would spend twenty minutes searching and
-        # then be abandoned by the caller's own timeout. What was dropped is
-        # recorded rather than discarded silently.
-        if len(supplied) > MAX_SUPPLIED_KEYWORDS:
-            keywords["dropped_supplied_keywords"] = supplied[MAX_SUPPLIED_KEYWORDS:]
+        issue = issue or _require_issue(repo_root, issue_key)
+        keywords = extract_issue_keywords(issue, options.keywords if options else None)
+        dropped = keywords.get("dropped_supplied_keywords")
+        if isinstance(dropped, list) and dropped:
             log(
                 target,
-                f"[WARN] keywords: {len(supplied)} keywords supplied; searching the first "
-                f"{MAX_SUPPLIED_KEYWORDS} and recording the rest as dropped.",
+                f"[WARN] keywords: {MAX_SUPPLIED_KEYWORDS + len(dropped)} keywords supplied; searching the "
+                f"first {MAX_SUPPLIED_KEYWORDS} and dropping: {', '.join(map(str, dropped))}",
             )
-            supplied = supplied[:MAX_SUPPLIED_KEYWORDS]
-        if supplied:
-            existing = [word for word in keywords.get("high_value_keywords", []) if word not in supplied]
-            keywords["high_value_keywords"] = supplied + existing
-        (target / "extracted_keywords.json").write_text(keywords_json(keywords), encoding="utf-8")
         _mark_step(repo_root, issue_key, "keywords", "pass")
         log(target, "[END] keywords: pass")
+        return keywords
     except Exception as exc:
         _mark_step(repo_root, issue_key, "keywords", "fail")
         log(target, f"[ERROR] keywords: {exc}")
         raise
 
 
-def memory_search_step(repo_root: Path, issue_key: str) -> None:
+def memory_search_step(
+    repo_root: Path, issue_key: str, keywords: dict[str, object] | None = None
+) -> str:
+    """Similar past bugs, as the Markdown report the context renders. Writes nothing."""
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] memory_search")
     try:
-        search_memory(repo_root, issue_key)
+        extracted = keywords if keywords is not None else work_item_keywords(repo_root, issue_key)
+        _matched, report, _results = search_memory(repo_root, issue_key, extracted=extracted)
         _mark_step(repo_root, issue_key, "memory_search", "pass")
         log(target, "[END] memory_search: pass")
+        return report
     except Exception as exc:
         _mark_step(repo_root, issue_key, "memory_search", "fail")
         log(target, f"[ERROR] memory_search: {exc}")
         raise
 
 
-def code_search_step(repo_root: Path, issue_key: str, options: InvestigationOptions | None = None) -> None:
+def code_search_step(
+    repo_root: Path,
+    issue_key: str,
+    options: InvestigationOptions | None = None,
+    keywords: dict[str, object] | None = None,
+) -> RetrievalArtifact:
+    """Search, rank, and write ``retrieval.json`` once, atomically."""
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] code_search")
     try:
-        keywords = _read_json(target / "extracted_keywords.json")
-        markdown, related_files, search_quality = run_code_search(repo_root, issue_key, keywords, options)
-        (target / "code_search.md").write_text(markdown, encoding="utf-8")
-        (target / "related_files.json").write_text(related_files_json(related_files), encoding="utf-8")
-        (target / "search_quality.json").write_text(search_quality_json(search_quality), encoding="utf-8")
+        if keywords is None:
+            keywords = extract_issue_keywords(
+                _require_issue(repo_root, issue_key), options.keywords if options else None
+            )
+        retrieval = run_code_search(repo_root, keywords, options)
+        save_retrieval(repo_root, issue_key, retrieval)
         _mark_step(repo_root, issue_key, "code_search", "pass")
         log(target, "[END] code_search: pass")
+        return retrieval
     except Exception as exc:
         _mark_step(repo_root, issue_key, "code_search", "fail")
         log(target, f"[ERROR] code_search: {exc}")
         raise
 
 
-def git_context_step(repo_root: Path, issue_key: str) -> None:
+#: How many of the ranked files git history is looked up for.
+GIT_HISTORY_FILES = 5
+
+
+def git_context_step(
+    repo_root: Path, issue_key: str, retrieval: RetrievalArtifact | None = None
+) -> str:
+    """Branch, status and recent commits for the top files, as Markdown. Writes nothing.
+
+    The context renders the result from memory; it is not a file because
+    nothing but the context step ever read it.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] git_context")
     try:
-        context = generate_git_context(repo_root, issue_key)
-        (target / "git_context.md").write_text(context, encoding="utf-8")
+        retrieval = retrieval or read_retrieval_quietly(repo_root, issue_key)
+        files = retrieval.top_files(GIT_HISTORY_FILES) if retrieval is not None else []
+        history = generate_git_context(repo_root, issue_key, files)
         _mark_step(repo_root, issue_key, "git_context", "pass")
         log(target, "[END] git_context: pass")
+        return history
     except Exception as exc:
         _mark_step(repo_root, issue_key, "git_context", "fail")
         log(target, f"[ERROR] git_context: {exc}")
         raise
 
 
-def context_step(repo_root: Path, issue_key: str) -> None:
+def context_step(
+    repo_root: Path,
+    issue_key: str,
+    issue: IssueArtifact | None = None,
+    keywords: dict[str, object] | None = None,
+    retrieval: RetrievalArtifact | None = None,
+    git_history: str | None = None,
+    similar_fixes: str | None = None,
+) -> None:
+    """Write ``context.md`` from what the steps before it produced, in memory.
+
+    ``git_history`` / ``similar_fixes`` are ``None`` when those steps did not run;
+    the context then says so. Nothing is read back from an intermediate file.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] context")
     try:
-        parsed = _parsed_issue(repo_root, issue_key)
-        keywords = _read_json(target / "extracted_keywords.json")
-        context = build_context(repo_root, issue_key, parsed, keywords)
-        (target / "bug_context.md").write_text(context, encoding="utf-8")
+        issue = issue or _require_issue(repo_root, issue_key)
+        # The retrieval this run produced, else what an earlier one persisted.
+        retrieval = retrieval or read_retrieval_quietly(repo_root, issue_key)
+        if keywords is None:
+            keywords = extract_issue_keywords(issue, _user_terms(retrieval))
+        context = build_context(issue, keywords, retrieval, git_history, similar_fixes)
+        atomic_write_text(target / CONTEXT_ARTIFACT, context)
         _mark_step(repo_root, issue_key, "context", "pass")
         log(target, "[END] context: pass")
     except Exception as exc:
@@ -746,26 +837,30 @@ def prompt_step(
     issue_key: str,
     jira_comment: bool = False,
     fix_mode: FixMode | None = None,
+    issue: IssueArtifact | None = None,
 ) -> None:
     target = _prepare_issue_dir(repo_root, issue_key)
     if jira_comment:
         _set_jira_comment_on(target)
     log(target, "[START] prompt")
     try:
-        summary = _issue_summary(target)
-        hint = _read_artifact(target, "developer_hint.md") or None
+        issue = issue or _require_issue(repo_root, issue_key)
+        # The title names the branch; without one it degrades to
+        # `feature/<id>-jira-workflow`.
+        summary = issue.title or None
+        hint = issue.guidance.hint
         jira_comment = _jira_comment_enabled(target)
         attached = attachment_names(target)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
-        for file_name, content in generate_prompts(
+        task = generate_task(
             issue_key,
             summary,
             hint=hint,
             jira_comment=jira_comment,
             attachments=attached,
             fix_mode=mode,
-        ).items():
-            (target / file_name).write_text(content, encoding="utf-8")
+        )
+        atomic_write_text(target / TASK_ARTIFACT, task)
         _mark_step(repo_root, issue_key, "prompt", "pass")
         log(target, "[END] prompt: pass")
     except Exception as exc:
@@ -781,43 +876,47 @@ def copilot_task_step(
     fix_mode: FixMode | None = None,
 ) -> None:
     target = _prepare_issue_dir(repo_root, issue_key)
-    bug_context = target / "bug_context.md"
-    if not bug_context.exists():
-        raise FileNotFoundError(f"Missing {bug_context}. Run: bugpilot {issue_key}")
+    context = target / CONTEXT_ARTIFACT
+    if not context.exists():
+        raise FileNotFoundError(f"Missing {context}. Run: bugpilot {issue_key}")
     if jira_comment:
         _set_jira_comment_on(target)
     log(target, "[START] copilot_task")
     try:
-        summary = _issue_summary(target)
-        hint = _read_artifact(target, "developer_hint.md") or None
+        issue = _require_issue(repo_root, issue_key)
+        summary = issue.title or None
+        hint = issue.guidance.hint
         jira_comment = _jira_comment_enabled(target)
         attached = attachment_names(target)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
-        for file_name, content in generate_copilot_task_files(
+        task = generate_task(
             issue_key,
             summary,
             hint=hint,
             jira_comment=jira_comment,
             attachments=attached,
             fix_mode=mode,
-        ).items():
-            (target / file_name).write_text(content, encoding="utf-8")
+        )
+        atomic_write_text(target / TASK_ARTIFACT, task)
         log(target, "[END] copilot_task: pass")
     except Exception as exc:
         log(target, f"[ERROR] copilot_task: {exc}")
         raise
 
 
-def copilot_instructions_step(repo_root: Path, issue_key: str) -> Path:
+def copilot_instructions_step(repo_root: Path, issue_key: str) -> str:
+    """The effective team instructions, returned rather than written.
+
+    They are a section of ``task.md``; a per-work-item copy of a document that is
+    the same for every work item was a file to keep in step, not information.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] copilot_instructions")
     try:
-        path = target / "agent_team_instructions.md"
-        path.write_text(copilot_team_instructions(), encoding="utf-8")
+        instructions = copilot_team_instructions()
         _mark_step(repo_root, issue_key, "agent_instructions", "pass")
-        log(target, f"[GENERATED] .ai/{issue_key}/agent_team_instructions.md")
         log(target, "[END] copilot_instructions: pass")
-        return path
+        return instructions
     except Exception as exc:
         _mark_step(repo_root, issue_key, "agent_instructions", "fail")
         log(target, f"[ERROR] copilot_instructions: {exc}")
@@ -1031,12 +1130,12 @@ def memory_update_step(repo_root: Path, issue_key: str) -> bool:
     return True
 
 
-def memory_add_step(repo_root: Path, issue_key: str) -> None:
+def memory_add_step(repo_root: Path, issue_key: str, issue: IssueArtifact | None = None) -> None:
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] memory_add")
     try:
-        parsed = _parsed_issue(repo_root, issue_key)
-        entry = build_memory_entry(issue_key, parsed, f".ai/{issue_key}/bug_context.md")
+        issue = issue or _require_issue(repo_root, issue_key)
+        entry = build_memory_entry(issue_key, issue, f".ai/{issue_key}/{CONTEXT_ARTIFACT}")
         # The shared memory file under .ai_memory/ is the source of truth; no local
         # per-issue copy is written to keep the .ai/<issue>/ output lean.
         add_memory_entry(repo_root, issue_key, entry)
@@ -1052,7 +1151,7 @@ def jira_comment_draft_step(repo_root: Path, issue_key: str, strict: bool = Fals
     target = issue_dir(repo_root, issue_key)
     if not target.exists():
         raise FileNotFoundError(f"No workflow package found for {issue_key}. Run: bugpilot bug {issue_key}")
-    if not (target / "bug_context.md").exists() and not (target / "jira_parsed.md").exists():
+    if not (target / CONTEXT_ARTIFACT).exists() and not (target / ISSUE_ARTIFACT).exists():
         raise FileNotFoundError(f"No core context found for {issue_key}. Run: bugpilot bug {issue_key}")
 
     log(target, "[START] jira_comment_draft")
@@ -1188,6 +1287,29 @@ def _prepare_issue_dir(repo_root: Path, issue_key: str) -> Path:
     return target
 
 
+def _effective_hint(*candidates: str | None) -> str | None:
+    """The first non-blank hint, stripped — the one precedence every search uses.
+
+    Callers pass, strongest first: a hint supplied for this operation, the
+    request's own option (how an accepted improved hint arrives), and the hint
+    ``issue.json`` records.
+    """
+    for candidate in candidates:
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _require_issue(repo_root: Path, issue_key: str) -> IssueArtifact:
+    """The persisted issue, for a step run outside a full pipeline."""
+    issue = load_issue(repo_root, issue_key)
+    if issue is None:
+        raise FileNotFoundError(
+            f"Missing .ai/{issue_key}/{ISSUE_ARTIFACT}. Run: bugpilot bug {issue_key}"
+        )
+    return issue
+
+
 def _build_jira_comment_draft(repo_root: Path, issue_key: str, missing_results: list[str]) -> str:
     # Keep the comment short: root cause + a summary of the changes — not the full
     # diff or the internal search/validation/attachment detail.
@@ -1240,11 +1362,8 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
     mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
     target = issue_dir(repo_root, issue_key)
     reading_files = [
-        "bug_context.md",
-        "code_search.md",
-        "search_quality.json",
-        "related_files.json",
-        "git_context.md",
+        CONTEXT_ARTIFACT,
+        RETRIEVAL_ARTIFACT,
         "review_notes.md",
         "test_result.md",
         "diff_summary.md",
@@ -1306,7 +1425,7 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
         f"- Mode: {mode.name}\n"
         f"- Mode ID: `{mode.id}`\n"
         f"- Execution: {mode.execution_kind}\n\n"
-        f"This retry runs under the same Fix Mode as `.ai/{issue_key}/agent_task.md`. "
+        f"This retry runs under the same Fix Mode as `.ai/{issue_key}/{TASK_ARTIFACT}`. "
         "Follow the mode as written there. BugPilot's safety, evidence and delivery rules "
         "still win any conflict with it.\n\n"
         "## Purpose\n\n"
@@ -1465,7 +1584,7 @@ def _read_artifact(target: Path, file_name: str) -> str:
 
 
 # Presence of this marker enables the "Report Status to Jira (before commit)"
-# instruction in the generated agent_task.md / agent_handoff.md. The default is
+# instruction in the generated task.md. The default is
 # to omit that instruction; the marker is written once (by --jira-comment) and read
 # back by prompt_step / copilot_task_step so the opt-in survives --resume and
 # standalone regeneration.
@@ -1490,38 +1609,10 @@ def _cap_text(text: str, limit: int) -> str:
     return text[:limit].rstrip() + "\n\n[truncated by bugpilot]"
 
 
-def _read_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _fetch_message(result: JiraFetchResult) -> str:
     if result.source == "mock":
         return f"{result.error_message} Using mock/demo Jira data."
     return "Fetched Jira data from configured Jira instance."
-
-
-def _issue_summary(target: Path) -> str | None:
-    # A manual work item has no jira.json; its title lives in the persisted spec.
-    # Without this the branch name degrades to `feature/<id>-jira-workflow`.
-    spec = load_bug_spec(target.parent.parent, target.name)
-    if spec is not None and spec.source == SOURCE_MANUAL:
-        return spec.title or None
-    jira_path = target / "jira.json"
-    if not jira_path.exists():
-        return None
-    try:
-        issue = _read_json(jira_path)
-    except Exception:
-        return None
-    fields = issue.get("fields", {}) if isinstance(issue.get("fields"), dict) else {}
-    summary = fields.get("summary")
-    if isinstance(summary, str) and summary.strip():
-        return summary
-    normalized = issue.get("bugpilot_normalized", {}) if isinstance(issue.get("bugpilot_normalized"), dict) else {}
-    normalized_summary = normalized.get("summary")
-    if isinstance(normalized_summary, str) and normalized_summary.strip():
-        return normalized_summary
-    return None
 
 
 def _generated_files(repo_root: Path, issue_key: str) -> list[str]:
@@ -1543,67 +1634,67 @@ def _generated_files(repo_root: Path, issue_key: str) -> list[str]:
     return sorted(generated)
 
 
-def _write_status(
-    repo_root: Path,
-    issue_key: str,
-    step_status: dict[str, str],
-    generated: list[str],
-    fresh: bool | None = None,
-    allow_mock: bool | None = None,
-) -> None:
-    target = _prepare_issue_dir(repo_root, issue_key)
-    status = {
-        "issue_key": issue_key,
-        "mode": "prepare-only",
-        "steps": {step: step_status.get(step, "skipped") for step in WORKFLOW_STEPS},
-        "generated_files": sorted(generated),
-    }
-    if fresh is not None:
-        status["fresh"] = fresh
-    if allow_mock is not None:
-        status["allow_mock"] = allow_mock
-    # Additive: consumers read keys they know and ignore the rest, so no
-    # schema bump. Absent for a package prepared before Fix Modes existed.
-    recorded_mode = stored_fix_mode_metadata(repo_root, issue_key)
-    if recorded_mode is not None:
-        status["fix_mode"] = recorded_mode
-    # Atomically, because this file is read from *other processes* while a run is
-    # in progress: the VS Code extension restores its checklist from it and the
-    # MCP server's get_status reads it. A torn read parses as nothing, which the
-    # panel shows as "no progress" for a run that is going fine.
-    atomic_write_text(target / "workflow_status.json", json.dumps(status, indent=2) + "\n")
+def _save_run(repo_root: Path, issue_key: str, run: RunArtifact) -> None:
+    """Every ``run.json`` write goes through here, refreshed and atomic.
+
+    The two snapshots — what exists on disk, and the Fix Mode the package is
+    recorded under — are recomputed on each write so the file never claims a
+    file that was deleted or a mode that was reselected. Atomically, because
+    this file is read from *other processes* while a run is in progress: the
+    VS Code extension restores its checklist from it and the MCP server's
+    ``get_status`` reads it. A torn read parses as nothing, which the panel
+    shows as "no progress" for a run that is going fine.
+    """
+    _prepare_issue_dir(repo_root, issue_key)
+    run = replace(
+        run,
+        generated_files=tuple(_generated_files(repo_root, issue_key)),
+        fix_mode=stored_fix_mode_metadata(repo_root, issue_key),
+    )
+    save_run(repo_root, issue_key, run)
+
+
+def _start_run(repo_root: Path, issue_key: str, skipped_steps: list[str]) -> None:
+    """The run's first write: status ``running``, the disabled steps marked."""
+    _save_run(
+        repo_root,
+        issue_key,
+        RunArtifact(work_item_id=issue_key, steps={step: "skipped" for step in skipped_steps}),
+    )
 
 
 def _mark_step(repo_root: Path, issue_key: str, step: str, status: str) -> None:
-    status = _normalize_status(status)
-    step_status = _read_step_status(repo_root, issue_key)
-    step_status[step] = status
-    generated = _generated_files(repo_root, issue_key)
-    _write_status(repo_root, issue_key, step_status, generated)
+    run = load_run(repo_root, issue_key) or RunArtifact(work_item_id=issue_key)
+    _save_run(repo_root, issue_key, run.with_step(step, status))
 
 
-def _read_step_status(repo_root: Path, issue_key: str) -> dict[str, str]:
-    target = _prepare_issue_dir(repo_root, issue_key)
-    status_path = target / "workflow_status.json"
-    if not status_path.exists():
-        return {}
-    current = json.loads(status_path.read_text(encoding="utf-8"))
-    steps = current.get("steps", {})
-    if isinstance(steps, dict):
-        return {name: _normalize_status(status) for name, status in steps.items()}
-    return {item["name"]: _normalize_status(item["status"]) for item in steps}
+def _set_run_status(repo_root: Path, issue_key: str, status: str) -> None:
+    """A run-level lifecycle transition. Step marks stay as they are."""
+    run = load_run(repo_root, issue_key) or RunArtifact(work_item_id=issue_key)
+    _save_run(repo_root, issue_key, replace(run, status=status, error=None))
 
 
-def _normalize_status(status: str) -> str:
-    if status in {"pass", "fail", "skipped"}:
-        return status
-    if status == "completed":
-        return "pass"
-    if status in {"manual-only", "not-run", "pending", "running"}:
-        return "skipped"
-    if status in {"exception", "error"}:
-        return "fail"
-    return "skipped"
+def _finish_run(repo_root: Path, issue_key: str, steps: dict[str, str]) -> None:
+    """The terminal write of a successful prepare: the whole map, restated."""
+    _save_run(repo_root, issue_key, RunArtifact(work_item_id=issue_key, status="prepared", steps=steps))
+
+
+def _fail_run(repo_root: Path, issue_key: str, exc: Exception, step: str | None = None) -> None:
+    """Record where a run-level failure happened, in the words the CLI prints.
+
+    Read quietly: this runs inside an exception handler, and a second error
+    here would mask the one the caller is about to see. ``step`` is the step
+    the caller knows was executing; without one, the fail mark of this run
+    names it (a fresh or resumed run starts from a reset map, so the mark is
+    this run's own).
+    """
+    run = read_run_quietly(repo_root, issue_key) or RunArtifact(work_item_id=issue_key)
+    failed = step or next((name for name in WORKFLOW_STEPS if run.steps.get(name) == "fail"), None)
+    _save_run(
+        repo_root,
+        issue_key,
+        replace(run, status="failed", error=RunError(message=_cap_text(str(exc), 2000), step=failed)),
+    )
 
 
 def _build_result_summary(repo_root: Path, issue_key: str) -> str:
@@ -1645,13 +1736,9 @@ def _build_result_summary(repo_root: Path, issue_key: str) -> str:
 
 def _build_manual_validation(repo_root: Path, issue_key: str) -> str:
     target = issue_dir(repo_root, issue_key)
-    related = _read_json_default(target / "related_files.json", [])
+    retrieval = read_retrieval_quietly(repo_root, issue_key)
     review_notes = (target / "review_notes.md").read_text(encoding="utf-8", errors="replace").strip() if (target / "review_notes.md").exists() else ""
-    related_lines = []
-    if isinstance(related, list) and related:
-        for item in related[:10]:
-            if isinstance(item, dict) and item.get("file"):
-                related_lines.append(f"- {item['file']}")
+    related_lines = [f"- {path}" for path in retrieval.top_files(10)] if retrieval is not None else []
     if review_notes:
         related_lines.append("- Risks from review_notes.md:")
         related_lines.extend(f"  {line}" for line in review_notes.splitlines() if line.strip())
@@ -1661,13 +1748,13 @@ def _build_manual_validation(repo_root: Path, issue_key: str) -> str:
         f"{issue_key}\n\n"
         "## Original Context\n"
         "Reference:\n"
-        f".ai/{issue_key}/bug_context.md\n\n"
+        f".ai/{issue_key}/{CONTEXT_ARTIFACT}\n\n"
         "## Suggested Validation Steps\n"
         "1. Reproduce the original issue if possible.\n"
         "2. Confirm the failure no longer occurs.\n"
         "3. Confirm the fix does not change unrelated behavior.\n"
         "4. Run focused tests listed in test_result.md if present.\n"
-        "5. Check regression areas mentioned in bug_context.md and code_search.md.\n\n"
+        f"5. Check regression areas mentioned in {CONTEXT_ARTIFACT} and {RETRIEVAL_ARTIFACT}.\n\n"
         "## Regression Areas\n"
         f"{chr(10).join(related_lines) if related_lines else '- No related files or review risks available yet.'}\n"
     )
@@ -1678,8 +1765,8 @@ def _build_final_review_prompt(issue_key: str) -> str:
         "# Final Review Request\n\n"
         f"Please review the completed fix for Jira issue {issue_key}.\n\n"
         "Use:\n"
-        f"- .ai/{issue_key}/bug_context.md\n"
-        f"- .ai/{issue_key}/code_search.md if present\n"
+        f"- .ai/{issue_key}/{CONTEXT_ARTIFACT}\n"
+        f"- .ai/{issue_key}/{RETRIEVAL_ARTIFACT} if present\n"
         f"- .ai/{issue_key}/result_summary.md if present\n"
         "- current git diff\n\n"
         "Review focus:\n"
@@ -1741,15 +1828,6 @@ def _replace_section(markdown: str, heading: str, replacement: str) -> str:
     if next_start == -1:
         return markdown[:start].rstrip() + "\n\n" + replacement
     return markdown[:start].rstrip() + "\n\n" + replacement.rstrip() + "\n" + markdown[next_start:]
-
-
-def _read_json_default(path: Path, default: object) -> object:
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return default
 
 
 def _delivery_warnings(repo_root: Path, issue_key: str) -> list[str]:

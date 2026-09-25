@@ -15,19 +15,29 @@ from __future__ import annotations
 import json
 
 from bugpilot.core.context import _caution_markdown, _quality_score
+from bugpilot.core.issue import IssueArtifact, IssueDetails
+from bugpilot.core.retrieval import RelatedFile, RetrievalArtifact
 
-# The parsed shape of the real issue, trimmed to the fields these two functions
-# read.
-HR_12345 = {
-    "summary": "[Client] Feature to Calculate Quality (Q) Factor …",
-    "issue_type": "Task",
-    "status": "Closed",
-    "resolution": "Won't Do",
-    "description": "Suggested by user in ExampleCustomer Reservoir Geophysics Group …",
-}
 
-# related_files.json from that run: ten files, none of them high confidence.
-TEN_LOW_VALUE_FILES = json.loads(
+def _issue(title: str = "", description: str = "", **details: str) -> IssueArtifact:
+    return IssueArtifact(
+        id="JR-12345", source="jira", title=title, description=description,
+        details=IssueDetails(**details),
+    )
+
+
+# The normalized shape of the real issue, trimmed to the fields these two
+# functions read.
+HR_12345 = _issue(
+    title="[Client] Feature to Calculate Quality (Q) Factor …",
+    description="Suggested by a customer's geophysics group …",
+    issue_type="Task",
+    status="Closed",
+    resolution="Won't Do",
+)
+
+# The ranked files from that run: ten, none of them high confidence.
+_TEN_LOW_VALUE_FILES = json.loads(
     """[
       {"file": "bugpilot/core/workflow.py", "confidence": "medium", "score": 11},
       {"file": "docs/architecture.md", "confidence": "low", "score": 11},
@@ -42,14 +52,23 @@ TEN_LOW_VALUE_FILES = json.loads(
     ]"""
 )
 
-LOW_QUALITY = {"confidence": "low", "high_confidence_files": []}
-HIGH_QUALITY = {"confidence": "high", "high_confidence_files": ["src/thing.cpp"]}
+TEN_LOW_VALUE_FILES = tuple(
+    RelatedFile(
+        file=item["file"], documentation=False, score=item["score"],
+        confidence=item["confidence"], match_count=1,
+    )
+    for item in _TEN_LOW_VALUE_FILES
+)
+
+LOW_QUALITY = "low"
+HIGH_QUALITY = "high"
 GIT = "## Recent Commits\n\n- abc123 something"
 NO_MEMORY = "No similar memory entries found."
 
 
-def _score(search_quality, related=TEN_LOW_VALUE_FILES):
-    return _quality_score(HR_12345, {"high_value_keywords": ["a"]}, related, search_quality, NO_MEMORY, GIT)
+def _score(confidence, related=TEN_LOW_VALUE_FILES):
+    retrieval = RetrievalArtifact(confidence=confidence, related_files=tuple(related))
+    return _quality_score(HR_12345, {"high_value_keywords": ["a"]}, retrieval, NO_MEMORY, GIT)
 
 
 # --- the headline must not contradict the section beneath it ----------------
@@ -106,18 +125,16 @@ def test_a_non_bug_says_what_to_expect_instead():
 
 def test_an_open_bug_gets_no_caution_section():
     """Silence when there is nothing to say; a caution on every issue is noise."""
-    assert _caution_markdown({"status": "In Progress", "issue_type": "Bug"}) == ""
-    assert _caution_markdown({}) == ""
+    assert _caution_markdown(_issue(status="In Progress", issue_type="Bug")) == ""
+    assert _caution_markdown(_issue()) == ""
 
 
 def test_an_unfamiliar_workflow_state_says_nothing():
     """Better than labelling a live issue as settled on a guess."""
-    assert "Caution" not in _caution_markdown(
-        {"status": "Awaiting Triage", "issue_type": "Bug"}
-    )
+    assert "Caution" not in _caution_markdown(_issue(status="Awaiting Triage", issue_type="Bug"))
 
 
 def test_a_closed_issue_with_no_resolution_still_warns():
-    caution = _caution_markdown({"status": "Done", "issue_type": "Bug"})
+    caution = _caution_markdown(_issue(status="Done", issue_type="Bug"))
     assert "already Done" in caution
     assert "resolution:" not in caution, "do not print an empty resolution"

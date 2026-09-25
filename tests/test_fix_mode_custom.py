@@ -57,12 +57,13 @@ def prepare(*args: str) -> int:
     return main(["bug", "JR-12345", "--allow-mock", "--prepare-only", *args])
 
 
-def task_text(repo: Path, name: str = "agent_task.md") -> str:
+def task_text(repo: Path, name: str = "task.md") -> str:
     return (repo / ".ai" / "JR-12345" / name).read_text(encoding="utf-8")
 
 
 def persisted(repo: Path) -> dict:
-    return json.loads((repo / ".ai" / "JR-12345" / "fix_mode.json").read_text(encoding="utf-8"))
+    issue = json.loads((repo / ".ai" / "JR-12345" / "issue.json").read_text(encoding="utf-8"))
+    return issue["guidance"]["fix_mode"]
 
 
 # --- the CLI ----------------------------------------------------------------
@@ -400,8 +401,8 @@ def test_the_selection_record_stays_audit_metadata(repo):
 
     record = persisted(repo)
 
+    # No schema_version of its own: issue.json carries one for the whole file.
     assert set(record) == {
-        "schema_version",
         "id",
         "name",
         "version",

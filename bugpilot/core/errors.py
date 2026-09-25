@@ -79,7 +79,13 @@ def error_code_for(exc: BaseException) -> str:
         return code_for_jira_error_type(getattr(exc, "error_type", None))
     if isinstance(exc, EmailSendError):
         return EMAIL_SEND_FAILED
+    from .run import RunArtifactError
+
     if isinstance(exc, FileNotFoundError):
+        return ARTIFACT_NOT_FOUND
+    # Before the ValueError arm it subclasses: an unusable run.json is a state
+    # problem the caller fixes by re-preparing, not a bad argument.
+    if isinstance(exc, RunArtifactError):
         return ARTIFACT_NOT_FOUND
     if isinstance(exc, ValueError):
         return INVALID_INPUT

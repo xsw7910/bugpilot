@@ -16,20 +16,13 @@ import {
 } from "../src/app/artifacts.ts";
 import type { ArtifactList } from "../src/app/artifacts.ts";
 
-/** The exact directory listing a real prepare-only run left behind. */
+/** The exact directory a prepare-only run leaves behind: the five-artifact contract. */
 const REAL_RUN = [
-  "agent_handoff.md",
-  "agent_task.md",
-  "agent_team_instructions.md",
-  "bug_context.md",
-  "bug_spec.json",
-  "code_search.md",
-  "execution.log",
-  "extracted_keywords.json",
-  "jira_parsed.md",
-  "related_files.json",
-  "search_quality.json",
-  "workflow_status.json",
+  "task.md",
+  "context.md",
+  "issue.json",
+  "retrieval.json",
+  "run.json",
 ];
 
 function sectionsOf(list: ArtifactList) {
@@ -48,11 +41,11 @@ test("the result files match the ones bugpilot requires", () => {
 });
 
 test("the handoff file comes first, and run state comes last", () => {
-  // agent_task.md is what the Run button was for; an alphabetical listing puts
+  // task.md is what the Run button was for; an alphabetical listing puts
   // three files nobody opens above it.
   const sections = sectionsOf(buildArtifactList({ names: REAL_RUN }));
   assert.equal(sections[0]?.group, "handoff");
-  assert.equal(sections[0]?.entries[0]?.name, "agent_task.md");
+  assert.equal(sections[0]?.entries[0]?.name, "task.md");
   assert.equal(sections.at(-1)?.group, "state");
   // Sections keep the declared order regardless of what the run produced.
   const order = sections.map((section) => section.group);
@@ -77,9 +70,9 @@ test("missing result files are listed as missing once a handoff exists", () => {
 });
 
 test("a run with no handoff does not invent five missing results", () => {
-  // --only-issue-details produces no agent_task.md, so there was never anything
+  // --only-issue-details produces no task.md, so there was never anything
   // to hand over; five red rows would be noise.
-  const list = buildArtifactList({ names: ["jira_parsed.md", "workflow_status.json"] });
+  const list = buildArtifactList({ names: ["issue.json", "run.json"] });
   assert.equal(
     sectionsOf(list).some((section) => section.group === "results"),
     false,
@@ -103,20 +96,23 @@ test("an unknown file is grouped where it stays visible", () => {
   // Hiding a file bugpilot started writing is worse than putting it in the
   // wrong section; the section it lands in is the one people read.
   assert.equal(artifactGroup("something_new.md"), "context");
+  assert.equal(artifactGroup("run.json"), "state");
+  // Phase-era runtime files from a directory prepared before run.json.
   assert.equal(artifactGroup("workflow_status.json"), "state");
+  assert.equal(artifactGroup("execution.log"), "state");
   assert.equal(artifactGroup("user_feedback.md"), "retry");
   assert.equal(artifactGroup("fix_summary.md"), "results");
 });
 
 test("file kinds drive the icon and the open action", () => {
-  assert.equal(artifactKind("bug_context.md"), "markdown");
-  assert.equal(artifactKind("related_files.json"), "json");
+  assert.equal(artifactKind("context.md"), "markdown");
+  assert.equal(artifactKind("retrieval.json"), "json");
   assert.equal(artifactKind("execution.log"), "log");
   assert.equal(artifactKind("noext"), "other");
 });
 
 test("duplicate names collapse", () => {
-  const sections = sectionsOf(buildArtifactList({ names: ["bug_context.md", "bug_context.md"] }));
+  const sections = sectionsOf(buildArtifactList({ names: ["context.md", "context.md"] }));
   assert.equal(sections[0]?.entries.length, 1);
 });
 
@@ -198,14 +194,14 @@ test("a local id shows its title, because the id itself says nothing", () => {
 
 test("no status file means the run never finished", () => {
   // Said before anything else, because everything else reads that file.
-  assert.deepEqual(historyOutcome({ files: ["jira.json"] }), { outcome: "incomplete" });
+  assert.deepEqual(historyOutcome({ files: ["issue.json"] }), { outcome: "incomplete" });
   assert.deepEqual(historyOutcome({ files: [] }), { outcome: "incomplete" });
 });
 
 test("a recorded failure names the step that failed", () => {
   assert.deepEqual(
     historyOutcome({
-      files: ["workflow_status.json"],
+      files: ["run.json"],
       status: { steps: { fetch: "pass", code_search: "fail" } },
     }),
     { outcome: "failed", failedStep: "code_search" },
@@ -215,17 +211,44 @@ test("a recorded failure names the step that failed", () => {
 test("a prepared run that nobody acted on says exactly that", () => {
   assert.deepEqual(
     historyOutcome({
-      files: ["workflow_status.json", "agent_task.md"],
+      files: ["run.json", "task.md"],
       status: { steps: { fetch: "pass", context: "pass" } },
     }),
     { outcome: "prepared" },
   );
 });
 
+test("the lifecycle outranks the marks: a failed run with no fail mark is failed", () => {
+  // A run can fail outside any step; the authoritative status still says so.
+  assert.deepEqual(
+    historyOutcome({ files: ["run.json"], status: { status: "failed", steps: { doctor: "pass" } } }),
+    { outcome: "failed" },
+  );
+});
+
+test("a run still marked running has no outcome to report yet", () => {
+  assert.deepEqual(
+    historyOutcome({ files: ["run.json"], status: { status: "running", steps: { doctor: "pass" } } }),
+    { outcome: "incomplete" },
+  );
+});
+
+test("a directory prepared before run.json is incomplete, not silently adopted", () => {
+  // No fallback: the old runtime files do not make a finished run under the
+  // current contract, however complete the directory looks otherwise.
+  assert.deepEqual(
+    historyOutcome({
+      files: ["workflow_status.json", "execution.log", "task.md", "context.md", "issue.json"],
+      status: undefined,
+    }),
+    { outcome: "incomplete" },
+  );
+});
+
 test("a fix summary is what tells the loop closed", () => {
   assert.deepEqual(
     historyOutcome({
-      files: ["workflow_status.json", "fix_summary.md"],
+      files: ["run.json", "fix_summary.md"],
       status: { steps: { context: "pass" } },
     }),
     { outcome: "fixed" },
@@ -237,7 +260,7 @@ test("the retry loop outranks the fix it followed", () => {
   // of the two facts.
   assert.deepEqual(
     historyOutcome({
-      files: ["workflow_status.json", "fix_summary.md", "user_feedback.md"],
+      files: ["run.json", "fix_summary.md", "user_feedback.md"],
       status: { steps: { context: "pass" } },
     }),
     { outcome: "retrying" },
@@ -250,11 +273,11 @@ test("a built retry package is not the same state as a waiting one", () => {
   // waiting on anybody. The next move differs — write feedback, or hand the
   // package over — so the row has to.
   const waiting = historyOutcome({
-    files: ["workflow_status.json", "user_feedback.md"],
+    files: ["run.json", "user_feedback.md"],
     status: { steps: { context: "pass" } },
   });
   const built = historyOutcome({
-    files: ["workflow_status.json", "user_feedback.md", "agent_retry_prompt.md"],
+    files: ["run.json", "user_feedback.md", "agent_retry_prompt.md"],
     status: { steps: { context: "pass" } },
   });
 
@@ -275,11 +298,11 @@ test("a corrupt status file leaves the outcome to the file list", () => {
   // The row still has to render: a truncated JSON is not a reason to lose a
   // work item from the list.
   assert.deepEqual(
-    historyOutcome({ files: ["workflow_status.json", "fix_summary.md"], status: undefined }),
+    historyOutcome({ files: ["run.json", "fix_summary.md"], status: undefined }),
     { outcome: "fixed" },
   );
   assert.deepEqual(
-    historyOutcome({ files: ["workflow_status.json"], status: "not an object" }),
+    historyOutcome({ files: ["run.json"], status: "not an object" }),
     { outcome: "prepared" },
   );
 });
@@ -301,7 +324,7 @@ test("the outcome reaches the row from the payload", () => {
   const list = historyFromPayload(
     { work_items: [{ work_item_id: "JR-1", title: "Crash", prepared: true }] },
     () => NOW - HOUR,
-    () => ({ files: ["workflow_status.json"], status: { steps: { code_search: "fail" } } }),
+    () => ({ files: ["run.json"], status: { steps: { code_search: "fail" } } }),
   );
   assert.equal(list.kind, "ready");
   if (list.kind !== "ready") return;
@@ -387,52 +410,37 @@ test("ages are coarse, because the timestamp is the directory's", () => {
 // --- what a real Jira run actually produces --------------------------------
 
 /**
- * The exact listing from the first real MCP session: JR-12345, fetched from
- * the company Jira. Phase 5's grouping was built from a *manual* run's twelve
- * files, which turned out to be the smaller half — this one writes twenty-two.
+ * The listing from the first real MCP session (JR-12345), with its four issue
+ * files replaced by the `issue.json` that consolidated them, and its context
+ * and handoff files by `context.md` and `task.md`. Phase 5's grouping
+ * was built from a *manual* run's twelve files, which turned out to be the
+ * smaller half of the story.
  */
 const REAL_JIRA_RUN = [
-  "agent_handoff.md",
-  "agent_task.md",
-  "agent_team_instructions.md",
-  "bug_context.md",
-  "bug_spec.json",
-  "code_search.md",
+  "task.md",
+  "context.md",
   "copilot_analysis_prompt.md",
   "copilot_fix_prompt.md",
   "copilot_handoff.md",
   "copilot_task.md",
   "copilot_team_instructions.md",
-  "execution.log",
-  "extracted_keywords.json",
-  "jira.json",
-  "jira_parsed.md",
-  "jira_summary.md",
+  "issue.json",
   "memory_entry.md",
-  "related_files.json",
+  "retrieval.json",
   "review_prompt.md",
-  "search_quality.json",
+  "run.json",
   "test_plan.md",
-  "workflow_status.json",
 ];
 
 test("every file a real Jira run writes has a group of its own", () => {
-  // Nine of these had none and fell into Investigation next to bug_context.md,
+  // Nine of these had none and fell into Investigation next to context.md,
   // which is the one file that section exists for. The fallback is deliberate
   // — a new artifact stays visible — but it is not a place for nine known files
   // to live.
   const ungrouped = REAL_JIRA_RUN.filter((name) => artifactGroup(name) === "context");
   assert.deepEqual(
     ungrouped.sort(),
-    [
-      "bug_context.md",
-      "code_search.md",
-      "extracted_keywords.json",
-      "jira_parsed.md",
-      "jira_summary.md",
-      "related_files.json",
-      "search_quality.json",
-    ],
+    ["context.md", "issue.json", "retrieval.json"],
     "only the investigation artifacts belong in Investigation",
   );
 });
@@ -442,7 +450,7 @@ test("the copilot prompts do not crowd the file a developer opens", () => {
   const order = sections.map((section) => section.group);
 
   assert.equal(sections[0]?.group, "handoff");
-  assert.equal(sections[0]?.entries[0]?.name, "agent_task.md");
+  assert.equal(sections[0]?.entries[0]?.name, "task.md");
   // Five files a Claude user never opens, kept out of the first section and out
   // of Investigation.
   const copilot = sections.find((section) => section.group === "copilot");
@@ -450,9 +458,9 @@ test("the copilot prompts do not crowd the file a developer opens", () => {
   assert.ok(order.indexOf("copilot") > order.indexOf("context"));
 });
 
-test("the raw Jira payload is bookkeeping, not investigation", () => {
-  // It is also the file the safety rules single out as never to be committed;
-  // showing it beside bug_context.md invites opening it as if it were a reading.
-  assert.equal(artifactGroup("jira.json"), "state");
+test("the normalized issue is investigation input, not bookkeeping", () => {
+  // It is what every later step reads the bug from, so it sits with the
+  // investigation rather than with run state.
+  assert.equal(artifactGroup("issue.json"), "context");
   assert.equal(artifactGroup("memory_entry.md"), "state");
 });

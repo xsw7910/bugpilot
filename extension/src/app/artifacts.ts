@@ -1,18 +1,31 @@
 /**
  * What the two TreeViews show: a work item's artifacts, and the history list.
  *
- * bugpilot produces a dozen files per work item and they are not equally
- * interesting: `agent_task.md` is the one a developer opens, `workflow_status.json`
+ * bugpilot produces a handful of files per work item and they are not equally
+ * interesting: `task.md` is the one a developer opens, `run.json`
  * is bookkeeping. A flat alphabetical listing buries the first under the second,
  * so files are grouped and ordered by what they are for.
  *
- * The file names here were taken from a real run, not from the design doc — the
- * doc names `code_search_results.md`, the CLI writes `code_search.md`.
+ * The file names here were taken from a real run, not from the design doc, and
+ * follow the artifact contract in `bugpilot/core/artifacts.py`.
  *
  * Both models are pure: the host supplies directory names and `list --json`
  * output, and every state §5.4 requires (empty, loading, error) is a value
  * rather than a thrown exception.
  */
+
+/**
+ * The context and task artifacts, as `bugpilot/core/artifacts.py` names them.
+ *
+ * Spelled once here so the controller, the workflow rows and this grouping
+ * cannot disagree about which file a button needs. There is no constant for any
+ * earlier name: a work item prepared before these files existed is re-prepared.
+ */
+export const CONTEXT_ARTIFACT = "context.md";
+
+/** The one runtime-state artifact: overall status, step marks, generated files. */
+export const RUN_ARTIFACT = "run.json";
+export const TASK_ARTIFACT = "task.md";
 
 export type ArtifactKind = "markdown" | "json" | "log" | "other";
 
@@ -29,8 +42,8 @@ export const GROUP_ORDER: readonly ArtifactGroup[] = [
   "retry",
   "results",
   "context",
-  // Near the end on purpose: a developer using Claude never opens these, and
-  // they are five of the twenty-two files a Jira run produces.
+  // Near the end on purpose: a developer using Claude never opens these. No
+  // current run writes them; phase-5-era work items still hold them.
   "copilot",
   "state",
 ];
@@ -63,55 +76,47 @@ export const RESULT_FILES: readonly string[] = [
  * Where each artifact belongs.
  *
  * Built from a *manual* run's twelve files in phase 5, which turned out to be
- * the smaller half of the story: a Jira run writes twenty-two, and nine of them
+ * the smaller half of the story: a Jira run then wrote twenty-two, and nine of them
  * — the five copilot prompts, the raw payload, the memory entry, the test plan
  * and the review prompt — had no entry here and fell into Investigation
- * alongside bug_context.md, which is the one file that matters there.
+ * alongside the context, which is the one file that matters there.
  * `test/artifacts.test.ts` now holds a real Jira listing so the gap cannot
  * reopen quietly.
  */
 const GROUPS: Readonly<Record<string, ArtifactGroup>> = {
-  "agent_task.md": "handoff",
-  "agent_handoff.md": "handoff",
-  "agent_team_instructions.md": "handoff",
+  // What BugPilot hands the coding agent, team instructions included.
+  "task.md": "handoff",
   "test_plan.md": "handoff",
   "review_prompt.md": "handoff",
   "agent_retry_prompt.md": "retry",
   "user_feedback.md": "retry",
-  "bug_context.md": "context",
-  "code_search.md": "context",
-  "git_context.md": "context",
-  "jira_parsed.md": "context",
-  "jira_summary.md": "context",
-  "memory_search.md": "context",
-  "extracted_keywords.json": "context",
-  "related_files.json": "context",
-  "search_quality.json": "context",
+  "context.md": "context",
+  // The normalized issue: what the investigation starts from.
+  "issue.json": "context",
+  // What the search found: terms, ranked files and their matched lines.
+  "retrieval.json": "context",
+  "run.json": "state",
   "copilot_task.md": "copilot",
   "copilot_handoff.md": "copilot",
   "copilot_analysis_prompt.md": "copilot",
   "copilot_fix_prompt.md": "copilot",
   "copilot_team_instructions.md": "copilot",
-  "bug_spec.json": "state",
+  // Phase-era runtime files: no current run writes them, but directories
+  // prepared before run.json still hold them.
   "workflow_status.json": "state",
   "execution.log": "state",
-  // The raw fetched payload, not a reading of it: bookkeeping, and the file the
-  // safety rules single out as never to be committed.
-  "jira.json": "state",
   "memory_entry.md": "state",
 };
 
 /** Ordering inside a group: the file a developer reaches for comes first. */
 const WITHIN_GROUP: readonly string[] = [
-  "agent_task.md",
-  "agent_handoff.md",
+  "task.md",
   "agent_retry_prompt.md",
   "user_feedback.md",
   "fix_summary.md",
   "bug_analysis.md",
-  "bug_context.md",
-  "code_search.md",
-  "git_context.md",
+  "context.md",
+  "retrieval.json",
 ];
 
 export interface ArtifactEntry {
@@ -157,7 +162,7 @@ export interface ArtifactInput {
   /**
    * Whether the run got far enough to expect agent results.
    *
-   * Without `agent_task.md` there was nothing to hand over, so listing five
+   * Without `task.md` there was nothing to hand over, so listing five
    * missing result files would be noise rather than information.
    */
   readonly expectResults?: boolean;
@@ -166,7 +171,7 @@ export interface ArtifactInput {
 export function buildArtifactList(input: ArtifactInput): ArtifactList {
   const names = [...new Set(input.names.filter((name) => name.trim() !== ""))];
   const present = new Set(names);
-  const expectResults = input.expectResults ?? present.has("agent_task.md");
+  const expectResults = input.expectResults ?? present.has(TASK_ARTIFACT);
 
   const entries: ArtifactEntry[] = names.map((name) => ({
     name,
@@ -216,7 +221,7 @@ export interface HistoryItem {
   readonly workItemId: string;
   readonly source?: string | undefined;
   readonly title?: string | undefined;
-  /** False for a directory whose run never wrote `workflow_status.json`. */
+  /** False for a directory whose run never wrote `run.json`. */
   readonly prepared: boolean;
   readonly modifiedMs?: number | undefined;
   /**
@@ -263,13 +268,13 @@ export type HistoryOutcome =
 const FIX_SUMMARY = "fix_summary.md";
 const USER_FEEDBACK = "user_feedback.md";
 const RETRY_PROMPT = "agent_retry_prompt.md";
-const STATUS_FILE = "workflow_status.json";
+const STATUS_FILE = RUN_ARTIFACT;
 
 /** What the host read out of one work item's directory. */
 export interface WorkItemProbe {
   /** File names directly inside `.ai/<work_item>/`. */
   readonly files: readonly string[];
-  /** `workflow_status.json`, already parsed; undefined when absent or corrupt. */
+  /** `run.json`, already parsed; undefined when absent or corrupt. */
   readonly status?: unknown;
 }
 
@@ -278,12 +283,21 @@ export function historyOutcome(probe: WorkItemProbe): {
   failedStep?: string;
 } {
   const present = new Set(probe.files);
-  // No status file means the run never got to the end of itself. Said first,
+  // No run state means the run never got to the end of itself. Said first,
   // because everything below it reads that file.
   if (!present.has(STATUS_FILE)) return { outcome: "incomplete" };
 
-  const steps = asRecord(asRecord(probe.status)?.["steps"]) ?? {};
+  // The authoritative lifecycle outranks the per-step marks: a run that failed
+  // outside any step is still failed, and one still `running` has no outcome
+  // to report yet.
+  const record = asRecord(probe.status);
+  const steps = asRecord(record?.["steps"]) ?? {};
   const failed = Object.entries(steps).find(([, mark]) => mark === "fail")?.[0];
+  const state = record?.["status"];
+  if (state === "failed") {
+    return failed !== undefined ? { outcome: "failed", failedStep: failed } : { outcome: "failed" };
+  }
+  if (state === "running") return { outcome: "incomplete" };
   if (failed !== undefined) return { outcome: "failed", failedStep: failed };
 
   // The retry loop outranks the fix it followed: somebody read that fix summary
@@ -317,7 +331,7 @@ export const OUTCOME_ICONS: Readonly<Record<HistoryOutcome, string>> = {
 function outcomeSentence(item: HistoryItem): string {
   switch (item.outcome) {
     case "incomplete":
-      return "The run did not finish: there is no workflow_status.json.";
+      return "The run did not finish: run.json never reached a terminal state.";
     case "failed":
       return item.failedStep
         ? `The run failed at the ${item.failedStep} step.`

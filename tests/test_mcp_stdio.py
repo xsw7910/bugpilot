@@ -164,4 +164,4 @@ def test_a_tool_call_writes_into_the_directory_the_server_was_launched_in(client
     assert answer["result"]["isError"] is not True, answer["result"]
     written = list((tmp_path / ".ai").iterdir())
     assert len(written) == 1
-    assert (written[0] / "agent_task.md").exists()
+    assert (written[0] / "task.md").exists()

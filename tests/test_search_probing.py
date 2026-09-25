@@ -147,18 +147,16 @@ def test_the_diagnostics_say_what_each_term_did(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text("VolumeDescriptor = 1\n", encoding="utf-8")
 
-    _markdown, _related, quality = search.run_code_search(
+    terms = search.run_code_search(
         tmp_path,
-        "JR-1",
         {"high_value_keywords": ["VolumeDescriptor"], "normal_keywords": [], "phrase_keywords": []},
-    )
+    ).terms
 
-    terms = quality["terms"]
     assert terms, "no term diagnostics were recorded"
-    entry = next(item for item in terms if item["value"] == "VolumeDescriptor")
-    assert entry["match_count"] == 1
-    assert entry["classification"] == "specific"
-    assert entry["effective_weight"] == entry["weight"]
+    entry = next(item for item in terms if item.value == "VolumeDescriptor")
+    assert entry.match_count == 1
+    assert entry.classification == "specific"
+    assert entry.effective_weight == entry.weight
 
 
 @needs_rg
@@ -175,9 +173,9 @@ def test_the_same_search_twice_returns_the_same_ranking(tmp_path):
         (tmp_path / "src" / f"module{index}.py").write_text("shared = 1\n" * 3, encoding="utf-8")
 
     rankings = [
-        [item["file"] for item in search.run_code_search(
-            tmp_path, "JR-1", {"high_value_keywords": ["shared"], "normal_keywords": []}
-        )[1]]
+        search.run_code_search(
+            tmp_path, {"high_value_keywords": ["shared"], "normal_keywords": []}
+        ).top_files(100)
         for _ in range(3)
     ]
 

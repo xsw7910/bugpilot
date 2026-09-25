@@ -17,11 +17,15 @@ from bugpilot.core.fix_mode_state import fix_mode_metadata
 from bugpilot.core.fix_mode_store import FixModeCatalog, FixModeStore, scoped_modes
 from bugpilot.core.fix_modes import FixMode, FixModeError
 from bugpilot.core.jira import JiraCommentPostError, JiraFetchError, fetch_issue, parse_issue
-from bugpilot.core.input_adapters import bug_spec_from_description, load_bug_spec
+from bugpilot.core.artifacts import CONTEXT_ARTIFACT, CORE_ARTIFACTS, RUN_ARTIFACT
+from bugpilot.core.artifacts import ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT
+from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
+from bugpilot.core.input_adapters import bug_spec_from_description
+from bugpilot.core.issue import IssueArtifactError, read_issue_quietly
 from bugpilot.core.keywords import extract_keywords
 from bugpilot.core.models import SOURCE_MANUAL, InvestigationOptions, InvestigationPlan, InvestigationRequest
 from bugpilot.core.memory import add_memory_entry, search_memory
-from bugpilot.core.prompts import generate_prompts
+from bugpilot.core.prompts import generate_task
 
 
 def _add_json_flag(parser: argparse.ArgumentParser) -> None:
@@ -56,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument(
             "--jira-comment",
             action="store_true",
-            help="Include the pre-commit Jira status comment instruction in the generated agent_task.md (omitted by default).",
+            help="Include the pre-commit Jira status comment instruction in the generated task.md (omitted by default).",
         )
 
     summarize_parser = subparsers.add_parser("summarize-results", help="Summarize agent results; optionally post a Jira comment so watchers are notified.")
@@ -248,12 +252,12 @@ def build_parser() -> argparse.ArgumentParser:
     bug_parser.add_argument(
         "--hint",
         metavar="TEXT",
-        help="Developer hint (e.g. fix location) injected into agent_task.md so the agent goes straight to it.",
+        help="Developer hint (e.g. fix location) injected into task.md so the agent goes straight to it.",
     )
     bug_parser.add_argument(
         "--jira-comment",
         action="store_true",
-        help="Include the pre-commit Jira status comment instruction in the generated agent_task.md (omitted by default).",
+        help="Include the pre-commit Jira status comment instruction in the generated task.md (omitted by default).",
     )
     # No argparse `choices=`: the list comes from the registry, which a later
     # phase widens with project and user modes, and argparse would both freeze
@@ -292,7 +296,15 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = Path.cwd()
 
     if not (getattr(args, "json_output", False) or getattr(args, "json_lines", False)):
-        return _dispatch(args, repo_root)
+        try:
+            return _dispatch(args, repo_root)
+        except RunArtifactError as exc:
+            # Standalone steps read run.json to mark themselves; an unusable
+            # file is an error, and this is its one sentence — a traceback
+            # chained through the step's own handler is not.
+            print(f"ERROR: {exc}", file=sys.stderr)
+            print("A fresh run replaces it: bugpilot bug <work-item-id>", file=sys.stderr)
+            return 1
     # Machine-readable modes promise exactly one object (or one closed stream) on
     # stdout for every outcome. An unhandled exception would otherwise print a
     # traceback to stderr and nothing at all to stdout, which a consumer reads as
@@ -482,8 +494,13 @@ def _dispatch(args, repo_root: Path) -> int:
         return 0
 
     if args.command == "keywords":
-        workflow.keywords_step(repo_root, args.issue_key)
+        # Nothing is written: the extraction is recomputed from issue.json by
+        # whichever step needs it, so printing it is what this command is for.
+        keywords = workflow.keywords_step(repo_root, args.issue_key)
         print(f"Extracted keywords for {args.issue_key}.")
+        for label, key in (("High value", "high_value_keywords"), ("Normal", "normal_keywords"), ("Phrases", "phrase_keywords")):
+            values = keywords.get(key)
+            print(f"  {label}: {', '.join(map(str, values)) if isinstance(values, list) and values else '-'}")
         return 0
 
     if args.command == "search":
@@ -493,11 +510,7 @@ def _dispatch(args, repo_root: Path) -> int:
                 cli_json.success(
                     "search",
                     work_item_id=args.issue_key,
-                    generated_files=[
-                        f".ai/{args.issue_key}/code_search.md",
-                        f".ai/{args.issue_key}/related_files.json",
-                        f".ai/{args.issue_key}/search_quality.json",
-                    ],
+                    generated_files=[f".ai/{args.issue_key}/{RETRIEVAL_ARTIFACT}"],
                 )
             )
             return 0
@@ -505,22 +518,29 @@ def _dispatch(args, repo_root: Path) -> int:
         return 0
 
     if args.command == "git-context":
-        workflow.git_context_step(repo_root, args.issue_key)
-        print(f"Generated git context for {args.issue_key}.")
+        # Printed, not written: the context renders git history from memory,
+        # and nothing else ever read the file this used to produce.
+        print(workflow.git_context_step(repo_root, args.issue_key), end="")
         return 0
 
     if args.command == "context":
-        workflow.context_step(repo_root, args.issue_key)
+        # A context rebuilt on its own gathers the two results it folds in, the
+        # same way the pipeline does, rather than reading them from files.
+        similar_fixes = workflow.memory_search_step(repo_root, args.issue_key)
+        git_history = workflow.git_context_step(repo_root, args.issue_key)
+        workflow.context_step(
+            repo_root, args.issue_key, git_history=git_history, similar_fixes=similar_fixes
+        )
         if args.json_output:
             cli_json.emit(
                 cli_json.success(
                     "context",
                     work_item_id=args.issue_key,
-                    generated_files=[f".ai/{args.issue_key}/bug_context.md"],
+                    generated_files=[f".ai/{args.issue_key}/{CONTEXT_ARTIFACT}"],
                 )
             )
             return 0
-        print(f"Generated bug context for {args.issue_key}.")
+        print(f"Generated context for {args.issue_key}.")
         return 0
 
     if args.command == "prompt":
@@ -528,24 +548,33 @@ def _dispatch(args, repo_root: Path) -> int:
             workflow.prompt_step(repo_root, args.issue_key, jira_comment=args.jira_comment)
         except FixModeError as exc:
             return _report_fix_mode_failure(exc)
-        print(f"Generated prompts for {args.issue_key}.")
+        except IssueArtifactError as exc:
+            return _report_issue_failure(args.issue_key, exc)
+        print(f"Generated {TASK_ARTIFACT} for {args.issue_key}.")
         return 0
 
     if args.command == "agent-task":
         try:
             workflow.copilot_task_step(repo_root, args.issue_key, jira_comment=args.jira_comment)
-        except FileNotFoundError:
-            print(f"Missing .ai/{args.issue_key}/bug_context.md.", file=sys.stderr)
+        except FileNotFoundError as exc:
+            if (repo_root / ".ai" / args.issue_key / CONTEXT_ARTIFACT).exists():
+                # The context is there, so what is missing is issue.json.
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
+            print(f"Missing .ai/{args.issue_key}/{CONTEXT_ARTIFACT}.", file=sys.stderr)
             print(f"Run: bugpilot bug {args.issue_key}", file=sys.stderr)
             return 1
         except FixModeError as exc:
             return _report_fix_mode_failure(exc)
-        print(f"Regenerated agent task files for {args.issue_key}.")
+        except IssueArtifactError as exc:
+            return _report_issue_failure(args.issue_key, exc)
+        print(f"Regenerated {TASK_ARTIFACT} for {args.issue_key}.")
         return 0
 
     if args.command == "agent-instructions":
-        path = workflow.copilot_instructions_step(repo_root, args.issue_key)
-        print(f"Generated agent team instructions: {path}")
+        # Printed: the team instructions are a section of task.md, not a file of
+        # their own in every work item.
+        print(workflow.copilot_instructions_step(repo_root, args.issue_key), end="")
         return 0
 
     if args.command == "retry-prompt":
@@ -705,8 +734,7 @@ def _dispatch(args, repo_root: Path) -> int:
         elif args.memory_command == "search":
             issue_key = args.query if workflow.looks_like_issue_key(args.query) else None
             if issue_key:
-                workflow.memory_search_step(repo_root, issue_key)
-                print(f"Generated memory search for {issue_key}.")
+                print(workflow.memory_search_step(repo_root, issue_key), end="")
             else:
                 _issue_key, markdown, _results = search_memory(repo_root, args.query)
                 print(markdown, end="")
@@ -808,22 +836,22 @@ def _dispatch(args, repo_root: Path) -> int:
         )
         # --only-issue-details skips the prompt step, so there is no task file to
         # point an agent at. Claiming one would send Claude at a missing path.
-        agent_task = f".ai/{work_item_id}/agent_task.md"
-        agent_task_exists = (repo_root / ".ai" / work_item_id / "agent_task.md").exists()
+        agent_task = f".ai/{work_item_id}/{TASK_ARTIFACT}"
+        agent_task_exists = (repo_root / ".ai" / work_item_id / TASK_ARTIFACT).exists()
         if stream is not None:
             stream.finish(result.generated_files, result.warnings)
             return 0
         if json_mode:
-            # Re-read the spec: for a Jira item the title is only known after
-            # parse, and BugSpec is frozen, so request.spec is still the stub.
-            stored = load_bug_spec(repo_root, work_item_id) or request.spec
+            # Re-read the issue: for a Jira item the title is only known after
+            # the fetch, and request.spec is still the stub it started from.
+            stored = read_issue_quietly(repo_root, work_item_id)
             cli_json.emit(
                 cli_json.success(
                     "bug",
                     work_item_id=work_item_id,
-                    source=stored.source,
-                    source_ref=stored.source_ref,
-                    title=stored.title or None,
+                    source=stored.source if stored else request.spec.source,
+                    source_ref=stored.source_ref if stored else request.spec.source_ref,
+                    title=(stored.title if stored else request.spec.title) or None,
                     issue_dir=f".ai/{work_item_id}",
                     generated_files=result.generated_files,
                     skipped_steps=request.skipped_steps(),
@@ -901,63 +929,67 @@ def _launch_expectation_lines(fix_mode: FixMode | None, *, retry: bool) -> list[
 
 def _emit_status_json(repo_root: Path, issue_key: str) -> int:
     """Machine-readable `status`. Missing state is a failure, not an empty result."""
-    status_path = repo_root / ".ai" / issue_key / "workflow_status.json"
-    if not status_path.exists():
+    try:
+        run = load_run(repo_root, issue_key)
+    except RunArtifactError as exc:
+        cli_json.emit_failure(
+            "status", errors.ARTIFACT_NOT_FOUND, str(exc), work_item_id=issue_key,
+        )
+        return 1
+    if run is None:
         cli_json.emit_failure(
             "status",
             errors.WORK_ITEM_NOT_FOUND,
-            f"No workflow status found for {issue_key}. Run: bugpilot bug {issue_key}",
+            f"No run state found for {issue_key}. Run: bugpilot bug {issue_key}",
             work_item_id=issue_key,
         )
         return 1
-    try:
-        status = json.loads(status_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-        cli_json.emit_failure(
-            "status", errors.ARTIFACT_NOT_FOUND, f"workflow_status.json is unreadable: {exc}",
-            work_item_id=issue_key,
-        )
-        return 1
-    spec = load_bug_spec(repo_root, issue_key)
+    issue = read_issue_quietly(repo_root, issue_key)
+    record = run_to_dict(run)
     cli_json.emit(
         cli_json.success(
             "status",
             work_item_id=issue_key,
-            source=spec.source if spec else None,
-            title=spec.title if spec else None,
-            mode=status.get("mode"),
-            steps=status.get("steps", {}),
-            generated_files=status.get("generated_files", []),
-            # `mode` above is the prepare-only run mode and predates Fix Modes;
-            # this is the AI workflow the package was prepared under. Null for a
+            source=issue.source if issue else None,
+            title=issue.title if issue else None,
+            # The one authoritative run state: running, prepared or failed.
+            status=run.status,
+            steps=record["steps"],
+            generated_files=record["generated_files"],
+            # The AI workflow the package was prepared under. Null for a
             # package prepared before Fix Modes existed.
-            fix_mode=status.get("fix_mode"),
+            fix_mode=run.fix_mode,
+            # Where a failed run failed, when it did. Additive.
+            error=record.get("error"),
         )
     )
     return 0
 
 
 def _print_status(repo_root: Path, issue_key: str) -> int:
-    status_path = repo_root / ".ai" / issue_key / "workflow_status.json"
-    if not status_path.exists():
-        print(f"No workflow status found for {issue_key}.", file=sys.stderr)
+    try:
+        run = load_run(repo_root, issue_key)
+    except RunArtifactError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        print(f"Re-run: bugpilot bug {issue_key}", file=sys.stderr)
+        return 1
+    if run is None:
+        print(f"No run state found for {issue_key}.", file=sys.stderr)
         print("Run:", file=sys.stderr)
         print(f"  bugpilot bug {issue_key}", file=sys.stderr)
         return 1
 
-    status = json.loads(status_path.read_text(encoding="utf-8"))
-    print(f"Issue: {status.get('issue_key', issue_key)}")
-    print(f"Mode: {status.get('mode', 'unknown')}")
+    record = run_to_dict(run)
+    print(f"Work item: {run.work_item_id}")
+    print(f"Status: {run.status}")
+    if run.error is not None:
+        where = f" at the {run.error.step} step" if run.error.step else ""
+        print(f"Failed{where}: {run.error.message}")
     print("Steps:")
-    steps = status.get("steps", {})
-    if isinstance(steps, dict):
-        for name, step_status in steps.items():
-            print(f"  {name}: {step_status}")
-    else:
-        for step in steps:
-            print(f"  {step.get('name')}: {step.get('status')}")
+    for name, step_status in record["steps"].items():
+        print(f"  {name}: {step_status}")
     print("Generated files:")
-    for file_name in status.get("generated_files", []):
+    for file_name in record["generated_files"]:
         print(f"  {file_name}")
     return 0
 
@@ -976,7 +1008,7 @@ def _run_agent_after_prepare(
     handoff = (
         agent_runner.RETRY_HANDOFF_PROMPT.format(prompt_file=prompt_file) if prompt_file else None
     )
-    instruction = prompt_file or f".ai/{issue_key}/agent_task.md"
+    instruction = prompt_file or f".ai/{issue_key}/{TASK_ARTIFACT}"
     print()
     print(f"Launching {agent} to complete the workflow for {issue_key}.")
     for line in _launch_expectation_lines(fix_mode, retry=prompt_file is not None):
@@ -1070,8 +1102,8 @@ def _refuse_for_manual(repo_root: Path, command: str, work_item_id: str, json_ou
     command would fail later with a confusing artifact error instead of saying
     the operation does not apply.
     """
-    spec = load_bug_spec(repo_root, work_item_id)
-    if spec is None or spec.source != SOURCE_MANUAL:
+    issue = read_issue_quietly(repo_root, work_item_id)
+    if issue is None or issue.source != SOURCE_MANUAL:
         return None
     message = (
         f"{command} only applies to a Jira work item; {work_item_id} was described by hand."
@@ -1085,8 +1117,8 @@ def _refuse_for_manual(repo_root: Path, command: str, work_item_id: str, json_ou
 
 def _refuse_without_jira_target(repo_root: Path, command: str, work_item_id: str, json_output: bool) -> int | None:
     """Refuse a Jira write when there is no issue to write back to (design 5.1)."""
-    spec = load_bug_spec(repo_root, work_item_id)
-    if spec is None or spec.can_write_back:
+    issue = read_issue_quietly(repo_root, work_item_id)
+    if issue is None or issue.can_write_back:
         return None
     message = (
         f"{work_item_id} has no Jira issue to comment on; it was described by hand."
@@ -1108,14 +1140,13 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
     entries: list[dict[str, object]] = []
     directories = sorted(path for path in ai_root.iterdir() if path.is_dir()) if ai_root.is_dir() else []
     for path in directories:
-        spec = load_bug_spec(repo_root, path.name)
-        status_path = path / "workflow_status.json"
-        prepared = status_path.exists()
+        issue = read_issue_quietly(repo_root, path.name)
+        prepared = (path / RUN_ARTIFACT).exists()
         entries.append(
             {
                 "work_item_id": path.name,
-                "source": spec.source if spec else None,
-                "title": spec.title if spec else None,
+                "source": issue.source if issue else None,
+                "title": issue.title if issue else None,
                 "prepared": prepared,
             }
         )
@@ -1143,6 +1174,16 @@ def _report_fix_mode_failure(exc: FixModeError) -> int:
     """
     print(f"ERROR: {exc}", file=sys.stderr)
     print("Run: bugpilot fix-mode list", file=sys.stderr)
+    return 1
+
+
+def _report_issue_failure(issue_key: str, exc: IssueArtifactError) -> int:
+    """A regeneration path whose issue.json cannot be used.
+
+    There is no older layout to fall back to, so the answer is to re-prepare.
+    """
+    print(f"ERROR: {exc}", file=sys.stderr)
+    print(f"Run: bugpilot bug {issue_key}", file=sys.stderr)
     return 1
 
 
@@ -1518,13 +1559,7 @@ def _bug_progress_printer(issue_key: str, resolved_steps: list[str] | None = Non
 
 
 def _print_key_generated_artifacts(repo_root: Path, issue_key: str) -> None:
-    key_files = [
-        "jira_summary.md",
-        "jira_parsed.md",
-        "code_search.md",
-        "bug_context.md",
-        "agent_task.md",
-    ]
+    key_files = list(CORE_ARTIFACTS)
     existing = [f".ai/{issue_key}/{file_name}" for file_name in key_files if (repo_root / ".ai" / issue_key / file_name).exists()]
     if not existing:
         return
@@ -1534,8 +1569,8 @@ def _print_key_generated_artifacts(repo_root: Path, issue_key: str) -> None:
 
 
 def _print_log_hint(repo_root: Path, issue_key: str) -> None:
-    if (repo_root / ".ai" / issue_key / "execution.log").exists():
-        print(f"See .ai/{issue_key}/execution.log for details.", file=sys.stderr)
+    if (repo_root / ".ai" / issue_key / RUN_ARTIFACT).exists():
+        print(f"Run: bugpilot status {issue_key} for step status.", file=sys.stderr)
 
 
 def _auto_jira_comment_enabled(args) -> bool:
@@ -1641,9 +1676,7 @@ def _print_jira_validate_summary(issue_key: str, summary: dict) -> None:
     print(f"  reproduction steps found: {'yes' if summary.get('has_reproduction_steps') else 'no'}")
     count = summary.get("missing_information_count", 0)
     print(f"  missing information: {count} item(s)")
-    print(f"Generated: .ai/{issue_key}/jira.json")
-    print(f"Generated: .ai/{issue_key}/jira_summary.md")
-    print(f"Generated: .ai/{issue_key}/jira_parsed.md")
+    print(f"Generated: .ai/{issue_key}/{ISSUE_ARTIFACT}")
     print(f"Generated: .ai/{issue_key}/jira_field_report.md")
 
 
@@ -1668,7 +1701,7 @@ __all__ = [
     "build_context",
     "extract_keywords",
     "fetch_issue",
-    "generate_prompts",
+    "generate_task",
     "main",
     "parse_issue",
     "add_memory_entry",

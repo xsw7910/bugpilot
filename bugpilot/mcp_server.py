@@ -30,7 +30,6 @@ start over on its own.
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 from dataclasses import dataclass, field
@@ -43,12 +42,15 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from bugpilot.core import errors, handoff, workflow
+from bugpilot.core.artifacts import CONTEXT_ARTIFACT, TASK_ARTIFACT
+from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
 from bugpilot.core.config import issue_dir
 from bugpilot.core.fix_mode_state import fix_mode_metadata, fix_mode_registry
 from bugpilot.core.fix_mode_store import catalog_for
 from bugpilot.core.fix_modes import FixMode, FixModeError
 from bugpilot.core.identity import is_known_work_item_id, validate_work_item_id
-from bugpilot.core.input_adapters import bug_spec_from_description, load_bug_spec
+from bugpilot.core.input_adapters import bug_spec_from_description
+from bugpilot.core.issue import read_issue_quietly
 # Aliased on import: the tool below is also called search_memory, and a bare
 # import would be shadowed by it inside build_server.
 from bugpilot.core.memory import search_memory as search_memory_impl
@@ -61,8 +63,8 @@ BugPilot turns a bug report into focused code context before you search the repo
 
 When the user references a Jira issue key (for example JR-12345) or describes a bug
 and asks to fix, investigate or analyse it, call prepare_jira_bug or
-prepare_bug_description first. Then read the returned bug_context.md and
-agent_task.md and work from those instead of searching the codebase from scratch.
+prepare_bug_description first. Then read the returned context.md and task.md
+and work from those instead of searching the codebase from scratch.
 
 If the developer asks for a particular approach — investigate before changing
 anything, stay conservative, write a test first — call list_fix_modes and pass the
@@ -177,17 +179,17 @@ def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> 
     files it needs with its own tools, and returning everything would burn the
     context the preparation exists to protect.
     """
-    spec = load_bug_spec(root, work_item_id)
-    task_path = issue_dir(root, work_item_id) / "agent_task.md"
+    issue = read_issue_quietly(root, work_item_id)
+    task_path = issue_dir(root, work_item_id) / TASK_ARTIFACT
     return {
         "work_item_id": work_item_id,
-        "source": spec.source if spec else None,
-        "title": spec.title if spec else None,
+        "source": issue.source if issue else None,
+        "title": issue.title if issue else None,
         "issue_dir": f".ai/{work_item_id}",
-        "agent_task": f".ai/{work_item_id}/agent_task.md" if task_path.exists() else None,
+        "agent_task": f".ai/{work_item_id}/{TASK_ARTIFACT}" if task_path.exists() else None,
         "generated_files": result.generated_files,
         # What the package was actually prepared with, in the same shape
-        # workflow_status.json and the CLI's --json use. Additive: a client that
+        # run.json and the CLI's --json use. Additive: a client that
         # does not know about Fix Modes reads past it.
         "fix_mode": fix_mode_metadata(result.fix_mode) if result.fix_mode else None,
         # Core's own warnings, including a Fix Mode whose definition moved
@@ -195,7 +197,7 @@ def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> 
         # changes how the task was written.
         "warnings": list(result.warnings),
         "next_step": _next_step(work_item_id, result.fix_mode),
-        "context_excerpt": _read_artifact(root, work_item_id, "bug_context.md"),
+        "context_excerpt": _read_artifact(root, work_item_id, CONTEXT_ARTIFACT),
     }
 
 
@@ -208,7 +210,7 @@ def _next_step(work_item_id: str, mode: FixMode | None) -> str:
     gets the investigation sentence too. Without a mode on the result (a legacy
     path that carries none) the sentence says only to follow the task file.
     """
-    reads = f"Read .ai/{work_item_id}/agent_task.md and .ai/{work_item_id}/bug_context.md, "
+    reads = f"Read .ai/{work_item_id}/{TASK_ARTIFACT} and .ai/{work_item_id}/{CONTEXT_ARTIFACT}, "
     if mode is None:
         return reads + "then complete the workflow they describe. Stop before committing."
     if mode.is_investigation:
@@ -457,10 +459,17 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             query: A work item id, or free text such as a symptom or symbol name.
         """
         try:
-            # write_report=False keeps this read-only: an id-shaped query would
-            # otherwise mkdir .ai/<id>/ and create a phantom work item.
+            # Read-only: search_memory writes nothing, so an id-shaped query cannot
+            # create a phantom work item. A prepared work item is searched by its own keywords, as the
+            # pipeline's Similar fixes step does; free text by its words.
+            candidate = query.strip()
+            extracted = (
+                workflow.work_item_keywords(bound.repo_root, candidate)
+                if is_known_work_item_id(candidate)
+                else None
+            )
             _matched_id, markdown, results = search_memory_impl(
-                bound.repo_root, query, write_report=False
+                bound.repo_root, query, extracted=extracted
             )
         except Exception as exc:
             raise ToolError(f"Memory search failed: {exc}") from exc
@@ -480,27 +489,30 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             work_item_id: The id returned by a prepare tool.
         """
         item = _checked(work_item_id)
-        path = issue_dir(bound.repo_root, item) / "workflow_status.json"
-        if not path.exists():
+        try:
+            run = load_run(bound.repo_root, item)
+        except RunArtifactError as exc:
+            raise ToolError(str(exc)) from exc
+        if run is None:
             raise ToolError(
-                f"No workflow status for {item}. Prepare it first with "
+                f"No run state for {item}. Prepare it first with "
                 "prepare_jira_bug or prepare_bug_description."
             )
-        try:
-            status = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-            raise ToolError(f"workflow_status.json is unreadable: {exc}") from exc
-        spec = load_bug_spec(bound.repo_root, item)
+        issue = read_issue_quietly(bound.repo_root, item)
+        record = run_to_dict(run)
         return {
             "work_item_id": item,
-            "source": spec.source if spec else None,
-            "title": spec.title if spec else None,
-            "steps": status.get("steps", {}),
-            "generated_files": status.get("generated_files", []),
+            "source": issue.source if issue else None,
+            "title": issue.title if issue else None,
+            # The one authoritative run state: running, prepared or failed.
+            "status": run.status,
+            "steps": record["steps"],
+            "generated_files": record["generated_files"],
             # Read back from the record, not recomputed: this is the mode that
             # produced the package, which a rename or a deletion since then does
             # not change.
-            "fix_mode": status.get("fix_mode"),
+            "fix_mode": run.fix_mode,
+            "error": record.get("error"),
         }
 
     @server.tool()

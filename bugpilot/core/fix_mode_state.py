@@ -1,15 +1,15 @@
 """The Fix Mode selected for one work item: choosing it, and remembering it.
 
-The selection is persisted at `.ai/<work item>/fix_mode.json`, beside
-`workflow_status.json`. That is generated runtime state, not team policy —
-`.bugpilot/` is where team-owned mode definitions will live in a later phase,
-and mixing the two would make a run's own bookkeeping look like something a
-developer should edit and commit.
+The selection is persisted in `.ai/<work item>/issue.json`, as
+`guidance.fix_mode`, beside the hint the same run used. That is generated
+runtime state, not team policy — `.bugpilot/` is where team-owned mode
+definitions live, and mixing the two would make a run's own bookkeeping look
+like something a developer should edit and commit.
 
-**Only the id selects a mode.** Everything else in the file is audit metadata:
+**Only the id selects a mode.** Everything else in the record is audit metadata:
 what the package was generated with, so a `review_notes.md` read months later
 still says which workflow the agent was given. A name or an instruction copied
-out of a stale file must never become the workflow, so the id is re-resolved
+out of a stale record must never become the workflow, so the id is re-resolved
 through the registry on every read. That is also what makes a mode which has
 since disappeared fail loudly instead of quietly becoming Standard Fix — the
 case that matters once modes can come from a project directory.
@@ -17,13 +17,11 @@ case that matters once modes can come from a project directory.
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
-from .artifact_io import atomic_write_text
-from .config import issue_dir
+from .artifacts import ISSUE_ARTIFACT
 from .fix_mode_store import effective_registry_for
 from .fix_modes import (
     FixMode,
@@ -31,9 +29,8 @@ from .fix_modes import (
     FixModeNotFoundError,
     FixModeRegistry,
 )
+from .issue import IssueArtifact, IssueArtifactError, IssueGuidance, jira_stub, load_issue, save_issue
 
-FIX_MODE_FILE = "fix_mode.json"
-FIX_MODE_SCHEMA_VERSION = 1
 _METADATA_KEYS: tuple[str, ...] = (
     "id",
     "name",
@@ -110,20 +107,30 @@ def select_fix_mode(
     return _selection_from_state(stored, registry, repo_root, work_item_id)
 
 
-def persist_fix_mode(repo_root: Path, work_item_id: str, mode: FixMode) -> Path:
-    """Record the selection for later regeneration, resume, refine and retry."""
-    target = issue_dir(repo_root, work_item_id)
-    target.mkdir(parents=True, exist_ok=True)
-    path = target / FIX_MODE_FILE
-    payload = {"schema_version": FIX_MODE_SCHEMA_VERSION, **fix_mode_metadata(mode)}
-    atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    return path
+def persist_fix_mode(
+    repo_root: Path,
+    work_item_id: str,
+    mode: FixMode,
+    issue: IssueArtifact | None = None,
+) -> IssueArtifact:
+    """Record the selection in ``issue.json`` for regeneration, resume, refine and retry.
+
+    ``issue`` is the caller's in-memory issue, so recording the mode and the
+    rest of the issue is one write. Without it the persisted issue is updated;
+    a work item with none yet gets a Jira stub, the only kind that can exist
+    before its content does. Returns what was written.
+    """
+    if issue is None:
+        issue = load_issue(repo_root, work_item_id) or jira_stub(work_item_id, IssueGuidance())
+    recorded = issue.with_guidance(replace(issue.guidance, fix_mode=fix_mode_metadata(mode)))
+    save_issue(repo_root, recorded)
+    return recorded
 
 
 def stored_fix_mode_metadata(repo_root: Path, work_item_id: str) -> dict[str, object] | None:
     """What was recorded, for the status file. Never raises.
 
-    Status writing runs on the failure path too, so an unreadable selection file
+    Status writing runs on the failure path too, so an unreadable issue file
     must not be the reason a run cannot report what it did.
     """
     try:
@@ -137,24 +144,15 @@ def stored_fix_mode_metadata(repo_root: Path, work_item_id: str) -> dict[str, ob
 
 def _read_state(repo_root: Path, work_item_id: str) -> dict[str, object] | None:
     """The persisted selection as raw data, or None when there is none."""
-    path = issue_dir(repo_root, work_item_id) / FIX_MODE_FILE
-    if not path.exists():
-        return None
     try:
-        stored = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except (json.JSONDecodeError, OSError) as exc:
+        issue = load_issue(repo_root, work_item_id)
+    except IssueArtifactError as exc:
         raise FixModeError(
-            f"{_display_path(work_item_id)} could not be read ({exc}). "
-            "Choose a mode explicitly with --fix-mode, or delete the file to fall "
-            "back to Standard Fix."
+            f"{exc} Choose a mode explicitly with --fix-mode, or re-prepare the work item."
         ) from exc
-    if not isinstance(stored, dict):
-        raise FixModeError(
-            f"{_display_path(work_item_id)} does not contain a JSON object. "
-            "Choose a mode explicitly with --fix-mode, or delete the file to fall "
-            "back to Standard Fix."
-        )
-    return stored
+    if issue is None or issue.guidance.fix_mode is None:
+        return None
+    return dict(issue.guidance.fix_mode)
 
 
 def _selection_from_state(
@@ -167,8 +165,7 @@ def _selection_from_state(
     if not isinstance(stored_id, str) or not stored_id.strip():
         raise FixModeError(
             f"{_display_path(work_item_id)} does not record a Fix Mode id. "
-            "Choose a mode explicitly with --fix-mode, or delete the file to fall "
-            "back to Standard Fix."
+            "Choose a mode explicitly with --fix-mode, or re-prepare the work item."
         )
     try:
         mode = registry.resolve(stored_id)
@@ -212,4 +209,4 @@ def _drift_warnings(stored: dict[str, object], mode: FixMode) -> tuple[str, ...]
 
 
 def _display_path(work_item_id: str) -> str:
-    return f".ai/{work_item_id}/{FIX_MODE_FILE}"
+    return f".ai/{work_item_id}/{ISSUE_ARTIFACT}"

@@ -70,7 +70,7 @@ class JsonLinesEmitter:
 
     The two output channels have different jobs, per design section 5.1:
     JSONL is live events for as long as the process runs, and
-    ``workflow_status.json`` is the state that survives it. A consumer follows
+    ``run.json`` is the state that survives it. A consumer follows
     the stream for progress and re-reads the file after a restart.
 
     ``run_investigation``'s progress callback fires *before* each step, so

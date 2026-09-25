@@ -1,16 +1,15 @@
 /**
- * What a prepared package contains, counted from the files the run wrote.
+ * What a prepared package contains, counted from the retrieval the run wrote.
  *
  * The panel needed something to say after a run other than six ticks, and the
- * only honest source for it is what is already on disk. `related_files.json` is
- * a JSON array of ranked files; `search_quality.json` is an object whose
- * `terms` array is one entry per ripgrep invocation. Both are read by
- * `bugpilot/core/context.py` on the way to `bug_context.md`, so this reads the
- * same contract BugPilot already relies on internally rather than a new one.
+ * only honest source for it is what is already on disk: `retrieval.json`, whose
+ * `related_files` are the ranked files and whose `terms` are one entry per
+ * ripgrep invocation. `retrieval.ts` reads and shape-checks it once; this counts
+ * and lists from what that returns, and never opens or parses the file itself.
  *
  * **Every step degrades to "no number".** A missing file, an unreadable one,
- * invalid JSON, a top-level object where an array was expected, a `terms` key
- * that is not a list — each of those omits the count. That is the whole design
+ * invalid JSON, a wrong `schema_version`, a list key that is not a list — each
+ * of those omits the count. That is the whole design
  * rule here: a panel that says nothing is a panel a developer ignores for a
  * second, and a panel that says "0 relevant files" about a run that found eight
  * is one they stop believing. The second failure is much more expensive, so the
@@ -18,35 +17,30 @@
  *
  * Nothing here reads *into* the entries. Which of the files are implementation
  * and which are documentation, which terms were retained and which were
- * dropped, what weight any of them carried — all of that exists in these files
+ * dropped, what weight any of them carried — all of that exists in the artifact
  * and none of it is counted, because it is §33's vocabulary and a developer
  * cannot act on it from the panel.
  */
 
+import { isRecord } from "./retrieval.ts";
+import type { Retrieval } from "./retrieval.ts";
+
 /**
  * Counts for the result section. Both optional, independently.
  *
- * One file being unreadable says nothing about the other, so a run whose
- * `search_quality.json` is missing still reports its file count.
+ * One list being unusable says nothing about the other, so a retrieval whose
+ * `terms` is malformed still reports its file count.
  */
 export interface ContextCounts {
   readonly relevantFiles?: number;
   readonly searchTerms?: number;
 }
 
-/** The two artifacts this reads, so a caller does not spell them twice. */
-export const RELATED_FILES_ARTIFACT = "related_files.json";
-export const SEARCH_QUALITY_ARTIFACT = "search_quality.json";
-
-export function contextCounts(
-  relatedFilesJson: string | undefined,
-  searchQualityJson: string | undefined,
-): ContextCounts {
-  const relevantFiles = countOfArray(parse(relatedFilesJson));
-  const quality = parse(searchQualityJson);
-  const searchTerms = countOfArray(
-    isRecord(quality) ? (quality["terms"] as unknown) : undefined,
-  );
+export function contextCounts(retrieval: Retrieval | undefined): ContextCounts {
+  // Already known to be arrays, or absent: `parseRetrieval` checked the shape,
+  // so a string's length can never be read here as "4 relevant files".
+  const relevantFiles = retrieval?.relatedFiles?.length;
+  const searchTerms = retrieval?.terms?.length;
   return {
     ...(relevantFiles === undefined ? {} : { relevantFiles }),
     ...(searchTerms === undefined ? {} : { searchTerms }),
@@ -75,40 +69,14 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-function parse(text: string | undefined): unknown {
-  if (text === undefined || text.trim() === "") return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    // A half-written file, read while the run was still flushing it. Not worth
-    // a message: the next refresh will read it whole.
-    return undefined;
-  }
-}
-
-/**
- * How many entries, when the value really is a list of them.
- *
- * `Array.isArray` rather than a truthiness check, because `{}` has no length
- * and `"abcd"` has four — and "4 relevant files" read off a string would be the
- * exact failure this module exists to avoid.
- */
-function countOfArray(value: unknown): number | undefined {
-  return Array.isArray(value) ? value.length : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 // --- which files, not how many ----------------------------------------------
 
 /**
  * One row of the Relevant Files list.
  *
- * Three fields out of the artifact's eight. The other five — `score`,
- * `confidence`, `match_count`, `reasons`, `noise_flags` — say how the ranking
- * works rather than what it found, and a developer cannot act on any of them
+ * Three fields out of the entry's nine. The other six — `score`, `confidence`,
+ * `match_count`, `reasons`, `noise_flags`, `snippets` — say how the ranking
+ * works, or are evidence for the agent, rather than what it found, and a developer cannot act on any of them
  * from a sidebar. Keeping them out of this type is what keeps them off screen.
  */
 export interface RelevantFile {
@@ -140,22 +108,16 @@ export interface RelevantFile {
 export const MAX_LISTED_FILES = 10;
 
 /**
- * The rows, from the same artifact the count came from.
- *
- * Parsed separately rather than threaded through `contextCounts`: the file is
- * read once and this is a second `JSON.parse` of a string already in memory,
- * which buys two functions that each do one thing over one that does both.
+ * The rows, from the same retrieval the count came from.
  *
  * Every entry is checked and a bad one is dropped rather than shown with a
  * hole in it. An entry needs a `file` that is a non-empty relative path with no
  * `..` in it — the path becomes an open request, so the shape is checked here
  * *and* on the host, which is the side that can actually be lied to.
  */
-export function relevantFiles(relatedFilesJson: string | undefined): readonly RelevantFile[] {
-  const parsed = parse(relatedFilesJson);
-  if (!Array.isArray(parsed)) return [];
+export function relevantFiles(retrieval: Retrieval | undefined): readonly RelevantFile[] {
   const files: RelevantFile[] = [];
-  for (const entry of parsed) {
+  for (const entry of retrieval?.relatedFiles ?? []) {
     if (!isRecord(entry)) continue;
     const file = entry["file"];
     if (typeof file !== "string" || !isSafeRelativePath(file)) continue;

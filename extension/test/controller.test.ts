@@ -291,14 +291,14 @@ const successfulRun: readonly StreamEvent[] = [
   { type: "step_completed", step: "fetch" },
   { type: "step_started", step: "code_search" },
   { type: "step_completed", step: "code_search" },
-  { type: "artifact", path: ".ai/JR-12345/agent_task.md" },
+  { type: "artifact", path: ".ai/JR-12345/task.md" },
   { type: "completed", ok: true },
 ];
 
 // --- running ---------------------------------------------------------------
 
 test("a valid run streams, finishes, and refreshes what the editor shows", async () => {
-  const h = harness({ events: successfulRun, directory: ["agent_task.md", "bug_context.md"] });
+  const h = harness({ events: successfulRun, directory: ["task.md", "context.md"] });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
@@ -352,7 +352,7 @@ test("a hand-written bug learns its work item id from the stream", async () => {
       { type: "started", work_item_id: "local_20260904160612", source: "manual" },
       { type: "completed", ok: true },
     ],
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm({ source: "manual", description: "crash on save", issueKey: "" }));
@@ -578,13 +578,13 @@ test("Retry does nothing without a prepared work item", async () => {
 // --- artifacts and handoff -------------------------------------------------
 
 test("opening an artifact resolves inside the work item directory", async () => {
-  const h = harness({ events: successfulRun, directory: ["agent_task.md"] });
+  const h = harness({ events: successfulRun, directory: ["task.md"] });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  await h.controller.openArtifact("agent_task.md");
+  await h.controller.openArtifact("task.md");
 
   assert.equal(h.opened.length, 1);
-  assert.match(h.opened[0]!, /JR-12345[\\/]agent_task\.md$/);
+  assert.match(h.opened[0]!, /JR-12345[\\/]task\.md$/);
 });
 
 test("a traversal attempt is refused at the point of opening, too", async () => {
@@ -603,39 +603,36 @@ test("a traversal attempt is refused at the point of opening, too", async () => 
 test("opening an artifact before any run explains itself instead of failing", async () => {
   const h = harness();
   await h.controller.refreshEnvironment();
-  await h.controller.openArtifact("agent_task.md");
+  await h.controller.openArtifact("task.md");
   assert.equal(h.opened.length, 0);
   assert.equal(h.notices.at(-1)?.kind, "warning");
 });
 
-test("the handoff prompt comes from the artifact, or from a fallback that works", async () => {
-  const withFile = harness({
+test("the handoff prompt is the one sentence pointing at task.md, whatever else is on disk", async () => {
+  // No agent_handoff.md is read, even when an old one is lying in the directory:
+  // everything the agent needs is in task.md, and the sentence names it.
+  const h = harness({
     events: successfulRun,
+    directory: ["task.md", "agent_handoff.md"],
     files: { "agent_handoff.md": "Read .ai/JR-12345/agent_task.md and fix the bug.\n" },
   });
-  await withFile.controller.refreshEnvironment();
-  await withFile.controller.run(jiraForm());
-  await withFile.controller.copyHandoff();
-  assert.equal(withFile.clipboard[0], "Read .ai/JR-12345/agent_task.md and fix the bug.");
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  await h.controller.copyHandoff();
 
-  const without = harness({ events: successfulRun });
-  await without.controller.refreshEnvironment();
-  await without.controller.run(jiraForm());
-  await without.controller.copyHandoff();
-  // Copying nothing would look like the button was broken.
-  assert.match(without.clipboard[0] ?? "", /agent_task\.md/);
+  assert.equal(h.clipboard[0], "Read .ai/JR-12345/task.md and complete the workflow.");
 });
 
 // --- reopening a past work item -------------------------------------------
 
-test("a past work item is restored from workflow_status.json", async () => {
+test("a past work item is restored from run.json", async () => {
   const h = harness({
     files: {
-      "workflow_status.json": JSON.stringify({
+      "run.json": JSON.stringify({
         steps: { parse: "pass", code_search: "pass", git_context: "skipped" },
       }),
     },
-    directory: ["agent_task.md", "workflow_status.json"],
+    directory: ["task.md", "run.json"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-999");
@@ -647,8 +644,8 @@ test("a past work item is restored from workflow_status.json", async () => {
 
 test("a corrupt status file still lists the artifacts", async () => {
   const h = harness({
-    files: { "workflow_status.json": "{ truncated" },
-    directory: ["agent_task.md"],
+    files: { "run.json": "{ truncated" },
+    directory: ["task.md"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-999");
@@ -713,7 +710,7 @@ test("an unreadable .ai/ directory is reported, not shown as empty", async () =>
 });
 
 test("the artifact list reports itself as loading while the directory is read", async () => {
-  const h = harness({ events: successfulRun, directory: ["agent_task.md"] });
+  const h = harness({ events: successfulRun, directory: ["task.md"] });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   // A "loading" state must have been pushed before the final one; on a network
@@ -727,14 +724,14 @@ test("the artifact list reports itself as loading while the directory is read", 
 
 
 test("the work item is remembered, so a restart can restore its progress", async () => {
-  // The event stream dies with the process; workflow_status.json is the only
+  // The event stream dies with the process; run.json is the only
   // record that survives it, and reading that needs the id.
   const h = harness({
     events: [
       { type: "started", work_item_id: "local_20260904160612", source: "manual" },
       { type: "completed", ok: true },
     ],
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm({ source: "manual", issueKey: "", description: "crash" }));
@@ -769,7 +766,7 @@ test("refreshing artifacts on its own leaves the panel showing the result", asyn
   // refreshArtifacts pushes a loading state first. When it is invoked as its
   // own command, nothing else pushes afterwards, so the panel would sit on
   // "Scanning .ai/ …" forever.
-  const h = harness({ events: successfulRun, directory: ["agent_task.md"] });
+  const h = harness({ events: successfulRun, directory: ["task.md"] });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   await h.controller.refreshArtifacts();
@@ -807,7 +804,7 @@ test("Retry is offered only when there is a package to retry", async () => {
   await running;
   assert.equal(stopped.last().canRetry, false);
 
-  const finished = harness({ events: successfulRun, directory: ["agent_task.md"] });
+  const finished = harness({ events: successfulRun, directory: ["task.md"] });
   await finished.controller.refreshEnvironment();
   await finished.controller.run(jiraForm());
   assert.equal(finished.last().canRetry, true);
@@ -816,7 +813,7 @@ test("Retry is offered only when there is a package to retry", async () => {
 test("starting a hand-written run drops the previous item's artifact list", async () => {
   // The new id only arrives with the `started` event. Leaving the old list on
   // screen offers files that openArtifact then refuses to open.
-  const h = harness({ hold: true, events: [], directory: ["agent_task.md"] });
+  const h = harness({ hold: true, events: [], directory: ["task.md"] });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-999");
   assert.equal(h.last().artifacts.kind, "ready");
@@ -870,7 +867,7 @@ test("the second Retry opens the package it tells you to hand off", async () => 
   // sends the developer looking for a file that never appeared.
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
     json: { ok: true, command: "bug", warnings: [], retry: true, feedback_created: false },
   });
   await h.controller.refreshEnvironment();
@@ -881,7 +878,7 @@ test("the second Retry opens the package it tells you to hand off", async () => 
 });
 
 test("clicking a history item during a run says why nothing happened", async () => {
-  const h = harness({ hold: true, events: successfulRun, directory: ["agent_task.md"] });
+  const h = harness({ hold: true, events: successfulRun, directory: ["task.md"] });
   await h.controller.refreshEnvironment();
   const running = h.controller.run(jiraForm());
   await Promise.resolve();
@@ -1012,7 +1009,7 @@ test("overlapping environment refreshes share one probe", async () => {
 });
 
 test("the handoff fallback matches the sentence bugpilot itself uses", () => {
-  // Four places tell an agent to read agent_task.md: the CLI's launch prompt,
+  // Four places tell an agent to read task.md: the CLI's launch prompt,
   // the MCP prompt, the Claude Code skill, and this fallback. The first three
   // are rendered from bugpilot/core/handoff.py; this one is a TypeScript
   // string, so it is compared against that source the same way the error-code
@@ -1020,9 +1017,13 @@ test("the handoff fallback matches the sentence bugpilot itself uses", () => {
   const source = readFileSync(new URL("../../bugpilot/core/handoff.py", import.meta.url), "utf8");
   const template = /return f"(Read \.ai\/\{issue_key\}\/[^"]+)"/.exec(source);
   assert.ok(template, "could not find handoff_prompt's text in handoff.py");
-  const expected = template[1]!.replace("{issue_key}", "JR-12345");
+  // The file name is a constant in artifacts.py, so it is resolved from there.
+  const artifacts = readFileSync(new URL("../../bugpilot/core/artifacts.py", import.meta.url), "utf8");
+  const task = /^TASK_ARTIFACT = "([^"]+)"/m.exec(artifacts);
+  assert.ok(task, "could not find TASK_ARTIFACT in artifacts.py");
+  const expected = template[1]!.replace("{issue_key}", "JR-12345").replace("{TASK_ARTIFACT}", task[1]!);
 
-  const h = harness({ events: successfulRun, directory: ["agent_task.md"] });
+  const h = harness({ events: successfulRun, directory: ["task.md"] });
   return h.controller
     .refreshEnvironment()
     .then(() => h.controller.run(jiraForm()))
@@ -1128,13 +1129,12 @@ const withFix = (overrides: Partial<FormState> = {}): FormState => ({
 });
 
 test("Fix with AI starts the agent in the repository root", async () => {
-  // agent_task.md insists on this: "Do not run your AI agent from the bugpilot
+  // task.md insists on this: "Do not run your AI agent from the bugpilot
   // tool source directory". The cwd is the whole point of the terminal.
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
     agentOnPath: true,
-    files: { "agent_handoff.md": "Read .ai/JR-12345/agent_task.md and complete the workflow.\n" },
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -1147,7 +1147,7 @@ test("Fix with AI starts the agent in the repository root", async () => {
   // One argument, quoted: the handoff contains spaces and a path.
   assert.equal(
     terminal.commandLine,
-    'claude "Read .ai/JR-12345/agent_task.md and complete the workflow."',
+    'claude "Read .ai/JR-12345/task.md and complete the workflow."',
   );
 });
 
@@ -1155,7 +1155,7 @@ test("ticking Fix with AI runs it as the last step, without a second click", asy
   // The whole point of the row: Run means run everything that is ticked.
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
     agentOnPath: true,
   });
   await h.controller.refreshEnvironment();
@@ -1171,7 +1171,7 @@ test("ticking Fix with AI runs it as the last step, without a second click", asy
 test("leaving it unticked stops after the context is built", async () => {
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
     agentOnPath: true,
   });
   await h.controller.refreshEnvironment();
@@ -1206,7 +1206,7 @@ test("a run that failed hands nothing over, and says why the step did not run", 
 
 test("with Build context off, the AI step is not offered at all", async () => {
   // `--only-issue-details` writes no package, so there is nothing to hand over.
-  const h = harness({ events: successfulRun, directory: ["agent_task.md"], agentOnPath: true });
+  const h = harness({ events: successfulRun, directory: ["task.md"], agentOnPath: true });
   await h.controller.refreshEnvironment();
   await h.controller.run(
     withFix({ plan: { ...DEFAULT_FORM.plan, buildContext: false } }),
@@ -1221,7 +1221,7 @@ test("without an agent on PATH it copies and points at the panel instead", async
   // tool, so the fallback never opens one.
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
     agentOnPath: false,
     agentPanel: true,
   });
@@ -1230,7 +1230,7 @@ test("without an agent on PATH it copies and points at the panel instead", async
   await h.controller.fixWithAI();
 
   assert.deepEqual(h.terminals, []);
-  assert.match(h.clipboard[0] ?? "", /agent_task\.md/);
+  assert.match(h.clipboard[0] ?? "", /task\.md/);
   assert.match(h.notices.at(-1)?.message ?? "", /clipboard/);
   const fix = h.last().workflow.find((step) => step.id === "fixWithAI");
   // Skipped, not failed: nothing went wrong, the handoff just took another
@@ -1245,22 +1245,24 @@ test("a custom agent command is used verbatim, with the prompt substituted", asy
   // their flags, and a guessed command line fails in a terminal.
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
     agentOnPath: true,
-    files: { "agent_handoff.md": "Fix JR-12345.\n" },
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(
     withFix({ agent: "custom", agentCommand: "my-agent --yolo --prompt {prompt}" }),
   );
 
-  assert.equal(h.terminals[0]!.commandLine, 'my-agent --yolo --prompt "Fix JR-12345."');
+  assert.equal(
+    h.terminals[0]!.commandLine,
+    'my-agent --yolo --prompt "Read .ai/JR-12345/task.md and complete the workflow."',
+  );
   // Probed by its own first word, not by "claude".
   assert.deepEqual(h.probed, ["my-agent"]);
 });
 
 test("a custom choice with no command explains itself instead of running nothing", async () => {
-  const h = harness({ events: successfulRun, directory: ["agent_task.md"], agentOnPath: true });
+  const h = harness({ events: successfulRun, directory: ["task.md"], agentOnPath: true });
   await h.controller.refreshEnvironment();
   await h.controller.run(withFix({ agent: "custom", agentCommand: "   " }));
 
@@ -1281,11 +1283,11 @@ test("Fix with AI before any run explains itself instead of doing nothing", asyn
   assert.match(h.notices.at(-1)?.message ?? "", /Prepare a bug first/);
 });
 
-test("the handed-over sentence is the same one Copy puts on the clipboard", async () => {
+test("the handed-over sentence is the same one Copy Handoff Prompt puts on the clipboard", async () => {
   // Four entry points say this; a fifth wording would be a fifth thing to drift.
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
     agentOnPath: true,
   });
   await h.controller.refreshEnvironment();
@@ -1296,38 +1298,81 @@ test("the handed-over sentence is the same one Copy puts on the clipboard", asyn
   assert.equal(h.terminals[0]!.commandLine, `claude ${JSON.stringify(h.clipboard[0])}`);
 });
 
-test("a multi-line handoff still reaches the agent as one argument", async () => {
-  // A raw newline inside a quoted argument is submitted by the terminal as a
-  // second command, which turns a handoff prompt into a shell invocation.
-  const h = harness({
-    events: successfulRun,
-    directory: ["agent_task.md"],
-    agentOnPath: true,
-    files: { "agent_handoff.md": "Read the task.\n\nThen fix it.\n" },
-  });
+test("Fix with AI refuses a package with no task.md rather than sending an agent after it", async () => {
+  // --only-issue-details writes a context and no task. A prompt naming a missing
+  // file would send the agent looking for it.
+  const h = harness({ events: successfulRun, directory: ["context.md"], agentOnPath: true });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   await h.controller.fixWithAI();
 
-  assert.equal(h.terminals[0]!.commandLine, 'claude "Read the task. Then fix it."');
-  assert.equal(h.terminals[0]!.commandLine.includes("\n"), false);
+  assert.deepEqual(h.terminals, []);
+  assert.equal(h.notices.at(-1)?.kind, "warning");
+  assert.match(h.notices.at(-1)?.message ?? "", /task\.md/);
+  const row = h.last().workflow.find((step) => step.id === "fixWithAI");
+  assert.equal(row?.status, "skipped");
+  assert.match(row?.detail ?? "", /No task\.md was prepared/);
+});
+
+test("the old context and task files do not make a package", async () => {
+  // No fallback: a directory holding only bug_context.md and agent_task.md has
+  // no context and no task under the current contract.
+  const h = harness({
+    events: successfulRun,
+    directory: ["bug_context.md", "agent_task.md", "agent_handoff.md"],
+    agentOnPath: true,
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  assert.equal(h.last().contextReady, undefined);
+  assert.deepEqual(h.last().workflow.find((step) => step.id === "buildContext")?.actions, ["openFolder"]);
+  await h.controller.fixWithAI();
+  assert.deepEqual(h.terminals, []);
+});
+
+test("Copy puts context.md itself on the clipboard", async () => {
+  const h = harness({
+    events: successfulRun,
+    directory: ["task.md", "context.md"],
+    files: { "context.md": "# Bug Context: JR-12345\n\n## Issue\n" },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  await h.controller.handle({ type: "action", id: "copyContext" });
+
+  assert.equal(h.clipboard.at(-1), "# Bug Context: JR-12345\n\n## Issue\n");
+  assert.equal(h.notices.at(-1)?.kind, "info");
+});
+
+test("Copy with no context.md on disk says so instead of copying nothing", async () => {
+  const h = harness({ events: successfulRun, directory: ["task.md", "context.md"] });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  await h.controller.copyContext();
+
+  assert.deepEqual(h.clipboard, []);
+  assert.equal(h.notices.at(-1)?.kind, "warning");
 });
 
 // --- the row actions --------------------------------------------------------
 
-test("the Build context icons open the context, copy the prompt and reveal the folder", async () => {
+test("the Build context icons open the context, copy it and reveal the folder", async () => {
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md", "bug_context.md"],
+    directory: ["task.md", "context.md"],
+    files: { "context.md": "# Bug Context\n" },
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
   await h.controller.handle({ type: "action", id: "openContext" });
-  assert.match(h.opened.at(-1) ?? "", /bug_context\.md$/);
+  assert.match(h.opened.at(-1) ?? "", /context\.md$/);
 
-  await h.controller.handle({ type: "action", id: "copyHandoff" });
-  assert.match(h.clipboard.at(-1) ?? "", /agent_task\.md/);
+  await h.controller.handle({ type: "action", id: "copyContext" });
+  assert.equal(h.clipboard.at(-1), "# Bug Context\n");
 
   await h.controller.handle({ type: "action", id: "openFolder" });
   assert.match(h.folders.at(-1) ?? "", /JR-12345$/);
@@ -1336,7 +1381,7 @@ test("the Build context icons open the context, copy the prompt and reveal the f
 test("the icons are offered only once the files they open exist", async () => {
   const h = harness({
     events: successfulRun,
-    directory: ["agent_task.md", "bug_context.md"],
+    directory: ["task.md", "context.md"],
   });
   await h.controller.refreshEnvironment();
   assert.deepEqual(
@@ -1348,7 +1393,7 @@ test("the icons are offered only once the files they open exist", async () => {
   await h.controller.run(jiraForm());
   assert.deepEqual(h.last().workflow.find((step) => step.id === "buildContext")?.actions, [
     "openContext",
-    "copyHandoff",
+    "copyContext",
     "openFolder",
   ]);
 });
@@ -1441,8 +1486,9 @@ test("attachments reach the command line, and nothing else does", async () => {
 });
 
 test("a warning from the run reaches the developer, not just the log", async () => {
-  // The case this exists for: three files picked, two copied. Without this the
-  // only record is execution.log, which is not where anybody looks.
+  // The case this exists for: three files picked, two copied. Without this
+  // the warning would exist only in the CLI's own diagnostics, which is not
+  // where anybody looks.
   const h = harness({
     events: [
       { type: "started", work_item_id: "JR-12345", source: "jira" },
@@ -1454,7 +1500,7 @@ test("a warning from the run reaches the developer, not just the log", async () 
         warnings: ["Attachment not added (not a file): C:/gone.log"],
       },
     ],
-    directory: ["agent_task.md"],
+    directory: ["task.md"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -1521,8 +1567,9 @@ const CATALOG = fixModesFromPayload(MODE_PAYLOAD);
 /** A status file for a package prepared with one mode. */
 function statusWith(modeId: string, name: string, kind = "fix"): string {
   return JSON.stringify({
-    issue_key: "JR-12345",
-    mode: "prepare-only",
+    schema_version: 1,
+    work_item_id: "JR-12345",
+    status: "prepared",
     steps: { doctor: "pass" },
     generated_files: [],
     fix_mode: { id: modeId, name, version: 1, source: "builtin", execution_kind: kind },
@@ -1576,8 +1623,8 @@ test("the selected mode reaches the command line", async () => {
 test("opening a prepared work item shows the mode it was prepared with", async () => {
   const h = harness({
     fixModes: CATALOG,
-    files: { "workflow_status.json": statusWith("conservative", "Conservative Fix") },
-    directory: ["agent_task.md", "workflow_status.json"],
+    files: { "run.json": statusWith("conservative", "Conservative Fix") },
+    directory: ["task.md", "run.json"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
@@ -1597,8 +1644,8 @@ test("switching to a work item with no recorded mode does not keep the previous 
   const h = harness({
     fixModes: CATALOG,
     form: jiraForm({ fixModeId: "investigate-first" }),
-    files: { "workflow_status.json": JSON.stringify({ steps: {}, generated_files: [] }) },
-    directory: ["agent_task.md"],
+    files: { "run.json": JSON.stringify({ steps: {}, generated_files: [] }) },
+    directory: ["task.md"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-999");
@@ -1610,8 +1657,8 @@ test("switching to a work item with no recorded mode does not keep the previous 
 test("a prepared mode the catalog no longer has is shown as unavailable", async () => {
   const h = harness({
     fixModes: CATALOG,
-    files: { "workflow_status.json": statusWith("team-safe-fix", "Team Safe Fix") },
-    directory: ["agent_task.md"],
+    files: { "run.json": statusWith("team-safe-fix", "Team Safe Fix") },
+    directory: ["task.md"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
@@ -1626,8 +1673,8 @@ test("the prepared mode is what ran, not what is selected now", async () => {
   const h = harness({
     fixModes: CATALOG,
     events: successfulRun,
-    files: { "workflow_status.json": statusWith("investigate-first", "Investigate First", "investigate") },
-    directory: ["agent_task.md", "workflow_status.json"],
+    files: { "run.json": statusWith("investigate-first", "Investigate First", "investigate") },
+    directory: ["task.md", "run.json"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm({ fixModeId: "investigate-first" }));
@@ -1681,15 +1728,15 @@ test("typing another issue key does not carry the previous bug's Fix Mode", asyn
   // next run prepared an unrelated bug under a workflow nobody chose for it.
   const h = harness({
     fixModes: CATALOG,
-    files: { "workflow_status.json": statusWith("deep-analysis", "Deep Analysis") },
-    directory: ["agent_task.md", "workflow_status.json"],
+    files: { "run.json": statusWith("deep-analysis", "Deep Analysis") },
+    directory: ["task.md", "run.json"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
   assert.equal(h.last().form?.fixModeId, "deep-analysis");
 
   // Same panel, different bug, typed rather than clicked. It has no package.
-  delete h.files["workflow_status.json"];
+  delete h.files["run.json"];
   await h.controller.handle({
     type: "formChanged",
     form: jiraForm({ issueKey: "JR-999", fixModeId: "deep-analysis" }),
@@ -1701,8 +1748,8 @@ test("typing another issue key does not carry the previous bug's Fix Mode", asyn
 test("a typed key that names a prepared work item adopts that item's mode", async () => {
   const h = harness({
     fixModes: CATALOG,
-    files: { "workflow_status.json": statusWith("test-driven", "Test-Driven Fix") },
-    directory: ["agent_task.md", "workflow_status.json"],
+    files: { "run.json": statusWith("test-driven", "Test-Driven Fix") },
+    directory: ["task.md", "run.json"],
   });
   await h.controller.refreshEnvironment();
 
@@ -1758,8 +1805,8 @@ test("switching to a hand-written bug starts from the default", async () => {
   // A hand-written bug is a new work item too; only its id is minted later.
   const h = harness({
     fixModes: CATALOG,
-    files: { "workflow_status.json": statusWith("deep-analysis", "Deep Analysis") },
-    directory: ["agent_task.md"],
+    files: { "run.json": statusWith("deep-analysis", "Deep Analysis") },
+    directory: ["task.md"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
@@ -1784,14 +1831,14 @@ test("the selector follows the typed bug while the prepared line stays with the 
   const h = harness({
     fixModes: CATALOG,
     files: {
-      "workflow_status.json": statusWith("investigate-first", "Investigate First", "investigate"),
+      "run.json": statusWith("investigate-first", "Investigate First", "investigate"),
     },
-    directory: ["agent_task.md", "workflow_status.json"],
+    directory: ["task.md", "run.json"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
 
-  delete h.files["workflow_status.json"];
+  delete h.files["run.json"];
   await h.controller.handle({
     type: "formChanged",
     form: jiraForm({ issueKey: "JR-999", fixModeId: "investigate-first" }),
@@ -2373,13 +2420,28 @@ test("the issue is read once, and reused by a later improvement", async () => {
 
 // --- UI-A3: the result the host decides --------------------------------------
 
-/** A run whose two summary artifacts are on disk and readable. */
+/** A version-1 `retrieval.json` as core writes it, with these lists in it. */
+function retrievalJson(lists: { related_files?: unknown; terms?: unknown }): string {
+  return JSON.stringify({
+    schema_version: 1,
+    confidence: "high",
+    reasons: [],
+    noise_indicators: [],
+    related_files: [],
+    terms: [],
+    ...lists,
+  });
+}
+
+/** A run whose retrieval is on disk and readable. */
 const PREPARED = {
   events: successfulRun,
-  directory: ["agent_task.md", "bug_context.md", "related_files.json", "search_quality.json"],
+  directory: ["task.md", "context.md", "retrieval.json"],
   files: {
-    "related_files.json": JSON.stringify([{ file: "a.cpp" }, { file: "b.cpp" }]),
-    "search_quality.json": JSON.stringify({ terms: [{ value: "x" }, { value: "y" }, { value: "z" }] }),
+    "retrieval.json": retrievalJson({
+      related_files: [{ file: "a.cpp" }, { file: "b.cpp" }],
+      terms: [{ value: "x" }, { value: "y" }, { value: "z" }],
+    }),
   },
 };
 
@@ -2391,27 +2453,57 @@ test("a finished run reports what it produced, counted from its own files", asyn
   const ready = h.last().contextReady;
   assert.ok(ready, "a successful run reported no result");
   assert.equal(ready.counts, "2 relevant files · 3 search terms");
-  assert.deepEqual([...ready.actions], ["openContext", "copyHandoff", "openFolder"]);
+  assert.deepEqual([...ready.actions], ["openContext", "copyContext", "openFolder"]);
   assert.equal(ready.canFix, true);
 });
 
-test("counts are omitted, not guessed, when an artifact cannot be read", async () => {
+test("counts are omitted, not guessed, when the retrieval cannot be read", async () => {
+  for (const unreadable of ["{ half written", JSON.stringify({ related_files: [{ file: "a.cpp" }] })]) {
+    // Half-written, and the pre-retrieval.json shape with no schema_version.
+    const h = harness({
+      events: successfulRun,
+      directory: ["task.md", "context.md", "retrieval.json"],
+      files: { "retrieval.json": unreadable },
+    });
+    await h.controller.refreshEnvironment();
+    await h.controller.run(jiraForm());
+
+    const ready = h.last().contextReady;
+    assert.ok(ready, "an unreadable retrieval took Context Ready with it");
+    assert.equal(ready.counts, "", "a number was invented");
+    assert.deepEqual([...ready.files], []);
+    assert.deepEqual([...ready.terms], []);
+  }
+});
+
+test("the old retrieval files are not read, even when they are on disk", async () => {
+  // No fallback: a directory holding the pre-retrieval.json files and no
+  // retrieval.json has no retrieval, and the panel says nothing about one.
+  const reads: string[] = [];
   const h = harness({
     events: successfulRun,
-    // `search_quality.json` was never written; `related_files.json` is corrupt.
-    directory: ["agent_task.md", "bug_context.md", "related_files.json"],
-    files: { "related_files.json": "[{ half written" },
+    directory: ["task.md", "context.md", "related_files.json", "search_quality.json"],
+    files: {
+      "related_files.json": JSON.stringify([{ file: "a.cpp" }]),
+      "search_quality.json": JSON.stringify({ terms: [{ value: "x" }] }),
+    },
+    onReadFile: (file: string) => reads.push(file),
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().contextReady?.counts, "", "a number was invented");
+  assert.equal(h.last().contextReady?.counts, "");
+  assert.deepEqual(
+    reads.filter((file) => /related_files|search_quality/.test(file)),
+    [],
+    "an old artifact was read",
+  );
 });
 
 test("a run with no context on disk reports no result at all", async () => {
   // The rule that keeps an empty panel empty: the result section exists because
-  // `bug_context.md` does, not because a run happened to finish.
-  const h = harness({ events: successfulRun, directory: ["agent_task.md"] });
+  // `context.md` does, not because a run happened to finish.
+  const h = harness({ events: successfulRun, directory: ["task.md"] });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
@@ -2426,7 +2518,7 @@ test("a failed run is never crowned with a result", async () => {
       { type: "completed", ok: false, error: { code: "JIRA_AUTH", message: "refused" } },
     ],
     // Even with a context file left over from an earlier attempt.
-    directory: ["agent_task.md", "bug_context.md"],
+    directory: ["task.md", "context.md"],
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -2461,8 +2553,8 @@ test("the Strategy line describes the package, in states that mean different thi
     const h = harness({
       ...PREPARED,
       fixModes: CATALOG,
-      directory: [...PREPARED.directory, "workflow_status.json"],
-      files: { ...PREPARED.files, "workflow_status.json": status },
+      directory: [...PREPARED.directory, "run.json"],
+      files: { ...PREPARED.files, "run.json": status },
     });
     await h.controller.refreshEnvironment();
     await h.controller.run(jiraForm());
@@ -2520,25 +2612,28 @@ test("the panel's Fix with AI action is the one the host already performs", asyn
 
 // --- UI-B1: Relevant Files ---------------------------------------------------
 
-/** A run whose `related_files.json` holds two files the ranker found. */
+/** The two files the ranker found, as `retrieval.json.related_files` records them. */
+const RELATED_ENTRIES = [
+  {
+    confidence: "medium",
+    documentation: false,
+    file: "src/widgets/WidgetController.cpp",
+    match_count: 3,
+    matched_keywords: ["Output", "outputType"],
+    noise_flags: [],
+    reasons: ["matched keyword in application source path"],
+    score: 10,
+    snippets: [{ line: 7, text: "void outputType();" }],
+  },
+  { documentation: true, file: "README.md", matched_keywords: ["restored"], score: 9, snippets: [] },
+];
+
+/** A run whose retrieval holds two files the ranker found. */
 const WITH_FILES = {
   events: successfulRun,
-  directory: ["agent_task.md", "bug_context.md", "related_files.json", "search_quality.json"],
+  directory: ["task.md", "context.md", "retrieval.json"],
   files: {
-    "related_files.json": JSON.stringify([
-      {
-        confidence: "medium",
-        documentation: false,
-        file: "platform/sample/Selector.cpp",
-        match_count: 3,
-        matched_keywords: ["Output", "outputType"],
-        noise_flags: [],
-        reasons: ["matched keyword in application source path"],
-        score: 10,
-      },
-      { documentation: true, file: "README.md", matched_keywords: ["restored"], score: 9 },
-    ]),
-    "search_quality.json": JSON.stringify({ terms: [{ value: "x" }] }),
+    "retrieval.json": retrievalJson({ related_files: RELATED_ENTRIES, terms: [{ value: "x" }] }),
   },
 };
 
@@ -2550,8 +2645,8 @@ test("a finished run reports the files it found, in the artifact's order", async
   const files = h.last().contextReady?.files ?? [];
   assert.deepEqual([...files], [
     {
-      path: "platform/sample/Selector.cpp",
-      name: "Selector.cpp",
+      path: "src/widgets/WidgetController.cpp",
+      name: "WidgetController.cpp",
       documentation: false,
       matched: ["Output", "outputType"],
     },
@@ -2566,7 +2661,7 @@ test("a finished run reports the files it found, in the artifact's order", async
 test("a broken file list costs the list, never the result", async () => {
   const h = harness({
     ...WITH_FILES,
-    files: { ...WITH_FILES.files, "related_files.json": "[{ half written" },
+    files: { "retrieval.json": retrievalJson({ related_files: "[{ half written", terms: [{ value: "x" }] }) },
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -2574,7 +2669,7 @@ test("a broken file list costs the list, never the result", async () => {
   const ready = h.last().contextReady;
   assert.ok(ready, "a malformed supplementary artifact took Context Ready with it");
   assert.deepEqual([...ready.files], []);
-  assert.deepEqual([...ready.actions], ["openContext", "copyHandoff", "openFolder"]);
+  assert.deepEqual([...ready.actions], ["openContext", "copyContext", "openFolder"]);
 });
 
 test("a long list is capped, and says how many it is not showing", async () => {
@@ -2583,7 +2678,7 @@ test("a long list is capped, and says how many it is not showing", async () => {
   const many = Array.from({ length: 14 }, (_, index) => ({ file: `src/f${index}.cpp` }));
   const h = harness({
     ...WITH_FILES,
-    files: { ...WITH_FILES.files, "related_files.json": JSON.stringify(many) },
+    files: { "retrieval.json": retrievalJson({ related_files: many, terms: [{ value: "x" }] }) },
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -2595,10 +2690,29 @@ test("a long list is capped, and says how many it is not showing", async () => {
   assert.match(ready?.counts ?? "", /^14 relevant files/);
 });
 
+test("eleven files show ten rows and one more, and still count eleven", async () => {
+  // The panel's ten rows are presentation. The retrieval, the count and the
+  // agent's context all keep the eleventh file; only the sidebar folds it into
+  // the overflow line.
+  const eleven = Array.from({ length: 11 }, (_, index) => ({ file: `src/widgets/Part${index}.cpp` }));
+  const h = harness({
+    ...WITH_FILES,
+    files: { "retrieval.json": retrievalJson({ related_files: eleven, terms: [{ value: "x" }] }) },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  const ready = h.last().contextReady;
+  assert.equal(ready?.files.length, 10);
+  assert.equal(ready?.files.at(-1)?.path, "src/widgets/Part9.cpp");
+  assert.equal(ready?.moreFiles, 1);
+  assert.match(ready?.counts ?? "", /^11 relevant files/);
+});
+
 test("a run with no files reports an empty list rather than nothing at all", async () => {
   const h = harness({
     ...WITH_FILES,
-    files: { ...WITH_FILES.files, "related_files.json": "[]" },
+    files: { "retrieval.json": retrievalJson({ related_files: [], terms: [{ value: "x" }] }) },
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -2628,11 +2742,11 @@ test("opening a relevant file goes through the editor, resolved against the repo
 
   await h.controller.handle({
     type: "openRelevantFile",
-    path: "platform/sample/Selector.cpp",
+    path: "src/widgets/WidgetController.cpp",
   });
 
   assert.equal(h.opened.length, 1);
-  assert.equal(h.opened[0], nodePath.resolve(ROOT, "platform/sample/Selector.cpp"));
+  assert.equal(h.opened[0], nodePath.resolve(ROOT, "src/widgets/WidgetController.cpp"));
 });
 
 test("a path that would leave the repository is refused by the host", async () => {
@@ -2687,7 +2801,7 @@ const JIRA_REFUSED = [
 ] as readonly StreamEvent[];
 
 test("a failed run is classified, and keeps what the CLI actually said", async () => {
-  const h = harness({ events: JIRA_REFUSED, directory: ["agent_task.md"] });
+  const h = harness({ events: JIRA_REFUSED, directory: ["task.md"] });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
@@ -3139,13 +3253,12 @@ test("an offer expires with the card that made it", async () => {
 
 // --- UI-C1: the terms the host reads back ------------------------------------
 
-/** A run whose `search_quality.json` records what each term did. */
+/** A run whose retrieval records what each term did. */
 const WITH_TERMS = {
   ...WITH_FILES,
   files: {
-    ...WITH_FILES.files,
-    "search_quality.json": JSON.stringify({
-      confidence: "high",
+    "retrieval.json": retrievalJson({
+      related_files: RELATED_ENTRIES,
       terms: [
         {
           value: "WidgetController",
@@ -3207,10 +3320,10 @@ test("a finished run reports the terms it searched, in the artifact's order", as
   }
 });
 
-test("a broken search_quality costs the terms, never the result", async () => {
+test("a broken terms list costs the terms, never the result", async () => {
   const h = harness({
     ...WITH_TERMS,
-    files: { ...WITH_TERMS.files, "search_quality.json": "{ half written" },
+    files: { "retrieval.json": retrievalJson({ related_files: RELATED_ENTRIES, terms: "{ half written" }) },
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -3218,7 +3331,7 @@ test("a broken search_quality costs the terms, never the result", async () => {
   const ready = h.last().contextReady;
   assert.ok(ready, "a malformed supplementary artifact took Context Ready with it");
   assert.deepEqual([...ready.terms], []);
-  // The file list comes from the other artifact and is untouched.
+  // The file list is the other half of the same artifact, and is untouched.
   assert.ok(ready.files.length > 0);
 });
 
@@ -3274,9 +3387,9 @@ test("a handoff that could not start leaves them too", async () => {
   assert.deepEqual([...(h.last().contextReady?.terms ?? [])], [...before]);
 });
 
-test("the artifact is read once for both the counts and the terms", async () => {
-  // `search_quality.json` answers two questions — how many terms, and which —
-  // and reading it twice per refresh would be two syscalls for one file.
+test("the artifact is read once for the counts, the files and the terms", async () => {
+  // `retrieval.json` answers three questions — how many, which files, which
+  // terms — and reading it per question would be three syscalls for one file.
   const reads: string[] = [];
   const h = harness({
     ...WITH_TERMS,
@@ -3285,8 +3398,8 @@ test("the artifact is read once for both the counts and the terms", async () => 
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const quality = reads.filter((file) => file.endsWith("search_quality.json"));
-  assert.equal(quality.length, 1, `search_quality.json was read ${quality.length} times`);
+  const retrieval = reads.filter((file) => file.endsWith("retrieval.json"));
+  assert.equal(retrieval.length, 1, `retrieval.json was read ${retrieval.length} times`);
 });
 
 // --- UI-C2: Diagnostics ------------------------------------------------------

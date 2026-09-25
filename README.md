@@ -14,7 +14,7 @@ AI-assisted bug work often starts with scattered context and ends with useful in
 
 ## How It Works
 ```text
-Jira issue -> code search -> memory search -> bug_context.md -> agent task -> result summary -> memory update -> delivery plan
+Jira issue -> code search -> memory search -> context.md -> task.md -> result summary -> memory update -> delivery plan
 ```
 
 bugpilot prepares files under `.ai/<issue>/` and shared memory under `.ai_memory/bugs/<issue>.md`. Jira Cloud ADF descriptions and comments are converted into readable Markdown for the issue package, and Jira attachment metadata is surfaced without downloading attachment content. Code search includes a confidence assessment so low-confidence false positives are visible before the agent edits anything. The AI agent remains a manual handoff step, with reusable team instructions for legacy C++/Qt work.
@@ -76,8 +76,8 @@ bugpilot JR-12345     # prepare, then launch the agent
 The first run may trip SmartScreen ("Windows protected your PC") because the exe is
 unsigned — choose **More info -> Run anyway**.
 
-Note: the packaged exe can't read `docs/agent_team_instructions.md` from the repo, so it
-uses the built-in fallback team instructions (same content).
+Note: the packaged exe can't read `docs/agent_team_instructions.md` from the repo, so the
+team instructions in `task.md` come from the built-in fallback (same content).
 
 ## Jira Configuration
 For real Jira fetches, set:
@@ -106,12 +106,12 @@ Demo/testing fallback must be requested explicitly:
 bugpilot bug JR-12345 --allow-mock
 ```
 
-When mock fallback is used, `jira_summary.md`, `jira.json`, and `execution.log` clearly mark the data as mock/demo fallback.
+When mock fallback is used, `issue.json` (`details.mock`) and `context.md` clearly mark the data as mock/demo fallback.
 
 ## Email Notification Configuration
 At the commit gate (`bugpilot commit-plan <ISSUE>`), bugpilot can email you a summary of
 the completed fix: the Jira item, the original problem, the root cause, and the changes
-made. The email body is assembled from local `result_summary.md` and `jira_summary.md`;
+made. The email body is assembled from local `result_summary.md` and `issue.json`;
 run `bugpilot summarize-results <ISSUE>` first so those artifacts exist.
 
 bugpilot supports two automatic transports plus a manual Outlook option. It picks
@@ -218,7 +218,7 @@ Notes:
 
 ## Optional: Let an Agent Complete the Workflow
 By default `bugpilot bug` is prepare-only and prints the manual handoff line. You can
-instead have it launch a coding agent to read `agent_task.md` and complete the
+instead have it launch a coding agent to read `task.md` and complete the
 workflow (analyze, implement the smallest safe fix, write result files, post one Jira
 status comment) — the agent still stops at the commit gate and asks before committing.
 
@@ -235,12 +235,13 @@ faster when you already know where the bug is), pass `--hint`:
 bugpilot bug JR-12345 --claude --hint "Fix in FooWidget.cxx: preserve selection on tab switch"
 
 # Attach files the agent should see: a log, a screenshot, a config.
-# Copied into .ai/<id>/attachments/ and named in agent_task.md.
+# Copied into .ai/<id>/attachments/ and named in task.md.
 bugpilot bug JR-12345 --attach ./crash.log --attach ./repro.png
 ```
 
-The hint is saved to `.ai/<ISSUE>/developer_hint.md`, injected as a "Developer Hint" section
-at the top of `agent_task.md`, and reused on `--resume`. agent_task.md also tells the
+The hint is recorded in `.ai/<ISSUE>/issue.json` (`guidance.hint`), injected as a "Developer Hint" section
+at the top of `task.md`, used by the code search, and reused on `--resume` and by a refinement
+that supplies no new hint. task.md also tells the
 agent to investigate inline (Read/Grep/Glob) and not spawn background sub-agents.
 
 The agent runs interactively in the current (target) repo so you can watch it work.
@@ -321,11 +322,11 @@ bugpilot push-plan JR-12345
 - `bugpilot memory search <ISSUE or query>`: search shared markdown memory.
 - `bugpilot memory add <ISSUE>`: create or refresh a shared memory entry.
 - `bugpilot memory update <ISSUE>`: update memory with final result information.
-- `bugpilot git-context <ISSUE>`: generate branch, status, and recent file history context.
-- `bugpilot context <ISSUE>`: generate enriched `bug_context.md`.
-- `bugpilot prompt <ISSUE>`: generate agent and review prompt files.
-- `bugpilot agent-task <ISSUE>`: regenerate agent task and handoff files from existing context.
-- `bugpilot agent-instructions <ISSUE>`: regenerate `.ai/<issue>/agent_team_instructions.md` from the reusable team template.
+- `bugpilot git-context <ISSUE>`: print branch, status, and recent file history context.
+- `bugpilot context <ISSUE>`: generate `context.md` (issue, code search, similar fixes and git history).
+- `bugpilot prompt <ISSUE>`: generate `task.md`.
+- `bugpilot agent-task <ISSUE>`: regenerate `task.md` from an existing `context.md`.
+- `bugpilot agent-instructions <ISSUE>`: print the team instructions `task.md` includes.
 - `bugpilot check-results <ISSUE>`: check whether agent result files exist.
 - `bugpilot check-results <ISSUE> --strict`: return nonzero if required result files are missing.
 - `bugpilot summarize-results <ISSUE>`: generate result summary and manual validation files.
@@ -354,7 +355,7 @@ bugpilot push-plan JR-12345
 - `bugpilot bug <ISSUE> --include-memory`: clean `.ai/<issue>/` and that issue's memory entry first, then rerun.
 - `bugpilot bug <ISSUE> --allow-mock`: explicitly allow mock/demo Jira fallback.
 - `bugpilot bug <ISSUE> --no-mock`: require real Jira data and stop if Jira fetch fails. This is the default.
-- `bugpilot jira-validate <ISSUE>`: validate Jira field mapping for a real issue (no code search, no agent task). Generates `jira_summary.md`, `jira_parsed.md`, and `jira_field_report.md`.
+- `bugpilot jira-validate <ISSUE>`: validate Jira field mapping for a real issue (no code search, no agent task). Generates `issue.json` and `jira_field_report.md`.
 
 ## Recommended Real Workflow
 ```powershell
@@ -372,7 +373,7 @@ Run these from the target product repo root. Real Jira is the default, and mock 
 A Fix Mode decides *how* the agent approaches a bug — how far to investigate, how to implement, how to verify, what to report. It never decides what the agent may do: BugPilot's evidence, branch, Jira and delivery rules are added around every mode and cannot be edited by one.
 
 - **Standard Fix** (`standard`) is the default. The other built-ins are **Conservative Fix**, **Investigate First** (investigation only — no source changes in that pass), **Test-Driven Fix** and **Deep Analysis**.
-- Select one per run with `--fix-mode <id>`. The choice is recorded in `.ai/<issue>/fix_mode.json` and reused by `--resume`, `prompt`, `agent-task` and `retry-prompt`; a fresh run starts from Standard Fix again.
+- Select one per run with `--fix-mode <id>`. The choice is recorded in `.ai/<issue>/issue.json` (`guidance.fix_mode`) and reused by `--resume`, `prompt`, `agent-task` and `retry-prompt`; a fresh run starts from Standard Fix again.
 - Custom modes are JSON files: yours in `~/.bugpilot/fix_modes/<id>.json`, the project's in `<repo>/.bugpilot/fix_modes/<id>.json` (commit that directory to share them). A project mode shadows a user mode with the same id; built-in ids cannot be overridden. Start from `bugpilot fix-mode duplicate <builtin> <new-id> --scope user|project`.
 - The VS Code extension selects a mode above **Run** and edits custom ones under **Manage Fix Modes**. The MCP server can list, inspect and select modes (`list_fix_modes`, `show_fix_mode`, `fix_mode_id` on the prepare tools) but cannot create, change or delete them — that stays with the developer.
 
@@ -401,12 +402,12 @@ Primary issue package:
 .ai/<issue>/
 ```
 
-Key search artifacts include:
+Key artifacts include:
 ```text
-.ai/<issue>/code_search.md
-.ai/<issue>/related_files.json
-.ai/<issue>/search_quality.json
-.ai/<issue>/agent_team_instructions.md
+.ai/<issue>/issue.json          the normalized bug, hint and Fix Mode
+.ai/<issue>/retrieval.json      search terms, ranked files and their matched lines
+.ai/<issue>/context.md          the evidence: issue details, code search, similar fixes, git history
+.ai/<issue>/task.md             what the agent is asked to do, team instructions included
 .ai/<issue>/jira_comment_draft.md
 ```
 
@@ -422,7 +423,7 @@ Reusable team instructions live at:
 docs/agent_team_instructions.md
 ```
 
-Each issue package gets a copy so the AI agent can read stable team rules together with the issue-specific task.
+`task.md` includes them so the AI agent reads stable team rules together with the issue-specific task.
 
 ## Prototype Status
 - Phase 1: prepare-only workflow skeleton.

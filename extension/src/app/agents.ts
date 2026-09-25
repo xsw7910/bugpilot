@@ -127,7 +127,7 @@ function quote(text: string): string {
 /**
  * A command line is one line.
  *
- * `agent_handoff.md` can carry several, and a raw newline inside a quoted
+ * A custom prompt can carry several, and a raw newline inside a quoted
  * argument is submitted by the terminal as a second command — which is how a
  * handoff prompt becomes an accidental shell invocation. Collapsed here rather
  * than at the source, because the clipboard copy of the same text should keep

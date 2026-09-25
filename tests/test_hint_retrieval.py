@@ -73,7 +73,7 @@ def test_a_hint_term_is_weaker_than_a_keyword_the_developer_typed():
 
 
 def test_a_hint_term_is_weaker_than_a_name_the_crash_printed():
-    stack = weigh("SamplePoststackReader", "issue", is_priority=True)
+    stack = weigh("WidgetController", "issue", is_priority=True)
 
     assert weigh("validation", "hint").weight < stack.weight
     assert stack.weight == WEIGHT_STRONG
@@ -110,11 +110,11 @@ def test_a_hint_moves_a_file_into_the_results(tmp_path):
     (tmp_path / "src" / "other.py").write_text("value = 1\n", encoding="utf-8")
     keywords = extract_keywords(ISSUE)
 
-    without = run_code_search(tmp_path, "JR-1", keywords, InvestigationOptions())[1]
-    with_hint = run_code_search(tmp_path, "JR-1", keywords, InvestigationOptions(hint=HINT))[1]
+    without = run_code_search(tmp_path, keywords, InvestigationOptions()).related_files
+    with_hint = run_code_search(tmp_path, keywords, InvestigationOptions(hint=HINT)).related_files
 
-    assert not any("validator.py" in item["file"] for item in without)
-    assert any("validator.py" in item["file"] for item in with_hint)
+    assert not any("validator.py" in item.file for item in without)
+    assert any("validator.py" in item.file for item in with_hint)
 
 
 @needs_rg
@@ -129,25 +129,22 @@ def test_a_wrong_hint_does_not_displace_a_named_identifier(tmp_path):
             "# validation\n" * 5, encoding="utf-8"
         )
 
-    _markdown, related, _quality = run_code_search(
+    related = run_code_search(
         tmp_path,
-        "JR-1",
         extract_keywords("VolumeDescriptor is empty when the volume loads."),
         InvestigationOptions(hint="Probably the validation code."),
-    )
+    ).related_files
 
-    assert related[0]["file"].endswith("VolumeDescriptor.py")
+    assert related[0].file.endswith("VolumeDescriptor.py")
 
 
 @needs_rg
 def test_hint_provenance_is_recorded_so_a_rank_can_be_explained(tmp_path):
     (tmp_path / "a.py").write_text("validation = 1\n", encoding="utf-8")
 
-    _markdown, _related, quality = run_code_search(
-        tmp_path, "JR-1", extract_keywords(ISSUE), InvestigationOptions(hint=HINT)
-    )
+    retrieval = run_code_search(tmp_path, extract_keywords(ISSUE), InvestigationOptions(hint=HINT))
 
-    sources = {item["value"].lower(): item["source"] for item in quality["terms"]}
+    sources = {term.value.lower(): term.source for term in retrieval.terms}
     assert sources.get("validation") == "hint"
 
 

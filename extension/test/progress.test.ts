@@ -115,7 +115,7 @@ test("a full successful run lights every row and measures each one", () => {
     time.advance(ms);
     tracker.apply(step("step_completed", name));
   }
-  tracker.apply({ type: "artifact", path: ".ai/JR-1/agent_task.md" });
+  tracker.apply({ type: "artifact", path: ".ai/JR-1/task.md" });
   tracker.apply({ type: "completed", ok: true });
 
   const view = tracker.view();
@@ -127,7 +127,7 @@ test("a full successful run lights every row and measures each one", () => {
   // issue_details spans fetch and parse, so its duration covers both.
   assert.equal(rowFor(view.rows, "issue_details").durationMs, 500);
   assert.equal(rowFor(view.rows, "code_search").durationMs, 900);
-  assert.deepEqual(view.artifacts, [".ai/JR-1/agent_task.md"]);
+  assert.deepEqual(view.artifacts, [".ai/JR-1/task.md"]);
   assert.equal(view.workItemId, "JR-1");
   assert.equal(view.activity, undefined, "a finished run has no current activity");
 });
@@ -148,7 +148,7 @@ test("a skip event marks the row even when the plan said otherwise", () => {
 });
 
 test("a step with no event of its own does not leave a row unfinished", () => {
-  // Observed on a real run: memory_add reported `pass` in workflow_status.json
+  // Observed on a real run: memory_add reported `pass` in run.json
   // having emitted no step_started at all. A success must therefore close
   // whatever is still open, or Build context would stay spinning forever.
   const tracker = new ProgressTracker(FULL_PLAN, clock().now);
@@ -249,7 +249,7 @@ test("a newer event contract says update the extension, not crashed", () => {
 
 // --- restoring after a restart --------------------------------------------
 
-test("the checklist is rebuilt from workflow_status.json", () => {
+test("the checklist is rebuilt from run.json", () => {
   // Verbatim shape from a real run, including the steps the extension ignores.
   const view = viewFromStatus({
     issue_key: "local_20260904160612",
@@ -267,7 +267,7 @@ test("the checklist is rebuilt from workflow_status.json", () => {
       memory_add: "pass",
       delivery_check: "skipped",
     },
-    generated_files: [".ai/local_20260904160612/agent_task.md", ".ai_memory/bugs/x.md"],
+    generated_files: [".ai/local_20260904160612/task.md", ".ai_memory/bugs/x.md"],
   });
 
   assert.equal(view.state, "done");

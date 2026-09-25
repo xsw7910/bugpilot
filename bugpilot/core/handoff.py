@@ -13,22 +13,24 @@ So the instructions live here, once, as data. Every entry point renders them:
 - :func:`mcp_prompt` — the MCP prompt's expanded form.
 - :func:`skill_steps` — the numbered steps in ``SKILL.md``.
 
-The wording of the first two is fixed by requirement R1: existing human-facing
-output must survive byte for byte, and those strings reach a spawned agent's
-command line.
+The wording of the first two is fixed by requirement R1: the sentence reaches a
+spawned agent's command line, and the extension's copy of it is compared
+against this one by a cross-language test.
 
 None of them says *what* the workflow is. That is the selected AI Fix Mode's
-to say, and it says it in ``agent_task.md``: an investigate-kind mode changes
-no source code, so a handoff that told every agent to "implement the smallest
-safe fix" would contradict the task file it points at. The handoff points; the
-task file decides.
+to say, and it says it in ``task.md``: an investigate-kind mode changes no
+source code, so a handoff that told every agent to "implement the smallest safe
+fix" would contradict the task file it points at. The handoff points; the task
+file decides.
 """
 
 from __future__ import annotations
 
-# The files an agent must read before doing anything. `agent_task.md` is the
-# task; `bug_context.md` is the evidence behind it.
-REQUIRED_READS: tuple[str, ...] = ("agent_task.md", "bug_context.md")
+from .artifacts import CONTEXT_ARTIFACT, TASK_ARTIFACT
+
+# The files an agent must read before doing anything. `task.md` is the task,
+# team instructions included; `context.md` is the evidence behind it.
+REQUIRED_READS: tuple[str, ...] = (TASK_ARTIFACT, CONTEXT_ARTIFACT)
 
 # The boundary, stated in the imperative because that is how it reaches a model.
 # It is the same list in section 7's safety model: bugpilot prepares, a human
@@ -74,12 +76,13 @@ _FORBIDDEN_SENTENCE = _sentence(FORBIDDEN_ACTIONS)
 
 
 def handoff_prompt(issue_key: str) -> str:
-    """The launch prompt for an agent started by bugpilot.
+    """The launch prompt for an agent started by bugpilot, or by the extension.
 
-    Byte-for-byte the string ``agent_runner.HANDOFF_PROMPT`` produced before
-    this module existed: it is passed on a command line and asserted by tests.
+    One sentence rather than a handoff document: everything the agent needs is
+    in the task file it names. It is passed on a command line and asserted by
+    tests on both sides of the extension boundary.
     """
-    return f"Read .ai/{issue_key}/agent_task.md and complete the workflow."
+    return f"Read .ai/{issue_key}/{TASK_ARTIFACT} and complete the workflow."
 
 
 def retry_handoff_prompt(prompt_file: str) -> str:
@@ -117,7 +120,7 @@ def skill_steps() -> tuple[str, ...]:
         f"Read {reads}. They contain the issue details, the ranked candidate "
         "files and the relevant git history — read them instead of searching "
         "the repository from scratch.",
-        "Complete the workflow `agent_task.md` describes for the selected AI Fix "
+        f"Complete the workflow `{TASK_ARTIFACT}` describes for the selected AI Fix "
         "Mode — it says whether this pass investigates only or implements — and "
         "write the required result files.",
         f"Stop at the commit gate. {_FORBIDDEN_SENTENCE}",

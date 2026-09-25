@@ -33,3 +33,22 @@ def no_real_jira(monkeypatch):
     """
     for name in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_TOKEN"):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def execution_trace(caplog):
+    """The `bugpilot.execution` trace, captured despite its propagate=False.
+
+    The logger deliberately does not propagate (a host's root handler must not
+    receive the trace — see logging_utils), so caplog's root-level capture
+    never sees it; the handler is attached to the logger itself instead.
+    """
+    import logging
+
+    logger = logging.getLogger("bugpilot.execution")
+    caplog.set_level(logging.INFO, logger="bugpilot.execution")
+    logger.addHandler(caplog.handler)
+    try:
+        yield caplog
+    finally:
+        logger.removeHandler(caplog.handler)

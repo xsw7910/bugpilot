@@ -102,9 +102,9 @@ def _normalize(path: str) -> str:
 def run_case(case: RetrievalCase, repo_root: Path = REPO_ROOT) -> RetrievalResult:
     """Run the real retrieval pipeline for one case and measure where files land.
 
-    Mirrors `workflow.keywords_step` rather than calling it, because that step
-    reads and writes a work-item directory: the harness wants the retrieval, not
-    the artifacts. The merge below is the same one the step performs.
+    Mirrors `workflow.extract_issue_keywords` rather than calling it, because
+    that takes a normalized issue and a case is a sentence: the harness wants the
+    retrieval, not a work item. The merge below is the same one it performs.
     """
     started = time.perf_counter()
     keywords = extract_keywords(case.issue_text)
@@ -114,10 +114,10 @@ def run_case(case: RetrievalCase, repo_root: Path = REPO_ROOT) -> RetrievalResul
         keywords["high_value_keywords"] = supplied + existing
 
     options = InvestigationOptions(hint=case.hint) if case.hint else InvestigationOptions()
-    _markdown, related, _quality = run_code_search(repo_root, case.name, keywords, options)
+    retrieval = run_code_search(repo_root, keywords, options)
     duration = time.perf_counter() - started
 
-    ranked = [str(item.get("file", "")) for item in related]
+    ranked = [item.file for item in retrieval.related_files]
     lookup = {_normalize(path): index + 1 for index, path in enumerate(ranked)}
     ranks = {expected: lookup.get(_normalize(expected)) for expected in case.expected_files}
 

@@ -81,7 +81,6 @@ ERROR_MESSAGES = {
 }
 
 
-COMMENT_RENDER_LIMIT = 10
 COMMENT_SIGNAL_TERMS = ["crash", "error", "exception", "stack trace", "repro", "regression", "screenshot", "log"]
 MAX_JIRA_COMMENT_LENGTH = 12000
 
@@ -318,7 +317,7 @@ def _paragraph(text: str) -> dict:
 
 
 def parse_issue(issue: dict) -> dict[str, object]:
-    # Defensive for standalone parse/backward compatibility with older jira.json files.
+    # Idempotent, so a payload enriched by fetch_issue is safe to hand in again.
     enrich_issue(issue)
     fields = issue.get("fields", {})
     description_text = adf_to_markdown(fields.get("description"))
@@ -379,140 +378,6 @@ def parse_issue(issue: dict) -> dict[str, object]:
         "regression_signals": parsed_details["regression_signals"],
         "missing_information": parsed_details["missing_information"],
     }
-
-
-def jira_summary_markdown(issue: dict, fetch_message: str) -> str:
-    parsed = parse_issue(issue)
-    normalized = issue.get("bugpilot_normalized", {}) if isinstance(issue.get("bugpilot_normalized"), dict) else {}
-
-    is_mock = bool(parsed["is_mock"])
-    data_source = "mock/demo fallback" if is_mock else "jira"
-    reason = issue.get("fallback_reason") or fetch_message
-
-    _na = "Not specified."
-
-    resolution = normalized.get("resolution") or _na
-    project_key = normalized.get("project_key", "")
-    project_name = normalized.get("project_name", "")
-    project = f"{project_key} — {project_name}".strip(" — ") or _na
-    assignee = normalized.get("assignee") or _na
-    reporter = normalized.get("reporter") or _na
-    created = normalized.get("created") or _na
-    updated = normalized.get("updated") or _na
-    fix_versions = ", ".join(normalized.get("fix_versions", []) or []) or "None."
-    affected_versions = ", ".join(normalized.get("affected_versions", []) or []) or "None."
-
-    labels = ", ".join(map(str, parsed.get("labels", []))) or "None."
-    components = ", ".join(map(str, parsed.get("components", []))) or "None."
-
-    comments = parsed.get("comment_details", [])
-    comments_text = _comments_markdown(comments if isinstance(comments, list) else [])
-    attachments = parsed.get("attachments", [])
-    attachments_text = _attachments_markdown(attachments if isinstance(attachments, list) else [])
-    return (
-        "# Jira Summary\n\n"
-        "## Issue\n\n"
-        f"{parsed['issue_key']}\n\n"
-        "## Data Source\n\n"
-        f"{data_source}\n\n"
-        "## Fetch Note\n\n"
-        f"{reason}\n\n"
-        f"**Mock/demo Jira data:** {'yes' if is_mock else 'no'}\n\n"
-        "## Summary\n\n"
-        f"{parsed['summary'] or _na}\n\n"
-        "## Issue Type\n\n"
-        f"{parsed['issue_type'] or _na}\n\n"
-        "## Status\n\n"
-        f"{parsed['status'] or _na}\n\n"
-        "## Resolution\n\n"
-        f"{resolution}\n\n"
-        "## Priority\n\n"
-        f"{parsed['priority'] or _na}\n\n"
-        "## Project\n\n"
-        f"{project}\n\n"
-        "## Assignee\n\n"
-        f"{assignee}\n\n"
-        "## Reporter\n\n"
-        f"{reporter}\n\n"
-        "## Created / Updated\n\n"
-        f"Created: {created}\n"
-        f"Updated: {updated}\n\n"
-        "## Labels\n\n"
-        f"{labels}\n\n"
-        "## Components\n\n"
-        f"{components}\n\n"
-        "## Affected Versions\n\n"
-        f"{affected_versions}\n\n"
-        "## Fix Versions\n\n"
-        f"{fix_versions}\n\n"
-        "## Description\n\n"
-        f"{parsed['description'] or _na}\n\n"
-        "## Comments\n\n"
-        f"{comments_text}\n\n"
-        "## Attachments\n\n"
-        f"{attachments_text}\n"
-    )
-
-
-def parsed_markdown(parsed: dict[str, object]) -> str:
-    issue_key = parsed.get("issue_key", "")
-    summary = parsed.get("summary", "")
-
-    steps = parsed.get("reproduction_steps") or []
-    steps_text = "\n".join(f"{i}. {s}" for i, s in enumerate(steps, 1)) if steps else "Not found."
-
-    actual = str(parsed.get("actual_result") or "").strip() or "Not found."
-    expected = str(parsed.get("expected_result") or "").strip() or "Not found."
-    environment = str(parsed.get("environment") or "").strip() or "Not found."
-
-    errors = parsed.get("error_messages") or []
-    errors_text = "\n".join(f"- {e}" for e in errors) if errors else "None found."
-
-    traces = parsed.get("stack_traces") or []
-    traces_text = "\n\n".join(f"```\n{t}\n```" for t in traces) if traces else "None found."
-
-    log_signals = parsed.get("log_signals") or []
-    log_text = "\n".join(f"- {s}" for s in log_signals) if log_signals else "None found."
-
-    regression_signals = parsed.get("regression_signals") or []
-    regression_text = "\n".join(f'- "{s}"' for s in regression_signals) if regression_signals else "None found."
-
-    comment_signals = parsed.get("comment_signal_terms", [])
-    attachment_kinds = parsed.get("attachment_kinds", [])
-
-    missing = parsed.get("missing_information") or []
-    missing_text = "\n".join(f"- {m}" for m in missing) if missing else "- No missing information identified."
-
-    return (
-        "# Jira Parsed Details\n\n"
-        "## Issue\n\n"
-        f"{issue_key} — {summary}\n\n"
-        "## Reproduction Steps\n\n"
-        f"{steps_text}\n\n"
-        "## Actual Result\n\n"
-        f"{actual}\n\n"
-        "## Expected Result\n\n"
-        f"{expected}\n\n"
-        "## Environment / Version\n\n"
-        f"{environment}\n\n"
-        "## Error Messages\n\n"
-        f"{errors_text}\n\n"
-        "## Stack Traces\n\n"
-        f"{traces_text}\n\n"
-        "## Log Signals\n\n"
-        f"{log_text}\n\n"
-        "## Regression Signals\n\n"
-        f"{regression_text}\n\n"
-        "## Comment Signals\n\n"
-        f"- Number of comments: {parsed.get('comment_total', 0)}\n"
-        f"- Latest comment timestamp: {parsed.get('latest_comment_timestamp') or '_None_'}\n"
-        f"- Signals found: {', '.join(map(str, comment_signals)) or '_None_'}\n\n"
-        "## Attachment Signals\n\n"
-        f"- Number of attachments: {len(parsed.get('attachments', [])) if isinstance(parsed.get('attachments'), list) else 0}\n"
-        f"- Attachment kinds found: {', '.join(map(str, attachment_kinds)) or '_None_'}\n\n"
-        "## Missing Information Checklist\n\n"
-        f"{missing_text}\n"
-    )
 
 
 def enrich_issue(issue: dict) -> dict:
@@ -624,63 +489,6 @@ def classify_attachment(filename: str, mime_type: str = "") -> str:
     if suffix in {".pdf", ".docx"}:
         return "document"
     return "unknown"
-
-
-def _comments_markdown(comments: list[object]) -> str:
-    if not comments:
-        return "No comments found."
-    total = len(comments)
-    visible = comments[-COMMENT_RENDER_LIMIT:]
-    note = f"Showing latest {len(visible)} of {total} comments.\n\n" if total > COMMENT_RENDER_LIMIT else ""
-    sections = []
-    for index, comment in enumerate(visible, start=1):
-        if not isinstance(comment, dict):
-            body = str(comment).strip()
-            author = ""
-            created = ""
-            updated = ""
-        else:
-            body = str(comment.get("body_markdown") or comment.get("body") or "").strip()
-            author = str(comment.get("author", "")).strip()
-            created = str(comment.get("created", "")).strip()
-            updated = str(comment.get("updated", "")).strip()
-        meta = []
-        if author:
-            meta.append(f"Author: {author}")
-        if created:
-            meta.append(f"Created: {created}")
-        if updated:
-            meta.append(f"Updated: {updated}")
-        sections.append(
-            f"### Comment {index}\n\n"
-            + ("\n".join(meta) + "\n\n" if meta else "")
-            + (body or "_No comment body available._")
-        )
-    return note + "\n\n".join(sections)
-
-
-def _attachments_markdown(attachments: list[object]) -> str:
-    if not attachments:
-        return "No attachments found.\n\nAttachment content is not downloaded by bugpilot."
-    lines = [
-        "Attachment content is not downloaded by bugpilot.",
-        "",
-        "| Filename | Type | Size | Created | Author |",
-        "|---|---|---:|---|---|",
-    ]
-    for attachment in attachments:
-        if not isinstance(attachment, dict):
-            continue
-        lines.append(
-            "| {filename} | {kind} | {size} | {created} | {author} |".format(
-                filename=_table_cell(attachment.get("filename", "")),
-                kind=_table_cell(attachment.get("kind", "unknown")),
-                size=_table_cell(_format_size(attachment.get("size", 0))),
-                created=_table_cell(attachment.get("created", "")),
-                author=_table_cell(attachment.get("author", "")),
-            )
-        )
-    return "\n".join(lines)
 
 
 def jira_field_report_markdown(issue: dict) -> str:
@@ -827,22 +635,6 @@ def _safe_int(value: object, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _format_size(value: object) -> str:
-    try:
-        size = int(value)
-    except (TypeError, ValueError):
-        return ""
-    if size >= 1024 * 1024:
-        return f"{size / (1024 * 1024):.1f} MB"
-    if size >= 1024:
-        return f"{round(size / 1024)} KB"
-    return f"{size} B"
-
-
-def _table_cell(value: object) -> str:
-    return str(value or "").replace("|", "\\|")
 
 
 _SENSITIVE_QUERY_RE = re.compile(

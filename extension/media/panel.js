@@ -605,7 +605,7 @@
    */
   const RESULT_ACTIONS = {
     "open-context": "openContext",
-    "copy-context": "copyHandoff",
+    "copy-context": "copyContext",
     "open-folder": "openFolder",
   };
 
@@ -825,7 +825,7 @@
     const more = byId("relevant-files-more");
     more.textContent =
       typeof ready.moreFiles === "number" && ready.moreFiles > 0
-        ? `${ready.moreFiles} more in related_files.json`
+        ? `${ready.moreFiles} more in retrieval.json`
         : "";
     more.hidden = more.textContent === "";
   }

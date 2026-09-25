@@ -10,7 +10,7 @@
  *
  * What crosses into TypeScript is display metadata only. The six instruction
  * sections that actually drive an agent stay in core, where they are rendered
- * into `agent_task.md`; nothing here needs them and copying them would make
+ * into `task.md`; nothing here needs them and copying them would make
  * this a second definition of a Fix Mode.
  *
  * Which mode is the default is likewise answered by the CLI (`default_mode_id`)
@@ -217,10 +217,10 @@ export function selectedFixModeId(catalog: FixModeCatalog, chosen: string | unde
 }
 
 /**
- * What `workflow_status.json` says the package was prepared with.
+ * What `run.json` says the package was prepared with.
  *
- * Read from the status file rather than `fix_mode.json` directly: the status
- * file is what this extension already reads for a work item, and core puts the
+ * Read from the run state rather than `issue.json` directly: `run.json`
+ * is what this extension already reads for a work item, and core puts the
  * same record in both. Nothing here writes either of them — persisting the
  * selection is the CLI's job, and a second writer would be a second opinion.
  */

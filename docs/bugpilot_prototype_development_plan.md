@@ -6270,3 +6270,1143 @@ anything from the CLI's environment.
 Deferred: Jira connectivity or latency, agent version detection, provider
 installation probes, Node/Python/PATH display, a log viewer, diagnostic export,
 run history, telemetry, and productizing the visual harness.
+
+---
+
+## 37. Artifact Simplification + Workflow Result Integration
+
+**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) complete and verified; `fix_report.md`, `WorkflowStepResult` and the UI restructuring not started. All uncommitted.
+
+**Canonical reference:** `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`
+(kept outside the repository). This section records what has landed against it.
+
+**Compatibility policy:** BugPilot is pre-release. There is no dual-write, no
+legacy reader, no fallback and no migration layer. A work item prepared before a
+batch lands is simply re-prepared. The inventory below explains the starting
+point; it is not a compatibility requirement.
+
+### 37.1 Checkpoint A — current artifact inventory (Batch 1 start)
+
+Read from the code at `158d92a`, not assumed. "ext" is the VS Code extension
+(`extension/src`). Every file lives in `.ai/<work item>/` unless noted.
+
+| Old artifact | Producer | Content | Readers | Canonical destination | Action |
+|---|---|---|---|---|---|
+| `jira.json` | `workflow.fetch_step`, `workflow.jira_validate_step` | Raw Jira REST payload, plus `bugpilot_normalized` and `bugpilot_fetch.url` | `workflow._parsed_issue` (every issue-reading step), `workflow._issue_summary` (branch name); ext `artifacts.ts` group map; delivery rules text | `issue.json` (normalized subset only; raw payload not persisted) | Batch 1: remove |
+| `jira_summary.md` | `fetch_step`, `jira_validate_step` via `jira.jira_summary_markdown` | Rendered issue metadata, description, comments, attachment table | `context.build_context` (pasted into `bug_context.md`), `email_notify.build_email_draft`, `cli._print_key_generated_artifacts`; ext group map | `issue.json` (data); rendered in `bug_context.md` from memory | Batch 1: remove |
+| `jira_parsed.md` | `workflow.parse_step`, `jira_validate_step` via `jira.parsed_markdown` | Repro steps, actual/expected, environment, errors, stack traces, log/regression/comment/attachment signals, missing-info checklist | `context.build_context`, `workflow.jira_comment_draft_step` (existence), `cli._print_key_generated_artifacts`, `prompts._copilot_task` (agent told to read it); ext group map | `issue.json` (data); rendered in `bug_context.md` from memory | Batch 1: remove |
+| `bug_spec.json` | `input_adapters.save_bug_spec` (manual: before steps; Jira: `_persist_resolved_spec` after parse) | `work_item_id`, `source`, `title`, `description`, `source_ref` | `workflow._parsed_issue`, `_issue_summary`, `refine_investigation`; `cli` (`bug --json`, `status --json`, `list`, Jira-only refusals); `mcp_server` (`_package`, `get_status`); `email_notify`; ext group map | `issue.json` (`id`, `source`, `title`, `description`) | Batch 1: remove |
+| `developer_hint.md` | `run_investigation` (effective hint), `refine_investigation` (new hint) | The hint text | `run_investigation` (resume reuse), `prompt_step`, `copilot_task_step` | `issue.json.guidance.hint` | Batch 1: remove |
+| `fix_mode.json` | `fix_mode_state.persist_fix_mode` (before the pipeline) | `schema_version`, mode `id` + audit metadata (`name`, `version`, `source`, `execution_kind`, `based_on*`) | `fix_mode_state.select_fix_mode` (resume, refine, retry, standalone agent-task), `stored_fix_mode_metadata` → `workflow_status.json.fix_mode` → ext `fixModes.ts`, `cli status`, MCP `get_status` | `issue.json.guidance.fix_mode` | Batch 1: remove |
+| `extracted_keywords.json` | `workflow.keywords_step` | Mined + supplied keywords, dropped keywords | `code_search_step`, `context_step`, `memory.search_memory`; ext group map | `retrieval.json` | Batch 2 |
+| `code_search.md` | `code_search_step` via `search.run_code_search` | Matched lines, snippets, top files, warnings | `context.build_context`, retry prompt reading list, final review prompt, `cli` key artifacts, task prompt text; ext | `retrieval.json` (data) / `context.md` (snippets) | Batch 2 |
+| `search_quality.json` | `code_search_step` | Confidence, reasons, per-term match counts/classification | `context.build_context`, retry prompt; ext `contextSummary.ts`, `retrievalDetails.ts` | `retrieval.json` | Batch 2 |
+| `related_files.json` | `code_search_step` | Ranked files with matched keywords | `context.build_context`, `git_ops`, `_build_manual_validation`, retry prompt; ext `contextSummary.ts`, Relevant Files | `retrieval.json.related_files` | Batch 2 |
+| `git_context.md`, `memory_search.md` | `git_context_step`, `memory.search_memory` | Git history / similar historical issues (deleted after `context` folds them) | `context.build_context` | `retrieval.json.git_history` / `.similar_fixes` | Batch 2 |
+| `bug_analysis.md` | The coding agent (required result file); `manual_result_step` template | Root cause analysis *after* a fix attempt | `check_results`, `_build_result_summary`, `jira_comment_draft`, retry prompt; ext | `fix_report.md` (in the code it is a post-fix result, not pre-fix context) | Later batch |
+| `bug_context.md` | `context_step` via `context.build_context` | The assembled context an agent reads first | `copilot_task_step` (existence), MCP `_package` excerpt, memory entry path, prompts; ext Open Context / Copy | `context.md` | Batch 3 |
+| `agent_task.md`, `agent_handoff.md` | `prompt_step` / `copilot_task_step` via `prompts.generate_prompts` | Task package and handoff prompt | `cli`, `handoff`, MCP `_package`; ext Fix with AI | `task.md` | Batch 4 |
+| `agent_team_instructions.md` | `prompt_step`, `copilot_instructions_step` (copy of `docs/agent_team_instructions.md`) | Stable team instructions | Agent (via task text) | merged into `task.md` | Batch 4 |
+| `execution.log` | `logging_utils.log` (append-only) | Step log | `cli._print_log_hint`; ext group map | `run.json` (state); log disposition decided in that batch | Batch 5 |
+| `workflow_status.json` | `workflow._write_status` / `_mark_step` (atomic) | Step statuses, generated files, fresh/allow_mock, fix mode record | `cli status/list`, MCP `get_status`, ext progress restore (`controller.ts`, `ports.ts`), `fixModes.ts` | `run.json` | Batch 5 |
+| `diff_summary.md`, `fix_summary.md`, `review_notes.md`, `test_result.md` | The coding agent; `manual_result_step` templates | Post-fix results | `check_results`, `_build_result_summary`, retry prompt, jira comment draft, `_build_manual_validation`; ext | `fix_report.md` | Later batch |
+
+Not in the plan's list but found while inventorying, and left for the batch that
+owns them: `jira_field_report.md` (written only by the diagnostic
+`jira-validate` command), `jira_comment_on.flag`, `agent_retry_prompt.md`,
+`user_feedback.md`, `result_summary.md`, `manual_validation.md`,
+`final_review_prompt.md`, `commit_plan.md`, `push_plan.md`, `email_draft.md`,
+`notification.eml`, `jira_comment_draft.md`, `jira_comment_post_*`, and the
+`attachments/` directory.
+
+**Disk-as-IPC found in the issue stage.** `fetch_step` writes `jira.json`, then
+`parse_step`, `keywords_step`, `context_step` and `memory_add_step` each re-read
+and re-parse it; `parse_step` writes `jira_parsed.md` and `context_step` reads it
+back as text; `_persist_resolved_spec` re-parses `jira.json` a fourth time to
+write `bug_spec.json`. Batch 1 replaces all of this with one typed object.
+
+### 37.2 Checkpoint B — the canonical 5+1 contract
+
+```text
+.ai/<work item>/
+├── issue.json       normalized bug + effective guidance        (Batch 1)
+├── retrieval.json   terms, relevant files, git history, fixes  (Batch 2)
+├── context.md       what the agent reads first                 (Batch 3)
+├── task.md          the task package for the coding agent      (Batch 4)
+├── run.json         runtime state                              (Batch 5)
+└── fix_report.md    optional, post-fix only
+```
+
+Single source of truth: `bugpilot/core/artifacts.py` — `ISSUE_ARTIFACT`,
+`RETRIEVAL_ARTIFACT`, `CONTEXT_ARTIFACT`, `TASK_ARTIFACT`, `RUN_ARTIFACT`,
+`FIX_REPORT_ARTIFACT`, `CORE_ARTIFACTS` and `ARTIFACT_SCHEMA_VERSION = 1`. Every
+JSON artifact carries `schema_version: 1`. No constant exists for any old name.
+
+`CORE_ARTIFACTS` and `FIX_REPORT_ARTIFACT` have no production caller yet; they
+are listed in `test_no_unwired_symbols.py`'s `ALLOWED` table with that reason, so
+the batch that adopts each deletes its line and the table records exactly what
+is still unwired. (`RETRIEVAL_ARTIFACT`, `CONTEXT_ARTIFACT`, `TASK_ARTIFACT` and
+`RUN_ARTIFACT` are referenced by `CORE_ARTIFACTS`; each batch starts writing its
+file through the constant.)
+
+### 37.3 Checkpoint C — `issue.json`: one typed model
+
+`bugpilot/core/issue.py` defines `IssueArtifact` (frozen dataclasses:
+`IssueComment`, `IssueAttachment`, `IssueSignals`, `IssueDetails`,
+`IssueGuidance`), its builders and its on-disk form.
+
+```json
+{
+  "schema_version": 1,
+  "id": "JR-12345",
+  "source": "jira",
+  "title": "WidgetController rejects a valid output type",
+  "description": "…",
+  "comments": [{ "created": "2026-05-10T09:00:00.000+0000", "body": "…" }],
+  "signals": { "stack_traces": [], "error_messages": [], "log_signals": [] },
+  "details": {
+    "issue_type": "Bug", "status": "Open", "resolution": "", "priority": "High",
+    "labels": [], "components": [], "affected_versions": [], "fix_versions": [],
+    "mock": false,
+    "reproduction_steps": [], "actual_result": "", "expected_result": "",
+    "environment": "", "regression_signals": [], "missing_information": [],
+    "attachments": [{ "filename": "crash.log", "kind": "log", "mime_type": "text/plain",
+                      "size": 4096, "created": "…" }]
+  },
+  "guidance": {
+    "hint": "Investigate output validation.",
+    "fix_mode": { "id": "standard", "name": "Standard Fix", "version": 1, "source": "builtin",
+                  "execution_kind": "fix", "based_on": null, "based_on_version": null }
+  }
+}
+```
+
+Decisions, each against what the code actually reads:
+
+- **One parser for both sources.** A Jira payload goes through `parse_issue`; a
+  hand-written bug goes through the same `parse_issue` via
+  `manual_issue_payload`. Same schema, same signal extraction.
+- **`signals`** holds exactly the three lists keyword extraction ranks first.
+  `IssueArtifact.combined_text` / `.priority_text` rebuild the two strings
+  `keywords_step` used to assemble from the parsed dict, so extraction inputs are
+  unchanged (a test compares the two paths byte for byte).
+- **`details`** holds what `bug_context.md` renders and `_caution_markdown` /
+  `_quality_score` decide from. The version lists come from the payload's
+  normalized block, because `parse_issue` folds them into `environment`.
+- **Not kept:** the raw payload (attachment/thumbnail URLs, `self` links, account
+  ids, custom fields), the fetch URL, and people's names — assignee, reporter,
+  comment authors. No step decides anything from them. `bug_context.md` loses
+  its Assignee / Reporter / Project / Created-Updated lines and comment authors;
+  everything a step reads is still there.
+- **`guidance.fix_mode` is the audit record, not a bare id.** The canonical plan
+  sketches `"fix_mode": "standard"`; an id alone would drop the version/source
+  drift warnings (`_drift_warnings`), which is a Fix Mode behaviour change. The
+  id remains the only thing that selects a mode.
+- **`guidance.hint`** is the effective hint: explicit `--hint`, else the
+  request's option (how an accepted improved hint arrives), else — on
+  `--resume` only — the hint `issue.json` already records.
+- **`source_ref`** is not stored: it is `id` for Jira and `None` for manual, so it
+  is a property. `can_write_back` follows from it.
+- **Atomic:** `save_issue` writes through `artifact_io.atomic_write_text`.
+- **Version 1 only:** `issue_from_dict` rejects any other `schema_version`, an id
+  that does not match the directory, or an unknown source.
+
+Flow, with the disk-as-IPC removed:
+
+```text
+run_investigation
+  manual → issue_from_spec(spec, guidance)          (complete, in memory)
+  jira   → jira_stub(id, guidance)                  (or the previous issue on --resume)
+  persist_fix_mode(…, issue) → one atomic write of issue.json, before any step
+  fetch  → _fetch: fetch_issue → issue_from_jira → save_issue   (raw payload dropped)
+  parse  → parse_step(issue=…): checks a Jira issue was fetched; writes nothing
+  keywords / context / prompt / memory_add ← the same IssueArtifact, in memory
+refine / standalone steps / agent-task → load_issue (persisted state)
+```
+
+### 37.4 Checkpoint D — legacy issue writers and readers removed
+
+Removed, with no fallback and no compatibility constant:
+
+| Old | Writer removed | Readers moved to |
+|---|---|---|
+| `jira.json` | `fetch_step`, `jira_validate_step` | the in-memory issue; `issue.json` |
+| `jira_summary.md` | `fetch_step`, `jira_validate_step`; `jira.jira_summary_markdown` deleted | `context._issue_summary_markdown` (from memory); `email_notify` reads `issue.json` |
+| `jira_parsed.md` | `parse_step`, `jira_validate_step`; `jira.parsed_markdown` deleted | `context._issue_details_markdown`; `jira_comment_draft_step` checks `issue.json`; the task prompt points at `bug_context.md` |
+| `bug_spec.json` | `input_adapters.save_bug_spec` (+ `load_bug_spec`, `spec_to/from_dict`, `bug_spec_path`, `bug_spec_from_jira`) deleted | `issue.read_issue_quietly` in `cli` (`bug --json`, `status --json`, `list`, Jira-only refusals), `mcp_server`, `email_notify` |
+| `developer_hint.md` | `run_investigation`, `refine_investigation` | `issue.guidance.hint` |
+| `fix_mode.json` | `persist_fix_mode` now writes `issue.json.guidance.fix_mode`; `FIX_MODE_FILE` / `FIX_MODE_SCHEMA_VERSION` deleted | `select_fix_mode` / `stored_fix_mode_metadata` read `issue.json` |
+
+Also: `workflow._parsed_issue`, `_issue_summary`, `_persist_resolved_spec` deleted;
+the extension's artifact group map lists `issue.json` instead of the four old
+names; the delivery rule "Do not add `jira.json`" now names `issue.json`; a
+corrupt `issue.json` on `agent-task` / `prompt` prints a one-line error instead of
+a traceback.
+
+`jira-validate` (a diagnostic command, not part of normal execution) now writes
+`issue.json` plus its own `jira_field_report.md`. That report is the one `jira*`
+file left, and belongs to the batch that decides the fate of diagnostic outputs.
+
+### 37.5 Checkpoint E — tests and verification (Batch 1)
+
+New: `tests/test_issue_artifact.py` (28 collected). It covers the Jira and the
+manual source (`schema_version`, `id`, `source`, `title`, `description`,
+`comments`, `signals`, `details`, effective hint, Fix Mode, exactly one issue
+artifact), no raw payload / URL / token / account id / person name in
+`issue.json`, the status file still reporting the recorded mode, the derived
+manual title, the Jira write-back gate, byte-identical keyword-extraction input
+for both sources and across an `issue.json` round trip, the atomic write, every
+unusable-file case as an error rather than a fallback, and resume: hint and mode
+kept, retrieval searching with the recorded hint, an accepted improved hint
+winning and sticking, a fresh run dropping old guidance, refine restoring from
+`issue.json`, and a legacy directory (`developer_hint.md`, `fix_mode.json`,
+`bug_spec.json`) being ignored rather than read.
+
+Existing tests moved to `issue.json` rather than tolerating both layouts. Deleted
+because their only subject was an old file: 13 `bug_spec.json` / `bug_spec_from_jira`
+tests (their round-trip, UTF-8, missing, corrupt and write-back-gate behaviour is
+re-covered against `issue.json`), the `developer_hint.md` foreign-encoding test,
+and the `bugpilot_normalized.summary` branch-name fallback.
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1036 passed (baseline 1022: −15 legacy-only, +1, +28 new) |
+| `npm test` (extension) | 823 passed |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean |
+
+Real scratch run (a throwaway `sample-repo`, working tree via
+`python -m bugpilot`, manual `--prepare-only` with title, hint and
+`--fix-mode conservative`, plus `JR-12345 --allow-mock`): both work items hold
+`issue.json` with the expected data and none of `jira.json`, `jira_summary.md`,
+`jira_parsed.md`, `bug_spec.json`, `developer_hint.md`, `fix_mode.json`. The
+remaining files are the later batches' (`code_search.md`, `extracted_keywords.json`,
+`related_files.json`, `search_quality.json`, `bug_context.md`, `agent_task.md`,
+`agent_handoff.md`, `agent_team_instructions.md`, `workflow_status.json`,
+`execution.log`).
+
+Note for whoever repeats the scratch run: the `bugpilot` on PATH is currently a
+pipx install of the frozen `installer/` wheel, not the working tree, and still
+writes the old files.
+
+Open for later batches, found in this one:
+
+- `refine_investigation` without a new hint searches without the recorded hint
+  while its regenerated task file carries it. Unchanged from before; it belongs
+  with the retrieval batch.
+- User-facing docs (`README.md`, `docs/usage_guide.md`, `docs/architecture.md`,
+  `docs/adapter_design.md`, the two architecture HTML guides) still describe the
+  old issue files; historical logs and phase notes stay as written.
+- `jira_field_report.md` from the diagnostic `jira-validate` command.
+
+### 37.6 Checkpoint — retrieval artifact inventory (Batch 2 start)
+
+Read from the Batch 1 working tree. The canonical spec now lives at
+`docs/BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`.
+
+| Old artifact | Producer | Actual content | Readers | Canonical destination | Action |
+|---|---|---|---|---|---|
+| `extracted_keywords.json` | `workflow.keywords_step` (`keywords.extract_keywords` + supplied keywords prepended to `high_value_keywords`, overflow in `dropped_supplied_keywords`) | Seven extractor lists: `high_value_keywords`, `normal_keywords`, `dropped_keywords`, `phrase_keywords`, `expanded_keywords`, `priority_keywords`, `shape_candidates` | `code_search_step` (→ `search_terms.terms_from_extraction` / `shape_candidates`, and the legacy high/normal sets in `_rank_related_files`); `memory._query_keywords` (high + normal, for Similar fixes); `context_step` (Extracted Keywords section, a JSON dump of the dict, and the high-value count in the quality score); `tests/retrieval_corpus.py` mirrors the step; ext group map | Not persisted. Internal pipeline state, passed in memory; a standalone step recomputes it from `issue.json` (it is a pure function of the issue text). What was actually searched is `retrieval.json.terms` | Remove writer and all readers |
+| `code_search.md` | `code_search_step` via `search._render_markdown` | Human-readable report: quality + reasons, the four keyword lists, warnings, high/low-confidence lists, Top Related Files lines, and Matched Lines (per file, up to 5 snippets, bounded by `max_search_lines`) | `context._code_search_summary` (Top Related Files and Warnings excerpts) and `_matched_lines_excerpt` (first 25 Matched Lines) into `bug_context.md`; agent prompts ("Read and inspect code_search.md", "Use matched line numbers from code_search.md"); retry and final-review reading lists; manual validation text; memory entry text; `cli._print_key_generated_artifacts`, `cli search --json`; ext group map | Removed. The one piece of evidence that is read downstream — matched lines — becomes bounded structured data: `retrieval.json.related_files[].snippets` (`line`, `text`), exactly the snippets the Matched Lines section showed under the same `max_search_lines` budget. Everything else in it was a re-rendering of data retrieval.json holds | Remove writer, renderer and readers |
+| `search_quality.json` | `code_search_step` via `search._overall_quality` + `_term_diagnostics` | `confidence`, `reasons` (warnings appended), `high/medium/low_confidence_files`, `noise_indicators`, `terms[]` (`value`, `source`, `weight`, `effective_weight`, `match_count`, `classification`, `derived_from`, `status`) | `context` (confidence, reasons; confidence in the quality score); agent prompts; retry reading list; `cli search --json`; ext `contextSummary.contextCounts` (terms count), `retrievalDetails.retrievalTerms`; ext group map | `retrieval.json`: `confidence`, `reasons`, `noise_indicators`, `terms` unchanged in meaning. The three `*_confidence_files` lists are dropped: each is `related_files[].confidence` filtered, no production code reads them, and keeping them would store every file twice | Remove writer and readers |
+| `related_files.json` | `code_search_step` via `search._related_files` | Ranked list: `file`, `documentation`, `score`, `confidence`, `match_count`, `matched_keywords`, `reasons`, `noise_flags` | `context` (Top Related Files — file/confidence/score/match_count/keywords — and the count in the quality score); `git_ops._related_files` (top 5, for Git history); `workflow._build_manual_validation`; agent prompts; retry reading list; ext `contextCounts` (count), `relevantFiles` (file/documentation/matched_keywords), panel overflow text "N more in related_files.json"; ext group map | `retrieval.json.related_files`, same order, same fields, plus `snippets` | Remove writer and readers |
+
+**Git history and Similar fixes (Case B).** Neither produces persisted
+structured data. `git_ops.generate_git_context` renders Markdown
+(`git_context.md`); `memory.search_memory` builds a small list of dicts in
+memory but persists only Markdown (`memory_search.md`). Both files are
+intermediate: `context_step` folds them into `bug_context.md` and deletes them.
+Nothing is added to `retrieval.json` for them in this batch, and no
+`git_history.json` / `similar_fixes.json` is created. They change only where
+their *inputs* come from (the related files and the keywords, now in memory).
+
+**Algorithm baseline.** The corpus runs against this repository, so file
+contents move it even when the algorithm does not. Pre-Batch-2, on the working
+tree: top-1 1/5, top-3 3/5, top-5 3/5, top-10 3/5, MRR 0.367, docs in top 5 9,
+53 terms, ~5.0 s. The same code against HEAD's file contents gives MRR 0.467, the
+§33.7C figure: Batch 1 removed the string `fix_mode.json` from
+`fix_mode_state.py`, which the `identifier-persist-fix-mode` case text names, so
+that file fell from rank 1 to 10 while `workflow.py` rose from 9 to 2. A content
+effect, not a ranking change; the corpus text is left as it is. For Batch 2 a
+frozen copy of the pre-Batch-2 tree is the fixed repository: the new code must
+rank every case on it exactly as the old code did.
+
+### 37.7 Checkpoint — `retrieval.json`: one typed model
+
+`bugpilot/core/retrieval.py` defines `RetrievalArtifact` (frozen dataclasses
+`RetrievalTerm`, `RelatedFile`, `Snippet`), `save_retrieval` (atomic, through
+`artifact_io.atomic_write_text`), `load_retrieval` (version 1 only; anything else
+is `RetrievalArtifactError`, never a fallback) and `read_retrieval_quietly`.
+`search.run_code_search(repo_root, keywords, options)` now returns the artifact
+itself; `code_search_step` writes it once, when the search is complete.
+
+Abridged from the real manual scratch run in §37.11 (`sample-repo`):
+
+```json
+{
+  "schema_version": 1,
+  "confidence": "high",
+  "reasons": ["At least one high-confidence application source file was found."],
+  "noise_indicators": [],
+  "terms": [
+    { "value": "VDS", "source": "identifier", "weight": 8, "effective_weight": 8,
+      "match_count": 2, "classification": "specific", "derived_from": "", "status": "retained" },
+    { "value": "validation", "source": "hint", "weight": 4, "effective_weight": 4,
+      "match_count": 0, "classification": "zero", "derived_from": "", "status": "dropped" },
+    { "value": "outputType", "source": "shape_expansion", "weight": 5, "effective_weight": 5,
+      "match_count": 3, "classification": "specific", "derived_from": "output type", "status": "retained" }
+  ],
+  "related_files": [
+    { "file": "src/WidgetController.cpp", "documentation": false, "score": 42,
+      "confidence": "high", "match_count": 12,
+      "matched_keywords": ["Output", "VDS", "WidgetController", "outputType", "type"],
+      "reasons": ["keyword matches file name", "matched 2 distinct high-value keywords", "..."],
+      "noise_flags": [],
+      "snippets": [ { "line": 4, "text": "return type != OutputType::VDS;" } ] }
+  ]
+}
+```
+
+Against the canonical sketch:
+
+- **`terms`** is exactly the old `search_quality.json` term record — same eight
+  fields, same meaning, same order (weighted terms, then probed shapes).
+  `match_count` is still matching ripgrep *lines*.
+- **`related_files`** keeps all eight fields the old file had, not only the
+  sketch's three. `score`, `confidence`, `match_count` feed `bug_context.md` and
+  the quality score; `reasons` and `noise_flags` are what an agent reads to see
+  why a file ranked. **`snippets`** is new and is the only thing taken from
+  `code_search.md`: the matched lines, chosen by the same `max_search_lines`
+  arithmetic the report's Matched Lines section used (two heading lines per
+  file, one per line, one blank), so the option still bounds the evidence.
+- **`confidence`, `reasons`, `noise_indicators`** unchanged. `reasons` still ends
+  with the search warnings (a failed probe, "rg is unavailable").
+- **Dropped:** `high/medium/low_confidence_files` (a filter of
+  `related_files[].confidence`), the extracted keyword lists (in-memory state),
+  and every Markdown rendering.
+- **No `git_history` / `similar_fixes`.** Case B (§37.6): no structured data
+  exists to put there.
+
+Equivalence, proved on the frozen pre-Batch-2 tree for all six corpus cases:
+every related file (all eight fields, same order), every term, confidence,
+reasons and noise indicators are identical to what the old code wrote, and the
+old Matched Lines section re-renders byte for byte from `snippets`. Corpus
+summary on that tree: identical (top-3 3/5, MRR 0.367, docs in top 5 9, 53 terms).
+
+**Keywords in memory.** `workflow.extract_issue_keywords(issue, supplied)` is the
+old keywords step as a pure function; `keywords_step` returns its result and
+`run_investigation` / `refine_investigation` hand it to `memory_search_step`,
+`code_search_step` and `context_step`. A step run on its own
+(`bugpilot search`, `context`, `memory search <id>`, the MCP memory tool)
+recomputes it from `issue.json` via `work_item_keywords`. `--keywords` is a
+per-run retrieval option, like `--focus-file`, `--ignore-path` and `--max-files`,
+none of which a standalone command has ever remembered. `bugpilot keywords` now
+prints the lists instead of writing a file.
+
+**Git history** takes its five files from the retrieval in memory
+(`generate_git_context(..., related_files)`); `git_ops` no longer reads an
+artifact. **Memory search** takes the extraction as an argument
+(`search_memory(..., extracted=)`) instead of reading one.
+
+### 37.8 Checkpoint — legacy retrieval writers and readers removed
+
+Removed, with no fallback and no compatibility constant:
+
+| Old | Writer removed | Readers moved to |
+|---|---|---|
+| `extracted_keywords.json` | `keywords_step` (and `keywords.keywords_json`, deleted) | the in-memory extraction: `memory_search_step`, `code_search_step`, `context_step`; standalone steps and the MCP memory tool recompute it (`workflow.work_item_keywords`); `memory._query_keywords` takes it as an argument |
+| `code_search.md` | `code_search_step`; `search._render_markdown` deleted | `context._code_search_summary` / `_matched_lines_excerpt` render from `retrieval.related_files` (+ `snippets`); prompts, retry and final-review reading lists, manual validation, memory entry and `cli` listings name `retrieval.json` |
+| `search_quality.json` | `code_search_step`; `search.search_quality_json` deleted | `context._search_quality_markdown` / `_quality_score` from the retrieval; prompts and retry list name `retrieval.json` |
+| `related_files.json` | `code_search_step`; `search.related_files_json` deleted | `context`, `git_context_step` (top 5 → `generate_git_context(related_files=)`; `git_ops._related_files` deleted), `_build_manual_validation` |
+
+Also deleted: `search.MAX_TOTAL_CODE_SEARCH_LINES` (the renderer's default;
+`InvestigationOptions.max_search_lines` still defaults to 300), the dead
+`workflow._read_json` / `_read_json_default`. `cli search --json` reports
+`retrieval.json` as its one generated file; `bugpilot keywords` prints the
+extraction instead of writing it. Stale present-tense comments naming the old
+files (in `keywords.py`, `search_terms.py`, `models.py`) were corrected.
+
+Three deliberate differences in `bug_context.md` (context is Batch 3's; these
+follow only from its inputs moving):
+
+- "Code Search Summary" points at `retrieval.json` instead of `code_search.md`.
+- It lists at most the first ten ranked files. The old 12-line excerpt of the
+  report held up to eleven; with the default `max_files` of 10 the output is the
+  same. *(Superseded by §37.12: that cap dropped the eleventh file from the
+  context; the summary now lists every ranked file.)*
+- It no longer appends a "Warnings:" block. The same warnings are the last
+  entries of Code Search Quality → Reasons in the same document, where they
+  already appeared.
+
+The Relevant Snippets excerpt, Top Related Files, Code Search Quality, the
+quality score and the Extracted Keywords section are unchanged; §37.11 checks
+this on a real run.
+
+### 37.9 Checkpoint — extension migrated to `retrieval.json`
+
+- `src/app/retrieval.ts` (new) is the one reader: `RETRIEVAL_ARTIFACT`,
+  `parseRetrieval(text)` → `{ relatedFiles?, terms? }`. It accepts only
+  `schema_version: 1`; a missing file, invalid JSON, a wrong version, or the old
+  bare-array / version-less shapes are all "no retrieval".
+- `controller.#readSummary` reads `retrieval.json` once, parses it once, and
+  derives the Context Ready counts (`contextCounts`), Relevant Files
+  (`relevantFiles`) and Retrieval Details (`retrievalTerms`) from that one value.
+  The three functions no longer take strings or parse anything.
+- `RELATED_FILES_ARTIFACT` / `SEARCH_QUALITY_ARTIFACT` deleted; the panel's
+  overflow line reads "N more in retrieval.json"; the artifact group map lists
+  `retrieval.json` in place of the four old names.
+- Unchanged: Implementation / Supporting grouping, artifact order, the 10-row
+  cap, matched keywords, click-to-open with `isSafeRelativePath` on the page and
+  `isWithin` on the host, "N lines" / "1 line", Broad only from
+  `classification == "broad"`, `derived_from`, zero-match shapes, no weights, no
+  tuning UI. The context-existence check still uses `bug_context.md` (Batch 3).
+- Tests: every fixture is one `retrieval.json`; new coverage for version-1-only
+  parsing and for a directory that holds only the old files (nothing is read).
+
+### 37.10 Checkpoint — Refine searches with the recorded hint
+
+The Batch 1 finding (§37.5): `refine_investigation` without a new hint passed
+its own options — hint `None` — to the search, while the task file it
+regenerated carried the hint `issue.json` recorded. Retrieval and task
+disagreed about the hint in force.
+
+One precedence now serves every search, `workflow._effective_hint(*candidates)`:
+the first non-blank, stripped, of
+
+1. a hint supplied for this operation (`--hint`, or refine's new hint),
+2. the request's own option — how an accepted improved hint arrives,
+3. `issue.json.guidance.hint`,
+4. none.
+
+`run_investigation` passes (explicit `hint=`, `request.options.hint`, the
+previous issue's hint on `--resume` only) — the Batch 1 behaviour, unchanged.
+`refine_investigation` passes (`options.hint`, the recorded hint); a new hint is
+still written to `issue.json` first, and the search runs with
+`replace(options, hint=effective)`. Hint Improvement itself is untouched: an
+accepted hint still arrives as the run's hint.
+
+Tests (`tests/test_retrieval_artifact.py`): refine with no new hint searches
+with the recorded one and records its `hint` terms; a new hint overrides it,
+replaces the recorded one, and is kept by the next refinement; with no hint
+anywhere the search gets none; refining the hint leaves the Fix Mode and the
+task's mode line unchanged. Each first one would fail against the Batch 1 code.
+
+### 37.11 Checkpoint — Batch 2 verification
+
+New: `tests/test_retrieval_artifact.py` (26). Schema and exact keys; every kind
+of term — user, hint, issue, identifier, confirmed shape with `derived_from`,
+zero-match shape, broad term demoted from 2 to 1 with `match_count` = 300 lines,
+retained/dropped status; search order; related-file rank, documentation
+classification, noise flags and sorted matched keywords; snippets and the
+`max_search_lines` budget; byte-identical serialization of a repeated search;
+git history looked up for the top five in memory; the three refine-hint cases
+and Fix Mode unchanged; a plan without code search writing no retrieval; resume
+reading the persisted retrieval; round trips, atomic write, and every unusable
+or old-shape file as an error rather than a fallback.
+
+**Resume coherence.** Running `memory_search_step`, `git_context_step` and
+`context_step` by hand after a pipeline run — each from `issue.json` and
+`retrieval.json` alone — rebuilds a `bug_context.md` byte-identical to the
+pipeline's.
+
+Deleted: `test_code_search_markdown_contains_quality_section_headers` (its
+only subject was the Markdown report). Everything else was migrated in place.
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1061 passed (Batch 1 end 1036: −1 deleted, +26 new) |
+| `npm test` (extension) | 825 passed (823: +1 version-1-only parse, +1 old files not read) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean (new untracked files checked separately: no trailing whitespace) |
+| `python tests/retrieval_corpus.py` | top-3 3/5, MRR 0.367, docs in top 5 9 |
+
+Retrieval corpus (`tests/retrieval_corpus.py`, cases unchanged; the harness
+adapted to `run_code_search` returning the artifact):
+
+| | top-1 | top-3 | top-5 | top-10 | MRR | docs in top 5 | terms | duration |
+|---|---|---|---|---|---|---|---|---|
+| frozen pre-Batch-2 tree, before | 1/5 | 3/5 | 3/5 | 3/5 | 0.367 | 9 | 53 | 5.4 s |
+| frozen pre-Batch-2 tree, after | 1/5 | 3/5 | 3/5 | 3/5 | 0.367 | 9 | 53 | 5.7 s |
+| live tree, before | 1/5 | 3/5 | 3/5 | 3/5 | 0.367 | 9 | 53 | 5.0 s |
+| live tree, after | 1/5 | 3/5 | 3/5 | 3/5 | 0.367 | 9 | 53 | 5.1 s |
+
+On the frozen tree every case ranks identically, and a field-by-field
+comparison (all eight related-file fields, terms, confidence, reasons, noise,
+and Matched Lines re-rendered from `snippets`) shows no difference. On the live
+tree one case, `prose-heavy-keyword-extraction`, reorders ranks 6-10 with its
+expected file still at 3: this batch added text about keyword extraction to
+`context.py`, `workflow.py` and `artifacts.ts`, and the corpus searches this
+repository.
+
+Real scratch runs (`sample-repo`, working tree via `python -m bugpilot`): a
+manual `--prepare-only` with title, hint and `--fix-mode conservative`, and
+`JR-12345 --allow-mock --keywords WidgetController`. Both directories hold
+
+```text
+issue.json  retrieval.json                                   canonical (Batches 1-2)
+bug_context.md  agent_task.md  agent_handoff.md
+agent_team_instructions.md  workflow_status.json  execution.log   Batch 3+
+```
+
+and none of the six issue-stage or four retrieval-stage files. Against a
+pre-Batch-2 run of the same Jira-mock command, `retrieval.json` carries
+identical related files, terms, confidence, reasons and noise indicators;
+`bug_context.md` differs by one line (the pointer to `retrieval.json`); and
+`agent_task.md` differs only in the file names the agent is told to read.
+
+Also corrected: the shipped `README.md` still described `developer_hint.md`,
+`fix_mode.json`, `jira_summary.md` / `jira_parsed.md` and the four search files;
+those statements now name `issue.json` and `retrieval.json`. The rest of `docs/`
+(usage guide, architecture, adapter design, the two HTML guides) still describe
+the old layout and belong to a documentation pass; history files stay as written.
+
+### 37.12 Batch 2 follow-up — the eleventh file, and generic examples
+
+Two findings recorded in §37.8 and the Batch 2 review, checked on the tree
+rather than assumed.
+
+**A. More than ten relevant files.** The rule: a panel row limit is
+presentation and must not become a context limit.
+
+Measured with twelve matching files and `--max-files 11`, before any change:
+
+| | count |
+|---|---|
+| `retrieval.json` related files (all with snippets) | 11 |
+| Code Search Summary in `bug_context.md` | 10 |
+| Top Related Files | 5 (pre-existing budget) |
+| Relevant Snippets | 4 files (the pre-existing 25-line excerpt) |
+| files named anywhere in `bug_context.md` | **10 — the eleventh was lost** |
+
+A real, narrow regression (Case B). The summary is the only section that names
+every ranked file, and Batch 2 capped it at ten (`_SUMMARY_FILES`, the default
+and the panel's row count). Before Batch 2 a 12-line excerpt held up to eleven,
+so files were lost only from `--max-files 12`; Batch 2 moved that to 11.
+
+Fix (`context._code_search_summary`): list every related file. `--max-files`
+already bounds the list at retrieval, so there is no second, silent cap.
+`_SUMMARY_FILES` is deleted. After the fix: 11 in the summary, 11 named in the
+context; with the default 10 the output is byte-for-byte what it was. Unchanged
+on purpose: Top Related Files (5) and the 25-line snippet excerpt, which are
+evidence budgets rather than file limits, and the panel's ten rows with its
+"N more in retrieval.json" line.
+
+Tests:
+
+- `test_eleven_ranked_files_all_reach_the_agent_context` — twelve matching
+  files, `--max-files 11`: `retrieval.json` has 11; the context step is handed
+  all 11; the summary lists all 11 in rank order and every one is named in
+  `bug_context.md`; the snippet excerpt is exactly the first 24 lines of the full
+  matched-line rendering, so the files it leaves out are cut by the line budget,
+  not by a file count. Against the old ten-file slice it fails.
+- `test_the_summary_lists_every_ranked_file_however_many` — fifteen files, fifteen
+  lines.
+- Extension, `eleven files show ten rows and one more, and still count eleven`
+  — the panel keeps its ten rows, `moreFiles` is 1, the count says 11.
+
+**B. Company-specific examples.** Replaced with the generic vocabulary
+(`WidgetController`, `src/widgets/…`):
+
+The old values are not repeated here — the Batch 3 review pointed out that a
+table spelling out the removed identifiers would put them back into the file
+this commit publishes. They are the company product classes, platform paths and
+prefixed identifiers the batch removed; the removal diff itself is their record.
+
+| Where | Was | Now |
+|---|---|---|
+| canonical plan §4.2 retrieval example | a company class and its source path | `WidgetController`, `src/widgets/WidgetController.cpp` |
+| canonical plan §8.1 Relevant Files | two company classes and a company platform path | `WidgetController.cpp`, `WidgetController.h`, `src/widgets/...` |
+| canonical plan §8.2 Search details | a company class | `WidgetController` |
+| canonical plan §9 Git history | a commit subject naming a company data type | "Update widget output handling" |
+| `extension/test/controller.test.ts`, `page.test.ts` | a company platform path and its basename | `src/widgets/WidgetController.cpp` / `WidgetController.cpp` |
+| `extension/test/contextSummary.test.ts` | two company platform paths, both separators | `src/widgets/WidgetController.cpp`, `src\widgets\WidgetController.h` |
+| `bugpilot/core/search_terms.py` (shipped comment) | a company-prefixed example identifier | `` `WidgetFoo::bar` `` |
+| `tests/test_hint_retrieval.py` | a company class | `WidgetController` |
+| `tests/test_workflow.py` (three extraction tests) | company-prefixed identifiers and file names | `WidgetController::…`, `WidgetController`, `widget_txn.cxx`, `widget_controller.cxx` |
+
+`VDS` (a public format name, already in the generic fixtures) and `JR-…` keys
+(the project's generic prefix) stay. The tests keep every assertion; nested
+paths, both separators, click-to-open and the overflow line are still covered.
+
+Left on purpose, all present at HEAD and none introduced by Batches 1-2:
+`keywords._GENERIC_PARTS` keeps `sample` — a documented, deliberate retrieval rule
+this follow-up must not change — and `test_keywords_expand_compound_identifiers`
+keeps the `SampleQt…` input that exercises it; history in this plan (§33,
+`platform/sample` in the UI-B1 mockup) and `implementation_log.md`; the
+old-project-name guard in `test_publishable.py`; the untouched
+`test_search_budget.py` (`SampleFoo::bar`); and `scripts/setup-email.ps1`'s
+`'bugpilot'` vault name, a pre-rename leftover worth a separate look.
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1063 passed (+2) |
+| `npm test` | 826 passed (+1) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean |
+| `python tests/retrieval_corpus.py` | top-1 1/5, top-3 3/5, top-5 3/5, top-10 3/5, MRR 0.367, docs in top 5 9 — rankings identical before and after, on the live tree and on a frozen copy |
+
+### 37.13 Checkpoint — context/task inventory (Batch 3 start)
+
+Pre-batch cleanup: the canonical plan's header lines 3-5 lost their Markdown
+hard-break trailing spaces, so `git diff --check` stays clean once it is tracked.
+
+Read from the Batch 2 working tree, and from real pre-Batch-3 scratch runs.
+
+| Old artifact | Producer | Actual content | Readers | Kind | Destination / action |
+|---|---|---|---|---|---|
+| `bug_context.md` | `context_step` → `context.build_context` | The context document: Scope, Issue, Caution, Context Quality, then `jira_summary` and `jira_parsed` renderings pasted in whole (three `## Issue` headings, sub-documents flattened to `##`), a 60-line keyword JSON dump, Code Search Summary, Code Search Quality, Top Related Files (a copy of the summary's first five lines), Relevant Snippets, Similar Historical Issues, Git Context (with its own `## Status`) | agent (via `agent_task.md`), ext Context Ready existence + Open Context, MCP `_package` excerpt, `copilot_task_step` guard, `jira_comment_draft_step` guard, memory entry, manual validation, final review and retry prompts, `handoff.REQUIRED_READS`, skill, `cli` listings | persisted, user-facing, read by the agent | `context.md`, restructured (§37.14); remove |
+| `git_context.md` | `git_context_step` → `git_ops.generate_git_context` | Markdown: branch, working-tree status, `git log -5` for the top five ranked files | `context.build_context` (read back from disk); deleted after the fold by `_remove_intermediate_files`; retry reading list | disk IPC; kept only when a plan disables `build_context` | kept in memory, rendered into `context.md`; stop writing |
+| `memory_search.md` | `memory_search_step` → `memory.search_memory(write_report=True)` | Markdown: query keywords, up to five similar past bugs with scores | `context.build_context` (read back); deleted after the fold | disk IPC | kept in memory, rendered into `context.md`; stop writing |
+| `agent_task.md` | `prompt_step` / `copilot_task_step` → `prompts.generate_prompts` / `generate_copilot_task_files` (two identical functions) | The task: hint, execution location, a pointer to the team-instructions file, branch, attachments, required inputs, AI Fix Mode, precedence, evidence rules, guardrails, required outputs, forbidden actions, delivery safety, Jira status, delivery offer or investigation handoff | the agent (CLI launch prompt `handoff.handoff_prompt`, MCP prompt, skill), ext `copyHandoff` gate, `#canRetry`, artifact grouping, `openAgentTask` command, `cli` JSON `agent_task` field, MCP `_package`, retry prompt | persisted, agent-facing | `task.md`; remove |
+| `agent_handoff.md` | same generators | A 17-line pointer: read `agent_task.md` and the team-instructions file, plus reminders every one of which `agent_task.md` already states | **ext Fix with AI and Copy**: its *content* is the prompt put on the terminal command line (`controller.#handoffText`), falling back to `handoff_prompt()`'s sentence when absent | persisted, agent-facing | dropped; the handoff is the one-line sentence pointing at `task.md` (the CLI already used it) |
+| `agent_team_instructions.md` | same generators, and `copilot_instructions_step` (`bugpilot agent-instructions`) | A copy of `docs/agent_team_instructions.md` (or the bundled `_fallback_team_instructions()` when the package has no `docs/`) | the agent, told by `agent_task.md` and `agent_handoff.md` to read it | persisted per work item, agent-facing, stable across work items | inlined into `task.md` as a section; stop writing; sources unchanged |
+
+Resume: `run_investigation --resume` re-runs every step and overwrites all of
+these, so nothing reads them back as state. What does read them back is each
+standalone command: `bugpilot context` (read the two intermediates if present),
+`bugpilot agent-task` (required `bug_context.md`), and `jira-comment-draft`.
+
+**The Copy button.** The plan (§4.3, §11, §21) says Open Context and Copy use
+`context.md`. The implementation's Copy — panel id `copy-context`, action
+`copyHandoff`, tooltip "Copy the handoff prompt to the clipboard" — copied the
+handoff *prompt*. Batch 3 makes the panel Copy copy `context.md`, as the plan
+and this batch's instructions say; the handoff prompt stays reachable through
+the "BugPilot: Copy Handoff Prompt" command and Fix with AI's no-agent path,
+which puts it on the clipboard.
+
+Baseline for this batch: Python 1063, extension 826, publishability 8; corpus
+top-1 1/5, top-3 3/5, top-5 3/5, top-10 3/5, MRR 0.367, docs in top 5 9, on
+the live tree and on a frozen copy.
+
+### 37.14 Checkpoint — `context.md`
+
+`context.build_context(issue, keywords, retrieval, git_history, similar_fixes)`
+renders one document from four in-memory inputs; `context_step` writes it
+atomically to `CONTEXT_ARTIFACT`. Nothing is read from an intermediate file.
+
+```text
+# Bug Context: <id>
+## Scope
+## Issue              id, source, summary, type, status, priority, mock  (+ ## Caution)
+## Guidance           developer hint; AI Fix Mode name and id, from issue.json
+## Context Quality    score and signals
+## Issue Details      ### Description (both sources)
+                      ### Jira Fields / Comments / Attachments   (Jira only)
+                      ### Reproduction Steps … ### Missing Information Checklist
+                      ### Reading Comments and Attachments       (Jira only)
+## Code Search        ### Search Quality   ### Search Terms
+                      ### Relevant Files   (every ranked file)   ### Relevant Snippets
+## Similar Fixes
+## Git History        (git's own ## headings demoted to ###)
+```
+
+Against the old `bug_context.md`, compared line by line on real runs:
+
+- **Seams removed.** The pasted `jira_summary` and `jira_parsed` renderings
+  became one `## Issue Details` with `###` subsections; the three `## Issue`
+  and two `## Status` headings are gone. Single-value Jira fields (resolution,
+  labels, components, versions, data source) are one bullet list.
+- **Duplicates removed.** "Top Related Files" repeated the first five lines of
+  the file list and is gone — the one file list keeps every ranked file
+  (§37.12's invariant); the parsed section's "id — title" line repeated
+  `## Issue`.
+- **Dropped:** the extracted-keyword JSON dump. Its high-value, normal and phrase
+  lists stay under Search Terms; what was searched is `retrieval.json.terms`; the
+  rest was extractor state (§37.7).
+- **Added:** `## Guidance` (the recorded hint and Fix Mode, which the context never
+  showed; how the mode works stays in `task.md`), and the description of a
+  hand-written bug, which previously reached the context only through the
+  Jira-only summary and so never reached it at all.
+- **Renamed** to the workflow's own words: Similar Historical Issues → Similar
+  Fixes, Git Context → Git History. The Scope sentence no longer says "Phase 2".
+- **Unchanged:** the quality score and its signals, the caution rules, the
+  25-line snippet excerpt, the comment limit, the "Low confidence" agent
+  instruction, and every issue field.
+
+### 37.15 Checkpoint — git history and similar fixes stay in memory
+
+`git_context_step` returns the Markdown `generate_git_context` produced;
+`memory_search_step` returns the report `search_memory` produced (which no
+longer takes `write_report` and writes nothing). `run_investigation` and
+`refine_investigation` hand both to `context_step` (refine through its
+`_RetrievalState`, now with `similar_fixes` / `git_history`). `git_context.md`
+and `memory_search.md` are never written, so `_INTERMEDIATE_FILES`,
+`_remove_intermediate_files` and `_context_and_fold` are deleted.
+
+No structure was invented: both stay the text they were, bounded as before
+(five files' `git log -5`, at most five similar bugs). A plan that disables
+`build_context` still runs the two steps but has nowhere to put their text —
+the files it used to leave were exactly the disk IPC this removes. Standalone,
+`bugpilot git-context` and `bugpilot memory search <id>` print their result, and
+`bugpilot context` gathers both before writing `context.md`, so a context
+rebuilt on its own is as complete as the pipeline's.
+
+### 37.16 Checkpoint — `task.md`
+
+`prompts.generate_task(...)` returns the task; `prompt_step` and
+`copilot_task_step` write it atomically to `TASK_ARTIFACT`. The two generators
+that produced the same three files (`generate_prompts`,
+`generate_copilot_task_files`) and `_copilot_handoff` are deleted.
+
+What the agent receives, before and after:
+
+| | Before | After |
+|---|---|---|
+| launch prompt (CLI) | "Read .ai/<id>/agent_task.md and complete the workflow." | "Read .ai/<id>/task.md and complete the workflow." |
+| launch prompt (extension) | the whole of `agent_handoff.md`, flattened | the same one sentence as the CLI |
+| task | `agent_task.md`, which said to read two more files | `task.md` |
+| team instructions | `agent_team_instructions.md`, a per-work-item copy | a section of `task.md`, rendered from the same source |
+| context | `bug_context.md` | `context.md` |
+
+`task.md` is `agent_task.md` with three changes: the title is "BugPilot Task";
+the Team Instructions section carries the effective instructions inline
+(`docs/agent_team_instructions.md`, else the bundled fallback — sources
+unchanged, headings demoted, the precedence bullets kept); and every reference
+names `context.md`, whose sections it now points at ("Issue Details"). A
+line-by-line comparison on a Standard Fix Jira run and an Investigate First
+manual run finds every old line in `task.md` except the file pointers, and
+every reminder `agent_handoff.md` carried — run from the repo root, not from
+the tool repo, not on main, the mode, no commit without approval, the Jira and
+`.ai/` rules, the result files — already stated in the task's Execution
+Location, AI Fix Mode, guardrails, Forbidden Actions, Required Output Files and
+Investigation Handoff sections. So `agent_handoff.md` is dropped rather than
+merged: it had nothing the task lacked. Pattern B of the batch brief: the task
+references `context.md` rather than inlining it, which is the contract the agent
+already followed.
+
+`handoff.REQUIRED_READS` is (`task.md`, `context.md`); the MCP prompt, the MCP
+package's next step and instructions, and the skill's steps all render from it.
+`bugpilot agent-instructions` prints the team instructions instead of writing a
+per-work-item copy.
+
+### 37.17 Checkpoint — legacy context/task writers and readers removed
+
+Writers. Normal execution writes none of the six files:
+
+| Old file | Writer before | Now |
+|---|---|---|
+| `bug_context.md` | `context_step` | `context_step` writes `context.md` only |
+| `git_context.md` | `git_context_step` | returns the Markdown; writes nothing |
+| `memory_search.md` | `search_memory(write_report=True)` | `write_report` removed; returns the report |
+| `agent_task.md`, `agent_handoff.md`, `agent_team_instructions.md` | `generate_prompts` / `generate_copilot_task_files` (both deleted), `copilot_instructions_step` | `generate_task` → `task.md`; `copilot_instructions_step` returns the text |
+
+Readers, each moved to the canonical file with no fallback: the `agent-task`
+guard, the `jira-comment-draft` guard (`context.md` or `issue.json`), the
+memory entry's context path, the manual-validation, final-review and retry
+prompts (the retry reading list lost `git_context.md`), the MCP package
+(`agent_task` → `task.md`, excerpt from `context.md`, next step), the CLI's
+`--json` `agent_task` path, launch fallback and key-artifact list,
+`handoff.REQUIRED_READS`, the skill, and the extension (§37.18).
+
+A work item directory holding only `bug_context.md` / `agent_task.md` /
+`agent_handoff.md` is not a package: `bugpilot agent-task` exits 1 with
+"Missing .ai/<id>/context.md", `jira-comment-draft` refuses ("No core context
+found"), the MCP package reports no task and no excerpt, and the extension
+shows no Context Ready, no Open/Copy, and skips Fix with AI.
+
+Kept on purpose:
+
+- The field name `agent_task` in `bugpilot … --json` and the MCP package, and
+  the command id `bugpilot.openAgentTask`. They are protocol names a client
+  matches on; their values now point at `task.md` (the command's title is
+  "Open task.md"). Renaming them is a contract change, not an artifact one.
+- `docs/agent_team_instructions.md`: the source template the Team Instructions
+  section is rendered from, not a work-item artifact.
+- `controller.copyHandoff()`: the "Copy Handoff Prompt" command, which copies
+  the one-line sentence.
+
+Final repository search for the six names, `generate_prompts`,
+`generate_copilot_task_files`, `write_report` and the `copyHandoff` action:
+no production reader or writer. Remaining hits are tests asserting absence or
+rejection, the source template above, the canonical plan's migration tables,
+history (this plan, `implementation_log.md`, `docs/phases/`), and the unshipped
+`docs/` guides (§37.20).
+
+### 37.18 Checkpoint — extension
+
+`artifacts.ts` exports `CONTEXT_ARTIFACT` / `TASK_ARTIFACT`; every reader uses
+them.
+
+| Surface | Before | After |
+|---|---|---|
+| Context Ready | `bug_context.md` exists | `context.md` exists |
+| Open Context | opens `bug_context.md` | opens `context.md` |
+| Copy (panel) | action `copyHandoff`: copied the handoff prompt | action `copyContext`: copies the content of `context.md`; a missing file is a warning, not an empty clipboard |
+| Fix with AI | needed `agent_task.md`; sent the content of `agent_handoff.md`, else the fallback sentence | needs `task.md`; sends "Read .ai/<id>/task.md and complete the workflow." — no file read |
+| Fix with AI, no `task.md` | — | step `skipped` ("No task.md was prepared…"), a warning, no terminal |
+| custom agent | `agent_handoff.md` content in its prompt slot | the same sentence |
+| artifact groups, results expectation, retry gate | old names | `task.md`, `context.md` |
+| "Open Agent Task" command | `agent_task.md` | "Open task.md" |
+
+The panel's element id `copy-context` did not change; only the protocol action
+did, so `PANEL_ACTIONS` still lists exactly one Copy. The cross-language test
+now resolves `{TASK_ARTIFACT}` from `artifacts.py` before comparing the
+extension's sentence with `handoff_prompt`.
+
+Tests: new — no `task.md` means skipped and no terminal; a directory with only
+the old files has no Context Ready, no Open/Copy and no launch; Copy copies
+`context.md`; Copy with the file missing warns. Rewritten — the handoff sentence
+ignores an `agent_handoff.md` on disk; Fix with AI and the custom agent receive
+the sentence. Deleted — "a multi-line handoff still reaches the agent as one
+argument": the prompt is now one fixed sentence, and flattening stays covered
+by `workflow.test.ts` ("a multi-line prompt becomes one line before it reaches
+a shell").
+
+### 37.19 Checkpoint — resume and standalone commands
+
+`--resume` re-runs the pipeline from `issue.json` and regenerates `context.md`
+and `task.md`, with git history and similar fixes recomputed in memory; the
+recorded hint and Fix Mode reach both. Refinement carries them through
+`_RetrievalState`.
+
+| Command | Behaviour |
+|---|---|
+| `bugpilot context <id>` | gathers similar fixes, git history and the recorded user search terms, writes `context.md`; `--json` lists only it |
+| `bugpilot git-context <id>` | prints the git history; writes nothing |
+| `bugpilot memory search <id>` | prints the similar-fixes report; writes nothing |
+| `bugpilot prompt <id>` | writes `task.md` |
+| `bugpilot agent-task <id>` | requires `context.md`; rewrites `task.md` |
+| `bugpilot agent-instructions <id>` | prints the team instructions `task.md` includes |
+
+A standalone `agent-task` after a pipeline run reproduces the pipeline's
+`task.md` byte for byte.
+
+### 37.20 Checkpoint — Batch 3 verification
+
+New: `tests/test_context_task_artifacts.py` (21). Exactly six files after a
+manual and a Jira prepare, and after a resume; `context.md` sections and data
+(guidance, issue, description, Jira fields and comments, every ranked file,
+snippets); git history rendered from a real git repository with no
+`git_context.md`, and the no-repository message; similar fixes from a seeded
+`.ai_memory` with no `memory_search.md`, and the empty case; `task.md` carrying
+hint, Fix Mode, team instructions, the `context.md` reference, required outputs,
+forbidden actions and the handoff, with no old name; the context not repeating
+the task; the standalone commands above; the old layout rejected by
+`agent-task`, `jira-comment-draft` and the MCP package; a standalone rebuild
+byte-identical to the pipeline's, `--keywords` included; a multi-line hint
+kept to one Guidance bullet. The eleven-file tests
+of §37.12 run against `context.md` (Relevant Files / `####` snippet headings).
+
+Deleted: the "both generators agree" test (one generator remains) and the
+"agent-instructions creates a missing directory" test (it writes nothing now).
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1082 passed (baseline 1063: −2 deleted, +21 new) |
+| `npm test` (extension) | 829 passed (826: +4 new, −1 deleted) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` (real CLI, temp repositories, no Jira) | 8 passed |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean; untracked files (the canonical plan included) have no trailing whitespace |
+| `python tests/retrieval_corpus.py` | top-1 1/5, top-3 3/5, top-5 3/5, top-10 3/5, MRR 0.367, docs in top 5 9 |
+
+Retrieval corpus, cases and harness unchanged by this batch: on the frozen
+pre-Batch-3 tree every case ranks identically; on the live tree the metrics are
+identical and the expected files keep their ranks, while three cases reorder
+non-expected files among ranks 3-10 (`cli.py`, `context.py`, `models.py`),
+whose text this batch changed.
+
+Real scratch runs (`sample-repo`, working tree via `python -m bugpilot`): a
+manual `--prepare-only` with title, hint and `--fix-mode investigate-first`, and
+`JR-12345 --prepare-only --allow-mock --keywords WidgetController --hint …`.
+Both directories hold exactly `issue.json retrieval.json context.md task.md
+workflow_status.json execution.log`. Compared line by line with pre-Batch-3
+runs of the same commands, the only old lines missing are the ones §37.14 and
+§37.16 list (work-item ids aside); the Jira context's score rose from 90 to
+100 only because the scratch repository's `.ai_memory` now holds entries from
+the other runs. Twelve matching files with `--max-files 12` and 10: every
+ranked file is named in `context.md`, identical to the pre-Batch-3 code on the
+frozen tree (four files in the 25-line snippet excerpt in both).
+
+A first pair of scratch runs omitted `--prepare-only`, so the CLI's default
+launched the configured agent in `sample-repo`. From the one-line prompt
+alone, it read `task.md` and `context.md` and wrote the five result files — a
+documented no-op for the mock Jira issue and an investigation for the manual
+one — with no source change, branch or commit. Those runs are not the
+verification above; the `--prepare-only` runs are.
+
+Docs: `README.md` and the shipped `extension/README.md` name `context.md` and
+`task.md`. The rest of `docs/` (usage guide, architecture, adapter design,
+safety, workflow overview, demo script, checklists, the HTML guides), which the
+sdist prunes, still describes the old layout, as §37.11 recorded for Batches
+1-2; it belongs to a documentation pass.
+
+**Independent review.** A whole-diff review found no blocker and two things
+worth fixing, both fixed:
+
+- *A rebuilt context forgot the developer's `--keywords`.* Batch 2 had decided
+  a standalone step recomputes keywords from `issue.json` alone ("options
+  belong to the run"), which held for re-searching but not for re-rendering: a
+  `bugpilot context` rebuild showed Search Terms and a quality score that
+  disagreed with the `source: "user"` terms `retrieval.json` records — and with
+  the Relevant Files list rendered from that same file. `work_item_keywords`
+  and `context_step` now replay the recorded user terms through the same merge
+  the pipeline used (`_user_terms`), so a rebuilt `context.md` is byte-identical
+  to the pipeline's. A fresh `bugpilot search` still takes its own options,
+  which replace the recording rather than replay it. Test:
+  `test_a_standalone_rebuild_reproduces_the_pipelines_context`.
+- *The §37.12 table spelled out the removed company identifiers*, which would
+  have put them back into this file at commit time; the "Was" column now
+  describes them generically.
+
+Also from the review: a multi-line hint (the extension's hint field is a
+textarea) is collapsed to one line in the context's Guidance bullet — the full
+text stays in `task.md` — with a test; four stale statements corrected (the
+`artifacts.py` header still claimed `retrieval.json` holds git history and
+similar fixes; a corpus-test docstring still said only the top five files reach
+the context; a doubled JSDoc line and two phase-5-era file counts in the
+extension). Noted, deliberately not done in this batch: the work-item id is not
+pattern-checked before it is quoted into the agent command line (pre-existing,
+needs a trusted workspace; worth a follow-up together with `historyFromPayload`);
+"Copy Handoff Prompt" still copies the sentence when no `task.md` exists (kept:
+it copies a sentence, not a file, and parity with the old fallback behaviour);
+the heading-demotion helper exists in both `prompts.py` and `context.py`
+(accepted duplication, five lines); the `agent_task` JSON field name (kept per
+§37.17 — renaming it before 0.1.0 ships is possible but is a contract decision).
+
+### 37.21 Checkpoint — runtime artifact inventory (Batch 4 start)
+
+Read from the Batch 3 working tree; every producer and reader listed from a
+repo-wide search, not from memory.
+
+| | `workflow_status.json` | `execution.log` |
+|---|---|---|
+| Producer | `workflow._write_status`, called by `_mark_step` on **every** step transition (read-modify-write), by `run_investigation`'s final and exception paths, and by every standalone step command | `logging_utils.log(issue_dir, message)`: ~150 call sites appending timestamped `[START]/[END]/[ERROR]/[WARN]/[INFO]/[GENERATED]/[SKIP]` lines |
+| Write timing | incremental during the run; final snapshot at the end | append-only during the run |
+| Schema | `issue_key`, `mode: "prepare-only"` (constant), `steps` (all 24 `WORKFLOW_STEPS` → pass/fail/skipped), `generated_files` (directory listing + attachments + memory entry), `fresh`, `allow_mock`, `fix_mode` (additive) | timestamped free text |
+| Readers | CLI `status` / `status --json` (`mode`, `steps`, `generated_files`, `fix_mode`), CLI `list` (existence → `prepared`), MCP `get_status` (`steps`, `generated_files`, `fix_mode`), extension `ports.probeWorkItem` → `historyOutcome` (existence + `steps`), `viewFromStatus` (`steps`, `generated_files`), `preparedFixModeFromStatus` (`fix_mode`), `controller.#readStatus` (`fix_mode` line), `workflow._read_step_status` (its own read-modify-write) | **none**. `cli._print_log_hint` prints its path on failure; `extension/src/errors.ts` names it in one advice string. Nothing parses it |
+| Resume dependency | none — resume re-runs every step from `issue.json`; `_read_step_status` only merges marks within a run | none |
+| Field readers | `steps`, `generated_files`, `fix_mode` have real consumers. `issue_key` and `mode` are echoed by the human `status` printer only; `fresh` and `allow_mock` are read by nothing (mock provenance already lives in `issue.json.details.mock` and `context.md`) | — |
+| Classification | canonical runtime state (steps, generated files, fix mode) plus dead fields | C/D: developer trace duplicating the steps map (`[START]/[END]`), `generated_files` (`[GENERATED]`), CLI prints (`[WARN]`) and the exception the CLI already reports (`[ERROR]`). No A/B content beyond the failing step + error message, which the status file never carried |
+
+Decisions:
+
+- `run.json` (the `RUN_ARTIFACT` constant has existed in `artifacts.py` since
+  Batch 1) carries: `schema_version`, `work_item_id`, one authoritative
+  `status` (`running` / `prepared` / `failed` — the product's own vocabulary:
+  `bugpilot list` and the extension's history already say "prepared"),
+  `steps` (same 24 names, same pass/fail/skipped marks — the extension's
+  checklist and outcome logic key on them), `generated_files` (same consumers),
+  `fix_mode` (same shape), and on a run-level failure an `error`
+  (`step`, `message` — the sanitized string the CLI already prints; the one
+  A/B item `execution.log` held that no artifact kept).
+- Dropped fields: `mode` (a constant), `fresh` and `allow_mock` (no readers;
+  mock provenance is `issue.json`'s), `issue_key` renamed `work_item_id`.
+- `execution.log` is deleted as an artifact. `log()` keeps its 150 call sites
+  and signature but emits through stdlib `logging` (`bugpilot.execution`),
+  so nothing is persisted per work item; the trace is opt-in, on that logger.
+- `status` is owned by run-level entry points (`run_investigation`, refine):
+  initial write `running`, terminal `prepared` / `failed`. Standalone step
+  commands update `steps`/`generated_files` in the existing file and leave
+  `status` alone, as their step marks did before.
+
+### 37.22 Checkpoint — `run.json`: one typed model
+
+`bugpilot/core/run.py`: `RunArtifact` (`work_item_id`, `status`, `steps`,
+`generated_files`, `fix_mode`, `error: RunError | None`), `run_to_dict` /
+`run_from_dict` (version 1 only; unknown statuses and non-map steps are
+errors), `save_run` (atomic, via `artifact_io`), `load_run` (None when absent,
+`RunArtifactError` when unusable), `read_run_quietly`. Serialization always
+writes the full `WORKFLOW_STEPS` map — the shape every consumer already reads —
+and leaves `fix_mode` / `error` out rather than null when absent.
+
+The actual schema, from a real prepare:
+
+```json
+{
+  "schema_version": 1,
+  "work_item_id": "JR-12345",
+  "status": "prepared",
+  "steps": {"doctor": "pass", "fetch": "pass", "…": "…", "agent_fix": "skipped"},
+  "generated_files": [".ai/JR-12345/context.md", "…", ".ai/JR-12345/run.json"],
+  "fix_mode": {"id": "standard", "name": "Standard Fix", "version": 1, "source": "builtin", "execution_kind": "fix"}
+}
+```
+
+Differences from the plan's conceptual sketch, all §37.21 decisions: the real
+step names instead of UI labels; no `agent` block (nothing persists agent
+state today); `generated_files` and `fix_mode` kept (they have three consumers
+each); `work_item_id` added; `error` on failure. `run.json` lists itself in
+`generated_files` because that list is a directory snapshot, and the file
+exists from the run's first write.
+
+### 37.23 Checkpoint — `workflow_status.json` migrated
+
+`_write_status` / `_read_step_status` / `_normalize_status` are gone. In their
+place: `_save_run` (recomputes the generated-files and Fix Mode snapshots on
+every write, saves atomically), `_start_run` (the run's first write: status
+`running`, the plan's disabled steps marked — one write instead of one per
+skipped step), `_mark_step` (read-modify-write through the typed model),
+`_set_run_status` (refine's `running` → `prepared`), `_finish_run` (the
+terminal success write) and `_fail_run` (status `failed` + `error`, reading
+quietly because it runs inside an exception handler). `run_investigation` and
+`refine_investigation` own the lifecycle; standalone steps update marks only.
+
+### 37.24 Checkpoint — `execution.log` removed
+
+Nothing read it (§37.21), so nothing replaces it. `logging_utils.log` keeps
+its signature and ~150 call sites but emits through stdlib logging
+(`bugpilot.execution`), INFO, **non-propagating** (NullHandler): the trace is
+opt-in on that logger, and a host's root handler never receives it. That last
+property is load-bearing — the MCP SDK installs a rich root handler writing to
+stderr, and while the trace propagated, a prepare over stdio deadlocked the
+server against any client that does not drain stderr (`test_mcp_stdio` caught
+it on the full run). The lifecycle trace stays observable — the tests attach a
+handler to the logger (`execution_trace` fixture) — without a per-work-item
+file. The one
+useful fact it held on failure — which step, and why — is `run.json.error`,
+asserted in `test_run_artifact.py`. The CLI's "See execution.log for details"
+hint became "Run: bugpilot status <id> for step status", printed when run
+state exists; the extension's INTERNAL_ERROR advice points at the BugPilot
+output channel, which already records CLI stderr.
+
+### 37.25 Checkpoint — resume, CLI, MCP, extension migrated
+
+- Resume/refine: `--resume` starts with `_start_run` (a fresh `running` state)
+  and re-runs the plan from `issue.json`; refine transitions the existing
+  state. A corrupt `run.json` is an error to `_mark_step` and every reader; a
+  fresh or resumed run replaces it at `_start_run`, which is the sanctioned
+  recovery (a run owns its file).
+- CLI: `status` / `status --json` read `load_run` — the JSON gained `status`
+  and `error` and lost the constant `mode`; the human form prints Work item /
+  Status / the failure line / Steps / Generated files. `list`'s `prepared`
+  flag keys on `run.json` existence. The `bug` command's "Generated:" list
+  prints `CORE_ARTIFACTS`, run.json included.
+- MCP `get_status`: same shape as the CLI's JSON (steps, generated_files,
+  fix_mode, plus `status` and `error`), through the same loader.
+- Extension: `RUN_ARTIFACT` exported beside the other artifact constants;
+  `probeWorkItem`, `historyOutcome`'s existence check, `#readStatus` and the
+  restore comments read `run.json`. `viewFromStatus` and
+  `preparedFixModeFromStatus` were already reading `steps` /
+  `generated_files` / `fix_mode`, which kept their names, so they did not
+  change. The `workflow_status.json` / `execution.log` group entries stay as
+  phase-era labels for directories prepared before Batch 4, like the copilot
+  ones — grouping metadata, not readers.
+
+### 37.26 Checkpoint — the five-artifact prepare contract
+
+A successful prepare-only run leaves exactly
+
+```text
+issue.json  retrieval.json  context.md  task.md  run.json
+```
+
+pinned by `test_a_manual_prepare_writes_exactly_the_canonical_files` /
+`…jira…` (set equality plus an explicit count of five), with
+`workflow_status.json` and `execution.log` added to the legacy-absence list
+and to the generated-files check. `tests/test_run_artifact.py` (19) holds the
+schema and exact key set (which is also the no-raw-log guard: no `logs`, no
+events, `error` bounded to `step` + `message`), the mid-run `running` state,
+the standalone-step semantics, the failure record and its clearing by the next
+successful run, round trips, and every unusable file as an error — including
+the old `workflow_status.json` layout placed at `run.json`'s path, and a
+directory holding only the old files ("No run state found").
+
+### 37.27 Checkpoint — Batch 4 verification and review
+
+New: `tests/test_run_artifact.py` (22). The exact top-level key set of a
+prepared run (which doubles as the no-raw-log guard), the full steps map, the
+generated-files snapshot, the mid-run `running` state observed from inside a
+run, standalone steps leaving the lifecycle alone, the failure record
+(step + bounded message, no other keys), a later successful run clearing it,
+a refine failure naming its own step, round trips, missing → `None`, and every
+unusable file — corrupt, wrong type, schema_version 2, unknown status, and the
+old `workflow_status.json` layout at `run.json`'s path — as
+`RunArtifactError`, surfaced cleanly by `bugpilot status`, by standalone
+steps, and by human-mode commands. Migrated rather than weakened: the
+lifecycle-trace test now pins the `bugpilot.execution` logging output and the
+absence of `execution.log`; the atomic-write spy watches `run.json`.
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1104 passed (Batch 3 baseline 1082: +22 new) |
+| `npm test` (extension) | 832 passed (829: +1 old-layout, +2 lifecycle-outcome) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` (real CLI, temp repositories, no Jira) | 8 passed |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean; untracked files have no trailing whitespace |
+| `python tests/retrieval_corpus.py` | see below |
+
+Retrieval, cases and harness untouched: on the frozen pre-Batch-3 tree all six
+cases rank **byte-identically** before and after Batch 4, which is the
+equivalence proof — no retrieval module changed. On the live tree the corpus
+measures this repository, and this batch edited the subject files of one
+self-referential case: `identifier-persist-fix-mode`'s expected
+`workflow.py` moved from rank 2 to 7 (its status-machinery text shrank, the
+plan gained Fix Mode prose, and shared terms crossing the broad-match
+threshold repo-wide deflate every heavy matcher at once), taking the headline
+from top-3 3/5 / MRR 0.367 / docs 9 to top-3 2/5 / MRR 0.295 / docs 10. Both
+expected files stay in the top 10 (top-10 3/5 unchanged) and
+`test_documentation_no_longer_takes_half_the_context` still holds (10 ≤ 12).
+
+The same full run also proved the unwired-symbol guard honest in the way it
+was designed to be: `CORE_ARTIFACTS`, allowlisted since Batch 1 with "delete
+this line then", gained its first production caller (the CLI's `Generated:`
+list) and its entry is gone.
+
+That drift broke `test_an_identifier_bug_retrieves_its_implementation`, whose
+top-3 hedge existed for exactly this noise and ran out. The floor it guards —
+a bug naming real symbols finds the defining file and its caller in the top
+three — is now asserted on a purpose-built fixture tree (defining file,
+caller, a prose decoy naming the symbol, an unrelated implementation), so it
+fails only when retrieval changes, never when this repository's prose does.
+The live corpus keeps being measured, without hard-failing on drift, by the
+parametrized reporting test and the standalone runner.
+
+Real scratch runs (`sample-repo`, `python -m bugpilot`, `--prepare-only`):
+the manual and the `JR-12345 --allow-mock` packages hold exactly the five
+canonical artifacts; `run.json` carries `status: "prepared"`, the full steps
+map, the five artifacts plus the memory entry in `generated_files`, and the
+recorded Fix Mode. A controlled failure (Jira pointed at a closed local port,
+`--no-mock`) leaves valid JSON with `status: "failed"`,
+`error: {step: "fetch", message: <the catalog sentence>}`, partial marks, and
+no token — the credentials passed in the environment appear nowhere.
+
+**Found by the full run, fixed before it could ship:** the first complete
+suite runs after the migration hung in `test_mcp_stdio`'s real-tool-call test.
+Root cause: the SDK's `MCPServer()` installs a rich root logging handler that
+writes to stderr; once `log()` emitted through stdlib logging, a prepare
+inside the stdio server streamed the whole trace into a stderr pipe the client
+never drains, the pipe filled, and the server deadlocked mid-call — a
+production deadlock for any MCP client that leaves stderr undrained, not a
+test artifact. `bugpilot.execution` is now non-propagating with a
+`NullHandler`: the trace is opt-in on that logger, no host root handler ever
+receives it, and the trace tests capture through an `execution_trace` fixture
+that attaches to the logger directly. `test_mcp_stdio` passes in seconds
+again, and the isolation repro (initialize over a held-open pipe) confirmed
+the server itself was never at fault.
+
+**Independent review** (whole diff, Batches 1–4): no blocker. Fixed from it:
+
+- `docs/architecture.md` presented itself as the current code guide while
+  describing the pre-consolidation artifacts; it now opens with a status note
+  naming the five-artifact contract and marking those sections historical
+  until the documentation pass (which still owns the rest of `docs/`, as
+  §37.11 and §37.20 recorded).
+- A refine failure could blame a stale fail mark from an earlier run
+  (`_fail_run` scanned the preserved marks); refine now names its executing
+  step.
+- `historyOutcome` ignored the new authoritative `status`: a run failed
+  outside any step showed "prepared", and a `running` one had an outcome. It
+  now reads `status` first (`failed` → failed, `running` → incomplete) and
+  falls back to the mark scan otherwise.
+- A corrupt `run.json` escaped human-mode standalone commands as a chained
+  traceback; the CLI now prints the error and the recovery command.
+- The persisted failure message is capped (2000 chars, `_cap_text`), and
+  `RunArtifactError` maps to `ARTIFACT_NOT_FOUND` in the machine envelopes
+  rather than falling through to `INVALID_INPUT` as a `ValueError`.
+
+Noted, deliberately unchanged: `bugpilot list`'s `prepared` flag keys on
+`run.json` existence (documented in §37.25; reading `status` there is a UX
+decision for later); `IssueArtifactError` / `RetrievalArtifactError` still
+classify as `INVALID_INPUT` in the envelopes (pre-existing, Batches 1–2);
+the shell-quoting hardening and the `agent_task` field rename stay in the
+backlog per the batch brief.

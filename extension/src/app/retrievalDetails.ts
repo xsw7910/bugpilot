@@ -2,7 +2,7 @@
  * Which terms BugPilot searched, and how each behaved.
  *
  * §33 built a weighted term model, probed every term against the repository and
- * wrote the result to `search_quality.json`. Nothing has ever shown it, so
+ * wrote the result to what is now `retrieval.json.terms`. Nothing had shown it, so
  * "11 search terms" is where a developer's understanding stops — including for
  * the terms BugPilot generated and they never typed.
  *
@@ -16,10 +16,13 @@
  * module would mean one parser with two unrelated shapes in it.
  */
 
+import { isRecord } from "./retrieval.ts";
+import type { Retrieval } from "./retrieval.ts";
+
 /**
  * One row of the Retrieval Details list.
  *
- * Five fields out of the artifact's eight. `weight` and `effective_weight` are
+ * Five fields out of the term's eight. `weight` and `effective_weight` are
  * left behind deliberately: the question this section answers is *why was this
  * searched*, not what constant the ranker used, and a number a developer cannot
  * act on is a number that invites them to try. `status` is left behind because
@@ -77,14 +80,9 @@ const SAFE_SOURCE = /^[a-z][a-z0-9_-]{0,31}$/i;
  * cannot be read at all is an empty list, and the section that renders it is
  * hidden rather than shown empty.
  */
-export function retrievalTerms(searchQualityJson: string | undefined): readonly RetrievalTerm[] {
-  const quality = parse(searchQualityJson);
-  if (!isRecord(quality)) return [];
-  const raw = quality["terms"];
-  if (!Array.isArray(raw)) return [];
-
+export function retrievalTerms(retrieval: Retrieval | undefined): readonly RetrievalTerm[] {
   const terms: RetrievalTerm[] = [];
-  for (const entry of raw) {
+  for (const entry of retrieval?.terms ?? []) {
     if (!isRecord(entry)) continue;
     const value = entry["value"];
     // The one field a row cannot do without: there is nothing to show about a
@@ -136,19 +134,4 @@ function phrase(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = value.trim();
   return text === "" ? undefined : text;
-}
-
-function parse(text: string | undefined): unknown {
-  if (text === undefined || text.trim() === "") return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Half-written, read while the run was still flushing it. The next refresh
-    // reads it whole; a missing section says less than a wrong one.
-    return undefined;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

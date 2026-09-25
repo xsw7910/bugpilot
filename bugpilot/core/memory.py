@@ -2,31 +2,32 @@
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import issue_dir, memory_dir
+from .artifacts import RETRIEVAL_ARTIFACT
+from .config import memory_dir
 from .identity import is_known_work_item_id
+from .issue import IssueArtifact
 
 
-def build_memory_entry(issue_key: str, parsed: dict[str, object], context_path: str) -> str:
+def build_memory_entry(issue_key: str, issue: IssueArtifact, context_path: str) -> str:
     now = datetime.now(timezone.utc).isoformat()
     return (
         f"# {issue_key} AI Bug Workflow Memory\n\n"
         f"- Created: {now}\n"
         f"- Mode: prepare-only\n"
-        f"- Summary: {parsed.get('summary', '')}\n"
-        f"- Mock/demo Jira data: {parsed.get('is_mock', False)}\n"
+        f"- Summary: {issue.title}\n"
+        f"- Mock/demo Jira data: {issue.details.mock}\n"
         f"- Context: {context_path}\n\n"
         "## Investigation State\n\n"
         "Prototype prepare-only workflow generated this memory entry during preparation. "
         "No code fix has been attempted by bugpilot.\n\n"
         "## Code Search Summary\n\n"
-        f"See `.ai/{issue_key}/code_search.md`.\n\n"
+        f"See `.ai/{issue_key}/{RETRIEVAL_ARTIFACT}`.\n\n"
         "## Related Files\n\n"
-        f"See `.ai/{issue_key}/related_files.json`.\n"
+        f"See `.ai/{issue_key}/{RETRIEVAL_ARTIFACT}`.\n"
     )
 
 
@@ -38,21 +39,26 @@ def add_memory_entry(repo_root: Path, issue_key: str, content: str) -> Path:
 
 
 def search_memory(
-    repo_root: Path, query: str, write_report: bool = True
+    repo_root: Path,
+    query: str,
+    extracted: dict[str, object] | None = None,
 ) -> tuple[str | None, str, list[dict[str, object]]]:
-    """Score stored memories against a query.
+    """Score stored memories against a query. Read-only: nothing is written.
 
-    ``write_report=False`` makes it strictly read-only. The pipeline wants the
-    ``memory_search.md`` artifact; a caller merely answering a question does not,
-    and writing it would create a work item directory for an id that was never
-    prepared.
+    Returns the matched id (or ``None`` for free text), a Markdown report and
+    the results. The pipeline renders the report into ``context.md`` from
+    memory; it is never written beside it, and a caller merely answering a
+    question cannot create a work item directory for an id never prepared.
+
+    ``extracted`` is the work item's keyword extraction, handed over by the
+    caller that holds it. Without it the query's own words are scored.
     """
     # Only a Jira key or a local id counts as a work item lookup; everything
     # else is free text scored against stored memories. The permissive
     # directory-name check would misread terms like `utf-8` as an id.
     candidate = query.strip()
     issue_key = candidate if is_known_work_item_id(candidate) else None
-    keywords = _query_keywords(repo_root, query, issue_key)
+    keywords = _query_keywords(query, issue_key, extracted)
     memories = sorted(memory_dir(repo_root).glob("*.md")) if memory_dir(repo_root).exists() else []
     results = []
 
@@ -74,24 +80,22 @@ def search_memory(
 
     results = sorted(results, key=lambda item: (-int(item["score"]), str(item["file"])))[:5]
     markdown = _render_memory_search(issue_key or query, keywords, results)
-
-    if issue_key and write_report:
-        target = issue_dir(repo_root, issue_key)
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "memory_search.md").write_text(markdown, encoding="utf-8")
-
     return issue_key, markdown, results
 
 
 
-def _query_keywords(repo_root: Path, query: str, issue_key: str | None) -> list[str]:
-    if issue_key:
-        path = issue_dir(repo_root, issue_key) / "extracted_keywords.json"
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            keywords = data.get("high_value_keywords", []) + data.get("normal_keywords", [])
-            return [str(keyword) for keyword in keywords if str(keyword).strip()]
+def _query_keywords(query: str, issue_key: str | None, extracted: dict[str, object] | None) -> list[str]:
+    if issue_key and extracted is not None:
+        keywords = [
+            *_as_list(extracted.get("high_value_keywords")),
+            *_as_list(extracted.get("normal_keywords")),
+        ]
+        return [str(keyword) for keyword in keywords if str(keyword).strip()]
     return [word.lower() for word in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", query)]
+
+
+def _as_list(value: object) -> list:
+    return value if isinstance(value, list) else []
 
 
 def _score_memory(text: str, keywords: list[str]) -> int:

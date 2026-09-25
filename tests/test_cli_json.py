@@ -264,7 +264,7 @@ def test_bug_json_for_a_jira_work_item(tmp_path, monkeypatch, capsys):
     assert payload["source"] == "jira"
     assert payload["source_ref"] == "JR-12345"
     assert payload["issue_dir"] == ".ai/JR-12345"
-    assert payload["agent_task"] == ".ai/JR-12345/agent_task.md"
+    assert payload["agent_task"] == ".ai/JR-12345/task.md"
     assert payload["skipped_steps"] == []
 
 
@@ -352,8 +352,8 @@ def test_ignore_path_reaches_the_code_search(tmp_path, monkeypatch, capsys):
          "--prepare-only", "--json"],
     )
     assert code == 0
-    related = (tmp_path / ".ai" / payload["work_item_id"] / "related_files.json").read_text(encoding="utf-8")
-    assert "vendor/W.cpp" not in related
+    retrieval = json.loads((tmp_path / ".ai" / payload["work_item_id"] / "retrieval.json").read_text(encoding="utf-8"))
+    assert "vendor/W.cpp" not in [item["file"] for item in retrieval["related_files"]]
 
 
 def test_hint_flag_still_reaches_the_artifacts(tmp_path, monkeypatch, capsys):
@@ -363,8 +363,8 @@ def test_hint_flag_still_reaches_the_artifacts(tmp_path, monkeypatch, capsys):
         ["bug", "--description", "crash on save", "--hint", "look in VdsWriter", "--prepare-only", "--json"],
     )
     assert code == 0
-    hint_file = tmp_path / ".ai" / payload["work_item_id"] / "developer_hint.md"
-    assert hint_file.read_text(encoding="utf-8").strip() == "look in VdsWriter"
+    issue = json.loads((tmp_path / ".ai" / payload["work_item_id"] / "issue.json").read_text(encoding="utf-8"))
+    assert issue["guidance"]["hint"] == "look in VdsWriter"
 
 
 def test_manual_progress_numbering_excludes_the_jira_fetch(tmp_path, monkeypatch, capsys):

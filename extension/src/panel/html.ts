@@ -315,14 +315,14 @@ const RESULT_ACTIONS: readonly {
     action: "openContext",
     icon: "go-to-file",
     label: "Open Context",
-    title: "Open the generated bug_context.md",
+    title: "Open the generated context.md",
   },
   {
     id: "copy-context",
-    action: "copyHandoff",
+    action: "copyContext",
     icon: "copy",
     label: "Copy",
-    title: "Copy the handoff prompt to the clipboard",
+    title: "Copy context.md to the clipboard",
   },
   {
     id: "open-folder",
@@ -391,7 +391,7 @@ ${RESULT_ACTIONS.map(
           wants to look before pressing it.
 
           The rows are built by the page from what the host read out of
-          related_files.json. Nothing here names a file, a score or a rank.
+          retrieval.json. Nothing here names a file, a score or a rank.
         -->
         <details class="files" id="relevant-files" hidden>
           <summary id="relevant-files-summary">Relevant Files</summary>
@@ -403,7 +403,7 @@ ${RESULT_ACTIONS.map(
           collapsed, because it answers a question most runs never raise — and
           read-only, because it is a record of what happened rather than a set
           of knobs. The rows are built by the page from what the host read out
-          of search_quality.json.
+          of retrieval.json.
         -->
         <details class="terms" id="retrieval-details" hidden>
           <summary id="retrieval-details-summary">Retrieval Details</summary>

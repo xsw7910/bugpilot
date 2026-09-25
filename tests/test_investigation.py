@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from bugpilot.core.input_adapters import bug_spec_from_description, load_bug_spec
+from bugpilot.core.input_adapters import bug_spec_from_description
+from bugpilot.core.issue import load_issue
 from bugpilot.core.models import InvestigationOptions, InvestigationPlan, InvestigationRequest
 from bugpilot.core.workflow import jira_request, run_bug_workflow, run_investigation
 
@@ -15,7 +16,7 @@ MOMENT = datetime(2026, 9, 1, 9, 41, 33, tzinfo=timezone.utc)
 
 
 def _status(repo_root, work_item_id) -> dict:
-    path = repo_root / ".ai" / work_item_id / "workflow_status.json"
+    path = repo_root / ".ai" / work_item_id / "run.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -35,19 +36,22 @@ def test_manual_investigation_runs_without_jira(tmp_path):
 
     assert result.issue_key == "local_20260901094133"
     assert result.jira_result is None  # nothing was fetched
-    assert not (tmp_path / ".ai" / result.issue_key / "jira.json").exists()
+    assert (tmp_path / ".ai" / result.issue_key / "issue.json").is_file()
 
     generated = set(result.generated_files)
-    assert f".ai/{result.issue_key}/bug_context.md" in generated
-    assert f".ai/{result.issue_key}/agent_task.md" in generated
+    assert f".ai/{result.issue_key}/context.md" in generated
+    assert f".ai/{result.issue_key}/task.md" in generated
 
 
-def test_manual_investigation_persists_its_spec(tmp_path):
+def test_manual_investigation_persists_its_issue(tmp_path):
     request = _manual_request()
     run_investigation(tmp_path, request)
 
-    stored = load_bug_spec(tmp_path, request.work_item_id)
-    assert stored == request.spec
+    stored = load_issue(tmp_path, request.work_item_id)
+    assert stored.id == request.spec.work_item_id
+    assert stored.source == "manual"
+    assert stored.title == request.spec.title
+    assert stored.description == request.spec.description
     assert stored.source_ref is None
     assert not stored.can_write_back
 
@@ -56,14 +60,14 @@ def test_manual_content_reaches_the_generated_context(tmp_path):
     request = _manual_request()
     run_investigation(tmp_path, request)
 
-    context = (tmp_path / ".ai" / request.work_item_id / "bug_context.md").read_text(encoding="utf-8")
+    context = (tmp_path / ".ai" / request.work_item_id / "context.md").read_text(encoding="utf-8")
     assert "3D view crashes after changing horizon" in context
 
 
 def test_manual_status_never_marks_fetch_as_run(tmp_path):
-    """No Jira fetch happens, but parse still does — from the persisted spec.
+    """No Jira fetch happens, but parse still does — on the issue built in memory.
 
-    `workflow_status.json` lists every WORKFLOW_STEP and renders anything that did
+    `run.json`'s steps map lists every WORKFLOW_STEP and renders anything that did
     not run as "skipped", so `fetch: skipped` here is the same rendering every
     unrun step gets. The model-level distinction between "inapplicable" and
     "skipped capability" lives in InvestigationPlan.skipped_steps and does not
@@ -81,8 +85,11 @@ def test_manual_investigation_keeps_a_non_ascii_title(tmp_path):
     spec = bug_spec_from_description("三维视图切换层位后崩溃", now=MOMENT)
     run_investigation(tmp_path, InvestigationRequest(spec=spec))
 
-    stored = load_bug_spec(tmp_path, spec.work_item_id)
+    stored = load_issue(tmp_path, spec.work_item_id)
     assert stored.title == "三维视图切换层位后崩溃"
+    # Readable in an editor, not \uXXXX escaped.
+    raw = (tmp_path / ".ai" / spec.work_item_id / "issue.json").read_text(encoding="utf-8")
+    assert "三维视图切换层位后崩溃" in raw
 
 
 # --- plan gating ------------------------------------------------------------
@@ -115,7 +122,7 @@ def test_every_single_capability_off_still_runs_to_completion(tmp_path, capabili
 
     The earlier tests only exercised the set arithmetic of resolve_steps; nothing
     actually executed a partial plan, so a missing prerequisite (context_step
-    always reads extracted_keywords.json) went unnoticed until review.
+    always reads the keyword extraction) went unnoticed until review.
     """
     request = _manual_request(**{capability: False})
     result = run_investigation(tmp_path, request)
@@ -144,9 +151,11 @@ def test_disabling_build_context_keeps_the_intermediate_artifacts(tmp_path):
     run_investigation(tmp_path, request)
 
     target = tmp_path / ".ai" / request.work_item_id
-    assert not (target / "bug_context.md").exists()
-    assert (target / "git_context.md").exists()
-    assert (target / "memory_search.md").exists()
+    assert not (target / "context.md").exists()
+    # Git history and similar fixes stay in memory: with no context to render
+    # them into, nothing is written for them either.
+    for name in ("bug_context.md", "git_context.md", "memory_search.md"):
+        assert not (target / name).exists(), name
 
 
 def test_skipped_step_writes_no_artifact(tmp_path):
@@ -154,8 +163,7 @@ def test_skipped_step_writes_no_artifact(tmp_path):
     run_investigation(tmp_path, request)
 
     target = tmp_path / ".ai" / request.work_item_id
-    assert not (target / "code_search.md").exists()
-    assert not (target / "related_files.json").exists()
+    assert not (target / "retrieval.json").exists()
 
 
 # --- Jira path stays intact -------------------------------------------------
@@ -164,11 +172,11 @@ def test_skipped_step_writes_no_artifact(tmp_path):
 def test_jira_run_persists_the_parsed_title(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
 
-    stored = load_bug_spec(tmp_path, "JR-12345")
+    stored = load_issue(tmp_path, "JR-12345")
     assert stored is not None
     assert stored.source == "jira"
     assert stored.source_ref == "JR-12345"
-    assert stored.title  # filled in from the parsed issue, not the empty stub
+    assert stored.title  # filled in from the fetched issue, not the empty stub
     assert stored.can_write_back
 
 
@@ -218,7 +226,7 @@ def test_manual_branch_name_uses_the_spec_title_not_the_jira_fallback(tmp_path):
     request = _manual_request()
     run_investigation(tmp_path, request)
 
-    task = (tmp_path / ".ai" / request.work_item_id / "agent_task.md").read_text(encoding="utf-8")
+    task = (tmp_path / ".ai" / request.work_item_id / "task.md").read_text(encoding="utf-8")
     assert "jira-workflow" not in task
     assert "3d-view-crashes" in task
 
@@ -231,8 +239,7 @@ def test_hint_from_options_reaches_the_artifacts(tmp_path):
     )
     run_investigation(tmp_path, request)
 
-    hint_file = tmp_path / ".ai" / request.work_item_id / "developer_hint.md"
-    assert hint_file.read_text(encoding="utf-8").strip() == "look in VdsWriter::flush"
+    assert load_issue(tmp_path, request.work_item_id).guidance.hint == "look in VdsWriter::flush"
 
 
 def test_explicit_hint_argument_beats_options_hint(tmp_path):
@@ -242,8 +249,7 @@ def test_explicit_hint_argument_beats_options_hint(tmp_path):
     )
     run_investigation(tmp_path, request, hint="from argument")
 
-    hint_file = tmp_path / ".ai" / request.work_item_id / "developer_hint.md"
-    assert hint_file.read_text(encoding="utf-8").strip() == "from argument"
+    assert load_issue(tmp_path, request.work_item_id).guidance.hint == "from argument"
 
 
 def test_ignore_paths_keeps_matches_out_of_the_results(tmp_path):
@@ -259,5 +265,7 @@ def test_ignore_paths_keeps_matches_out_of_the_results(tmp_path):
     )
     run_investigation(tmp_path, request)
 
-    related = (tmp_path / ".ai" / request.work_item_id / "related_files.json").read_text(encoding="utf-8")
-    assert "vendor/Widget.cpp" not in related
+    retrieval = json.loads((tmp_path / ".ai" / request.work_item_id / "retrieval.json").read_text(encoding="utf-8"))
+    files = [item["file"] for item in retrieval["related_files"]]
+    assert "src/Widget.cpp" in files
+    assert "vendor/Widget.cpp" not in files

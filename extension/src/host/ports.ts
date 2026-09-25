@@ -151,7 +151,7 @@ export function createUiPort(deps: UiPortDeps): UiPort {
  *
  * The mtime is a sound key for what is being asked: it moves when an entry is
  * added, removed or renamed, and the three files the outcome depends on all
- * arrive that way (`workflow_status.json` included — it is written through a
+ * arrive that way (`run.json` included — it is written through a
  * temporary file and renamed into place).
  */
 const probes = new Map<string, { readonly mtimeMs: number; readonly probe: WorkItemProbe }>();
@@ -169,9 +169,9 @@ async function probeWorkItem(directory: string, mtimeMs: number): Promise<WorkIt
     // Unreadable is a real state; it just is not one this row can describe.
   }
   let status: unknown;
-  if (files.includes("workflow_status.json")) {
+  if (files.includes("run.json")) {
     try {
-      status = JSON.parse(await readFile(path.join(directory, "workflow_status.json"), "utf8"));
+      status = JSON.parse(await readFile(path.join(directory, "run.json"), "utf8"));
     } catch {
       // A truncated status file leaves the outcome to the file list alone,
       // rather than dropping the row.

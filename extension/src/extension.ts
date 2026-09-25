@@ -16,6 +16,7 @@ import { COMMANDS, SETTINGS, VIEWS, workItemFromTree } from "./commands.ts";
 import type { CommandId } from "./commands.ts";
 import { installInstructions, resolveEnvironment } from "./app/environment.ts";
 import type { Environment } from "./app/environment.ts";
+import { TASK_ARTIFACT } from "./app/artifacts.ts";
 import { Controller } from "./app/controller.ts";
 import { DEFAULT_FORM } from "./app/form.ts";
 import { fixModeCommandPort } from "./app/fixModeTransport.ts";
@@ -320,7 +321,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   register(COMMANDS.retry, (argument: never) => onWorkItem(argument, () => controller.retry()));
   register(COMMANDS.openAgentTask, (argument: never) =>
-    onWorkItem(argument, () => controller.openArtifact("agent_task.md")),
+    onWorkItem(argument, () => controller.openArtifact(TASK_ARTIFACT)),
   );
   register(COMMANDS.copyHandoffPrompt, (argument: never) =>
     onWorkItem(argument, () => controller.copyHandoff()),
@@ -444,7 +445,7 @@ export function activate(context: vscode.ExtensionContext): void {
     .refreshEnvironment()
     .then(() => {
       // §5.4: after a restart the progress view comes back from
-      // workflow_status.json — which only works if the window remembers which
+      // run.json — which only works if the window remembers which
       // work item to read it from.
       const last = context.workspaceState.get<string>(WORK_ITEM_STATE_KEY);
       return last ? controller.showWorkItem(last) : undefined;

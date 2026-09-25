@@ -17,11 +17,10 @@ import pytest
 
 from bugpilot.core import search, workflow
 from bugpilot.core.git_ops import artifacts_ignored
-from bugpilot.core.input_adapters import bug_spec_from_description
-from bugpilot.core.models import InvestigationOptions, InvestigationPlan, InvestigationRequest
+from bugpilot.core.issue import IssueArtifact
 from bugpilot.core import artifact_io
 from bugpilot.core.artifact_io import atomic_write_text
-from bugpilot.core.workflow import MAX_SUPPLIED_KEYWORDS, run_investigation
+from bugpilot.core.workflow import MAX_SUPPLIED_KEYWORDS
 
 
 def _git(repo, *args):
@@ -46,12 +45,12 @@ def test_status_is_written_atomically(tmp_path, monkeypatch):
         return real_replace(source, target)
 
     monkeypatch.setattr(artifact_io.os, "replace", watched)
-    workflow._write_status(tmp_path, "JR-1", {"doctor": "pass"}, [])
+    workflow._mark_step(tmp_path, "JR-1", "doctor", "pass")
 
-    status = tmp_path / ".ai" / "JR-1" / "workflow_status.json"
+    status = tmp_path / ".ai" / "JR-1" / "run.json"
     assert json.loads(status.read_text(encoding="utf-8"))["steps"]["doctor"] == "pass"
-    assert seen, "the status file was written in place, not renamed into place"
-    assert seen[-1][1] == "workflow_status.json"
+    assert seen, "the run state was written in place, not renamed into place"
+    assert seen[-1][1] == "run.json"
     # No debris: a leftover .tmp<pid> file in .ai/ shows up in the artifact tree.
     assert [path.name for path in status.parent.glob("*.tmp*")] == []
 
@@ -72,7 +71,7 @@ def test_a_locked_target_falls_back_instead_of_failing_the_step(tmp_path, monkey
     monkeypatch.setattr(artifact_io.os, "replace", always_locked)
     monkeypatch.setattr(artifact_io.time, "sleep", lambda _seconds: None)
 
-    target = tmp_path / "workflow_status.json"
+    target = tmp_path / "run.json"
     atomic_write_text(target, '{"ok": true}\n')
 
     assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
@@ -129,7 +128,7 @@ def test_the_real_ripgrep_accepts_the_form_we_build(tmp_path):
 # --- supplied keywords are unbounded work ----------------------------------
 
 
-def test_supplied_keywords_are_capped_and_the_rest_recorded(tmp_path, monkeypatch):
+def test_supplied_keywords_are_capped_and_the_rest_recorded(tmp_path, monkeypatch, execution_trace):
     """Each keyword is one ripgrep run with its own 20 second timeout.
 
     A pasted list of sixty would spend twenty minutes searching and then be
@@ -138,49 +137,23 @@ def test_supplied_keywords_are_capped_and_the_rest_recorded(tmp_path, monkeypatc
     """
     target = tmp_path / ".ai" / "JR-1"
     target.mkdir(parents=True)
-    monkeypatch.setattr(workflow, "_parsed_issue", lambda *_args: {"combined_text": "crash on save"})
+    issue = IssueArtifact(id="JR-1", source="jira", title="crash on save")
 
     supplied = [f"word{index}" for index in range(MAX_SUPPLIED_KEYWORDS + 12)]
-    workflow.keywords_step(
-        tmp_path, "JR-1", workflow.InvestigationOptions(keywords=supplied)
+    keywords = workflow.keywords_step(
+        tmp_path, "JR-1", workflow.InvestigationOptions(keywords=supplied), issue=issue
     )
 
-    keywords = json.loads((target / "extracted_keywords.json").read_text(encoding="utf-8"))
     high = keywords["high_value_keywords"]
     assert len([word for word in high if word.startswith("word")]) == MAX_SUPPLIED_KEYWORDS
     # Dropped, not discarded: the developer can see what was left out.
     assert keywords["dropped_supplied_keywords"] == supplied[MAX_SUPPLIED_KEYWORDS:]
-    assert "dropped" in (target / "execution.log").read_text(encoding="utf-8")
+    assert "dropping" in execution_trace.text and supplied[-1] in execution_trace.text
+    # Extraction is in-memory state: nothing is written for it.
+    assert not (target / "extracted_keywords.json").exists()
 
 
 # --- files a human edits -----------------------------------------------------
-
-
-def test_a_hint_file_in_another_encoding_does_not_abort_the_run(tmp_path):
-    """developer_hint.md is edited by hand; editors save cp1252 and GB2312.
-
-    Two of the three reads of this file already used errors="replace"; the third
-    — the one every resumed run does — would have thrown UnicodeDecodeError and
-    taken the run with it. So this drives the real function rather than
-    re-testing Python's own decoder.
-    """
-    spec = bug_spec_from_description("crash on save", repo_root=tmp_path)
-    target = tmp_path / ".ai" / spec.work_item_id
-    target.mkdir(parents=True, exist_ok=True)
-    # "修在 parser 里" as GB2312 bytes: not decodable as UTF-8.
-    (target / "developer_hint.md").write_bytes("修在 parser 里".encode("gb2312"))
-    with pytest.raises(UnicodeDecodeError):
-        (target / "developer_hint.md").read_text(encoding="utf-8")
-
-    request = InvestigationRequest(
-        spec=spec,
-        options=InvestigationOptions(),
-        # Trimmed so the test exercises the hint read without a full search.
-        plan=InvestigationPlan(code_search=False, git_history=False, similar_fixes=False),
-    )
-    # fresh=False is the path that reads a hint left by a previous run.
-    result = run_investigation(tmp_path, request, fresh=False)
-    assert result.generated_files, "the run produced nothing"
 
 
 def test_a_hand_edited_config_does_not_break_every_command(tmp_path, monkeypatch):

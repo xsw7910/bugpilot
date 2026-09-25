@@ -23,51 +23,48 @@ _FIX_MODE_HEADINGS: dict[str, str] = {
 }
 
 
-def generate_prompts(
+def generate_task(
     issue_key: str,
     summary: str | None = None,
     hint: str | None = None,
     jira_comment: bool = False,
     attachments: Sequence[str] | None = None,
     fix_mode: FixMode | None = None,
-) -> dict[str, str]:
-    # The full analysis/fix/review/test workflow lives inside agent_task.md, so
-    # the standalone per-phase prompt files are intentionally not generated.
+) -> str:
+    """``task.md``: the one package BugPilot hands a coding agent.
+
+    It used to be three files — the task, a handoff pointer whose every line the
+    task already said, and a per-work-item copy of the team instructions the task
+    told the agent to go and read. Now the team instructions are a section of the
+    task, and the handoff is the one sentence that points at it.
+    """
+    # The full analysis/fix/review/test workflow lives inside the task, so no
+    # standalone per-phase prompt files are generated.
     branch = branch_name(issue_key, summary)
     mode = _task_fix_mode(fix_mode)
-    return {
-        "agent_task.md": _copilot_task(
-            issue_key, branch, hint, jira_comment, attachments, mode
-        ),
-        "agent_handoff.md": _copilot_handoff(issue_key, jira_comment, mode),
-        "agent_team_instructions.md": copilot_team_instructions(),
-    }
-
-
-def generate_copilot_task_files(
-    issue_key: str,
-    summary: str | None = None,
-    hint: str | None = None,
-    jira_comment: bool = False,
-    attachments: Sequence[str] | None = None,
-    fix_mode: FixMode | None = None,
-) -> dict[str, str]:
-    branch = branch_name(issue_key, summary)
-    mode = _task_fix_mode(fix_mode)
-    return {
-        "agent_task.md": _copilot_task(
-            issue_key, branch, hint, jira_comment, attachments, mode
-        ),
-        "agent_handoff.md": _copilot_handoff(issue_key, jira_comment, mode),
-        "agent_team_instructions.md": copilot_team_instructions(),
-    }
+    return _copilot_task(issue_key, branch, hint, jira_comment, attachments, mode)
 
 
 def copilot_team_instructions() -> str:
+    """The effective team instructions: the repository's document, else the bundled copy."""
     path = Path(__file__).resolve().parents[2] / "docs" / "agent_team_instructions.md"
     if path.exists():
         return path.read_text(encoding="utf-8")
     return _fallback_team_instructions()
+
+
+def _team_instructions_section() -> str:
+    """The team instructions as a section of the task, their title dropped.
+
+    Their own headings move one level down so they read as part of this section
+    rather than as a second document pasted into the middle of the task.
+    """
+    lines = []
+    for line in copilot_team_instructions().splitlines():
+        if line.startswith("# "):
+            continue
+        lines.append("#" + line if line.startswith("#") else line)
+    return "\n".join(lines).strip() + "\n\n"
 
 
 def _task_fix_mode(fix_mode: FixMode | None = None) -> FixMode:
@@ -245,19 +242,19 @@ def _copilot_task(
         else assisted_delivery_block(issue_key)
     )
     return (
-        f"# Agent Task: {issue_key}\n\n"
+        f"# BugPilot Task: {issue_key}\n\n"
         f"{hint_block}"
         "## Execution Location\n\n"
         "- Run your AI agent from the target repo root (the target repository root).\n"
         "- Do not run your AI agent from the bugpilot tool source directory.\n"
         f"- `.ai/{issue_key}/` files are relative to the target repo root.\n\n"
         "## Team Instructions\n\n"
-        "Before editing code, read:\n"
-        f"`.ai/{issue_key}/agent_team_instructions.md`\n\n"
-        "Follow these instructions together with the issue-specific context.\n"
+        "Read these general team rules before editing code, and follow them together with "
+        "the issue-specific context.\n"
         "- Issue-specific task instructions override general team instructions only when necessary.\n"
         "- Safety rules always apply.\n"
         "- If team instructions and task instructions conflict, choose the safer option and document the conflict in `review_notes.md`.\n\n"
+        f"{_team_instructions_section()}"
         "## Branch Instructions\n\n"
         f"- Branch name: `{branch}`\n"
         "- Check the current branch before editing.\n"
@@ -266,34 +263,31 @@ def _copilot_task(
         "- Create or switch to the feature branch before editing files.\n\n"
         f"{_attachments_section(issue_key, attachments)}"
         "## Required Input Files\n\n"
-        f"- Read `.ai/{issue_key}/bug_context.md`.\n"
-        f"- Read `.ai/{issue_key}/agent_team_instructions.md`.\n"
-        f"- Read and inspect `.ai/{issue_key}/code_search.md` if present.\n"
-        f"- Read and inspect `.ai/{issue_key}/related_files.json` if present.\n"
-        f"- Read search quality from `.ai/{issue_key}/search_quality.json` if present.\n"
-        f"- Similar historical issues and git context are included in `bug_context.md`.\n"
-        f"- Read `.ai/{issue_key}/jira_parsed.md` for reproduction steps, actual/expected results, environment, errors, and missing information.\n\n"
+        f"- Read `.ai/{issue_key}/context.md`.\n"
+        f"- Read and inspect `.ai/{issue_key}/retrieval.json` if present: the ranked related files with their matched lines, the search terms, and the search confidence.\n"
+        "- Similar fixes and git history are included in `context.md`.\n"
+        "- Reproduction steps, actual/expected results, environment, errors, and missing information are in the Issue Details section of `context.md`.\n\n"
         f"{_fix_mode_section(mode)}"
         f"{_precedence_section()}"
         "## BugPilot Evidence Rules\n\n"
         "These rules apply in every Fix Mode. They govern what counts as evidence, not how "
         "deeply you investigate or how you implement.\n\n"
         "- Summarize the problem in your own words from the supplied evidence.\n"
-        "- Read Jira comments in `bug_context.md` as potentially newer than the original description.\n"
-        "- Review Jira attachment metadata in `bug_context.md`.\n"
+        "- Read Jira comments in `context.md` as potentially newer than the original description.\n"
+        "- Review Jira attachment metadata in `context.md`.\n"
         "- Do not claim to have inspected attachment contents unless the content is present in repository files or artifact files.\n"
         "- If attachment metadata suggests logs, screenshots, or crash dumps, mention follow-up review if needed.\n"
-        "- Use reproduction steps, actual/expected results, environment, and error messages from jira_parsed.md.\n"
+        "- Use reproduction steps, actual/expected results, environment, and error messages from `context.md`.\n"
         "- Do not invent reproduction steps or error messages not present in the Jira data.\n"
         "- If required bug information is missing, document your assumptions in bug_analysis.md.\n"
         "- If missing information prevents a safe fix, write a no-op analysis or request follow-up information.\n"
-        "- Inspect top related files from `related_files.json`.\n"
-        "- Read search quality from `bug_context.md` or `code_search.md`.\n"
+        "- Inspect top related files from `retrieval.json`.\n"
+        "- Read search quality from `context.md` or `retrieval.json`.\n"
         "- If search confidence is Low, verify whether the feature exists before editing.\n"
         "- If search confidence is Low, do not assume the matched files are the correct implementation.\n"
         "- Do not modify code based only on low-confidence keyword matches.\n"
         "- If no real implementation is found, write a no-op analysis explaining why no code fix was applied.\n"
-        "- Use matched line numbers from `code_search.md`.\n"
+        "- Use matched line numbers from `retrieval.json`.\n"
         "- Do not edit code until after reviewing context and related files.\n"
         "- Ask follow-up questions if context is insufficient.\n\n"
         "## BugPilot Editing Guardrails\n\n"
@@ -394,49 +388,6 @@ def _attachments_section(issue_key: str, attachments: Sequence[str] | None) -> s
         "- Read the ones your tools can open, and use them as evidence.\n"
         "- If one is an image or a format you cannot read, say so plainly "
         "instead of guessing at its contents.\n\n"
-    )
-
-
-def _copilot_handoff(
-    issue_key: str,
-    jira_comment: bool = True,
-    fix_mode: FixMode | None = None,
-) -> str:
-    mode = _task_fix_mode(fix_mode)
-    jira_reminder = (
-        "- Never push main/master, force push, merge, transition/assign/edit Jira fields, or commit `.ai/` or `.ai_memory/` (posting one status comment via bugpilot is allowed).\n"
-        if jira_comment
-        else "- Never push main/master, force push, merge, update Jira, or commit `.ai/` or `.ai_memory/`.\n"
-    )
-    # An investigation has no delivery summary to approve, so it does not get the
-    # sentence that promises one. What it gets instead is the stop.
-    if mode.is_investigation:
-        mode_lines = (
-            f"- AI Fix Mode: {mode.name} (`{mode.id}`). Investigation only: do not modify "
-            "source code in this pass.\n"
-            "- Do not commit or push.\n"
-            "- Complete the investigation artifacts and ask whether to continue with "
-            "implementation.\n"
-        )
-    else:
-        mode_lines = (
-            f"- AI Fix Mode: {mode.name} (`{mode.id}`). Follow it as written in `agent_task.md`.\n"
-            "- Do not commit or push unless the developer explicitly approves after a "
-            "delivery summary.\n"
-        )
-    return (
-        f"# Agent Handoff: {issue_key}\n\n"
-        f"Read `.ai/{issue_key}/agent_task.md` and complete the workflow.\n\n"
-        "Read these files before editing:\n"
-        f"- `.ai/{issue_key}/agent_task.md`\n"
-        f"- `.ai/{issue_key}/agent_team_instructions.md`\n\n"
-        "## Reminder\n\n"
-        "- Run your AI agent from the target repo root.\n"
-        "- Do not run from the bugpilot tool repo.\n"
-        "- Do not work directly on main/master.\n"
-        f"{mode_lines}"
-        f"{jira_reminder}"
-        f"- Generate the required result files under `.ai/{issue_key}/`.\n"
     )
 
 

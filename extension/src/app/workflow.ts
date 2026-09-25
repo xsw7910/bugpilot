@@ -22,6 +22,7 @@
  *    honest end state is that it was handed over, which is what `detail` says.
  */
 
+import { CONTEXT_ARTIFACT } from "./artifacts.ts";
 import type { PlanState, Source } from "./form.ts";
 import type { ProgressView, RowState } from "./progress.ts";
 
@@ -46,7 +47,7 @@ export const WORKFLOW_STEP_IDS: readonly WorkflowStepId[] = [
 export type StepStatus = "idle" | "running" | "success" | "failed" | "skipped";
 
 /** An icon button offered on a step's own row, once that step has produced it. */
-export type StepActionId = "openContext" | "copyHandoff" | "openFolder";
+export type StepActionId = "openContext" | "copyContext" | "openFolder";
 
 export interface WorkflowStep {
   readonly id: WorkflowStepId;
@@ -130,8 +131,8 @@ export interface WorkflowInput {
 
 /** Which file each icon needs before it is worth offering. */
 const ACTION_REQUIREMENTS: readonly { readonly id: StepActionId; readonly file?: string }[] = [
-  { id: "openContext", file: "bug_context.md" },
-  { id: "copyHandoff", file: "agent_task.md" },
+  { id: "openContext", file: CONTEXT_ARTIFACT },
+  { id: "copyContext", file: CONTEXT_ARTIFACT },
   // The directory itself, which exists as soon as anything is in it.
   { id: "openFolder" },
 ];
