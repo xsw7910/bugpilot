@@ -17,16 +17,13 @@ import type { FieldProblem, FormState, Source } from "../app/form.ts";
 import { AGENT_CHOICES } from "../app/agents.ts";
 import type { AgentChoice } from "../app/agents.ts";
 import { WORKFLOW_STEP_IDS } from "../app/workflow.ts";
-import type { OverallStatus, WorkflowStep } from "../app/workflow.ts";
+import type { OverallStatus, WorkflowStepResult } from "../app/workflow.ts";
 import type { ArtifactList } from "../app/artifacts.ts";
 import type { CommandAction } from "../app/environment.ts";
 import { FIX_MODE_ID_RE } from "../app/form.ts";
 import type { UserFacingError } from "../app/failures.ts";
-import type { HandoffOutcome } from "../app/handoff.ts";
-import type { RetrievalTerm } from "../app/retrievalDetails.ts";
 import type { DiagnosticsView } from "../app/diagnostics.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
-import type { RelevantFile } from "../app/contextSummary.ts";
 import { WRITABLE_SCOPES } from "../app/fixModes.ts";
 import type {
   FixModeCatalog,
@@ -91,16 +88,26 @@ export interface PanelState {
   readonly problems: readonly FieldProblem[];
   readonly progress: ProgressView;
   /**
-   * The six workflow rows, computed by the host.
+   * The six workflow rows, computed by the host — and, since Batch 6, the
+   * result view: each row carries its own summary, artifact, actions, nested
+   * content and failure.
    *
    * The page renders these into markup it already has — one static row per
    * step — rather than building the list itself. That keeps the checkbox in the
    * page's hands (it is form state) and the status in the host's (it is the
    * run's), which is the same division the rest of this file describes.
    */
-  readonly workflow: readonly WorkflowStep[];
-  /** The short line in the workflow header: "Ready to run", "Running 3/6…". */
+  readonly workflow: readonly WorkflowStepResult[];
+  /**
+   * The short line in the workflow header: "Ready to run", "Running 3/6…",
+   * "Context ready". The one global status.
+   */
   readonly overall: OverallStatus;
+  /**
+   * Actions about the whole work item rather than one step — today only Open
+   * Folder, which reveals every artifact, not Build context's.
+   */
+  readonly workItemActions: readonly PanelAction[];
   readonly artifacts: ArtifactList;
   /**
    * Things worth saying before the first run, computed by the host.
@@ -142,31 +149,14 @@ export interface PanelState {
   /** What the hint improver is doing, and what it has to show for it. */
   readonly hintImprovement?: HintImprovementView;
   /**
-   * The finished package, when there is one to act on.
+   * A run failure no workflow row owns, classified and worded for a human.
    *
-   * Present is the whole signal: the page renders the result section when this
-   * arrives and hides it when it does not, so "before the first run" needs no
-   * empty card and no zero counts. The host decides — a run in flight and a run
-   * that failed both leave it absent.
-   */
-  readonly contextReady?: ContextReadyView;
-  /**
-   * Why the last run did not finish, classified and worded for a human.
-   *
-   * Never present at the same time as `contextReady`: a run that failed did not
-   * produce a package, and the two cards would be answering the same question
-   * with opposite answers.
+   * A failure while a step was in flight is carried by that step's row
+   * (`WorkflowStepResult.error`) and is absent here, so it is never shown
+   * twice. This is the rest: a failure before any step started, or one the
+   * extension observed itself.
    */
   readonly runError?: UserFacingError;
-  /**
-   * Why the last handoff could not start.
-   *
-   * Deliberately *not* mutually exclusive with `contextReady`. The package is
-   * built and every artifact action still works; only the agent would not
-   * start. Clearing the result for that would make the developer rerun
-   * retrieval to fix a PATH problem.
-   */
-  readonly handoffError?: UserFacingError;
   /**
    * What BugPilot is configured with.
    *
@@ -174,65 +164,6 @@ export interface PanelState {
    * environment I think it is — is asked most urgently when nothing has run.
    */
   readonly diagnostics: DiagnosticsView;
-}
-
-/**
- * What a developer can do with a package that exists.
- *
- * Deliberately not the workflow rows in another arrangement. Those say what
- * each step did; this says what the run produced and what to press next, which
- * is the question a checklist could never answer.
- */
-export interface ContextReadyView {
-  /** One line of counts, or empty when neither artifact could be read. */
-  readonly counts: string;
-  /**
-   * The mode the package on disk was prepared with, as one short line.
-   *
-   * The same string `preparedFixMode` produced before UI-A3 moved it here, for
-   * the same reason: what the agent was actually told, never what the selector
-   * happens to say now.
-   */
-  readonly strategy?: string;
-  /** Which of the three artifact actions have their file. */
-  readonly actions: readonly PanelAction[];
-  /**
-   * Whether pressing Fix with AI would do something that has not been done.
-   *
-   * False after a handoff that succeeded, which is what stops a second press
-   * from producing a second terminal for the same run.
-   */
-  readonly canFix: boolean;
-  /**
-   * A handoff that started an agent, said out loud.
-   *
-   * Present only for a handoff that actually launched something. A skip is not
-   * a quieter success: it is explained by `handoffError`, and the button stays.
-   * The two are never both present, which a test pins.
-   */
-  readonly handoffOutcome?: HandoffOutcome;
-  /** True while a handoff is being resolved, which spawns a probe. */
-  readonly handoffBusy: boolean;
-  /**
-   * Which files the run found, in the order the artifact ranked them.
-   *
-   * Part of this view rather than a field of its own, which is what ties them
-   * to one work item: a run in flight, a failed run and a freshly typed issue
-   * all leave `contextReady` absent, so there is no path by which the previous
-   * bug's files stay on screen.
-   */
-  readonly files: readonly RelevantFile[];
-  /** How many the artifact held beyond `files`, when it held more. */
-  readonly moreFiles?: number;
-  /**
-   * Which terms the run searched, and how each behaved.
-   *
-   * Part of this view for one reason: it must share Context Ready's lifecycle
-   * exactly. A run in flight, a failed run and another work item all leave
-   * `contextReady` absent, so there is no path by which one bug's retrieval
-   * story stays on screen for another's.
-   */
-  readonly terms: readonly RetrievalTerm[];
 }
 
 /**

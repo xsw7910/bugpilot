@@ -121,11 +121,24 @@
     idle: { icon: "", spin: false, word: "not started" },
     running: { icon: "loading", spin: true, word: "running" },
     success: { icon: "pass-filled", spin: false, word: "done" },
+    // No glyph, on purpose: the green tick is for a handoff that started, and
+    // the button on the row is what says there is something to press.
+    ready: { icon: "", spin: false, word: "ready" },
     failed: { icon: "error", spin: false, word: "failed" },
     skipped: { icon: "circle-slash", spin: false, word: "skipped" },
   };
 
   const byId = (id) => document.getElementById(id);
+
+  /** The six rows, for wiring each row's artifact link once at load. */
+  const STEP_IDS_FOR_ARTIFACTS = {
+    issueDetails: true,
+    codeSearch: true,
+    gitHistory: true,
+    similarFixes: true,
+    buildContext: true,
+    fixWithAI: true,
+  };
 
   let appliedRevision = -1;
   let running = false;
@@ -151,10 +164,34 @@
   /**
    * Whether the last render saw a run in flight.
    *
-   * Only used to notice the moment one finishes, which is when the checklist
-   * stops being the thing to look at and the result above it starts.
+   * Only used to notice the moment one *starts*, which is when the workflow
+   * opens itself. It no longer folds when the run ends: since Batch 6 the rows
+   * are the result, so folding them would hide what the run just produced.
    */
   let wasRunning = false;
+  /**
+   * Whether the last render had a failure card to show.
+   *
+   * Every card — the run's, a row's, the handoff's — lives inside the
+   * workflow, so a card appearing opens it once, like a run starting: a Set
+   * Jira Credentials button nobody can see is a button that does nothing.
+   */
+  let hadCard = false;
+  /**
+   * The work item the workflow last opened itself for.
+   *
+   * A different work item with results — one reopened from History, or the one
+   * a reloaded panel restores — opens the workflow once, like a run starting.
+   * Once, so a developer who collapses it is not overruled by the next push.
+   */
+  let shownWorkItem;
+  /**
+   * Each row's artifact, as the host last named it.
+   *
+   * The link sends a plain file name back and the host re-checks it — the same
+   * constrained `openArtifact` path the artifact tree uses, never a path.
+   */
+  const rowArtifacts = {};
 
   // --- growing fields ------------------------------------------------------
 
@@ -389,7 +426,7 @@
     renderFixModes(state);
     renderWorkflow(state);
     renderRun(state);
-    renderContextReady(state);
+    renderRunHint(state);
     // Outside the result on purpose: whether this is the environment the
     // developer thinks it is has nothing to do with whether a run succeeded.
     renderDiagnostics(state);
@@ -555,10 +592,13 @@
     for (const step of steps) {
       const meta = STEP_STATES[step.status] || STEP_STATES.idle;
       const row = byId(`step-${step.id}`);
-      row.className = `step step-${step.status}${step.enabled ? "" : " step-off"}`;
+      // "Not chosen" only greys a row that has not happened: a Fix with AI row
+      // that is ready or was handed over is part of the run, ticked or not.
+      const off = !step.enabled && step.status === "idle";
+      row.className = `step step-${step.status}${off ? " step-off" : ""}`;
       row.setAttribute(
         "aria-label",
-        `${step.label}: ${step.enabled ? meta.word : "not selected"}`,
+        `${step.label}: ${step.enabled || step.status !== "idle" ? meta.word : "not selected"}`,
       );
 
       const status = byId(`status-${step.id}`);
@@ -568,10 +608,31 @@
         : "step-status codicon";
       byId(`duration-${step.id}`).textContent =
         typeof step.durationMs === "number" ? formatDuration(step.durationMs) : "";
-      // `detail` is what actually happened, when the icon alone would be
-      // ambiguous — "handed to Claude Code in a terminal" against a tick.
-      byId(`description-${step.id}`).textContent = step.detail || step.description || "";
+
+      // The secondary line, for the state the row is in: what it does while
+      // pending, what it is doing while running, what it produced once done.
+      byId(`description-${step.id}`).textContent = step.summary || step.description || "";
+      // "Always runs" is plan information: once the row has run, it is noise.
+      const note = document.getElementById(`note-${step.id}`);
+      if (note) note.hidden = step.status !== "idle";
+
+      const detail = byId(`detail-${step.id}`);
+      detail.textContent = step.detail || "";
+      detail.hidden = detail.textContent === "";
+
+      // The artifact the row owns, as a quiet link — a file name, never a path.
+      rowArtifacts[step.id] = step.artifact || "";
+      byId(`artifact-${step.id}-name`).textContent = rowArtifacts[step.id];
+      const artifact = byId(`artifact-${step.id}`);
+      artifact.hidden = rowArtifacts[step.id] === "";
+      artifact.setAttribute("title", rowArtifacts[step.id] ? `Open ${rowArtifacts[step.id]}` : "");
+
+      renderError(`error-${step.id}`, step.error);
     }
+
+    const byStep = Object.fromEntries(steps.map((step) => [step.id, step]));
+    renderSearch(byStep.codeSearch);
+    renderStepActions(byStep.buildContext, byStep.fixWithAI);
 
     const overall = state.overall || { kind: "idle", text: "" };
     const status = byId("workflow-status");
@@ -579,21 +640,51 @@
     status.className = `workflow-status is-${overall.kind}`;
     byId("activity").textContent = (state.progress || {}).activity || "";
 
-    // Open while a run is in flight, and folded away once as it finishes.
-    //
-    // UI-A3 left it open afterwards because the artifact icons lived on the
-    // Build context row — and UI-B1 moved them into the result section, which
-    // took that reason away. What a screenshot then showed was 314px of
-    // checklist under a 412px result, its summary reading "Context ready"
-    // directly below a block reading "Context Ready", and a "Fix with AI" row
-    // directly below the "Fix with AI" button.
-    //
-    // Only on the transition, so a developer who opens it again is not
-    // overruled by the next state push.
+    // The work item's own action, at the foot of the workflow.
+    const workItemActions = state.workItemActions || [];
+    byId("open-folder").hidden = !workItemActions.includes("openFolder");
+
+    // Opened when a run starts, and kept open when it ends: the rows are where
+    // its results are now. Only on the transition, so a developer who collapses
+    // it — during a run or after one — is not overruled by the next push.
     const runState = (state.progress || {}).state;
-    if (runState === "running") byId("workflow").open = true;
-    else if (wasRunning) byId("workflow").open = false;
-    wasRunning = runState === "running";
+    const nowRunning = runState === "running";
+    if (nowRunning && !wasRunning) byId("workflow").open = true;
+    if (state.workItemId !== shownWorkItem) {
+      // A different work item arriving with results: once, like a run starting.
+      if (state.workItemId && !nowRunning && overall.kind !== "idle") byId("workflow").open = true;
+      shownWorkItem = state.workItemId;
+    }
+    const hasCard = Boolean(state.runError) || steps.some((step) => Boolean(step.error));
+    if (hasCard && !hadCard) byId("workflow").open = true;
+    wasRunning = nowRunning;
+    hadCard = hasCard;
+  }
+
+  /**
+   * What Build context and Fix with AI offer, from their rows.
+   *
+   * The buttons are the host's decision: each is shown only when its row lists
+   * the action, which is only once the file it acts on exists — and, for Fix
+   * with AI, while a press would do something that has not been done.
+   */
+  function renderStepActions(build, fix) {
+    const buildActions = (build && build.actions) || [];
+    let anyBuildAction = false;
+    for (const [id, action] of Object.entries(RESULT_ACTIONS)) {
+      if (id === "open-folder") continue;
+      byId(id).hidden = !buildActions.includes(action);
+      anyBuildAction = anyBuildAction || !byId(id).hidden;
+    }
+    // The containers hide with their contents, so an empty one adds no space.
+    byId("actions-buildContext").hidden = !anyBuildAction;
+
+    const fixActions = (fix && fix.actions) || [];
+    byId("fix-with-ai").hidden = !fixActions.includes("fixWithAI");
+    byId("actions-fixWithAI").hidden = byId("fix-with-ai").hidden;
+    const strategy = byId("strategy-fixWithAI");
+    byId("strategy-fixWithAI-value").textContent = (fix && fix.strategy) || "";
+    strategy.hidden = !(fix && fix.strategy);
   }
 
   /**
@@ -610,78 +701,19 @@
   };
 
   /**
-   * The finished package: what it holds, and the one thing to press.
+   * The sentence under Run.
    *
-   * Entirely host-decided. `state.contextReady` arriving *is* the signal — a
-   * run in flight, a run that failed, and a panel that has never run all leave
-   * it absent, so there is no zero-count card and no tick over a failure. The
-   * page's whole job here is to fill four lines and show the right buttons.
+   * The Context Ready card that used to sit here is gone (Batch 6, §37.45):
+   * everything it held is on the workflow row that owns it, and the workflow
+   * header's status is the one global "Context ready".
    */
-  function renderContextReady(state) {
-    const ready = state.contextReady;
-    // What Run does, said until it has been done. Once there is a result or a
-    // failure on screen the sentence is advice about a button the developer has
-    // already pressed, sitting directly above the proof of what it did.
-    byId("run-hint").hidden = Boolean(ready) || Boolean(state.runError);
-    byId("context-ready").hidden = !ready;
-    if (!ready) {
-      // Hidden with it, so a later run that reads no counts cannot inherit the
-      // previous one's numbers for a frame.
-      for (const id of ["result-counts", "result-strategy", "result-handoff"]) {
-        byId(id).hidden = true;
-      }
-      for (const id of Object.keys(RESULT_ACTIONS)) byId(id).hidden = true;
-      // And the files with them, so the previous bug's list cannot outlive the
-      // result it belonged to.
-      byId("relevant-files").hidden = true;
-      byId("relevant-files-list").replaceChildren();
-      byId("relevant-files-more").hidden = true;
-      byId("retrieval-details").hidden = true;
-      byId("retrieval-details-list").replaceChildren();
-      return;
-    }
-
-    const counts = byId("result-counts");
-    counts.textContent = ready.counts || "";
-    // Omitted rather than shown empty: neither artifact being readable is not
-    // a fact worth a line, and "Context Ready" already said the useful thing.
-    counts.hidden = counts.textContent === "";
-
-    const strategy = byId("result-strategy");
-    byId("result-strategy-value").textContent = ready.strategy || "";
-    strategy.hidden = !ready.strategy;
-
-    // A handoff that started an agent. Present only for that — a skip is
-    // explained by the error card, and the button stays for it.
-    const outcome = ready.handoffOutcome;
-    byId("result-handoff").hidden = !outcome;
-    byId("result-handoff-title").textContent = outcome ? outcome.title || "" : "";
-    byId("result-handoff-message").textContent = outcome ? outcome.message || "" : "";
-    const detail = byId("result-handoff-detail");
-    // Which agent, from the host's own record of the launch. The two lines
-    // above it name no vendor, and this one is the answer to the obvious next
-    // question rather than a claim about what the agent did.
-    detail.textContent = outcome && outcome.detail ? outcome.detail : "";
-    detail.hidden = detail.textContent === "";
-
-    // Absent after a handoff that worked: a second press would only open a
-    // second terminal for the same package.
-    byId("fix-with-ai").hidden = ready.canFix !== true;
-    // Resolving an agent spawns a probe, so the press is not instant.
-    const busy = ready.handoffBusy === true;
-    byId("fix-with-ai").disabled = busy;
-    byId("fix-with-ai-label").textContent = busy ? "Starting AI fix…" : "Fix with AI";
-    byId("fix-with-ai-icon").className = busy
-      ? "codicon codicon-loading codicon-spin"
-      : "codicon codicon-hubot";
-
-    const available = ready.actions || [];
-    for (const [id, action] of Object.entries(RESULT_ACTIONS)) {
-      byId(id).hidden = !available.includes(action);
-    }
-
-    renderRelevantFiles(ready);
-    renderRetrievalDetails(ready);
+  function renderRunHint(state) {
+    const overall = (state.overall || {}).kind;
+    // What Run does, said until it has been done. Once the workflow header
+    // reports a result or a failure, the sentence is advice about a button the
+    // developer has already pressed, sitting directly above the proof of what
+    // it did.
+    byId("run-hint").hidden = overall === "done" || overall === "failed" || Boolean(state.runError);
   }
 
   /**
@@ -723,6 +755,19 @@
   }
 
   /**
+   * Code search's two disclosures, from its row.
+   *
+   * Present only while the row carries content — a finished search whose
+   * retrieval.json could be read — so a running, failed or pending search never
+   * shows the previous run's files.
+   */
+  function renderSearch(codeSearch) {
+    const content = codeSearch && codeSearch.search;
+    renderRelevantFiles(content);
+    renderSearchDetails(content);
+  }
+
+  /**
    * Which terms the run searched, and how each behaved.
    *
    * Built through `textContent` like every other list here: a search term comes
@@ -734,10 +779,10 @@
    * whether a term is broad, what its source is called and where a shape came
    * from were all settled by the host from the artifact's own fields.
    */
-  function renderRetrievalDetails(ready) {
-    const terms = (ready && ready.terms) || [];
-    const section = byId("retrieval-details");
-    const list = byId("retrieval-details-list");
+  function renderSearchDetails(content) {
+    const terms = (content && content.terms) || [];
+    const section = byId("search-details");
+    const list = byId("search-details-list");
     list.replaceChildren();
     section.hidden = terms.length === 0;
 
@@ -794,13 +839,13 @@
    * re-ranking in the panel would mean the list and the context disagree about
    * which file matters most.
    */
-  function renderRelevantFiles(ready) {
-    const files = ready.files || [];
+  function renderRelevantFiles(content) {
+    const files = (content && content.files) || [];
     const section = byId("relevant-files");
     const list = byId("relevant-files-list");
     list.replaceChildren();
-    // Hidden rather than shown empty: a "Relevant Files / none" row is a line
-    // to read and dismiss, and Context Ready already said how many there were.
+    // Hidden rather than shown empty: a "Relevant files / none" row is a line
+    // to read and dismiss, and Code search's summary already said how many.
     section.hidden = files.length === 0;
 
     const implementation = files.filter((file) => file.documentation !== true);
@@ -824,8 +869,8 @@
 
     const more = byId("relevant-files-more");
     more.textContent =
-      typeof ready.moreFiles === "number" && ready.moreFiles > 0
-        ? `${ready.moreFiles} more in retrieval.json`
+      content && typeof content.moreFiles === "number" && content.moreFiles > 0
+        ? `${content.moreFiles} more in retrieval.json`
         : "";
     more.hidden = more.textContent === "";
   }
@@ -924,8 +969,9 @@
 
   function renderRun(state) {
     const progress = state.progress || {};
+    // Only a failure no row owns; one while a step was in flight is on that
+    // step's row, rendered by renderWorkflow.
     renderError("failure", state.runError);
-    renderError("handoff-error", state.handoffError);
     // Shown only when it is the thing to do, in the row beside Run.
     // Disabled-but-visible was worse than absent: a greyed Stop under an idle
     // panel is a control that has never once been usable when it was on screen.
@@ -1671,6 +1717,13 @@
   byId("fix-with-ai").addEventListener("click", () =>
     vscode.postMessage({ type: "action", id: "fixWithAI" }),
   );
+  // Each row's artifact link: a plain file name the host named, re-checked on
+  // the host by the same path the artifact tree uses.
+  for (const id of Object.keys(STEP_IDS_FOR_ARTIFACTS)) {
+    byId(`artifact-${id}`).addEventListener("click", () => {
+      if (rowArtifacts[id]) vscode.postMessage({ type: "openArtifact", name: rowArtifacts[id] });
+    });
+  }
   // The dialog can only be opened by the host, so this asks — and carries the
   // form, because the host's copy can be a debounce interval stale.
   byId("add-attachment").addEventListener("click", () =>

@@ -20,7 +20,7 @@ import { isRecord } from "./retrieval.ts";
 import type { Retrieval } from "./retrieval.ts";
 
 /**
- * One row of the Retrieval Details list.
+ * One row of Code search's Search details list.
  *
  * Five fields out of the term's eight. `weight` and `effective_weight` are
  * left behind deliberately: the question this section answers is *why was this

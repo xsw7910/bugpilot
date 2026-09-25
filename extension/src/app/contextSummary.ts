@@ -26,7 +26,7 @@ import { isRecord } from "./retrieval.ts";
 import type { Retrieval } from "./retrieval.ts";
 
 /**
- * Counts for the result section. Both optional, independently.
+ * Counts for Code search's summary line. Both optional, independently.
  *
  * One list being unusable says nothing about the other, so a retrieval whose
  * `terms` is malformed still reports its file count.
@@ -45,28 +45,6 @@ export function contextCounts(retrieval: Retrieval | undefined): ContextCounts {
     ...(relevantFiles === undefined ? {} : { relevantFiles }),
     ...(searchTerms === undefined ? {} : { searchTerms }),
   };
-}
-
-/**
- * The counts as one line, or nothing.
- *
- * Built here rather than in the page for the reason everything else is: the page
- * renders and the host computes. Singular and plural are spelled out because
- * "1 relevant files" is the kind of detail that makes a panel look unfinished.
- */
-export function describeCounts(counts: ContextCounts): string {
-  const parts: string[] = [];
-  if (counts.relevantFiles !== undefined) {
-    parts.push(plural(counts.relevantFiles, "relevant file"));
-  }
-  if (counts.searchTerms !== undefined) {
-    parts.push(plural(counts.searchTerms, "search term"));
-  }
-  return parts.join(" · ");
-}
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 // --- which files, not how many ----------------------------------------------

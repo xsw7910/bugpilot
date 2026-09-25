@@ -811,111 +811,16 @@ button.icon .codicon {
   font-size: 0.9em;
 }
 
-/* --- the result ----------------------------------------------------------- */
-
-/*
- * Context Ready: what the run produced, and the one thing to press.
- *
- * No card. The section earns its prominence from where it is — directly under
- * Run, above the workflow disclosure — and from the primary button, not from a
- * border, a tint or a shadow. A success banner in a 200px sidebar is a banner
- * that wraps to four lines.
- */
-.result {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.result[hidden] {
-  display: none;
-}
-
-.result-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-}
-
-.result-title {
-  font-weight: 600;
-  color: var(--vscode-foreground);
-}
-
-.result-counts,
-.result-strategy {
-  margin: 0;
-}
-
-.result-counts[hidden],
-.result-strategy[hidden] {
-  display: none;
-}
+/* --- results on the workflow rows ------------------------------------------ */
 
 /* "Strategy" labels the mode beside it; the mode is the part worth reading. */
 .result-label {
   color: var(--vscode-descriptionForeground);
 }
 
-.result-strategy > #result-strategy-value {
-  color: var(--vscode-foreground);
-}
-
-/* A handoff that started an agent. The same shape as the Context Ready line
-   above it, because it is the same kind of statement — something happened, and
-   here is what — and deliberately not a bigger one: this is the end of what
-   BugPilot can honestly report, not a celebration. */
-.result-handoff {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
-}
-
-.result-handoff[hidden] {
-  display: none;
-}
-
-.result-handoff-message,
-.result-handoff-detail {
-  margin: 0;
-}
-
-.result-handoff-detail[hidden] {
-  display: none;
-}
-
-/* Full width, like Run: this is the next step, and at 200px a button that
-   shrinks to its text reads as one option among several. */
-.result-primary {
-  display: flex;
-  margin-top: 4px;
-}
-
-.result-primary > button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  padding: 5px 12px;
-}
-
-.result-primary > button[hidden] {
-  display: none;
-}
-
-/* The three artifact actions, secondary by size and by staying on one row
-   until they cannot. `flex-wrap` rather than a breakpoint, for the same reason
-   as everywhere else here: the panel is dragged, not chosen. */
-.result-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
+/* A secondary action: Build context's two, and the work item's Open Folder.
+   Small, and labelled as well as iconned so a pair of them reads as controls
+   rather than decoration. */
 .result-link {
   display: inline-flex;
   align-items: center;
@@ -929,11 +834,11 @@ button.icon .codicon {
 }
 
 /*
- * Relevant Files: which files the run found, one question below how many.
+ * Relevant files: which files the search found, under Code search.
  *
- * Part of the result section rather than a thing of its own — no card, no
- * border, no badge. The disclosure is what keeps it secondary to Fix with AI;
- * the styling only has to make a filename findable and a long path survivable.
+ * Part of the row rather than a thing of its own — no card, no border, no
+ * badge. The disclosure keeps it secondary to the row's summary line; the
+ * styling only has to make a filename findable and a long path survivable.
  */
 .files {
   margin-top: 2px;
@@ -1066,7 +971,7 @@ button.icon .codicon {
 }
 
 /*
- * Retrieval Details: which terms were searched, and how each behaved.
+ * Search details: which terms were searched, and how each behaved.
  *
  * Typography and spacing, not a card per term — twenty-eight bordered boxes in
  * a 200px sidebar is a wall, and this is a record to scan rather than a
@@ -1253,6 +1158,129 @@ button.icon .codicon {
   font-size: 0.9em;
   color: var(--vscode-descriptionForeground);
   white-space: nowrap;
+}
+
+/*
+ * A row's result, under its summary line (Batch 6).
+ *
+ * Indented to the label like the summary, so everything a step owns reads as
+ * that step's. A column with a gap between whatever is visible — and no space
+ * at all when nothing is, which is why the top margin is conditional: a row
+ * that has only its summary must be exactly as tall as it was.
+ */
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 20px;
+  min-width: 0;
+}
+
+.step-body:has(> :not([hidden])) {
+  margin-top: 4px;
+}
+
+.step-foot {
+  flex-wrap: wrap;
+}
+
+/* The issue's title, which agent: the part of the result worth reading, so
+   the foreground colour, one step quieter than the label. */
+.step-detail {
+  margin: 0;
+  font-size: 0.9em;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+.step-strategy {
+  margin: 0;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+/* The canonical artifact a row owns: a file name as a quiet link at the end
+   of the summary line. Present so ownership is visible, small so six of them
+   do not turn the workflow into a file list. */
+.step-artifact {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.step-artifact:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
+.step-artifact[hidden] {
+  display: none;
+}
+
+.step-artifact > .codicon {
+  font-size: 12px;
+}
+
+.step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.step-actions[hidden] {
+  display: none;
+}
+
+/* Fix with AI's button: full width like Run, because it is the next step. */
+.step-primary {
+  display: flex;
+}
+
+.step-primary[hidden] {
+  display: none;
+}
+
+.step-primary > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 12px;
+}
+
+.step-primary > button[hidden] {
+  display: none;
+}
+
+/* A ready task: the label at full strength, since there is something to do,
+   and no status glyph — the tick is for a handoff that started. */
+.step-ready .step-label {
+  color: var(--vscode-foreground);
+}
+
+/* The work item's own action, under the rows. Space only when it is shown. */
+.workflow-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.workflow-foot:has(> :not([hidden])) {
+  margin-top: 6px;
+}
+
+/* A failure no row owns sits above the rows, with room below it. */
+#failure:not([hidden]) {
+  margin: 4px 0 6px;
 }
 
 /* Colour is the secondary signal; the icon and the accessible name carry the

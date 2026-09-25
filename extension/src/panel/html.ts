@@ -290,26 +290,24 @@ const AGENT_COMMAND_FIELD: TextField = {
   hint: "{prompt} is replaced with the handoff prompt, already quoted.",
 };
 
-/**
- * The secondary actions on a finished package.
- *
- * They were three icons on the Build context row until UI-A3 — the right place
- * while that row was the only thing a finished run had to show, and the wrong
- * one once there is a result section whose entire job is what to do next. Same
- * ids, same messages, same tooltips; what changed is that they now sit under
- * the primary button rather than inside a checklist.
- *
- * Icon *and* label, unlike the bare icons they replace. A row of three glyphs
- * under a full-width button reads as decoration; the words are what make them
- * findable, and the `title` still carries the longer sentence for a hover.
- */
-const RESULT_ACTIONS: readonly {
+interface ActionButton {
   readonly id: string;
   readonly action: string;
   readonly icon: string;
   readonly label: string;
   readonly title: string;
-}[] = [
+}
+
+/**
+ * Build context's own actions: they act on `context.md`, the file that step
+ * produced, so they sit on its row (Batch 6). Same ids, same messages, same
+ * tooltips as when they lived in the Context Ready card.
+ *
+ * Icon *and* label: a pair of bare glyphs under a row reads as decoration; the
+ * words are what make them findable, and the `title` carries the longer
+ * sentence for a hover.
+ */
+const BUILD_CONTEXT_ACTIONS: readonly ActionButton[] = [
   {
     id: "open-context",
     action: "openContext",
@@ -324,92 +322,24 @@ const RESULT_ACTIONS: readonly {
     label: "Copy",
     title: "Copy context.md to the clipboard",
   },
-  {
-    id: "open-folder",
-    action: "openFolder",
-    icon: "folder-opened",
-    label: "Open Folder",
-    title: "Reveal the generated artifacts in the explorer",
-  },
 ];
 
 /**
- * The result section: what the run produced, and the one thing to press.
- *
- * Hidden in the markup and unhidden only when the host sends a `contextReady`,
- * which is what keeps §19's promise — no "0 files" card, no empty Artifacts
- * heading, nothing at all before a run has produced something.
- *
- * A tick and two words rather than a banner. The tick is the vendored
- * `pass-filled`, tinted with the palette's success tone, and "Context Ready" is
- * a heading so the transition is announced rather than only seen.
+ * The work item's own action. Not Build context's: the folder holds every
+ * artifact the run wrote, so it sits at the foot of the workflow rather than
+ * beside two buttons that act on one file.
  */
-const CONTEXT_READY = `      <section id="context-ready" class="result" aria-labelledby="result-heading" hidden>
-        <p class="result-head">
-          <span class="codicon codicon-pass-filled icon-success" aria-hidden="true"></span>
-          <span class="result-title" id="result-heading" role="status">Context Ready</span>
-        </p>
-        <p class="muted result-counts" id="result-counts" hidden></p>
-        <p class="muted result-strategy" id="result-strategy" hidden><span class="result-label">Strategy</span> <span id="result-strategy-value"></span></p>
-        <!--
-          A handoff that started an agent, and the furthest claim BugPilot can
-          make about it. The extension launches a terminal and stops watching,
-          so the words stop at "started" — never fixed, never finished, never
-          tested. The tick is the same vendored glyph Context Ready uses; the
-          status is in the text beside it, not in the icon.
-        -->
-        <div class="result-handoff" id="result-handoff" hidden>
-          <p class="result-head">
-            <span class="codicon codicon-pass-filled icon-success" aria-hidden="true"></span>
-            <span class="result-title" id="result-handoff-title" role="status"></span>
-          </p>
-          <p class="muted result-handoff-message" id="result-handoff-message"></p>
-          <p class="muted result-handoff-detail" id="result-handoff-detail" hidden></p>
-        </div>
-        <div class="result-primary">
-          <button type="button" id="fix-with-ai" class="primary">
-            <span class="codicon codicon-hubot" id="fix-with-ai-icon" aria-hidden="true"></span>
-            <span id="fix-with-ai-label">Fix with AI</span>
-          </button>
-        </div>
-        <!--
-          Directly under the button it is about. It sat below the artifact
-          actions until UI-V1 looked at it, which put three things a developer
-          can still do between "Fix with AI" and the reason it did not work.
-        -->
-${errorCard("handoff-error")}
-        <div class="result-links" id="result-links">
-${RESULT_ACTIONS.map(
-  (entry) =>
-    `          <button type="button" class="result-link" id="${entry.id}" title="${entry.title}" hidden><span class="codicon codicon-${entry.icon}" aria-hidden="true"></span>${entry.label}</button>`,
-).join("\n")}
-        </div>
-        <!--
-          Which files, one question below "how many". A disclosure rather than a
-          list, and collapsed, because the answer to "what now" is the button
-          above it — this is for the developer who has already read that and
-          wants to look before pressing it.
+const OPEN_FOLDER: ActionButton = {
+  id: "open-folder",
+  action: "openFolder",
+  icon: "folder-opened",
+  label: "Open Folder",
+  title: "Reveal the generated artifacts in the explorer",
+};
 
-          The rows are built by the page from what the host read out of
-          retrieval.json. Nothing here names a file, a score or a rank.
-        -->
-        <details class="files" id="relevant-files" hidden>
-          <summary id="relevant-files-summary">Relevant Files</summary>
-          <div id="relevant-files-list"></div>
-          <p class="muted" id="relevant-files-more" hidden></p>
-        </details>
-        <!--
-          Why those files, for the developer who asks. Last in the result and
-          collapsed, because it answers a question most runs never raise — and
-          read-only, because it is a record of what happened rather than a set
-          of knobs. The rows are built by the page from what the host read out
-          of retrieval.json.
-        -->
-        <details class="terms" id="retrieval-details" hidden>
-          <summary id="retrieval-details-summary">Retrieval Details</summary>
-          <div id="retrieval-details-list"></div>
-        </details>
-      </section>`;
+function actionButton(entry: ActionButton): string {
+  return `<button type="button" class="result-link" id="${entry.id}" title="${entry.title}" hidden><span class="codicon codicon-${entry.icon}" aria-hidden="true"></span>${entry.label}</button>`;
+}
 
 /**
  * A failure card: what failed, what to do next, and the original underneath.
@@ -423,9 +353,9 @@ ${RESULT_ACTIONS.map(
  * an error message is exactly the string an attacker would reach for.
  */
 function errorCard(id: string): string {
-  // A div rather than a section: one of the two lives *inside* the result
-  // section, and a nested <section> makes every "the result section is
-  // everything up to its closing tag" reading of this document wrong.
+  // A div rather than a section: six of the seven live inside a workflow row,
+  // and a nested <section> there would make every "a row is everything up to
+  // its closing tag" reading of this document wrong.
   return `      <div id="${id}" class="failure" role="alert" hidden>
         <p class="failure-head">
           <span class="codicon codicon-error icon-danger" aria-hidden="true"></span>
@@ -514,8 +444,6 @@ ${ISSUE_FIELD}
       </div>
       <p class="hint" id="run-hint">Run prepares the issue context for AI-assisted fixing.</p>
 
-${CONTEXT_READY}
-
       <!--
         A disclosure rather than a section, since UI-A1: the six rows were the
         largest thing on an untouched panel and said nothing a developer who has
@@ -530,11 +458,20 @@ ${CONTEXT_READY}
           <h2 id="workflow-heading">Investigation &amp; AI Fix</h2>
           <span id="workflow-status" class="workflow-status" role="status">Ready to run</span>
         </summary>
+        <!--
+          A run failure no row owns: one before any step started, or one the
+          extension observed itself. A failure while a step was in flight is on
+          that step's row instead, and the rows before it keep their results.
+        -->
+${errorCard("failure")}
         <ol class="steps">
   ${WORKFLOW_STEP_IDS.map(step).join("\n")}
         </ol>
         <p id="activity" class="muted" aria-live="polite"></p>
         <p id="plan-note" class="muted" hidden>Without Build context, bugpilot only normalizes the report — search, history, similar fixes and the AI fix are skipped too.</p>
+        <div class="workflow-foot" id="workflow-foot">
+          ${actionButton(OPEN_FOLDER)}
+        </div>
       </details>
 
       <details class="group advanced" id="advanced">
@@ -610,12 +547,11 @@ ${CONTEXT_READY}
         What BugPilot is configured with, for the developer who is not sure
         which install, which repository or which agent is in play.
 
-        A sibling of the result rather than a child of it, which is a deliberate
-        departure from UI-C2's sketch: the question this answers — is this the
-        environment I think it is — is asked most urgently when nothing has run
-        or when a run has just failed, and a section inside Context Ready could
-        be opened in neither case. It still reads last in the details, directly
-        after Retrieval Details.
+        Outside the workflow rather than inside it, a deliberate departure from
+        UI-C2's sketch: the question this answers — is this the environment I
+        think it is — is asked most urgently when nothing has run or when a run
+        has just failed, and it must not depend on a run's results. It reads
+        last in the details.
 
         Read-only and passive: opening it makes no request and spawns no probe,
         which is why it is a definition list and not a single control.
@@ -625,8 +561,6 @@ ${CONTEXT_READY}
         <dl id="diagnostics-list"></dl>
       </details>
     </form>
-
-${errorCard("failure")}
 
     <section id="notices" class="notices" role="status" hidden></section>
 
@@ -839,7 +773,7 @@ ${entry.extra ?? ""}    </div>`;
 }
 
 /**
- * One workflow row.
+ * One workflow row: the choice, the status, and — since Batch 6 — the result.
  *
  * Ticked in the markup — including `fixWithAI`, which is the one exception:
  * it starts unticked because involving a model is a decision of its own (R5),
@@ -847,12 +781,18 @@ ${entry.extra ?? ""}    </div>`;
  * rest match `DEFAULT_FORM`, so a Run that happens before the host's first
  * state push does what the boxes say. `test/panel.test.ts` compares both
  * against the model.
+ *
+ * Every slot below the summary line starts hidden and is filled by the page
+ * from the host's `WorkflowStepResult`: a detail line, the owned artifact as a
+ * quiet link, whatever the step owns (Code search's two disclosures, Build
+ * context's two actions, Fix with AI's button and Strategy line), and the row's
+ * own failure card.
  */
 function step(id: WorkflowStepId): string {
   const required = id === "issueDetails";
   const checked = id === "fixWithAI" ? "" : " checked";
   const box = `<input type="checkbox" id="plan-${id}"${checked}${required ? " disabled" : ""}>`;
-  const note = required ? `<span class="step-note">Always runs</span>` : "";
+  const note = required ? `<span class="step-note" id="note-${id}">Always runs</span>` : "";
   // The Jira wording, because that is the source the form starts on; the host
   // replaces it with the manual wording on the first push after a switch.
   const description = stepDescription(id, "jira");
@@ -865,8 +805,50 @@ function step(id: WorkflowStepId): string {
           <div class="step-foot">
             <p class="step-description" id="description-${id}">${description}</p>
             ${note}
+            <button type="button" class="step-artifact" id="artifact-${id}" hidden><span class="codicon codicon-file" aria-hidden="true"></span><span id="artifact-${id}-name"></span></button>
+          </div>
+          <div class="step-body">
+            <p class="step-detail" id="detail-${id}" hidden></p>
+${stepContent(id)}
+${errorCard(`error-${id}`)}
           </div>
         </li>`;
+}
+
+/** What a row owns beyond its summary, in its body. */
+function stepContent(id: WorkflowStepId): string {
+  if (id === "codeSearch") {
+    // Which files, and why those: collapsed, because the row's summary line is
+    // the answer to "what did it find" and these are for the developer who
+    // wants to look. The rows are built by the page from what the host read
+    // out of retrieval.json; nothing here names a file, a score or a rank.
+    return `            <details class="files" id="relevant-files" hidden>
+              <summary id="relevant-files-summary">Relevant files</summary>
+              <div id="relevant-files-list"></div>
+              <p class="muted" id="relevant-files-more" hidden></p>
+            </details>
+            <details class="terms" id="search-details" hidden>
+              <summary id="search-details-summary">Search details</summary>
+              <div id="search-details-list"></div>
+            </details>`;
+  }
+  if (id === "buildContext") {
+    return `            <div class="step-actions" id="actions-buildContext" hidden>
+              ${BUILD_CONTEXT_ACTIONS.map(actionButton).join("\n              ")}
+            </div>`;
+  }
+  if (id === "fixWithAI") {
+    // The mode the task was prepared with — what the agent was actually told,
+    // never what the selector says now — then the one thing to press.
+    return `            <p class="step-strategy" id="strategy-fixWithAI" hidden><span class="result-label">Strategy</span> <span id="strategy-fixWithAI-value"></span></p>
+            <div class="step-primary" id="actions-fixWithAI" hidden>
+              <button type="button" id="fix-with-ai" class="primary" hidden>
+                <span class="codicon codicon-hubot" aria-hidden="true"></span>
+                <span>Fix with AI</span>
+              </button>
+            </div>`;
+  }
+  return "";
 }
 
 /**

@@ -103,7 +103,7 @@ Investigation & AI Fix           Running 3/6…
   Find recent related changes
 ☑ Similar fixes
   Search for similar issues and solutions
-☑ Build context      [↗] [⧉] [🗀]
+☑ Build context
   Prepare structured context for AI
 ☐ Fix with AI
   Run the prepared context with your AI coding agent
@@ -183,14 +183,22 @@ which is which: the checkbox on the left decides whether it runs, the icon on
 the right says how it went. A step that has not started shows nothing there. Untick what you do not need —
 Issue details always runs, because it is the input rather than an option.
 
-When **Build context** finishes, three icons appear on its own row: open the
-generated `context.md`, copy it to the clipboard, reveal the artifacts folder.
+Once a step finishes, its row says what it produced, with the file it wrote as
+a link on the right. **Issue details** names the issue (`issue.json`). **Code
+search** counts the terms it searched and the relevant files it found
+(`retrieval.json`), with **Relevant files** and **Search details** folded
+beneath it. **Build context** says **Context ready** (`context.md`) and offers
+**Open Context** and **Copy**. **Open Folder**, at the foot of the list, reveals
+the whole work item. The list stays open after a run, because those rows are
+the result; if a step fails, its card appears on that row and the rows above it
+keep what they found.
 
 **Fix with AI** is the last step, and it starts unticked. Tick it and Run does
 everything above it and then hands the finished package to your coding agent in
-a terminal; leave it alone and BugPilot stops once the context is ready. Which
-agent it hands to is **Advanced settings → AI agent**: auto-detect, Claude Code,
-or a custom command of your own (see below).
+a terminal; leave it alone and BugPilot stops once the context is ready, with a
+**Fix with AI** button on that row for when you want it. Which agent it hands
+to is **Advanced settings → AI agent**: auto-detect, Claude Code, or a custom
+command of your own (see below).
 
 BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.

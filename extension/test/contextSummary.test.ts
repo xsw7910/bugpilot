@@ -12,10 +12,10 @@ import assert from "node:assert/strict";
 
 import {
   contextCounts,
-  describeCounts,
   isSafeRelativePath,
   relevantFiles,
 } from "../src/app/contextSummary.ts";
+import { describeSearch } from "../src/app/workflow.ts";
 import { parseRetrieval } from "../src/app/retrieval.ts";
 
 /** A version-1 `retrieval.json` with these fields, parsed the way the host parses it. */
@@ -99,16 +99,15 @@ test("nothing is counted that a developer could not act on", () => {
   assert.deepEqual(contextCounts(rich), { relevantFiles: 2, searchTerms: 2 });
 });
 
-test("the line reads as English, including at one", () => {
-  assert.equal(
-    describeCounts({ relevantFiles: 8, searchTerms: 53 }),
-    "8 relevant files · 53 search terms",
-  );
-  assert.equal(describeCounts({ relevantFiles: 1, searchTerms: 1 }), "1 relevant file · 1 search term");
-  assert.equal(describeCounts({ relevantFiles: 3 }), "3 relevant files");
-  assert.equal(describeCounts({ searchTerms: 0 }), "0 search terms");
-  // Nothing readable means no line at all, which the page renders as no element.
-  assert.equal(describeCounts({}), "");
+test("Code search's line reads as English, including at one", () => {
+  // The counts end up on Code search's row (Batch 6), terms first — what was
+  // searched, then what it found.
+  assert.equal(describeSearch({ relevantFiles: 8, searchTerms: 53 }), "53 terms · 8 relevant files");
+  assert.equal(describeSearch({ relevantFiles: 1, searchTerms: 1 }), "1 term · 1 relevant file");
+  assert.equal(describeSearch({ relevantFiles: 3 }), "3 relevant files");
+  assert.equal(describeSearch({ searchTerms: 0 }), "0 terms");
+  // Nothing readable means no count at all; the row then says only "Completed".
+  assert.equal(describeSearch({}), "");
 });
 
 // --- which files, not how many ----------------------------------------------
@@ -253,7 +252,7 @@ test("the basename is taken from either separator", () => {
   assert.deepEqual(names, ["WidgetController.cpp", "WidgetController.h"]);
 });
 
-test("a broken file list never costs Context Ready its counts", () => {
+test("a broken file list never costs Code search its counts", () => {
   // Relevant Files is supplementary. The count comes from the same artifact,
   // and an entry this cannot use is still an entry the run found.
   const parsed = retrieval({ related_files: [{ file: "src/good.cpp" }, { nofile: true }] });

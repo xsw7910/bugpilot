@@ -22,19 +22,19 @@ import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_
 import {
   MAX_LISTED_FILES,
   contextCounts,
-  describeCounts,
   isSafeRelativePath,
   relevantFiles,
 } from "./contextSummary.ts";
 import { RETRIEVAL_ARTIFACT, parseRetrieval } from "./retrieval.ts";
-import type { RelevantFile } from "./contextSummary.ts";
+import { ISSUE_ARTIFACT, parseIssue } from "./issue.ts";
+import type { IssueSummary } from "./issue.ts";
+import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
-import { buildWorkflow, overallStatus } from "./workflow.ts";
-import type { FixWithAiOutcome, WorkflowStep } from "./workflow.ts";
+import { buildWorkflow, canOpenFolder, overallStatus } from "./workflow.ts";
+import type { FixWithAiOutcome } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
 import { handoffError, runError } from "./failures.ts";
-import { handoffOutcome } from "./handoff.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
 import { diagnostics } from "./diagnostics.ts";
 import type { ResolvedAgent } from "./diagnostics.ts";
@@ -74,7 +74,6 @@ import type { Log } from "./log.ts";
 import type { Envelope, StreamEvent } from "../protocol.ts";
 import { MAX_ATTACHMENTS } from "../panel/messages.ts";
 import type {
-  ContextReadyView,
   CreatedFixMode,
   Notice,
   PanelAction,
@@ -312,13 +311,15 @@ export class Controller {
   #fix: FixWithAiOutcome | undefined;
   #canRetry = false;
   /**
-   * The counts for the result section, as the last artifact refresh read them.
+   * Code search's two numbers, as the last artifact refresh read them.
    *
    * Held rather than re-read per push: `#push` runs on every stream event, and
-   * two file reads per event would be a lot of syscalls for a number that only
+   * a file read per event would be a lot of syscalls for a number that only
    * changes when the directory does.
    */
-  #counts = "";
+  #searchCounts: ContextCounts = {};
+  /** `issue.json`, for the Issue details row, as the last refresh read it. */
+  #issue: IssueSummary | undefined;
   /** The rows of the Relevant Files list, as the last refresh read them. */
   #files: readonly RelevantFile[] = [];
   /** How many the artifact held beyond the ones being shown. */
@@ -619,10 +620,7 @@ export class Controller {
       this.#artifactNames = [];
     }
     this.#canRetry = false;
-    this.#counts = "";
-    this.#files = [];
-    this.#moreFiles = 0;
-    this.#terms = [];
+    this.#forgetSummary();
     // Both, before anything is pushed: a stale card beside a Running… button
     // reads as the new run having failed instantly.
     this.#handoffError = undefined;
@@ -979,6 +977,7 @@ export class Controller {
     );
     if (listing.kind === "unreadable") {
       this.#artifactNames = [];
+      this.#forgetSummary();
       this.#artifacts = {
         kind: "error",
         detail: `.ai/${workItemId}/ could not be read: ${listing.detail}`,
@@ -1023,6 +1022,9 @@ export class Controller {
     // it — not the error, and not the outcome either.
     this.#handoffError = undefined;
     this.#fix = undefined;
+    // Nor its issue or its search: `refreshArtifacts` pushes before it reads,
+    // and that push must not name the previous work item on these rows.
+    this.#forgetSummary();
     this.#preparedFixMode = preparedFixModeFromStatus(parsed, this.#fixModes);
     this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
     await this.refreshArtifacts();
@@ -1546,21 +1548,35 @@ export class Controller {
     return path.join(this.#root ?? "", ".ai", workItemId, name);
   }
 
+  /** Drop what the rows report about a work item that is no longer shown. */
+  #forgetSummary(): void {
+    this.#issue = undefined;
+    this.#searchCounts = {};
+    this.#files = [];
+    this.#moreFiles = 0;
+    this.#terms = [];
+  }
+
   /**
-   * What the run found: the counts, which files, and which terms.
+   * What the rows report: the issue, and what the search found.
    *
-   * One file, read once and parsed once: the three are projections of the same
-   * `retrieval.json`, so they cannot describe different searches. It is only
-   * opened when the listing names it, so the normal before-the-first-run case
-   * costs no syscalls at all. Everything past the parse is the projections'
-   * business, which omit a number and drop an entry rather than guess at either.
+   * Two artifacts, each read once and parsed once. The retrieval's counts,
+   * files and terms are projections of the same `retrieval.json`, so they cannot
+   * describe different searches. Each file is only opened when the listing names
+   * it, so the before-the-first-run case costs no syscalls at all. Everything
+   * past the parse is the projections' business, which omit a number and drop
+   * an entry rather than guess at either.
    */
   async #readSummary(workItemId: string, names: readonly string[]): Promise<void> {
+    const issueText = names.includes(ISSUE_ARTIFACT)
+      ? await this.#ports.files.readFile(this.#itemFile(workItemId, ISSUE_ARTIFACT))
+      : undefined;
+    this.#issue = parseIssue(issueText);
     const text = names.includes(RETRIEVAL_ARTIFACT)
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, RETRIEVAL_ARTIFACT))
       : undefined;
     const retrieval = parseRetrieval(text);
-    this.#counts = describeCounts(contextCounts(retrieval));
+    this.#searchCounts = contextCounts(retrieval);
     this.#terms = retrievalTerms(retrieval);
     const found = relevantFiles(retrieval);
     this.#files = found.slice(0, MAX_LISTED_FILES);
@@ -1593,40 +1609,6 @@ export class Controller {
       return;
     }
     await this.#ports.ui.openFile(target);
-  }
-
-  /**
-   * The result section, or nothing at all.
-   *
-   * Three conditions, and each rules out a state that would otherwise read as
-   * success: `context.md` on disk means a package genuinely exists, not
-   * running means the numbers are not about to change under the developer, and
-   * not failed means a run that died is never crowned with a tick. A *stopped*
-   * run that got as far as writing the context does show it, because the
-   * context is there — and the failure card is what says the run did not
-   * finish.
-   */
-  #contextReady(workflow: readonly WorkflowStep[]): ContextReadyView | undefined {
-    if (this.#running) return undefined;
-    if (this.#progress.state === "failed") return undefined;
-    if (!this.#artifactNames.includes(CONTEXT_ARTIFACT)) return undefined;
-
-    const actions = workflow.find((step) => step.id === "buildContext")?.actions ?? [];
-    const strategy = this.#strategyLine();
-    const outcome = handoffOutcome(this.#fix);
-    return {
-      counts: this.#counts,
-      ...(strategy === undefined ? {} : { strategy }),
-      actions: actions as readonly PanelAction[],
-      files: this.#files,
-      ...(this.#moreFiles > 0 ? { moreFiles: this.#moreFiles } : {}),
-      terms: this.#terms,
-      // Offered while a press would do something new. After a handoff that
-      // worked it would only open a second terminal for the same package.
-      canFix: this.#fix?.status !== "success",
-      handoffBusy: this.#handoffBusy,
-      ...(outcome === undefined ? {} : { handoffOutcome: outcome }),
-    };
   }
 
   /**
@@ -1666,6 +1648,8 @@ export class Controller {
     // Computed here rather than in the page: the page cannot import the model,
     // and a status the page derived for itself would be a second opinion about
     // what the run did.
+    const failed = this.#runFailure();
+    const strategy = this.#strategyLine();
     const workflow = buildWorkflow({
       source: this.#form.source,
       plan: effectivePlan(this.#form.plan),
@@ -1673,9 +1657,24 @@ export class Controller {
       progress: this.#progress,
       artifacts: this.#artifactNames,
       ...(this.#fix === undefined ? {} : { fix: this.#fix }),
+      ...(this.#workItemId === undefined ? {} : { workItemId: this.#workItemId }),
+      ...(this.#issue === undefined ? {} : { issue: this.#issue }),
+      search: {
+        ...this.#searchCounts,
+        content: {
+          files: this.#files,
+          ...(this.#moreFiles > 0 ? { moreFiles: this.#moreFiles } : {}),
+          terms: this.#terms,
+        },
+      },
+      handoffBusy: this.#handoffBusy,
+      ...(this.#handoffError === undefined ? {} : { handoffError: this.#handoffError }),
+      ...(failed === undefined ? {} : { runError: failed }),
+      ...(strategy === undefined ? {} : { strategy }),
     });
-    const contextReady = this.#contextReady(workflow);
-    const failed = this.#runFailure();
+    // The run's card goes on the row that failed; only a failure no row owns —
+    // before any step started, or from the extension itself — stands alone.
+    const owned = failed !== undefined && workflow.some((step) => step.error === failed);
     this.#ports.ui.render({
       revision: this.#revision,
       fixModes: this.#fixModes,
@@ -1702,12 +1701,12 @@ export class Controller {
       progress: this.#progress,
       workflow,
       overall: overallStatus(workflow, this.#progress),
+      // Work-item level, not Build context's: the directory holds every artifact.
+      workItemActions: !this.#running && canOpenFolder(this.#artifactNames) ? ["openFolder"] : [],
       artifacts: this.#artifacts,
-      ...(contextReady === undefined ? {} : { contextReady }),
       // Classified here, where the code and the operation that produced it are
       // both known. The page receives a rendered card and decides nothing.
-      ...(failed === undefined ? {} : { runError: failed }),
-      ...(this.#handoffError === undefined ? {} : { handoffError: this.#handoffError }),
+      ...(failed === undefined || owned ? {} : { runError: failed }),
       diagnostics: this.#diagnostics(),
       warnings: this.#warnings,
       jiraConfigured: this.#jiraConfigured,

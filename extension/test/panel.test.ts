@@ -330,12 +330,18 @@ test("no Claude-specific wording reaches the panel", () => {
   assert.match(HTML, /Run the prepared context with your AI coding agent/);
 });
 
+/** One workflow row's markup, from its `<li>` to its close. */
+function rowMarkup(id: string): string {
+  const row = new RegExp(`<li[^>]*id="step-${id}"[\\s\\S]*?</li>`).exec(HTML)?.[0] ?? "";
+  assert.notEqual(row, "", `no ${id} row`);
+  return row;
+}
+
 test("the status icon is at the far right, away from the checkbox", () => {
   // The two ends answer different questions — "will this run" on the left,
   // "how did it go" on the right. Side by side, a ticked checkbox and a green
   // tick were one check mark too many.
-  const row = /<li[^>]*id="step-codeSearch"[\s\S]*?<\/li>/.exec(HTML)?.[0] ?? "";
-  assert.notEqual(row, "", "no Code search row");
+  const row = rowMarkup("codeSearch");
   const order = [
     'id="plan-codeSearch"',
     'id="duration-codeSearch"',
@@ -346,11 +352,9 @@ test("the status icon is at the far right, away from the checkbox", () => {
   // going to run.
   assert.match(row, /id="status-codeSearch"[^>]*hidden/);
 
-  // On the one row that has them, the action icons come before both.
-  const built = /<li[^>]*id="step-buildContext"[\s\S]*?<\/li>/.exec(HTML)?.[0] ?? "";
-  assert.ok(
-    built.indexOf('id="actions-buildContext"') < built.indexOf('id="status-buildContext"'),
-  );
+  // A row's result sits below its head line, never inside it (Batch 6).
+  const built = rowMarkup("buildContext");
+  assert.ok(built.indexOf('id="status-buildContext"') < built.indexOf('id="actions-buildContext"'));
 });
 
 test("every icon the panel asks for is one the vendored font declares", () => {
@@ -379,64 +383,71 @@ test("every icon the panel asks for is one the vendored font declares", () => {
   }
 });
 
-test("the artifact actions live in the result, not on a checklist row", () => {
-  // They were three icons on the Build context row until UI-A3 — the right
-  // place while that row was the only thing a finished run had to show, and the
-  // wrong one once the result section exists to answer "what now".
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  assert.notEqual(result, "", "no result section");
-  const row = /<li[^>]*id="step-buildContext"[\s\S]*?<\/li>/.exec(HTML)?.[0] ?? "";
-  assert.equal(/<button/.test(row), false, "the Build context row still carries buttons");
-
-  const buttons = [...result.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(buttons, ["fix-with-ai", "open-context", "copy-context", "open-folder"]);
-  // Icon *and* label now, so a row of three under a full-width button is
-  // findable rather than decorative — and each keeps the sentence for a hover.
-  for (const id of ["open-context", "copy-context", "open-folder"]) {
-    const tag = new RegExp(`<button[^>]*id="${id}"[^>]*>`).exec(result)?.[0] ?? "";
+test("each action lives on the row that owns it (Batch 6)", () => {
+  // Open Context and Copy act on context.md, which Build context produced; the
+  // Fix with AI button acts on task.md; Open Folder reveals every artifact, so
+  // it belongs to the work item, not to one row.
+  const built = rowMarkup("buildContext");
+  const buildButtons = [...built.matchAll(/<button[^>]*id="([A-Za-z-]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(buildButtons, ["artifact-buildContext", "open-context", "copy-context"]);
+  for (const id of ["open-context", "copy-context"]) {
+    const tag = new RegExp(`<button[^>]*id="${id}"[^>]*>`).exec(built)?.[0] ?? "";
     assert.match(tag, /title="[^"]+"/, `${id} has no tooltip`);
     assert.match(tag, /\bhidden\b/, `${id} should start hidden`);
   }
-  assert.match(result, /Open Context/);
-  assert.match(result, /Open Folder/);
-  assert.match(result, /codicon-go-to-file/);
+  assert.match(built, /Open Context/);
+  assert.match(built, /codicon-go-to-file/);
+
+  const fix = rowMarkup("fixWithAI");
+  assert.match(fix, /<button type="button" id="fix-with-ai" class="primary" hidden>/);
+
+  // Open Folder: at the foot of the workflow, on no row.
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]) {
+    assert.equal(rowMarkup(id).includes('id="open-folder"'), false, `Open Folder is on the ${id} row`);
+  }
+  const foot = /<div class="workflow-foot" id="workflow-foot">[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
+  assert.match(foot, /id="open-folder"[^>]*hidden/);
+  assert.match(foot, /Open Folder/);
 });
 
-test("the result section is absent until a run has produced something", () => {
-  // §19: no empty card, no "0 files", nothing at all before the first run. The
-  // host sends `contextReady` or it does not, and the markup starts hidden.
-  const result = /<section id="context-ready"[^>]*>/.exec(HTML)?.[0] ?? "";
-  assert.match(result, /\bhidden\b/, "the result section starts visible");
-  // Directly under Run and above the workflow disclosure, which is the whole
-  // hierarchy: result first, checklist one step back.
-  assert.ok(HTML.indexOf('id="run-hint"') < HTML.indexOf('id="context-ready"'));
-  assert.ok(HTML.indexOf('id="context-ready"') < HTML.indexOf('id="workflow"'));
+test("there is no Context Ready card: the workflow header is the one global status", () => {
+  // §37.45, Option B. Everything the card held moved onto a row, and the line
+  // it left said "Context Ready" directly above a header saying the same — or,
+  // after a handoff, contradicting it.
+  assert.equal(HTML.includes('id="context-ready"'), false);
+  const visible = HTML.replace(/<!--[\s\S]*?-->/g, "");
+  assert.equal(visible.includes("Context Ready"), false);
+  assert.match(HTML, /<span id="workflow-status" class="workflow-status" role="status">/);
 });
 
-test("Context Ready is a tick and two words, not a banner", () => {
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  // The vendored tick, tinted from the shared palette — no colour literal, and
-  // no glyph the subsetted font does not declare.
-  assert.match(result, /codicon-pass-filled[^"]*icon-success/);
-  assert.match(result, /Context Ready/);
-  assert.match(result, /id="result-heading"[^>]*role="status"/);
-  // Fix with AI is the one primary button in it.
-  const primary = [...result.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)];
+test("Fix with AI is the one primary button in the workflow", () => {
+  const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n\s*<details class="group advanced"/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(workflow, "", "no workflow disclosure");
+  const primary = [...workflow.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)];
   assert.deepEqual(primary.map((match) => match[1]), ["fix-with-ai"]);
-  // No card: the prominence comes from position and from the button.
-  assert.equal(/\.result \{[^}]*border:/s.test(CSS), false);
-  assert.equal(/\.result \{[^}]*box-shadow/s.test(CSS), false);
 });
 
-test("the result survives a narrow sidebar", () => {
+test("a row's result survives a narrow sidebar", () => {
   // Full-width primary, wrapping secondaries, no absolute positioning. The
   // panel is dragged to about 200px, so none of this can assume a width.
-  assert.match(CSS, /\.result-primary > button \{[^}]*flex: 1/s);
-  assert.match(CSS, /\.result-links \{[^}]*flex-wrap: wrap/s);
-  assert.equal(/\.result[^{]*\{[^}]*position: absolute/s.test(CSS), false);
+  assert.match(CSS, /\.step-primary > button \{[^}]*flex: 1/s);
+  assert.match(CSS, /\.step-actions \{[^}]*flex-wrap: wrap/s);
+  assert.match(CSS, /\.step-foot \{[^}]*flex-wrap: wrap/s);
+  assert.match(CSS, /\.workflow-foot \{[^}]*flex-wrap: wrap/s);
+  assert.equal(/\.step-[a-z-]+[^{]*\{[^}]*position: absolute/s.test(CSS), false);
   // A pixel width, not `min-width: 0`, which is the opposite thing: it is what
   // lets a flex child shrink below its content.
-  assert.equal(/\.result[^{]*\{[^}]*[^-]width: \d+px/s.test(CSS), false);
+  assert.equal(/\.step-[a-z-]+[^{]*\{[^}]*[^-]width: \d+px/s.test(CSS), false);
+});
+
+test("a row with nothing but its summary is exactly as tall as before", () => {
+  // The body's space is conditional on a visible child, and the two action
+  // containers hide with their contents — otherwise an empty one would count
+  // as visible and pad every row.
+  assert.match(CSS, /\.step-body:has\(> :not\(\[hidden\]\)\) \{[^}]*margin-top/s);
+  assert.equal(/\.step-body \{[^}]*margin-top/s.test(CSS), false);
+  assert.match(HTML, /<div class="step-actions" id="actions-buildContext" hidden>/);
+  assert.match(HTML, /<div class="step-primary" id="actions-fixWithAI" hidden>/);
 });
 
 test("Advanced settings has a heading that says what it is for", () => {
@@ -1215,17 +1226,19 @@ test("the default view is the Issue field, Run, and three disclosures", () => {
   const open = [...visible.matchAll(/id="(field-[A-Za-z]+|run)"/g)].map((match) => match[1]);
   assert.deepEqual(open, ["field-issue", "field-fixModeId", "run"]);
 
-  // And everything after it is behind one of exactly two closed disclosures,
+  // And everything after it is behind one of exactly three closed disclosures,
   // so no optional control is on screen until it is asked for.
   //
-  // The result section's own disclosures are not among them: it is hidden until
-  // a run produces something, so what is inside it is not on screen either.
-  // Sliced out rather than filtered by name — an earlier version of this
-  // matched `id="([a-z]+)"`, which excluded `relevant-files` and
-  // `retrieval-details` by accident and would have let a third top-level
-  // disclosure through the day one was named without a hyphen.
-  const outsideResult = form.replace(/<section id="context-ready"[\s\S]*?<\/section>/, "");
-  const disclosures = [...outsideResult.matchAll(/<details[^>]*id="([a-z-]+)"/g)].map(
+  // The disclosures *inside* the workflow — Code search's two, and the failure
+  // cards' Details — are not among them: they are inside a closed disclosure,
+  // so not on screen either. Sliced out rather than filtered by name — an
+  // earlier version of this matched `id="([a-z]+)"`, which excluded hyphenated
+  // ids by accident and would have let a fourth top-level disclosure through
+  // the day one was named without a hyphen.
+  const topLevel = form
+    .replace(/<ol class="steps">[\s\S]*?<\/ol>/, "")
+    .replace(/<div id="failure" class="failure"[\s\S]*?<\/details>\s*<\/div>/, "");
+  const disclosures = [...topLevel.matchAll(/<details[^>]*id="([a-z-]+)"/g)].map(
     (match) => match[1],
   );
   // Three since UI-C2. Diagnostics is last and always reachable rather than
@@ -1429,21 +1442,24 @@ test("every advanced field is still there, with the id its state is stored under
 
 // --- UI-B1: Relevant Files --------------------------------------------------
 
-test("Relevant Files is a collapsed disclosure inside the result", () => {
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  const files = /<details class="files" id="relevant-files"[\s\S]*?<\/details>/.exec(result)?.[0] ?? "";
-  assert.notEqual(files, "", "Relevant Files is not inside the result section");
+test("Relevant files is a collapsed disclosure inside Code search", () => {
+  // Batch 6: the files are the search's result, so they are on its row.
+  const row = rowMarkup("codeSearch");
+  const files = /<details class="files" id="relevant-files"[\s\S]*?<\/details>/.exec(row)?.[0] ?? "";
+  assert.notEqual(files, "", "Relevant files is not inside the Code search row");
 
   // A real disclosure, so it opens from the keyboard without any script.
-  assert.match(files, /<summary id="relevant-files-summary">Relevant Files<\/summary>/);
+  assert.match(files, /<summary id="relevant-files-summary">Relevant files<\/summary>/);
   assert.equal(/<details[^>]*\bopen\b/.test(files), false, "it starts expanded");
   // Hidden until the host sends files, which is what keeps §17's promise.
   assert.match(files, /^<details[^>]*\bhidden\b/);
-  // Below the primary action and the artifact actions: last in the result.
-  assert.ok(result.indexOf('id="fix-with-ai"') < result.indexOf('id="relevant-files"'));
-  assert.ok(result.indexOf('id="result-links"') < result.indexOf('id="relevant-files"'));
+  // Below the row's summary line, above its failure card.
+  assert.ok(row.indexOf('id="description-codeSearch"') < row.indexOf('id="relevant-files"'));
+  assert.ok(row.indexOf('id="relevant-files"') < row.indexOf('id="error-codeSearch"'));
   // The rows are the page's, built from what the host read.
   assert.match(files, /id="relevant-files-list"><\/div>/);
+  // And nowhere else: one visual source for the list.
+  assert.equal(HTML.split('id="relevant-files"').length - 1, 1);
 });
 
 test("nothing about the ranking is named anywhere in the panel", () => {
@@ -1506,11 +1522,12 @@ test("a relevant-file path is shape-checked before the host will look at it", ()
 
 // --- UI-B2: the failure card's markup ----------------------------------------
 
-test("both failure cards are the same shape, built once", () => {
-  // Two surfaces, one markup. A run that could not finish and a handoff that
-  // could not start are the same three questions with different answers, and
-  // two templates for that drift apart within a phase.
-  for (const id of ["failure", "handoff-error"]) {
+test("every failure card is the same shape, built once", () => {
+  // Seven surfaces, one markup: the run failure no row owns, and one card per
+  // row for a failure that row owns. The same three questions with different
+  // answers; separate templates for that drift apart within a phase.
+  const ids = ["failure", ...["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"].map((id) => `error-${id}`)];
+  for (const id of ids) {
     const card = new RegExp(`<div id="${id}" class="failure"[\\s\\S]*?</div>\\s*</div>`).exec(HTML)?.[0] ?? "";
     assert.notEqual(card, "", `no card for ${id}`);
     assert.match(card, new RegExp(`<div id="${id}"[^>]*role="alert"`), id);
@@ -1519,6 +1536,7 @@ test("both failure cards are the same shape, built once", () => {
       assert.ok(card.includes(`id="${id}-${part}"`), `${id} has no ${part}`);
     }
   }
+  assert.equal(HTML.includes('id="handoff-error"'), false, "the old handoff card survived");
 });
 
 test("Details is a collapsed disclosure over preformatted text", () => {
@@ -1530,13 +1548,16 @@ test("Details is a collapsed disclosure over preformatted text", () => {
   assert.match(card, /<pre class="failure-detail" id="failure-detail"><\/pre>/);
 });
 
-test("the two cards sit where their failures belong", () => {
-  // The run's below the form, where a run's outcome has always been. The
-  // handoff's inside the result, beside the package it did not spoil.
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  assert.ok(result.includes('id="handoff-error"'), "the handoff card is outside the result");
-  assert.equal(result.includes('id="failure"'), false, "the run card is inside the result");
-  assert.ok(HTML.indexOf('id="context-ready"') < HTML.indexOf('id="failure"'));
+test("each card sits where its failure belongs", () => {
+  // A row's card is inside that row: a later failure never replaces the
+  // results above it. The card no row owns sits at the top of the workflow,
+  // above the rows, where a failure before any step belongs.
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]) {
+    assert.ok(rowMarkup(id).includes(`id="error-${id}"`), `${id}'s card is outside its row`);
+  }
+  const workflow = HTML.indexOf('id="workflow"');
+  assert.ok(workflow < HTML.indexOf('id="failure"'), "the run card is outside the workflow");
+  assert.ok(HTML.indexOf('id="failure"') < HTML.indexOf('<ol class="steps">'));
 });
 
 test("a failure is an icon and text, not a red panel", () => {
@@ -1585,31 +1606,22 @@ test("the page classifies nothing about a failure", () => {
 
 // --- UI-B3: the handoff outcome ----------------------------------------------
 
-test("the handoff outcome sits inside the result, above the actions", () => {
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  const block = /<div class="result-handoff" id="result-handoff"[\s\S]*?<\/div>/.exec(result)?.[0] ?? "";
-  assert.notEqual(block, "", "no handoff outcome in the result section");
-
-  // Hidden until a handoff has actually started something.
-  assert.match(block, /^<div class="result-handoff" id="result-handoff" hidden>/);
-  for (const part of ["title", "message", "detail"]) {
-    assert.ok(block.includes(`id="result-handoff-${part}"`), `no ${part}`);
-  }
-  // Between the strategy line and the button it replaces, and above the
-  // secondary actions — which is the reading order of the whole section.
-  assert.ok(result.indexOf('id="result-strategy"') < result.indexOf('id="result-handoff"'));
-  assert.ok(result.indexOf('id="result-handoff"') < result.indexOf('id="result-links"'));
+test("Fix with AI's row reads: what happened, which mode, the button, its card", () => {
+  const row = rowMarkup("fixWithAI");
+  const order = ["description-fixWithAI", "detail-fixWithAI", "strategy-fixWithAI", "fix-with-ai", "error-fixWithAI"];
+  const positions = order.map((id) => row.indexOf(`id="${id}"`));
+  assert.ok(positions.every((at) => at !== -1), `a slot is missing: ${order}`);
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "the row reordered itself");
+  // Strategy keeps its label: what the agent was told, never the selector.
+  assert.match(row, /<p class="step-strategy" id="strategy-fixWithAI" hidden><span class="result-label">Strategy<\/span>/);
 });
 
-test("the outcome is a tick and two lines, in the shape Context Ready already uses", () => {
-  const block = /<div class="result-handoff"[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
-  // The vendored glyph, tinted from the shared palette — no new icon.
-  assert.match(block, /codicon-pass-filled[^"]*icon-success/);
-  // The status is in the text, so it survives a monochrome theme.
-  assert.match(block, /id="result-handoff-title"[^>]*role="status"/);
-  // No banner, no card, no colour of its own.
-  assert.equal(/\.result-handoff \{[^}]*background/s.test(CSS), false);
-  assert.equal(/\.result-handoff \{[^}]*border:/s.test(CSS), false);
+test("a finished row's detail is text, not a banner", () => {
+  // The issue title, which agent was started: quieter than the label, and no
+  // background, border or colour of its own.
+  assert.equal(/\.step-detail \{[^}]*background/s.test(CSS), false);
+  assert.equal(/\.step-detail \{[^}]*border:/s.test(CSS), false);
+  assert.match(CSS, /\.step-detail \{[^}]*overflow-wrap: anywhere/s);
 });
 
 test("the panel never claims a bug was fixed", () => {
@@ -1629,9 +1641,11 @@ test("the panel never claims a bug was fixed", () => {
   }
 });
 
-test("Fix with AI carries a label the page can replace", () => {
-  assert.match(HTML, /<span class="codicon codicon-hubot" id="fix-with-ai-icon"/);
-  assert.match(HTML, /<span id="fix-with-ai-label">Fix with AI<\/span>/);
+test("Fix with AI's button hides with its container until the row offers it", () => {
+  // Busy is the row's state now — a spinner and "Starting AI fix…" on the row —
+  // so the button never changes its label; it is shown or it is not.
+  assert.match(HTML, /<div class="step-primary" id="actions-fixWithAI" hidden>\s*<button type="button" id="fix-with-ai" class="primary" hidden>/);
+  assert.match(HTML, /<span class="codicon codicon-hubot" aria-hidden="true"><\/span>\s*<span>Fix with AI<\/span>/);
 });
 
 // --- UI-V1: what rendering the page found ------------------------------------
@@ -1700,58 +1714,72 @@ test("a label that is a whole sentence is allowed to wrap", () => {
 });
 
 test("the agent error sits under the button it is about", () => {
-  // It was below the artifact actions, which put three things a developer can
-  // still do between "Fix with AI" and the reason it did not work.
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  assert.ok(result.indexOf('id="fix-with-ai"') < result.indexOf('id="handoff-error"'));
-  assert.ok(result.indexOf('id="handoff-error"') < result.indexOf('id="result-links"'));
+  // Directly under Fix with AI, on its row: nothing a developer can still do
+  // sits between the button and the reason it did not work.
+  const row = rowMarkup("fixWithAI");
+  assert.ok(row.indexOf('id="fix-with-ai"') < row.indexOf('id="error-fixWithAI"'));
 });
 
 // --- UI-C1: Retrieval Details ------------------------------------------------
 
-test("Retrieval Details is a collapsed disclosure, last in the result", () => {
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  const terms = /<details class="terms" id="retrieval-details"[\s\S]*?<\/details>/.exec(result)?.[0] ?? "";
-  assert.notEqual(terms, "", "Retrieval Details is not inside the result section");
+test("Search details is a collapsed disclosure inside Code search, after Relevant files", () => {
+  const row = rowMarkup("codeSearch");
+  const terms = /<details class="terms" id="search-details"[\s\S]*?<\/details>/.exec(row)?.[0] ?? "";
+  assert.notEqual(terms, "", "Search details is not inside the Code search row");
 
-  assert.match(terms, /<summary id="retrieval-details-summary">Retrieval Details<\/summary>/);
-  assert.equal(/<details[^>]*id="retrieval-details"[^>]*\bopen\b/.test(terms), false);
+  assert.match(terms, /<summary id="search-details-summary">Search details<\/summary>/);
+  assert.equal(/<details[^>]*id="search-details"[^>]*\bopen\b/.test(terms), false);
   assert.match(terms, /^<details[^>]*\bhidden\b/);
+  assert.ok(row.indexOf('id="relevant-files"') < row.indexOf('id="search-details"'));
   // The rows are the page's, built from what the host read.
-  assert.match(terms, /id="retrieval-details-list"><\/div>/);
+  assert.match(terms, /id="search-details-list"><\/div>/);
+  assert.equal(HTML.includes("retrieval-details"), false, "the old section survived");
 });
 
-test("the frozen result hierarchy still reads top to bottom", () => {
-  // §34 is frozen. Retrieval Details goes last and changes nothing above it:
-  // Fix with AI stays the one primary button, the artifact actions stay next,
-  // and Relevant Files keeps its place.
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  const order = [
-    "result-heading",
-    "result-counts",
-    "result-strategy",
-    "result-handoff",
-    "fix-with-ai",
-    "handoff-error",
-    "result-links",
-    "relevant-files",
-    "retrieval-details",
-  ];
-  const positions = order.map((id) => result.indexOf(`id="${id}"`));
-  assert.ok(positions.every((at) => at !== -1), `a section of the result is missing: ${order}`);
-  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "the result reordered itself");
-
-  // And Fix with AI is still the only primary button in it.
-  const primary = [...result.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)];
-  assert.deepEqual(primary.map((match) => match[1]), ["fix-with-ai"]);
+test("each result control exists exactly once, inside the row that owns it", () => {
+  // §52: one Relevant files, one Search details, one Open Context, one Copy,
+  // one Fix with AI. Checked by id and by what a developer reads, because a
+  // second control could carry a new id and the same words.
+  const controls = [...HTML.matchAll(/<(button|summary)\b[^>]*>([\s\S]*?)<\/\1>/g)].map((match) => ({
+    markup: match[0],
+    text: match[2]!.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
+  }));
+  for (const [id, label, owner] of [
+    ["relevant-files", "Relevant files", "codeSearch"],
+    ["search-details", "Search details", "codeSearch"],
+    ["open-context", "Open Context", "buildContext"],
+    ["copy-context", "Copy", "buildContext"],
+    ["fix-with-ai", "Fix with AI", "fixWithAI"],
+  ] as const) {
+    assert.equal(HTML.split(`id="${id}"`).length - 1, 1, `#${id} is declared more than once`);
+    assert.ok(rowMarkup(owner).includes(`id="${id}"`), `#${id} is outside the ${owner} row`);
+    const labelled = controls.filter((control) => control.text === label);
+    assert.equal(labelled.length, 1, `"${label}" is on ${labelled.length} controls`);
+    assert.ok(rowMarkup(owner).includes(labelled[0]!.markup), `"${label}" is outside the ${owner} row`);
+  }
 });
 
-test("Retrieval Details offers nothing to change", () => {
+test("each row reads top to bottom: its line, its detail, what it owns, its card", () => {
+  const orders: Record<string, string[]> = {
+    issueDetails: ["plan-issueDetails", "status-issueDetails", "description-issueDetails", "artifact-issueDetails", "detail-issueDetails", "error-issueDetails"],
+    codeSearch: ["plan-codeSearch", "status-codeSearch", "description-codeSearch", "artifact-codeSearch", "detail-codeSearch", "relevant-files", "search-details", "error-codeSearch"],
+    buildContext: ["plan-buildContext", "status-buildContext", "description-buildContext", "artifact-buildContext", "detail-buildContext", "actions-buildContext", "error-buildContext"],
+  };
+  for (const [id, order] of Object.entries(orders)) {
+    const row = rowMarkup(id);
+    const positions = order.map((slot) => row.indexOf(`id="${slot}"`));
+    assert.ok(positions.every((at) => at !== -1), `${id}: a slot is missing: ${order}`);
+    assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${id} reordered itself`);
+  }
+});
+
+test("Search details offers nothing to change", () => {
   // Transparency, not configuration. A control in here would be a tuning knob
   // over a record of something that already happened.
-  const terms = /<details class="terms" id="retrieval-details"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  const terms = /<details class="terms" id="search-details"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(terms, "", "no Search details section to check");
   for (const control of ["<button", "<input", "<select", "<textarea"]) {
-    assert.equal(terms.includes(control), false, `Retrieval Details contains a ${control}`);
+    assert.equal(terms.includes(control), false, `Search details contains a ${control}`);
   }
 });
 
@@ -1797,41 +1825,22 @@ test("Diagnostics is read-only, and offers nothing to configure", () => {
   }
 });
 
-test("Diagnostics is last, and below the result rather than inside it", () => {
-  // Last in the details hierarchy, as §36 asks — and a sibling of the result,
+test("Diagnostics is last, and outside the workflow rather than inside it", () => {
+  // Last in the details hierarchy, as §36 asks — and outside the workflow,
   // because a panel that can only answer "is this configured correctly" after a
   // successful run cannot answer it when the run failed.
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  assert.equal(result.includes('id="diagnostics"'), false, "Diagnostics is inside the result");
+  const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n\s*<details class="group advanced"/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(workflow, "");
+  assert.equal(workflow.includes('id="diagnostics"'), false, "Diagnostics is inside the workflow");
 
-  assert.ok(HTML.indexOf('id="relevant-files"') < HTML.indexOf('id="retrieval-details"'));
-  assert.ok(HTML.indexOf('id="retrieval-details"') < HTML.indexOf('id="diagnostics"'));
+  assert.ok(HTML.indexOf('id="relevant-files"') < HTML.indexOf('id="search-details"'));
+  assert.ok(HTML.indexOf('id="search-details"') < HTML.indexOf('id="diagnostics"'));
   // Last in the form, after Advanced settings: never above something it should
   // sit under, and reachable whether or not a run has happened.
   assert.ok(HTML.indexOf('id="advanced"') < HTML.indexOf('id="diagnostics"'));
   assert.match(HTML.slice(HTML.indexOf('id="diagnostics"')), /^[\s\S]*?<\/details>\s*<\/form>/);
 });
 
-test("the frozen result did not move for Diagnostics", () => {
-  const result = /<section id="context-ready"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  const order = [
-    "result-heading",
-    "result-counts",
-    "result-strategy",
-    "result-handoff",
-    "fix-with-ai",
-    "handoff-error",
-    "result-links",
-    "relevant-files",
-    "retrieval-details",
-  ];
-  const positions = order.map((id) => result.indexOf(`id="${id}"`));
-  assert.ok(positions.every((at) => at !== -1), "a section of the result is missing");
-  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "the result reordered itself");
-
-  const primary = [...result.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)];
-  assert.deepEqual(primary.map((match) => match[1]), ["fix-with-ai"]);
-});
 
 test("a diagnostic is a label above a value, not a two-column table", () => {
   // A table needs a width a 200px sidebar does not have.

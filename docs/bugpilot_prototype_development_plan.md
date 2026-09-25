@@ -6275,7 +6275,7 @@ run history, telemetry, and productizing the visual harness.
 
 ## 37. Artifact Simplification + Workflow Result Integration
 
-**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) complete and verified, uncommitted; `WorkflowStepResult` and the UI restructuring not started.
+**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) committed at `adc3c53`; Batch 6 (`WorkflowStepResult`: the workflow rows are the result view) complete, visually reviewed, independently reviewed and verified, uncommitted. A Fix Result row is not started.
 
 **Canonical reference:** `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`
 (kept outside the repository). This section records what has landed against it.
@@ -7607,3 +7607,294 @@ template, preserve-by-default), the honest-outcome semantics end to end, the
 bounds and sanitization on everything leaving the machine, retry and delivery
 approval flows unchanged, zero disk-IPC prompts and zero fallback readers, and
 no prepare-stage, run.json, MCP-stdio, or scope regressions.
+
+### 37.36 Checkpoint — workflow UI inventory and data ownership (Batch 6 start)
+
+Read from the committed tree (`adc3c53`). The panel is host-computed: the
+controller builds one `PanelState` per push and `media/panel.js` renders it
+into static markup from `src/panel/html.ts`.
+
+| Surface | Where it renders | Fed by |
+|---|---|---|
+| Six workflow rows (checkbox, status icon, duration, one text line) | `<details id="workflow">` → `<li id="step-*">`, `renderWorkflow` | `buildWorkflow()` (`workflow.ts`) from `ProgressView` + the artifact listing + `#fix` |
+| Context Ready card (counts, Strategy, handoff outcome, Fix with AI button, handoff error card, Open Context / Copy / Open Folder, Relevant Files, Retrieval Details) | `<section id="context-ready">` *above* the workflow, `renderContextReady` | `#contextReady()`: present only when not running, not failed, `context.md` listed |
+| Run failure card | `#failure`, outside both | `runError(progress.failure)` |
+| Relevant Files | `#relevant-files` inside Context Ready | `relevantFiles(parseRetrieval(...))`, 10 rows + overflow |
+| Retrieval Details | `#retrieval-details` inside Context Ready | `retrievalTerms(...)` |
+| Fix with AI | button + handoff card inside Context Ready; the sixth row shows `#fix.detail` as text | `#fix`, `#handoffBusy`, `#handoffError`, `handoffOutcome()` |
+
+State sources: row states come from the live event stream
+(`ProgressTracker`, `CAPABILITY_MARKER_STEPS`: issue ← fetch/parse, code search
+← code_search, git history ← git_context, similar fixes ← memory_search, build
+context ← context/prompt/memory_add) or, for a reopened work item, from
+`run.json` through `viewFromStatus` with the same marker table. Artifact
+presence comes from the directory listing (`#artifactNames`). The only artifact
+the host parses today is `retrieval.json` (`retrieval.ts`, once); `issue.json`
+is not read at all. No structured git-history or similar-fixes data reaches the
+extension — the CLI's stream events carry step names only, and Batch 3 kept
+both results inside `context.md` on purpose.
+
+Disclosure lifecycle: `renderWorkflow` opens the workflow when a run starts and
+**folds it once** when the run ends (UI-B1's reason: results lived in the card
+above it). Offered commands: `#isOffered` = the blocked-readiness actions plus
+whatever `#runFailure()` / `#handoffError` currently carry — derived per call,
+which is the fix for UI-B2's allow-list bug.
+
+What Batch 6 changes: the rows become the result view. `WorkflowStep` grows
+into a `WorkflowStepResult` (summary per state, owned artifact, owned actions,
+nested content, row-owned error); Relevant Files and Search details move under
+Code search, Open Context / Copy under Build context, the Fix with AI button
+and its outcome / error under Fix with AI; the workflow stays open after Run;
+and the card's duplicates are removed.
+
+### 37.37 Checkpoint — `WorkflowStepResult`: the rows are the result
+
+`WorkflowStep` became `WorkflowStepResult` (`extension/src/app/workflow.ts`).
+The host computes it on every push and the page renders it; `panel.js` does
+not interpret a status, an artifact or a count.
+
+```ts
+type StepStatus = "idle" | "running" | "success" | "ready" | "failed" | "skipped";
+type StepActionId = "openContext" | "copyContext" | "fixWithAI";
+
+interface WorkflowStepResult {
+  id; label; description; enabled; required?; status; durationMs?;
+  summary: string;          // the secondary line for the state the row is in
+  detail?: string;          // a quieter second line: the issue title, which agent
+  strategy?: string;        // Fix with AI only, once task.md is this run's
+  artifact?: string;        // a plain file name, opened via `openArtifact`
+  actions: StepActionId[];
+  search?: SearchContent;   // Code search only: files (+ moreFiles), terms
+  error?: UserFacingError;  // a failure this row owns
+}
+```
+
+Inputs (`WorkflowInput`) are real state only: the step marks (`ProgressView`,
+from the live stream or `run.json` via `viewFromStatus`), the directory listing,
+`issue.json` (`parseIssue`), the `retrieval.json` projection, the handoff state
+(`fix`, `handoffBusy`, `handoffError`), the run's classified failure and the
+prepared Fix Mode line. Three rules hold for every row:
+
+- **A row reports only once its own step finished.** A running or pending row
+  says what it is doing or will do, and never offers the previous run's
+  artifact or actions — even while the old file is still on disk.
+- **A row owns its failure.** The run's card goes on the row whose capability
+  was in flight (`progress.failure.capability`, status `failed`); the handoff's
+  goes on Fix with AI. `PanelState.runError` now carries only a failure no row
+  owns (before any step started, or observed by the extension itself), rendered
+  as the standalone card at the top of the workflow. The controller computes
+  ownership by identity (`workflow.some(step => step.error === failed)`), so a
+  failure is never shown twice.
+- **`ready` is not `success`.** It exists for one case — a task on disk that
+  nobody handed over — and has no status glyph; the green tick is reserved for
+  a handoff that actually started.
+
+`PanelState` changes: `workflow: WorkflowStepResult[]`, new
+`workItemActions` (Open Folder), `runError` unowned-only; `contextReady`,
+`handoffError` and `ContextReadyView` are gone. `#isOffered` is untouched: it
+still derives the offer from `#runFailure()` and `#handoffError`, whichever
+surface renders them.
+
+Phases 6A/6B collapsed into one step for the page: the moved elements carry
+unique DOM ids (`open-context`, `fix-with-ai`, `relevant-files`, …), so the old
+card and the new rows could not both render them. 6A was therefore the host
+model and its tests, landed and green first; 6B moved the markup and deleted
+the card together, so no intermediate build showed two sources of truth.
+
+### 37.38 Checkpoint — Issue details and Code search
+
+`extension/src/app/issue.ts` is the one reader of `issue.json`: schema version
+1 only; `id` must be a non-empty string, `source` a string; `title` trimmed or
+`""`. Anything else is "not known" and the row says only "Completed" — better
+than naming the wrong issue. The controller's `#readSummary` reads `issue.json`
+then `retrieval.json`, once per listing; both are forgotten when a run starts,
+when another work item is shown, and when its folder cannot be read
+(`#forgetSummary`), so no push names the previous work item.
+
+| Row | Pending | Running | Finished |
+|---|---|---|---|
+| Issue details | "Fetch Jira issue information" / "Parse the description you wrote" (+ "Always runs") | "Loading JR-12345…", "Loading the Jira issue…", "Reading the description…" | "JR-12345 · Jira issue" or "Manual bug description"; the title as the detail line; `issue.json` |
+| Code search | "Search relevant code in the repository" | "Searching repository…" | "11 terms · 6 relevant files" (terms first, singular at one, a list the artifact lacks is left out, never reported as 0); `retrieval.json` |
+
+Pinned by `test/issue.test.ts` (10) and the per-row tests in
+`test/workflow.test.ts`.
+
+### 37.39 Checkpoint — Relevant files and Search details under Code search
+
+Both disclosures moved inside the Code search row (`<details id="relevant-files">`,
+`<details id="search-details">`), collapsed by default. Retrieval Details is
+renamed **Search details**. They render only while the row carries `search` —
+a finished search whose `retrieval.json` had files or terms — so a running,
+failed or pending search shows none of the last run's content.
+
+Everything else is unchanged: ten rows plus "N more in retrieval.json", the
+artifact's order partitioned into Implementation / Supporting (headings only
+when both exist), "Matched: …", "N lines" / "1 line" / "no matches" / "Broad" /
+"From: …", `openRelevantFile` resolved against the repository with
+`isSafeRelativePath` + `isWithin`, and every string through `textContent`.
+
+### 37.40 Checkpoint — Git history and Similar fixes
+
+Running: "Collecting git history…" / "Searching past fixes…". Finished:
+"Completed", "Skipped" or "Failed" — nothing more. No structured result reaches
+the extension (stream events carry step names only) and Batch 3 kept both
+results inside `context.md` on purpose, so there is no count to show without
+parsing Markdown. No `git_history.json` / `similar_fixes.json` was added and no
+prose is parsed.
+
+### 37.41 Checkpoint — Build context actions, and Open Folder
+
+Build context finished with `context.md` listed: "Context ready", the
+`context.md` link, and **Open Context** / **Copy** in the row
+(`actions-buildContext`). Finished without the file: "Completed" and no actions
+— a disabled button would invite a click that explains nothing. The actions
+post the same `{type:"action"}` messages as before.
+
+**Open Folder** is work-item level: it reveals every artifact, not Build
+context's, so it sits in the workflow's footer (`workflow-foot`), offered via
+`workItemActions` whenever nothing is running and the work item directory lists
+anything (`canOpenFolder`).
+
+### 37.42 Checkpoint — Fix with AI on its row
+
+| State | Row | Offers |
+|---|---|---|
+| No task yet | the description, or "Waiting for task…" while a run is in flight | — |
+| Ready (task.md is this run's, Build context succeeded, nothing running) | `ready`, "Ready", Strategy line, `task.md` | Fix with AI |
+| Starting (`handoffBusy`) | `running`, "Starting AI fix…" | — (no second press) |
+| Started | `success`, "AI fix started", "Handed to Claude Code in a terminal." | — (a second press would open a second terminal) |
+| Could not start (`handoffError`) | `failed`, "Did not start", the route the prompt took as the detail ("…on the clipboard instead."), the row's card (title, sentence, Open Settings, Details) | Fix with AI again |
+| Skipped / failed without a card | the controller's own sentence | — |
+
+The row is not greyed as "not chosen" once it is ready or was handed over
+(`step-off` applies only to an idle, unticked row). The header reports the
+handoff whether or not the box was ticked — since the button moved onto the
+row, pressing it is a choice of its own. `handoff.ts` shrank to
+`HANDOFF_STARTED_TITLE`; the no-false-claims guard now runs against the row
+(`test/handoff.test.ts`). Handoff semantics — agent resolution, the clipboard
+fallback, `task.md` as the one input, no completion claim — are unchanged.
+
+### 37.43 Checkpoint — duplicate external UI removed
+
+Removed from the page: the `#context-ready` section and everything in it (the
+counts line, the Strategy line, the handoff outcome block, the Fix with AI
+button, the handoff error card, the three action icons, Relevant Files and
+Retrieval Details), and the trailing run-failure card after the form (the
+standalone card now sits inside the workflow, above the steps). Removed from the
+host: `#contextReady()`, `ContextReadyView`, `handoffOutcome` /
+`HandoffOutcome` / `HANDOFF_STARTED_MESSAGE`, `describeCounts`; from the CSS the
+dead `.result-*` card rules (only `.result-link` and `.result-label` remain in
+use). `test/panel.test.ts` proves each of Relevant files, Search details, Open
+Context, Copy and Fix with AI exists exactly once, inside its owning row, and
+that no Context Ready surface remains.
+
+### 37.44 Checkpoint — disclosure lifecycle
+
+The workflow opens on the transition into a run and **no longer folds when the
+run ends** — the rows are the result. It also opens once when a different work
+item with results arrives (reopened from History, or restored by a reloaded
+panel), and once when a failure card appears — every card lives inside the
+workflow, and a Set Jira Credentials button nobody can see does nothing. All
+three are transitions only, so a developer who collapses it, mid-run or after,
+is not overruled by the next push; the next run opens it again. The sentence
+under Run hides once the header reports a result or a failure.
+
+### 37.45 Checkpoint — visual review and the Context Ready decision
+
+Harness: the ignored `extension/.review/` (real markup, stylesheet and page
+script; rows from the real `buildWorkflow`). Thirteen states — initial, running
+(issue), running (search), prepared, Relevant files open, Search details open,
+retrieval unreadable, Fix starting, Fix started, Fix failed, run failed on
+Issue details, late failure on Build context, unowned failure — in dark and
+light at 200, 300 and 400 px: **78 pages, zero horizontal overflow**. Workflow
+height, prepared with the disclosures closed: 674 / 487 / 471 px.
+
+1. *Primary result view?* Yes: the header carries the one global status and
+   every result sits on the row that produced it.
+2. *Too tall with details closed?* No: 487 px at a 300 px sidebar, six rows
+   with their results; the two disclosures add one line each.
+3. *Relevant files / Search details owned by Code search?* Yes: indented under
+   its summary line, before the next row's divider.
+4. *Open Context / Copy owned by Build context?* Yes: directly under "Context
+   ready" and its `context.md` link.
+5. *Fix with AI owned by its row?* Yes: the only primary button besides Run,
+   full-width inside the row, with the Strategy line above it.
+6. *Outer Context Ready redundant?* Yes — see the decision below.
+7. *Filenames too prominent?* No: small link-coloured text at the right of the
+   description line, dropping to its own line at 200 px; only rows that
+   produced a file show one.
+8. *Failed Fix with AI preserves earlier results?* Yes: every row above keeps
+   its summary, link, disclosures and actions; only Fix with AI turns red.
+9. *200 px usable?* Yes: labels wrap, links drop below, the context actions
+   stack, the card's text wraps; nothing clips.
+10. *Duplicates outside the workflow?* None (also pinned by tests).
+
+Fixed during the review: "AI agent unavailable" appeared both as the row's
+line and as the card title (the line now says "Did not start"); the ready row's
+label was greyed by `step-off` (now idle-only); the run hint keyed off the old
+card (now the header's kind); `[hidden]` guards for every new flex container.
+
+**Decision: Option B.** The standalone Context Ready block is removed entirely;
+the workflow header ("Context ready", "AI fix started", "AI fix did not start",
+"Run failed") is the single global status. With Option A the line repeated the
+header one row above it, and after a failed handoff it read "Context Ready"
+directly over "AI fix did not start" — true, but a second status to reconcile.
+
+### 37.46 Checkpoint — Batch 6 verification and review
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1117 passed (unchanged: Batch 6 touches no Python behaviour; two docstrings in `core/retrieval.py`, whose 231 importing tests were rerun after the edit) |
+| `npm test` (extension) | 866 passed (baseline 832: +34 — 10 in `issue.test.ts`, the rest row, placement, lifecycle and review-fix tests) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` (real CLI, temp repositories, no Jira) | 8 passed |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean; untracked files have no trailing whitespace |
+| `python tests/retrieval_corpus.py` | frozen pre-Batch-3 tree: all six cases **byte-identical** to Batch 5. Live tree: the same summary (top-3 2/5, MRR 0.292, docs 10); only ranks 3–10 of two cases shuffled among files this batch edited (the corpus searches this repository), expected files unranked in both runs as before |
+
+**Real flow** (scratch `sample-repo`, the working tree's CLI via
+`python -m bugpilot`, `--prepare-only`): the real `Controller` with a real
+runner and filesystem and a recording UI port (nothing opened, copied,
+launched or probed for real). Run pushed 24 running states in which every
+capability row was seen running, none offered a handoff or Open Folder; the
+prepared state read "Manual bug description" + title, "18 terms · 2 relevant
+files", "Completed" ×2, "Context ready" with both actions, Fix with AI ready
+with "Standard Fix · availability unknown"; the header "Context ready". The
+first relevant file opened the real source path; `../outside.txt` was refused;
+the four row artifacts opened inside `.ai/<id>/`, and names with a separator or
+`..` were refused. Copy copied `context.md` byte for byte. Fix with AI with no
+agent: the row failed with its card and the clipboard sentence, every earlier
+row unchanged, header "AI fix did not start", the card's Open Settings accepted;
+with an agent: a terminal command reading `task.md`, "AI fix started", and the
+withdrawn card's command then refused. A fresh controller reopening the work
+item from `run.json` rebuilt the same six rows.
+
+**Independent review** (whole diff vs `adc3c53`): no blocker. **One important finding, fixed**: `showWorkItem`
+never cleared the issue and search summary, and `refreshArtifacts` pushes a
+loading state before it reads — so switching from JR-1 to JR-2 in History
+briefly showed "JR-1 · Jira issue", JR-1's title and JR-1's files on JR-2's
+rows, and with an unreadable folder kept them there. Now `#forgetSummary()`
+runs at run start, on `showWorkItem` and in the unreadable branch; three
+controller tests pin it (both regression tests fail without the fix). Fixed
+from its minors: the host-level mid-run test only ever saw the first, empty
+push — it now reopens the same work item first (the old `task.md` and
+`context.md` listed), awaits the run, requires a mid-run push with Build
+context finished, and fails if the `!running` guard in `taskReady` is removed;
+failure cards could sit inside a collapsed workflow (every card now lives in
+it), so a card appearing opens the workflow once (three page tests, all failing
+without the change); the "exactly once" claim of §37.43 is now an explicit test
+by id and by visible label; a stale `errorCard` comment. Kept, deliberately:
+Build context shows both its `context.md` link and Open Context — the link is
+the same quiet ownership label every row that produced a file carries, and Open
+Context is the named action the plan keeps; a restored work item whose
+`run.json` is missing or unreadable shows idle rows with no row actions (the
+rows report only what `run.json` says finished; Open Folder and the Artifacts
+view still reach every file — and pre-release there are
+no pre-Batch-4 directories to support). The review confirmed ownership, row
+states, ready ≠ success, failure preservation by deep equality, `#isOffered`
+unchanged and still card-scoped, file opening unchanged (`openArtifact`
+re-checked, relevant files `isSafeRelativePath` + `isWithin`), `textContent`
+throughout with `innerHTML` still banned, no timers, probes or I/O from
+`panel.js`, `[hidden]` guards on every new container, and no artifact contract,
+retrieval, Fix Result, Git history, Similar fixes, Fix Mode or delivery change.

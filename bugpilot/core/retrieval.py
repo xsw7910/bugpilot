@@ -6,8 +6,8 @@ read back from disk by the next. This is the one result they described: the
 terms that were searched and what each found, the files that ranked, the lines
 that put them there, and how far to trust the lot.
 
-Relevant Files, Retrieval Details and the Context Ready counts are all
-projections of this one artifact, so they cannot disagree.
+The extension's Code search row — its counts, Relevant files and Search
+details — is a projection of this one artifact, so its parts cannot disagree.
 
 What is deliberately *not* here:
 
@@ -107,8 +107,8 @@ def retrieval_path(repo_root: Path, work_item_id: str) -> Path:
 def save_retrieval(repo_root: Path, work_item_id: str, retrieval: RetrievalArtifact) -> Path:
     """Write ``retrieval.json`` atomically, once, when the search is complete.
 
-    Atomically because the extension reads it to draw Relevant Files and
-    Retrieval Details, possibly while a refinement is rewriting it.
+    Atomically because the extension reads it to draw Relevant files and
+    Search details, possibly while a refinement is rewriting it.
     """
     path = retrieval_path(repo_root, work_item_id)
     path.parent.mkdir(parents=True, exist_ok=True)

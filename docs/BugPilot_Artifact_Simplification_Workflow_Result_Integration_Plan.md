@@ -1137,6 +1137,47 @@ Context Ready
 Investigation & AI Fix    Context ready
 ```
 
+### Confirmed decisions (Batch 6)
+
+1. **A step owns its result.** Each workflow row is a typed
+   `WorkflowStepResult` computed by the host (`extension/src/app/workflow.ts`):
+   status, a summary line for the state it is in, an optional detail line, the
+   canonical artifact it produced, its actions, its nested content and a
+   row-owned error. `panel.js` only renders it, through `textContent`.
+2. **Every word comes from real state**: step marks (the live stream, or
+   `run.json` for a reopened work item), the directory listing, `issue.json`
+   (`id`, `source`, `title`; read by `issue.ts`) and `retrieval.json` (counts,
+   files, terms). Git history and Similar fixes say only "Completed" or
+   "Skipped" — their results stay inside `context.md` and are never parsed out
+   of Markdown; there is no `git_history.json` / `similar_fixes.json`.
+3. **A row reports only once its own step finished.** A mid-run row never
+   offers the previous run's artifact or actions.
+4. **Relevant files and Search details** (renamed from Retrieval Details) are
+   collapsed disclosures under Code search, whose summary line is
+   "11 terms · 6 relevant files".
+5. **Open Context / Copy belong to Build context** ("Context ready",
+   `context.md`). **Open Folder is work-item level**, at the foot of the
+   workflow, because it reveals every artifact rather than one.
+6. **Fix with AI lives on its row**: waiting ("Waiting for task…"), ready
+   ("Ready", the button, the Strategy line, `task.md`), starting ("Starting AI
+   fix…", no button), started ("AI fix started" + "Handed to X in a
+   terminal."), failed ("Did not start", the row's card with Open Settings and
+   Details, the button back for a retry). **Ready is not completed**: no green
+   tick until a handoff actually started.
+7. **A run failure sits on the row whose step was in flight**; the rows before
+   it keep their results. Only a failure no row owns gets the standalone card,
+   at the top of the workflow.
+8. **The workflow stays open after Run** and opens once when a different work
+   item with results arrives; a developer's collapse is never overruled.
+9. **Option B**: the outer Context Ready card is removed entirely. The
+   workflow header's status ("Context ready" / "AI fix started" / "AI fix did
+   not start" / "Run failed") is the one global status; a separate line
+   repeated it, or contradicted it after a failed handoff.
+10. **Security unchanged**: row artifacts open through the existing
+    constrained `openArtifact` message (a plain file name the host re-checks);
+    the controller still accepts only commands a rendered card currently
+    offers.
+
 ---
 
 # 17. Artifact Label 显示原则

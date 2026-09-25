@@ -16,6 +16,38 @@ import { fixModesFromPayload, managedFixModesFromPayload } from "../src/app/fixM
 import type { FixModeCatalog, ManagedFixModes } from "../src/app/fixModes.ts";
 import type { FixModeRequest } from "../src/app/controller.ts";
 
+import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts";
+import type { UserFacingError } from "../src/app/failures.ts";
+
+/**
+ * One workflow row of a pushed state.
+ *
+ * Since Batch 6 the rows are the result view: what the Context Ready card used
+ * to carry is on the row that owns it — the files and terms on Code search, the
+ * context actions on Build context, the button, Strategy, outcome and handoff
+ * card on Fix with AI. These getters name that owner in every assertion.
+ */
+function stepOf(state: PanelState, id: WorkflowStepId): WorkflowStepResult {
+  const step = state.workflow.find((entry) => entry.id === id);
+  assert.ok(step, `no ${id} row`);
+  return step;
+}
+const codeRow = (state: PanelState) => stepOf(state, "codeSearch");
+const buildRow = (state: PanelState) => stepOf(state, "buildContext");
+const fixRow = (state: PanelState) => stepOf(state, "fixWithAI");
+/** A finished package the panel reports: Build context says the context is ready. */
+const reportsContext = (state: PanelState) => buildRow(state).summary === "Context ready";
+/** Fix with AI offers its button. */
+const canFix = (state: PanelState) => fixRow(state).actions.includes("fixWithAI");
+/**
+ * The run's failure card, wherever it is rendered: on the row whose step was in
+ * flight, or standalone when no row owns it. Never the handoff's card, which is
+ * a different failure.
+ */
+const runErrorOf = (state: PanelState): UserFacingError | undefined =>
+  state.runError ??
+  state.workflow.find((step) => step.id !== "fixWithAI" && step.error !== undefined)?.error;
+
 const ROOT = "/work/app";
 const TOKEN = "ATATT3xFfGF0abcdef1234567890";
 
@@ -285,15 +317,53 @@ const jiraForm = (overrides: Partial<FormState> = {}): FormState => ({
   ...overrides,
 });
 
+/**
+ * A whole prepare, every marker step in `WORKFLOW_STEPS` order.
+ *
+ * Complete on purpose since Batch 6: a row reports its result only once its own
+ * step finished, so a fixture that skipped Build context's steps would describe
+ * a run whose context appeared from nowhere.
+ */
 const successfulRun: readonly StreamEvent[] = [
   { type: "started", work_item_id: "JR-12345", source: "jira" },
   { type: "step_started", step: "fetch" },
   { type: "step_completed", step: "fetch" },
+  { type: "step_started", step: "parse" },
+  { type: "step_completed", step: "parse" },
+  { type: "step_started", step: "memory_search" },
+  { type: "step_completed", step: "memory_search" },
   { type: "step_started", step: "code_search" },
   { type: "step_completed", step: "code_search" },
+  { type: "step_started", step: "git_context" },
+  { type: "step_completed", step: "git_context" },
+  { type: "step_started", step: "context" },
+  { type: "step_completed", step: "context" },
+  { type: "step_started", step: "prompt" },
+  { type: "step_completed", step: "prompt" },
   { type: "artifact", path: ".ai/JR-12345/task.md" },
   { type: "completed", ok: true },
 ];
+
+/** The `run.json` a finished prepare leaves, for work items reopened from History. */
+const PREPARED_RUN_JSON = JSON.stringify({
+  schema_version: 1,
+  work_item_id: "JR-12345",
+  status: "prepared",
+  steps: {
+    doctor: "pass",
+    fetch: "pass",
+    parse: "pass",
+    keywords: "pass",
+    memory_search: "pass",
+    code_search: "pass",
+    git_context: "pass",
+    context: "pass",
+    prompt: "pass",
+    memory_add: "pass",
+    agent_fix: "skipped",
+  },
+  generated_files: [],
+});
 
 // --- running ---------------------------------------------------------------
 
@@ -1182,7 +1252,8 @@ test("leaving it unticked stops after the context is built", async () => {
   // cannot be used is a spawn for nothing.
   assert.deepEqual(h.probed, []);
   assert.equal(h.last().overall.text, "Context ready");
-  assert.equal(h.last().workflow.find((step) => step.id === "fixWithAI")?.status, "idle");
+  // Ready to press, and not the green tick: nothing was handed over.
+  assert.equal(h.last().workflow.find((step) => step.id === "fixWithAI")?.status, "ready");
 });
 
 test("a run that failed hands nothing over, and says why the step did not run", async () => {
@@ -1201,7 +1272,8 @@ test("a run that failed hands nothing over, and says why the step did not run", 
   assert.deepEqual(h.terminals, []);
   const fix = h.last().workflow.find((step) => step.id === "fixWithAI");
   assert.equal(fix?.status, "skipped");
-  assert.match(fix?.detail ?? "", /did not finish/);
+  // The reason is the row's line: it is the whole of what happened.
+  assert.match(fix?.summary ?? "", /did not finish/);
 });
 
 test("with Build context off, the AI step is not offered at all", async () => {
@@ -1233,9 +1305,11 @@ test("without an agent on PATH it copies and points at the panel instead", async
   assert.match(h.clipboard[0] ?? "", /task\.md/);
   assert.match(h.notices.at(-1)?.message ?? "", /clipboard/);
   const fix = h.last().workflow.find((step) => step.id === "fixWithAI");
-  // Skipped, not failed: nothing went wrong, the handoff just took another
-  // route — and the row has to say which.
-  assert.equal(fix?.status, "skipped");
+  // The agent did not start, so the row is failed and carries the card that
+  // says what to do; the detail line still says which route the prompt took.
+  assert.equal(fix?.status, "failed");
+  assert.equal(fix?.summary, "Did not start");
+  assert.equal(fix?.error?.title, "AI agent unavailable");
   assert.match(fix?.detail ?? "", /not on PATH/);
   assert.match(fix?.detail ?? "", /clipboard/);
 });
@@ -1311,7 +1385,7 @@ test("Fix with AI refuses a package with no task.md rather than sending an agent
   assert.match(h.notices.at(-1)?.message ?? "", /task\.md/);
   const row = h.last().workflow.find((step) => step.id === "fixWithAI");
   assert.equal(row?.status, "skipped");
-  assert.match(row?.detail ?? "", /No task\.md was prepared/);
+  assert.match(row?.summary ?? "", /No task\.md was prepared/);
 });
 
 test("the old context and task files do not make a package", async () => {
@@ -1325,8 +1399,10 @@ test("the old context and task files do not make a package", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().contextReady, undefined);
-  assert.deepEqual(h.last().workflow.find((step) => step.id === "buildContext")?.actions, ["openFolder"]);
+  assert.equal(reportsContext(h.last()), false);
+  // Nothing for Build context to act on; the folder is the work item's.
+  assert.deepEqual(h.last().workflow.find((step) => step.id === "buildContext")?.actions, []);
+  assert.deepEqual([...h.last().workItemActions], ["openFolder"]);
   await h.controller.fixWithAI();
   assert.deepEqual(h.terminals, []);
 });
@@ -1394,8 +1470,8 @@ test("the icons are offered only once the files they open exist", async () => {
   assert.deepEqual(h.last().workflow.find((step) => step.id === "buildContext")?.actions, [
     "openContext",
     "copyContext",
-    "openFolder",
   ]);
+  assert.deepEqual([...h.last().workItemActions], ["openFolder"]);
 });
 
 test("opening the folder before a run explains itself", async () => {
@@ -2445,16 +2521,24 @@ const PREPARED = {
   },
 };
 
-test("a finished run reports what it produced, counted from its own files", async () => {
+test("a finished run reports what it produced, each on the row that produced it", async () => {
   const h = harness(PREPARED);
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const ready = h.last().contextReady;
-  assert.ok(ready, "a successful run reported no result");
-  assert.equal(ready.counts, "2 relevant files · 3 search terms");
-  assert.deepEqual([...ready.actions], ["openContext", "copyContext", "openFolder"]);
-  assert.equal(ready.canFix, true);
+  const state = h.last();
+  assert.ok(reportsContext(state), "a successful run reported no result");
+  // Counted from its own files, on the row that searched.
+  assert.equal(codeRow(state).summary, "3 terms · 2 relevant files");
+  assert.equal(codeRow(state).artifact, "retrieval.json");
+  // The context actions on the row that built the context; the folder is the
+  // work item's, not Build context's.
+  assert.deepEqual([...buildRow(state).actions], ["openContext", "copyContext"]);
+  assert.equal(buildRow(state).artifact, "context.md");
+  assert.deepEqual([...state.workItemActions], ["openFolder"]);
+  // A task ready to hand over is `ready`, never the green tick.
+  assert.equal(fixRow(state).status, "ready");
+  assert.equal(canFix(state), true);
 });
 
 test("counts are omitted, not guessed, when the retrieval cannot be read", async () => {
@@ -2468,11 +2552,11 @@ test("counts are omitted, not guessed, when the retrieval cannot be read", async
     await h.controller.refreshEnvironment();
     await h.controller.run(jiraForm());
 
-    const ready = h.last().contextReady;
-    assert.ok(ready, "an unreadable retrieval took Context Ready with it");
-    assert.equal(ready.counts, "", "a number was invented");
-    assert.deepEqual([...ready.files], []);
-    assert.deepEqual([...ready.terms], []);
+    const state = h.last();
+    assert.ok(reportsContext(state), "an unreadable retrieval took the context with it");
+    // Finished, and saying only that: no number, no files, no terms.
+    assert.equal(codeRow(state).summary, "Completed", "a number was invented");
+    assert.equal(codeRow(state).search, undefined);
   }
 });
 
@@ -2492,7 +2576,8 @@ test("the old retrieval files are not read, even when they are on disk", async (
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().contextReady?.counts, "");
+  assert.equal(codeRow(h.last()).summary, "Completed");
+  assert.equal(codeRow(h.last()).search, undefined);
   assert.deepEqual(
     reads.filter((file) => /related_files|search_quality/.test(file)),
     [],
@@ -2507,7 +2592,7 @@ test("a run with no context on disk reports no result at all", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().contextReady, undefined);
+  assert.equal(reportsContext(h.last()), false);
 });
 
 test("a failed run is never crowned with a result", async () => {
@@ -2524,18 +2609,41 @@ test("a failed run is never crowned with a result", async () => {
   await h.controller.run(jiraForm());
 
   assert.equal(h.last().progress.state, "failed");
-  assert.equal(h.last().contextReady, undefined, "a failed run showed Context Ready");
+  assert.equal(reportsContext(h.last()), false, "a failed run showed Context Ready");
 });
 
 test("no result is claimed while the run is still going", async () => {
-  const h = harness(PREPARED);
+  // The hard case: the previous run's task.md and context.md are already in
+  // the listing (the same work item, reopened first), and Build context
+  // finishes before the run does. Only the `!running` guard keeps Fix with AI
+  // from offering the old task while the new one is being written.
+  const h = harness({
+    ...PREPARED,
+    directory: [...PREPARED.directory, "run.json"],
+    files: { ...PREPARED.files, "run.json": PREPARED_RUN_JSON },
+  });
   await h.controller.refreshEnvironment();
-  const running = h.controller.run(jiraForm());
-  // Every state pushed before the run resolved.
-  const midRun = h.states.filter((state) => state.progress.state === "running");
-  assert.ok(midRun.length > 0, "the run pushed no state while it was running");
-  for (const state of midRun) assert.equal(state.contextReady, undefined);
-  await running;
+  await h.controller.showWorkItem("JR-12345");
+  assert.ok(canFix(h.last()), "the reopened work item offered no handoff to begin with");
+  const before = h.states.length;
+
+  await h.controller.run(jiraForm());
+
+  const midRun = h.states.slice(before).filter((state) => state.progress.state === "running");
+  assert.ok(midRun.length > 1, "the run pushed no state after a step finished");
+  assert.ok(
+    midRun.some((state) => buildRow(state).status === "success"),
+    "no mid-run push saw Build context finished, so the guard was never exercised",
+  );
+  for (const state of midRun) {
+    // The header is the global status and says the run is going; rows report
+    // as their own steps finish, but nothing can be handed over yet.
+    assert.equal(state.overall.kind, "running");
+    assert.equal(canFix(state), false, "a handoff was offered mid-run");
+    assert.notEqual(fixRow(state).status, "ready");
+    assert.equal(fixRow(state).artifact, undefined, "the previous run's task.md was offered mid-run");
+    assert.deepEqual(state.workItemActions, [], "Open Folder was offered mid-run");
+  }
 });
 
 test("the Strategy line describes the package, in states that mean different things", async () => {
@@ -2558,7 +2666,7 @@ test("the Strategy line describes the package, in states that mean different thi
     });
     await h.controller.refreshEnvironment();
     await h.controller.run(jiraForm());
-    assert.equal(h.last().contextReady?.strategy, expected);
+    assert.equal(fixRow(h.last()).strategy, expected);
   }
 });
 
@@ -2567,7 +2675,7 @@ test("a package prepared with no recorded mode carries no Strategy line", async 
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().contextReady?.strategy, undefined);
+  assert.equal(fixRow(h.last()).strategy, undefined);
 });
 
 test("a handoff that already happened closes the door on a second one", async () => {
@@ -2578,11 +2686,11 @@ test("a handoff that already happened closes the door on a second one", async ()
   await h.controller.run(jiraForm({ fixWithAI: true }));
 
   assert.equal(h.terminals.length, 1, "the automatic handoff did not happen exactly once");
-  assert.equal(h.last().contextReady?.canFix, false);
+  assert.equal(canFix(h.last()), false);
   // The outcome, not a vanished button: a title, a provider-neutral sentence,
   // and the host's own record of which agent it started.
-  assert.equal(h.last().contextReady?.handoffOutcome?.title, "AI fix started");
-  assert.match(h.last().contextReady?.handoffOutcome?.detail ?? "", /Handed to/);
+  assert.equal(fixRow(h.last()).summary, "AI fix started");
+  assert.match(fixRow(h.last()).detail ?? "", /Handed to/);
 });
 
 test("a run that handed nothing over offers the button", async () => {
@@ -2591,8 +2699,8 @@ test("a run that handed nothing over offers the button", async () => {
   await h.controller.run(jiraForm());
 
   assert.equal(h.terminals.length, 0);
-  assert.equal(h.last().contextReady?.canFix, true);
-  assert.equal(h.last().contextReady?.handoffOutcome, undefined);
+  assert.equal(canFix(h.last()), true);
+  assert.notEqual(fixRow(h.last()).status, "success");
 });
 
 test("the panel's Fix with AI action is the one the host already performs", async () => {
@@ -2607,7 +2715,7 @@ test("the panel's Fix with AI action is the one the host already performs", asyn
 
   assert.equal(h.terminals.length, 1);
   assert.match(h.terminals[0]!.name, /Fix with AI/);
-  assert.equal(h.last().contextReady?.canFix, false);
+  assert.equal(canFix(h.last()), false);
 });
 
 // --- UI-B1: Relevant Files ---------------------------------------------------
@@ -2642,7 +2750,7 @@ test("a finished run reports the files it found, in the artifact's order", async
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const files = h.last().contextReady?.files ?? [];
+  const files = codeRow(h.last()).search?.files ?? [];
   assert.deepEqual([...files], [
     {
       path: "src/widgets/WidgetController.cpp",
@@ -2666,10 +2774,10 @@ test("a broken file list costs the list, never the result", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const ready = h.last().contextReady;
-  assert.ok(ready, "a malformed supplementary artifact took Context Ready with it");
-  assert.deepEqual([...ready.files], []);
-  assert.deepEqual([...ready.actions], ["openContext", "copyContext", "openFolder"]);
+  const state = h.last();
+  assert.ok(reportsContext(state), "a malformed supplementary artifact took the context with it");
+  assert.deepEqual([...(codeRow(state).search?.files ?? [])], []);
+  assert.deepEqual([...buildRow(state).actions], ["openContext", "copyContext"]);
 });
 
 test("a long list is capped, and says how many it is not showing", async () => {
@@ -2683,11 +2791,11 @@ test("a long list is capped, and says how many it is not showing", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const ready = h.last().contextReady;
-  assert.equal(ready?.files.length, 10);
-  assert.equal(ready?.moreFiles, 4);
+  const code = codeRow(h.last());
+  assert.equal(code.search?.files.length, 10);
+  assert.equal(code.search?.moreFiles, 4);
   // Capping the list does not change what the run found.
-  assert.match(ready?.counts ?? "", /^14 relevant files/);
+  assert.match(code.summary, /· 14 relevant files$/);
 });
 
 test("eleven files show ten rows and one more, and still count eleven", async () => {
@@ -2702,11 +2810,11 @@ test("eleven files show ten rows and one more, and still count eleven", async ()
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const ready = h.last().contextReady;
-  assert.equal(ready?.files.length, 10);
-  assert.equal(ready?.files.at(-1)?.path, "src/widgets/Part9.cpp");
-  assert.equal(ready?.moreFiles, 1);
-  assert.match(ready?.counts ?? "", /^11 relevant files/);
+  const code = codeRow(h.last());
+  assert.equal(code.search?.files.length, 10);
+  assert.equal(code.search?.files.at(-1)?.path, "src/widgets/Part9.cpp");
+  assert.equal(code.search?.moreFiles, 1);
+  assert.match(code.summary, /· 11 relevant files$/);
 });
 
 test("a run with no files reports an empty list rather than nothing at all", async () => {
@@ -2717,8 +2825,8 @@ test("a run with no files reports an empty list rather than nothing at all", asy
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.deepEqual([...(h.last().contextReady?.files ?? [])], []);
-  assert.equal(h.last().contextReady?.moreFiles, undefined);
+  assert.deepEqual([...(codeRow(h.last()).search?.files ?? [])], []);
+  assert.equal(codeRow(h.last()).search?.moreFiles, undefined);
 });
 
 test("a failed run carries no files, even with a previous list on disk", async () => {
@@ -2732,7 +2840,9 @@ test("a failed run carries no files, even with a previous list on disk", async (
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().contextReady, undefined);
+  assert.equal(reportsContext(h.last()), false);
+  // Code search never ran this time, so the previous run's list is not its.
+  assert.equal(codeRow(h.last()).search, undefined);
 });
 
 test("opening a relevant file goes through the editor, resolved against the repository", async () => {
@@ -2778,11 +2888,16 @@ test("a path that would leave the repository is refused by the host", async () =
 test("a relevant file opens even for a work item restored from history", async () => {
   // The list comes from the artifact, so it exists wherever the artifact does —
   // there is no event stream to depend on.
-  const h = harness(WITH_FILES);
+  const h = harness({
+    ...WITH_FILES,
+    directory: [...WITH_FILES.directory, "run.json"],
+    files: { ...WITH_FILES.files, "run.json": PREPARED_RUN_JSON },
+  });
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
 
-  assert.equal(h.last().contextReady?.files.length, 2);
+  assert.equal(codeRow(h.last()).status, "success");
+  assert.equal(codeRow(h.last()).search?.files.length, 2);
   await h.controller.openRelevantFile("README.md");
   assert.equal(h.opened.at(-1), nodePath.resolve(ROOT, "README.md"));
 });
@@ -2805,7 +2920,7 @@ test("a failed run is classified, and keeps what the CLI actually said", async (
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const error = h.last().runError;
+  const error = runErrorOf(h.last());
   assert.equal(error?.kind, "jira-access");
   assert.equal(error?.title, "Unable to access Jira");
   assert.equal(error?.action?.command, COMMANDS.setCredentials);
@@ -2827,8 +2942,8 @@ test("a run that could not find the issue names it", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().runError?.kind, "jira-not-found");
-  assert.match(h.last().runError?.message ?? "", /find JR-12345/);
+  assert.equal(runErrorOf(h.last())?.kind, "jira-not-found");
+  assert.match(runErrorOf(h.last())?.message ?? "", /find JR-12345/);
 });
 
 test("a failed run has no result and no files to go with it", async () => {
@@ -2836,8 +2951,8 @@ test("a failed run has no result and no files to go with it", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.ok(h.last().runError, "no error card for a failed run");
-  assert.equal(h.last().contextReady, undefined);
+  assert.ok(runErrorOf(h.last()), "no error card for a failed run");
+  assert.equal(reportsContext(h.last()), false);
   // And the form is untouched, so the developer can fix and press Run again.
   assert.equal(h.last().form?.issueKey, "JR-12345");
   assert.deepEqual(h.last().problems, []);
@@ -2848,8 +2963,8 @@ test("a successful run carries no error", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().runError, undefined);
-  assert.ok(h.last().contextReady);
+  assert.equal(runErrorOf(h.last()), undefined);
+  assert.ok(reportsContext(h.last()));
 });
 
 test("a new run clears the error the previous one left", async () => {
@@ -2858,13 +2973,13 @@ test("a new run clears the error the previous one left", async () => {
   const h = harness({ ...WITH_FILES, events: JIRA_REFUSED });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  assert.ok(h.last().runError);
+  assert.ok(runErrorOf(h.last()));
 
   const before = h.states.length;
   await h.controller.run(jiraForm());
   const midRun = h.states.slice(before).filter((state) => state.progress.state === "running");
   assert.ok(midRun.length > 0, "the second run pushed no state while running");
-  for (const state of midRun) assert.equal(state.runError, undefined);
+  for (const state of midRun) assert.equal(runErrorOf(state), undefined);
 });
 
 test("a run that succeeds after one that failed shows the result, not the error", async () => {
@@ -2873,15 +2988,15 @@ test("a run that succeeds after one that failed shows the result, not the error"
   const failing = harness({ ...WITH_FILES, events: JIRA_REFUSED });
   await failing.controller.refreshEnvironment();
   await failing.controller.run(jiraForm());
-  assert.ok(failing.last().runError);
+  assert.ok(runErrorOf(failing.last()));
 
   const h = harness(WITH_FILES);
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().runError, undefined);
-  assert.ok(h.last().contextReady);
-  assert.ok((h.last().contextReady?.files.length ?? 0) > 0);
+  assert.equal(runErrorOf(h.last()), undefined);
+  assert.ok(reportsContext(h.last()));
+  assert.ok((codeRow(h.last()).search?.files.length ?? 0) > 0);
 });
 
 // --- the other failure: the package is fine, the agent is not ----------------
@@ -2892,25 +3007,28 @@ test("an agent that will not start leaves the whole result standing", async () =
   const h = harness({ ...WITH_FILES, agentOnPath: false });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  const before = h.last().contextReady;
-  assert.ok(before);
+  const before = h.last();
+  assert.ok(reportsContext(before));
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
   const after = h.last();
-  assert.equal(after.runError, undefined, "a handoff failure was reported as a run failure");
-  assert.equal(after.handoffError?.kind, "agent");
-  assert.equal(after.handoffError?.title, "AI agent unavailable");
-  assert.match(after.handoffError?.detail ?? "", /not on PATH/);
-  assert.equal(after.handoffError?.action?.command, COMMANDS.openSettings);
+  assert.equal(runErrorOf(after), undefined, "a handoff failure was reported as a run failure");
+  assert.equal(fixRow(after).error?.kind, "agent");
+  assert.equal(fixRow(after).error?.title, "AI agent unavailable");
+  assert.match(fixRow(after).error?.detail ?? "", /not on PATH/);
+  assert.equal(fixRow(after).error?.action?.command, COMMANDS.openSettings);
 
   // And the result is exactly what it was.
-  assert.ok(after.contextReady, "Context Ready was cleared by a handoff failure");
-  assert.equal(after.contextReady?.counts, before.counts);
-  assert.deepEqual([...(after.contextReady?.files ?? [])], [...before.files]);
-  assert.deepEqual([...(after.contextReady?.actions ?? [])], [...before.actions]);
+  // Only Fix with AI failed: every earlier row is exactly what it was.
+  assert.ok(reportsContext(after), "the context was cleared by a handoff failure");
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext"] as const) {
+    assert.deepEqual(stepOf(after, id), stepOf(before, id), `${id} changed when the handoff failed`);
+  }
+  assert.equal(fixRow(after).status, "failed");
+  assert.equal(fixRow(after).summary, "Did not start");
   // Still offered, because installing an agent and pressing again is real.
-  assert.equal(after.contextReady?.canFix, true);
+  assert.equal(canFix(after), true);
 });
 
 test("a handoff that works after one that did not clears the card", async () => {
@@ -2922,14 +3040,14 @@ test("a handoff that works after one that did not clears the card", async () => 
   await h.controller.run(jiraForm());
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.ok(h.last().handoffError);
+  assert.ok(fixRow(h.last()).error);
 
   options.agentOnPath = true;
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
-  assert.equal(h.last().handoffError, undefined, "the old reason outlived the retry");
+  assert.equal(fixRow(h.last()).error, undefined, "the old reason outlived the retry");
   assert.equal(h.terminals.length, 1);
-  assert.ok(h.last().contextReady);
+  assert.ok(reportsContext(h.last()));
 });
 
 test("a new run clears a handoff error along with everything else", async () => {
@@ -2937,11 +3055,11 @@ test("a new run clears a handoff error along with everything else", async () => 
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.ok(h.last().handoffError);
+  assert.ok(fixRow(h.last()).error);
 
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().handoffError, undefined);
+  assert.equal(fixRow(h.last()).error, undefined);
 });
 
 test("neither error follows the developer to another work item", async () => {
@@ -2950,12 +3068,12 @@ test("neither error follows the developer to another work item", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.ok(h.last().handoffError);
+  assert.ok(fixRow(h.last()).error);
 
   await h.controller.showWorkItem("JR-999");
 
-  assert.equal(h.last().handoffError, undefined);
-  assert.equal(h.last().runError, undefined);
+  assert.equal(fixRow(h.last()).error, undefined);
+  assert.equal(runErrorOf(h.last()), undefined);
 });
 
 test("pressing Run with no repository open explains itself once, not twice", async () => {
@@ -2977,7 +3095,7 @@ test("pressing Run with no repository open explains itself once, not twice", asy
     (h.last().readiness as { summary: string }).summary,
     /Open the repository you are fixing bugs in/,
   );
-  assert.equal(h.last().runError, undefined, "a second explanation of the same fact");
+  assert.equal(runErrorOf(h.last()), undefined, "a second explanation of the same fact");
   assert.equal(h.streamRuns.length, 0, "a run was started with no repository");
 });
 
@@ -2989,29 +3107,28 @@ test("a manual handoff that works reports itself and keeps everything else", asy
   const h = harness({ ...WITH_FILES, agentOnPath: true });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  const before = h.last().contextReady;
-  assert.ok(before);
-  assert.equal(before.canFix, true, "the button was not on offer before the press");
-  assert.equal(before.handoffOutcome, undefined);
+  const before = h.last();
+  assert.ok(reportsContext(before));
+  assert.equal(canFix(before), true, "the button was not on offer before the press");
+  assert.equal(fixRow(before).status, "ready");
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
   const after = h.last();
   assert.equal(h.terminals.length, 1);
-  assert.equal(after.contextReady?.handoffOutcome?.title, "AI fix started");
-  assert.match(
-    after.contextReady?.handoffOutcome?.message ?? "",
-    /handed to the configured AI agent/,
-  );
-  assert.equal(after.contextReady?.canFix, false, "a second handoff was still on offer");
-  assert.equal(after.handoffError, undefined);
-  assert.equal(after.runError, undefined);
+  // The headline names no vendor; the host's own record of the launch does.
+  assert.equal(fixRow(after).status, "success");
+  assert.equal(fixRow(after).summary, "AI fix started");
+  assert.match(fixRow(after).detail ?? "", /^Handed to .+ in a terminal\.$/);
+  assert.equal(canFix(after), false, "a second handoff was still on offer");
+  assert.equal(fixRow(after).error, undefined);
+  assert.equal(runErrorOf(after), undefined);
 
-  // And the result is exactly what it was.
-  assert.equal(after.contextReady?.counts, before.counts);
-  assert.equal(after.contextReady?.strategy, before.strategy);
-  assert.deepEqual([...(after.contextReady?.files ?? [])], [...before.files]);
-  assert.deepEqual([...(after.contextReady?.actions ?? [])], [...before.actions]);
+  // And every earlier row is exactly what it was.
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext"] as const) {
+    assert.deepEqual(stepOf(after, id), stepOf(before, id), `${id} changed when the handoff started`);
+  }
+  assert.equal(fixRow(after).strategy, fixRow(before).strategy);
 });
 
 test("the automatic path lands in the same place as the manual one", async () => {
@@ -3028,11 +3145,10 @@ test("the automatic path lands in the same place as the manual one", async () =>
 
   assert.equal(automatic.terminals.length, 1);
   assert.equal(manual.terminals.length, 1);
-  assert.deepEqual(
-    automatic.last().contextReady?.handoffOutcome,
-    manual.last().contextReady?.handoffOutcome,
-  );
-  assert.equal(automatic.last().contextReady?.canFix, false);
+  assert.deepEqual(fixRow(automatic.last()).status, fixRow(manual.last()).status);
+  assert.equal(fixRow(automatic.last()).summary, fixRow(manual.last()).summary);
+  assert.equal(fixRow(automatic.last()).detail, fixRow(manual.last()).detail);
+  assert.equal(canFix(automatic.last()), false);
 });
 
 test("a handoff that started nothing reports no outcome", async () => {
@@ -3044,9 +3160,9 @@ test("a handoff that started nothing reports no outcome", async () => {
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
   assert.equal(h.terminals.length, 0);
-  assert.equal(h.last().contextReady?.handoffOutcome, undefined);
-  assert.equal(h.last().contextReady?.canFix, true);
-  assert.ok(h.last().handoffError, "a skip with no explanation");
+  assert.notEqual(fixRow(h.last()).status, "success");
+  assert.equal(canFix(h.last()), true);
+  assert.ok(fixRow(h.last()).error, "a skip with no explanation");
 });
 
 test("a run that could not finish hands nothing over and claims nothing", async () => {
@@ -3064,8 +3180,8 @@ test("a run that could not finish hands nothing over and claims nothing", async 
   await h.controller.run(jiraForm({ fixWithAI: true }));
 
   assert.equal(h.terminals.length, 0);
-  assert.equal(h.last().contextReady, undefined);
-  assert.ok(h.last().runError);
+  assert.equal(reportsContext(h.last()), false);
+  assert.ok(runErrorOf(h.last()));
 });
 
 test("a retry that works clears the failure and reports the success", async () => {
@@ -3075,22 +3191,21 @@ test("a retry that works clears the failure and reports the success", async () =
   const h = harness(options);
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  const prepared = h.last().contextReady;
-  assert.ok(prepared);
+  const prepared = h.last();
+  assert.ok(reportsContext(prepared));
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.ok(h.last().handoffError);
-  assert.equal(h.last().contextReady?.handoffOutcome, undefined);
-  assert.ok(h.last().contextReady, "Context Ready went away with the failure");
+  assert.ok(fixRow(h.last()).error);
+  assert.notEqual(fixRow(h.last()).status, "success");
+  assert.ok(reportsContext(h.last()), "the context went away with the failure");
 
   options.agentOnPath = true;
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
   const after = h.last();
-  assert.equal(after.handoffError, undefined, "a stale failure survived the retry");
-  assert.equal(after.contextReady?.handoffOutcome?.title, "AI fix started");
-  assert.equal(after.contextReady?.counts, prepared.counts);
-  assert.deepEqual([...(after.contextReady?.files ?? [])], [...prepared.files]);
+  assert.equal(fixRow(after).error, undefined, "a stale failure survived the retry");
+  assert.equal(fixRow(after).summary, "AI fix started");
+  assert.deepEqual(codeRow(after), codeRow(prepared));
   assert.equal(h.terminals.length, 1, "the failed attempt left a terminal behind");
 });
 
@@ -3105,7 +3220,7 @@ test("success and a failure card are never both on screen", async () => {
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
   for (const state of h.states) {
-    const both = state.contextReady?.handoffOutcome !== undefined && state.handoffError !== undefined;
+    const both = fixRow(state).status === "success" && fixRow(state).error !== undefined;
     assert.equal(both, false, "a success and a failure were reported at once");
   }
 });
@@ -3115,30 +3230,41 @@ test("a new run clears the outcome the previous one reached", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.ok(h.last().contextReady?.handoffOutcome);
+  assert.equal(fixRow(h.last()).status, "success");
 
   const before = h.states.length;
   await h.controller.run(jiraForm());
 
   const midRun = h.states.slice(before).filter((state) => state.progress.state === "running");
   assert.ok(midRun.length > 0);
-  for (const state of midRun) assert.equal(state.contextReady, undefined);
+  for (const state of midRun) {
+    assert.equal(state.overall.kind, "running");
+    assert.notEqual(fixRow(state).status, "success", "the last run's outcome showed on this one");
+    assert.equal(canFix(state), false, "a handoff was offered mid-run");
+  }
   // And the finished run is a fresh package with nothing handed over yet.
-  assert.equal(h.last().contextReady?.handoffOutcome, undefined);
-  assert.equal(h.last().contextReady?.canFix, true);
+  assert.notEqual(fixRow(h.last()).status, "success");
+  assert.equal(canFix(h.last()), true);
 });
 
 test("the outcome does not follow the developer to another work item", async () => {
-  const h = harness({ ...WITH_FILES, agentOnPath: true });
+  // Both directories hold a finished package (this harness shares one listing),
+  // so the second item is ready to hand over — and nothing says it was.
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    directory: [...WITH_FILES.directory, "run.json"],
+    files: { ...WITH_FILES.files, "run.json": PREPARED_RUN_JSON },
+  });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.ok(h.last().contextReady?.handoffOutcome);
+  assert.equal(fixRow(h.last()).status, "success");
 
   await h.controller.showWorkItem("JR-999");
 
-  assert.equal(h.last().contextReady?.handoffOutcome, undefined);
-  assert.equal(h.last().contextReady?.canFix, true);
+  assert.notEqual(fixRow(h.last()).status, "success");
+  assert.equal(canFix(h.last()), true);
 });
 
 test("the button says it is working while the agent is being resolved", async () => {
@@ -3151,11 +3277,11 @@ test("the button says it is working while the agent is being resolved", async ()
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
-  const during = h.states.slice(before).filter((state) => state.contextReady?.handoffBusy === true);
+  const during = h.states.slice(before).filter((state) => fixRow(state).status === "running");
   assert.ok(during.length > 0, "the handoff never said it was working");
   // Never both: a busy state is not an outcome.
-  for (const state of during) assert.equal(state.contextReady?.handoffOutcome, undefined);
-  assert.equal(h.last().contextReady?.handoffBusy, false);
+  for (const state of during) assert.notEqual(fixRow(state).status, "success");
+  assert.notEqual(fixRow(h.last()).status, "running");
 });
 
 test("the busy flag clears even when the handoff cannot start", async () => {
@@ -3165,8 +3291,8 @@ test("the busy flag clears even when the handoff cannot start", async () => {
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
-  assert.equal(h.last().contextReady?.handoffBusy, false);
-  assert.ok(h.last().handoffError);
+  assert.notEqual(fixRow(h.last()).status, "running");
+  assert.ok(fixRow(h.last()).error);
 });
 
 // --- the freeze pass: an error card's button must actually do something ------
@@ -3185,7 +3311,7 @@ test("the Set Jira Credentials button on a failed run reaches the command", asyn
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  const action = h.last().runError?.action;
+  const action = runErrorOf(h.last())?.action;
   assert.ok(action, "the card offered no action to press");
 
   await h.controller.handle({ type: "command", id: action.command });
@@ -3198,12 +3324,35 @@ test("the Set Jira Credentials button on a failed run reaches the command", asyn
   );
 });
 
+test("a card on the row that failed still reaches its command", async () => {
+  // Batch 6 moved a failure onto the row whose step was in flight and out of
+  // `runError`. The offer is the card being on screen, wherever the page put
+  // it, so moving it must neither drop the offer nor show the card twice.
+  const h = harness({
+    events: [
+      { type: "started", work_item_id: "JR-12345", source: "jira" },
+      { type: "step_started", step: "fetch" },
+      { type: "completed", ok: false, error: { code: "JIRA_AUTH_FAILED", message: "401" } },
+    ],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  const state = h.last();
+  assert.equal(state.runError, undefined, "an owned failure was also shown on its own");
+  const action = stepOf(state, "issueDetails").error?.action;
+  assert.ok(action, "the row's card offered no action to press");
+
+  await h.controller.handle({ type: "command", id: action.command });
+
+  assert.deepEqual(h.ranCommands, [COMMANDS.setCredentials]);
+});
+
 test("the Open Settings button on a handoff failure reaches the command", async () => {
   const h = harness({ ...WITH_FILES, agentOnPath: false });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  const action = h.last().handoffError?.action;
+  const action = fixRow(h.last()).error?.action;
   assert.ok(action, "the card offered no action to press");
 
   await h.controller.handle({ type: "command", id: action.command });
@@ -3240,11 +3389,11 @@ test("an offer expires with the card that made it", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.ok(h.last().handoffError);
+  assert.ok(fixRow(h.last()).error);
 
   options.agentOnPath = true;
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.equal(h.last().handoffError, undefined);
+  assert.equal(fixRow(h.last()).error, undefined);
 
   await h.controller.handle({ type: "command", id: COMMANDS.openSettings });
 
@@ -3300,7 +3449,7 @@ test("a finished run reports the terms it searched, in the artifact's order", as
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const terms = h.last().contextReady?.terms ?? [];
+  const terms = codeRow(h.last()).search?.terms ?? [];
   assert.deepEqual([...terms], [
     { term: "WidgetController", source: "User keyword", lines: 18, broad: false, empty: false },
     {
@@ -3328,11 +3477,11 @@ test("a broken terms list costs the terms, never the result", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const ready = h.last().contextReady;
-  assert.ok(ready, "a malformed supplementary artifact took Context Ready with it");
-  assert.deepEqual([...ready.terms], []);
+  const code = codeRow(h.last());
+  assert.ok(reportsContext(h.last()), "a malformed supplementary artifact took the context with it");
+  assert.deepEqual([...(code.search?.terms ?? [])], []);
   // The file list is the other half of the same artifact, and is untouched.
-  assert.ok(ready.files.length > 0);
+  assert.ok((code.search?.files.length ?? 0) > 0);
 });
 
 test("a failed run carries no terms, even with an artifact on disk", async () => {
@@ -3346,20 +3495,22 @@ test("a failed run carries no terms, even with an artifact on disk", async () =>
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(h.last().contextReady, undefined);
+  assert.equal(reportsContext(h.last()), false);
+  assert.equal(codeRow(h.last()).search, undefined);
 });
 
 test("the terms do not follow the developer to another work item", async () => {
   const h = harness(WITH_TERMS);
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  assert.equal(h.last().contextReady?.terms.length, 3);
+  assert.equal(codeRow(h.last()).search?.terms.length, 3);
 
   await h.controller.showWorkItem("JR-999");
 
-  // A different bug, read from its own directory — which in this harness holds
-  // the same artifact, so what matters is that it was re-read rather than kept.
-  assert.ok(h.last().contextReady);
+  // A different bug, read from its own directory. This one has no run.json, so
+  // nothing says its search ran: no terms follow it from the previous item.
+  assert.equal(codeRow(h.last()).status, "idle");
+  assert.equal(codeRow(h.last()).search, undefined);
 });
 
 test("a handoff leaves the terms exactly where they were", async () => {
@@ -3367,24 +3518,24 @@ test("a handoff leaves the terms exactly where they were", async () => {
   const h = harness({ ...WITH_TERMS, agentOnPath: true });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  const before = h.last().contextReady?.terms ?? [];
+  const before = codeRow(h.last()).search?.terms ?? [];
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
-  assert.ok(h.last().contextReady?.handoffOutcome, "the handoff did not happen");
-  assert.deepEqual([...(h.last().contextReady?.terms ?? [])], [...before]);
+  assert.equal(fixRow(h.last()).status, "success", "the handoff did not happen");
+  assert.deepEqual([...(codeRow(h.last()).search?.terms ?? [])], [...before]);
 });
 
 test("a handoff that could not start leaves them too", async () => {
   const h = harness({ ...WITH_TERMS, agentOnPath: false });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
-  const before = h.last().contextReady?.terms ?? [];
+  const before = codeRow(h.last()).search?.terms ?? [];
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
-  assert.ok(h.last().handoffError);
-  assert.deepEqual([...(h.last().contextReady?.terms ?? [])], [...before]);
+  assert.ok(fixRow(h.last()).error);
+  assert.deepEqual([...(codeRow(h.last()).search?.terms ?? [])], [...before]);
 });
 
 test("the artifact is read once for the counts, the files and the terms", async () => {
@@ -3561,4 +3712,81 @@ test("both versions are reported, and they are not the same field", async () => 
   // The CLI's own, from the environment probe that already ran.
   assert.ok(rowOf(h, "BugPilot CLI"), "the CLI row is missing");
   assert.equal(rowOf(h, "BugPilot CLI")?.detail, "bugpilot");
+});
+
+// --- Batch 6 review: a History switch never shows the last item's results ----
+
+const issueJson = (id: string, title: string) =>
+  JSON.stringify({ schema_version: 1, id, source: "jira", title });
+
+/**
+ * Two work items restored from History, each with its own issue on disk.
+ *
+ * `directory` and `directoryError` are read live by the harness, so a test can
+ * make the second item's folder unreadable after the first one was shown.
+ */
+function twoWorkItems() {
+  const options: { directory?: readonly string[]; directoryError?: string; files: Record<string, string> } = {
+    directory: ["issue.json", "retrieval.json", "context.md", "task.md", "run.json"],
+    files: {
+      [nodePath.join("JR-1", "issue.json")]: issueJson("JR-1", "Title of one"),
+      [nodePath.join("JR-1", "retrieval.json")]: retrievalJson({ related_files: RELATED_ENTRIES, terms: [{ value: "x" }] }),
+      [nodePath.join("JR-1", "run.json")]: PREPARED_RUN_JSON,
+      [nodePath.join("JR-2", "issue.json")]: issueJson("JR-2", "Title of two"),
+      [nodePath.join("JR-2", "run.json")]: PREPARED_RUN_JSON,
+    },
+  };
+  return { options, h: harness(options) };
+}
+
+/** Whatever a state says about JR-1 on the rows that report an issue or a search. */
+const mentionsFirst = (state: PanelState) => {
+  const issue = stepOf(state, "issueDetails");
+  const code = codeRow(state);
+  return (
+    /JR-1\b|Title of one/.test(`${issue.summary} ${issue.detail ?? ""}`) ||
+    (code.search?.files.length ?? 0) > 0 ||
+    code.summary !== "Completed"
+  );
+};
+
+test("a reopened work item's rows name that work item", async () => {
+  const { h } = twoWorkItems();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  assert.equal(stepOf(h.last(), "issueDetails").summary, "JR-1 · Jira issue");
+  assert.equal(stepOf(h.last(), "issueDetails").detail, "Title of one");
+  assert.equal(codeRow(h.last()).search?.files.length, 2);
+});
+
+test("switching work items never shows the previous one's issue or search, even for a push", async () => {
+  // `refreshArtifacts` pushes a loading state before it reads anything. That
+  // push used to carry JR-1's issue and files on JR-2's rows.
+  const { h } = twoWorkItems();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+  const before = h.states.length;
+
+  await h.controller.showWorkItem("JR-2");
+
+  const pushed = h.states.slice(before);
+  assert.ok(pushed.length > 1, "the switch pushed no intermediate state");
+  for (const state of pushed) {
+    assert.equal(mentionsFirst(state), false, `a push during the switch named JR-1: ${stepOf(state, "issueDetails").summary}`);
+  }
+  assert.equal(stepOf(h.last(), "issueDetails").summary, "JR-2 · Jira issue");
+  assert.equal(stepOf(h.last(), "issueDetails").detail, "Title of two");
+});
+
+test("an unreadable folder leaves nothing of the previous work item on the rows", async () => {
+  const { options, h } = twoWorkItems();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  options.directoryError = "EACCES: permission denied";
+  await h.controller.showWorkItem("JR-2");
+
+  assert.equal(h.last().artifacts.kind, "error");
+  assert.equal(mentionsFirst(h.last()), false, "JR-1's results were left on JR-2's rows");
 });

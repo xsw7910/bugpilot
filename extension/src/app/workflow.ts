@@ -1,30 +1,44 @@
 /**
- * The one list the panel shows: investigation and the AI fix, as six steps.
+ * The one list the panel shows: investigation and the AI fix, as six steps —
+ * and, since Batch 6, the place their results live.
  *
- * Before this, the panel had an "Investigate" fieldset of checkboxes, a
+ * Before phase 5 the panel had an "Investigate" fieldset of checkboxes, a
  * "Progress" checklist that repeated the same five labels, and a "Hand off"
- * card that appeared afterwards with three buttons. Three places to look for
- * one linear thing. This module is the merge: **one row per step, carrying both
- * the choice and the outcome**.
+ * card. Phase 5 merged those into one row per step, carrying both the choice
+ * and the outcome. The results still lived elsewhere, though — a Context Ready
+ * card above the rows held the counts, the files, the terms, the context
+ * actions and the Fix with AI button. Batch 6 finishes the merge: **a step owns
+ * its result, its canonical artifact and its actions**, so each row here is a
+ * `WorkflowStepResult` and the page renders nothing about a run that is not on
+ * one of them.
  *
  * It is a view model, computed by the host on every push, because the page
  * cannot import any of this (no bundler — see `panel/messages.ts`). The page
- * owns exactly one thing about these rows: the checkbox. Everything else here
- * is host-computed and the page only renders it.
+ * owns exactly one thing about these rows: the checkbox.
  *
- * Two things are deliberately not symmetric with the rest:
+ * Every word a row says is derived from real state — the run's step marks (the
+ * live stream, or `run.json` for a reopened work item), the files on disk, and
+ * the two artifacts the host parses (`issue.json`, `retrieval.json`). Where no
+ * structured result exists, the row says only what is known: Git history and
+ * Similar fixes say "Completed", because their results live inside `context.md`
+ * by design (§37, Batch 3) and are not parsed out of prose for a summary line.
  *
- *  - **`fixWithAI` is not a CLI capability.** The other five come out of the
- *    event stream; this one is an action the extension takes after the run, so
- *    its status comes from the controller rather than from a step event.
- *  - **It never reports "complete".** The agent runs in a terminal the
- *    extension does not own, so "the AI finished" is not knowable here. The
- *    honest end state is that it was handed over, which is what `detail` says.
+ * `fixWithAI` is not a CLI capability: it is an action the extension takes, so
+ * its state comes from the controller. It never reports "complete" — the agent
+ * runs in a terminal the extension does not own — and a prepared task that has
+ * not been handed over is `ready`, never the green tick.
  */
 
-import { CONTEXT_ARTIFACT } from "./artifacts.ts";
+import { CONTEXT_ARTIFACT, TASK_ARTIFACT } from "./artifacts.ts";
+import type { RelevantFile } from "./contextSummary.ts";
+import type { UserFacingError } from "./failures.ts";
 import type { PlanState, Source } from "./form.ts";
-import type { ProgressView, RowState } from "./progress.ts";
+import { HANDOFF_STARTED_TITLE } from "./handoff.ts";
+import type { IssueSummary } from "./issue.ts";
+import { ISSUE_ARTIFACT } from "./issue.ts";
+import type { Capability, ProgressView, RowState } from "./progress.ts";
+import { RETRIEVAL_ARTIFACT } from "./retrieval.ts";
+import type { RetrievalTerm } from "./retrievalDetails.ts";
 
 export type WorkflowStepId =
   | "issueDetails"
@@ -44,14 +58,31 @@ export const WORKFLOW_STEP_IDS: readonly WorkflowStepId[] = [
   "fixWithAI",
 ];
 
-export type StepStatus = "idle" | "running" | "success" | "failed" | "skipped";
+/**
+ * How a row stands.
+ *
+ * `ready` exists for one row and one reason: a task on disk that nobody has
+ * handed over yet. It is not `success` — the green tick is reserved for a
+ * handoff that actually started — and not `idle`, which would hide that there
+ * is something to press.
+ */
+export type StepStatus = "idle" | "running" | "success" | "ready" | "failed" | "skipped";
 
-/** An icon button offered on a step's own row, once that step has produced it. */
-export type StepActionId = "openContext" | "copyContext" | "openFolder";
+/** An action a row offers, once that row has produced what it acts on. */
+export type StepActionId = "openContext" | "copyContext" | "fixWithAI";
 
-export interface WorkflowStep {
+/** What Code search found, from `retrieval.json`, for its two disclosures. */
+export interface SearchContent {
+  readonly files: readonly RelevantFile[];
+  /** How many the artifact held beyond `files`, when it held more. */
+  readonly moreFiles?: number;
+  readonly terms: readonly RetrievalTerm[];
+}
+
+export interface WorkflowStepResult {
   readonly id: WorkflowStepId;
   readonly label: string;
+  /** What the step does. Also the markup's text before the first push. */
   readonly description: string;
   readonly enabled: boolean;
   /** Runs whichever way the boxes are ticked: it is the input, not an option. */
@@ -59,15 +90,36 @@ export interface WorkflowStep {
   readonly status: StepStatus;
   readonly durationMs?: number;
   /**
-   * What actually happened, when the status alone would be ambiguous.
+   * The row's secondary line, for the state it is in.
    *
-   * Only `fixWithAI` uses it today: "handed to claude in a terminal" and "no
-   * agent CLI found, so the prompt is on the clipboard" are both non-failures
-   * that a green tick would misrepresent.
+   * The description while pending, what it is doing while running, and what it
+   * produced once done — a finished step that still says what it plans to do is
+   * a step that looks like it did nothing.
    */
+  readonly summary: string;
+  /** A quieter second line, when the result has one: the issue's title, which agent. */
   readonly detail?: string;
-  /** Empty until the step has something to offer. */
+  /** The mode the task was prepared with. Fix with AI only: `task.md` carries it. */
+  readonly strategy?: string;
+  /**
+   * The canonical artifact this step owns, once it produced it.
+   *
+   * A plain file name inside the work item directory, opened through the
+   * constrained `openArtifact` message — never a path. Absent while the row
+   * has not produced it, so a mid-run row cannot offer the last run's file.
+   */
+  readonly artifact?: string;
   readonly actions: readonly StepActionId[];
+  /** Code search only: which files and which terms. */
+  readonly search?: SearchContent;
+  /**
+   * A failure this row owns.
+   *
+   * The run's, on the row whose step was in flight when it failed; the
+   * handoff's, on Fix with AI. The rows before it keep their results — a later
+   * failure never replaces the whole workflow with one card.
+   */
+  readonly error?: UserFacingError;
 }
 
 export const STEP_LABELS: Readonly<Record<WorkflowStepId, string>> = {
@@ -87,16 +139,22 @@ const STEP_DESCRIPTIONS: Readonly<Record<Exclude<WorkflowStepId, "issueDetails">
   fixWithAI: "Run the prepared context with your AI coding agent",
 };
 
+/** What a row says while it is the one working. */
+const RUNNING_TEXT: Readonly<Record<Exclude<WorkflowStepId, "issueDetails" | "fixWithAI">, string>> = {
+  codeSearch: "Searching repository…",
+  gitHistory: "Collecting git history…",
+  similarFixes: "Searching past fixes…",
+  buildContext: "Building context…",
+};
+
 /**
  * One line under each label, saying what the step does.
  *
  * `issueDetails` depends on the input source: "Fetch Jira issue information" is
  * simply untrue for a bug the developer typed out.
  *
- * Exported because the markup carries these too. The host pushes the same text
- * on every render, but a page built before the first push would otherwise show
- * six labels with nothing under them — the same reason the checkboxes carry
- * their defaults in the markup.
+ * Exported because the markup carries these too: a page built before the first
+ * push would otherwise show six labels with nothing under them.
  */
 export function stepDescription(id: WorkflowStepId, source: Source): string {
   if (id !== "issueDetails") return STEP_DESCRIPTIONS[id];
@@ -105,8 +163,15 @@ export function stepDescription(id: WorkflowStepId, source: Source): string {
 
 /** How the AI step ended, as the controller observed it. */
 export interface FixWithAiOutcome {
-  readonly status: StepStatus;
+  readonly status: Exclude<StepStatus, "ready">;
   readonly detail?: string;
+}
+
+/** What `retrieval.json` said, already projected by the host. */
+export interface SearchResult {
+  readonly relevantFiles?: number;
+  readonly searchTerms?: number;
+  readonly content: SearchContent;
 }
 
 export interface WorkflowInput {
@@ -120,25 +185,28 @@ export interface WorkflowInput {
   /**
    * The file names currently in `.ai/<work_item>/`.
    *
-   * What decides whether a row can offer an action, in preference to the run's
-   * own state: an icon is offered because the file it opens is there. Keying
-   * off a step event instead would put an icon on screen for a file the run did
-   * not get around to writing — and would hide the icons for a work item
-   * restored from History, where there is no event stream at all.
+   * What decides whether a row can offer an artifact or an action: an action is
+   * offered because the file it opens is there, and — together with the row's
+   * own state — because this run produced it.
    */
   readonly artifacts: readonly string[];
+  readonly workItemId?: string;
+  /** `issue.json`, parsed; absent when it is missing or unreadable. */
+  readonly issue?: IssueSummary;
+  /** `retrieval.json`, projected; absent when it is missing or unreadable. */
+  readonly search?: SearchResult;
+  /** True while a handoff is being resolved, which spawns a probe. */
+  readonly handoffBusy?: boolean;
+  /** Why the last handoff could not start. */
+  readonly handoffError?: UserFacingError;
+  /** Why the last run did not finish, when a row can own it. */
+  readonly runError?: UserFacingError;
+  /** The prepared Fix Mode, as one line. */
+  readonly strategy?: string;
 }
 
-/** Which file each icon needs before it is worth offering. */
-const ACTION_REQUIREMENTS: readonly { readonly id: StepActionId; readonly file?: string }[] = [
-  { id: "openContext", file: CONTEXT_ARTIFACT },
-  { id: "copyContext", file: CONTEXT_ARTIFACT },
-  // The directory itself, which exists as soon as anything is in it.
-  { id: "openFolder" },
-];
-
 /** The five capability rows, in `progress.ts` terms. */
-const CAPABILITY_OF: Readonly<Record<Exclude<WorkflowStepId, "fixWithAI">, string>> = {
+const CAPABILITY_OF: Readonly<Record<Exclude<WorkflowStepId, "fixWithAI">, Capability>> = {
   issueDetails: "issue_details",
   codeSearch: "code_search",
   gitHistory: "git_history",
@@ -154,40 +222,206 @@ const STATUS_OF_ROW: Readonly<Record<RowState, StepStatus>> = {
   failed: "failed",
 };
 
-export function buildWorkflow(input: WorkflowInput): readonly WorkflowStep[] {
+/** A finished row with no summary of its own says this, and nothing invented. */
+const FINISHED_TEXT: Readonly<Record<StepStatus, string>> = {
+  idle: "",
+  running: "",
+  success: "Completed",
+  ready: "Ready",
+  failed: "Failed",
+  skipped: "Skipped",
+};
+
+export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult[] {
   const rows = new Map(input.progress.rows.map((row) => [row.capability as string, row]));
   const present = new Set(input.artifacts);
-  const available = ACTION_REQUIREMENTS.filter(
-    (action) => (action.file ? present.has(action.file) : present.size > 0),
-  ).map((action) => action.id);
+  const running = input.progress.state === "running";
+  const failedCapability = input.progress.failure?.capability;
 
-  return WORKFLOW_STEP_IDS.map((id): WorkflowStep => {
-    if (id === "fixWithAI") {
-      return {
-        id,
-        label: STEP_LABELS[id],
-        description: stepDescription(id, input.source),
-        enabled: input.fixWithAI,
-        status: input.fix?.status ?? "idle",
-        ...(input.fix?.detail === undefined ? {} : { detail: input.fix.detail }),
-        actions: [],
-      };
-    }
+  const capabilityRows = new Map<WorkflowStepId, WorkflowStepResult>();
+  for (const id of WORKFLOW_STEP_IDS) {
+    if (id === "fixWithAI") continue;
     const row = rows.get(CAPABILITY_OF[id]);
     const required = id === "issueDetails";
-    return {
+    const status: StepStatus = row ? STATUS_OF_ROW[row.state] : "idle";
+    const base = {
       id,
       label: STEP_LABELS[id],
       description: stepDescription(id, input.source),
       enabled: required ? true : input.plan[id],
       ...(required ? { required: true } : {}),
-      status: row ? STATUS_OF_ROW[row.state] : "idle",
+      status,
       ...(row?.durationMs === undefined ? {} : { durationMs: row.durationMs }),
-      // The icons arrive with the files rather than sitting there greyed out
-      // from the start — a disabled icon invites a click that explains nothing.
-      actions: id === "buildContext" ? available : [],
+      // The run's card, on the row whose step was in flight when it failed.
+      ...(status === "failed" && input.runError && failedCapability === CAPABILITY_OF[id]
+        ? { error: input.runError }
+        : {}),
     };
-  });
+    capabilityRows.set(id, { ...base, ...resultOf(id, status, input, present) });
+  }
+
+  const steps = WORKFLOW_STEP_IDS.map((id) =>
+    id === "fixWithAI" ? fixWithAiRow(input, present, running, capabilityRows) : capabilityRows.get(id)!,
+  );
+  return steps;
+}
+
+/** What a capability row says and offers, for the state it is in. */
+function resultOf(
+  id: Exclude<WorkflowStepId, "fixWithAI">,
+  status: StepStatus,
+  input: WorkflowInput,
+  present: ReadonlySet<string>,
+): Pick<WorkflowStepResult, "summary" | "detail" | "artifact" | "actions" | "search"> {
+  const description = stepDescription(id, input.source);
+  if (status === "idle") return { summary: description, actions: [] };
+  if (status === "running") return { summary: runningText(id, input), actions: [] };
+  if (status !== "success") return { summary: FINISHED_TEXT[status], actions: [] };
+
+  // Finished, so the row says what it produced — from the artifacts, never
+  // from what the step was supposed to do.
+  switch (id) {
+    case "issueDetails": {
+      const issue = input.issue;
+      const artifact = present.has(ISSUE_ARTIFACT) ? { artifact: ISSUE_ARTIFACT } : {};
+      if (!issue) return { summary: FINISHED_TEXT.success, actions: [], ...artifact };
+      const summary = issue.source === "jira" ? `${issue.id} · Jira issue` : "Manual bug description";
+      return {
+        summary,
+        ...(issue.title === "" ? {} : { detail: issue.title }),
+        actions: [],
+        ...artifact,
+      };
+    }
+    case "codeSearch": {
+      const search = input.search;
+      const artifact = present.has(RETRIEVAL_ARTIFACT) ? { artifact: RETRIEVAL_ARTIFACT } : {};
+      const counted = search ? describeSearch(search) : "";
+      const content = search?.content;
+      const hasContent = content !== undefined && (content.files.length > 0 || content.terms.length > 0);
+      return {
+        summary: counted || FINISHED_TEXT.success,
+        actions: [],
+        ...artifact,
+        ...(hasContent ? { search: content } : {}),
+      };
+    }
+    case "buildContext": {
+      // The actions arrive with the file rather than sitting there greyed out
+      // from the start — a disabled button invites a click that explains nothing.
+      if (!present.has(CONTEXT_ARTIFACT)) return { summary: FINISHED_TEXT.success, actions: [] };
+      return {
+        summary: "Context ready",
+        artifact: CONTEXT_ARTIFACT,
+        actions: ["openContext", "copyContext"],
+      };
+    }
+    default:
+      // Git history and Similar fixes: their results are inside `context.md`,
+      // and there is no structured count to report without parsing prose.
+      return { summary: FINISHED_TEXT.success, actions: [] };
+  }
+}
+
+function runningText(id: Exclude<WorkflowStepId, "fixWithAI">, input: WorkflowInput): string {
+  if (id !== "issueDetails") return RUNNING_TEXT[id];
+  if (input.source !== "jira") return "Reading the description…";
+  return input.workItemId ? `Loading ${input.workItemId}…` : "Loading the Jira issue…";
+}
+
+/**
+ * "11 terms · 6 relevant files", or nothing.
+ *
+ * Only the two numbers a developer can act on. Singular and plural are spelled
+ * out because "1 relevant files" is the kind of detail that makes a panel look
+ * unfinished; a list the artifact did not carry is left out, not reported as 0.
+ */
+export function describeSearch(search: Pick<SearchResult, "relevantFiles" | "searchTerms">): string {
+  const parts: string[] = [];
+  if (search.searchTerms !== undefined) parts.push(plural(search.searchTerms, "term"));
+  if (search.relevantFiles !== undefined) parts.push(plural(search.relevantFiles, "relevant file"));
+  return parts.join(" · ");
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * The last row: what the extension did with the task, or can do with it.
+ *
+ * In order of precedence: a handoff being resolved, one that started, one that
+ * could not start, one that was skipped, a task ready to hand over, and
+ * otherwise waiting for a run to produce one.
+ */
+function fixWithAiRow(
+  input: WorkflowInput,
+  present: ReadonlySet<string>,
+  running: boolean,
+  rows: ReadonlyMap<WorkflowStepId, WorkflowStepResult>,
+): WorkflowStepResult {
+  const id: WorkflowStepId = "fixWithAI";
+  const base = {
+    id,
+    label: STEP_LABELS[id],
+    description: stepDescription(id, input.source),
+    enabled: input.fixWithAI,
+  };
+  // A task this run produced: the file is there, the step that writes it
+  // finished, and nothing is running that could replace it.
+  const taskReady =
+    !running && present.has(TASK_ARTIFACT) && rows.get("buildContext")?.status === "success";
+  const prepared = {
+    ...(taskReady ? { artifact: TASK_ARTIFACT } : {}),
+    ...(taskReady && input.strategy ? { strategy: input.strategy } : {}),
+  };
+
+  if (input.handoffBusy) {
+    return { ...base, status: "running", summary: "Starting AI fix…", actions: [], ...prepared };
+  }
+  const fix = input.fix;
+  if (fix?.status === "success") {
+    // "Started", and nothing further: the agent runs in a terminal this
+    // extension does not own. No second press — it would open a second
+    // terminal for the same package.
+    return {
+      ...base,
+      status: "success",
+      summary: HANDOFF_STARTED_TITLE,
+      ...(fix.detail ? { detail: fix.detail } : {}),
+      actions: [],
+      ...prepared,
+    };
+  }
+  if (input.handoffError) {
+    // The card says what failed and what to do, under its own title; the row's
+    // line says only the outcome, as the header does. The button stays for a
+    // retry.
+    // The detail line keeps what happened instead — the prompt went to the
+    // clipboard — which the card, about what failed, does not say.
+    return {
+      ...base,
+      status: "failed",
+      summary: "Did not start",
+      ...(fix?.detail ? { detail: fix.detail } : {}),
+      error: input.handoffError,
+      actions: taskReady ? ["fixWithAI"] : [],
+      ...prepared,
+    };
+  }
+  if (fix && fix.status !== "idle") {
+    return { ...base, status: fix.status, summary: fix.detail || FINISHED_TEXT[fix.status], actions: [] };
+  }
+  if (taskReady) {
+    return { ...base, status: "ready", summary: FINISHED_TEXT.ready, actions: ["fixWithAI"], ...prepared };
+  }
+  if (running) return { ...base, status: "idle", summary: "Waiting for task…", actions: [] };
+  return { ...base, status: "idle", summary: base.description, actions: [] };
+}
+
+/** Whether the work item directory has anything to reveal. */
+export function canOpenFolder(artifacts: readonly string[]): boolean {
+  return artifacts.length > 0;
 }
 
 export type OverallKind = "idle" | "running" | "done" | "failed";
@@ -199,14 +433,19 @@ export interface OverallStatus {
 }
 
 /**
- * The compact status in the workflow header.
+ * The compact status in the workflow header — the one global status.
  *
  * "Complete" is not among the answers, and that is the point: once the handoff
  * reaches a terminal, the extension has no way to know what the agent did with
  * it. "AI fix started" is the last thing it can honestly claim.
+ *
+ * The handoff's outcome is reported whether or not the box was ticked: since
+ * the button moved onto the row, pressing it is a choice in its own right, and
+ * a header reading "Context ready" over a failed handoff would contradict the
+ * row below it.
  */
 export function overallStatus(
-  steps: readonly WorkflowStep[],
+  steps: readonly WorkflowStepResult[],
   progress: ProgressView,
 ): OverallStatus {
   const chosen = steps.filter((step) => step.enabled);
@@ -223,12 +462,8 @@ export function overallStatus(
   if (progress.state === "stopped") return { kind: "idle", text: "Stopped" };
   if (progress.state === "done") {
     const fix = steps.find((step) => step.id === "fixWithAI");
-    if (fix?.enabled && fix.status === "success") {
-      return { kind: "done", text: "AI fix started" };
-    }
-    if (fix?.enabled && fix.status === "failed") {
-      return { kind: "failed", text: "AI fix did not start" };
-    }
+    if (fix?.status === "success") return { kind: "done", text: HANDOFF_STARTED_TITLE };
+    if (fix?.status === "failed") return { kind: "failed", text: "AI fix did not start" };
     return { kind: "done", text: "Context ready" };
   }
   return { kind: "idle", text: "Ready to run" };

@@ -1,7 +1,7 @@
 /**
  * The one reader of `retrieval.json`.
  *
- * The Context Ready counts, Relevant Files and Retrieval Details all describe
+ * Code search's counts, Relevant files and Search details all describe
  * the same search, and BugPilot now writes that search as one artifact. So it
  * is read once, parsed once and shape-checked once, here; the three views are
  * projections of what this returns and never open or parse the file themselves.
