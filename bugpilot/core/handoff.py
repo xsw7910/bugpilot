@@ -101,7 +101,7 @@ def mcp_prompt(tool: str, argument: str) -> str:
         f"Call {tool} with {argument}.\n"
         f"Then read the returned {reads} and complete the "
         "workflow they describe for the selected AI Fix Mode, "
-        "then write the required result files.\n"
+        "then write the fix report.\n"
         f"Stop before committing. {_FORBIDDEN_SENTENCE}"
     )
 
@@ -122,6 +122,6 @@ def skill_steps() -> tuple[str, ...]:
         "the repository from scratch.",
         f"Complete the workflow `{TASK_ARTIFACT}` describes for the selected AI Fix "
         "Mode — it says whether this pass investigates only or implements — and "
-        "write the required result files.",
+        "write the fix report.",
         f"Stop at the commit gate. {_FORBIDDEN_SENTENCE}",
     )

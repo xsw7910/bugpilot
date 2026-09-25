@@ -595,7 +595,7 @@ export class Controller {
 
     if (form.fresh) {
       const confirmed = await this.#ports.ui.confirm(
-        "Delete the previous artifacts for this work item before running? Anything an agent wrote, including fix_summary.md, is removed.",
+        "Delete the previous artifacts for this work item before running? Anything an agent wrote, including fix_report.md, is removed.",
         "Delete and run",
       );
       if (!confirmed) return;

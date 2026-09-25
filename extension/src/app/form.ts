@@ -103,7 +103,7 @@ export interface FormState {
    * Delete `.ai/<work_item>/` before running.
    *
    * The CLI's default, and off here. Phase 3 learned this the hard way: a
-   * re-prepare with fresh=True deleted an agent's `fix_summary.md`. The
+   * re-prepare with fresh=True deleted an agent's `fix_report.md`. The
    * extension asks for it explicitly or does not do it.
    */
   readonly fresh: boolean;
@@ -435,7 +435,7 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   // `--prepare-only` exists to prevent. `test/form.test.ts` pins that down.
 
   // Preserve artifacts unless the developer asked otherwise. The CLI's default
-  // is the destructive one; phase 3 already lost an agent's fix_summary.md to it.
+  // is the destructive one; phase 3 already lost an agent's fix_report.md to it.
   args.push(form.fresh ? "--fresh" : "--resume");
   // Streaming implies prepare-only in the CLI, but saying it costs nothing and
   // makes the intent legible in the log line the panel shows.

@@ -7,7 +7,7 @@ definitions live, and mixing the two would make a run's own bookkeeping look
 like something a developer should edit and commit.
 
 **Only the id selects a mode.** Everything else in the record is audit metadata:
-what the package was generated with, so a `review_notes.md` read months later
+what the package was generated with, so a report's Review Notes read months later
 still says which workflow the agent was given. A name or an instruction copied
 out of a stale record must never become the workflow, so the id is re-resolved
 through the registry on every read. That is also what makes a mode which has

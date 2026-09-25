@@ -23,7 +23,7 @@ bugpilot prepares an AI-ready task package from a Jira bug and then hands it to 
 - `retry-prompt` does not call an agent; the developer runs their agent manually.
 - `manual-result` does not inspect or modify product source code.
 - Generated agent instructions may offer optional assisted delivery, but the agent must ask for explicit approval before any commit or push.
-- By default the generated `agent_task.md` does NOT instruct the agent to write Jira. Pass `--jira-comment` to `bugpilot` (or `agent-task` / `prompt`) to add an instruction to post one Jira status comment (via `bugpilot jira-comment --execute`) after writing the result files and before commit, so watchers are notified while the developer still controls the commit; the choice is recorded per issue and survives `--resume`.
+- By default the generated `task.md` does NOT instruct the agent to write Jira. Pass `--jira-comment` to `bugpilot` (or `agent-task` / `prompt`) to add an instruction to post one Jira status comment (via `bugpilot jira-comment --execute`) after writing the fix report and before commit, so watchers are notified while the developer still controls the commit; the choice is recorded per issue and survives `--resume`.
 - The agent must never push main/master, force push, commit `.ai/` or `.ai_memory/`, transition Jira, assign Jira, or change Jira fields. The only Jira write the agent may make is the single status comment above, and only when `--jira-comment` was requested.
 - bugpilot does not download Jira attachments; it records attachment metadata only.
 - bugpilot does not create pull requests.

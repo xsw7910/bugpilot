@@ -329,11 +329,10 @@ def test_copilot_task_references_retrieval(tmp_path):
     assert "do not assume the matched files are the correct implementation" in task
     assert "write a no-op analysis" in task
     assert "matched line numbers" in task
-    assert ".ai/JR-12345/bug_analysis.md" in task
-    assert ".ai/JR-12345/fix_summary.md" in task
-    assert ".ai/JR-12345/test_result.md" in task
-    assert ".ai/JR-12345/diff_summary.md" in task
-    assert ".ai/JR-12345/review_notes.md" in task
+    assert "Write one report: `.ai/JR-12345/fix_report.md`" in task
+    for heading in ("`## Summary`", "`## Analysis`", "`## Changes`", "`## Tests`", "`## Review Notes`"):
+        assert heading in task, heading
+    assert "never claim a pass that did not happen" in task
     assert "git reset --hard" in task
     assert "git clean -fd" in task
     assert "Do you want me to commit and push this branch to origin?" in task
@@ -933,15 +932,24 @@ def test_copilot_instructions_command_prints_them(tmp_path, monkeypatch, capsys)
     assert status["steps"]["agent_instructions"] == "pass"
 
 
+REPORT = (
+    "# Fix Report: JR-12345\n\n"
+    "## Summary\n\nFixed: stale cache invalidated on filter change.\n\n"
+    "## Analysis\n\nRoot cause: stale cache\n\n"
+    "## Changes\n\nCleared cache on filter change\n\n"
+    "## Tests\n\nFocused tests passed\n\n"
+    "## Review Notes\n\nLooks safe\n"
+)
+
+
 def test_check_results_reports_missing_files(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
 
     assert main(["check-results", "JR-12345"]) == 0
     output = capsys.readouterr().out
 
-    assert "WARN: missing 5 agent result file(s)." in output
-    assert ".ai/JR-12345/bug_analysis.md" in output
-    assert ".ai/JR-12345/review_notes.md" in output
+    assert "WARN: missing 1 agent result file(s)." in output
+    assert ".ai/JR-12345/fix_report.md" in output
 
 
 def test_check_results_strict_missing_files_exits_nonzero(tmp_path, monkeypatch, capsys):
@@ -950,31 +958,41 @@ def test_check_results_strict_missing_files_exits_nonzero(tmp_path, monkeypatch,
     assert main(["check-results", "JR-12345", "--strict"]) == 1
     output = capsys.readouterr().out
 
-    assert "WARN: missing 5 agent result file(s)." in output
+    assert "WARN: missing 1 agent result file(s)." in output
 
 
-def test_check_results_passes_when_all_files_exist(tmp_path, monkeypatch, capsys):
+def test_check_results_passes_when_the_report_exists(tmp_path, monkeypatch, capsys):
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
-    for file_name in ["bug_analysis.md", "fix_summary.md", "test_result.md", "diff_summary.md", "review_notes.md"]:
-        (issue_dir / file_name).write_text("done", encoding="utf-8")
+    (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert main(["check-results", "JR-12345"]) == 0
 
-    assert "PASS: all agent result files exist." in capsys.readouterr().out
+    assert "PASS: the fix report exists" in capsys.readouterr().out
 
 
-def test_check_results_strict_passes_when_all_files_exist(tmp_path, monkeypatch, capsys):
+def test_check_results_strict_passes_when_the_report_exists(tmp_path, monkeypatch, capsys):
+    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir.mkdir(parents=True)
+    (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["check-results", "JR-12345", "--strict"]) == 0
+
+    assert "PASS: the fix report exists" in capsys.readouterr().out
+
+
+def test_the_old_five_result_files_do_not_satisfy_check_results(tmp_path, monkeypatch, capsys):
+    """No fallback: a pre-Batch-5 directory has no report under this contract."""
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
     for file_name in ["bug_analysis.md", "fix_summary.md", "test_result.md", "diff_summary.md", "review_notes.md"]:
         (issue_dir / file_name).write_text("done", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    assert main(["check-results", "JR-12345", "--strict"]) == 0
-
-    assert "PASS: all agent result files exist." in capsys.readouterr().out
+    assert main(["check-results", "JR-12345", "--strict"]) == 1
+    assert ".ai/JR-12345/fix_report.md" in capsys.readouterr().out
 
 
 def test_bug_agent_fix_remains_manual_and_safe(tmp_path, monkeypatch, capsys):
@@ -989,11 +1007,10 @@ def test_bug_agent_fix_remains_manual_and_safe(tmp_path, monkeypatch, capsys):
     assert status["steps"]["agent_fix"] == "skipped"
 
 
-def test_summarize_results_generates_summary_and_manual_validation(tmp_path, monkeypatch):
+def test_summarize_results_renders_the_overview_and_writes_nothing(tmp_path, monkeypatch, capsys):
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
-    (issue_dir / "bug_analysis.md").write_text("Root cause: stale cache", encoding="utf-8")
-    (issue_dir / "fix_summary.md").write_text("Cleared cache on filter change", encoding="utf-8")
+    (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
     save_retrieval(
         tmp_path,
         "JR-12345",
@@ -1006,16 +1023,17 @@ def test_summarize_results_generates_summary_and_manual_validation(tmp_path, mon
     monkeypatch.chdir(tmp_path)
 
     assert main(["summarize-results", "JR-12345"]) == 0
-    summary = (issue_dir / "result_summary.md").read_text()
-    manual = (issue_dir / "manual_validation.md").read_text()
+    overview = capsys.readouterr().out
     status = json.loads((issue_dir / "run.json").read_text())
 
-    assert "- bug_analysis.md: present" in summary
-    assert "- test_result.md: missing" in summary
-    assert "Root cause: stale cache" in summary
-    assert "Cleared cache on filter change" in summary
-    assert "## Suggested Validation Steps" in manual
-    assert "- src/EmployeeSearch.cpp" in manual
+    # Rendered, never persisted: the report is the record.
+    assert not (issue_dir / "result_summary.md").exists()
+    assert not (issue_dir / "manual_validation.md").exists()
+    assert "- .ai/JR-12345/fix_report.md: present" in overview
+    assert "Fixed: stale cache invalidated on filter change." in overview
+    assert "## Suggested Validation Steps" in overview
+    assert "- src/EmployeeSearch.cpp" in overview
+    assert "Looks safe" in overview
     assert status["steps"]["result_summary"] == "pass"
     assert status["steps"]["manual_validation"] == "pass"
 
@@ -1025,11 +1043,12 @@ def test_memory_update_replaces_final_result_section(tmp_path, monkeypatch):
     memory_dir = tmp_path / ".ai_memory" / "bugs"
     issue_dir.mkdir(parents=True)
     memory_dir.mkdir(parents=True)
-    (issue_dir / "result_summary.md").write_text(
-        "# Result Summary\n\n"
-        "## Root Cause Summary\nOld cache key\n\n"
-        "## Fix Summary\nNew query key\n\n"
-        "## Test Summary\nFocused tests passed\n\n"
+    (issue_dir / "fix_report.md").write_text(
+        "# Fix Report: JR-12345\n\n"
+        "## Summary\nFixed.\n\n"
+        "## Analysis\nOld cache key\n\n"
+        "## Changes\nNew query key\n\n"
+        "## Tests\nFocused tests passed\n\n"
         "## Review Notes\nLooks safe\n",
         encoding="utf-8",
     )
@@ -1055,8 +1074,24 @@ def test_memory_update_replaces_final_result_section(tmp_path, monkeypatch):
     assert "### Fix\nNew query key" in memory
     assert "### Tests\nFocused tests passed" in memory
     assert "### Review Notes\nLooks safe" in memory
-    assert "Result files incomplete. Manual update required." in memory
+    # Every section is filled, so no incompleteness marker.
+    assert "incomplete" not in memory
     assert status["steps"]["memory_update"] == "pass"
+
+
+def test_memory_update_marks_a_report_with_empty_sections(tmp_path, monkeypatch):
+    issue_dir = tmp_path / ".ai" / "JR-12345"
+    issue_dir.mkdir(parents=True)
+    (issue_dir / "fix_report.md").write_text(
+        "# Fix Report: JR-12345\n\n## Summary\nAttempted.\n\n## Analysis\nPartial.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["memory", "update", "JR-12345"]) == 0
+    memory = (tmp_path / ".ai_memory" / "bugs" / "JR-12345.md").read_text()
+
+    assert "Report sections incomplete. Manual update required." in memory
 
 
 def test_memory_update_missing_result_summary_is_graceful(tmp_path, monkeypatch, capsys):
@@ -1066,22 +1101,25 @@ def test_memory_update_missing_result_summary_is_graceful(tmp_path, monkeypatch,
     output = capsys.readouterr().out
     status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
-    assert "WARN: missing .ai/JR-12345/result_summary.md" in output
+    assert "WARN: missing .ai/JR-12345/fix_report.md" in output
+    assert "bugpilot manual-result JR-12345" in output
     assert status["steps"]["memory_update"] == "skipped"
 
 
-def test_review_package_generates_final_review_prompt(tmp_path, monkeypatch):
+def test_review_package_prints_the_final_review_prompt(tmp_path, monkeypatch, capsys):
+    """Printed, not written: nothing ever read the file this used to produce."""
     monkeypatch.chdir(tmp_path)
 
     assert main(["review-package", "JR-12345"]) == 0
-    prompt = (tmp_path / ".ai" / "JR-12345" / "final_review_prompt.md").read_text()
+    prompt = capsys.readouterr().out
     status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "# Final Review Request" in prompt
     assert "Please review the completed fix for Jira issue JR-12345." in prompt
-    assert ".ai/JR-12345/result_summary.md if present" in prompt
+    assert ".ai/JR-12345/fix_report.md if present" in prompt
     assert "Verdict:" in prompt
     assert "PASS / PASS WITH MINOR COMMENTS / NEEDS CHANGES" in prompt
+    assert not (tmp_path / ".ai" / "JR-12345" / "final_review_prompt.md").exists()
     assert status["steps"]["final_review_prompt"] == "pass"
 
 
@@ -1090,8 +1128,7 @@ def test_phase_4_commands_trace_generated_and_updated_files(tmp_path, monkeypatc
     memory_dir = tmp_path / ".ai_memory" / "bugs"
     issue_dir.mkdir(parents=True)
     memory_dir.mkdir(parents=True)
-    (issue_dir / "bug_analysis.md").write_text("Root cause", encoding="utf-8")
-    (issue_dir / "fix_summary.md").write_text("Fix", encoding="utf-8")
+    (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
     (memory_dir / "JR-12345.md").write_text("# JR-12345\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
@@ -1100,10 +1137,11 @@ def test_phase_4_commands_trace_generated_and_updated_files(tmp_path, monkeypatc
     main(["review-package", "JR-12345"])
     log_text = execution_trace.text
 
-    assert "[GENERATED] .ai/JR-12345/result_summary.md" in log_text
-    assert "[GENERATED] .ai/JR-12345/manual_validation.md" in log_text
     assert "[UPDATED] .ai_memory/bugs/JR-12345.md" in log_text
-    assert "[GENERATED] .ai/JR-12345/final_review_prompt.md" in log_text
+    # The derivations render in memory now; nothing is generated for them.
+    assert "[GENERATED] .ai/JR-12345/result_summary.md" not in log_text
+    assert "[GENERATED] .ai/JR-12345/manual_validation.md" not in log_text
+    assert "[GENERATED] .ai/JR-12345/final_review_prompt.md" not in log_text
 
 
 def _write_delivery_artifacts(tmp_path):
@@ -1111,10 +1149,7 @@ def _write_delivery_artifacts(tmp_path):
     memory_dir = tmp_path / ".ai_memory" / "bugs"
     issue_dir.mkdir(parents=True, exist_ok=True)
     memory_dir.mkdir(parents=True, exist_ok=True)
-    for file_name in ["bug_analysis.md", "fix_summary.md", "test_result.md", "diff_summary.md", "review_notes.md"]:
-        (issue_dir / file_name).write_text("done", encoding="utf-8")
-    (issue_dir / "result_summary.md").write_text("## Fix Summary\nshort summary\n", encoding="utf-8")
-    (issue_dir / "final_review_prompt.md").write_text("review", encoding="utf-8")
+    (issue_dir / "fix_report.md").write_text(REPORT, encoding="utf-8")
     (memory_dir / "JR-12345.md").write_text("memory", encoding="utf-8")
     return issue_dir
 
@@ -1127,7 +1162,7 @@ def test_delivery_check_warns_when_required_files_missing(tmp_path, monkeypatch,
     status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "WARN: delivery is not ready." in output
-    assert "Missing required result file: .ai/JR-12345/bug_analysis.md" in output
+    assert "Missing required result file: .ai/JR-12345/fix_report.md" in output
     assert status["steps"]["delivery_check"] == "fail"
 
 
@@ -1147,7 +1182,7 @@ def test_delivery_check_passes_when_ready(tmp_path, monkeypatch, capsys):
     assert status["steps"]["delivery_check"] == "pass"
 
 
-def test_commit_plan_generates_file_without_git_mutation(tmp_path, monkeypatch):
+def test_commit_plan_prints_the_plan_without_git_mutation(tmp_path, monkeypatch, capsys):
     calls = []
 
     def fake_run_command(args, repo_root):
@@ -1164,8 +1199,9 @@ def test_commit_plan_generates_file_without_git_mutation(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["commit-plan", "JR-12345"]) == 0
-    plan = (tmp_path / ".ai" / "JR-12345" / "commit_plan.md").read_text()
+    plan = capsys.readouterr().out
 
+    assert not (tmp_path / ".ai" / "JR-12345" / "commit_plan.md").exists()
     assert "# Commit Plan" in plan
     assert "feature/JR-12345-demo" in plan
     assert "src/file.cpp" in plan
@@ -1174,7 +1210,7 @@ def test_commit_plan_generates_file_without_git_mutation(tmp_path, monkeypatch):
     assert not any(call[:2] == ["git", "commit"] for call in calls)
 
 
-def test_push_plan_generates_file_without_git_push(tmp_path, monkeypatch):
+def test_push_plan_prints_the_plan_without_git_push(tmp_path, monkeypatch, capsys):
     calls = []
 
     def fake_run_command(args, repo_root):
@@ -1193,8 +1229,9 @@ def test_push_plan_generates_file_without_git_push(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert main(["push-plan", "JR-12345"]) == 0
-    plan = (tmp_path / ".ai" / "JR-12345" / "push_plan.md").read_text()
+    plan = capsys.readouterr().out
 
+    assert not (tmp_path / ".ai" / "JR-12345" / "push_plan.md").exists()
     assert "# Push Plan" in plan
     assert "feature/JR-12345-demo" in plan
     assert "git push -u origin feature/JR-12345-demo" in plan
@@ -1225,8 +1262,8 @@ def test_delivery_plan_updates_the_run_state(tmp_path, monkeypatch):
 
     assert status["steps"]["commit_plan"] == "pass"
     assert status["steps"]["push_plan"] == "pass"
-    assert ".ai/JR-12345/commit_plan.md" in status["generated_files"]
-    assert ".ai/JR-12345/push_plan.md" in status["generated_files"]
+    assert ".ai/JR-12345/commit_plan.md" not in status["generated_files"]
+    assert ".ai/JR-12345/push_plan.md" not in status["generated_files"]
 
 
 def test_commit_and_push_execute_placeholders_do_not_mutate_git(tmp_path, monkeypatch, capsys):
@@ -2662,12 +2699,15 @@ def _write_comment_draft_package(tmp_path: Path, include_results: bool = True) -
     (issue_dir / "context.md").write_text("# Bug Context\n\nContext body", encoding="utf-8")
     save_issue(tmp_path, IssueArtifact(id="JR-12345", source="jira", title="Save crash"))
     if include_results:
-        (issue_dir / "result_summary.md").write_text("Root cause and fix are summarized.", encoding="utf-8")
-        (issue_dir / "bug_analysis.md").write_text("Cache invalidation failed.", encoding="utf-8")
-        (issue_dir / "fix_summary.md").write_text("Updated cache invalidation.", encoding="utf-8")
-        (issue_dir / "test_result.md").write_text("Focused tests passed.", encoding="utf-8")
-        (issue_dir / "diff_summary.md").write_text("Changed src/search.cpp.", encoding="utf-8")
-        (issue_dir / "review_notes.md").write_text("No blocking issues.", encoding="utf-8")
+        (issue_dir / "fix_report.md").write_text(
+            "# Fix Report: JR-12345\n\n"
+            "## Summary\nFixed.\n\n"
+            "## Analysis\nCache invalidation failed.\n\n"
+            "## Changes\nUpdated cache invalidation.\n\n"
+            "## Tests\nFocused tests passed.\n\n"
+            "## Review Notes\nNo blocking issues.\n",
+            encoding="utf-8",
+        )
     return issue_dir
 
 
@@ -2680,12 +2720,12 @@ def test_jira_comment_draft_creates_draft_with_result_artifacts(tmp_path, monkey
 
     for heading in ["# bugpilot Analysis Summary", "## Root Cause", "## Summary of Changes"]:
         assert heading in draft
-    assert "Cache invalidation failed." in draft   # root cause (bug_analysis.md)
-    assert "Updated cache invalidation." in draft   # change summary (fix_summary.md)
+    assert "Cache invalidation failed." in draft   # root cause (the report's Analysis)
+    assert "Updated cache invalidation." in draft   # change summary (the report's Changes)
     # Trimmed: no full diff, validation, search-confidence, attachment, or status noise.
     for absent in [
         "## Changed Files / Diff Summary", "## Validation", "## Search Confidence",
-        "## Attachment Note", "## Status", "Changed src/search.cpp.",
+        "## Attachment Note", "## Status", "Focused tests passed.",
     ]:
         assert absent not in draft
 
@@ -2697,8 +2737,8 @@ def test_jira_comment_draft_works_with_missing_copilot_results(tmp_path, monkeyp
     assert main(["jira-comment-draft", "JR-12345"]) == 0
     draft = (issue_dir / "jira_comment_draft.md").read_text(encoding="utf-8")
 
-    assert "No root cause analysis artifact found." in draft
-    assert "No change summary artifact found." in draft
+    assert "No root cause analysis found in the fix report." in draft
+    assert "No change summary found in the fix report." in draft
 
 
 def test_jira_comment_draft_strict_fails_when_results_missing(tmp_path, monkeypatch, capsys):
@@ -2747,8 +2787,9 @@ def test_jira_comment_draft_does_not_include_the_issue_data(tmp_path, monkeypatc
 
 def test_jira_comment_draft_redacts_sensitive_values(tmp_path, monkeypatch):
     issue_dir = _write_comment_draft_package(tmp_path)
-    (issue_dir / "bug_analysis.md").write_text(
-        "token=secret password=abc123 api_key=xyz key=hidden", encoding="utf-8"
+    (issue_dir / "fix_report.md").write_text(
+        "# Fix Report: JR-12345\n\n## Analysis\ntoken=secret password=abc123 api_key=xyz key=hidden\n",
+        encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
 
@@ -2879,7 +2920,8 @@ def test_jira_comment_execute_posts_comment_and_writes_artifacts(tmp_path, monke
     assert main(["jira-comment", "JR-12345", "--execute"]) == 0
     out = capsys.readouterr().out
     result = json.loads((issue_dir / "jira_comment_post_result.json").read_text(encoding="utf-8"))
-    summary = (issue_dir / "jira_comment_post_summary.md").read_text(encoding="utf-8")
+    # The JSON is the one audit record; the prose duplicate is gone.
+    assert not (issue_dir / "jira_comment_post_summary.md").exists()
 
     assert len(requests) == 1
     assert requests[0].full_url == "https://jira.example.test/rest/api/3/issue/JR-12345/comment"
@@ -2888,7 +2930,6 @@ def test_jira_comment_execute_posts_comment_and_writes_artifacts(tmp_path, monke
     assert result["posted"] is True
     assert result["comment_id"] == "10001"
     assert "token-value" not in json.dumps(result)
-    assert "Only a Jira comment was added." in summary
 
 
 def test_jira_comment_execute_missing_draft_fails(tmp_path, monkeypatch, capsys):
@@ -2996,7 +3037,7 @@ def test_jira_comment_execute_status_includes_generated_files(tmp_path, monkeypa
 
     assert status["steps"]["jira_comment"] == "pass"
     assert ".ai/JR-12345/jira_comment_post_result.json" in status["generated_files"]
-    assert ".ai/JR-12345/jira_comment_post_summary.md" in status["generated_files"]
+    assert ".ai/JR-12345/jira_comment_post_summary.md" not in status["generated_files"]
 
 
 # ---------------------------------------------------------------------------
@@ -3024,7 +3065,7 @@ def test_summarize_results_auto_posts_jira_comment_with_flag(tmp_path, monkeypat
     assert requests[0].full_url == "https://jira.example.test/rest/api/3/issue/JR-12345/comment"
     assert requests[0].get_method() == "POST"
     assert "Posted Jira comment for JR-12345. Jira will notify watchers by email." in out
-    assert (issue_dir / "result_summary.md").is_file()
+    assert not (issue_dir / "result_summary.md").exists()
     assert (issue_dir / "jira_comment_post_result.json").is_file()
 
 
@@ -3094,7 +3135,7 @@ def test_summarize_results_auto_post_failure_is_non_fatal(tmp_path, monkeypatch,
     err = capsys.readouterr().err
 
     assert "auto Jira comment not posted" in err
-    assert (issue_dir / "result_summary.md").is_file()
+    assert not (issue_dir / "result_summary.md").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -3150,20 +3191,24 @@ def test_retry_prompt_includes_assisted_delivery_rules(tmp_path, monkeypatch):
     assert "Do not update Jira" in prompt
 
 
-def test_retry_prompt_lists_present_and_missing_previous_attempt_files(tmp_path, monkeypatch):
+def test_retry_prompt_carries_the_previous_attempts_report(tmp_path, monkeypatch):
     issue_dir = _write_retry_package(tmp_path)
     save_retrieval(tmp_path, "JR-12345", RetrievalArtifact())
-    (issue_dir / "test_result.md").write_text("Tests failed.", encoding="utf-8")
+    (issue_dir / "fix_report.md").write_text(
+        "# Fix Report: JR-12345\n\n## Summary\nAttempted.\n\n## Tests\nTests failed.\n",
+        encoding="utf-8",
+    )
     monkeypatch.chdir(tmp_path)
 
     assert main(["retry-prompt", "JR-12345"]) == 0
     prompt = (issue_dir / "agent_retry_prompt.md").read_text(encoding="utf-8")
 
     assert "- .ai/JR-12345/retrieval.json" in prompt
-    assert "### test_result.md" in prompt
+    assert "- .ai/JR-12345/fix_report.md" in prompt
+    assert "### fix_report.md" in prompt
     assert "present" in prompt
-    assert "### bug_analysis.md" in prompt
-    assert "missing" in prompt
+    assert "Tests failed." in prompt
+    assert "- .ai/JR-12345/fix_report.md — update every section for this attempt" in prompt
 
 
 def test_retry_prompt_fails_helpfully_when_package_missing(tmp_path, monkeypatch, capsys):
@@ -3175,39 +3220,39 @@ def test_retry_prompt_fails_helpfully_when_package_missing(tmp_path, monkeypatch
     assert "No workflow package found for JR-12345" in err
 
 
-def test_manual_result_creates_missing_result_templates(tmp_path, monkeypatch):
+def test_manual_result_creates_the_report_template(tmp_path, monkeypatch):
     issue_dir = _write_retry_package(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     assert main(["manual-result", "JR-12345"]) == 0
 
-    for file_name in workflow.REQUIRED_COPILOT_RESULT_FILES:
-        text = (issue_dir / file_name).read_text(encoding="utf-8")
-        assert "## Fix Source" in text
-        assert "Developer manual fix." in text
+    text = (issue_dir / "fix_report.md").read_text(encoding="utf-8")
+    assert "# Fix Report: JR-12345" in text
+    assert "Developer manual fix." in text
+    for heading in ("## Summary", "## Analysis", "## Changes", "## Tests", "## Review Notes"):
+        assert heading in text, heading
 
 
-def test_manual_result_does_not_overwrite_existing_files_by_default(tmp_path, monkeypatch):
+def test_manual_result_does_not_overwrite_an_existing_report_by_default(tmp_path, monkeypatch):
     issue_dir = _write_retry_package(tmp_path)
-    (issue_dir / "bug_analysis.md").write_text("Custom analysis stays.", encoding="utf-8")
+    (issue_dir / "fix_report.md").write_text("Custom report stays.", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert main(["manual-result", "JR-12345"]) == 0
 
-    assert (issue_dir / "bug_analysis.md").read_text(encoding="utf-8") == "Custom analysis stays."
-    assert (issue_dir / "fix_summary.md").exists()
+    assert (issue_dir / "fix_report.md").read_text(encoding="utf-8") == "Custom report stays."
 
 
-def test_manual_result_overwrite_replaces_existing_files(tmp_path, monkeypatch):
+def test_manual_result_overwrite_replaces_the_report(tmp_path, monkeypatch):
     issue_dir = _write_retry_package(tmp_path)
-    (issue_dir / "bug_analysis.md").write_text("Custom analysis goes away.", encoding="utf-8")
+    (issue_dir / "fix_report.md").write_text("Custom report goes away.", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert main(["manual-result", "JR-12345", "--overwrite"]) == 0
-    text = (issue_dir / "bug_analysis.md").read_text(encoding="utf-8")
+    text = (issue_dir / "fix_report.md").read_text(encoding="utf-8")
 
-    assert "Custom analysis goes away." not in text
-    assert "# Bug Analysis: JR-12345" in text
+    assert "Custom report goes away." not in text
+    assert "# Fix Report: JR-12345" in text
     assert "Developer manual fix." in text
 
 
@@ -3219,7 +3264,7 @@ def test_manual_result_updates_status_and_log(tmp_path, monkeypatch):
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
     assert status["steps"]["manual_result"] == "pass"
-    assert ".ai/JR-12345/bug_analysis.md" in status["generated_files"]
+    assert ".ai/JR-12345/fix_report.md" in status["generated_files"]
 
 
 def test_retry_prompt_updates_status_and_log(tmp_path, monkeypatch):

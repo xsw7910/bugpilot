@@ -17,7 +17,7 @@ from bugpilot.core.fix_mode_state import fix_mode_metadata
 from bugpilot.core.fix_mode_store import FixModeCatalog, FixModeStore, scoped_modes
 from bugpilot.core.fix_modes import FixMode, FixModeError
 from bugpilot.core.jira import JiraCommentPostError, JiraFetchError, fetch_issue, parse_issue
-from bugpilot.core.artifacts import CONTEXT_ARTIFACT, CORE_ARTIFACTS, RUN_ARTIFACT
+from bugpilot.core.artifacts import CONTEXT_ARTIFACT, CORE_ARTIFACTS, FIX_REPORT_ARTIFACT, RUN_ARTIFACT
 from bugpilot.core.artifacts import ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
 from bugpilot.core.input_adapters import bug_spec_from_description
@@ -121,14 +121,14 @@ def build_parser() -> argparse.ArgumentParser:
     push_parser.add_argument("issue_key")
     push_parser.add_argument("--execute", action="store_true", help="Accepted and ignored: this command never executes anything.")
 
-    check_parser = subparsers.add_parser("check-results", help="Check agent result files.")
+    check_parser = subparsers.add_parser("check-results", help="Check whether the agent's fix report exists.")
     check_parser.add_argument("issue_key")
-    check_parser.add_argument("--strict", action="store_true", help="Exit non-zero when result files are missing.")
+    check_parser.add_argument("--strict", action="store_true", help="Exit non-zero when the fix report is missing.")
     _add_json_flag(check_parser)
 
-    manual_result_parser = subparsers.add_parser("manual-result", help="Generate developer manual-fix result templates.")
+    manual_result_parser = subparsers.add_parser("manual-result", help="Generate the developer manual-fix report template.")
     manual_result_parser.add_argument("issue_key")
-    manual_result_parser.add_argument("--overwrite", action="store_true", help="Overwrite existing result files with templates.")
+    manual_result_parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing fix report with the template.")
 
     fix_mode_parser = subparsers.add_parser("fix-mode", help="List, show or customize the AI fixing workflows.")
     fix_mode_parser.add_argument(
@@ -398,7 +398,6 @@ def _dispatch(args, repo_root: Path) -> int:
             print(f"Posted Jira comment for {args.issue_key}.")
             print(f"Comment ID: {result.get('comment_id') or '(not returned)'}")
             print(f"Generated: .ai/{args.issue_key}/jira_comment_post_result.json")
-            print(f"Generated: .ai/{args.issue_key}/jira_comment_post_summary.md")
         else:
             print(f"Preview Jira comment for {args.issue_key}.")
             print(f"Draft: .ai/{args.issue_key}/jira_comment_draft.md")
@@ -619,7 +618,7 @@ def _dispatch(args, repo_root: Path) -> int:
             print(f"Not fixed yet? Run: bugpilot bug {args.issue_key} --retry")
             return 1 if args.strict else 0
         else:
-            print("PASS: all agent result files exist.")
+            print(f"PASS: the fix report exists (.ai/{args.issue_key}/{FIX_REPORT_ARTIFACT}).")
         return 0
 
     if args.command == "manual-result":
@@ -629,8 +628,8 @@ def _dispatch(args, repo_root: Path) -> int:
             print(str(exc), file=sys.stderr)
             return 1
         if args.overwrite:
-            print("WARN: overwrote result files with developer manual-fix templates.")
-        print(f"Manual result templates for {args.issue_key}:")
+            print("WARN: overwrote the fix report with the developer manual-fix template.")
+        print(f"Manual result template for {args.issue_key}:")
         for file_name in result["created"]:
             print(f"  created: {file_name}")
         for file_name in result["preserved"]:
@@ -646,20 +645,21 @@ def _dispatch(args, repo_root: Path) -> int:
             refusal = _refuse_without_jira_target(repo_root, "summarize-results", args.issue_key, args.json_output)
             if refusal is not None:
                 return refusal
-        workflow.summarize_results_step(repo_root, args.issue_key)
+        overview = workflow.summarize_results_step(repo_root, args.issue_key)
         if not args.json_output:
-            print(f"Generated result summary and manual validation for {args.issue_key}.")
+            # Rendered, not written: the report is the record and this is the
+            # developer's next-steps view of it.
+            print(overview, end="")
         if wants_comment:
             _post_jira_comment_auto(repo_root, args.issue_key, quiet=args.json_output)
         if args.json_output:
+            report_path = repo_root / ".ai" / args.issue_key / FIX_REPORT_ARTIFACT
             cli_json.emit(
                 cli_json.success(
                     "summarize-results",
                     work_item_id=args.issue_key,
-                    generated_files=[
-                        f".ai/{args.issue_key}/result_summary.md",
-                        f".ai/{args.issue_key}/manual_validation.md",
-                    ],
+                    fix_report=f".ai/{args.issue_key}/{FIX_REPORT_ARTIFACT}" if report_path.exists() else None,
+                    overview=overview,
                     jira_comment_requested=wants_comment,
                 )
             )
@@ -669,8 +669,9 @@ def _dispatch(args, repo_root: Path) -> int:
         return _list_work_items(repo_root, args.json_output)
 
     if args.command == "review-package":
-        workflow.review_package_step(repo_root, args.issue_key)
-        print(f"Generated final review prompt for {args.issue_key}.")
+        # Printed, not written: the developer pastes it into a reviewer, and
+        # nothing ever read the file this used to produce.
+        print(workflow.review_package_step(repo_root, args.issue_key), end="")
         return 0
 
     if args.command == "delivery-check":
@@ -695,8 +696,9 @@ def _dispatch(args, repo_root: Path) -> int:
         return 0
 
     if args.command == "commit-plan":
-        workflow.commit_plan_step(repo_root, args.issue_key)
-        print(f"Generated commit plan for {args.issue_key}.")
+        # Printed: the plan is regenerable from git state and the report, and
+        # committing stays the developer's own action.
+        print(workflow.commit_plan_step(repo_root, args.issue_key), end="")
         if not args.no_email:
             _notify_at_commit_gate(repo_root, args.issue_key)
         return 0
@@ -712,8 +714,7 @@ def _dispatch(args, repo_root: Path) -> int:
         return 0
 
     if args.command == "push-plan":
-        workflow.push_plan_step(repo_root, args.issue_key)
-        print(f"Generated push plan for {args.issue_key}.")
+        print(workflow.push_plan_step(repo_root, args.issue_key), end="")
         return 0
 
     if args.command in {"commit", "push"}:
@@ -730,7 +731,10 @@ def _dispatch(args, repo_root: Path) -> int:
             if updated:
                 print(f"Updated shared memory entry for {args.issue_key}.")
             else:
-                print(f"WARN: missing .ai/{args.issue_key}/result_summary.md. Run: bugpilot summarize-results {args.issue_key}")
+                print(
+                    f"WARN: missing .ai/{args.issue_key}/{FIX_REPORT_ARTIFACT}. "
+                    f"The agent writes it; for a manual fix run: bugpilot manual-result {args.issue_key}"
+                )
         elif args.memory_command == "search":
             issue_key = args.query if workflow.looks_like_issue_key(args.query) else None
             if issue_key:
@@ -921,7 +925,7 @@ def _launch_expectation_lines(fix_mode: FixMode | None, *, retry: bool) -> list[
             "It stops at the investigation handoff and asks before any implementation.",
         ]
     return [
-        "The agent will analyze, implement the smallest safe fix, and write result files.",
+        "The agent will analyze, implement the smallest safe fix, and write the fix report.",
         "It stops at the commit gate and asks before committing.",
         "Review its changes as third-party code before you commit.",
     ]

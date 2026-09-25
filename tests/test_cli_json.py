@@ -35,8 +35,8 @@ def test_success_envelope_carries_the_schema_version():
 
 
 def test_success_envelope_lets_a_caller_supply_warnings():
-    payload = success("check-results", warnings=["missing fix_summary.md"])
-    assert payload["warnings"] == ["missing fix_summary.md"]
+    payload = success("check-results", warnings=["missing fix_report.md"])
+    assert payload["warnings"] == ["missing fix_report.md"]
 
 
 def test_failure_envelope_separates_code_from_message():
@@ -188,7 +188,7 @@ def test_check_results_json_lists_what_is_missing(tmp_path, monkeypatch, capsys)
     assert code == 0
     assert payload["ok"] is True
     # Entries are repo-relative paths, not bare file names.
-    assert ".ai/JR-12345/fix_summary.md" in payload["missing"]
+    assert ".ai/JR-12345/fix_report.md" in payload["missing"]
     assert payload["warnings"]
 
 

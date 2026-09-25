@@ -247,7 +247,9 @@ def test_summarize_results_never_posts_to_jira(tmp_path, monkeypatch):
 
     monkeypatch.setattr("bugpilot.core.workflow.post_jira_comment", explode)
     payload = _call(server, "summarize_results", {"work_item_id": prepared["work_item_id"]})
-    assert payload["result_summary"].endswith("result_summary.md")
+    # No report exists yet, and nothing was written to make one.
+    assert payload["fix_report"] is None
+    assert "Suggested Validation Steps" in payload["overview"]
 
 
 def test_summarize_takes_no_jira_comment_argument(tmp_path):
@@ -321,7 +323,7 @@ def test_re_preparing_the_same_work_item_never_deletes_agent_results(tmp_path, m
     server = build_server(tmp_path)
     _call(server, "prepare_jira_bug", {"issue_key": "JR-12345"})
 
-    written_by_agent = tmp_path / ".ai" / "JR-12345" / "fix_summary.md"
+    written_by_agent = tmp_path / ".ai" / "JR-12345" / "fix_report.md"
     written_by_agent.write_text("what the agent changed", encoding="utf-8")
 
     _call(server, "prepare_jira_bug", {"issue_key": "JR-12345"})
@@ -382,7 +384,7 @@ def test_tool_errors_carry_a_stable_code(tmp_path, monkeypatch):
     prepared = _call(server, "prepare_bug_description", {"description": "crash"})
 
     def boom(*args, **kwargs):
-        raise FileNotFoundError("result_summary inputs are gone")
+        raise FileNotFoundError("the result overview inputs are gone")
 
     monkeypatch.setattr("bugpilot.core.workflow.summarize_results_step", boom)
     message = _expect_tool_error(

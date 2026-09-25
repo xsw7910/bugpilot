@@ -509,6 +509,39 @@ test_result
 
 `prepare-only` 不生成空的 `fix_report.md`。
 
+### Confirmed decisions (Batch 5)
+
+1. **`fix_report.md` is the one post-agent report**, human-readable, with the
+   fixed sections `## Summary`, `## Analysis`, `## Changes` (the old fix and
+   diff summaries told one story), `## Tests`, `## Review Notes`. Its name
+   means "post-agent workflow report", not "confirmed fix": an
+   investigation-only mode fills the same sections with investigation state and
+   an honest Summary.
+2. **The agent owns it** (ownership model A): the coding agent writes and
+   updates it per `task.md`; BugPilot only reads it (`core/fix_report.py`),
+   except the `manual-result` template for hand-made fixes. Nothing overwrites
+   the agent's text.
+3. **Every derivation renders in memory** from the report:
+   the Jira comment draft's sections, the notification email body, the memory
+   entry's Final Result, the validation checklist and Result Overview
+   (`summarize-results`), the retry prompt's previous-attempt summary, the
+   commit plan's suggested message. `result_summary.md` and
+   `manual_validation.md` are gone.
+4. **Prompt and plan files stopped being files**: `final_review_prompt.md`,
+   `commit_plan.md` and `push_plan.md` are printed by their commands
+   (approval stays manual and explicit); `jira_comment_post_summary.md` is
+   gone (the JSON result is the audit record). `agent_retry_prompt.md` is
+   deliberately kept: an external agent process reads it by path, exactly like
+   `task.md`.
+5. **Deliberately separate, each with its own responsibility**:
+   `user_feedback.md` (user-authored), `jira_comment_draft.md` (the approval
+   artifact the execute step reads back), `jira_comment_post_result.json`
+   (action audit), `email_draft.md` / `notification.eml` (delivery),
+   `jira_field_report.md` (a `jira-validate` diagnostic), `attachments/`
+   (source material), and the `.ai_memory/` entry.
+6. **The core contract**: prepare-only stays exactly the five artifacts; a
+   post-agent workflow adds at most `fix_report.md` — five plus one.
+
 ---
 
 # 5. Bug-Specific Free-Form Files

@@ -82,12 +82,12 @@ These apply to a pass that changes source code. In an investigation-only pass, r
 
 ## Output Expectations
 
-When completing a bugpilot agent task, generate:
-- .ai/<issue>/bug_analysis.md
-- .ai/<issue>/fix_summary.md
-- .ai/<issue>/test_result.md
-- .ai/<issue>/diff_summary.md
-- .ai/<issue>/review_notes.md
+When completing a bugpilot agent task, write one report:
+- .ai/<issue>/fix_report.md
+
+with the sections the task file requires: Summary, Analysis, Changes, Tests,
+Review Notes. The Summary must say honestly what happened; never claim tests
+passed that were not run.
 
 ## No-Op Fix Guidance
 

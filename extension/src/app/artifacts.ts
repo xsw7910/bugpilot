@@ -65,11 +65,7 @@ export const GROUP_LABELS: Readonly<Record<ArtifactGroup, string>> = {
  * file added there but not here would silently stop being reported as missing.
  */
 export const RESULT_FILES: readonly string[] = [
-  "bug_analysis.md",
-  "fix_summary.md",
-  "test_result.md",
-  "diff_summary.md",
-  "review_notes.md",
+  "fix_report.md",
 ];
 
 /**
@@ -101,10 +97,23 @@ const GROUPS: Readonly<Record<string, ArtifactGroup>> = {
   "copilot_analysis_prompt.md": "copilot",
   "copilot_fix_prompt.md": "copilot",
   "copilot_team_instructions.md": "copilot",
-  // Phase-era runtime files: no current run writes them, but directories
-  // prepared before run.json still hold them.
+  // Phase-era files: no current run or agent writes them, but directories
+  // from before the consolidations still hold them.
   "workflow_status.json": "state",
   "execution.log": "state",
+  "bug_analysis.md": "results",
+  "fix_summary.md": "results",
+  "test_result.md": "results",
+  "diff_summary.md": "results",
+  "review_notes.md": "results",
+  "result_summary.md": "results",
+  "manual_validation.md": "results",
+  "final_review_prompt.md": "handoff",
+  "commit_plan.md": "state",
+  "push_plan.md": "state",
+  "jira_comment_post_summary.md": "state",
+  // Current, not phase-era: the audit record of a performed Jira POST.
+  "jira_comment_post_result.json": "state",
   "memory_entry.md": "state",
 };
 
@@ -113,8 +122,7 @@ const WITHIN_GROUP: readonly string[] = [
   "task.md",
   "agent_retry_prompt.md",
   "user_feedback.md",
-  "fix_summary.md",
-  "bug_analysis.md",
+  "fix_report.md",
   "context.md",
   "retrieval.json",
 ];
@@ -265,7 +273,7 @@ export type HistoryOutcome =
  * All written by something other than the prepare run — which is why they are
  * the interesting ones: they say whether anybody acted on the package.
  */
-const FIX_SUMMARY = "fix_summary.md";
+const FIX_REPORT = "fix_report.md";
 const USER_FEEDBACK = "user_feedback.md";
 const RETRY_PROMPT = "agent_retry_prompt.md";
 const STATUS_FILE = RUN_ARTIFACT;
@@ -306,7 +314,7 @@ export function historyOutcome(probe: WorkItemProbe): {
   // what separates "waiting for you" from "ready for an agent".
   if (present.has(RETRY_PROMPT)) return { outcome: "retried" };
   if (present.has(USER_FEEDBACK)) return { outcome: "retrying" };
-  if (present.has(FIX_SUMMARY)) return { outcome: "fixed" };
+  if (present.has(FIX_REPORT)) return { outcome: "fixed" };
   return { outcome: "prepared" };
 }
 
@@ -343,7 +351,7 @@ function outcomeSentence(item: HistoryItem): string {
       // only creates the template, so its existence does not prove it was filled in.
       return `A retry is waiting on you — describe the miss in ${USER_FEEDBACK}.`;
     case "fixed":
-      return `An agent reported a fix in ${FIX_SUMMARY}.`;
+      return `An agent wrote its report in ${FIX_REPORT}.`;
     case "prepared":
       return "Context is ready; nothing has acted on it yet.";
     default:

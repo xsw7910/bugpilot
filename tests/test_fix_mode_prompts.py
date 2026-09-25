@@ -69,13 +69,20 @@ INVARIANT_RULES: tuple[str, ...] = (
     "If on `main` or `master`, do not commit and do not push.",
 )
 
-REQUIRED_OUTPUTS: tuple[str, ...] = (
-    "bug_analysis.md",
-    "fix_summary.md",
-    "test_result.md",
-    "diff_summary.md",
-    "review_notes.md",
+# The one report every mode requires, and the sections it must carry.
+REQUIRED_REPORT_SECTIONS: tuple[str, ...] = (
+    "`## Summary`",
+    "`## Analysis`",
+    "`## Changes`",
+    "`## Tests`",
+    "`## Review Notes`",
 )
+
+
+def _assert_report_contract(text: str) -> None:
+    assert "Write one report: `.ai/JR-1/fix_report.md`" in text
+    for heading in REQUIRED_REPORT_SECTIONS:
+        assert heading in text, heading
 
 SECTION_HEADINGS: tuple[str, ...] = (
     "### Objective",
@@ -265,8 +272,7 @@ def test_invariant_rules_appear_in_every_mode(mode_id):
 
     for rule in INVARIANT_RULES:
         assert rule in text, f"{mode_id} lost: {rule}"
-    for name in REQUIRED_OUTPUTS:
-        assert f"`.ai/JR-1/{name}`" in text
+    _assert_report_contract(text)
 
 
 @pytest.mark.parametrize("mode_id", ALL_MODE_IDS)
@@ -381,13 +387,13 @@ def test_investigate_first_asks_before_implementing():
 
 
 def test_investigate_first_describes_the_artifacts_as_investigation_state():
-    """Same five names; `fix_summary.md` must not read as a completed fix."""
+    """Same report, same sections; none may read as a completed fix."""
     text = task("investigate-first")
 
-    assert "`.ai/JR-1/fix_summary.md`: the proposed fix plan. State explicitly that no " in text
-    assert "`.ai/JR-1/test_result.md`: the proposed validation, and that tests were not " in text
-    assert "`.ai/JR-1/diff_summary.md`: state that no source changes were made." in text
-    assert "Do not write any of these as though a fix exists." in text
+    assert "state that no source changes" in text.lower() or "no source change" in text
+    assert "`## Changes`: the proposed fix plan. State explicitly that no source change" in text
+    assert "`## Tests`: the proposed validation, and that tests were not run" in text
+    assert "Do not write any section as though a fix exists." in text
 
 
 @pytest.mark.parametrize("mode_id", FIX_MODE_IDS)
@@ -524,8 +530,7 @@ def test_a_custom_mode_cannot_remove_the_invariant_sections():
     assert "## Optional Assisted Delivery" in text
     for rule in INVARIANT_RULES:
         assert rule in text
-    for name in REQUIRED_OUTPUTS:
-        assert f"`.ai/JR-1/{name}`" in text
+    _assert_report_contract(text)
 
 
 def test_a_custom_investigation_mode_cannot_remove_the_invariant_sections():
@@ -538,8 +543,7 @@ def test_a_custom_investigation_mode_cannot_remove_the_invariant_sections():
     assert "## BugPilot Delivery Safety" in text
     for rule in INVARIANT_RULES:
         assert rule in text
-    for name in REQUIRED_OUTPUTS:
-        assert f"`.ai/JR-1/{name}`" in text
+    _assert_report_contract(text)
 
 
 @pytest.mark.parametrize("mode_id", ALL_MODE_IDS)

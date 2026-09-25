@@ -284,8 +284,9 @@ def test_the_task_carries_the_task_the_handoff_and_the_team_rules(tmp_path):
     assert f"- Read `.ai/{work_item}/context.md`." in inputs
     assert "Similar fixes and git history are included in `context.md`." in inputs
     outputs = _section(task, "## Required Output Files")
-    for name in ("bug_analysis.md", "fix_summary.md", "test_result.md", "diff_summary.md", "review_notes.md"):
-        assert f"`.ai/{work_item}/{name}`" in outputs, name
+    assert f"Write one report: `.ai/{work_item}/fix_report.md`" in outputs
+    for heading in ("`## Summary`", "`## Analysis`", "`## Changes`", "`## Tests`", "`## Review Notes`"):
+        assert heading in outputs, heading
     assert "- Do not update Jira." in _section(task, "## Forbidden Actions")
     assert "## Investigation Handoff" in task
     for name in LEGACY_FILES:

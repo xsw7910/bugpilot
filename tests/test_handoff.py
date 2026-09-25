@@ -49,8 +49,8 @@ def test_mcp_prompt_is_exactly_the_agreed_wording():
     assert handoff.mcp_prompt("prepare_jira_bug", 'issue_key="JR-1"').splitlines() == [
         'Call prepare_jira_bug with issue_key="JR-1".',
         "Then read the returned task.md and context.md and complete the "
-        "workflow they describe for the selected AI Fix Mode, then write the required "
-        "result files.",
+        "workflow they describe for the selected AI Fix Mode, then write the fix "
+        "report.",
         "Stop before committing. Do not commit, push, or post to Jira.",
     ]
 

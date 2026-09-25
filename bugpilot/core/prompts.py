@@ -92,7 +92,7 @@ def _fix_mode_section(mode: FixMode) -> str:
     """Selected-mode metadata, then its six sections in the model's own order.
 
     The metadata lines are here so a finished task package records which mode
-    produced it: a custom mode can be edited later, and `review_notes.md` read
+    produced it: a custom mode can be edited later, and a report's Review Notes read
     six months on should still say what workflow the agent was given — which
     built-in it was derived from, and at which version of that built-in.
     """
@@ -135,8 +135,8 @@ def _precedence_section() -> str:
         "If any Fix Mode instruction conflicts with BugPilot safety, evidence-integrity, "
         "branch, Jira, or delivery rules, the BugPilot rule wins.\n\n"
         "- This precedence is not editable by a Fix Mode, including a custom one.\n"
-        "- Record any such conflict in `review_notes.md` instead of resolving it in favor "
-        "of the mode.\n\n"
+        "- Record any such conflict in the Review Notes section of `fix_report.md` instead "
+        "of resolving it in favor of the mode.\n\n"
     )
 
 
@@ -155,7 +155,7 @@ def investigation_handoff_block(issue_key: str) -> str:
         "## Investigation Handoff\n\n"
         "This Fix Mode is investigation-only. There is no fix to deliver in this pass.\n\n"
         "When the investigation is complete:\n"
-        f"- Write all five required files under `.ai/{issue_key}/`.\n"
+        f"- Write `.ai/{issue_key}/fix_report.md`, every section investigation-phrased.\n"
         "- Tell the developer: \"Investigation complete. No source changes have been applied.\"\n"
         "- Show the leading root-cause hypothesis, the evidence for it, the competing "
         "hypotheses, the proposed fix plan, and the proposed verification.\n"
@@ -218,12 +218,12 @@ def _copilot_task(
     else:
         jira_status_block = (
             "## Report Status to Jira (before commit)\n\n"
-            "After writing the required result files, and BEFORE any commit:\n"
+            "After writing the fix report, and BEFORE any commit:\n"
             "- Post one Jira comment that records the current work status and the analysis summary, so watchers are notified.\n"
             "- Run these two commands from the target repo root:\n"
             f"  - `bugpilot jira-comment-draft {issue_key}`\n"
             f"  - `bugpilot jira-comment {issue_key} --execute`\n"
-            "- Keep the comment short: the root cause and a brief summary of the changes (not the full diff), drawn from the result files.\n"
+            "- Keep the comment short: the root cause and a brief summary of the changes (not the full diff), drawn from the fix report.\n"
             "- Post exactly ONE comment. Do not transition the issue, assign it, or change any Jira field.\n"
             "- If the post fails (for example, no Jira access), continue to delivery and tell the developer the comment was not posted.\n"
             "- This is the only permitted Jira write; do it before asking about commit.\n\n"
@@ -253,7 +253,7 @@ def _copilot_task(
         "the issue-specific context.\n"
         "- Issue-specific task instructions override general team instructions only when necessary.\n"
         "- Safety rules always apply.\n"
-        "- If team instructions and task instructions conflict, choose the safer option and document the conflict in `review_notes.md`.\n\n"
+        "- If team instructions and task instructions conflict, choose the safer option and document the conflict in the Review Notes section of `fix_report.md`.\n\n"
         f"{_team_instructions_section()}"
         "## Branch Instructions\n\n"
         f"- Branch name: `{branch}`\n"
@@ -279,7 +279,7 @@ def _copilot_task(
         "- If attachment metadata suggests logs, screenshots, or crash dumps, mention follow-up review if needed.\n"
         "- Use reproduction steps, actual/expected results, environment, and error messages from `context.md`.\n"
         "- Do not invent reproduction steps or error messages not present in the Jira data.\n"
-        "- If required bug information is missing, document your assumptions in bug_analysis.md.\n"
+        "- If required bug information is missing, document your assumptions in the fix report's Analysis section.\n"
         "- If missing information prevents a safe fix, write a no-op analysis or request follow-up information.\n"
         "- Inspect top related files from `retrieval.json`.\n"
         "- Read search quality from `context.md` or `retrieval.json`.\n"
@@ -323,39 +323,46 @@ def _copilot_task(
 
 
 def _required_output_section(issue_key: str, investigating: bool) -> str:
-    """The same five files in every mode, described for the mode in hand.
+    """One report in every mode, its sections described for the mode in hand.
 
-    Keeping one artifact contract matters more than naming the files
-    accurately: `check_results`, the VS Code view and `.ai_memory` all read
-    these five names. So an investigation writes the same files and says what
-    each one means when there is no fix yet — otherwise `fix_summary.md` reads
-    as a completed fix and `test_result.md` as tests that passed.
+    One artifact contract matters more than mode-specific file names:
+    `check_results`, the VS Code view, the retry prompt and `.ai_memory` all
+    read this one name. `fix_report.md` means "post-agent workflow report", not
+    "confirmed fix" — an investigation fills the same sections with
+    investigation state, and the Summary line says honestly what happened.
     """
     if not investigating:
         return (
             "## Required Output Files\n\n"
-            f"- `.ai/{issue_key}/bug_analysis.md`\n"
-            f"- `.ai/{issue_key}/fix_summary.md`\n"
-            f"- `.ai/{issue_key}/test_result.md`\n"
-            f"- `.ai/{issue_key}/diff_summary.md`\n"
-            f"- `.ai/{issue_key}/review_notes.md`\n\n"
-            "These files are required in every Fix Mode. Write all five even when the change "
-            "is small, and if no code change proves justified, say so plainly instead of "
-            "leaving a file out.\n\n"
+            f"Write one report: `.ai/{issue_key}/fix_report.md`, with exactly these sections.\n\n"
+            "- `## Summary`: one honest line on the outcome — fixed, attempted, or no-op — "
+            "then a short paragraph.\n"
+            "- `## Analysis`: the root cause and the evidence for it.\n"
+            "- `## Changes`: what changed and why, the files touched, and a short diff "
+            "summary. If no code change proved justified, say so plainly here.\n"
+            "- `## Tests`: the commands run and their outcomes. If tests were not run, say "
+            "so and why — never claim a pass that did not happen.\n"
+            "- `## Review Notes`: risks, open questions, remaining concerns, and the "
+            "recommended next step.\n\n"
+            "The report is required in every Fix Mode, even when the change is small. Keep "
+            "it concise: summaries and file lists, not full diffs or command logs, and do "
+            "not paste `context.md` or `task.md` back into it.\n\n"
         )
     return (
         "## Required Output Files\n\n"
-        "The file names are the same in every Fix Mode. In this investigation-only mode they "
-        "record investigation state, not a completed fix.\n\n"
-        f"- `.ai/{issue_key}/bug_analysis.md`: root-cause hypotheses, the evidence for and "
-        "against each, and what information is missing.\n"
-        f"- `.ai/{issue_key}/fix_summary.md`: the proposed fix plan. State explicitly that no "
-        "source change was applied.\n"
-        f"- `.ai/{issue_key}/test_result.md`: the proposed validation, and that tests were not "
-        "run because implementation has not started.\n"
-        f"- `.ai/{issue_key}/diff_summary.md`: state that no source changes were made.\n"
-        f"- `.ai/{issue_key}/review_notes.md`: risks, open questions, and the recommended next step.\n\n"
-        "Do not write any of these as though a fix exists.\n\n"
+        f"Write one report: `.ai/{issue_key}/fix_report.md`, with exactly these sections. "
+        "In this investigation-only mode they record investigation state, not a completed "
+        "fix.\n\n"
+        "- `## Summary`: state that this was an investigation and that no source changes "
+        "were applied.\n"
+        "- `## Analysis`: root-cause hypotheses, the evidence for and against each, and "
+        "what information is missing.\n"
+        "- `## Changes`: the proposed fix plan. State explicitly that no source change "
+        "was applied.\n"
+        "- `## Tests`: the proposed validation, and that tests were not run because "
+        "implementation has not started.\n"
+        "- `## Review Notes`: risks, open questions, and the recommended next step.\n\n"
+        "Do not write any section as though a fix exists.\n\n"
     )
 
 
@@ -477,12 +484,12 @@ These apply to a pass that changes source code. In an investigation-only pass, r
 
 ## Output Expectations
 
-When completing a bugpilot agent task, generate:
-- .ai/<issue>/bug_analysis.md
-- .ai/<issue>/fix_summary.md
-- .ai/<issue>/test_result.md
-- .ai/<issue>/diff_summary.md
-- .ai/<issue>/review_notes.md
+When completing a bugpilot agent task, write one report:
+- .ai/<issue>/fix_report.md
+
+with the sections the task file requires: Summary, Analysis, Changes, Tests,
+Review Notes. The Summary must say honestly what happened; never claim tests
+passed that were not run.
 
 ## No-Op Fix Guidance
 

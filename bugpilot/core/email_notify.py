@@ -1,6 +1,6 @@
 """Build and send the post-fix notification email.
 
-The email is assembled entirely from local bugpilot artifacts (result_summary.md
+The email is assembled entirely from local bugpilot artifacts (fix_report.md
 and issue.json) and sent over SMTP using credentials supplied through the
 environment. bugpilot never hardcodes SMTP secrets and never commits, pushes, or
 updates Jira as part of sending this notification.
@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from .config import EmailConfig, GraphConfig, issue_dir, load_config
+from .fix_report import read_fix_report
 from .issue import read_issue_quietly
 from .jira import sanitize_comment_text
 from .models import SOURCE_MANUAL
@@ -55,8 +56,7 @@ class EmailSendError(Exception):
 
 
 def build_email_draft(repo_root: Path, issue_key: str) -> EmailDraft:
-    target = issue_dir(repo_root, issue_key)
-    result_summary = _read(target / "result_summary.md")
+    report = read_fix_report(repo_root, issue_key)
 
     # The title and the original problem come from the normalized issue, which a
     # Jira work item and a hand-written one share. Without them the notification
@@ -64,14 +64,13 @@ def build_email_draft(repo_root: Path, issue_key: str) -> EmailDraft:
     issue = read_issue_quietly(repo_root, issue_key)
     is_manual = issue is not None and issue.source == SOURCE_MANUAL
 
-    summary_line = (issue.title if issue else "") or _section(result_summary, "## Issue")
+    summary_line = (issue.title if issue else "") or (report.summary if report else "")
     summary_line = _first_meaningful_line(summary_line)
 
     original_problem = (issue.description if issue else "") or _NOT_AVAILABLE
-    root_cause = _section(result_summary, "## Root Cause Summary") or _NOT_AVAILABLE
-    fix_summary = _section(result_summary, "## Fix Summary") or _NOT_AVAILABLE
-    diff_summary = _section(result_summary, "## Diff Summary") or _NOT_AVAILABLE
-    test_summary = _section(result_summary, "## Test Summary") or _NOT_AVAILABLE
+    root_cause = (report.analysis if report else "") or _NOT_AVAILABLE
+    changes = (report.changes if report else "") or _NOT_AVAILABLE
+    test_summary = (report.tests if report else "") or _NOT_AVAILABLE
 
     subject = f"[bugpilot] {issue_key} fix ready to commit"
     if summary_line:
@@ -94,9 +93,7 @@ def build_email_draft(repo_root: Path, issue_key: str) -> EmailDraft:
         "## Bug Cause / Root Cause\n"
         f"{_cap(root_cause)}\n\n"
         "## Changes Made\n"
-        f"{_cap(fix_summary)}\n\n"
-        "## Changed Files / Diff\n"
-        f"{_cap(diff_summary)}\n\n"
+        f"{_cap(changes)}\n\n"
         "## Tests\n"
         f"{_cap(test_summary)}\n\n"
         "--\n"
@@ -290,29 +287,6 @@ def _jira_link(repo_root: Path, issue_key: str) -> str:
     if not base_url:
         return ""
     return f"Link: {base_url.rstrip('/')}/browse/{issue_key}"
-
-
-def _read(path: Path) -> str:
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8", errors="replace")
-
-
-def _section(markdown: str, heading: str) -> str:
-    if not markdown:
-        return ""
-    lines = markdown.splitlines()
-    try:
-        start = lines.index(heading) + 1
-    except ValueError:
-        return ""
-    collected: list[str] = []
-    for line in lines[start:]:
-        if line.startswith("## ") and collected:
-            break
-        collected.append(line)
-    text = "\n".join(collected).strip()
-    return "" if text in {"", "TBD"} else text
 
 
 def _first_meaningful_line(text: str) -> str:

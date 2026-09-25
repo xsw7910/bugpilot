@@ -389,7 +389,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const workItemId = workItemFromTree(argument) ?? (await askWorkItem(controller));
     if (!workItemId) return;
     const confirmed = await vscode.window.showWarningMessage(
-      `Delete every artifact for ${workItemId}? Anything an agent wrote, including fix_summary.md, is removed.`,
+      `Delete every artifact for ${workItemId}? Anything an agent wrote, including fix_report.md, is removed.`,
       { modal: true },
       "Delete",
     );

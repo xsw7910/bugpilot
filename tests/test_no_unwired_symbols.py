@@ -42,9 +42,6 @@ ALLOWED: dict[str, str] = {
         "Same: the words the skill and the MCP tool descriptions must share, "
         "checked against both by test_handoff.py."
     ),
-    "artifacts.FIX_REPORT_ARTIFACT": (
-        "Same contract; wired in by the fix_report.md batch (§37)."
-    ),
     "handoff.skill_steps": (
         "Renders the numbered steps of SKILL.md, which is a file rather than a "
         "caller. test_handoff.py compares the file against it step by step, so "

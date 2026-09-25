@@ -83,13 +83,12 @@ def _seed_result_artifacts(tmp_path, issue_key="JR-12345"):
             description="Applying a department filter leaves stale results visible.",
         ),
     )
-    (issue_dir / "result_summary.md").write_text(
-        "# Result Summary\n\n"
-        "## Issue\nJR-12345\n\n"
-        "## Root Cause Summary\nStale React Query cache key\n\n"
-        "## Fix Summary\nRebuild the query key from the active filter set\n\n"
-        "## Test Summary\nFocused unit tests passed\n\n"
-        "## Diff Summary\nsrc/EmployeeSearch.cpp changed\n\n"
+    (issue_dir / "fix_report.md").write_text(
+        "# Fix Report: JR-12345\n\n"
+        "## Summary\nFixed: query key rebuilt.\n\n"
+        "## Analysis\nStale React Query cache key\n\n"
+        "## Changes\nRebuild the query key from the active filter set (src/EmployeeSearch.cpp changed)\n\n"
+        "## Tests\nFocused unit tests passed\n\n"
         "## Review Notes\nLooks safe\n",
         encoding="utf-8",
     )
@@ -203,7 +202,9 @@ def test_commit_plan_sends_email_at_commit_gate(tmp_path, monkeypatch, capsys):
     assert main(["commit-plan", "JR-12345"]) == 0
     output = capsys.readouterr().out
 
-    assert (tmp_path / ".ai" / "JR-12345" / "commit_plan.md").is_file()
+    # The plan is printed, not persisted; the mail still goes out at the gate.
+    assert not (tmp_path / ".ai" / "JR-12345" / "commit_plan.md").exists()
+    assert "# Commit Plan" in output
     assert len(sent) == 1
     assert "Sent notification email via smtp to: dev@example.test" in output
 
@@ -224,10 +225,9 @@ def test_commit_plan_no_email_flag_suppresses_send(tmp_path, monkeypatch, capsys
 def test_email_body_redacts_secret_like_values(tmp_path, monkeypatch):
     _seed_result_artifacts(tmp_path)
     issue_dir = tmp_path / ".ai" / "JR-12345"
-    (issue_dir / "result_summary.md").write_text(
-        "# Result Summary\n\n"
-        "## Fix Summary\nSet api_key=SUPERSECRETVALUE in the client\n\n"
-        "## Diff Summary\nchanged\n",
+    (issue_dir / "fix_report.md").write_text(
+        "# Fix Report: JR-12345\n\n"
+        "## Changes\nSet api_key=SUPERSECRETVALUE in the client\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -266,7 +266,7 @@ def test_commit_gate_email_failure_is_non_fatal(tmp_path, monkeypatch, capsys):
     assert main(["commit-plan", "JR-12345"]) == 0
     captured = capsys.readouterr()
 
-    assert "Generated commit plan" in captured.out
+    assert "# Commit Plan" in captured.out
     assert "commit-gate email not sent" in captured.err
     assert "SMTPException" in captured.err
     assert "smtp-secret" not in captured.err

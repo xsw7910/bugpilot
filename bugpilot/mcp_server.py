@@ -42,7 +42,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from bugpilot.core import errors, handoff, workflow
-from bugpilot.core.artifacts import CONTEXT_ARTIFACT, TASK_ARTIFACT
+from bugpilot.core.artifacts import CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_ARTIFACT
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
 from bugpilot.core.config import issue_dir
 from bugpilot.core.fix_mode_state import fix_mode_metadata, fix_mode_registry
@@ -139,7 +139,7 @@ def _run(what: str, repo_root: Path, request: InvestigationRequest) -> workflow.
 
     ``fresh=False`` is the load-bearing part: a fresh run calls
     ``clean_issue_artifacts``, which would let a second ``prepare`` delete the
-    agent's own ``fix_summary.md`` and the developer's hint. Deleting artifacts
+    agent's own ``fix_report.md`` and the developer's hint. Deleting artifacts
     is not a model-callable operation.
 
     The error carries the stable code from ``errors.error_code_for`` so a Jira
@@ -406,10 +406,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
 
     @server.tool()
     def check_results(work_item_id: str) -> dict[str, object]:
-        """List which result files a fix attempt has not written yet.
+        """Say whether the fix attempt has written its report yet.
 
-        Call this after implementing a fix to see what is still missing before
-        the developer reviews it.
+        Call this after implementing a fix to see whether `fix_report.md`
+        exists before the developer reviews it.
 
         Args:
             work_item_id: The id returned by a prepare tool.
@@ -427,10 +427,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
 
     @server.tool()
     def summarize_results(work_item_id: str) -> dict[str, object]:
-        """Roll the result files into a summary the developer can review.
+        """The fix report's status and the validation checklist, rendered in memory.
 
-        Writes result_summary.md and manual_validation.md. It never posts to
-        Jira or sends mail — those stay with the developer.
+        Reads `fix_report.md` — the one post-agent report — and writes nothing.
+        It never posts to Jira or sends mail; those stay with the developer.
 
         Args:
             work_item_id: The id returned by a prepare tool.
@@ -438,14 +438,15 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         item = _existing(bound.repo_root, work_item_id)
         try:
             with bound.lock:
-                workflow.summarize_results_step(bound.repo_root, item)
+                overview = workflow.summarize_results_step(bound.repo_root, item)
         except Exception as exc:
             raise ToolError(f"Could not summarize {item} [{errors.error_code_for(exc)}]: {exc}") from exc
+        report = f".ai/{item}/{FIX_REPORT_ARTIFACT}"
         return {
             "work_item_id": item,
-            "result_summary": f".ai/{item}/result_summary.md",
-            "manual_validation": f".ai/{item}/manual_validation.md",
-            "summary_excerpt": _read_artifact(bound.repo_root, item, "result_summary.md"),
+            "fix_report": report if (issue_dir(bound.repo_root, item) / FIX_REPORT_ARTIFACT).exists() else None,
+            "overview": overview,
+            "report_excerpt": _read_artifact(bound.repo_root, item, FIX_REPORT_ARTIFACT),
         }
 
     @server.tool()

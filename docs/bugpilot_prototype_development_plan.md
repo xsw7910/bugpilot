@@ -6275,7 +6275,7 @@ run history, telemetry, and productizing the visual harness.
 
 ## 37. Artifact Simplification + Workflow Result Integration
 
-**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) complete and verified; `fix_report.md`, `WorkflowStepResult` and the UI restructuring not started. All uncommitted.
+**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) complete and verified, uncommitted; `WorkflowStepResult` and the UI restructuring not started.
 
 **Canonical reference:** `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`
 (kept outside the repository). This section records what has landed against it.
@@ -7410,3 +7410,200 @@ decision for later); `IssueArtifactError` / `RetrievalArtifactError` still
 classify as `INVALID_INPUT` in the envelopes (pre-existing, Batches 1–2);
 the shell-quoting hardening and the `agent_task` field rename stay in the
 backlog per the batch brief.
+
+### 37.28 Checkpoint — post-fix artifact inventory (Batch 5 start)
+
+Read from the committed Batch 4 tree (`7fde6aa`); every producer and reader
+from a repo-wide search. The one structural fact the design hangs on: the five
+result files are **agent-owned** — the coding agent writes them per `task.md`'s
+contract — and everything else BugPilot writes after them is a *derivation* of
+those five plus git state.
+
+| Artifact | Producer | Contents | Readers | Category | Decision |
+|---|---|---|---|---|---|
+| `bug_analysis.md` | the agent (task contract); `manual-result` template | root cause, evidence | `result_summary` builder, Jira draft (Root Cause), retry's previous-attempt summary, `check_result_files` | A | → `fix_report.md` `## Analysis` |
+| `fix_summary.md` | agent | the fix (or proposed plan) | `result_summary`, Jira draft (Changes), extension history "fixed" marker | A | → `## Changes` |
+| `diff_summary.md` | agent | changed files / diff summary | `result_summary`, email, retry reading list | A | → `## Changes` (merged with the fix summary — two files carried one story) |
+| `test_result.md` | agent | commands run, outcomes, or not-run + reason | `result_summary`, validation pointer, retry reading list | A | → `## Tests` |
+| `review_notes.md` | agent | risks, open questions, next step; mode-conflict record | `result_summary`, validation risks, retry reading list | A | → `## Review Notes` |
+| `result_summary.md` | `summarize_results_step` | a concatenation of the five + presence lines | email draft, `memory_update`'s Final Result, commit-plan's summary line, delivery-check presence | A (redundant aggregate) | **removed** — once the report is one file, the aggregate of five is the file itself; readers parse `fix_report.md` |
+| `manual_validation.md` | `summarize_results_step` | a validation checklist derived from retrieval + review notes | nobody in code; the developer | B (generated helper) | file **removed**; the checklist renders in memory (`summarize-results` prints it, MCP returns it) |
+| `final_review_prompt.md` | `review_package_step` | reviewer prompt, a pure function | nobody in code; the developer pastes it | B (disk IPC) | file **removed**; `review-package` prints (the `agent-instructions`/`git-context` precedent) |
+| `commit_plan.md` / `push_plan.md` | plan steps | branch/status/diff stat, suggested message, safety checklist, manual commands | nobody in code; the developer | B | files **removed**; the commands print the same plan, safety text intact — approval stays manual and explicit |
+| `agent_retry_prompt.md` | `retry_prompt_step` | the second-attempt task | **an external agent process, by path** — the extension's Retry handoff and the CLI's printed instruction | C | **kept**: it is `task.md`'s retry counterpart, not IPC — another process reads the file; content migrates to the report contract |
+| `user_feedback.md` | template once, then the developer | user-authored corrections | retry prompt builder | C/D (user data) | **kept** — never silently discard user-authored text |
+| `jira_comment_draft.md` | draft step | the proposed comment | `jira-comment --execute` reads it back; the developer reviews/edits | C (approval artifact) | **kept**; sources → `fix_report.md` sections |
+| `jira_comment_post_result.json` | execute step | POST audit: comment id, timestamp | nobody; audit | C (action record) | **kept** — proof an external action happened |
+| `jira_comment_post_summary.md` | execute step | prose duplicate of the JSON | nobody | C (duplicate) | **removed**; the CLI prints the outcome, the JSON is the record |
+| `email_draft.md` / `notification.eml` | `notify` | preview + the sendable message | the developer / the mailer | C (delivery artifacts) | **kept**; body sources → `fix_report.md` |
+| `memory_entry.md` | nobody since the memory moved to `.ai_memory/` (a phase-era extension group label remains) | — | — | D | no work-item file exists; unchanged |
+| `jira_field_report.md` | `jira-validate` | field-mapping diagnostic | the developer; named in delivery safety as never-stage | D (diagnostic) | unchanged, outside the core contract |
+| `attachments/` | `copy_attachments` | the developer's source material | the agent, via `task.md` | D | unchanged — source material, not report content |
+
+Step marks (`result_summary`, `manual_validation`, `final_review_prompt`,
+`commit_plan`, `push_plan`, …) are preserved in `run.json` (§26): the commands
+still run and mark; only what they persist changes.
+
+### 37.29 Checkpoint — `fix_report.md`: contract and ownership
+
+One post-agent report, human-readable, with a fixed section contract:
+
+```text
+# Fix Report: <id>
+## Summary        one honest line — fixed / attempted / no-op / investigation only — then a short paragraph
+## Analysis       the root cause and the evidence (hypotheses + evidence when investigating)
+## Changes        what changed, files touched, bounded diff summary — or the proposed plan and "no source change applied"
+## Tests          commands run and outcomes, or "not run" and why; never a pass that did not happen
+## Review Notes   risks, open questions, remaining concerns, recommended next step
+```
+
+**Ownership: model A.** The coding agent writes and updates the report per
+`task.md`'s Required Output contract; BugPilot never rewrites it. BugPilot's
+one writer is the `manual-result` template (a developer who fixed by hand),
+which preserves an existing report unless `--overwrite`. Everything BugPilot
+needs from it, it reads through the typed `core/fix_report.py`
+(`FixReport`, `read_fix_report`, tolerant section parsing: a missing heading is
+an empty section rendered "not available", never an error). The name means
+"post-agent workflow report", not "confirmed fix" (§37.28's investigate rule);
+`run.json` stays the machine state and duplicates none of it.
+
+### 37.30 Checkpoint — canonical fix result consolidation
+
+Merged into the report, with the duplication removed rather than concatenated:
+
+| Old | Where it went |
+|---|---|
+| `bug_analysis.md` | `## Analysis` |
+| `fix_summary.md` + `diff_summary.md` | `## Changes` — the two files told one story (what changed / which files), and the old aggregate quoted both |
+| `test_result.md` | `## Tests` |
+| `review_notes.md` | `## Review Notes` |
+| `result_summary.md` | gone: it was the five concatenated with presence lines. Its readers parse the report instead — the email draft, the memory entry's Final Result (same `### Root Cause/Fix/Tests/Review Notes` shape, fed from the report's sections), the commit plan's suggested-message line, delivery-check |
+| `manual_validation.md` | gone as a file: the checklist renders in memory (`_build_manual_validation`, from the report's Review Notes + `retrieval.json`'s top files) and reaches the developer through `summarize-results`' printed Result Overview and the MCP tool |
+
+`check_result_files` / `REQUIRED_COPILOT_RESULT_FILES` is now the one name
+(`FIX_REPORT_ARTIFACT`); the CLI's `check-results` shapes are unchanged
+(`missing` list, strict exit).
+
+### 37.31 Checkpoint — temporary prompts and plans stop being files
+
+- `final_review_prompt.md`: a pure function nothing read back; `review-package`
+  **prints** it (the `agent-instructions` / `git-context` precedent), now
+  pointing at `fix_report.md`.
+- `commit_plan.md` / `push_plan.md`: nothing read them; the commands **print**
+  the same plans — branch/status/diff stat, suggested message, safety notes,
+  the manual commands — so committing and pushing stay the developer's own
+  explicit actions. The commit-gate email hook is untouched.
+- `jira_comment_post_summary.md`: a prose duplicate of the JSON audit record;
+  gone. `jira_comment_post_result.json` remains the proof of the POST.
+- `agent_retry_prompt.md` is **kept deliberately**: it is not disk IPC but the
+  retry counterpart of `task.md` — an external agent process reads it by path
+  (the extension's Retry handoff, the CLI's printed instruction). Its content
+  migrated: Required Reading is `context.md`, `retrieval.json`,
+  `fix_report.md`, `user_feedback.md` + the current diff; the previous-attempt
+  summary is a bounded excerpt of the report; Required Output is "update
+  `fix_report.md`, every section, for this attempt".
+
+### 37.32 Checkpoint — delivery and side-band decisions
+
+Kept, each with its own responsibility: `user_feedback.md` (user-authored;
+never silently discarded), `jira_comment_draft.md` (the approval artifact
+`jira-comment --execute` reads back; its Root Cause / Summary of Changes now
+come from the report's Analysis / Changes), `jira_comment_post_result.json`
+(action audit), `email_draft.md` + `notification.eml` (delivery preview and the
+sendable message; the body's Root Cause / Changes Made / Tests now come from
+the report, and the separate diff heading folded into Changes),
+`jira_field_report.md` (a `jira-validate` diagnostic, outside the core
+contract), `attachments/` (source material, untouched), and the `.ai_memory/`
+entry (its own lifecycle; no work-item copy existed).
+
+### 37.33 Checkpoint — CLI, MCP, agent text, extension migrated
+
+- Agent-facing text: `task.md`'s Required Output section (both modes,
+  investigation truthfully phrased), the investigation handoff ("write
+  `fix_report.md`, every section investigation-phrased"), the precedence rule
+  ("record the conflict in the Review Notes section of `fix_report.md`"), the
+  Jira status block, the team instructions' Output Expectations (both
+  `docs/agent_team_instructions.md` and the bundled fallback), the handoff
+  sentence's "write the fix report" (skill and MCP prompt in step).
+- CLI: `check-results` (one-name missing list), `manual-result` (one
+  template), `summarize-results` prints the Result Overview (report status +
+  validation checklist; `--json` gained `fix_report`/`overview`, lost the
+  two generated paths), `review-package`/`commit-plan`/`push-plan` print,
+  `memory update` reads the report and its warning names it,
+  `delivery-check`'s warnings check the report and its sections plus the
+  memory entry (the two removed files left its list).
+- MCP: `check_results` (same shape), `summarize_results` returns
+  `fix_report` / `overview` / `report_excerpt` (the old two path fields named
+  files that no longer exist — a documented, necessary field change).
+- Extension: `RESULT_FILES = ["fix_report.md"]` (missing-results row, results
+  grouping), the history "fixed" marker keys on the report, deletion-warning
+  strings name it; the five old result names plus the removed derivation files
+  keep phase-era `GROUPS` entries so pre-Batch-5 directories still list sanely.
+  No UI redesign.
+
+### 37.34 Checkpoint — the five-plus-one core contract, verified
+
+Scratch runs (`sample-repo`, `python -m bugpilot`, `--prepare-only`):
+
+- Prepare-only (Jira-mock and manual/investigate-first): exactly
+  `issue.json retrieval.json context.md task.md run.json` — Batch 5 changed
+  nothing about the prepare stage.
+- Post-agent (the report written by hand, standing in for an agent):
+  `check-results` passes, `summarize-results` prints the Result Overview
+  (report status, its Summary, the validation checklist), `review-package` and
+  `commit-plan`/`push-plan` print, `memory update` writes the report's
+  sections into the `.ai_memory` entry — and the directory holds exactly the
+  five plus `fix_report.md`. A retry adds its two deliberately-kept side-band
+  files (`agent_retry_prompt.md`, `user_feedback.md`) and nothing else.
+- No report yet: the overview says "missing" and names `manual-result` as the
+  manual-fix path, `memory update` skips with the same message,
+  `check-results --strict` exits 1 — and nothing invents a report or an
+  outcome. The investigate-first `task.md` requires the report with every
+  section investigation-phrased and "Do not write any section as though a fix
+  exists."
+
+Pinned by `tests/test_fix_report_artifact.py` (10): section parsing (a `###`
+stays inside its section; a missing heading is an empty section, never an
+error; the manual template fills every section), honest outcomes ("Not run: no
+code changed" passes through the memory and the email verbatim; an empty
+report renders "not available" rather than claims; the overview names the
+empty sections), prepare = 5 and report = 6 with `run.json`'s snapshot picking
+the report up, the post-fix flow writing none of the eleven old files, and a
+retry that ignores a pre-Batch-5 attempt's legacy files (no fallback).
+
+### 37.35 Checkpoint — Batch 5 verification and review
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1117 passed (checkpoint baseline 1104: +11 `test_fix_report_artifact.py`, +2 in `test_workflow.py`) |
+| `npm test` (extension) | 832 passed (unchanged count: fixtures migrated in place) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` (real CLI, temp repositories, no Jira) | 8 passed |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean; untracked files have no trailing whitespace |
+| `python tests/retrieval_corpus.py` | frozen pre-Batch-3 tree: all six cases **byte-identical** (no retrieval module changed). Live tree: top-3 2/5, MRR 0.292, docs 10 — the same self-referential case again (`workflow.py` rank 7→8, its post-fix text changed); both expected files stay top-10, and the §37.27 fixture floor test is immune by design |
+
+Final legacy search for the eleven consolidated names: zero live production
+readers or writers. The remaining references are one explanatory docstring
+(`summarize_results_step`), the extension's phase-era `GROUPS` labels for
+pre-Batch-5 directories (the copilot/runtime precedent), tests asserting
+absence or rejection, the unshipped `docs/` guides (the documentation pass,
+as recorded since §37.11), and history.
+
+**Independent review** (whole diff vs `7fde6aa`): no blocker, no important
+finding. Fixed from its minors: the retry prompt's delivery intro still said
+"required result files" (now "the fix report"); `section_of` required an exact
+heading line, so a model's `## summary ` read as a missing section everywhere
+downstream — headings now match with trailing whitespace and case forgiven
+(false-missing was the failure mode, never false-success; a test pins the
+tolerance); three stale plural help strings and the launch message; an
+f-string with no placeholder; and the extension's grouping gained entries for
+`jira_comment_post_summary.md` (phase-era) and `jira_comment_post_result.json`
+(current audit record), which had none. Deferred as pre-existing cosmetics:
+`manual-result --overwrite` prints its overwrite warning even when the
+template was freshly created. The review confirmed ownership (one writer, the
+template, preserve-by-default), the honest-outcome semantics end to end, the
+bounds and sanitization on everything leaving the machine, retry and delivery
+approval flows unchanged, zero disk-IPC prompts and zero fallback readers, and
+no prepare-stage, run.json, MCP-stdio, or scope regressions.

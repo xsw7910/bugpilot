@@ -36,7 +36,13 @@ test("the result files match the ones bugpilot requires", () => {
   const source = readFileSync(new URL("../../bugpilot/core/workflow.py", import.meta.url), "utf8");
   const block = /REQUIRED_COPILOT_RESULT_FILES = \[([\s\S]*?)\]/.exec(source);
   assert.ok(block, "could not find REQUIRED_COPILOT_RESULT_FILES in workflow.py");
-  const python = [...block[1]!.matchAll(/"([^"]+)"/g)].map((match) => match[1]!);
+  // The Python list names artifact constants; resolve them from artifacts.py.
+  const artifacts = readFileSync(new URL("../../bugpilot/core/artifacts.py", import.meta.url), "utf8");
+  const fixReport = /^FIX_REPORT_ARTIFACT = "([^"]+)"/m.exec(artifacts);
+  assert.ok(fixReport, "could not find FIX_REPORT_ARTIFACT in artifacts.py");
+  const python = [...block[1]!.matchAll(/"([^"]+)"|FIX_REPORT_ARTIFACT/g)].map(
+    (match) => match[1] ?? fixReport[1]!,
+  );
   assert.deepEqual([...RESULT_FILES].sort(), python.sort());
 });
 
@@ -79,10 +85,10 @@ test("a run with no handoff does not invent five missing results", () => {
   );
 });
 
-test("a written result file is shown as present, ahead of the missing ones", () => {
-  const sections = sectionsOf(buildArtifactList({ names: [...REAL_RUN, "fix_summary.md"] }));
+test("a written report is shown as present instead of missing", () => {
+  const sections = sectionsOf(buildArtifactList({ names: [...REAL_RUN, "fix_report.md"] }));
   const results = sections.find((section) => section.group === "results");
-  assert.equal(results?.entries[0]?.name, "fix_summary.md");
+  assert.equal(results?.entries[0]?.name, "fix_report.md");
   assert.equal(results?.entries[0]?.missing, undefined);
 });
 
@@ -101,7 +107,10 @@ test("an unknown file is grouped where it stays visible", () => {
   assert.equal(artifactGroup("workflow_status.json"), "state");
   assert.equal(artifactGroup("execution.log"), "state");
   assert.equal(artifactGroup("user_feedback.md"), "retry");
+  assert.equal(artifactGroup("fix_report.md"), "results");
+  // Agent results from a pre-Batch-5 directory still land in Results.
   assert.equal(artifactGroup("fix_summary.md"), "results");
+  assert.equal(artifactGroup("result_summary.md"), "results");
 });
 
 test("file kinds drive the icon and the open action", () => {
@@ -245,10 +254,10 @@ test("a directory prepared before run.json is incomplete, not silently adopted",
   );
 });
 
-test("a fix summary is what tells the loop closed", () => {
+test("the agent's report is what tells the loop closed", () => {
   assert.deepEqual(
     historyOutcome({
-      files: ["run.json", "fix_summary.md"],
+      files: ["run.json", "fix_report.md"],
       status: { steps: { context: "pass" } },
     }),
     { outcome: "fixed" },
@@ -256,11 +265,11 @@ test("a fix summary is what tells the loop closed", () => {
 });
 
 test("the retry loop outranks the fix it followed", () => {
-  // Somebody read that fix summary and said it was wrong, which is the newer
+  // Somebody read that report and said it was wrong, which is the newer
   // of the two facts.
   assert.deepEqual(
     historyOutcome({
-      files: ["run.json", "fix_summary.md", "user_feedback.md"],
+      files: ["run.json", "fix_report.md", "user_feedback.md"],
       status: { steps: { context: "pass" } },
     }),
     { outcome: "retrying" },
@@ -298,7 +307,7 @@ test("a corrupt status file leaves the outcome to the file list", () => {
   // The row still has to render: a truncated JSON is not a reason to lose a
   // work item from the list.
   assert.deepEqual(
-    historyOutcome({ files: ["run.json", "fix_summary.md"], status: undefined }),
+    historyOutcome({ files: ["run.json", "fix_report.md"], status: undefined }),
     { outcome: "fixed" },
   );
   assert.deepEqual(

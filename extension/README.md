@@ -206,7 +206,7 @@ changed first. Each row's icon says what became of it:
 | Icon | What it means | What to do next |
 | --- | --- | --- |
 | bug | Context is ready; nothing has acted on it | Hand it to an agent |
-| verified | An agent wrote `fix_summary.md` | Read the summary |
+| verified | An agent wrote `fix_report.md` | Read the report |
 | comment | A retry is waiting on you | Describe the miss in `user_feedback.md` |
 | restart | A second attempt is prepared | Hand `agent_retry_prompt.md` over |
 | error | The run failed | Hover to see which step |

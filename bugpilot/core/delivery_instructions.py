@@ -62,7 +62,7 @@ def delivery_safety_block(
 
 def assisted_delivery_block(
     issue_key: str,
-    intro: str = "After completing code changes, focused tests, and all required result files",
+    intro: str = "After completing code changes, focused tests, and the fix report",
 ) -> str:
     """The commit/push offer, for a pass that actually produced a fix.
 
@@ -92,7 +92,7 @@ def assisted_delivery_block(
 def delivery_instructions_block(
     issue_key: str,
     branch: str | None = None,
-    intro: str = "After completing code changes, focused tests, and all required result files",
+    intro: str = "After completing code changes, focused tests, and the fix report",
     jira_comment: bool = True,
 ) -> str:
     """Safety gate followed by the assisted-delivery offer.

@@ -22,7 +22,7 @@ already assembled around them.
    read them instead of searching the repository from scratch.
 3. Complete the workflow `task.md` describes for the selected AI Fix
    Mode — it says whether this pass investigates only or implements — and
-   write the required result files.
+   write the fix report.
 4. Stop at the commit gate. Do not commit, push, or post to Jira.
 
 The developer chooses the AI Fix Mode, not you: `bugpilot bug <ISSUE>

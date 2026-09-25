@@ -34,7 +34,8 @@ from .issue import (
 )
 from .memory import add_memory_entry, build_memory_entry, search_memory
 from .models import SOURCE_MANUAL, BugSpec, InvestigationOptions, InvestigationPlan, InvestigationRequest
-from .artifacts import CONTEXT_ARTIFACT, ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT
+from .artifacts import CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT
+from .fix_report import FixReport, manual_fix_report_template, read_fix_report
 from .run import RunArtifact, RunError, load_run, read_run_quietly, save_run
 from .attachments import ATTACHMENTS_DIR, attachment_names, copy_attachments
 from .fix_mode_state import (
@@ -76,12 +77,10 @@ class WorkflowResult:
 # and every entry point now lets a person type this list by hand.
 MAX_SUPPLIED_KEYWORDS = 20
 
+# What the agent must leave behind: one report (plan §37, Batch 5). The name
+# and shape are the extension's `RESULT_FILES` mirror and the tests' contract.
 REQUIRED_COPILOT_RESULT_FILES = [
-    "bug_analysis.md",
-    "fix_summary.md",
-    "test_result.md",
-    "diff_summary.md",
-    "review_notes.md",
+    FIX_REPORT_ARTIFACT,
 ]
 
 
@@ -947,19 +946,21 @@ def check_results_step(repo_root: Path, issue_key: str, strict: bool = False) ->
     return missing
 
 
-def summarize_results_step(repo_root: Path, issue_key: str) -> None:
+def summarize_results_step(repo_root: Path, issue_key: str) -> str:
+    """The report's status and the validation checklist, rendered in memory.
+
+    The old aggregate file (`result_summary.md`) was a concatenation of the
+    agent's five result files; with one `fix_report.md` the aggregate *is* the
+    report, so nothing is written — this returns what a developer needs next.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] summarize_results")
     try:
-        result_summary = _build_result_summary(repo_root, issue_key)
-        manual_validation = _build_manual_validation(repo_root, issue_key)
-        (target / "result_summary.md").write_text(result_summary, encoding="utf-8")
-        (target / "manual_validation.md").write_text(manual_validation, encoding="utf-8")
+        summary = _build_result_overview(repo_root, issue_key)
         _mark_step(repo_root, issue_key, "result_summary", "pass")
         _mark_step(repo_root, issue_key, "manual_validation", "pass")
-        log(target, f"[GENERATED] .ai/{issue_key}/result_summary.md")
-        log(target, f"[GENERATED] .ai/{issue_key}/manual_validation.md")
         log(target, "[END] summarize_results: pass")
+        return summary
     except Exception as exc:
         _mark_step(repo_root, issue_key, "result_summary", "fail")
         _mark_step(repo_root, issue_key, "manual_validation", "fail")
@@ -967,14 +968,19 @@ def summarize_results_step(repo_root: Path, issue_key: str) -> None:
         raise
 
 
-def review_package_step(repo_root: Path, issue_key: str) -> None:
+def review_package_step(repo_root: Path, issue_key: str) -> str:
+    """The final-review prompt, returned rather than written.
+
+    A pure function of the work item id and the canonical files: the developer
+    pastes it into a reviewer, and nothing ever read it back from disk.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] review_package")
     try:
-        (target / "final_review_prompt.md").write_text(_build_final_review_prompt(issue_key), encoding="utf-8")
+        prompt = _build_final_review_prompt(issue_key)
         _mark_step(repo_root, issue_key, "final_review_prompt", "pass")
-        log(target, f"[GENERATED] .ai/{issue_key}/final_review_prompt.md")
         log(target, "[END] review_package: pass")
+        return prompt
     except Exception as exc:
         _mark_step(repo_root, issue_key, "final_review_prompt", "fail")
         log(target, f"[ERROR] review_package: {exc}")
@@ -996,34 +1002,35 @@ def delivery_check_step(repo_root: Path, issue_key: str) -> list[str]:
     return warnings
 
 
-def commit_plan_step(repo_root: Path, issue_key: str) -> Path:
+def commit_plan_step(repo_root: Path, issue_key: str) -> str:
+    """The manual commit plan, returned for the terminal. Nothing read the file.
+
+    The plan is regenerable from git state and the report at any moment, and
+    the safety rules it carries are the same ones `task.md` embeds. Committing
+    stays the developer's own action.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] commit_plan")
     try:
         plan = _build_commit_plan(repo_root, issue_key)
-        path = target / "commit_plan.md"
-        path.write_text(plan, encoding="utf-8")
         _mark_step(repo_root, issue_key, "commit_plan", "pass")
-        log(target, f"[GENERATED] .ai/{issue_key}/commit_plan.md")
         log(target, "[END] commit_plan: pass")
-        return path
+        return plan
     except Exception as exc:
         _mark_step(repo_root, issue_key, "commit_plan", "fail")
         log(target, f"[ERROR] commit_plan: {exc}")
         raise
 
 
-def push_plan_step(repo_root: Path, issue_key: str) -> Path:
+def push_plan_step(repo_root: Path, issue_key: str) -> str:
+    """The manual push plan, returned for the terminal. Pushing stays manual."""
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] push_plan")
     try:
         plan = _build_push_plan(repo_root, issue_key)
-        path = target / "push_plan.md"
-        path.write_text(plan, encoding="utf-8")
         _mark_step(repo_root, issue_key, "push_plan", "pass")
-        log(target, f"[GENERATED] .ai/{issue_key}/push_plan.md")
         log(target, "[END] push_plan: pass")
-        return path
+        return plan
     except Exception as exc:
         _mark_step(repo_root, issue_key, "push_plan", "fail")
         log(target, f"[ERROR] push_plan: {exc}")
@@ -1112,16 +1119,16 @@ def notify_step(
 def memory_update_step(repo_root: Path, issue_key: str) -> bool:
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] memory_update")
-    summary_path = target / "result_summary.md"
+    report = read_fix_report(repo_root, issue_key)
     memory_path = repo_root / ".ai_memory" / "bugs" / f"{issue_key}.md"
-    if not summary_path.exists():
-        log(target, f"[WARN] memory_update: missing .ai/{issue_key}/result_summary.md; run bugpilot summarize-results {issue_key}")
+    if report is None:
+        log(target, f"[WARN] memory_update: missing .ai/{issue_key}/{FIX_REPORT_ARTIFACT}; the agent writes it, or run bugpilot manual-result {issue_key}")
         _mark_step(repo_root, issue_key, "memory_update", "skipped")
         return False
 
     memory_path.parent.mkdir(parents=True, exist_ok=True)
     existing = memory_path.read_text(encoding="utf-8") if memory_path.exists() else f"# {issue_key} AI Bug Workflow Memory\n"
-    final_result = _build_final_result_section(summary_path.read_text(encoding="utf-8"), bool(check_result_files(repo_root, issue_key)))
+    final_result = _build_final_result_section(report)
     updated = _replace_section(existing, "## Final Result", final_result)
     memory_path.write_text(updated, encoding="utf-8")
     _mark_step(repo_root, issue_key, "memory_update", "pass")
@@ -1199,11 +1206,11 @@ def jira_comment_step(repo_root: Path, issue_key: str, execute: bool = False) ->
 
         result = post_jira_comment(repo_root, issue_key, comment_text)
         result_json = _jira_comment_result_json(result)
+        # The one audit record of the POST that happened. The prose summary it
+        # used to sit beside was a duplicate nothing read.
         (target / "jira_comment_post_result.json").write_text(json.dumps(result_json, indent=2) + "\n", encoding="utf-8")
-        (target / "jira_comment_post_summary.md").write_text(_jira_comment_post_summary(result), encoding="utf-8")
         _mark_step(repo_root, issue_key, "jira_comment", "pass")
         log(target, f"[GENERATED] .ai/{issue_key}/jira_comment_post_result.json")
-        log(target, f"[GENERATED] .ai/{issue_key}/jira_comment_post_summary.md")
         log(target, "[END] jira_comment: pass")
         return {
             "issue_key": issue_key,
@@ -1314,9 +1321,9 @@ def _build_jira_comment_draft(repo_root: Path, issue_key: str, missing_results: 
     # Keep the comment short: root cause + a summary of the changes — not the full
     # diff or the internal search/validation/attachment detail.
     del missing_results  # strict-mode gating happens in the caller; not shown here
-    target = issue_dir(repo_root, issue_key)
-    root_cause = _artifact_or_missing(target, "bug_analysis.md", "No root cause analysis artifact found.")
-    changes = _artifact_or_missing(target, "fix_summary.md", "No change summary artifact found.")
+    report = read_fix_report(repo_root, issue_key)
+    root_cause = (report.analysis if report else "") or "No root cause analysis found in the fix report."
+    changes = (report.changes if report else "") or "No change summary found in the fix report."
     draft = (
         "# bugpilot Analysis Summary\n\n"
         f"Issue: {issue_key}\n\n"
@@ -1364,9 +1371,7 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
     reading_files = [
         CONTEXT_ARTIFACT,
         RETRIEVAL_ARTIFACT,
-        "review_notes.md",
-        "test_result.md",
-        "diff_summary.md",
+        FIX_REPORT_ARTIFACT,
         "user_feedback.md",
     ]
     reading = [f"- .ai/{issue_key}/{name}" for name in reading_files if (target / name).exists()]
@@ -1396,7 +1401,7 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
             "- Do not commit or push.\n"
             "- Do not update Jira.\n"
             "- Do not claim tests passed: implementation has not started.\n"
-            "- Update the required result files, still describing investigation state.\n\n"
+            f"- Update {FIX_REPORT_ARTIFACT}, still describing investigation state.\n\n"
         )
     else:
         retry_instructions = (
@@ -1410,13 +1415,13 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
             "- Do not commit or push automatically.\n"
             "- Do not update Jira.\n"
             "- Do not claim tests passed unless they were run.\n"
-            "- Update the required result files.\n\n"
+            f"- Update {FIX_REPORT_ARTIFACT}.\n\n"
         )
     closing = (
         delivery_safety_block(issue_key) + investigation_handoff_block(issue_key)
         if investigating
         else delivery_instructions_block(
-            issue_key, intro="After completing the retry and updating required result files"
+            issue_key, intro="After completing the retry and updating the fix report"
         )
     )
     return (
@@ -1440,11 +1445,9 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
         f"{retry_instructions}"
         f"{closing}"
         "## Required Output Files\n\n"
-        f"- .ai/{issue_key}/bug_analysis.md\n"
-        f"- .ai/{issue_key}/fix_summary.md\n"
-        f"- .ai/{issue_key}/test_result.md\n"
-        f"- .ai/{issue_key}/diff_summary.md\n"
-        f"- .ai/{issue_key}/review_notes.md\n\n"
+        f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT} — update every section for this attempt: "
+        "Summary, Analysis, Changes, Tests, Review Notes. Do not leave a previous "
+        "attempt's claims standing where this attempt learned otherwise.\n\n"
         "## How to Run\n\n"
         "Run your AI agent manually from the target repo root and paste:\n\n"
         f"Read .ai/{issue_key}/agent_retry_prompt.md and continue the workflow.\n"
@@ -1452,74 +1455,15 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
 
 
 def _previous_attempt_summary(target: Path) -> str:
-    lines = []
-    for file_name in REQUIRED_COPILOT_RESULT_FILES:
-        text = _read_artifact(target, file_name)
-        if text:
-            lines.append(f"### {file_name}\n\npresent\n\n{_cap_text(text, 800)}")
-        else:
-            lines.append(f"### {file_name}\n\nmissing")
-    return "\n\n".join(lines)
+    text = _read_artifact(target, FIX_REPORT_ARTIFACT)
+    if not text:
+        return f"### {FIX_REPORT_ARTIFACT}\n\nmissing — the previous attempt left no report."
+    return f"### {FIX_REPORT_ARTIFACT}\n\npresent\n\n{_cap_text(text, 2400)}"
 
 
 def _manual_result_templates(issue_key: str) -> dict[str, str]:
-    return {
-        "bug_analysis.md": (
-            f"# Bug Analysis: {issue_key}\n\n"
-            "## Fix Source\n\n"
-            "Developer manual fix.\n\n"
-            "## Root Cause\n\n"
-            "TODO: Describe the root cause.\n\n"
-            "## Relevant Files\n\n"
-            "- TODO\n\n"
-            "## Notes\n\n"
-            "TODO\n"
-        ),
-        "fix_summary.md": (
-            f"# Fix Summary: {issue_key}\n\n"
-            "## Fix Source\n\n"
-            "Developer manual fix.\n\n"
-            "## Changes Made\n\n"
-            "- TODO\n\n"
-            "## Scope\n\n"
-            "Small targeted fix. No unrelated refactor.\n"
-        ),
-        "test_result.md": (
-            f"# Test Result: {issue_key}\n\n"
-            "## Fix Source\n\n"
-            "Developer manual fix.\n\n"
-            "## Commands Run\n\n"
-            "```text\n"
-            "TODO\n"
-            "```\n\n"
-            "## Result\n\n"
-            "TODO: PASS / FAIL / PARTIAL / NOT RUN\n\n"
-            "## Notes\n\n"
-            "TODO\n\n"
-            "Important: Do not claim tests passed unless they were run.\n"
-        ),
-        "diff_summary.md": (
-            f"# Diff Summary: {issue_key}\n\n"
-            "## Fix Source\n\n"
-            "Developer manual fix.\n\n"
-            "## Changed Files\n\n"
-            "- TODO\n\n"
-            "## Summary\n\n"
-            "- TODO\n\n"
-            "## Risk\n\n"
-            "- TODO\n"
-        ),
-        "review_notes.md": (
-            f"# Review Notes: {issue_key}\n\n"
-            "## Fix Source\n\n"
-            "Developer manual fix.\n\n"
-            "## Review Focus\n\n"
-            "- TODO\n\n"
-            "## Known Limitations\n\n"
-            "- TODO\n"
-        ),
-    }
-
+    """The developer-manual-fix skeleton: one report, agent-shaped."""
+    return {FIX_REPORT_ARTIFACT: manual_fix_report_template(issue_key)}
 
 def _prepared_jira_comment_text(draft_path: Path, issue_key: str) -> str:
     raw = draft_path.read_text(encoding="utf-8", errors="replace")
@@ -1555,27 +1499,6 @@ def _jira_comment_result_json(result: JiraCommentPostResult) -> dict[str, object
     }
 
 
-def _jira_comment_post_summary(result: JiraCommentPostResult) -> str:
-    return (
-        "# Jira Comment Post Summary\n\n"
-        "## Issue\n\n"
-        f"{result.issue_key}\n\n"
-        "## Posted\n\n"
-        f"{'yes' if result.posted else 'no'}\n\n"
-        "## Comment ID\n\n"
-        f"{result.comment_id or 'Not returned.'}\n\n"
-        "## Timestamp\n\n"
-        f"{result.timestamp}\n\n"
-        "## Safety Note\n\n"
-        "Only a Jira comment was added. bugpilot did not update Jira fields, transition status, assign the issue, upload attachments, download attachments, modify source code, commit, push, merge, create a PR, or invoke an agent.\n"
-    )
-
-
-def _artifact_or_missing(target: Path, file_name: str, missing_message: str) -> str:
-    text = _read_artifact(target, file_name)
-    return _cap_artifact(text) if text else missing_message
-
-
 def _read_artifact(target: Path, file_name: str) -> str:
     path = target / file_name
     if not path.exists():
@@ -1597,10 +1520,6 @@ def _set_jira_comment_on(target: Path) -> None:
 
 def _jira_comment_enabled(target: Path) -> bool:
     return (target / _JIRA_COMMENT_ON_MARKER).exists()
-
-
-def _cap_artifact(text: str) -> str:
-    return _cap_text(text.strip(), 2000)
 
 
 def _cap_text(text: str, limit: int) -> str:
@@ -1697,65 +1616,54 @@ def _fail_run(repo_root: Path, issue_key: str, exc: Exception, step: str | None 
     )
 
 
-def _build_result_summary(repo_root: Path, issue_key: str) -> str:
-    target = issue_dir(repo_root, issue_key)
-    status_lines = []
-    sections = {}
-    for file_name in REQUIRED_COPILOT_RESULT_FILES:
-        path = target / file_name
-        present = path.exists()
-        status_lines.append(f"- {file_name}: {'present' if present else 'missing'}")
-        sections[file_name] = path.read_text(encoding="utf-8", errors="replace").strip() if present else "TBD"
-    all_present = all((target / file_name).exists() for file_name in REQUIRED_COPILOT_RESULT_FILES)
-    next_step = (
-        "All result files exist. Recommended next step: run final review."
-        if all_present
-        else "Some result files are missing. Recommended next step: complete the missing files."
-    )
+def _build_result_overview(repo_root: Path, issue_key: str) -> str:
+    """What a developer needs after the agent ran: report status + validation.
+
+    Rendered, never persisted: everything here derives from `fix_report.md`,
+    `retrieval.json` and the issue, and a second persisted copy of the report
+    was exactly the redundancy Batch 5 removed.
+    """
+    report = read_fix_report(repo_root, issue_key)
+    if report is None:
+        status_lines = [
+            f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT}: missing",
+            "",
+            "The agent writes the report; for a developer manual fix run: "
+            f"bugpilot manual-result {issue_key}",
+        ]
+    else:
+        missing = report.missing_sections
+        status_lines = [f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT}: present"]
+        if missing:
+            status_lines.append(f"- Sections still empty: {', '.join(missing)}")
+        summary = report.summary or "_The report has no Summary section yet._"
+        status_lines += ["", "## Reported Summary", "", _cap_text(summary, 1200)]
+    validation = _build_manual_validation(repo_root, issue_key)
     return (
-        "# Result Summary\n\n"
-        "## Issue\n"
-        f"{issue_key}\n\n"
-        "## Result File Status\n"
+        f"# Result Overview: {issue_key}\n\n"
+        "## Fix Report\n\n"
         + "\n".join(status_lines)
         + "\n\n"
-        "## Root Cause Summary\n"
-        f"{sections['bug_analysis.md']}\n\n"
-        "## Fix Summary\n"
-        f"{sections['fix_summary.md']}\n\n"
-        "## Test Summary\n"
-        f"{sections['test_result.md']}\n\n"
-        "## Diff Summary\n"
-        f"{sections['diff_summary.md']}\n\n"
-        "## Review Notes\n"
-        f"{sections['review_notes.md']}\n\n"
-        "## Next Step\n"
-        f"{next_step}\n"
+        + validation
     )
 
 
 def _build_manual_validation(repo_root: Path, issue_key: str) -> str:
-    target = issue_dir(repo_root, issue_key)
+    report = read_fix_report(repo_root, issue_key)
     retrieval = read_retrieval_quietly(repo_root, issue_key)
-    review_notes = (target / "review_notes.md").read_text(encoding="utf-8", errors="replace").strip() if (target / "review_notes.md").exists() else ""
+    review_notes = report.review_notes if report is not None else ""
     related_lines = [f"- {path}" for path in retrieval.top_files(10)] if retrieval is not None else []
     if review_notes:
-        related_lines.append("- Risks from review_notes.md:")
+        related_lines.append("- Risks from the report's Review Notes:")
         related_lines.extend(f"  {line}" for line in review_notes.splitlines() if line.strip())
     return (
-        "# Manual Validation\n\n"
-        "## Issue\n"
-        f"{issue_key}\n\n"
-        "## Original Context\n"
-        "Reference:\n"
-        f".ai/{issue_key}/{CONTEXT_ARTIFACT}\n\n"
-        "## Suggested Validation Steps\n"
+        "## Suggested Validation Steps\n\n"
         "1. Reproduce the original issue if possible.\n"
         "2. Confirm the failure no longer occurs.\n"
         "3. Confirm the fix does not change unrelated behavior.\n"
-        "4. Run focused tests listed in test_result.md if present.\n"
+        f"4. Run the focused tests named in {FIX_REPORT_ARTIFACT}'s Tests section, if any.\n"
         f"5. Check regression areas mentioned in {CONTEXT_ARTIFACT} and {RETRIEVAL_ARTIFACT}.\n\n"
-        "## Regression Areas\n"
+        "## Regression Areas\n\n"
         f"{chr(10).join(related_lines) if related_lines else '- No related files or review risks available yet.'}\n"
     )
 
@@ -1767,7 +1675,7 @@ def _build_final_review_prompt(issue_key: str) -> str:
         "Use:\n"
         f"- .ai/{issue_key}/{CONTEXT_ARTIFACT}\n"
         f"- .ai/{issue_key}/{RETRIEVAL_ARTIFACT} if present\n"
-        f"- .ai/{issue_key}/result_summary.md if present\n"
+        f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT} if present\n"
         "- current git diff\n\n"
         "Review focus:\n"
         "1. Correctness\n"
@@ -1788,36 +1696,25 @@ def _build_final_review_prompt(issue_key: str) -> str:
     )
 
 
-def _build_final_result_section(result_summary: str, incomplete: bool) -> str:
-    marker = "\n\nResult files incomplete. Manual update required." if incomplete else ""
+def _build_final_result_section(report: FixReport) -> str:
+    marker = (
+        "\n\nReport sections incomplete. Manual update required."
+        if report.missing_sections
+        else ""
+    )
     return (
         "## Final Result\n\n"
         "### Root Cause\n"
-        f"{_section(result_summary, '## Root Cause Summary')}\n\n"
+        f"{report.analysis or 'TBD'}\n\n"
         "### Fix\n"
-        f"{_section(result_summary, '## Fix Summary')}\n\n"
+        f"{report.changes or 'TBD'}\n\n"
         "### Tests\n"
-        f"{_section(result_summary, '## Test Summary')}\n\n"
+        f"{report.tests or 'TBD'}\n\n"
         "### Review Notes\n"
-        f"{_section(result_summary, '## Review Notes')}{marker}\n\n"
+        f"{report.review_notes or 'TBD'}{marker}\n\n"
         "### Updated At\n"
         f"{datetime.now(timezone.utc).isoformat()}\n"
     )
-
-
-def _section(markdown: str, heading: str) -> str:
-    lines = markdown.splitlines()
-    try:
-        start = lines.index(heading) + 1
-    except ValueError:
-        return "TBD"
-    collected = []
-    for line in lines[start:]:
-        if line.startswith("## ") and collected:
-            break
-        collected.append(line)
-    text = "\n".join(collected).strip()
-    return text or "TBD"
 
 
 def _replace_section(markdown: str, heading: str, replacement: str) -> str:
@@ -1844,13 +1741,14 @@ def _delivery_warnings(repo_root: Path, issue_key: str) -> list[str]:
         warnings.append("Working tree has no uncommitted changes visible for delivery.")
 
     warnings.extend(f"Missing required result file: {file_name}" for file_name in check_result_files(repo_root, issue_key))
-    for file_name in [
-        f".ai/{issue_key}/result_summary.md",
-        f".ai/{issue_key}/final_review_prompt.md",
-        f".ai_memory/bugs/{issue_key}.md",
-    ]:
-        if not (repo_root / file_name).exists():
-            warnings.append(f"Missing delivery artifact: {file_name}")
+    report = read_fix_report(repo_root, issue_key)
+    if report is not None and report.missing_sections:
+        warnings.append(
+            "Fix report sections still empty: " + ", ".join(report.missing_sections)
+        )
+    memory_file = f".ai_memory/bugs/{issue_key}.md"
+    if not (repo_root / memory_file).exists():
+        warnings.append(f"Missing delivery artifact: {memory_file}")
     return warnings
 
 
@@ -1887,7 +1785,7 @@ def _build_commit_plan(repo_root: Path, issue_key: str) -> str:
         "- Risk:\n\n"
         "## Safety Notes\n"
         "- Confirm branch is not main/master.\n"
-        "- Confirm result files are complete.\n"
+        f"- Confirm {FIX_REPORT_ARTIFACT} is complete.\n"
         "- Confirm tests are complete.\n\n"
         "## Manual Commands\n"
         "```bash\n"
@@ -1923,8 +1821,8 @@ def _build_push_plan(repo_root: Path, issue_key: str) -> str:
         "```\n\n"
         "## Safety Checklist\n"
         "- Not on main/master\n"
-        "- Result files complete\n"
-        "- Review package generated\n"
+        f"- {FIX_REPORT_ARTIFACT} complete\n"
+        "- Final review done\n"
         "- Memory updated\n\n"
         "## Manual Push Command\n"
         "```bash\n"
@@ -1945,9 +1843,9 @@ def _git_output(repo_root: Path, args: list[str], fallback: str) -> str:
 
 
 def _result_summary_line(repo_root: Path, issue_key: str) -> str:
-    path = issue_dir(repo_root, issue_key) / "result_summary.md"
-    if not path.exists():
+    report = read_fix_report(repo_root, issue_key)
+    if report is None:
         return "complete AI-assisted bug fix"
-    fix = _section(path.read_text(encoding="utf-8", errors="replace"), "## Fix Summary")
-    first_line = next((line.strip("- ").strip() for line in fix.splitlines() if line.strip() and line.strip() != "TBD"), "")
+    source = report.summary or report.changes
+    first_line = next((line.strip("- ").strip() for line in source.splitlines() if line.strip() and line.strip() != "TBD"), "")
     return first_line[:72] or "complete AI-assisted bug fix"

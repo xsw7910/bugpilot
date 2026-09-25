@@ -14,7 +14,7 @@ AI-assisted bug work often starts with scattered context and ends with useful in
 
 ## How It Works
 ```text
-Jira issue -> code search -> memory search -> context.md -> task.md -> result summary -> memory update -> delivery plan
+Jira issue -> code search -> memory search -> context.md -> task.md -> fix_report.md -> memory update -> delivery plan
 ```
 
 bugpilot prepares files under `.ai/<issue>/` and shared memory under `.ai_memory/bugs/<issue>.md`. Jira Cloud ADF descriptions and comments are converted into readable Markdown for the issue package, and Jira attachment metadata is surfaced without downloading attachment content. Code search includes a confidence assessment so low-confidence false positives are visible before the agent edits anything. The AI agent remains a manual handoff step, with reusable team instructions for legacy C++/Qt work.
@@ -111,8 +111,8 @@ When mock fallback is used, `issue.json` (`details.mock`) and `context.md` clear
 ## Email Notification Configuration
 At the commit gate (`bugpilot commit-plan <ISSUE>`), bugpilot can email you a summary of
 the completed fix: the Jira item, the original problem, the root cause, and the changes
-made. The email body is assembled from local `result_summary.md` and `issue.json`;
-run `bugpilot summarize-results <ISSUE>` first so those artifacts exist.
+made. The email body is assembled from the local `fix_report.md` and `issue.json`,
+so it says "not available" for anything the agent's report does not cover yet.
 
 bugpilot supports two automatic transports plus a manual Outlook option. It picks
 **Graph if configured, otherwise SMTP**. `bugpilot doctor` shows `email_configured`
@@ -177,8 +177,8 @@ Sending is opt-in and human-controlled, matching the rest of the workflow:
 ```powershell
 bugpilot notify JR-12345             # preview only: writes email_draft.md + notification.eml, sends nothing
 bugpilot notify JR-12345 --execute   # send automatically (Graph if configured, else SMTP)
-bugpilot commit-plan JR-12345        # generate commit plan AND send the notification email
-bugpilot commit-plan JR-12345 --no-email   # generate commit plan without sending email
+bugpilot commit-plan JR-12345        # print the commit plan AND send the notification email
+bugpilot commit-plan JR-12345 --no-email   # print the commit plan without sending email
 ```
 
 If no transport is configured, `commit-plan` still succeeds and simply reports that no
@@ -219,7 +219,7 @@ Notes:
 ## Optional: Let an Agent Complete the Workflow
 By default `bugpilot bug` is prepare-only and prints the manual handoff line. You can
 instead have it launch a coding agent to read `task.md` and complete the
-workflow (analyze, implement the smallest safe fix, write result files, post one Jira
+workflow (analyze, implement the smallest safe fix, write the fix report, post one Jira
 status comment) — the agent still stops at the commit gate and asks before committing.
 
 ```powershell
@@ -327,10 +327,10 @@ bugpilot push-plan JR-12345
 - `bugpilot prompt <ISSUE>`: generate `task.md`.
 - `bugpilot agent-task <ISSUE>`: regenerate `task.md` from an existing `context.md`.
 - `bugpilot agent-instructions <ISSUE>`: print the team instructions `task.md` includes.
-- `bugpilot check-results <ISSUE>`: check whether agent result files exist.
-- `bugpilot check-results <ISSUE> --strict`: return nonzero if required result files are missing.
-- `bugpilot summarize-results <ISSUE>`: generate result summary and manual validation files.
-- `bugpilot review-package <ISSUE>`: generate final review prompt.
+- `bugpilot check-results <ISSUE>`: check whether the agent's `fix_report.md` exists.
+- `bugpilot check-results <ISSUE> --strict`: return nonzero if the fix report is missing.
+- `bugpilot summarize-results <ISSUE>`: print the fix report's status and a suggested validation checklist.
+- `bugpilot review-package <ISSUE>`: print the final review prompt.
 - `bugpilot jira-comment-draft <ISSUE>`: generate a local, reviewable Jira comment draft from existing bugpilot artifacts.
 - `bugpilot jira-comment-draft <ISSUE> --strict`: require agent result files before generating the local draft.
 - `bugpilot jira-comment <ISSUE>`: preview the local Jira comment draft without posting to Jira.
@@ -340,12 +340,12 @@ bugpilot push-plan JR-12345
 - `bugpilot fix-mode list`: the AI Fix Modes this repository can run; `--all-scopes` shows every definition on disk, including shadowed ones.
 - `bugpilot fix-mode show <id>`: one mode in full, including its six instruction sections.
 - `bugpilot fix-mode duplicate|create|update|delete ... --scope user|project`: manage custom modes (`--expected-version N` guards `update` and `delete`; `--json` on every subcommand).
-- `bugpilot manual-result <ISSUE>`: create developer manual-fix result templates without overwriting existing result files.
-- `bugpilot manual-result <ISSUE> --overwrite`: replace result files with fresh manual-fix templates.
+- `bugpilot manual-result <ISSUE>`: create the developer manual-fix `fix_report.md` template without overwriting an existing report.
+- `bugpilot manual-result <ISSUE> --overwrite`: replace the report with a fresh manual-fix template.
 - `bugpilot delivery-check <ISSUE>`: check readiness for manual delivery.
 - `bugpilot notify <ISSUE>`: write the post-fix notification (`email_draft.md` + `notification.eml`); add `--execute` to send automatically (Graph if configured, else SMTP).
-- `bugpilot commit-plan <ISSUE>`: generate a manual commit plan and email the fix summary at the commit gate (`--no-email` to skip).
-- `bugpilot push-plan <ISSUE>`: generate a manual push plan.
+- `bugpilot commit-plan <ISSUE>`: print a manual commit plan and email the fix summary at the commit gate (`--no-email` to skip).
+- `bugpilot push-plan <ISSUE>`: print a manual push plan.
 - `bugpilot clean <ISSUE>`: remove generated `.ai/<issue>/` workflow artifacts while preserving memory.
 - `bugpilot clean <ISSUE> --include-memory`: also remove `.ai_memory/bugs/<issue>.md` for that issue only.
 - `bugpilot status <ISSUE>`: show workflow status and generated files.
