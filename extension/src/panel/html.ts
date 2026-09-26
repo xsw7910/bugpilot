@@ -913,9 +913,18 @@ function stepContent(id: WorkflowStepId): string {
             </div>`;
   }
   if (id === "fixResult") {
+    // Read the report first; then, if wanted, prepare someone else's review of
+    // it (Batch 9). The label says what the button does — it copies a prompt;
+    // no review runs — and its own span, so the page can say it is busy
+    // without dropping the icon.
     return `            <div class="step-actions" id="actions-fixResult" hidden>
               ${actionButton(OPEN_FIX_REPORT)}
-            </div>`;
+              <button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to check this fix" hidden><span class="codicon codicon-copy" aria-hidden="true"></span><span id="copy-review-prompt-label">Copy Review Prompt</span></button>
+            </div>
+            <details class="validation" id="validation-checklist" hidden>
+              <summary id="validation-summary">Validation checklist</summary>
+              <div id="validation-body" aria-live="polite"></div>
+            </details>`;
   }
   if (id === "fixWithAI") {
     // The mode the task was prepared with — what the agent was actually told,

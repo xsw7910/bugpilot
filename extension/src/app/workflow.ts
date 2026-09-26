@@ -33,6 +33,7 @@ import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_ARTIFACT } from "./artifact
 import type { RelevantFile } from "./contextSummary.ts";
 import type { UserFacingError } from "./failures.ts";
 import type { FixReportPreview } from "./fixReport.ts";
+import type { ValidationChecklist } from "./reviewPackage.ts";
 import type { PlanState, Source } from "./form.ts";
 import { HANDOFF_STARTED_TITLE } from "./handoff.ts";
 import type { IssueSummary } from "./issue.ts";
@@ -77,7 +78,19 @@ export const WORKFLOW_STEP_IDS: readonly Exclude<WorkflowStepId, "fixResult">[] 
 export type StepStatus = "idle" | "running" | "success" | "ready" | "failed" | "skipped";
 
 /** An action a row offers, once that row has produced what it acts on. */
-export type StepActionId = "openContext" | "copyContext" | "fixWithAI" | "openFixReport";
+export type StepActionId = "openContext" | "copyContext" | "fixWithAI" | "openFixReport" | "copyReviewPrompt";
+
+/**
+ * Fix result's Validation checklist, as far as it has been asked for.
+ *
+ * Absent until the developer opens it; then loading, then the CLI's checklist or
+ * why it could not be had. Guidance either way — no state here says a step was
+ * done, and none is persisted.
+ */
+export type ValidationView =
+  | { readonly state: "loading" }
+  | { readonly state: "ready"; readonly checklist: ValidationChecklist }
+  | { readonly state: "failed"; readonly message: string };
 
 /** What Code search found, from `retrieval.json`, for its two disclosures. */
 export interface SearchContent {
@@ -127,6 +140,10 @@ export interface WorkflowStepResult {
   readonly actions: readonly StepActionId[];
   /** Code search only: which files and which terms. */
   readonly search?: SearchContent;
+  /** Fix result only: the Validation checklist, once asked for. */
+  readonly validation?: ValidationView;
+  /** Fix result only: the review prompt is being prepared, so the button waits. */
+  readonly copyingReviewPrompt?: true;
   /**
    * A failure this row owns.
    *
@@ -227,6 +244,10 @@ export interface WorkflowInput {
    * listed report that could not be read still gets its row.
    */
   readonly fixReport?: FixReportPreview;
+  /** Fix result's Validation checklist, for the work item on screen. */
+  readonly validation?: ValidationView;
+  /** True while Copy Review Prompt is waiting for the CLI. */
+  readonly copyingReviewPrompt?: boolean;
 }
 
 /** The five capability rows, in `progress.ts` terms. */
@@ -319,7 +340,12 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
     summary: report?.summary ?? "Fix report available",
     ...(detail === undefined ? {} : { detail }),
     artifact: FIX_REPORT_ARTIFACT,
-    actions: ["openFixReport"],
+    // Reading the report first, then preparing someone else's review of it.
+    // Both are offered with any report: the prompt and the checklist are built
+    // from the work item's files, and a partial report is still one to review.
+    actions: ["openFixReport", "copyReviewPrompt"],
+    ...(input.validation === undefined ? {} : { validation: input.validation }),
+    ...(input.copyingReviewPrompt ? { copyingReviewPrompt: true as const } : {}),
   };
 }
 

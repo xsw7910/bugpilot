@@ -30,11 +30,13 @@ import { ISSUE_ARTIFACT, parseIssue } from "./issue.ts";
 import type { IssueSummary } from "./issue.ts";
 import { parseFixReport } from "./fixReport.ts";
 import type { FixReportPreview } from "./fixReport.ts";
+import { reviewPackageArgs, reviewPackageFromEnvelope } from "./reviewPackage.ts";
+import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
 import { buildWorkflow, canOpenFolder, overallStatus } from "./workflow.ts";
-import type { FixWithAiOutcome } from "./workflow.ts";
+import type { FixWithAiOutcome, ValidationView } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
 import { handoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
@@ -327,6 +329,17 @@ export class Controller {
    * it. Two bounded lines, never the report: the editor opens the file itself.
    */
   #fixReport: FixReportPreview | undefined;
+  /** Fix result's Validation checklist, for the work item on screen; undefined until asked for. */
+  #validation: ValidationView | undefined;
+  #copyingReviewPrompt = false;
+  /**
+   * Bumped whenever the checklist's sources may have changed — another work
+   * item, a run starting, the folder read again. A checklist that arrives under
+   * an older epoch is dropped: nothing of work item A may land on B. (Copy
+   * Review Prompt checks the work item itself: its prompt depends on nothing
+   * else.)
+   */
+  #validationEpoch = 0;
   /** The rows of the Relevant Files list, as the last refresh read them. */
   #files: readonly RelevantFile[] = [];
   /** How many the artifact held beyond the ones being shown. */
@@ -560,6 +573,8 @@ export class Controller {
         else if (message.id === "copyContext") await this.copyContext();
         else if (message.id === "openFolder") await this.openArtifactsFolder();
         else if (message.id === "fixWithAI") await this.fixWithAI();
+        else if (message.id === "copyReviewPrompt") await this.copyReviewPrompt();
+        else if (message.id === "loadValidation") await this.loadValidation();
         else await this.#ports.ui.editCredentials();
         return;
       case "command": {
@@ -1011,6 +1026,9 @@ export class Controller {
     const names = listing.kind === "ok" ? listing.names : [];
     this.#artifactNames = names;
     this.#artifacts = buildArtifactList({ names });
+    // The report may have been rewritten since the checklist was read. A copy
+    // in flight is not affected: the prompt depends on the work item alone.
+    this.#forgetValidation();
     await this.#readSummary(workItemId, names);
     // Retry needs a package to retry: `bug --retry` reads the prepared
     // artifacts, so offering it after a run that was stopped before producing
@@ -1578,10 +1596,125 @@ export class Controller {
   #forgetSummary(): void {
     this.#issue = undefined;
     this.#fixReport = undefined;
+    this.#forgetPostFix();
     this.#searchCounts = {};
     this.#files = [];
     this.#moreFiles = 0;
     this.#terms = [];
+  }
+
+  /** Drop Fix result's review aids: another work item, or a run starting. */
+  #forgetPostFix(): void {
+    this.#forgetValidation();
+    this.#copyingReviewPrompt = false;
+  }
+
+  /**
+   * Drop the Validation checklist and any load of it in flight — the report or
+   * retrieval.json it was built from may have changed.
+   */
+  #forgetValidation(): void {
+    this.#validation = undefined;
+    this.#validationEpoch += 1;
+  }
+
+  /**
+   * Whether Fix result's review aids are on offer right now.
+   *
+   * The same condition as the row itself: a work item, and its report in the
+   * listing. A page that asks for them otherwise is refused, like any action
+   * nothing offered.
+   */
+  #offersPostFix(): boolean {
+    return (
+      this.#workItemId !== undefined &&
+      this.#root !== undefined &&
+      this.#artifactNames.includes(FIX_REPORT_ARTIFACT)
+    );
+  }
+
+  /**
+   * Copy the final-review prompt to the clipboard, for whichever reviewer the
+   * developer uses.
+   *
+   * Prepared by `review-package --json`, the read-only query: nothing is
+   * written, marked, posted or launched. The prompt asks for a review; copying
+   * it is not one, and nothing records that it happened.
+   */
+  async copyReviewPrompt(): Promise<void> {
+    const workItemId = this.#workItemId;
+    const root = this.#root;
+    if (!workItemId || !root || !this.#offersPostFix()) {
+      this.#ports.log.error("Refusing to copy a review prompt: no fix report is on screen.");
+      return;
+    }
+    if (this.#copyingReviewPrompt) return;
+    this.#copyingReviewPrompt = true;
+    this.#push();
+    const result = await this.#reviewPackage(workItemId, root);
+    // The prompt is a function of the work item alone, so the folder read again
+    // or a re-run of the same one does not stale it. Another work item on
+    // screen, or its report gone, does: nothing is copied, and nothing said.
+    const sameItem = this.#workItemId === workItemId;
+    if (sameItem) this.#copyingReviewPrompt = false;
+    if (!sameItem || !this.#offersPostFix()) {
+      if (sameItem) this.#push();
+      return;
+    }
+    if (typeof result === "string") {
+      this.#push();
+      this.#ports.ui.notify("error", `Could not prepare the review prompt: ${result}`);
+      return;
+    }
+    try {
+      await this.#ports.ui.copyToClipboard(result.prompt);
+    } catch (error) {
+      this.#push();
+      this.#ports.ui.notify("error", `Could not copy the review prompt: ${oneSentence((error as Error).message)}`);
+      return;
+    }
+    this.#push();
+    this.#ports.ui.notify("info", "Review prompt copied. Paste it into the reviewer you use.");
+  }
+
+  /**
+   * Fetch Fix result's Validation checklist, when the developer opens it.
+   *
+   * Once per report on screen: loading or loaded, a second ask is ignored; a
+   * failure can be retried. Guidance only — nothing here records a check.
+   */
+  async loadValidation(): Promise<void> {
+    const workItemId = this.#workItemId;
+    const root = this.#root;
+    if (!workItemId || !root || !this.#offersPostFix()) {
+      this.#ports.log.error("Refusing to load a validation checklist: no fix report is on screen.");
+      return;
+    }
+    if (this.#validation?.state === "loading" || this.#validation?.state === "ready") return;
+    const epoch = this.#validationEpoch;
+    this.#validation = { state: "loading" };
+    this.#push();
+    const result = await this.#reviewPackage(workItemId, root);
+    // Another work item, a run, or the folder read again since: this list is
+    // about files nobody is looking at any more.
+    if (epoch !== this.#validationEpoch) return;
+    this.#validation =
+      typeof result === "string" ? { state: "failed", message: result } : { state: "ready", checklist: result.validation };
+    this.#push();
+  }
+
+  /** `review-package --json`, read: the package, or why there is none, in one sentence. */
+  async #reviewPackage(workItemId: string, root: string): Promise<ReviewPackage | string> {
+    try {
+      const envelope = await this.#ports.runner.runJson(reviewPackageArgs(workItemId), {
+        cwd: root,
+        timeoutMs: 60_000,
+      });
+      if (!envelope.ok) return oneSentence(envelope.error.message);
+      return reviewPackageFromEnvelope(envelope) ?? "bugpilot returned a review package this extension could not read.";
+    } catch (error) {
+      return oneSentence((error as Error).message);
+    }
   }
 
   /**
@@ -1704,6 +1837,8 @@ export class Controller {
       ...(failed === undefined ? {} : { runError: failed }),
       ...(strategy === undefined ? {} : { strategy }),
       ...(this.#fixReport === undefined ? {} : { fixReport: this.#fixReport }),
+      ...(this.#validation === undefined ? {} : { validation: this.#validation }),
+      copyingReviewPrompt: this.#copyingReviewPrompt,
     });
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.
@@ -1747,4 +1882,10 @@ export class Controller {
       ...(this.#workItemId === undefined ? {} : { workItemId: this.#workItemId }),
     });
   }
+}
+
+/** A CLI message, bounded for a notification or a panel line. */
+function oneSentence(message: string): string {
+  const text = message.replace(/\s+/g, " ").trim() || "bugpilot gave no reason.";
+  return text.length > 300 ? `${text.slice(0, 299).trimEnd()}…` : text;
 }

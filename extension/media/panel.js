@@ -197,6 +197,12 @@
    * constrained `openArtifact` path the artifact tree uses, never a path.
    */
   const rowArtifacts = {};
+  /** The Validation checklist as last rendered, so opening it knows whether to ask. */
+  let validationState;
+  /** Which work item's checklist the disclosure belongs to. */
+  let validationWorkItem;
+  /** What the checklist body last showed, so an unchanged push leaves it alone. */
+  let validationSignature = "";
 
   // --- growing fields ------------------------------------------------------
 
@@ -672,7 +678,7 @@
     const byStep = Object.fromEntries(steps.map((step) => [step.id, step]));
     renderSearch(byStep.codeSearch);
     renderStepActions(byStep.buildContext, byStep.fixWithAI);
-    renderFixResult(byStep.fixResult);
+    renderFixResult(byStep.fixResult, state.workItemId);
 
     const overall = state.overall || { kind: "idle", text: "" };
     const status = byId("workflow-status");
@@ -733,14 +739,23 @@
    * Absent, it is hidden and emptied — its link and button forget the file, so
    * a work item without a report can never open the last one's.
    */
-  function renderFixResult(step) {
+  function renderFixResult(step, workItemId) {
     byId("step-fixResult").hidden = !step;
-    const offered = Boolean(step && (step.actions || []).includes("openFixReport") && rowArtifacts.fixResult);
-    byId("open-fix-report").hidden = !offered;
-    byId("actions-fixResult").hidden = !offered;
+    const actions = (step && step.actions) || [];
+    const opens = Boolean(step && actions.includes("openFixReport") && rowArtifacts.fixResult);
+    const copies = Boolean(step && actions.includes("copyReviewPrompt"));
+    byId("open-fix-report").hidden = !opens;
+    byId("copy-review-prompt").hidden = !copies;
+    byId("actions-fixResult").hidden = !opens && !copies;
+    // Waiting for the CLI: one press at a time, and said in words.
+    const copying = Boolean(step && step.copyingReviewPrompt);
+    byId("copy-review-prompt").disabled = copying;
+    byId("copy-review-prompt").setAttribute("aria-busy", copying ? "true" : "false");
+    byId("copy-review-prompt-label").textContent = copying ? "Copying…" : "Copy Review Prompt";
     // The lines are clamped on screen; the whole bounded line is the hover.
     byId("description-fixResult").setAttribute("title", step ? step.summary || "" : "");
     byId("detail-fixResult").setAttribute("title", step ? step.detail || "" : "");
+    renderValidation(step, workItemId);
     if (step) return;
     rowArtifacts.fixResult = "";
     byId("artifact-fixResult").hidden = true;
@@ -748,6 +763,84 @@
     byId("description-fixResult").textContent = "";
     byId("detail-fixResult").textContent = "";
     byId("detail-fixResult").hidden = true;
+  }
+
+  /**
+   * Fix result's Validation checklist: collapsed, loaded when first opened.
+   *
+   * Guidance the CLI builds from the report and retrieval.json — never a result,
+   * so no item carries a tick or a colour. Every line is text. A different work
+   * item closes it, so B never opens on A's list.
+   */
+  function renderValidation(step, workItemId) {
+    const disclosure = byId("validation-checklist");
+    disclosure.hidden = !step;
+    if (!step || workItemId !== validationWorkItem) disclosure.open = false;
+    validationWorkItem = step ? workItemId : undefined;
+    validationState = step ? step.validation : undefined;
+
+    // Rebuilt only when what it says changed. The body is a live region, so a
+    // rebuild on every push — a Copy press, a progress event — would read the
+    // whole list out again and take focus off Retry or Load.
+    const signature = step ? JSON.stringify([workItemId, validationState || null]) : "";
+    if (signature === validationSignature) return;
+    validationSignature = signature;
+
+    const body = byId("validation-body");
+    body.replaceChildren();
+    const view = validationState;
+    if (!step) return;
+    if (!view) {
+      // Not asked for yet: opening the disclosure asks. Shown only if it is
+      // open without a list — after the folder was read again, say.
+      body.append(validationButton("Load checklist"));
+      return;
+    }
+    if (view.state === "loading") {
+      body.append(line("p", "muted", "Loading…"));
+      return;
+    }
+    if (view.state === "failed") {
+      body.append(line("p", "error", `Validation checklist unavailable: ${view.message}`));
+      body.append(validationButton("Retry"));
+      return;
+    }
+    const checklist = view.checklist || { steps: [], files: [], risks: [] };
+    const steps = document.createElement("ol");
+    steps.className = "validation-steps";
+    for (const item of checklist.steps || []) steps.append(line("li", "", item));
+    body.append(steps);
+    const files = checklist.files || [];
+    const risks = checklist.risks || [];
+    if (files.length > 0 || risks.length > 0) {
+      body.append(line("p", "validation-heading", "Regression areas"));
+      const areas = document.createElement("ul");
+      areas.className = "validation-areas";
+      for (const file of files) areas.append(line("li", "validation-file", file));
+      for (const risk of risks) areas.append(line("li", "", risk));
+      body.append(areas);
+    }
+    if (checklist.moreRisks) {
+      body.append(line("p", "muted", `${checklist.moreRisks} more in fix_report.md`));
+    }
+  }
+
+  /** An element with nothing in it but text. */
+  function line(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = text;
+    return element;
+  }
+
+  /** The one control inside the disclosure: ask the host for the list. */
+  function validationButton(label) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "result-link";
+    button.textContent = label;
+    button.addEventListener("click", () => vscode.postMessage({ type: "action", id: "loadValidation" }));
+    return button;
   }
 
   /**
@@ -1796,6 +1889,20 @@
   byId("open-fix-report").addEventListener("click", () => {
     if (rowArtifacts.fixResult) {
       vscode.postMessage({ type: "openArtifact", name: rowArtifacts.fixResult });
+    }
+  });
+  // Copy Review Prompt: the host prepares the prompt and copies it; the page
+  // only asks, and the host refuses when no report is on screen.
+  byId("copy-review-prompt").addEventListener("click", () => {
+    if (!byId("copy-review-prompt").hidden && !byId("copy-review-prompt").disabled) {
+      vscode.postMessage({ type: "action", id: "copyReviewPrompt" });
+    }
+  });
+  // Opening the checklist is what asks for it — once, and never on a render.
+  byId("validation-checklist").addEventListener("toggle", () => {
+    const disclosure = byId("validation-checklist");
+    if (disclosure.open && !disclosure.hidden && validationState === undefined) {
+      vscode.postMessage({ type: "action", id: "loadValidation" });
     }
   });
   // The dialog can only be opened by the host, so this asks — and carries the

@@ -100,7 +100,8 @@ interface HarnessOptions {
   readonly foreignVersion?: number;
   readonly stderr?: string;
   readonly streamThrows?: Error;
-  readonly json?: Envelope | (() => Envelope);
+  /** A function may answer later, which is how a test holds a request open. */
+  readonly json?: Envelope | (() => Envelope | Promise<Envelope>);
   readonly jsonThrows?: Error;
   readonly environment?: Environment;
   readonly files?: Record<string, string>;
@@ -137,6 +138,8 @@ interface HarnessOptions {
   readonly issueDetails?: { title: string; description: string };
   /** Make the issue lookup throw rather than come back empty. */
   readonly issueDetailsThrows?: Error;
+  /** Make the clipboard refuse, as a webview host can. */
+  readonly clipboardThrows?: Error;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -215,6 +218,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         opened.push(file);
       },
       copyToClipboard: async (text) => {
+        if (options.clipboardThrows) throw options.clipboardThrows;
         clipboard.push(text);
       },
       confirm: async () => options.confirm ?? true,
@@ -4096,4 +4100,365 @@ test("Open Fix Report opens fix_report.md in the current work item, and nothing 
     await h.controller.openArtifact(name);
   }
   assert.equal(h.opened.length, before, "a path outside the work item was opened");
+});
+
+// --- Batch 9: Fix result's review aids ----------------------------------------
+
+const REVIEW_PROMPT = "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n";
+
+/** What `review-package --json` answers for a work item with a report. */
+const REVIEW_PACKAGE: Envelope = {
+  ok: true,
+  command: "review-package",
+  warnings: [],
+  work_item_id: "JR-12345",
+  prompt: REVIEW_PROMPT,
+  validation: {
+    steps: ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
+    regression_files: ["src/widgets/WidgetController.cpp"],
+    review_risks: ["- The legacy VDS path is untested."],
+  },
+};
+
+/** A reopened work item with a report, and whatever the CLI is to answer. */
+const reviewable = (json: HarnessOptions["json"] = REVIEW_PACKAGE, directory: readonly string[] = [...PREPARED_FILES, "fix_report.md"]) =>
+  harness({
+    directory,
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+    json,
+  });
+
+const reviewRuns = (h: Harness) => h.jsonRuns.filter((run) => run.args[0] === "review-package");
+
+test("with no report there is nothing to copy or load, and the host refuses both", async () => {
+  const h = reviewable(REVIEW_PACKAGE, PREPARED_FILES);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(fixResultOf(h.last()), undefined);
+
+  await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  await h.controller.handle({ type: "action", id: "loadValidation" });
+
+  assert.deepEqual(reviewRuns(h), [], "a review aid ran without a report");
+  assert.deepEqual(h.clipboard, []);
+  assert.equal(h.logged.filter((line) => /Refusing to (copy a review prompt|load a validation checklist)/.test(line)).length, 2);
+});
+
+test("a report offers Copy Review Prompt, after Open Fix Report", async () => {
+  const h = reviewable();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt"]);
+  // Nothing is run until somebody asks.
+  assert.deepEqual(reviewRuns(h), []);
+});
+
+test("Copy Review Prompt copies exactly what review-package printed, and does nothing else", async () => {
+  const h = reviewable();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  const before = h.states.length;
+
+  await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+
+  assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [["review-package", "JR-12345", "--json"]]);
+  assert.equal(reviewRuns(h)[0]!.options.cwd, ROOT);
+  assert.deepEqual(h.clipboard, [REVIEW_PROMPT]);
+  assert.ok(h.notices.some((notice) => notice.kind === "info" && notice.message.startsWith("Review prompt copied.")));
+  // The button waited while the CLI worked, and not after.
+  assert.ok(h.states.slice(before).some((state) => fixResultOf(state)?.copyingReviewPrompt === true));
+  assert.equal(fixResultOf(h.last())?.copyingReviewPrompt, undefined);
+  // No review ran, nothing was written, launched, posted or pushed.
+  assert.deepEqual(h.written, []);
+  assert.deepEqual(h.terminals, []);
+  assert.deepEqual(h.streamRuns, []);
+  assert.deepEqual(h.ranCommands, []);
+  assert.deepEqual(h.probed, [], "an agent was looked for");
+  // And nothing about the row or the run says reviewed.
+  assert.equal(fixResultOf(h.last())?.summary, "Fixed it.");
+  assert.equal(h.last().overall.text, "Fix report available");
+  assert.equal(JSON.stringify(h.last()).includes("Reviewed"), false);
+});
+
+test("a review prompt that cannot be prepared is said once, and changes nothing else", async () => {
+  const h = reviewable({ ok: false, command: "review-package", error: { code: "WORK_ITEM_NOT_FOUND", message: "Work item not found: .ai/JR-12345/" } });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  const rowBefore = fixResultOf(h.last());
+
+  await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+
+  assert.deepEqual(h.clipboard, []);
+  const errors = h.notices.filter((notice) => notice.kind === "error");
+  assert.equal(errors.length, 1, "the failure was said more than once");
+  assert.match(errors[0]!.message, /^Could not prepare the review prompt: Work item not found/);
+  const row = fixResultOf(h.last());
+  assert.equal(row?.summary, rowBefore?.summary);
+  assert.equal(row?.copyingReviewPrompt, undefined);
+  assert.equal(row?.error, undefined, "a secondary failure became the row's failure");
+  assert.equal(h.last().progress.state, "done");
+  assert.equal(h.last().runError, undefined);
+  assert.equal(fixRow(h.last()).status, "ready", "Fix with AI changed");
+});
+
+test("a review prompt for a work item that is no longer shown is never copied", async () => {
+  // A on screen, Copy pressed, B opened before the CLI answers: A's prompt must
+  // not reach the clipboard, and B must not hear about it.
+  let answer: (envelope: Envelope) => void = () => {};
+  const options: { directory: readonly string[]; files: Record<string, string>; json: () => Promise<Envelope> } = {
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: {
+      [nodePath.join("JR-1", "run.json")]: PREPARED_RUN_JSON,
+      [nodePath.join("JR-1", "fix_report.md")]: fixReportMd("A's report.", "1 passed."),
+      [nodePath.join("JR-2", "run.json")]: PREPARED_RUN_JSON,
+    },
+    json: () => new Promise<Envelope>((resolve) => { answer = resolve; }),
+  };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const copying = h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  await Promise.resolve();
+  options.directory = PREPARED_FILES;
+  await h.controller.showWorkItem("JR-2");
+  answer({ ...REVIEW_PACKAGE, work_item_id: "JR-1" });
+  await copying;
+
+  assert.deepEqual(h.clipboard, [], "A's prompt was copied after switching to B");
+  assert.equal(h.notices.some((notice) => /Review prompt copied/.test(notice.message)), false);
+  assert.equal(fixResultOf(h.last()), undefined);
+});
+
+test("a review prompt for a work item that is no longer shown is never copied onto one with its own report", async () => {
+  // As above, but B has a report too, so Copy Review Prompt is offered again by
+  // the time A's answer lands: only the work item check keeps A's prompt off
+  // the clipboard.
+  let answer: (envelope: Envelope) => void = () => {};
+  const options: { directory: readonly string[]; files: Record<string, string>; json: () => Promise<Envelope> } = {
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: {
+      [nodePath.join("JR-1", "run.json")]: PREPARED_RUN_JSON,
+      [nodePath.join("JR-1", "fix_report.md")]: fixReportMd("A's report.", "1 passed."),
+      [nodePath.join("JR-2", "run.json")]: PREPARED_RUN_JSON,
+      [nodePath.join("JR-2", "fix_report.md")]: fixReportMd("B's report.", "2 passed."),
+    },
+    json: () => new Promise<Envelope>((resolve) => { answer = resolve; }),
+  };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const copying = h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  await Promise.resolve();
+  await h.controller.showWorkItem("JR-2");
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt"]);
+  answer({ ...REVIEW_PACKAGE, work_item_id: "JR-1", prompt: "# Final Review Request\n\nReview the BugPilot result for work item JR-1.\n" });
+  await copying;
+
+  assert.deepEqual(h.clipboard, [], "A's prompt was copied onto B");
+  assert.equal(h.notices.some((notice) => /Review prompt copied/.test(notice.message)), false);
+  assert.equal(fixResultOf(h.last())?.summary, "B's report.");
+  assert.equal(fixResultOf(h.last())?.copyingReviewPrompt, undefined);
+
+  // B's own copy is unaffected.
+  const own = "# Final Review Request\n\nReview the BugPilot result for work item JR-2.\n";
+  options.json = async () => ({ ...REVIEW_PACKAGE, work_item_id: "JR-2", prompt: own });
+  await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  assert.deepEqual(h.clipboard, [own]);
+  assert.deepEqual(reviewRuns(h).map((run) => run.args[1]), ["JR-1", "JR-2"]);
+});
+
+test("the Validation checklist is fetched when asked for, once, and shown as the CLI built it", async () => {
+  const h = reviewable();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(fixResultOf(h.last())?.validation, undefined, "the checklist was loaded before anyone asked");
+  const before = h.states.length;
+
+  await h.controller.handle({ type: "action", id: "loadValidation" });
+
+  assert.ok(h.states.slice(before).some((state) => fixResultOf(state)?.validation?.state === "loading"));
+  assert.deepEqual(fixResultOf(h.last())?.validation, {
+    state: "ready",
+    checklist: {
+      steps: ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
+      files: ["src/widgets/WidgetController.cpp"],
+      risks: ["The legacy VDS path is untested."],
+    },
+  });
+  // Asking again changes nothing and runs nothing.
+  await h.controller.handle({ type: "action", id: "loadValidation" });
+  assert.equal(reviewRuns(h).length, 1);
+  // Guidance only: nothing written, no run state touched.
+  assert.deepEqual(h.written, []);
+  assert.equal(h.last().progress.state, "done");
+  assert.equal(h.last().overall.text, "Fix report available");
+  assert.deepEqual(h.clipboard, []);
+});
+
+test("a checklist that cannot be had is the disclosure's own failure, and can be retried", async () => {
+  let fail = true;
+  const h = reviewable(() =>
+    fail
+      ? { ok: false, command: "review-package", error: { code: "INTERNAL_ERROR", message: "retrieval.json could not be read" } }
+      : REVIEW_PACKAGE,
+  );
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  await h.controller.handle({ type: "action", id: "loadValidation" });
+  assert.deepEqual(fixResultOf(h.last())?.validation, { state: "failed", message: "retrieval.json could not be read" });
+  // Not a run failure, not the row's failure, not Fix with AI's.
+  assert.equal(h.last().progress.state, "done");
+  assert.equal(h.last().runError, undefined);
+  assert.equal(fixResultOf(h.last())?.error, undefined);
+  assert.equal(fixResultOf(h.last())?.summary, "Fixed it.");
+  assert.equal(fixRow(h.last()).status, "ready");
+
+  fail = false;
+  await h.controller.handle({ type: "action", id: "loadValidation" });
+  assert.equal(fixResultOf(h.last())?.validation?.state, "ready");
+});
+
+test("a checklist for a work item that is no longer shown never lands on the new one", async () => {
+  let answer: (envelope: Envelope) => void = () => {};
+  const options: { directory: readonly string[]; files: Record<string, string>; json: () => Promise<Envelope> } = {
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: {
+      [nodePath.join("JR-1", "run.json")]: PREPARED_RUN_JSON,
+      [nodePath.join("JR-1", "fix_report.md")]: fixReportMd("A's report.", "1 passed."),
+      [nodePath.join("JR-2", "run.json")]: PREPARED_RUN_JSON,
+      [nodePath.join("JR-2", "fix_report.md")]: fixReportMd("B's report.", "2 passed."),
+    },
+    json: () => new Promise<Envelope>((resolve) => { answer = resolve; }),
+  };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const loading = h.controller.handle({ type: "action", id: "loadValidation" });
+  await Promise.resolve();
+  await h.controller.showWorkItem("JR-2");
+  answer(REVIEW_PACKAGE);
+  await loading;
+
+  assert.equal(fixResultOf(h.last())?.summary, "B's report.");
+  assert.equal(fixResultOf(h.last())?.validation, undefined, "A's checklist landed on B");
+});
+
+test("reading the folder again forgets a checklist the report may no longer match", async () => {
+  const h = reviewable();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  await h.controller.handle({ type: "action", id: "loadValidation" });
+  assert.equal(fixResultOf(h.last())?.validation?.state, "ready");
+
+  await h.controller.refreshArtifacts();
+  assert.equal(fixResultOf(h.last())?.validation, undefined);
+});
+
+test("a re-run of the same work item keeps the review aids on the kept report", async () => {
+  // The Batch 8 rule: a non-Fresh re-run keeps the report, so the row — and its
+  // aids — stay. The query is read-only, so asking mid-run touches nothing the
+  // run is writing.
+  // Held before `completed`: the run is genuinely in flight.
+  const h = harness({
+    events: successfulRun.filter((event) => event.type !== "completed"),
+    hold: true,
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it last time.", "12 passed.") },
+    json: REVIEW_PACKAGE,
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  const running = h.controller.run(jiraForm());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(h.last().progress.state, "running");
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt"]);
+
+  const writesBefore = h.written.length;
+  await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  assert.deepEqual(h.clipboard, [REVIEW_PROMPT]);
+  assert.equal(h.written.length, writesBefore, "a review aid wrote a file mid-run");
+
+  h.release();
+  await running;
+});
+
+test("a copy in flight survives the folder being read again: the prompt depends on the work item alone", async () => {
+  // Refresh — or the end of a same-key re-run — does not stale a prompt built
+  // from the id; dropping it would leave the developer pasting whatever was on
+  // the clipboard before.
+  let answer: (envelope: Envelope) => void = () => {};
+  const h = reviewable(() => new Promise<Envelope>((resolve) => { answer = resolve; }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  const copying = h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  await Promise.resolve();
+  await h.controller.refreshArtifacts();
+  assert.equal(fixResultOf(h.last())?.copyingReviewPrompt, true, "a refresh re-enabled the button mid-copy");
+  answer(REVIEW_PACKAGE);
+  await copying;
+
+  assert.deepEqual(h.clipboard, [REVIEW_PROMPT]);
+  assert.equal(h.notices.filter((notice) => /Review prompt copied/.test(notice.message)).length, 1);
+  assert.equal(fixResultOf(h.last())?.copyingReviewPrompt, undefined);
+});
+
+test("a copy whose report vanished meanwhile is not made, and the button comes back", async () => {
+  let answer: (envelope: Envelope) => void = () => {};
+  const options: { directory: readonly string[]; files: Record<string, string>; json: () => Promise<Envelope> } = {
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+    json: () => new Promise<Envelope>((resolve) => { answer = resolve; }),
+  };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  const copying = h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  await Promise.resolve();
+  options.directory = PREPARED_FILES;
+  await h.controller.refreshArtifacts();
+  answer(REVIEW_PACKAGE);
+  await copying;
+
+  assert.deepEqual(h.clipboard, [], "a prompt was copied for a report that is gone");
+  assert.equal(h.notices.some((notice) => /Review prompt copied/.test(notice.message)), false);
+  assert.equal(fixResultOf(h.last()), undefined);
+});
+
+test("a checklist in flight when the folder is read again is dropped, not shown", async () => {
+  let answer: (envelope: Envelope) => void = () => {};
+  const h = reviewable(() => new Promise<Envelope>((resolve) => { answer = resolve; }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  const loading = h.controller.handle({ type: "action", id: "loadValidation" });
+  await Promise.resolve();
+  await h.controller.refreshArtifacts();
+  answer(REVIEW_PACKAGE);
+  await loading;
+
+  // The report may have changed: the list built before the re-read is not shown.
+  assert.equal(fixResultOf(h.last())?.validation, undefined);
+});
+
+test("a clipboard that refuses is said, and the button comes back", async () => {
+  const h = harness({
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+    json: REVIEW_PACKAGE,
+    clipboardThrows: new Error("Clipboard write was denied."),
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+
+  assert.equal(fixResultOf(h.last())?.copyingReviewPrompt, undefined, "the button stayed on Copying…");
+  assert.ok(h.notices.some((notice) => notice.kind === "error" && notice.message === "Could not copy the review prompt: Clipboard write was denied."));
+  assert.equal(h.notices.some((notice) => /Review prompt copied/.test(notice.message)), false);
 });

@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("parse", "keywords", "search", "git-context", "context", "status", "agent-instructions", "review-package", "delivery-check", "push-plan", "retry-prompt"):
         command = subparsers.add_parser(name, help=f"Run the {name} step.")
         command.add_argument("issue_key")
-        if name in {"status", "delivery-check", "search", "context"}:
+        if name in {"status", "delivery-check", "search", "context", "review-package"}:
             _add_json_flag(command)
 
     for name in ("prompt", "agent-task"):
@@ -669,6 +669,35 @@ def _dispatch(args, repo_root: Path) -> int:
         return _list_work_items(repo_root, args.json_output)
 
     if args.command == "review-package":
+        if args.json_output:
+            # A query, not a step: the prompt and the validation checklist, with
+            # nothing created, marked or posted — what a panel button may run.
+            try:
+                prompt, checklist = workflow.review_package_projection(repo_root, args.issue_key)
+            except workflow.WorkItemNotFoundError as exc:
+                cli_json.emit_failure("review-package", errors.WORK_ITEM_NOT_FOUND, str(exc), work_item_id=args.issue_key)
+                return 1
+            except ValueError as exc:
+                cli_json.emit_failure("review-package", errors.INVALID_INPUT, str(exc), work_item_id=args.issue_key)
+                return 1
+            except OSError as exc:
+                # A report or retrieval file that vanished or cannot be read
+                # mid-query — a Fresh run deleting it, say.
+                cli_json.emit_failure("review-package", errors.error_code_for(exc), str(exc), work_item_id=args.issue_key)
+                return 1
+            cli_json.emit(
+                cli_json.success(
+                    "review-package",
+                    work_item_id=args.issue_key,
+                    prompt=prompt,
+                    validation={
+                        "steps": list(checklist.steps),
+                        "regression_files": list(checklist.regression_files),
+                        "review_risks": [line.strip() for line in checklist.review_risks],
+                    },
+                )
+            )
+            return 0
         # Printed, not written: the developer pastes it into a reviewer, and
         # nothing ever read the file this used to produce.
         print(workflow.review_package_step(repo_root, args.issue_key), end="")

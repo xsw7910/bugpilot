@@ -1333,6 +1333,32 @@ fix_report.md
 A future Review / Verify Fix step stays separate from this row; `run.json`
 carries no Fix result step.
 
+### Confirmed decisions (Batch 9): review aids on Fix result
+
+1. **Post-fix review and validation aids belong to Fix result** and exist only
+   with it: Open Fix Report, then **Copy Review Prompt**, then a collapsed
+   **Validation checklist**. No Verify Fix row.
+2. **The review prompt is generated on demand and kept in memory**, from the
+   CLI's own builder, and goes to the clipboard. The label says what happens —
+   a prompt is copied; no review runs, and nothing records that one did. The
+   prompt is source-, outcome- and provider-neutral: "Review the BugPilot result
+   for work item <id>", with the outcome left to `fix_report.md`.
+3. **The validation checklist is read-only guidance** from the canonical
+   builder (`summarize-results` renders the same checklist): five steps to try
+   by hand, related files, the report's Review Notes (at most eight shown). No
+   checkboxes, no pass/fail, nothing persisted. Loaded when first opened.
+4. **Neither aid changes run or fix status.** Both come from
+   `review-package --json`, a read-only query: no directory created, no step
+   mark in `run.json`, nothing posted — safe during a same-item re-run, and a
+   failure is the aid's own (a notice, or the disclosure's message), never the
+   row's, the run's or History's.
+5. **No review or verification artifact is persisted**: no
+   `final_review_prompt.md`, no checklist file, no verification record.
+6. **Delivery stays separate**: Jira posting, commit and push are not offered
+   on the row.
+7. **No automatic tests, no agent-completion tracking**: the aids prepare and
+   inform; the developer stays in control.
+
 ---
 
 # 20. Step Secondary Text 状态原则

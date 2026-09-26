@@ -217,6 +217,16 @@ agent is still working; it only means nothing has been written. A re-run that is
 not **Fresh** keeps the last report, so during and after it the row can show the
 previous attempt's report until an agent writes a new one.
 
+Two review aids sit under the report, both built by the CLI from the work item's
+files. **Copy Review Prompt** puts a prompt on your clipboard asking a reviewer —
+any assistant, or a colleague — to check the fix against `context.md`,
+`retrieval.json`, `fix_report.md` and the current diff; it prepares the review,
+it does not run one. **Validation checklist**, collapsed until you open it,
+lists what to try by hand and the regression areas: related files and the
+report's Review Notes. It is guidance, not a verification — nothing is ticked,
+recorded or written, and neither aid changes the run, the report or History.
+Posting to Jira, committing and pushing stay separate and manual.
+
 BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.
 

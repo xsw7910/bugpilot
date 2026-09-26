@@ -429,7 +429,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
     def summarize_results(work_item_id: str) -> dict[str, object]:
         """The fix report's status and the validation checklist, rendered in memory.
 
-        Reads `fix_report.md` — the one post-agent report — and writes nothing.
+        Reads `fix_report.md` and writes no file, only its step mark in `run.json`.
         It never posts to Jira or sends mail; those stay with the developer.
 
         Args:

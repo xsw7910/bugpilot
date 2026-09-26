@@ -1808,6 +1808,8 @@ test("each result control exists exactly once, inside the row that owns it", () 
     ["copy-context", "Copy", "buildContext"],
     ["fix-with-ai", "Fix with AI", "fixWithAI"],
     ["open-fix-report", "Open Fix Report", "fixResult"],
+    ["copy-review-prompt", "Copy Review Prompt", "fixResult"],
+    ["validation-summary", "Validation checklist", "fixResult"],
   ] as const) {
     assert.equal(HTML.split(`id="${id}"`).length - 1, 1, `#${id} is declared more than once`);
     assert.ok(rowMarkup(owner).includes(`id="${id}"`), `#${id} is outside the ${owner} row`);
@@ -1837,6 +1839,40 @@ test("Fix result is a row the markup keeps hidden, with no checkbox and no failu
   // And it is last.
   const rows = [...HTML.matchAll(/<li class="step[^"]*" id="step-([A-Za-z]+)"/g)].map((match) => match[1]);
   assert.equal(rows.at(-1), "fixResult");
+});
+
+test("Fix result's review aids: read the report, copy a review prompt, open the checklist", () => {
+  // Batch 9. In that order — the report first — and all on the row that owns
+  // the report they are about.
+  const row = rowMarkup("fixResult");
+  const order = ['id="open-fix-report"', 'id="copy-review-prompt"', 'id="validation-checklist"'].map((id) => row.indexOf(id));
+  assert.ok(order.every((at) => at !== -1), "a review aid is not on the Fix result row");
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+
+  // The label says what the button does: it copies a prompt, and no review
+  // runs. Secondary, like Open Fix Report, and hidden until a report is there.
+  assert.match(row, /<button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to check this fix" hidden>/);
+  assert.match(row, /<span id="copy-review-prompt-label">Copy Review Prompt<\/span>/);
+  for (const overclaim of ["Review Result", "Run Review", "Verify Fix", "Reviewed", "Verified"]) {
+    assert.equal(HTML.includes(overclaim), false, `the panel says "${overclaim}"`);
+  }
+
+  // A disclosure, closed and hidden in the markup, whose body is announced as
+  // it fills.
+  const disclosure = /<details class="validation" id="validation-checklist"[^>]*>/.exec(row)?.[0] ?? "";
+  assert.match(disclosure, /\shidden>/);
+  assert.equal(/\bopen\b/.test(disclosure), false, "the checklist starts open");
+  assert.match(row, /<summary id="validation-summary">Validation checklist<\/summary>/);
+  assert.match(row, /<div id="validation-body" aria-live="polite"><\/div>/);
+  // Read-only guidance: no checkbox to tick.
+  assert.equal(/<input\b/.test(row), false);
+});
+
+test("the checklist's disclosure lets the hidden attribute win, and draws no ticks or colours", () => {
+  assert.match(CSS, /\.validation\[hidden\] \{\s*display: none/);
+  const rules = /\.validation-steps[\s\S]*?\.validation-file \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  assert.notEqual(rules, "");
+  assert.equal(/--vscode-(testing|charts|terminal\.ansiGreen|terminal\.ansiRed)/.test(rules), false);
 });
 
 test("the Fix result label lines up with the other rows' text, and is not clickable", () => {

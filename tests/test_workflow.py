@@ -1115,7 +1115,7 @@ def test_review_package_prints_the_final_review_prompt(tmp_path, monkeypatch, ca
     status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "# Final Review Request" in prompt
-    assert "Please review the completed fix for Jira issue JR-12345." in prompt
+    assert "Review the BugPilot result for work item JR-12345." in prompt
     assert ".ai/JR-12345/fix_report.md if present" in prompt
     assert "Verdict:" in prompt
     assert "PASS / PASS WITH MINOR COMMENTS / NEEDS CHANGES" in prompt

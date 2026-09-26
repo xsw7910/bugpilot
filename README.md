@@ -330,7 +330,7 @@ bugpilot push-plan JR-12345
 - `bugpilot check-results <ISSUE>`: check whether the agent's `fix_report.md` exists.
 - `bugpilot check-results <ISSUE> --strict`: return nonzero if the fix report is missing.
 - `bugpilot summarize-results <ISSUE>`: print the fix report's status and a suggested validation checklist.
-- `bugpilot review-package <ISSUE>`: print the final review prompt.
+- `bugpilot review-package <ISSUE>`: print the final review prompt. With `--json` it returns the prompt and the validation checklist as a read-only query — nothing created, marked in `run.json` or posted — which is what the VS Code extension's Copy Review Prompt and Validation checklist use.
 - `bugpilot jira-comment-draft <ISSUE>`: generate a local, reviewable Jira comment draft from existing bugpilot artifacts.
 - `bugpilot jira-comment-draft <ISSUE> --strict`: require agent result files before generating the local draft.
 - `bugpilot jira-comment <ISSUE>`: preview the local Jira comment draft without posting to Jira.

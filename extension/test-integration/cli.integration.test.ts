@@ -35,6 +35,7 @@ import { buildArtifactList, historyFromPayload } from "../src/app/artifacts.ts";
 import { buildPrepareArgs, DEFAULT_FORM } from "../src/app/form.ts";
 import { diagnose, knownCodes } from "../src/errors.ts";
 import { discoverExecutable } from "../src/executable.ts";
+import { reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -379,6 +380,52 @@ test("the Fix Mode a form carries reaches issue.json and task.md, for a built-in
     assert.match(section, new RegExp(`- Source: ${mode.source}`), mode.fixModeId);
     assert.match(section, new RegExp(`- Execution: ${mode.kind}`), mode.fixModeId);
   }
+});
+
+// --- Fix result's review aids ---------------------------------------------
+
+test("review-package --json gives the review aids and leaves the work item untouched", async () => {
+  // What Copy Review Prompt and the Validation checklist run (Batch 9): the real
+  // CLI, the extension's own reader, and a directory that must not change.
+  const root = repository();
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.equal(built.ok, true);
+  if (!built.ok) return;
+  const tracker = new ProgressTracker(DEFAULT_FORM.plan);
+  await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+    (event) => tracker.apply(event),
+  );
+  const workItemId = tracker.view().workItemId!;
+  const directory = path.join(root, ".ai", workItemId);
+  writeFileSync(
+    path.join(directory, "fix_report.md"),
+    `# Fix Report: ${workItemId}\n\n## Summary\n\nFixed the KeyError.\n\n## Tests\n\nNot run.\n\n## Review Notes\n\n- The id is still required by callers.\n`,
+    "utf8",
+  );
+  const snapshot = () => Object.fromEntries(readdirSync(directory).map((name) => [name, readFileSync(path.join(directory, name), "utf8")]));
+  const before = snapshot();
+
+  const result = await runner().run([...MODULE, ...reviewPackageArgs(workItemId)], {
+    cwd: root,
+    env: ENVIRONMENT,
+    timeoutMs: 120_000,
+  });
+  const review = reviewPackageFromEnvelope(parseEnvelope(result.stdout, result.stderr));
+
+  assert.ok(review, "the extension could not read review-package --json");
+  assert.match(review.prompt, /^# Final Review Request\n/);
+  assert.match(review.prompt, new RegExp(`\\.ai/${workItemId}/fix_report\\.md`));
+  assert.equal(review.validation.steps.length, 5);
+  assert.deepEqual([...review.validation.risks], ["The id is still required by callers."]);
+  assert.ok(review.validation.files.some((file) => file.endsWith("record.py")), review.validation.files.join(", "));
+  // Read-only: not a byte changed, no file added, run.json included.
+  assert.deepEqual(snapshot(), before);
+
+  // And the human command still prints exactly the same prompt.
+  const human = await runner().run([...MODULE, "review-package", workItemId], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
+  assert.equal(human.stdout.replaceAll("\r\n", "\n"), review.prompt.replaceAll("\r\n", "\n"));
 });
 
 // --- the install matrix ----------------------------------------------------

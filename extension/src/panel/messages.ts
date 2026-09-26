@@ -216,6 +216,10 @@ export const PANEL_ACTIONS = [
   "openFolder",
   "fixWithAI",
   "setCredentials",
+  // Fix result's two review aids (Batch 9). Accepted only while a report is on
+  // screen: the controller checks, the page merely asks.
+  "copyReviewPrompt",
+  "loadValidation",
 ] as const;
 export type PanelAction = (typeof PANEL_ACTIONS)[number];
 

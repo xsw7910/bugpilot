@@ -2894,8 +2894,11 @@ test("a result from one run does not survive into the next", () => {
 // --- Fix result (Batch 8) ---------------------------------------------------
 
 /** A finished work item whose agent left a report. */
-const reported = (fixReport: { readable: boolean; summary?: string; tests?: string }, extra = {}) =>
-  prepared({ artifacts: [...PREPARED_FILES, "fix_report.md"], fixReport, ...extra });
+const reported = (
+  fixReport: { readable: boolean; summary?: string; tests?: string },
+  extra: Partial<WorkflowInput> = {},
+  overrides: Partial<PanelState> = {},
+) => prepared({ artifacts: [...PREPARED_FILES, "fix_report.md"], fixReport, ...extra }, overrides);
 
 test("no report, no Fix result row", () => {
   const p = load();
@@ -3042,6 +3045,166 @@ test("a report is a result: it alone makes a work item one worth opening the wor
   assert.equal(withReport.byId("workflow-status").textContent, "Fix report available");
   assert.equal(withReport.byId("workflow").open, true);
   assert.equal(withReport.byId("description-fixResult").textContent, "Fixed it.");
+});
+
+// --- Fix result's review aids (Batch 9) --------------------------------------
+
+const CHECKLIST = {
+  steps: ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
+  files: ["src/widgets/WidgetController.cpp"],
+  risks: ["The legacy VDS path is untested."],
+};
+
+const REPORT = { readable: true, summary: "Fixed it.", tests: "3 passed." };
+
+/** The texts of the Validation checklist body's elements, in order, one level down. */
+const validationTexts = (p: Page) =>
+  p.byId("validation-body").children.map((child) =>
+    child.children.length > 0 ? child.children.map((item) => item.textContent) : child.textContent,
+  );
+
+test("no report, no review aids", () => {
+  const p = load();
+  p.send(prepared());
+  assert.equal(p.byId("copy-review-prompt").hidden, true);
+  assert.equal(p.byId("validation-checklist").hidden, true);
+});
+
+test("a report offers Copy Review Prompt beside Open Fix Report, and a closed checklist", () => {
+  const p = load();
+  p.send(reported(REPORT));
+
+  assert.equal(p.byId("copy-review-prompt").hidden, false);
+  assert.equal(p.byId("copy-review-prompt-label").textContent, "Copy Review Prompt");
+  assert.equal(p.byId("copy-review-prompt").disabled, false);
+  assert.equal(p.byId("validation-checklist").hidden, false);
+  assert.equal(p.byId("validation-checklist").open, false, "the checklist opened by itself");
+  // Nothing was asked for by rendering.
+  assert.equal(p.posted.some((message) => message["id"] === "loadValidation" || message["id"] === "copyReviewPrompt"), false);
+
+  p.byId("copy-review-prompt").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "copyReviewPrompt" });
+});
+
+test("while the prompt is prepared the button says so and takes no second press", () => {
+  const p = load();
+  p.send(reported(REPORT, { copyingReviewPrompt: true }));
+
+  assert.equal(p.byId("copy-review-prompt").disabled, true);
+  assert.equal(p.byId("copy-review-prompt").getAttribute("aria-busy"), "true");
+  assert.equal(p.byId("copy-review-prompt-label").textContent, "Copying…");
+  const before = p.posted.length;
+  p.byId("copy-review-prompt").dispatch("click");
+  assert.equal(p.posted.length, before);
+
+  // And back to itself, with nothing on the row saying "reviewed".
+  p.send(reported(REPORT));
+  assert.equal(p.byId("copy-review-prompt-label").textContent, "Copy Review Prompt");
+  assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
+});
+
+test("opening the checklist asks for it once; opening it again after it came does not", () => {
+  const p = load();
+  p.send(reported(REPORT));
+  const disclosure = p.byId("validation-checklist");
+
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "loadValidation" });
+
+  p.send(reported(REPORT, { validation: { state: "ready", checklist: CHECKLIST } }));
+  const before = p.posted.length;
+  disclosure.open = false;
+  disclosure.dispatch("toggle");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
+  assert.equal(p.posted.length, before, "a loaded checklist was asked for again");
+});
+
+test("loading, then the checklist as text: steps, then regression areas", () => {
+  const p = load();
+  p.send(reported(REPORT, { validation: { state: "loading" } }));
+  assert.deepEqual(validationTexts(p), ["Loading…"]);
+
+  p.send(reported(REPORT, { validation: { state: "ready", checklist: { ...CHECKLIST, moreRisks: 2 } } }));
+  assert.deepEqual(validationTexts(p), [
+    ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
+    "Regression areas",
+    ["src/widgets/WidgetController.cpp", "The legacy VDS path is untested."],
+    "2 more in fix_report.md",
+  ]);
+  // A numbered list of steps: guidance, with nothing marked done.
+  assert.equal(p.byId("validation-body").children[0]!.className, "validation-steps");
+});
+
+test("a checklist with nothing to list around its steps shows only the steps", () => {
+  const p = load();
+  p.send(reported(REPORT, { validation: { state: "ready", checklist: { steps: ["Reproduce."], files: [], risks: [] } } }));
+  assert.deepEqual(validationTexts(p), [["Reproduce."]]);
+});
+
+test("a checklist that could not be had says why, and offers Retry", () => {
+  const p = load();
+  p.send(reported(REPORT, { validation: { state: "failed", message: "retrieval.json could not be read" } }));
+
+  const [message, retry] = p.byId("validation-body").children;
+  assert.equal(message!.textContent, "Validation checklist unavailable: retrieval.json could not be read");
+  assert.equal(retry!.textContent, "Retry");
+  retry!.dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "loadValidation" });
+  // The row itself is untouched.
+  assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
+  assert.equal(p.byId("failure").hidden, true);
+});
+
+test("open with nothing loaded — the folder was read again — offers to load it", () => {
+  const p = load();
+  p.send(reported(REPORT));
+  const [load_] = p.byId("validation-body").children;
+  assert.equal(load_!.textContent, "Load checklist");
+  load_!.dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "loadValidation" });
+});
+
+test("checklist text renders as text", () => {
+  const hostile = '<img src=x onerror=alert(1)> <script>alert("x")</script>';
+  const p = load();
+  p.send(reported(REPORT, { validation: { state: "ready", checklist: { steps: [hostile], files: [hostile], risks: [hostile] } } }));
+  const [steps, , areas] = p.byId("validation-body").children;
+  assert.equal(steps!.children[0]!.textContent, hostile);
+  assert.equal(steps!.children[0]!.children.length, 0, "a step became markup");
+  assert.equal(areas!.children[1]!.textContent, hostile);
+  assert.equal(areas!.children[1]!.children.length, 0, "a risk became markup");
+});
+
+test("a push that changes nothing about the checklist leaves its nodes alone", () => {
+  // The body is a live region: rebuilding it on every push — a Copy press, a
+  // progress event — would read the list out again and take focus off Retry.
+  const p = load();
+  p.send(reported(REPORT, { validation: { state: "failed", message: "x" } }));
+  const retry = p.byId("validation-body").children[1]!;
+
+  p.send(reported(REPORT, { validation: { state: "failed", message: "x" }, copyingReviewPrompt: true }));
+  p.send(reported(REPORT, { validation: { state: "failed", message: "x" } }));
+  assert.equal(p.byId("validation-body").children[1], retry, "the body was rebuilt by an unrelated push");
+
+  // A different checklist is a different body.
+  p.send(reported(REPORT, { validation: { state: "ready", checklist: CHECKLIST } }));
+  assert.notEqual(p.byId("validation-body").children[1], retry);
+});
+
+test("another work item closes the checklist; no report hides and empties it", () => {
+  const p = load();
+  p.send(reported(REPORT, { validation: { state: "ready", checklist: CHECKLIST } }));
+  p.byId("validation-checklist").open = true;
+
+  p.send(reported(REPORT, {}, { workItemId: "JR-2" }));
+  assert.equal(p.byId("validation-checklist").open, false, "B opened on A's checklist");
+
+  p.send(prepared({}, { workItemId: "JR-3" }));
+  assert.equal(p.byId("validation-checklist").hidden, true);
+  assert.equal(p.byId("validation-body").children.length, 0);
+  assert.equal(p.byId("copy-review-prompt").hidden, true);
 });
 
 // --- Relevant files, under Code search --------------------------------------

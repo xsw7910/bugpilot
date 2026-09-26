@@ -21,7 +21,7 @@ from .git_ops import current_branch, generate_git_context, inside_git_repo, run_
 from .jira import JiraCommentPostError, JiraCommentPostResult, JiraFetchError, JiraFetchResult, enrich_issue, fetch_issue, jira_field_report_markdown, post_jira_comment, prepare_jira_comment_text, sanitize_comment_text
 from .keywords import extract_keywords
 from .logging_utils import log
-from .identity import is_known_work_item_id
+from .identity import is_known_work_item_id, validate_work_item_id
 from .issue import (
     IssueArtifact,
     IssueGuidance,
@@ -987,6 +987,58 @@ def review_package_step(repo_root: Path, issue_key: str) -> str:
         raise
 
 
+@dataclass(frozen=True)
+class ValidationChecklist:
+    """The manual validation guidance, as the lists its Markdown is rendered from.
+
+    Guidance for the developer, never a result: nothing here says whether a step
+    was done or passed. ``review_risks`` are the report's Review Notes lines as
+    written.
+    """
+
+    steps: tuple[str, ...]
+    regression_files: tuple[str, ...]
+    review_risks: tuple[str, ...]
+
+
+def validation_checklist(repo_root: Path, issue_key: str) -> ValidationChecklist:
+    """What to validate by hand, from ``fix_report.md`` and ``retrieval.json``. Reads only."""
+    report = read_fix_report(repo_root, issue_key)
+    retrieval = read_retrieval_quietly(repo_root, issue_key)
+    review_notes = report.review_notes if report is not None else ""
+    return ValidationChecklist(
+        steps=(
+            "Reproduce the original issue if possible.",
+            "Confirm the failure no longer occurs.",
+            "Confirm the fix does not change unrelated behavior.",
+            f"Run the focused tests named in {FIX_REPORT_ARTIFACT}'s Tests section, if any.",
+            f"Check regression areas mentioned in {CONTEXT_ARTIFACT} and {RETRIEVAL_ARTIFACT}.",
+        ),
+        regression_files=tuple(retrieval.top_files(10)) if retrieval is not None else (),
+        review_risks=tuple(line for line in review_notes.splitlines() if line.strip()),
+    )
+
+
+class WorkItemNotFoundError(FileNotFoundError):
+    """The work item directory does not exist."""
+
+
+def review_package_projection(repo_root: Path, issue_key: str) -> tuple[str, ValidationChecklist]:
+    """The final-review prompt and the validation checklist, as a query.
+
+    For callers that ask rather than run a step — the extension's Copy Review
+    Prompt and Validation checklist. Unlike ``review_package_step`` and
+    ``summarize_results_step`` it creates no directory, records no step mark in
+    ``run.json`` and posts nothing: it is safe while a run of the same work item
+    is writing ``run.json``, and a failure here can never turn a work item
+    "failed". The content is built by the same functions the human outputs use.
+    """
+    validate_work_item_id(issue_key)
+    if not issue_dir(repo_root, issue_key).is_dir():
+        raise WorkItemNotFoundError(f"Work item not found: .ai/{issue_key}/")
+    return _build_final_review_prompt(issue_key), validation_checklist(repo_root, issue_key)
+
+
 def delivery_check_step(repo_root: Path, issue_key: str) -> list[str]:
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] delivery_check")
@@ -1649,29 +1701,27 @@ def _build_result_overview(repo_root: Path, issue_key: str) -> str:
 
 
 def _build_manual_validation(repo_root: Path, issue_key: str) -> str:
-    report = read_fix_report(repo_root, issue_key)
-    retrieval = read_retrieval_quietly(repo_root, issue_key)
-    review_notes = report.review_notes if report is not None else ""
-    related_lines = [f"- {path}" for path in retrieval.top_files(10)] if retrieval is not None else []
-    if review_notes:
+    checklist = validation_checklist(repo_root, issue_key)
+    related_lines = [f"- {path}" for path in checklist.regression_files]
+    if checklist.review_risks:
         related_lines.append("- Risks from the report's Review Notes:")
-        related_lines.extend(f"  {line}" for line in review_notes.splitlines() if line.strip())
+        related_lines.extend(f"  {line}" for line in checklist.review_risks)
+    steps = "\n".join(f"{number}. {step}" for number, step in enumerate(checklist.steps, 1))
     return (
         "## Suggested Validation Steps\n\n"
-        "1. Reproduce the original issue if possible.\n"
-        "2. Confirm the failure no longer occurs.\n"
-        "3. Confirm the fix does not change unrelated behavior.\n"
-        f"4. Run the focused tests named in {FIX_REPORT_ARTIFACT}'s Tests section, if any.\n"
-        f"5. Check regression areas mentioned in {CONTEXT_ARTIFACT} and {RETRIEVAL_ARTIFACT}.\n\n"
+        f"{steps}\n\n"
         "## Regression Areas\n\n"
         f"{chr(10).join(related_lines) if related_lines else '- No related files or review risks available yet.'}\n"
     )
 
 
 def _build_final_review_prompt(issue_key: str) -> str:
+    # Source-, outcome- and provider-neutral: the work item may be a Jira issue
+    # or a hand-written bug, and the result an applied fix, an attempt, a no-op
+    # or an investigation only — the reviewer reads fix_report.md to learn which.
     return (
         "# Final Review Request\n\n"
-        f"Please review the completed fix for Jira issue {issue_key}.\n\n"
+        f"Review the BugPilot result for work item {issue_key}.\n\n"
         "Use:\n"
         f"- .ai/{issue_key}/{CONTEXT_ARTIFACT}\n"
         f"- .ai/{issue_key}/{RETRIEVAL_ARTIFACT} if present\n"
@@ -1680,8 +1730,8 @@ def _build_final_review_prompt(issue_key: str) -> str:
         "Review focus:\n"
         "1. Correctness\n"
         "2. Regression risk\n"
-        "3. Whether the fix matches the Jira issue\n"
-        "4. Whether the fix is minimal and safe\n"
+        "3. Whether the result matches the reported issue\n"
+        "4. Whether any source change is minimal and safe\n"
         "5. Whether tests are sufficient\n"
         "6. Whether memory entry should be updated\n"
         "7. Any follow-up work\n\n"

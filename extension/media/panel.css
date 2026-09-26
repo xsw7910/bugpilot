@@ -1212,6 +1212,41 @@ button.icon .codicon {
   display: none;
 }
 
+/* Fix result's Validation checklist: a disclosure like Code search's, and
+   guidance, not a result — plain lists, no ticks, no colours. */
+.validation {
+  margin-top: 2px;
+}
+
+.validation[hidden] {
+  display: none;
+}
+
+.validation-steps,
+.validation-areas {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.validation-steps li,
+.validation-areas li {
+  padding: 1px 0;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.validation-heading {
+  margin: 8px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.validation-file {
+  font-family: var(--vscode-editor-font-family);
+}
+
 /* Indented to the label, so the second line of a row starts under its text
    rather than under its checkbox. */
 .step-foot {

@@ -494,7 +494,7 @@ test("Fix result is ready, never the green tick, whatever the report says", () =
     assert.equal(row.summary, summary);
     assert.equal(row.detail, `Tests: ${tests}`);
     assert.equal(row.artifact, "fix_report.md");
-    assert.deepEqual([...row.actions], ["openFixReport"]);
+    assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt"]);
     assert.equal(row.error, undefined);
     assert.equal(row.enabled, true);
   }
@@ -518,7 +518,7 @@ test("a listed report that could not be read is still a report to open", () => {
     assert.equal(row.summary, "Fix report available");
     assert.equal(row.detail, "Preview unavailable");
     assert.equal(row.status, "ready");
-    assert.deepEqual([...row.actions], ["openFixReport"]);
+    assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt"]);
     assert.equal(row.error, undefined, "an unreadable preview became a failure");
   }
 });

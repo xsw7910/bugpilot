@@ -6275,7 +6275,7 @@ run history, telemetry, and productizing the visual harness.
 
 ## 37. Artifact Simplification + Workflow Result Integration
 
-**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) committed at `adc3c53`; Batch 6 (`WorkflowStepResult`: the workflow rows are the result view) committed at `594ac5c`; Batch 7 (Fix Mode under Advanced settings → Strategy) committed at `317ecb0`; Batch 8 (Fix result from `fix_report.md`) complete, visually reviewed, independently reviewed and verified, uncommitted.
+**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) committed at `adc3c53`; Batch 6 (`WorkflowStepResult`: the workflow rows are the result view) committed at `594ac5c`; Batch 7 (Fix Mode under Advanced settings → Strategy) committed at `317ecb0`; Batch 8 (Fix result from `fix_report.md`) committed at `fc97345`; Batch 9 (review aids on Fix result) complete, visually reviewed, independently reviewed and verified, uncommitted.
 
 **Canonical reference:** `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`
 (kept outside the repository). This section records what has landed against it.
@@ -8284,3 +8284,201 @@ without it (see §37.55).
   `issue.json` and `retrieval.json`.
 - The History row's `verified` badge for a work item with a report (§37.52)
   remains a separate presentation-only follow-up.
+
+### 37.58 Checkpoint — post-fix capability inventory (Batch 9 start)
+
+Read from the committed tree (`fc97345`) and run against a scratch work item.
+"Marks" means the command records a step mark in `run.json` (read-modify-write,
+creating `run.json` when it is missing); `log` goes to a non-propagating logger
+and writes no file.
+
+| Command / tool | Inputs | Output | Writes / side effects | External action | Class | Batch 9 |
+|---|---|---|---|---|---|---|
+| `check-results [--strict] [--json]` | id | missing result files | creates `.ai/<id>/` if absent | — | A | no: the Fix result row already says the report exists |
+| `summarize-results [--json] [--jira-comment\|--no-jira-comment]` | id | the Result Overview (report status + Reported Summary + validation checklist); JSON `fix_report`, `overview`, `jira_comment_requested` | marks `result_summary`, `manual_validation` (fail on error; a corrupt `run.json` makes it fail) | **Jira comment** with `--jira-comment` or `BUGPILOT_AUTO_JIRA_COMMENT` | B | not called: marks `run.json` in every mode and gates a Jira POST |
+| `review-package` | id | the Final Review Request prompt, on stdout exactly (a template of the id: the files to use, the review focus, the verdict format) | marks `final_review_prompt`; creates `.ai/<id>/` | — | A | **yes, via a new read-only `--json`** |
+| `manual-result [--overwrite]` | id | — | writes the `fix_report.md` template | — | C | no: creates the result rather than reviewing it |
+| `bug --retry` / `retry-prompt` | id | — | writes `user_feedback.md`, `agent_retry_prompt.md`; marks | — | C | no: already the panel's Retry button |
+| `memory update` | id | — | writes `.ai_memory/bugs/<id>.md`; marks | — | E | no: shared memory is not review |
+| `jira-comment-draft [--strict]` | id | — | writes `jira_comment_draft.md`; marks | — | D | no: delivery |
+| `jira-comment [--execute]` | id | preview / post result | writes `jira_comment_post_result.json` when executed; marks | **Jira POST** with `--execute` | D | no: delivery |
+| `delivery-check [--json]` | id | readiness warnings | reads git; marks | — | D | no: delivery |
+| `commit-plan [--no-email]` | id | the manual commit plan | reads git; marks | **email** at the commit gate unless `--no-email` | D | no: delivery |
+| `push-plan` | id | the manual push plan | reads git; marks | — | D | no: delivery |
+| `notify [--execute]` | id | — | writes `email_draft.md`, `notification.eml` | **SMTP** with `--execute` | D | no: delivery |
+| `commit` / `push` | id | a refusal | — | — | E | no |
+| MCP `check_results` | id | missing / complete | — | — | A | no (same as above) |
+| MCP `summarize_results` | id | `fix_report`, `overview`, `report_excerpt` | calls `summarize_results_step`, so it marks `run.json` — its docstring said it wrote nothing (corrected in one line at the end of the batch, no behaviour change) | — | B | no |
+| MCP (others) | — | prepare, refine, status, memory search, Fix Modes | — | — | E | no |
+
+There is no MCP tool for the review prompt.
+
+Decision. Two capabilities are useful and safe *as queries*: the final-review
+prompt (A) and the validation checklist (B). Both are pure functions of the work
+item id and its canonical files — the prompt is a template of the id, and the
+checklist is five fixed steps plus "Regression Areas": the top ten files of
+`retrieval.json` and each line of the report's Review Notes. What makes the
+existing commands unsuitable for a panel button is not their content but their
+wrappers: every mode marks `run.json` (a read-modify-write that would race a
+same-item re-run, which Batch 8 keeps the row visible through, and a `fail`
+mark would turn the History row "failed"), `review-package` creates the work
+item directory, and `summarize-results` can post to Jira. So `review-package`
+gains a **read-only `--json`** — the brief's option 3 — carrying the prompt and
+the checklist as structured lists, built by the same functions the human
+outputs render (`_build_final_review_prompt`, and the checklist that
+`_build_manual_validation` renders). It creates nothing, marks nothing, logs
+nothing and refuses a work item that does not exist. Human `review-package`,
+`summarize-results` (both modes) and the MCP tools are unchanged. Everything in
+class C, D and E stays out of the panel.
+
+Sizes from a real run: five steps, at most ten regression files (the builder's
+own cap), and one risk line per Review Notes line — the only unbounded part,
+which the panel caps.
+
+The prompt then said "Please review the completed fix for Jira issue <id>" —
+"Jira issue" for a hand-written bug too, "completed fix" for an investigation,
+an attempt or a no-op. Since it is one click away from the panel, it was
+corrected before the checkpoint (§37.63).
+
+### 37.59 Checkpoint — the review-prompt action
+
+**Copy Review Prompt** on the Fix result row, after Open Fix Report. The
+label is what happens: the host runs `review-package <id> --json`, copies the
+`prompt` field to the clipboard exactly, and says "Review prompt copied. Paste
+it into the reviewer you use." as a notification — nothing on the row changes,
+nothing is persisted, no agent or terminal is started, and the prompt is
+provider-neutral because it is the CLI's. While the CLI works the button is
+disabled, `aria-busy`, and reads "Copying…". A failure is one error notice
+("Could not prepare the review prompt: …", or "Could not copy the review
+prompt: …" when the clipboard refuses); the row, the report, Fix with AI and
+the run are untouched, and the button comes back either way.
+
+Python: `review-package` gained `--json` (`cli.py`), backed by
+`workflow.review_package_projection` — the prompt from `_build_final_review_prompt`
+and the checklist from `validation_checklist` — which validates the id, requires
+the work item directory, and creates, marks, logs and posts nothing. Failures
+are one JSON object with exit 1: `INVALID_INPUT` for an id that is not one,
+`WORK_ITEM_NOT_FOUND` for a missing work item (`WorkItemNotFoundError`), and the
+standard mapping for a file that vanished mid-read. The human command is
+unchanged, step mark included (`tests/test_review_package.py`, 8).
+
+### 37.60 Checkpoint — the Validation checklist
+
+`workflow.validation_checklist` is now the one source of the checklist: the five
+steps, `retrieval.json`'s top ten files and the report's non-blank Review Notes
+lines. `_build_manual_validation` renders its Markdown from it, byte for byte as
+before (pinned), and `review-package --json` carries it as `validation.steps`,
+`regression_files`, `review_risks`. The extension reads it in
+`src/app/reviewPackage.ts` (`reviewPackageFromEnvelope`): lines whitespace-
+collapsed and cut at 240 code points, list markers dropped from the risks, at
+most eight risks with "N more in fix_report.md" (the only unbounded part in real
+output; steps are five and files at most ten by construction).
+
+The disclosure is collapsed by default and loads lazily: opening it posts
+`loadValidation` once; the host shows "Loading…", then the lists (a numbered list
+of steps; "Regression areas" with the files and the risks), or "Validation
+checklist unavailable: …" with Retry. Opened again after it loaded, it asks
+nothing. Read-only guidance: no checkbox, no tick, no colour, every line
+`textContent`, and no state persisted.
+
+### 37.61 Checkpoint — stale state and action security
+
+`copyReviewPrompt` and `loadValidation` joined the closed `PANEL_ACTIONS`, and
+the controller accepts them only while a report is on screen (`#offersPostFix`:
+a work item, and `fix_report.md` in its listing) — otherwise it refuses and
+logs. No generic post-fix command exists. The checklist captures an epoch
+before calling the CLI; `#forgetValidation` bumps it and clears the list
+whenever the work item changes, a run starts or the folder is read again (the
+report may have been rewritten), and a list that arrives under an older epoch
+is dropped — A's checklist never lands on B. The prompt depends on the work item
+alone, so the copy checks that instead when the CLI answers: the same work item
+on screen and its report still offered; a switch or a vanished report drops it
+silently, while a refresh or a same-key re-run does not (dropping it there would
+leave the developer pasting whatever the clipboard held before). The busy flag
+is cleared by a switch or a run start, never by a refresh mid-copy. Each case is
+tested with the CLI's answer held open, and each test fails without its check.
+A report kept through a same-item re-run keeps its aids (the query writes
+nothing, so asking mid-run is safe).
+
+### 37.62 Checkpoint — responsive, theme and accessibility review
+
+Harness states added: validation loading, ready, ready with long wrapping paths
+and risks (and "3 more"), failed, copying, and a same-item re-run keeping the
+report and its aids; with the existing report states, 38 states in dark and
+light at 200, 300 and 400 px. At 300 px the two actions stack under the report
+line; at 200 px "Copy Review Prompt" wraps inside its button; long paths and a
+spaceless risk wrap within the column. Existing tokens only: the checklist is
+plain lists in the description colour, the heading like Relevant files'
+groups, the failure line in the existing error colour; no success or verify
+colour. The disclosure's expanded state is native `<details>`, its body is
+`aria-live="polite"` and is rebuilt only when its content changes (a push for a
+Copy press or a progress event leaves it — and the focus on Retry — alone), and
+the button's label is its accessible name.
+
+### 37.63 Checkpoint — Batch 9 verification and review
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1127 passed (baseline 1117: +10 `test_review_package.py`) |
+| `npm test` (extension) | 977 passed (baseline 941: +8 `reviewPackage.test.ts`, +15 controller, +11 page, +2 panel; two workflow expectations updated in place) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` (real CLI, temp repositories, no Jira) | 10 passed (baseline 9: + review-package --json read through the extension's reader, the directory byte-identical after) |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean; the three new files have no trailing whitespace |
+| `python tests/retrieval_corpus.py` | frozen pre-Batch-3 tree: all six cases **byte-identical**. Live tree: the same summary (top-3 2/5, MRR 0.292, docs 10) |
+| Visual harness | 38 states × dark/light × 200/300/400 px: 228 pages, zero horizontal overflow |
+
+**Real flow** (a scratch copy of `sample-repo`, the working tree's CLI via
+`python -m bugpilot`, the real `Controller` with a real runner and filesystem
+and a recording UI port — nothing opened, launched or posted): a prepared work
+item with a canonical report offered Open Fix Report and Copy Review Prompt, and
+no checklist until asked; the checklist came back from the CLI with the five
+steps, the two related files and the report's two Review Notes lines, the
+work item's files byte-identical after; Copy Review Prompt put exactly the text
+`bugpilot review-package <id>` prints on the clipboard, with the info notice;
+a switch to another work item while a copy and a load were in flight left the
+clipboard untouched and no row on the new item; across it all, four
+`review-package --json` calls and nothing else — no terminal, no command, no
+Jira, commit, push or email path, one prepare run.
+
+**Independent review** (whole diff vs `fc97345`): no blocker. **Important,
+fixed**: the checklist body — a live region — was rebuilt on every push, so a
+loaded list was read out again twice around one Copy press and on every
+progress event of a re-run, and focus on Retry or Load was lost; it is now
+rebuilt only when its content changes (a page test fails without it). Fixed
+from its minors: a copy in flight was dropped on a same-item refresh with no
+word, though the prompt depends only on the id — it now survives a refresh or a
+same-key re-run and is dropped only on a switch or a vanished report; a
+clipboard that refused left the button on "Copying…" — it now comes back with
+an error notice; an invalid id was reported as `WORK_ITEM_NOT_FOUND` — now
+`INVALID_INPUT`, with a distinct `WorkItemNotFoundError` for the missing
+directory; a doc comment had been separated from `#readSummary`; tests added for
+a refresh during a load and during a copy, a vanished report, the clipboard
+failure, and "said once" now counts; the mid-run test no longer filters out
+Markdown writes.
+
+**Resolved before the checkpoint.** The review prompt the panel copies is now
+**source-neutral, outcome-neutral and provider-neutral**: it opens "Review the
+BugPilot result for work item <id>." instead of "Please review the completed fix
+for Jira issue <id>.", and the two review-focus items that made the same
+assumptions read "Whether the result matches the reported issue" (was "…the fix
+matches the Jira issue") and "Whether any source change is minimal and safe"
+(was "Whether the fix is minimal and safe"). No branching and no reading of the
+report: the reviewer learns the outcome from `fix_report.md`. The change is in
+the canonical builder, so `review-package` and `review-package --json` still
+expose byte-identical prompts (tested for a Jira key and a hand-written id,
+along with the absence of "completed fix" and "Jira issue"); side effects, the
+JSON contract, the clipboard and the checklist are untouched. The MCP
+`summarize_results` docstring's "writes nothing" became "writes no file, only
+its step mark in `run.json`" — one line, no behaviour change.
+
+**Checkpoint review.** Each stale and gating check was removed in turn and its
+test run: the checklist's epoch check (2 tests fail), the copy's report check
+(1), the host's refusal with no report (1), dropping a copy on a same-item
+refresh instead of keeping it (1), and the checklist body's unchanged-push skip
+(1). The copy's work item check failed nothing: the switch test opened a work
+item without a report, so the report check dropped A's prompt on its own. A
+test now switches to a work item with its own report — Copy offered again when
+A's answer lands — and fails without the work item check (+1 controller test,
+test-only).
