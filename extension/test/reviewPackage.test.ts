@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { MAX_RISKS, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
+import { isPlainPrompt, MAX_RISKS, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
 import type { Envelope } from "../src/protocol.ts";
 
 const PROMPT = "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n";
@@ -109,4 +109,31 @@ test("HTML-looking text is returned as text", () => {
   const parsed = reviewPackageFromEnvelope(envelope({ steps: [hostile], review_risks: [hostile] }));
   assert.equal(parsed?.validation.steps[0], hostile);
   assert.equal(parsed?.validation.risks[0], hostile);
+});
+
+// --- Review with AI's guard (Batch 10) ----------------------------------------
+
+/** `_build_final_review_prompt`'s text, as `review-package` prints it. */
+const canonical = (id: string) => "# Final Review Request\n\nReview the BugPilot result for work item {id}.\n\nUse:\n- .ai/{id}/context.md\n- .ai/{id}/retrieval.json if present\n- .ai/{id}/fix_report.md if present\n- current git diff\n\nReview focus:\n1. Correctness\n2. Regression risk\n3. Whether the result matches the reported issue\n4. Whether any source change is minimal and safe\n5. Whether tests are sufficient\n6. Whether memory entry should be updated\n7. Any follow-up work\n\nExpected output:\nVerdict:\nPASS / PASS WITH MINOR COMMENTS / NEEDS CHANGES\n\nBlocking issues:\nNon-blocking suggestions:\nTest concerns:\nMemory update suggestions:\nRecommended next step:\n".replaceAll("{id}", id);
+
+test("the canonical review prompt is plain enough for a command line, for either kind of work item", () => {
+  for (const id of ["JR-12345", "local_20260926010922"]) {
+    assert.equal(isPlainPrompt(canonical(id)), true, id);
+  }
+});
+
+test("a prompt with anything a shell could act on is not", () => {
+  for (const hostile of ["$", "`", "%", "!", "^", "'", ";", "&", "|", "<", ">", "(", ")", "*", "?", "~", "\"", "\\", "\u0000", "\u202e"]) {
+    assert.equal(isPlainPrompt(`Review JR-12345 ${hostile} now.`), false, JSON.stringify(hostile));
+  }
+  assert.equal(isPlainPrompt(""), false, "an empty prompt is no prompt");
+});
+
+test("a prompt that starts like an option is not, however plain its characters", () => {
+  // Flattened onto `claude <prompt>` or `--prompt {prompt}`, a leading dash is
+  // an option to the agent, not words to it.
+  for (const prompt of ["-rf everything", "--dangerously-skip-permissions", "  -x review"]) {
+    assert.equal(isPlainPrompt(prompt), false, prompt);
+  }
+  assert.equal(isPlainPrompt("  # Final Review Request"), true, "leading whitespace is flattened away");
 });

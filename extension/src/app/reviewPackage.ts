@@ -1,11 +1,12 @@
 /**
- * The Fix result row's two review aids, from `bugpilot review-package --json`.
+ * The Fix result row's review aids, from `bugpilot review-package --json`.
  *
  * Both are built by the CLI — the final-review prompt and the validation
  * checklist that `summarize-results` also renders — and this file only reads
  * them back. Nothing here writes a prompt or a checklist to disk, runs a review
- * or decides whether a fix is right: the prompt goes to the clipboard, and the
- * checklist is guidance the developer reads.
+ * or decides whether a fix is right: the prompt goes to the clipboard, or to the
+ * selected agent through Review with AI (Batch 10), and the checklist is
+ * guidance the developer reads.
  *
  * The JSON mode is the read-only one (plan §37.58): no step mark in `run.json`,
  * no directory created, nothing posted. That is what makes it safe as a panel
@@ -72,6 +73,29 @@ export function reviewPackageFromEnvelope(envelope: Envelope): ReviewPackage | u
       ...(allRisks.length > risks.length ? { moreRisks: allRisks.length - risks.length } : {}),
     },
   };
+}
+
+/**
+ * The characters the canonical review prompt is made of: a template of letters,
+ * digits and `. , : # / _ -` around a validated work item id — and it opens with
+ * a letter, a digit or `#`, never a `-` an agent would read as an option.
+ */
+const PLAIN_PROMPT = /^\s*[A-Za-z0-9#][A-Za-z0-9\s.,:#/_-]*$/;
+
+/**
+ * Whether Review with AI may put this prompt on a command line (Batch 10).
+ *
+ * The terminal handoff quotes its prompt with JSON's escaping (`agents.ts`),
+ * which is right only for text no shell expands anything in — the recorded
+ * pre-release quoting issue. The Fix handoff's sentence is a constant of this
+ * extension; this prompt comes from the CLI. So rather than trust the quoting
+ * with whatever arrives, a prompt holding anything a shell could act on — `$`,
+ * a backtick, `%`, `!`, `^`, a quote, a backslash — or starting like an option
+ * is refused before it reaches `resolveAgent`. The canonical prompt passes;
+ * Copy Review Prompt, which never touches a shell, is unaffected.
+ */
+export function isPlainPrompt(prompt: string): boolean {
+  return PLAIN_PROMPT.test(prompt);
 }
 
 /** A list of non-empty strings, each cut to one row's worth; undefined when not a list. */

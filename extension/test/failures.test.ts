@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { COMMANDS } from "../src/commands.ts";
-import { handoffError, runError } from "../src/app/failures.ts";
+import { handoffError, reviewHandoffError, runError } from "../src/app/failures.ts";
 import type { ProgressView } from "../src/app/progress.ts";
 
 type Failure = NonNullable<ProgressView["failure"]>;
@@ -183,5 +183,43 @@ test("the card is never built by reading an error message", () => {
 
   for (const smell of [".includes(", ".match(", ".indexOf(", "toLowerCase()", "RegExp"]) {
     assert.equal(code.includes(smell), false, `failures.ts inspects message text with ${smell}`);
+  }
+});
+
+// --- Review with AI (Batch 10) ------------------------------------------------
+
+test("a review that did not start says so first, and what to do depends on why", () => {
+  const agent = reviewHandoffError("agent", "claude is not on PATH.");
+  const prompt = reviewHandoffError("prompt", "Work item not found: .ai/JR-1/");
+  const terminal = reviewHandoffError("terminal", "The terminal process failed to launch.");
+  const commandLine = reviewHandoffError("command-line", "The prompt holds characters a shell could act on.");
+  for (const error of [agent, prompt, terminal, commandLine]) {
+    assert.equal(error.title, "AI review did not start");
+    assert.equal(error.kind, "agent");
+  }
+  // Only an unavailable agent is fixed in Settings.
+  assert.deepEqual(agent.action, { title: "Open Settings", command: COMMANDS.openSettings });
+  assert.equal(prompt.action, undefined);
+  assert.equal(terminal.action, undefined);
+  assert.equal(commandLine.action, undefined);
+  // The original text is the Details, never the headline.
+  assert.equal(agent.detail, "claude is not on PATH.");
+  assert.equal(prompt.detail, "Work item not found: .ai/JR-1/");
+  assert.equal(terminal.detail, "The terminal process failed to launch.");
+  // Copy Review Prompt is pointed to only where it can still work.
+  assert.match(agent.message, /Copy Review Prompt/);
+  assert.match(terminal.message, /Copy Review Prompt/);
+  // A prompt refused for the command line was still had, so the copy works.
+  assert.match(commandLine.message, /^BugPilot won't put this review prompt on a command line/);
+  assert.match(commandLine.message, /Copy Review Prompt still gives you the text\.$/);
+  assert.equal(prompt.message.includes("Copy Review Prompt"), false, "the copy needs the same prompt that failed");
+});
+
+test("a review failure with nothing to add has no Details, and names no vendor", () => {
+  const error = reviewHandoffError("terminal", "   ");
+  assert.equal("detail" in error, false);
+  for (const cause of ["agent", "prompt", "terminal", "command-line"] as const) {
+    const { title, message } = reviewHandoffError(cause, "x");
+    assert.equal(/claude|codex|copilot|gemini|openai|anthropic/i.test(`${title} ${message}`), false, cause);
   }
 });

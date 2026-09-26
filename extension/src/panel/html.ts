@@ -870,8 +870,9 @@ ${errorCard(`error-${id}`)}
  *
  * Built like the six so it reads as part of the same list, with two
  * differences that are the point: no checkbox — nobody chooses it and no run
- * performs it — and no failure card, because a report that cannot be previewed
- * is still a report, not an error. Hidden in the markup; the page shows it only
+ * performs it — and no row failure card, because a report that cannot be
+ * previewed is still a report, not an error. (The one card it has is Review
+ * with AI's, about that action.) Hidden in the markup; the page shows it only
  * while the host's workflow includes it.
  */
 const FIX_RESULT_ROW = `        <li class="step" id="step-fixResult" hidden>
@@ -914,13 +915,23 @@ function stepContent(id: WorkflowStepId): string {
   }
   if (id === "fixResult") {
     // Read the report first; then, if wanted, prepare someone else's review of
-    // it (Batch 9). The label says what the button does — it copies a prompt;
-    // no review runs — and its own span, so the page can say it is busy
-    // without dropping the icon.
+    // it (Batch 9), or start one with the selected agent (Batch 10). Each label
+    // says what its button does — one copies a prompt, one starts a reviewer;
+    // neither is a review — in its own span, so the page can say it is busy
+    // without dropping the icon. All three are the same quiet secondary style:
+    // the report is what this row is about.
+    //
+    // Under them, what Review with AI did: a status that is always in the
+    // document, so a screen reader hears it fill, and the row's own failure
+    // card — Fix result has no other, since a report that cannot be previewed
+    // is not a failure.
     return `            <div class="step-actions" id="actions-fixResult" hidden>
               ${actionButton(OPEN_FIX_REPORT)}
               <button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to review this result" hidden><span class="codicon codicon-copy" aria-hidden="true"></span><span id="copy-review-prompt-label">Copy Review Prompt</span></button>
+              <button type="button" class="result-link" id="review-with-ai" title="Start the selected AI agent in a terminal with the review prompt" hidden><span class="codicon codicon-hubot" aria-hidden="true"></span><span id="review-with-ai-label">Review with AI</span></button>
             </div>
+            <div class="review-status" id="review-status" role="status" tabindex="-1"></div>
+${errorCard("review-error")}
             <details class="validation" id="validation-checklist" hidden>
               <summary id="validation-summary">Validation checklist</summary>
               <div id="validation-body" aria-live="polite"></div>

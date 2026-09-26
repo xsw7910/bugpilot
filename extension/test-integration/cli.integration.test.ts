@@ -35,7 +35,7 @@ import { buildArtifactList, historyFromPayload } from "../src/app/artifacts.ts";
 import { buildPrepareArgs, DEFAULT_FORM } from "../src/app/form.ts";
 import { diagnose, knownCodes } from "../src/errors.ts";
 import { discoverExecutable } from "../src/executable.ts";
-import { reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
+import { isPlainPrompt, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -417,6 +417,8 @@ test("review-package --json gives the review aids and leaves the work item untou
   assert.ok(review, "the extension could not read review-package --json");
   assert.match(review.prompt, /^# Final Review Request\n/);
   assert.match(review.prompt, new RegExp(`\\.ai/${workItemId}/fix_report\\.md`));
+  // What Review with AI (Batch 10) may put on a command line: the real prompt passes the guard.
+  assert.equal(isPlainPrompt(review.prompt), true, "Review with AI would refuse the canonical prompt");
   assert.equal(review.validation.steps.length, 5);
   assert.deepEqual([...review.validation.risks], ["The id is still required by callers."]);
   assert.ok(review.validation.files.some((file) => file.endsWith("record.py")), review.validation.files.join(", "));

@@ -66,8 +66,25 @@ class FakeElement {
   textContent = "";
   value = "";
   checked = false;
-  disabled = false;
   type = "";
+  #disabled = false;
+
+  get disabled(): boolean {
+    return this.#disabled;
+  }
+
+  /**
+   * Chromium's focus fixup: a focused control that becomes disabled loses the
+   * focus to the document. Modelled so a page test cannot pass on focus a real
+   * webview would already have dropped.
+   */
+  set disabled(value: boolean) {
+    this.#disabled = value;
+    if (value && page?.focused === this.id) {
+      page.focused = undefined;
+      this.focused = false;
+    }
+  }
   /**
    * What layout would give, for the fields that resize themselves.
    *
@@ -188,6 +205,10 @@ function load(savedState?: unknown): Page {
   const document = {
     getElementById: (id: string) => elements.get(id) ?? null,
     createElement: (_tag: string) => new FakeElement(""),
+    /** The element the page last focused, as the real document would report it. */
+    get activeElement() {
+      return current.focused === undefined ? null : (elements.get(current.focused) ?? null);
+    },
   };
   const window = {
     addEventListener: (type: string, listener: Listener) => {
@@ -3880,4 +3901,164 @@ test("a hostile diagnostic renders as text", () => {
   assert.equal(items[1]!.textContent, hostile);
   assert.equal(items[1]!.children.length, 0, "the value became markup");
   assert.equal(items[2]!.textContent, hostile);
+});
+
+// --- Review with AI, under Fix result (Batch 10) ------------------------------
+
+const REVIEW_FAILED = {
+  kind: "agent" as const,
+  title: "AI review did not start",
+  message: "BugPilot couldn't start the selected AI agent.",
+  detail: "claude is not on PATH.",
+  action: { title: "Open Settings", command: "bugpilot.openSettings" },
+};
+
+/** The status's lines, as text. */
+const reviewStatus = (p: Page) => p.byId("review-status").children.map((child) => child.textContent);
+
+test("a report offers Review with AI after Copy Review Prompt; no report, no button", () => {
+  const without = load();
+  without.send(prepared());
+  assert.equal(without.byId("review-with-ai").hidden, true);
+
+  const p = load();
+  p.send(reported(REPORT));
+  assert.equal(p.byId("review-with-ai").hidden, false);
+  assert.equal(p.byId("review-with-ai").disabled, false);
+  assert.equal(p.byId("review-with-ai-label").textContent, "Review with AI");
+  assert.deepEqual(reviewStatus(p), []);
+  assert.equal(p.byId("review-error").hidden, true);
+  // Nothing was asked for by rendering.
+  assert.equal(p.posted.some((message) => message["id"] === "reviewWithAI"), false);
+
+  p.byId("review-with-ai").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "reviewWithAI" });
+});
+
+test("while a review starts the button says so, waits, and takes no second press", () => {
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "starting" } }));
+
+  const button = p.byId("review-with-ai");
+  assert.equal(button.hidden, false);
+  // Unavailable to assistive technology and to the click, but not `disabled`:
+  // Chromium would take the focus off a disabled control.
+  assert.equal(button.getAttribute("aria-disabled"), "true");
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-busy"), "true");
+  assert.equal(p.byId("review-with-ai-label").textContent, "Starting AI review…");
+  const before = p.posted.length;
+  button.dispatch("click");
+  assert.equal(p.posted.length, before);
+});
+
+test("once started, the button goes and the row says what happened, in plain words", () => {
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "started", agent: "Claude Code" } }));
+
+  assert.equal(p.byId("review-with-ai").hidden, true, "a second reviewer was offered");
+  assert.deepEqual(reviewStatus(p), ["AI review started", "Handed to Claude Code in a terminal."]);
+  assert.equal(p.byId("review-error").hidden, true);
+  // The report's own actions stay, and the row is still the report's.
+  assert.equal(p.byId("open-fix-report").hidden, false);
+  assert.equal(p.byId("copy-review-prompt").hidden, false);
+  assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
+  assert.equal(p.byId("workflow-status").textContent, "Fix report available");
+  assert.equal(p.byId("status-fixResult").hidden, true, "the row grew a status glyph");
+});
+
+test("a review that did not start shows its card under the row, and the button for a retry", () => {
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "failed", error: REVIEW_FAILED } }));
+
+  assert.equal(p.byId("review-error").hidden, false);
+  assert.equal(p.byId("review-error-title").textContent, "AI review did not start");
+  assert.equal(p.byId("review-error-message").textContent, "BugPilot couldn't start the selected AI agent.");
+  assert.equal(p.byId("review-error-detail").textContent, "claude is not on PATH.");
+  assert.equal(p.byId("review-error-details").hidden, false);
+  const [settings] = p.byId("review-error-actions").children;
+  assert.equal(settings!.textContent, "Open Settings");
+  settings!.dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "command", id: "bugpilot.openSettings" });
+  // The retry, and nothing else on the page claiming a failure.
+  assert.equal(p.byId("review-with-ai").hidden, false);
+  assert.equal(p.byId("review-with-ai").disabled, false);
+  assert.deepEqual(reviewStatus(p), []);
+  assert.equal(p.byId("failure").hidden, true, "the review's failure became the run's");
+  assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
+});
+
+test("a push that changes nothing about the review leaves its status and card alone", () => {
+  // Both are announced: rewriting them on every push — a Copy press, a
+  // progress event — would say the same thing again.
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "started", agent: "Claude Code" } }));
+  const [title] = p.byId("review-status").children;
+  p.send(reported(REPORT, { review: { state: "started", agent: "Claude Code" }, copyingReviewPrompt: true }));
+  assert.equal(p.byId("review-status").children[0], title, "the status was rebuilt by an unrelated push");
+
+  p.send(reported(REPORT, { review: { state: "failed", error: REVIEW_FAILED } }));
+  const [button] = p.byId("review-error-actions").children;
+  p.send(reported(REPORT, { review: { state: "failed", error: REVIEW_FAILED }, copyingReviewPrompt: true }));
+  assert.equal(p.byId("review-error-actions").children[0], button, "the card was rebuilt by an unrelated push");
+});
+
+test("focus follows the pressed button to the status once the reviewer started, and only then", () => {
+  const p = load();
+  p.send(reported(REPORT));
+  p.byId("review-with-ai").focus();
+
+  // Waiting: the button is still there, so the focus stays.
+  p.send(reported(REPORT, { review: { state: "starting" } }));
+  assert.equal(p.focused, "review-with-ai");
+  // Started: the button has gone, so the status takes the focus.
+  p.send(reported(REPORT, { review: { state: "started", agent: "Claude Code" } }));
+  assert.equal(p.focused, "review-status");
+  // An ordinary push after that moves nothing.
+  p.byId("open-fix-report").focus();
+  p.send(reported(REPORT, { review: { state: "started", agent: "Claude Code" }, copyingReviewPrompt: true }));
+  assert.equal(p.focused, "open-fix-report");
+});
+
+test("a started review never takes a focus that was elsewhere", () => {
+  const p = load();
+  p.send(reported(REPORT));
+  p.byId("copy-review-prompt").focus();
+  p.send(reported(REPORT, { review: { state: "started", agent: "Claude Code" } }));
+  assert.equal(p.focused, "copy-review-prompt");
+});
+
+test("review text renders as text, whatever the agent is called", () => {
+  const hostile = '<img src=x onerror=alert(1)> <script>alert("x")</script>';
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "started", agent: hostile } }));
+  const [, detail] = p.byId("review-status").children;
+  assert.equal(detail!.textContent, `Handed to ${hostile} in a terminal.`);
+  assert.equal(detail!.children.length, 0, "the agent's name became markup");
+});
+
+test("another work item, or no report, empties the review status and card", () => {
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "started", agent: "Claude Code" } }));
+  p.send(prepared({}, { workItemId: "JR-3" }));
+  assert.deepEqual(reviewStatus(p), []);
+  assert.equal(p.byId("review-with-ai").hidden, true);
+
+  p.send(reported(REPORT, { review: { state: "failed", error: REVIEW_FAILED } }));
+  p.send(prepared({}, { workItemId: "JR-4" }));
+  assert.equal(p.byId("review-error").hidden, true);
+  assert.equal(p.byId("review-error-title").textContent, "");
+});
+
+test("a review that did not start opens a workflow collapsed while it was starting", () => {
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "starting" } }));
+  p.byId("workflow").open = false;
+
+  p.send(reported(REPORT, { review: { state: "failed", error: REVIEW_FAILED } }));
+  assert.equal(p.byId("workflow").open, true, "the card is inside a closed disclosure");
+  // Once: collapsed again, the same card does not reopen it.
+  p.byId("workflow").open = false;
+  p.send(reported(REPORT, { review: { state: "failed", error: REVIEW_FAILED }, copyingReviewPrompt: true }));
+  assert.equal(p.byId("workflow").open, false);
 });

@@ -1359,6 +1359,41 @@ carries no Fix result step.
 7. **No automatic tests, no agent-completion tracking**: the aids prepare and
    inform; the developer stays in control.
 
+### Confirmed decisions (Batch 10): Review with AI
+
+1. **Review with AI is a secondary action of Fix result**, third after Open Fix
+   Report and Copy Review Prompt, in the same quiet style, offered with any
+   report. No AI Review row, and the workflow header is untouched: it stays the
+   run's, the report's and Fix with AI's.
+2. **It hands over the canonical prompt**: `review-package --json`'s, byte for
+   byte, asked for on the press, held in memory, never rebuilt in the extension
+   and never written.
+3. **It uses the current AI-agent selection** — auto-detect, Claude Code or the
+   custom command — through the same resolver as Fix with AI, so the two cannot
+   disagree about the agent. No review-agent setting; a custom command takes the
+   review prompt through its one `{prompt}` template.
+4. **In a terminal at the repository root**, by the same mechanism as Fix with
+   AI, with the prompt on one line and quoted as every handoff prompt is.
+   Because this prompt comes from the CLI, a prompt holding anything a shell
+   could act on, or starting like an option, is refused rather than quoted —
+   with Copy Review Prompt still there; the pre-release quoting redesign stays
+   in the backlog.
+5. **Its state is transient and its own**: starting, then started or failed —
+   never Fix with AI's, never written, never restored. Another work item, a
+   reopen, a run or the report going clears it; a same-item refresh does not.
+   No second press while one starts or once one started; a reopen or a run
+   offers it again. The host refuses on the same condition the row shows.
+6. **Started means a terminal was opened with the prompt**, and no more: "AI
+   review started · Handed to <agent> in a terminal." No completion tracking,
+   no output read, no review artifact, no change to `fix_report.md` or
+   `run.json`.
+7. **No agent is a card, not a fallback**: "AI review did not start", with Open
+   Settings. The clipboard is Copy Review Prompt's, which stays beside it,
+   independent.
+8. **No delivery, no verification**: nothing is posted, committed, pushed or
+   mailed; nothing says reviewed, passed or verified; the Validation checklist
+   is untouched.
+
 ---
 
 # 20. Step Secondary Text 状态原则

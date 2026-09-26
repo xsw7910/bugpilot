@@ -22,3 +22,12 @@
  * itself.
  */
 export const HANDOFF_STARTED_TITLE = "AI fix started";
+
+/**
+ * The same narrow claim for Review with AI (Batch 10), said under Fix result.
+ *
+ * A reviewer was started with the review prompt, and nothing further: whether
+ * it finished, what it found, whether the result holds up — none of that comes
+ * back to BugPilot, so none of it is said.
+ */
+export const REVIEW_STARTED_TITLE = "AI review started";

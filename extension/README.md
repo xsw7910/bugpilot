@@ -227,6 +227,19 @@ report's Review Notes. It is guidance, not a verification — nothing is ticked,
 recorded or written, and neither aid changes the run, the report or History.
 Posting to Jira, committing and pushing stay separate and manual.
 
+**Review with AI** starts a reviewer instead: the same prompt, handed to the
+agent **Advanced settings → AI agent** selects — the one Fix with AI uses — in a
+terminal at the repository root, where the reviewer can read those files and
+the diff. The row then says **AI review started** and which agent it went to,
+and that is all it knows: BugPilot does not read the reviewer's output or wait
+for it, so nothing says the review finished, passed or approved anything, and
+nothing is written — no review file, no change to `fix_report.md` or `run.json`,
+nothing on your clipboard. It reviews the report on disk, which after a re-run
+that is not **Fresh** can be the previous attempt's. The status lasts until you
+open another work item, reopen this one or run again; then the button is back.
+If no agent can be started, the row says why, and Copy Review Prompt still
+works.
+
 BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.
 
@@ -273,7 +286,8 @@ Collapsed, and nothing in it is needed for a normal run: the Fix Mode
 lines, Title, the AI agent, attachments, and whether to delete previous
 artifacts first.
 
-**AI agent** decides what **Fix with AI** runs:
+**AI agent** decides what **Fix with AI** and **Review with AI** run — one
+setting for both:
 
 | Choice | What happens |
 | --- | --- |
@@ -288,9 +302,10 @@ my-agent --yolo --prompt {prompt}
 ```
 
 `{prompt}` is substituted already quoted, so write it bare. BugPilot checks the
-first word of the command exists before running anything, and if it does not,
-the prompt goes to your clipboard instead of a terminal printing
-"command not found".
+first word of the command exists before running anything. If it does not, Fix
+with AI puts its prompt on your clipboard instead of opening a terminal that
+prints "command not found"; Review with AI says so on the row, next to Copy
+Review Prompt.
 
 Only `claude` is in the auto-detect list because its invocation was measured on
 a real install. Nobody here knows the flags of the others, and a guessed command

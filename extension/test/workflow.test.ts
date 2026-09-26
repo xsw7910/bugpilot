@@ -494,7 +494,7 @@ test("Fix result is ready, never the green tick, whatever the report says", () =
     assert.equal(row.summary, summary);
     assert.equal(row.detail, `Tests: ${tests}`);
     assert.equal(row.artifact, "fix_report.md");
-    assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt"]);
+    assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
     assert.equal(row.error, undefined);
     assert.equal(row.enabled, true);
   }
@@ -518,7 +518,7 @@ test("a listed report that could not be read is still a report to open", () => {
     assert.equal(row.summary, "Fix report available");
     assert.equal(row.detail, "Preview unavailable");
     assert.equal(row.status, "ready");
-    assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt"]);
+    assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
     assert.equal(row.error, undefined, "an unreadable preview became a failure");
   }
 });
@@ -691,4 +691,51 @@ test("a multi-line prompt becomes one line before it reaches a shell", async () 
   const commandLine = plan.kind === "run" ? plan.commandLine : "";
   assert.equal(commandLine, 'claude "Read the task. Then fix it."');
   assert.equal(commandLine.includes("\n"), false);
+});
+
+// --- Review with AI on Fix result (Batch 10) --------------------------------
+
+const reviewed = (review?: WorkflowInput["review"]) =>
+  finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." }, ...(review ? { review } : {}) });
+
+test("Review with AI is offered with any report, again after a failure, and not while one starts or once one started", () => {
+  const error = { kind: "agent" as const, title: "AI review did not start", message: "No agent." };
+  for (const [review, offered] of [
+    [undefined, true],
+    [{ state: "failed", error }, true],
+    [{ state: "starting" }, false],
+    [{ state: "started", agent: "Claude Code" }, false],
+  ] as const) {
+    const row = stepIn(reviewed(review), "fixResult");
+    assert.equal(row.actions.includes("reviewWithAI"), offered, JSON.stringify(review));
+    // Third, after reading the report and copying its prompt.
+    assert.deepEqual(row.actions.slice(0, 2), ["openFixReport", "copyReviewPrompt"]);
+  }
+});
+
+test("the row carries the review handoff in its own words, and says started — nothing more", () => {
+  assert.equal(stepIn(reviewed(), "fixResult").review, undefined);
+  assert.deepEqual(stepIn(reviewed({ state: "starting" }), "fixResult").review, { state: "starting" });
+  assert.deepEqual(stepIn(reviewed({ state: "started", agent: "Codex" }), "fixResult").review, {
+    state: "started",
+    summary: "AI review started",
+    detail: "Handed to Codex in a terminal.",
+  });
+  const error = { kind: "agent" as const, title: "AI review did not start", message: "No agent." };
+  const failed = stepIn(reviewed({ state: "failed", error }), "fixResult");
+  assert.deepEqual(failed.review, { state: "failed", error });
+  // The review's card is the review's: never the row's own failure.
+  assert.equal(failed.error, undefined);
+  assert.equal(failed.status, "ready");
+  assert.equal(failed.summary, "Fixed it.");
+});
+
+test("a review handoff moves neither Fix with AI nor the workflow header", () => {
+  const plain = reviewed();
+  const error = { kind: "agent" as const, title: "AI review did not start", message: "No agent." };
+  for (const review of [{ state: "starting" }, { state: "started", agent: "Claude Code" }, { state: "failed", error }] as const) {
+    const steps = reviewed(review);
+    assert.deepEqual(stepIn(steps, "fixWithAI"), stepIn(plain, "fixWithAI"), review.state);
+    assert.deepEqual(overallStatus(steps, progress("done", ALL_DONE)), { kind: "done", text: "Fix report available" });
+  }
 });

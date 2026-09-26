@@ -220,6 +220,10 @@ export const PANEL_ACTIONS = [
   // screen: the controller checks, the page merely asks.
   "copyReviewPrompt",
   "loadValidation",
+  // Fix result's reviewer handoff (Batch 10): this one action, never a generic
+  // "run an agent with this prompt". The page names no prompt and no agent; the
+  // host builds both, and refuses unless the row is offering it.
+  "reviewWithAI",
 ] as const;
 export type PanelAction = (typeof PANEL_ACTIONS)[number];
 

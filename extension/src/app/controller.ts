@@ -30,15 +30,16 @@ import { ISSUE_ARTIFACT, parseIssue } from "./issue.ts";
 import type { IssueSummary } from "./issue.ts";
 import { parseFixReport } from "./fixReport.ts";
 import type { FixReportPreview } from "./fixReport.ts";
-import { reviewPackageArgs, reviewPackageFromEnvelope } from "./reviewPackage.ts";
+import { isPlainPrompt, reviewPackageArgs, reviewPackageFromEnvelope } from "./reviewPackage.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
-import { buildWorkflow, canOpenFolder, overallStatus } from "./workflow.ts";
-import type { FixWithAiOutcome, ValidationView } from "./workflow.ts";
+import type { AgentPlan } from "./agents.ts";
+import { buildWorkflow, canOpenFolder, canStartReview, overallStatus } from "./workflow.ts";
+import type { FixWithAiOutcome, ReviewHandoff, ValidationView } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
-import { handoffError, runError } from "./failures.ts";
+import { handoffError, reviewHandoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
 import { diagnostics } from "./diagnostics.ts";
 import type { ResolvedAgent } from "./diagnostics.ts";
@@ -340,6 +341,21 @@ export class Controller {
    * else.)
    */
   #validationEpoch = 0;
+  /**
+   * Review with AI, for the report on screen (Batch 10). Transient: held here
+   * and nowhere else, so a reopened work item offers the button again. Its own
+   * state — Fix with AI's `#fix`, `#handoffBusy` and `#handoffError` are
+   * another action's.
+   */
+  #review: ReviewHandoff | undefined;
+  /**
+   * Bumped whenever a review handoff in flight stops being wanted: another work
+   * item, a run starting, or the report no longer listed. Every path that takes
+   * the report off the listing goes through one of those, which is what lets a
+   * handoff check this alone. Not bumped by the folder merely being read again:
+   * the prompt depends on the work item alone.
+   */
+  #reviewEpoch = 0;
   /** The rows of the Relevant Files list, as the last refresh read them. */
   #files: readonly RelevantFile[] = [];
   /** How many the artifact held beyond the ones being shown. */
@@ -575,6 +591,7 @@ export class Controller {
         else if (message.id === "fixWithAI") await this.fixWithAI();
         else if (message.id === "copyReviewPrompt") await this.copyReviewPrompt();
         else if (message.id === "loadValidation") await this.loadValidation();
+        else if (message.id === "reviewWithAI") await this.reviewWithAI();
         else await this.#ports.ui.editCredentials();
         return;
       case "command": {
@@ -902,12 +919,7 @@ export class Controller {
       return;
     }
     const text = this.#handoffText(workItemId);
-    const plan = await resolveAgent({
-      choice: this.#form.agent,
-      customCommand: this.#form.agentCommand,
-      prompt: text,
-      canRun: async (command) => (await this.#ports.canRun?.(command)) ?? false,
-    });
+    const plan = await this.#resolveSelectedAgent(text);
 
     if (plan.kind === "run") {
       // A retry that works clears the card the previous attempt left behind.
@@ -1029,6 +1041,10 @@ export class Controller {
     // The report may have been rewritten since the checklist was read. A copy
     // in flight is not affected: the prompt depends on the work item alone.
     this.#forgetValidation();
+    // Nor is a review handoff, while the report is still there. Without one,
+    // a handoff in flight is about a report that is gone — and so is an
+    // outcome, which must not reappear with the next report.
+    if (!names.includes(FIX_REPORT_ARTIFACT)) this.#forgetReview();
     await this.#readSummary(workItemId, names);
     // Retry needs a package to retry: `bug --retry` reads the prepared
     // artifacts, so offering it after a run that was stopped before producing
@@ -1562,7 +1578,7 @@ export class Controller {
    */
   #isOffered(command: string): boolean {
     if (this.#offered.has(command)) return true;
-    const cards = [this.#runFailure(), this.#handoffError];
+    const cards = [this.#runFailure(), this.#handoffError, this.#reviewError()];
     return cards.some((card) => card?.action?.command === command);
   }
 
@@ -1607,6 +1623,7 @@ export class Controller {
   #forgetPostFix(): void {
     this.#forgetValidation();
     this.#copyingReviewPrompt = false;
+    this.#forgetReview();
   }
 
   /**
@@ -1701,6 +1718,117 @@ export class Controller {
     this.#validation =
       typeof result === "string" ? { state: "failed", message: result } : { state: "ready", checklist: result.validation };
     this.#push();
+  }
+
+  /**
+   * Drop Review with AI's outcome, and any handoff in flight — dropped where it
+   * next looks. Starting, started or failed, it belongs to what is gone.
+   */
+  #forgetReview(): void {
+    this.#review = undefined;
+    this.#reviewEpoch += 1;
+  }
+
+  /** Whether Review with AI may start now: a report on screen, and none starting or started. */
+  #offersReview(): boolean {
+    return this.#offersPostFix() && canStartReview(this.#review);
+  }
+
+  /** Review with AI's card, while it is on screen. */
+  #reviewError(): UserFacingError | undefined {
+    return this.#offersPostFix() && this.#review?.state === "failed" ? this.#review.error : undefined;
+  }
+
+  /**
+   * Hand the canonical review prompt to the selected agent, in a terminal.
+   *
+   * The prompt is `review-package --json`'s, byte for byte — the CLI's builder,
+   * not a copy of it here — and the agent is whichever Fix with AI would use.
+   * The terminal opens in the repository root, where the prompt's `.ai/<id>/`
+   * paths and the current diff are. Nothing is written, marked or posted, the
+   * clipboard is left alone, and nothing waits for the reviewer: "AI review
+   * started" is the whole claim, as "AI fix started" is Fix with AI's.
+   */
+  async reviewWithAI(): Promise<void> {
+    const workItemId = this.#workItemId;
+    const root = this.#root;
+    if (!workItemId || !root || !this.#offersReview()) {
+      this.#ports.log.error("Refusing to start a review: no fix report is on screen, or a review is already under way.");
+      return;
+    }
+    const epoch = this.#reviewEpoch;
+    this.#review = { state: "starting" };
+    this.#push();
+
+    const result = await this.#reviewPackage(workItemId, root);
+    if (!this.#reviewStillWanted(epoch)) return;
+    if (typeof result === "string") {
+      this.#reviewFailed(reviewHandoffError("prompt", result));
+      return;
+    }
+    if (!isPlainPrompt(result.prompt)) {
+      this.#reviewFailed(
+        reviewHandoffError("command-line", "The prompt holds characters a shell could act on, or starts like an option."),
+      );
+      return;
+    }
+
+    let plan: AgentPlan;
+    try {
+      plan = await this.#resolveSelectedAgent(result.prompt);
+    } catch (error) {
+      // Not expected — `canRun` answers rather than throws — but a probe that
+      // failed must not leave the button waiting for ever.
+      if (!this.#reviewStillWanted(epoch)) return;
+      this.#reviewFailed(reviewHandoffError("agent", oneSentence((error as Error).message)));
+      return;
+    }
+    if (!this.#reviewStillWanted(epoch)) return;
+    if (plan.kind === "unavailable") {
+      this.#resolvedAgent = { kind: "unavailable" };
+      this.#reviewFailed(reviewHandoffError("agent", plan.reason));
+      return;
+    }
+    this.#resolvedAgent = { kind: "resolved", label: plan.label };
+    this.#ports.log.info(`Handing the review of ${workItemId} to ${plan.label}: ${plan.commandLine}`);
+    try {
+      this.#ports.ui.runInTerminal(`Review with AI · ${workItemId}`, root, plan.commandLine);
+    } catch (error) {
+      this.#reviewFailed(reviewHandoffError("terminal", oneSentence((error as Error).message)));
+      return;
+    }
+    this.#review = { state: "started", agent: plan.label };
+    this.#push();
+  }
+
+  /**
+   * Whether a review handoff begun under `epoch` may still act.
+   *
+   * Another work item, a run, or the report gone since: no — and that state was
+   * reset where it changed, so nothing is touched here. The folder merely read
+   * again, the report still listed: yes.
+   */
+  #reviewStillWanted(epoch: number): boolean {
+    return epoch === this.#reviewEpoch;
+  }
+
+  #reviewFailed(error: UserFacingError): void {
+    this.#review = { state: "failed", error };
+    this.#push();
+  }
+
+  /**
+   * The selected agent, resolved for a prompt: the one place both handoffs ask,
+   * so Fix with AI and Review with AI can never disagree about which agent the
+   * developer chose.
+   */
+  #resolveSelectedAgent(prompt: string): Promise<AgentPlan> {
+    return resolveAgent({
+      choice: this.#form.agent,
+      customCommand: this.#form.agentCommand,
+      prompt,
+      canRun: async (command) => (await this.#ports.canRun?.(command)) ?? false,
+    });
   }
 
   /** `review-package --json`, read: the package, or why there is none, in one sentence. */
@@ -1839,6 +1967,7 @@ export class Controller {
       ...(this.#fixReport === undefined ? {} : { fixReport: this.#fixReport }),
       ...(this.#validation === undefined ? {} : { validation: this.#validation }),
       copyingReviewPrompt: this.#copyingReviewPrompt,
+      ...(this.#review === undefined ? {} : { review: this.#review }),
     });
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.

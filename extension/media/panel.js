@@ -203,6 +203,8 @@
   let validationWorkItem;
   /** What the checklist body last showed, so an unchanged push leaves it alone. */
   let validationSignature = "";
+  /** What Review with AI's status and card last showed, for the same reason. */
+  let reviewSignature = "";
 
   // --- growing fields ------------------------------------------------------
 
@@ -701,7 +703,11 @@
       if (state.workItemId && !nowRunning && overall.kind !== "idle") byId("workflow").open = true;
       shownWorkItem = state.workItemId;
     }
-    const hasCard = Boolean(state.runError) || steps.some((step) => Boolean(step.error));
+    // Review with AI's card counts too: it answers a press made inside the
+    // workflow, which may have been collapsed while the handoff started.
+    const hasCard =
+      Boolean(state.runError) ||
+      steps.some((step) => Boolean(step.error) || Boolean(step.review && step.review.state === "failed"));
     if (hasCard && !hadCard) byId("workflow").open = true;
     wasRunning = nowRunning;
     hadCard = hasCard;
@@ -744,14 +750,36 @@
     const actions = (step && step.actions) || [];
     const opens = Boolean(step && actions.includes("openFixReport") && rowArtifacts.fixResult);
     const copies = Boolean(step && actions.includes("copyReviewPrompt"));
+    // Review with AI: pressable when offered, shown but waiting while its
+    // handoff starts, and gone once one started — a second press would be a
+    // second reviewer for the same report.
+    const review = step ? step.review : undefined;
+    const reviewing = Boolean(review && review.state === "starting");
+    const reviewButton = byId("review-with-ai");
+    const hadFocus = document.activeElement === reviewButton;
     byId("open-fix-report").hidden = !opens;
     byId("copy-review-prompt").hidden = !copies;
-    byId("actions-fixResult").hidden = !opens && !copies;
+    reviewButton.hidden = !(step && (actions.includes("reviewWithAI") || reviewing));
+    byId("actions-fixResult").hidden = !opens && !copies && reviewButton.hidden;
     // Waiting for the CLI: one press at a time, and said in words.
     const copying = Boolean(step && step.copyingReviewPrompt);
     byId("copy-review-prompt").disabled = copying;
     byId("copy-review-prompt").setAttribute("aria-busy", copying ? "true" : "false");
     byId("copy-review-prompt-label").textContent = copying ? "Copying…" : "Copy Review Prompt";
+    // `aria-disabled`, not `disabled`: Chromium moves the focus off a control
+    // the moment it is disabled, so a keyboard user who pressed it would land
+    // on the document before the reviewer even started. Announced as
+    // unavailable all the same, and the click handler and the host both refuse.
+    reviewButton.setAttribute("aria-disabled", reviewing ? "true" : "false");
+    reviewButton.setAttribute("aria-busy", reviewing ? "true" : "false");
+    byId("review-with-ai-label").textContent = reviewing ? "Starting AI review…" : "Review with AI";
+    renderReview(step);
+    // The button a keyboard user just pressed has gone, because the reviewer
+    // started: the status saying so is the natural next place, rather than the
+    // top of the document. Only then — never on an ordinary push.
+    if (hadFocus && reviewButton.hidden && review && review.state === "started") {
+      byId("review-status").focus({ preventScroll: true });
+    }
     // The lines are clamped on screen; the whole bounded line is the hover.
     byId("description-fixResult").setAttribute("title", step ? step.summary || "" : "");
     byId("detail-fixResult").setAttribute("title", step ? step.detail || "" : "");
@@ -823,6 +851,29 @@
     if (checklist.moreRisks) {
       body.append(line("p", "muted", `${checklist.moreRisks} more in fix_report.md`));
     }
+  }
+
+  /**
+   * What Review with AI did, under the row's actions: that a reviewer started
+   * and with which agent, or the card saying why none did.
+   *
+   * Neutral words and no tick: a reviewer starting is not a review finishing,
+   * let alone passing. Rebuilt only when what it says changed — the status is a
+   * live region and the card an alert, so rewriting them on every push would
+   * announce the same thing again on each progress event.
+   */
+  function renderReview(step) {
+    const review = step ? step.review : undefined;
+    const signature = review ? JSON.stringify(review) : "";
+    if (signature === reviewSignature) return;
+    reviewSignature = signature;
+    const status = byId("review-status");
+    status.replaceChildren();
+    if (review && review.state === "started") {
+      status.append(line("p", "review-status-title", review.summary || ""));
+      status.append(line("p", "muted review-status-detail", review.detail || ""));
+    }
+    renderError("review-error", review && review.state === "failed" ? review.error : undefined);
   }
 
   /** An element with nothing in it but text. */
@@ -1896,6 +1947,14 @@
   byId("copy-review-prompt").addEventListener("click", () => {
     if (!byId("copy-review-prompt").hidden && !byId("copy-review-prompt").disabled) {
       vscode.postMessage({ type: "action", id: "copyReviewPrompt" });
+    }
+  });
+  // Review with AI: the page asks for the one action; the host builds the
+  // prompt, picks the agent, and refuses unless the row is offering it.
+  byId("review-with-ai").addEventListener("click", () => {
+    const button = byId("review-with-ai");
+    if (!button.hidden && button.getAttribute("aria-disabled") !== "true") {
+      vscode.postMessage({ type: "action", id: "reviewWithAI" });
     }
   });
   // Opening the checklist is what asks for it — once, and never on a render.

@@ -148,3 +148,45 @@ export function handoffError(reason: string): UserFacingError {
     action: OPEN_SETTINGS,
   };
 }
+
+/**
+ * Where Review with AI stopped: the prompt could not be had, it could be had but
+ * not put on a command line, the agent, or the terminal.
+ */
+export type ReviewHandoffCause = "prompt" | "command-line" | "agent" | "terminal";
+
+/**
+ * A review handoff that could not start (Batch 10), as a card under Fix result.
+ *
+ * One title for every cause — what the developer needs first is that no
+ * reviewer is running — and a message per cause, because each leads somewhere
+ * different: only an unavailable agent is fixed in Settings. The report, Fix
+ * with AI and the run are untouched by any of them, and Copy Review Prompt
+ * still works whenever the prompt itself could be had.
+ */
+export function reviewHandoffError(cause: ReviewHandoffCause, reason: string): UserFacingError {
+  const detail = reason.trim();
+  const base = { kind: "agent" as const, title: "AI review did not start", ...(detail === "" ? {} : { detail }) };
+  if (cause === "agent") {
+    return {
+      ...base,
+      message:
+        "BugPilot couldn't start the selected AI agent. Check that it is installed and available from your terminal, or choose another in Advanced settings. Copy Review Prompt still gives you the prompt.",
+      action: OPEN_SETTINGS,
+    };
+  }
+  if (cause === "terminal") {
+    return {
+      ...base,
+      message: "BugPilot couldn't open a terminal for the reviewer. Try again, or use Copy Review Prompt.",
+    };
+  }
+  if (cause === "command-line") {
+    return {
+      ...base,
+      message:
+        "BugPilot won't put this review prompt on a command line, so no reviewer was started. Copy Review Prompt still gives you the text.",
+    };
+  }
+  return { ...base, message: "BugPilot couldn't prepare the review prompt, so no reviewer was started." };
+}

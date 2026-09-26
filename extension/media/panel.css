@@ -777,7 +777,7 @@ button {
   cursor: pointer;
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled):not([aria-disabled="true"]) {
   background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
 }
 
@@ -790,7 +790,10 @@ button.primary:hover:not(:disabled) {
   background: var(--vscode-button-hoverBackground);
 }
 
-button:disabled {
+/* `aria-disabled` looks the same: Review with AI waits that way so the focus
+   stays on it. */
+button:disabled,
+button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
 }
@@ -1245,6 +1248,41 @@ button.icon .codicon {
 
 .validation-file {
   font-family: var(--vscode-editor-font-family);
+}
+
+/* Review with AI's status (Batch 10): that a reviewer started, and with which
+   agent, in the row's own quiet type — no tick and no colour, because started
+   is not finished. Always in the document, as a live region must be to be
+   heard filling, so while empty it hands back the column gap it would add. */
+.review-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-status:empty {
+  margin-top: -4px;
+}
+
+.review-status p {
+  margin: 0;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.review-status-title {
+  color: var(--vscode-foreground);
+}
+
+/* Focused only when the button that started it has gone; a ring for the
+   keyboard, none for the mouse. */
+.review-status:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.review-status:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* Indented to the label, so the second line of a row starts under its text

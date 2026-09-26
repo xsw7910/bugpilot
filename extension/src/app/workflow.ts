@@ -35,7 +35,7 @@ import type { UserFacingError } from "./failures.ts";
 import type { FixReportPreview } from "./fixReport.ts";
 import type { ValidationChecklist } from "./reviewPackage.ts";
 import type { PlanState, Source } from "./form.ts";
-import { HANDOFF_STARTED_TITLE } from "./handoff.ts";
+import { HANDOFF_STARTED_TITLE, REVIEW_STARTED_TITLE } from "./handoff.ts";
 import type { IssueSummary } from "./issue.ts";
 import { ISSUE_ARTIFACT } from "./issue.ts";
 import type { Capability, ProgressView, RowState } from "./progress.ts";
@@ -78,7 +78,32 @@ export const WORKFLOW_STEP_IDS: readonly Exclude<WorkflowStepId, "fixResult">[] 
 export type StepStatus = "idle" | "running" | "success" | "ready" | "failed" | "skipped";
 
 /** An action a row offers, once that row has produced what it acts on. */
-export type StepActionId = "openContext" | "copyContext" | "fixWithAI" | "openFixReport" | "copyReviewPrompt";
+export type StepActionId =
+  | "openContext"
+  | "copyContext"
+  | "fixWithAI"
+  | "openFixReport"
+  | "copyReviewPrompt"
+  | "reviewWithAI";
+
+/**
+ * Review with AI, as this session saw it (Batch 10). Transient: never written,
+ * never restored — a reopened work item offers the button again.
+ *
+ * `started` means a terminal was opened with the review prompt in it, and no
+ * more: nothing comes back from the reviewer, so nothing says it finished,
+ * passed or agreed.
+ */
+export type ReviewHandoff =
+  | { readonly state: "starting" }
+  | { readonly state: "started"; readonly agent: string }
+  | { readonly state: "failed"; readonly error: UserFacingError };
+
+/** The same, in the words Fix result shows. */
+export type ReviewHandoffView =
+  | { readonly state: "starting" }
+  | { readonly state: "started"; readonly summary: string; readonly detail: string }
+  | { readonly state: "failed"; readonly error: UserFacingError };
 
 /**
  * Fix result's Validation checklist, as far as it has been asked for.
@@ -144,6 +169,11 @@ export interface WorkflowStepResult {
   readonly validation?: ValidationView;
   /** Fix result only: the review prompt is being prepared, so the button waits. */
   readonly copyingReviewPrompt?: true;
+  /**
+   * Fix result only: Review with AI, once pressed. Its own state and its own
+   * card — never this row's `error`, and never Fix with AI's.
+   */
+  readonly review?: ReviewHandoffView;
   /**
    * A failure this row owns.
    *
@@ -248,6 +278,8 @@ export interface WorkflowInput {
   readonly validation?: ValidationView;
   /** True while Copy Review Prompt is waiting for the CLI. */
   readonly copyingReviewPrompt?: boolean;
+  /** Review with AI, for the work item on screen; absent until pressed. */
+  readonly review?: ReviewHandoff;
 }
 
 /** The five capability rows, in `progress.ts` terms. */
@@ -340,13 +372,35 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
     summary: report?.summary ?? "Fix report available",
     ...(detail === undefined ? {} : { detail }),
     artifact: FIX_REPORT_ARTIFACT,
-    // Reading the report first, then preparing someone else's review of it.
-    // Both are offered with any report: the prompt and the checklist are built
-    // from the work item's files, and a partial report is still one to review.
-    actions: ["openFixReport", "copyReviewPrompt"],
+    // Reading the report first, then preparing someone else's review of it,
+    // then — the one that acts — starting a reviewer. All offered with any
+    // report: the prompt and the checklist are built from the work item's
+    // files, and a partial report is still one to review.
+    actions: canStartReview(input.review)
+      ? ["openFixReport", "copyReviewPrompt", "reviewWithAI"]
+      : ["openFixReport", "copyReviewPrompt"],
     ...(input.validation === undefined ? {} : { validation: input.validation }),
     ...(input.copyingReviewPrompt ? { copyingReviewPrompt: true as const } : {}),
+    ...(input.review === undefined ? {} : { review: reviewView(input.review) }),
   };
+}
+
+/**
+ * Whether Review with AI can be pressed: never pressed, or pressed and failed.
+ *
+ * Not while one is starting — a second press would be a second reviewer — and
+ * not once one started, for the same reason: the same work item, reopened, or
+ * the next run offers it again. The controller refuses on the same condition.
+ */
+export function canStartReview(review: ReviewHandoff | undefined): boolean {
+  return review === undefined || review.state === "failed";
+}
+
+function reviewView(review: ReviewHandoff): ReviewHandoffView {
+  if (review.state === "started") {
+    return { state: "started", summary: REVIEW_STARTED_TITLE, detail: `Handed to ${review.agent} in a terminal.` };
+  }
+  return review;
 }
 
 /** What a capability row says and offers, for the state it is in. */

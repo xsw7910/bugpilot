@@ -1827,8 +1827,11 @@ test("Fix result is a row the markup keeps hidden, with no checkbox and no failu
   // Nobody chooses it and no run performs it.
   assert.equal(/<input\b/.test(row), false, "Fix result has a checkbox");
   assert.equal(/<label\b/.test(row), false, "Fix result has a label for a control");
-  // A report that cannot be previewed is not a failure.
-  assert.equal(row.includes('class="failure"'), false, "Fix result has a failure card");
+  // A report that cannot be previewed is not a failure: no card of the row's
+  // own. The one card it holds is Review with AI's, about that action (Batch 10).
+  assert.equal(row.includes('id="error-fixResult"'), false, "Fix result has a row failure card");
+  assert.deepEqual([...row.matchAll(/class="failure"[^>]*/g)].length, 1);
+  assert.match(row, /<div id="review-error" class="failure" role="alert" hidden>/);
   // Its line, its file, then its one action — the same order as every row.
   const order = ['id="description-fixResult"', 'id="artifact-fixResult"', 'id="detail-fixResult"', 'id="open-fix-report"'].map((id) => row.indexOf(id));
   assert.ok(order.every((at) => at !== -1), "a slot is missing");
@@ -1997,4 +2000,64 @@ test("the page decides nothing about what a diagnostic means", () => {
   ]) {
     assert.equal(PAGE_JS.includes(smell), false, `the page decides "${smell}" for itself`);
   }
+});
+
+// --- Review with AI (Batch 10) ------------------------------------------------
+
+test("Review with AI is Fix result's third action, then its status and its card, then the checklist", () => {
+  const row = rowMarkup("fixResult");
+  const order = [
+    'id="open-fix-report"',
+    'id="copy-review-prompt"',
+    'id="review-with-ai"',
+    'id="review-status"',
+    'id="review-error"',
+    'id="validation-checklist"',
+  ].map((id) => row.indexOf(id));
+  assert.ok(order.every((at) => at !== -1), "a piece of Review with AI is not on the Fix result row");
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  // Declared once, in this row only.
+  for (const id of ["review-with-ai", "review-status", "review-error"]) {
+    assert.equal(HTML.split(`id="${id}"`).length - 1, 1, `#${id} is declared more than once`);
+  }
+});
+
+test("Review with AI is a quiet secondary button whose label is its name", () => {
+  const row = rowMarkup("fixResult");
+  // The same style as Open Fix Report and Copy Review Prompt — not the Run /
+  // Fix with AI primary — hidden until the host offers it.
+  assert.match(
+    row,
+    /<button type="button" class="result-link" id="review-with-ai" title="Start the selected AI agent in a terminal with the review prompt" hidden>/,
+  );
+  assert.match(row, /<span id="review-with-ai-label">Review with AI<\/span>/);
+  assert.equal(row.includes('class="primary"'), false);
+  // What it does, and not what a reviewer might conclude.
+  for (const overclaim of ["Review complete", "Review passed", "Reviewed", "Verified", "Approved"]) {
+    assert.equal(HTML.includes(overclaim), false, `the panel says "${overclaim}"`);
+  }
+});
+
+test("the review status is always in the document, as a live region the page can focus", () => {
+  // Present while empty, so a screen reader hears it fill; focusable, so the
+  // pressed button's focus has somewhere to go when the button goes.
+  assert.match(rowMarkup("fixResult"), /<div class="review-status" id="review-status" role="status" tabindex="-1"><\/div>/);
+  // Neutral: no tick, no colour for a start that is not a finish.
+  const rules = /\.review-status \{[\s\S]*?\.review-status:focus:not\(:focus-visible\) \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  assert.notEqual(rules, "");
+  assert.equal(/--vscode-(testing|charts|terminal\.ansiGreen)|pass-filled|color: green/.test(rules), false);
+  // Empty, it gives back the column gap it would otherwise add.
+  assert.match(CSS, /\.review-status:empty \{\s*margin-top: -4px;/);
+});
+
+test("the page may ask for Review with AI and nothing more general", () => {
+  assert.deepEqual(parsePanelMessage({ type: "action", id: "reviewWithAI" }), { type: "action", id: "reviewWithAI" });
+  for (const id of ["launchAgentWithPrompt", "runAgent", "runPostFixCommand"]) {
+    assert.equal(parsePanelMessage({ type: "action", id }), undefined, id);
+  }
+  // No prompt and no agent travel with it: the message is the action's name.
+  assert.deepEqual(
+    parsePanelMessage({ type: "action", id: "reviewWithAI", prompt: "rm -rf ~", agent: "sh" }),
+    { type: "action", id: "reviewWithAI" },
+  );
 });

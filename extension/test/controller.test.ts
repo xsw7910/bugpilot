@@ -11,7 +11,7 @@ import { DEFAULT_FORM } from "../src/app/form.ts";
 import type { FormState } from "../src/app/form.ts";
 import type { Environment } from "../src/app/environment.ts";
 import type { Envelope, StreamEvent } from "../src/protocol.ts";
-import type { PanelState } from "../src/panel/messages.ts";
+import type { PanelMessage, PanelState } from "../src/panel/messages.ts";
 import { parsePanelMessage } from "../src/panel/messages.ts";
 import { fixModesFromPayload, managedFixModesFromPayload } from "../src/app/fixModes.ts";
 import type { FixModeCatalog, ManagedFixModes } from "../src/app/fixModes.ts";
@@ -140,6 +140,10 @@ interface HarnessOptions {
   readonly issueDetailsThrows?: Error;
   /** Make the clipboard refuse, as a webview host can. */
   readonly clipboardThrows?: Error;
+  /** Answer `canRun` instead of `agentOnPath`: a function may answer later, holding the probe open. */
+  readonly agentProbe?: (command: string) => Promise<boolean>;
+  /** Make opening a terminal throw, as a host that cannot start a shell would. */
+  readonly terminalThrows?: Error;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -233,6 +237,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         ranCommands.push(commandId);
       },
       runInTerminal: (name, cwd, commandLine) => {
+        if (options.terminalThrows) throw options.terminalThrows;
         terminals.push({ name, cwd, commandLine });
       },
       openFolder: async (directory) => {
@@ -256,6 +261,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       : { extensionVersion: options.extensionVersion }),
     canRun: async (command) => {
       probed.push(command);
+      if (options.agentProbe) return options.agentProbe(command);
       return options.agentOnPath ?? false;
     },
     now: () => 1_000,
@@ -4144,11 +4150,11 @@ test("with no report there is nothing to copy or load, and the host refuses both
   assert.equal(h.logged.filter((line) => /Refusing to (copy a review prompt|load a validation checklist)/.test(line)).length, 2);
 });
 
-test("a report offers Copy Review Prompt, after Open Fix Report", async () => {
+test("a report offers Copy Review Prompt and Review with AI, after Open Fix Report", async () => {
   const h = reviewable();
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
   // Nothing is run until somebody asks.
   assert.deepEqual(reviewRuns(h), []);
 });
@@ -4252,7 +4258,7 @@ test("a review prompt for a work item that is no longer shown is never copied on
   const copying = h.controller.handle({ type: "action", id: "copyReviewPrompt" });
   await Promise.resolve();
   await h.controller.showWorkItem("JR-2");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
   answer({ ...REVIEW_PACKAGE, work_item_id: "JR-1", prompt: "# Final Review Request\n\nReview the BugPilot result for work item JR-1.\n" });
   await copying;
 
@@ -4375,7 +4381,7 @@ test("a re-run of the same work item keeps the review aids on the kept report", 
   const running = h.controller.run(jiraForm());
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(h.last().progress.state, "running");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
 
   const writesBefore = h.written.length;
   await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
@@ -4461,4 +4467,502 @@ test("a clipboard that refuses is said, and the button comes back", async () => 
   assert.equal(fixResultOf(h.last())?.copyingReviewPrompt, undefined, "the button stayed on Copying…");
   assert.ok(h.notices.some((notice) => notice.kind === "error" && notice.message === "Could not copy the review prompt: Clipboard write was denied."));
   assert.equal(h.notices.some((notice) => /Review prompt copied/.test(notice.message)), false);
+});
+
+// --- Batch 10: Review with AI ------------------------------------------------
+
+/** What the terminal handoff does to any prompt: one line (agents.ts). */
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+const reviewOf = (state: PanelState) => fixResultOf(state)?.review;
+const offersReview = (state: PanelState) => fixResultOf(state)?.actions.includes("reviewWithAI") ?? false;
+const REVIEW: PanelMessage = { type: "action", id: "reviewWithAI" };
+/** Flush every pending promise callback, so a held probe is reached. */
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/** Harness options a test can change mid-scenario: the harness reads them live. */
+type WritableOptions = { -readonly [K in keyof HarnessOptions]: HarnessOptions[K] };
+
+/** A reopened work item with a report, an agent on PATH, and the CLI's review package. */
+const reviewOptions = (extra: HarnessOptions = {}): WritableOptions => ({
+  directory: [...PREPARED_FILES, "fix_report.md"],
+  files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+  json: REVIEW_PACKAGE,
+  agentOnPath: true,
+  ...extra,
+});
+
+async function openedForReview(options: HarnessOptions = reviewOptions(), workItemId = "JR-12345") {
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem(workItemId);
+  return h;
+}
+
+/** Two work items with a report each, for switching between mid-handoff. */
+const twoReports = (json: NonNullable<HarnessOptions["json"]>, extra: HarnessOptions = {}): HarnessOptions => ({
+  directory: [...PREPARED_FILES, "fix_report.md"],
+  files: {
+    [nodePath.join("JR-1", "run.json")]: PREPARED_RUN_JSON,
+    [nodePath.join("JR-1", "fix_report.md")]: fixReportMd("A's report.", "1 passed."),
+    [nodePath.join("JR-2", "run.json")]: PREPARED_RUN_JSON,
+    [nodePath.join("JR-2", "fix_report.md")]: fixReportMd("B's report.", "2 passed."),
+  },
+  json,
+  agentOnPath: true,
+  ...extra,
+});
+
+test("with no report, Review with AI is neither offered nor accepted", async () => {
+  const h = await openedForReview(reviewOptions({ directory: PREPARED_FILES }));
+  assert.equal(fixResultOf(h.last()), undefined);
+
+  await h.controller.handle(REVIEW);
+
+  assert.deepEqual(reviewRuns(h), []);
+  assert.deepEqual(h.probed, []);
+  assert.deepEqual(h.terminals, []);
+  assert.ok(h.logged.some((line) => /Refusing to start a review/.test(line)));
+});
+
+test("Review with AI hands review-package's prompt to the selected agent in a terminal, and does nothing else", async () => {
+  const h = await openedForReview();
+  const fixBefore = fixRow(h.last());
+  const noticesBefore = h.notices.length;
+  const before = h.states.length;
+
+  await h.controller.handle(REVIEW);
+
+  // The canonical prompt, from the read-only query — asked for once, built
+  // nowhere in this extension.
+  assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [["review-package", "JR-12345", "--json"]]);
+  // The agent the form selects (auto: Claude Code), in one terminal, in the
+  // repository root where `.ai/JR-12345/` and the diff are.
+  assert.deepEqual(h.probed, ["claude"]);
+  assert.deepEqual(h.terminals, [
+    { name: "Review with AI · JR-12345", cwd: ROOT, commandLine: `claude ${JSON.stringify(oneLine(REVIEW_PROMPT))}` },
+  ]);
+  // Starting, then started — and started says that and nothing more.
+  assert.ok(h.states.slice(before).some((state) => reviewOf(state)?.state === "starting"));
+  assert.deepEqual(reviewOf(h.last()), {
+    state: "started",
+    summary: "AI review started",
+    detail: "Handed to Claude Code in a terminal.",
+  });
+  assert.equal(offersReview(h.last()), false, "a second reviewer was offered for the same report");
+  // Nothing else moved: not Fix with AI, not the checklist, not the report,
+  // not the header, not the run.
+  assert.deepEqual(fixRow(h.last()), fixBefore, "Fix with AI changed");
+  assert.equal(fixResultOf(h.last())?.validation, undefined, "the checklist was touched");
+  assert.equal(fixResultOf(h.last())?.summary, "Fixed it.");
+  assert.equal(fixResultOf(h.last())?.error, undefined);
+  assert.equal(h.last().overall.text, "Fix report available");
+  assert.equal(h.last().progress.state, "done");
+  // No clipboard, no file, no command, no run, no toast.
+  assert.deepEqual(h.clipboard, []);
+  assert.deepEqual(h.written, []);
+  assert.deepEqual(h.streamRuns, []);
+  assert.deepEqual(h.ranCommands, []);
+  assert.equal(h.notices.length, noticesBefore);
+  const state = JSON.stringify(h.last());
+  for (const claim of ["Reviewed", "Review complete", "Review passed", "Verified", "Approved", "approved"]) {
+    assert.equal(state.includes(claim), false, `the panel says "${claim}"`);
+  }
+});
+
+test("a custom agent gets the same prompt through the same template — which is how Codex is reached", async () => {
+  const h = await openedForReview(reviewOptions({ form: { ...DEFAULT_FORM, agent: "custom", agentCommand: "codex exec {prompt}" } }));
+
+  await h.controller.handle(REVIEW);
+
+  assert.deepEqual(h.probed, ["codex"]);
+  assert.equal(h.terminals[0]?.commandLine, `codex exec ${JSON.stringify(oneLine(REVIEW_PROMPT))}`);
+  assert.deepEqual(reviewOf(h.last()), { state: "started", summary: "AI review started", detail: "Handed to codex in a terminal." });
+});
+
+test("Review with AI uses the agent selected now, the same one Fix with AI uses", async () => {
+  const h = await openedForReview();
+  const form = { ...DEFAULT_FORM, issueKey: "JR-12345", agent: "custom" as const, agentCommand: "my-reviewer --prompt {prompt}" };
+  await h.controller.handle({ type: "formChanged", form });
+
+  await h.controller.handle(REVIEW);
+  await h.controller.handle({ type: "action", id: "fixWithAI" });
+
+  // One selection, two handoffs: the review first, then the fix.
+  assert.deepEqual(h.probed, ["my-reviewer", "my-reviewer"]);
+  assert.equal(h.terminals[0]?.commandLine, `my-reviewer --prompt ${JSON.stringify(oneLine(REVIEW_PROMPT))}`);
+  assert.equal(h.terminals[1]?.commandLine, `my-reviewer --prompt ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`);
+});
+
+test("with no agent available, no reviewer starts and the row says why, beside a Copy Review Prompt that still works", async () => {
+  const h = await openedForReview(reviewOptions({ agentOnPath: false, agentPanel: true }));
+  const fixBefore = fixRow(h.last());
+  const noticesBefore = h.notices.length;
+
+  await h.controller.handle(REVIEW);
+
+  assert.deepEqual(h.terminals, []);
+  const review = reviewOf(h.last());
+  assert.equal(review?.state, "failed");
+  if (review?.state !== "failed") return;
+  assert.equal(review.error.title, "AI review did not start");
+  assert.match(review.error.message, /^BugPilot couldn't start the selected AI agent\./);
+  assert.match(review.error.message, /Copy Review Prompt still gives you the prompt\.$/);
+  assert.equal(review.error.detail, "claude is not on PATH.");
+  assert.deepEqual(review.error.action, { title: "Open Settings", command: COMMANDS.openSettings });
+  // No pretend start, no clipboard fallback, no agent panel pushed forward.
+  assert.deepEqual(h.clipboard, []);
+  assert.equal(h.notices.length, noticesBefore);
+  // The row, Fix with AI and the run stand; the button stays for a retry.
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
+  assert.equal(fixResultOf(h.last())?.error, undefined, "the review's failure became the row's");
+  assert.deepEqual(fixRow(h.last()), fixBefore);
+  assert.equal(h.last().runError, undefined);
+  assert.equal(h.last().overall.text, "Fix report available");
+
+  // The card's button does something while the card is there.
+  await h.controller.handle({ type: "command", id: COMMANDS.openSettings });
+  assert.deepEqual(h.ranCommands, [COMMANDS.openSettings]);
+  // Copy Review Prompt still gives the prompt.
+  await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  assert.deepEqual(h.clipboard, [REVIEW_PROMPT]);
+
+  // Reopened, the card is gone, and so is its button's offer.
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(reviewOf(h.last()), undefined);
+  await h.controller.handle({ type: "command", id: COMMANDS.openSettings });
+  assert.deepEqual(h.ranCommands, [COMMANDS.openSettings], "a card that is gone still ran its command");
+});
+
+test("a review prompt that cannot be prepared starts nothing and says so on the row", async () => {
+  const h = await openedForReview(
+    reviewOptions({ json: { ok: false, command: "review-package", error: { code: "WORK_ITEM_NOT_FOUND", message: "Work item not found: .ai/JR-12345/" } } }),
+  );
+  const fixBefore = fixRow(h.last());
+
+  await h.controller.handle(REVIEW);
+
+  assert.deepEqual(h.probed, [], "an agent was looked for with no prompt to give it");
+  assert.deepEqual(h.terminals, []);
+  const review = reviewOf(h.last());
+  assert.equal(review?.state, "failed");
+  if (review?.state !== "failed") return;
+  assert.equal(review.error.title, "AI review did not start");
+  assert.equal(review.error.message, "BugPilot couldn't prepare the review prompt, so no reviewer was started.");
+  assert.equal(review.error.detail, "Work item not found: .ai/JR-12345/");
+  assert.equal(review.error.action, undefined);
+  assert.equal(offersReview(h.last()), true, "the button did not come back");
+  assert.equal(fixResultOf(h.last())?.summary, "Fixed it.");
+  assert.deepEqual(fixRow(h.last()), fixBefore);
+  assert.equal(h.last().runError, undefined);
+});
+
+test("a prompt with anything a shell could act on never reaches a command line", async () => {
+  // The canonical prompt is plain; this is the guard for one that is not.
+  const prompt = "Review JR-12345 $(rm -rf ~) now.";
+  const h = await openedForReview(reviewOptions({ json: { ...REVIEW_PACKAGE, prompt } }));
+
+  await h.controller.handle(REVIEW);
+
+  assert.deepEqual(h.probed, []);
+  assert.deepEqual(h.terminals, []);
+  const review = reviewOf(h.last());
+  assert.equal(review?.state, "failed");
+  if (review?.state !== "failed") return;
+  // Had, but not put on a command line — and said so, with the way round it.
+  assert.equal(
+    review.error.message,
+    "BugPilot won't put this review prompt on a command line, so no reviewer was started. Copy Review Prompt still gives you the text.",
+  );
+  assert.match(review.error.detail ?? "", /characters a shell could act on/);
+  // The clipboard is not a shell: Copy Review Prompt still gives the text.
+  await h.controller.handle({ type: "action", id: "copyReviewPrompt" });
+  assert.deepEqual(h.clipboard, [prompt]);
+});
+
+test("a terminal that cannot be opened is a failure on the row, not a start", async () => {
+  const h = await openedForReview(reviewOptions({ terminalThrows: new Error("The terminal process failed to launch.") }));
+
+  await h.controller.handle(REVIEW);
+
+  const review = reviewOf(h.last());
+  assert.equal(review?.state, "failed");
+  if (review?.state !== "failed") return;
+  assert.equal(review.error.title, "AI review did not start");
+  assert.equal(review.error.message, "BugPilot couldn't open a terminal for the reviewer. Try again, or use Copy Review Prompt.");
+  assert.equal(review.error.detail, "The terminal process failed to launch.");
+  assert.equal(offersReview(h.last()), true);
+  assert.equal(h.last().runError, undefined);
+  assert.equal(JSON.stringify(h.last()).includes("AI review started"), false);
+});
+
+test("pressed twice, or pressed again once started, Review with AI starts one reviewer", async () => {
+  // Every answer the CLI owes is held, then all are given at once: a second
+  // handoff, had one been let through, would reach a terminal too — and fail
+  // this test rather than hang it.
+  const answers: ((envelope: Envelope) => void)[] = [];
+  const h = await openedForReview(reviewOptions({ json: () => new Promise<Envelope>((resolve) => { answers.push(resolve); }) }));
+
+  const first = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  // The host refuses on its own state, whatever the page shows.
+  const second = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  for (const answer of answers) answer(REVIEW_PACKAGE);
+  await Promise.all([first, second]);
+  assert.equal(reviewRuns(h).length, 1, "a second press asked for a second prompt");
+  assert.equal(h.terminals.length, 1, "a second press started a second reviewer");
+
+  await h.controller.handle(REVIEW);
+  assert.equal(h.terminals.length, 1, "a second reviewer started for the same report");
+  assert.equal(reviewRuns(h).length, 1);
+  assert.equal(h.logged.filter((line) => /Refusing to start a review/.test(line)).length, 2);
+});
+
+test("a review for a work item that is no longer shown never starts, and never lands on the new one", async () => {
+  // A on screen, Review pressed, B — with a report of its own — opened before
+  // the CLI answers: no reviewer for A under B, and nothing on B's row.
+  let answer: (envelope: Envelope) => void = () => {};
+  const h = harness(twoReports(() => new Promise<Envelope>((resolve) => { answer = resolve; })));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+  const noticesBefore = h.notices.length;
+
+  const reviewing = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  await h.controller.showWorkItem("JR-2");
+  answer({ ...REVIEW_PACKAGE, work_item_id: "JR-1", prompt: "# Final Review Request\n\nReview the BugPilot result for work item JR-1.\n" });
+  await reviewing;
+
+  assert.deepEqual(h.terminals, [], "A's reviewer started with B on screen");
+  assert.deepEqual(h.probed, []);
+  assert.equal(reviewOf(h.last()), undefined, "A's handoff showed on B");
+  assert.equal(fixResultOf(h.last())?.summary, "B's report.");
+  assert.equal(offersReview(h.last()), true, "B's own Review with AI is gone");
+  assert.deepEqual(h.clipboard, []);
+  assert.equal(h.notices.length, noticesBefore);
+});
+
+test("a failure for a work item that is no longer shown is not shown on the new one", async () => {
+  let answer: (envelope: Envelope) => void = () => {};
+  const h = harness(twoReports(() => new Promise<Envelope>((resolve) => { answer = resolve; })));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const reviewing = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  await h.controller.showWorkItem("JR-2");
+  answer({ ok: false, command: "review-package", error: { code: "WORK_ITEM_NOT_FOUND", message: "Work item not found: .ai/JR-1/" } });
+  await reviewing;
+
+  assert.equal(reviewOf(h.last()), undefined, "A's failure showed on B");
+  assert.deepEqual(h.terminals, []);
+});
+
+test("a switch while the agent is being looked for starts no reviewer", async () => {
+  let probe: (found: boolean) => void = () => {};
+  const h = harness(twoReports(REVIEW_PACKAGE, { agentProbe: () => new Promise<boolean>((resolve) => { probe = resolve; }) }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const reviewing = h.controller.handle(REVIEW);
+  await settle();
+  assert.deepEqual(h.probed, ["claude"], "the probe was not reached");
+  await h.controller.showWorkItem("JR-2");
+  probe(true);
+  await reviewing;
+
+  assert.deepEqual(h.terminals, [], "A's reviewer started with B on screen");
+  assert.equal(reviewOf(h.last()), undefined);
+});
+
+test("a run starting while a review is being started drops it", async () => {
+  // A same-key re-prepare keeps the report, so the row stays — but the press
+  // was about the package before the run, not the one it is writing.
+  let answer: (envelope: Envelope) => void = () => {};
+  const options = reviewOptions({ json: () => new Promise<Envelope>((resolve) => { answer = resolve; }) });
+  const h = await openedForReview(options);
+
+  const reviewing = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  await h.controller.run(jiraForm());
+  answer(REVIEW_PACKAGE);
+  await reviewing;
+
+  assert.deepEqual(h.terminals, []);
+  assert.equal(reviewOf(h.last()), undefined);
+  assert.equal(offersReview(h.last()), true, "the kept report lost its Review with AI");
+});
+
+test("a review whose report vanished meanwhile starts nothing, and leaves nothing to come back", async () => {
+  let answer: (envelope: Envelope) => void = () => {};
+  const options = reviewOptions({ json: () => new Promise<Envelope>((resolve) => { answer = resolve; }) });
+  const h = await openedForReview(options);
+
+  const reviewing = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  options.directory = PREPARED_FILES;
+  await h.controller.refreshArtifacts();
+  answer(REVIEW_PACKAGE);
+  await reviewing;
+
+  assert.deepEqual(h.terminals, []);
+  assert.equal(fixResultOf(h.last()), undefined);
+  // A new report later gets a clean row, not a handoff stuck on "starting".
+  options.directory = [...PREPARED_FILES, "fix_report.md"];
+  await h.controller.refreshArtifacts();
+  assert.equal(reviewOf(h.last()), undefined);
+  assert.equal(offersReview(h.last()), true);
+});
+
+test("a review in flight survives the folder being read again: same work item, same report", async () => {
+  let answer: (envelope: Envelope) => void = () => {};
+  const h = await openedForReview(reviewOptions({ json: () => new Promise<Envelope>((resolve) => { answer = resolve; }) }));
+
+  const reviewing = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  await h.controller.refreshArtifacts();
+  assert.equal(reviewOf(h.last())?.state, "starting", "a refresh cancelled the handoff");
+  answer(REVIEW_PACKAGE);
+  await reviewing;
+
+  assert.equal(h.terminals.length, 1);
+  assert.equal(reviewOf(h.last())?.state, "started");
+  // And a refresh after it keeps saying so, while the report is there.
+  await h.controller.refreshArtifacts();
+  assert.equal(reviewOf(h.last())?.state, "started");
+});
+
+test("reopened, a work item offers Review with AI again; the last start is not restored", async () => {
+  const h = await openedForReview();
+  await h.controller.handle(REVIEW);
+  assert.equal(reviewOf(h.last())?.state, "started");
+
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(reviewOf(h.last()), undefined, "a transient start came back");
+  assert.equal(offersReview(h.last()), true);
+  // A second review is an explicit second press, after the reset.
+  await h.controller.handle(REVIEW);
+  assert.equal(h.terminals.length, 2);
+});
+
+test("a run forgets the last review handoff, even when it keeps the report", async () => {
+  const h = await openedForReview(reviewOptions({ agentOnPath: false }));
+  await h.controller.handle(REVIEW);
+  assert.equal(reviewOf(h.last())?.state, "failed");
+  const before = h.states.length;
+
+  await h.controller.run(jiraForm());
+
+  // Gone from the first push of the run on, not only at its end.
+  assert.equal(h.states.slice(before).every((state) => reviewOf(state) === undefined), true);
+  assert.equal(offersReview(h.last()), true);
+});
+
+test("Review with AI and Fix with AI keep their own outcomes", async () => {
+  const options = reviewOptions({ agentOnPath: false });
+  const h = await openedForReview(options);
+
+  // Both fail: each says so on its own row, with its own card.
+  await h.controller.handle({ type: "action", id: "fixWithAI" });
+  await h.controller.handle(REVIEW);
+  assert.equal(fixRow(h.last()).error?.title, "AI agent unavailable");
+  assert.equal(reviewOf(h.last())?.state, "failed");
+  // Fix's fallback put its own sentence on the clipboard; the review added nothing.
+  assert.deepEqual(h.clipboard, ["Read .ai/JR-12345/task.md and complete the workflow."]);
+
+  // The review succeeds: Fix with AI's card stays.
+  options.agentOnPath = true;
+  await h.controller.handle(REVIEW);
+  assert.equal(reviewOf(h.last())?.state, "started");
+  assert.equal(fixRow(h.last()).error?.title, "AI agent unavailable", "a review cleared Fix with AI's card");
+
+  // Fix with AI succeeds: the review's start stays.
+  await h.controller.handle({ type: "action", id: "fixWithAI" });
+  assert.equal(fixRow(h.last()).summary, "AI fix started");
+  assert.equal(reviewOf(h.last())?.state, "started", "a fix handoff cleared the review's");
+  assert.equal(h.last().overall.text, "AI fix started");
+});
+
+test("starting a review leaves the Validation checklist exactly as it was", async () => {
+  const h = await openedForReview();
+  await h.controller.handle({ type: "action", id: "loadValidation" });
+  const checklist = fixResultOf(h.last())?.validation;
+  assert.equal(checklist?.state, "ready");
+
+  await h.controller.handle(REVIEW);
+
+  assert.deepEqual(fixResultOf(h.last())?.validation, checklist);
+});
+
+test("a review's outcome does not outlive its report", async () => {
+  // Started for one report; the report goes (Clean, a Fresh run elsewhere);
+  // a new one arrives. The new report has had no review.
+  const options = reviewOptions();
+  const h = await openedForReview(options);
+  await h.controller.handle(REVIEW);
+  assert.equal(reviewOf(h.last())?.state, "started");
+
+  options.directory = PREPARED_FILES;
+  await h.controller.refreshArtifacts();
+  options.directory = [...PREPARED_FILES, "fix_report.md"];
+  await h.controller.refreshArtifacts();
+
+  assert.equal(reviewOf(h.last()), undefined, "the last report's review showed on the next");
+  assert.equal(offersReview(h.last()), true);
+});
+
+test("a report that goes and comes back mid-handoff drops the first handoff; a new press starts one reviewer", async () => {
+  // Pressed for one report; it went (a refresh without it) and a new one
+  // arrived (a refresh with it) before the CLI answered. The first handoff is
+  // about the report that went; only the press made for the new one may start.
+  const answers: ((envelope: Envelope) => void)[] = [];
+  const options = reviewOptions({ json: () => new Promise<Envelope>((resolve) => { answers.push(resolve); }) });
+  const h = await openedForReview(options);
+
+  const first = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  options.directory = PREPARED_FILES;
+  await h.controller.refreshArtifacts();
+  options.directory = [...PREPARED_FILES, "fix_report.md"];
+  await h.controller.refreshArtifacts();
+  assert.equal(offersReview(h.last()), true);
+  const second = h.controller.handle(REVIEW);
+  await Promise.resolve();
+  for (const answer of answers) answer(REVIEW_PACKAGE);
+  await Promise.all([first, second]);
+
+  assert.equal(h.terminals.length, 1, "the handoff for the report that went started a reviewer too");
+  assert.equal(reviewOf(h.last())?.state, "started");
+});
+
+test("a report removed while the agent is being looked for starts no reviewer", async () => {
+  let probe: (found: boolean) => void = () => {};
+  const options = reviewOptions({ agentProbe: () => new Promise<boolean>((resolve) => { probe = resolve; }) });
+  const h = await openedForReview(options);
+
+  const reviewing = h.controller.handle(REVIEW);
+  await settle();
+  assert.deepEqual(h.probed, ["claude"], "the probe was not reached");
+  options.directory = PREPARED_FILES;
+  await h.controller.refreshArtifacts();
+  probe(true);
+  await reviewing;
+
+  assert.deepEqual(h.terminals, []);
+  assert.equal(fixResultOf(h.last()), undefined);
+});
+
+test("an agent probe that throws is a failure on the row, not a button left waiting", async () => {
+  const h = await openedForReview(reviewOptions({ agentProbe: () => Promise.reject(new Error("spawn EPERM")) }));
+
+  await h.controller.handle(REVIEW);
+
+  const review = reviewOf(h.last());
+  assert.equal(review?.state, "failed");
+  if (review?.state !== "failed") return;
+  assert.equal(review.error.title, "AI review did not start");
+  assert.equal(review.error.detail, "spawn EPERM");
+  assert.deepEqual(review.error.action, { title: "Open Settings", command: COMMANDS.openSettings });
+  assert.equal(offersReview(h.last()), true, "the button did not come back");
+  assert.deepEqual(h.terminals, []);
 });

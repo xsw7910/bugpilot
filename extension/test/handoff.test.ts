@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { HANDOFF_STARTED_TITLE } from "../src/app/handoff.ts";
+import { HANDOFF_STARTED_TITLE, REVIEW_STARTED_TITLE } from "../src/app/handoff.ts";
 import { buildWorkflow, overallStatus } from "../src/app/workflow.ts";
 import type { FixWithAiOutcome, WorkflowInput } from "../src/app/workflow.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
@@ -108,4 +108,53 @@ test("the wording is the one the workflow header already uses", () => {
 test("the headline names no vendor", () => {
   const { row } = fixRow({ status: "success", detail: "Handed to Claude Code in a terminal." });
   assert.equal(/claude|codex|copilot|gemini|openai|anthropic/i.test(row.summary), false);
+});
+
+// --- Review with AI (Batch 10) ------------------------------------------------
+
+function reviewView(agent: string) {
+  const steps = buildWorkflow({
+    source: "jira",
+    plan: DEFAULT_FORM.plan,
+    fixWithAI: false,
+    progress: DONE,
+    artifacts: ["context.md", "task.md", "fix_report.md"],
+    fixReport: { readable: true, summary: "Fixed it." },
+    review: { state: "started", agent },
+  });
+  const review = steps.find((step) => step.id === "fixResult")?.review;
+  assert.ok(review?.state === "started");
+  return { review, overall: overallStatus(steps, DONE) };
+}
+
+test("a started review says a reviewer was started, and nothing about what it found", () => {
+  const { review, overall } = reviewView("Claude Code");
+  assert.equal(review.summary, REVIEW_STARTED_TITLE);
+  assert.equal(review.detail, "Handed to Claude Code in a terminal.");
+  const copy = `${review.summary} ${review.detail}`.toLowerCase();
+  for (const claim of [
+    "review complete",
+    "review passed",
+    "reviewed",
+    "approved",
+    "verified",
+    "passed",
+    "fixed",
+    "done",
+    "complete",
+    "finished",
+    "correct",
+  ]) {
+    assert.equal(copy.includes(claim), false, `the review copy claims "${claim}"`);
+  }
+  assert.match(copy, /started/);
+  assert.match(copy, /handed to/);
+  // The header is the run's and the report's, not the review's.
+  assert.equal(overall.text, "Fix report available");
+});
+
+test("the review headline names no vendor; which agent is the detail's to say", () => {
+  assert.equal(REVIEW_STARTED_TITLE, "AI review started");
+  assert.equal(/claude|codex|copilot|gemini|openai|anthropic/i.test(REVIEW_STARTED_TITLE), false);
+  assert.equal(reviewView("codex").review.detail, "Handed to codex in a terminal.");
 });

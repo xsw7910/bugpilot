@@ -11,6 +11,7 @@ functions the human outputs render — these tests pin both halves.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from bugpilot.cli import main
@@ -225,3 +226,18 @@ def test_the_json_prompt_is_the_human_prompt_for_every_kind_of_work_item(tmp_pat
         human = capsys.readouterr().out
         assert main(["review-package", work_item, "--json"]) == 0
         assert _json(capsys)["prompt"] == human, work_item
+
+
+# --- the prompt Review with AI puts on a command line (Batch 10) ---------------
+
+
+def test_the_prompt_stays_plain_enough_for_a_terminal_handoff():
+    # The extension's Review with AI hands this prompt to an agent on a command
+    # line, quoted the way every handoff is — which is safe only for text no
+    # shell expands anything in. So the extension refuses anything outside this
+    # class (`isPlainPrompt` in reviewPackage.ts), and this pins the builder to
+    # it: a `$`, a quote or a backtick added here would turn Review with AI into
+    # an error, and this test says so first.
+    for work_item in ("JR-12345", "local_20260926010922"):
+        prompt = workflow._build_final_review_prompt(work_item)
+        assert re.fullmatch(r"\s*[A-Za-z0-9#][A-Za-z0-9\s.,:#/_-]*", prompt), work_item

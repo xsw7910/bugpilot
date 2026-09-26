@@ -8495,3 +8495,242 @@ may not be a fix. The checklist builder is shared, so `summarize-results`'
 Markdown changes by that one sentence. No behaviour, state, schema or file
 change. Recorded, not changed: the adjacent second step, "Confirm the failure no
 longer occurs.", makes the same assumption.
+
+### 37.64 Checkpoint — review handoff inventory (Batch 10 start)
+
+Read from the committed tree (`58b0fef`) before any Batch 10 change. Batch 10
+adds Review with AI to Fix result: the canonical review prompt, handed to the
+selected agent in a terminal. What exists for Fix with AI, and what of it a
+review can use:
+
+| Piece | Where | What it does | Reusable? | Batch 10 |
+|---|---|---|---|---|
+| Agent selection | `form.ts`: `agent` (`auto` \| `claude` \| `custom`) and `agentCommand` (a template with `{prompt}`), in Advanced settings | the one setting; persisted with the form | yes | reused as is — no review-agent setting |
+| Providers | `agents.ts` `KNOWN_AGENTS`: Claude Code only | Codex, Gemini or an in-house CLI only through a custom command | yes | unchanged; nothing invented |
+| Resolution | `resolveAgent({choice, customCommand, prompt, canRun})` | `run {label, commandLine}` or `unavailable {reason}`; `canRun` probes each candidate (`--version`, then a PATH lookup); a custom template must contain `{prompt}` and its first word must be runnable | yes | reused exactly |
+| Command line | inside `resolveAgent`: `flatten` (all whitespace to one space) then `quote` = `JSON.stringify` | the recorded pre-release quoting issue (§37.27 backlog): right only for text in which no shell expands anything | yes | reused exactly, behind a guard on the new input (below) |
+| Terminal | `UiPort.runInTerminal(name, cwd, line)` → `createTerminal`, `show`, `sendText` | synchronous; nothing is read back | yes | reused; cwd is the repository root, as for Fix |
+| Fix prompt | `#handoffText`: "Read .ai/<id>/task.md and complete the workflow." | a constant around a validated id | no | untouched |
+| Busy state | `#handoffBusy`, set before the probe, cleared in `finally`; the row says "Starting AI fix…" with no button | Fix row only | no | the review has its own state |
+| Outcome | `#fix` (`success` = handed over) → the row's "AI fix started" and the header's | Fix row and header | no | untouched |
+| Failure | `handoffError(reason)`: `UserFacingError` "AI agent unavailable", detail = `resolveAgent`'s reason, action Open Settings; on the Fix with AI row; `#isOffered` accepts its button | the card shape and `errorCard`/`renderError` are shared | shape yes, title no | the review gets its own card, same shape |
+| No agent | the handoff sentence to the clipboard, `revealAgentPanel()`, an info notice; the row "Did not start" | Fix only | no | not reused: Copy Review Prompt is the explicit clipboard path |
+| Terminal failure | `runInTerminal` is not wrapped: a throw would escape `fixWithAI` | pre-existing | — | the review wraps its own call; Fix unchanged |
+| Action gating | the page's `action` ids are a closed list (`PANEL_ACTIONS`); editor commands go through `#isOffered`; Batch 9's two aids check `#offersPostFix()` | `fixWithAI` is checked only for `task.md` in `#handOver`, and a second press while busy is not refused host-side (pre-existing, recorded, not changed) | pattern yes | `reviewWithAI` is checked for the report, the offer and the state |
+| Diagnostics | `#resolvedAgent`: what a handoff resolved | shown in Diagnostics | yes | recorded by the review too |
+| Review prompt | `review-package --json` (Batch 9): read-only, the canonical `_build_final_review_prompt` | — | — | the payload |
+
+**The prompt, measured.** 634 characters for `JR-12345`, 682 for a
+`local_…` id; 28 newlines; nothing but letters, digits, spaces, newlines and
+`. , : # / _ -`. It points the reviewer at `context.md`, `retrieval.json`,
+`fix_report.md` and the current diff and inlines none of them, so it is a
+bounded template, not data.
+
+**Shell decision.** The review prompt goes through `resolveAgent` unchanged —
+the same `flatten` and `quote` as the Fix sentence, whose character class it
+shares — so no new command line is built anywhere. Because this prompt comes
+from the CLI rather than a constant in the extension, the review path refuses a
+prompt holding any character outside that class (and says so on the row)
+instead of quoting it: this path can never carry a `$`, a backtick, `%`, `!`,
+`^`, a quote or a backslash onto a command line. A guard on the new input, not
+the backlog's quoting redesign; it makes nothing worse. The terminal sees the
+prompt on one line, as it would any handoff prompt; Copy Review Prompt keeps
+the formatting.
+
+**Reused vs Fix-specific.** Reused: the selection, `resolveAgent`,
+`runInTerminal` and its working directory, `#resolvedAgent`, the
+`UserFacingError` shape, `errorCard` and `renderError`, and Batch 9's
+`review-package --json` reader. Fix-specific and untouched: `#fix`,
+`#handoffBusy`, `#handoffError`, the clipboard-and-reveal fallback, the Fix with
+AI row and the workflow header. Shared primitive: one private
+`#resolveSelectedAgent(prompt)`, so both handoffs ask the same selection by
+construction.
+
+### 37.65 Checkpoint — the Review with AI action and its state
+
+**Where it lives.** Fix result's third action, after Open Fix Report and Copy
+Review Prompt, in the same `result-link` style — the report is what the row is
+about, and Run and Fix with AI keep the only primary buttons. Under the actions,
+a status region and the row's own failure card (the `errorCard` markup, id
+`review-error`), then the Validation checklist. No new row, no step id, nothing
+in the Running n/m count, and `overallStatus` is untouched: the header stays the
+run's, the report's and Fix with AI's.
+
+**The state** (`ReviewHandoff` in `workflow.ts`, held in the controller's
+`#review`, pushed as the row's `review`):
+
+| State | Button | Under the actions |
+|---|---|---|
+| none | **Review with AI** | nothing |
+| `starting` | "Starting AI review…", `aria-disabled` and `aria-busy` — not `disabled`, which in Chromium takes the focus off the control | nothing |
+| `started` | gone | "AI review started" / "Handed to <agent> in a terminal." |
+| `failed` | **Review with AI** again, for a retry | the card: "AI review did not start", why (the prompt could not be had; it was had but not put on a command line; the agent; the terminal), Details, and Open Settings when the agent is the reason |
+
+One busy state rather than "preparing" and "starting": the query, the probe and
+the terminal are one wait from the developer's side, and one label says it.
+`canStartReview` decides both the row's offer and the host's acceptance, so the
+two cannot drift.
+
+**Lifetime.** Never written, never restored. Cleared by another work item or a
+reopen (`showWorkItem`), a run starting (`run`), and a refresh that no longer
+lists the report; a same-item refresh with the report still there keeps it. A
+second review is an explicit second press after one of those — reopening the
+work item from History is enough. Copy Review Prompt remains for anything else.
+
+**What it never touches:** Fix with AI's `#fix`, `#handoffBusy` and
+`#handoffError`; the checklist; the clipboard; `fix_report.md`; `run.json`;
+History. Nothing says reviewed, passed, approved or verified.
+
+### 37.66 Checkpoint — the agent handoff
+
+The flow, from the press: the host checks the offer (a work item, its report
+listed, no review starting or started) → `starting`, pushed → `review-package
+--json` (Batch 9's read-only query, 60 s) → still wanted? → a prompt that could
+not be had is a `prompt` failure, one outside the plain class a `command-line`
+failure (Copy Review Prompt still gives the text) → the selected agent through
+`#resolveSelectedAgent` (the same `resolveAgent` call Fix with AI makes, now
+shared; a probe that throws is an `agent` failure, never a button left waiting)
+→ still wanted? → `unavailable` is an `agent` failure →
+`runInTerminal("Review with AI · <id>", <repository root>, commandLine)`, a
+throw being a `terminal` failure → `started`, with the agent's label.
+
+- **Prompt**: exactly the query's; the controller test compares the terminal's
+  command line with `claude ` + the quoted one-line form of the envelope's
+  prompt. No second builder anywhere.
+- **Agent**: `auto` → Claude Code when `claude` runs; `claude`; `custom` → the
+  template's first word must run and `{prompt}` is replaced with the quoted
+  prompt. Codex is reached the way the product already supports it, as a custom
+  command; nothing is invented.
+- **No agent**: the card, with Open Settings, which `#isOffered` accepts while
+  the card is on screen (and refuses once it is gone). No clipboard fallback
+  and no agent panel revealed: Copy Review Prompt is the explicit clipboard
+  path, one button away, and a silent overwrite of the clipboard is what the
+  batch brief asked not to do.
+- **Diagnostics**: the resolution is recorded in `#resolvedAgent`, as Fix with
+  AI's is.
+- **Shell**: no command line is built outside `resolveAgent`; the plain-class
+  guard (`isPlainPrompt`: letters, digits, whitespace and `. , : # / _ -`,
+  opening with a letter, a digit or `#` so it can never read as an option) sits
+  in front of it, pinned from both sides — the Python builder's own test and the
+  integration test's real prompt.
+
+### 37.67 Checkpoint — stale state and action security
+
+A handoff captures `#reviewEpoch` on the press. `#forgetReview` bumps it and
+clears `#review`, and runs wherever the work item changes or a run starts
+(`#forgetPostFix`) and when a refresh no longer lists the report — every path
+that takes the report off the listing is one of those. A refresh that still
+lists it bumps nothing. After each wait — the query, then the probe —
+`#reviewStillWanted(epoch)` is that comparison alone: another epoch drops the
+handoff and touches nothing, since its state was reset where it changed. So A's
+handoff never launches, succeeds or fails under B, a run's package is never
+reviewed with the press from before it, a report that went and came back is
+reviewed only by a press made for the new one, and a harmless refresh cancels
+nothing.
+
+The page asks for `{type: "action", id: "reviewWithAI"}` and nothing else — no
+prompt, no agent, no command — through the closed `PANEL_ACTIONS` list; the host
+refuses it unless the row is offering it, so a double press, a press while one
+starts or once one started, and a press with no report are all refused
+host-side whatever the page shows. There is no generic "launch an agent with
+this prompt" message.
+
+### 37.68 Checkpoint — responsive, theme and accessibility review
+
+Ten Batch 10 states in the ignored `extension/.review/` harness — idle,
+starting, started (Claude Code), started with a long custom agent name, no
+agent, the prompt unavailable, a terminal that failed (Details open), a
+same-item re-run keeping the report, started with the checklist expanded, and
+both handoffs started — beside the 38 before: 48 states × Dark/Light Modern ×
+200/300/400 px, **288 pages, zero horizontal overflow**. The probe now also
+measures Fix result's parts and counts the lines its buttons take: one per line
+at 200 and 300 px (the three do not fit two to a line there), two lines at
+400 px, one once started.
+
+- **Weight.** Review with AI is the same `result-link` as Open Fix Report and
+  Copy Review Prompt; Run and Fix with AI keep the only primary buttons.
+- **Started is not success.** "AI review started" is the row's foreground text
+  and the detail is muted; no tick, no green, no status glyph on the row. The
+  failure card is the one every failure uses.
+- **Wrapping.** A long custom agent name wraps inside the status at 200 px; a
+  Windows terminal path wraps inside Details.
+- **Screen readers.** The button's label is its name and stays in words while
+  busy ("Starting AI review…", `aria-busy`, `aria-disabled`). The status is a `role="status"`
+  region that is always in the document — a region created as it fills is not
+  reliably heard — and it and the card are rewritten only when what they say
+  changed, so a progress event or a Copy press announces nothing again (a page
+  test fails without that). While empty it cancels the column gap it would add,
+  rather than `display: none`, which would take it out of the accessibility
+  tree.
+- **Focus.** Kept on the button while the handoff starts — `aria-disabled`
+  rather than `disabled`, because Chromium's focus fixup sends the focus of a
+  control that becomes disabled to the document — and moved once, when the
+  button that has it goes because the reviewer started, to the status. Never on
+  an ordinary push, never from elsewhere. The page tests' fake document now
+  drops the focus of a control that becomes disabled, as Chromium does, so these
+  tests cannot pass on focus a webview would lose.
+- **Re-run.** With the report kept, the row offers all three actions mid-run
+  and the header's Running n/m does not count it.
+
+### 37.69 Checkpoint — Batch 10 verification and review
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1128 passed (baseline 1127: +1, the canonical prompt stays in the class Review with AI accepts) |
+| `npm test` (extension) | 1024 passed (baseline 977: +23 controller, +10 page, +4 panel, +3 workflow, +3 `reviewPackage.test.ts`, +2 handoff, +2 failures; five Fix result action expectations and the "no failure card" test updated in place) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` (real CLI, temp repositories, no Jira) | 10 passed (the review-package test also checks the real prompt passes `isPlainPrompt`) |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `python tests/retrieval_corpus.py` | live tree unchanged: top-3 2/5, top-5 2/5, top-10 3/5, MRR 0.292, docs in top 5 10, terms 53 |
+| `git diff --check` | clean; no untracked files; no mixed line endings |
+| Visual harness | 48 states × Dark/Light × 200/300/400 px: 288 pages, zero horizontal overflow |
+
+**Each guard, removed, fails a test.** Twenty-one mutations, each applied alone
+to `controller.ts` or `panel.js`, each file restored byte for byte after
+(hashes checked): the checks after the query and after the probe, the epoch
+check, the refresh's epoch bump, a refresh that would cancel a valid handoff,
+the host's double-press and report gates, the review card's offered button, the
+plain-prompt guard, the outcome outliving its report, a switch or run keeping
+it, an uncaught terminal or probe failure, a review clearing Fix with AI's card,
+a clipboard fallback; on the page, the status's unchanged-push skip, the focus
+move, focus taken from elsewhere, the button left pressable while starting,
+`disabled` instead of `aria-disabled`, and a failure that would not open the
+workflow. None was left passing. (The first run found the double-press test
+could hang rather than fail when its guard was gone; it now holds every answer
+the CLI owes and gives them all at once.)
+
+**Real flow** (a scratch repository, the working tree's CLI via
+`python -m bugpilot`, the real `Controller` with a real runner and filesystem, a
+recording UI port and a recording agent probe — no terminal opened, no agent
+run, nothing posted): two hand-written work items with reports; Review with AI
+put `claude` plus exactly the quoted one-line form of `review-package --json`'s
+prompt in a terminal named for the work item, at the repository root (685
+characters); a custom `codex exec {prompt}` got the same prompt; with no agent,
+the card with Open Settings and no terminal; a switch mid-query launched
+nothing and left nothing on B; a same-item refresh mid-query did not cancel;
+the work item's files byte-identical throughout; the only JSON command was
+`review-package`; the clipboard untouched.
+
+**Independent review** (whole diff vs `58b0fef`): no blocker. **Important,
+fixed**: the focus handoff could not have fired in a webview — the button was
+`disabled` while starting, and Chromium's focus fixup sends the focus of a
+control that becomes disabled to the document, so by "started" there was no
+focus to hand on; the page test passed only because its fake document kept
+focus on a disabled element. The button now waits `aria-disabled` (announced
+unavailable, still refused by the click handler and the host), and the fake
+drops focus from a disabled control as Chromium does. **Minors, fixed**: a
+report that went and came back during one query let a second press start a
+second reviewer — a refresh without the report now bumps the epoch, which makes
+the stale check the epoch alone; a throwing probe would have left the button
+waiting — now an `agent` card; a prompt opening with `-` passed the guard — it
+must now open with a letter, a digit or `#`, on both sides; the refusal said
+"couldn't prepare the review prompt" for a prompt that was prepared — now its
+own `command-line` cause, pointing at Copy Review Prompt; a review failure did
+not open a collapsed workflow — it now does, once; tests added for a report
+removed during the probe and for one that goes and comes back. **Recorded, not
+changed**: Review with AI stays offered during a same-key re-run that keeps the
+report, which the batch brief accepts (§30) — it reviews the report on disk,
+and the docs say it may be the previous attempt's; Fix with AI still has no
+host-side double-press refusal and no catch around its terminal (pre-existing,
+§37.64).
