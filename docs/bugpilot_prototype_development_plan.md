@@ -8905,3 +8905,79 @@ now); `npm test` strips types, so the message list is also checked against the
 union's source at run time; the page loop now presses only what is offered,
 includes Open Folder, and cannot hang on an already-aborted signal; a stale
 file name in the fixture's comment.
+
+### 37.71 Publishability cleanup and git history audit (after `ee48f41`)
+
+A repository-sanitization pass, separate from the stabilization work. The
+current tree is cleaned and guarded; git history was audited read-only and **not
+rewritten**; nothing was pushed. Whether to rewrite history is the open
+decision.
+
+**Current tree.** A company product name and a customer name (from real ticket
+text in the implementation log) became `SampleProduct` and `ExampleCustomer`.
+Five likely-real ticket ids — three in docs and fixtures, two in a
+canonical-plan mockup — became synthetic ones (`JR-23456`, `JR-34567`,
+`JR-45678`). Distinct tickets stay distinct within each document, but one
+synthetic id can stand for different originals in different documents: they are
+examples, not references. Two real-looking issue titles in four workflow tests
+(branch name, two slug rules, task branch) and a design doc became made-up ones
+with the same slug features. The mapping itself is not recorded here: restating
+the originals would put them back. `HR`, the real prefix, became `JR` in two
+retrieval tests (the ids were synthetic; the tests read any id). A developer's
+checkout path in the README, the demo script and two HTML guides became
+`C:\path\to\sample-repo` or was dropped, and placeholder emails and a Jira
+tenant on real registered domains moved to reserved example domains.
+`MANIFEST.in` no longer says the tests carry real ticket numbers. No product
+behaviour changed.
+
+**The synthetic convention.** `JR` is the example prefix. A `JR-` id of one to
+three digits is always an example; a longer one must be `JR-9999`, `JR-11111`,
+`JR-12345`, `JR-23456`, `JR-34567`, `JR-45678`, `JR-77777` or `JR-99999`. `HR-`
+is not allowed at all. Emails use `example.com/.org/.net` or the `.test`,
+`.invalid`, `.example` and `.localhost` TLDs (plus the `your-company` setup
+placeholder, and two role addresses: `git@` on a public forge and the commit
+trailer's `noreply@`); paths use `C:\path\to\…` or `/path/to/…`, and home
+directories use a generic name (`dev`, `me`, `user`, …).
+
+**The scanner.** `tests/test_publishable.py` now scans every text file git lists
+as tracked, or new and not ignored — `docs/` and `tests/` included — except
+generated and vendored content (`node_modules/`, `extension/out/`, lockfiles,
+the vendored codicons, the ignored visual harness) and binaries. Without git it
+skips rather than walk into `node_modules/` and the private word list. Beyond
+the published-surface checks (a Jira tenant with or without a scheme, an email
+on any real domain, the `HR` prefix, the local company word list) it flags an
+unlisted `JR` number, an upper-case key of four to six digits under any other
+prefix (standards such as `ISO-8601` aside), a developer's checkout root in any
+shell's spelling, a personal home directory, an internal host or private
+address, and the two names known to have leaked — kept as SHA-256 digests
+(obfuscation, not secrecy), matched alone or glued to a neighbour, across a line
+break and inside a longer identifier too. The guard file is scanned like the
+rest and must carry exactly its pinned, made-up samples; the checkout root it
+needs for one is spelt in two pieces. Run over the tree at `ee48f41` it flags
+all 90 disclosures this pass removed; over the cleaned tree, none. Four tests
+check what it must reject and allow, what it scans, and the guard's own samples.
+
+**History, read only.** 18 commits from one root (`64dc2f9`); `origin/main` and
+`origin/feature/fix-modes` hold the first four, pushed. Every removed value is
+in history — most of it in all 18 commits, so on the remote too — plus three ids
+that existed only in older commits (one likely-real, two under the real prefix).
+One commit message (`158d92a`, local only) carries one of the removed ids.
+Separately, 33 of 36 author/committer entries use the work email domain — five
+of them on three of the four pushed commits (`1062370`, `10e1d6d`, `10b148d`).
+No credential was found in any blob; the credential-like literals are the known
+placeholders and a dummy test token. The company's own domain appears in no file
+in history. A replacement map, a commit-message replacement and a mailmap for a
+future `git filter-repo` run were drafted in the audit report, not stored in the
+repository; none was run.
+
+**Packages.** The built 0.1.0 wheel and sdist carry the checkout path through
+the README (`METADATA` / `PKG-INFO`); nothing else from this list shipped, since
+`docs/` and `tests/` are pruned; the `.vsix` is clean. They are unpublished and
+must be rebuilt anyway.
+
+**Not changed, for a decision.** The "SampleProduct" product family: the `sample` entry in
+`keywords._GENERIC_PARTS` (a retrieval rule — changing it changes ranking), the
+tests that exercise it (`SampleFoo::bar`, `SampleQtExportDialog…`), the
+internal-looking identifiers recorded on purpose in §37.12, `preSample12` from real
+ticket text, and the `'bugpilot'` vault name in `scripts/setup-email.ps1`. Also the
+personal licensor and publisher names (legal attribution, not examples).

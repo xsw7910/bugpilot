@@ -1,10 +1,9 @@
 # What the source distribution carries, beyond the package itself.
 #
-# `tests/` is pruned rather than scrubbed. It is a test suite for this
-# repository, not something an installer needs — and it carries the things a
-# test suite legitimately carries and a published artifact should not: a
-# company's product name in a fixture, and real ticket numbers from the
-# project this was built against. Excluding it settles both at once.
+# `tests/` is pruned: it is this repository's test suite, not something an
+# installer needs. Its work item ids are synthetic (the convention is in
+# `tests/test_publishable.py`), and `docs/` is repository history, not package
+# documentation — so neither belongs in the sdist.
 #
 # Checked, not assumed: `python -m build` put 19 test files in the sdist before
 # this file existed.

@@ -428,7 +428,7 @@ summarize-results · delivery-check · doctor
 
 ```text
 $ bugpilot list
-JR-34567              jira    Output panel min/max values not converted to dB   prepared
+JR-34567              jira    Output panel min/max values not converted to dB  prepared
 local_20260901094133  manual  三维视图切换层位后崩溃                             fixed
 local_20260828171205  manual  OpenVDS statistics 初始化失败                     prepared
 ```
