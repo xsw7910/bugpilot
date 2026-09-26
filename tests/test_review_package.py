@@ -85,7 +85,7 @@ def test_the_json_carries_the_prompt_and_the_checklist(tmp_path, monkeypatch, ca
         "steps": [
             "Reproduce the original issue if possible.",
             "Confirm the failure no longer occurs.",
-            "Confirm the fix does not change unrelated behavior.",
+            "If source changes were made, confirm they do not affect unrelated behavior.",
             "Run the focused tests named in fix_report.md's Tests section, if any.",
             "Check regression areas mentioned in context.md and retrieval.json.",
         ],
@@ -174,7 +174,7 @@ def test_the_rendered_checklist_is_unchanged_by_the_refactor(tmp_path):
         "## Suggested Validation Steps\n\n"
         "1. Reproduce the original issue if possible.\n"
         "2. Confirm the failure no longer occurs.\n"
-        "3. Confirm the fix does not change unrelated behavior.\n"
+        "3. If source changes were made, confirm they do not affect unrelated behavior.\n"
         "4. Run the focused tests named in fix_report.md's Tests section, if any.\n"
         "5. Check regression areas mentioned in context.md and retrieval.json.\n\n"
         "## Regression Areas\n\n"

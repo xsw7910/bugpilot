@@ -18,7 +18,7 @@ const PROMPT = "# Final Review Request\n\nReview the BugPilot result for work it
 const STEPS = [
   "Reproduce the original issue if possible.",
   "Confirm the failure no longer occurs.",
-  "Confirm the fix does not change unrelated behavior.",
+  "If source changes were made, confirm they do not affect unrelated behavior.",
   "Run the focused tests named in fix_report.md's Tests section, if any.",
   "Check regression areas mentioned in context.md and retrieval.json.",
 ];

@@ -8482,3 +8482,16 @@ item without a report, so the report check dropped A's prompt on its own. A
 test now switches to a work item with its own report — Copy offered again when
 A's answer lands — and fails without the work item check (+1 controller test,
 test-only).
+
+**Post-checkpoint wording cleanup** (after `5cda2cb`). Three phrases still
+assumed the result was a successful fix; they are now outcome-neutral, as static
+text with no branching. The Copy Review Prompt tooltip reads "…asks a reviewer to
+review this result" (was "…to check this fix"); `extension/README.md` says the
+prompt asks a reviewer "to review the result" (was "to check the fix"); and the
+checklist's third step reads "If source changes were made, confirm they do not
+affect unrelated behavior." (was "Confirm the fix does not change unrelated
+behavior.") — an investigation or a no-op may change no source, and an attempt
+may not be a fix. The checklist builder is shared, so `summarize-results`'
+Markdown changes by that one sentence. No behaviour, state, schema or file
+change. Recorded, not changed: the adjacent second step, "Confirm the failure no
+longer occurs.", makes the same assumption.

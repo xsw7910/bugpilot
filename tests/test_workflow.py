@@ -1032,6 +1032,7 @@ def test_summarize_results_renders_the_overview_and_writes_nothing(tmp_path, mon
     assert "- .ai/JR-12345/fix_report.md: present" in overview
     assert "Fixed: stale cache invalidated on filter change." in overview
     assert "## Suggested Validation Steps" in overview
+    assert "3. If source changes were made, confirm they do not affect unrelated behavior.\n" in overview
     assert "- src/EmployeeSearch.cpp" in overview
     assert "Looks safe" in overview
     assert status["steps"]["result_summary"] == "pass"

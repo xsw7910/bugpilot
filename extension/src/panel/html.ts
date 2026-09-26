@@ -919,7 +919,7 @@ function stepContent(id: WorkflowStepId): string {
     // without dropping the icon.
     return `            <div class="step-actions" id="actions-fixResult" hidden>
               ${actionButton(OPEN_FIX_REPORT)}
-              <button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to check this fix" hidden><span class="codicon codicon-copy" aria-hidden="true"></span><span id="copy-review-prompt-label">Copy Review Prompt</span></button>
+              <button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to review this result" hidden><span class="codicon codicon-copy" aria-hidden="true"></span><span id="copy-review-prompt-label">Copy Review Prompt</span></button>
             </div>
             <details class="validation" id="validation-checklist" hidden>
               <summary id="validation-summary">Validation checklist</summary>

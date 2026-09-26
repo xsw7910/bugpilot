@@ -219,7 +219,7 @@ previous attempt's report until an agent writes a new one.
 
 Two review aids sit under the report, both built by the CLI from the work item's
 files. **Copy Review Prompt** puts a prompt on your clipboard asking a reviewer —
-any assistant, or a colleague — to check the fix against `context.md`,
+any assistant, or a colleague — to review the result against `context.md`,
 `retrieval.json`, `fix_report.md` and the current diff; it prepares the review,
 it does not run one. **Validation checklist**, collapsed until you open it,
 lists what to try by hand and the regression areas: related files and the

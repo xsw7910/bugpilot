@@ -1010,7 +1010,7 @@ def validation_checklist(repo_root: Path, issue_key: str) -> ValidationChecklist
         steps=(
             "Reproduce the original issue if possible.",
             "Confirm the failure no longer occurs.",
-            "Confirm the fix does not change unrelated behavior.",
+            "If source changes were made, confirm they do not affect unrelated behavior.",
             f"Run the focused tests named in {FIX_REPORT_ARTIFACT}'s Tests section, if any.",
             f"Check regression areas mentioned in {CONTEXT_ARTIFACT} and {RETRIEVAL_ARTIFACT}.",
         ),

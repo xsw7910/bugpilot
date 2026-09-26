@@ -1851,7 +1851,7 @@ test("Fix result's review aids: read the report, copy a review prompt, open the 
 
   // The label says what the button does: it copies a prompt, and no review
   // runs. Secondary, like Open Fix Report, and hidden until a report is there.
-  assert.match(row, /<button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to check this fix" hidden>/);
+  assert.match(row, /<button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to review this result" hidden>/);
   assert.match(row, /<span id="copy-review-prompt-label">Copy Review Prompt<\/span>/);
   for (const overclaim of ["Review Result", "Run Review", "Verify Fix", "Reviewed", "Verified"]) {
     assert.equal(HTML.includes(overclaim), false, `the panel says "${overclaim}"`);
