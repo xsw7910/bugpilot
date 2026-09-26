@@ -451,6 +451,135 @@ test("an AI step that could not start is not reported as a finished run", () => 
   });
 });
 
+// --- Fix result (Batch 8) ---------------------------------------------------
+
+/** What a prepare leaves, and the same with the agent's report beside it. */
+const PREPARED_FILES = ["issue.json", "retrieval.json", "context.md", "task.md", "run.json"];
+const WITH_REPORT = [...PREPARED_FILES, "fix_report.md"];
+
+const finished = (overrides: Partial<WorkflowInput> = {}) =>
+  buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: PREPARED_FILES, ...overrides }));
+
+test("no report, no Fix result row: the prepare workflow is still six steps", () => {
+  const steps = finished();
+  assert.deepEqual(steps.map((step) => step.id), [...WORKFLOW_STEP_IDS]);
+  assert.equal(steps.some((step) => step.id === "fixResult"), false);
+});
+
+test("a report on disk adds exactly one Fix result row, straight after Fix with AI", () => {
+  const steps = finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." } });
+  assert.deepEqual(steps.map((step) => step.id), [...WORKFLOW_STEP_IDS, "fixResult"]);
+  assert.equal(steps.filter((step) => step.id === "fixResult").length, 1);
+});
+
+test("the row is the listing's to create, not the preview's", () => {
+  // A preview with no file listed is a leftover, not a report.
+  const steps = finished({ fixReport: { readable: true, summary: "Fixed it." } });
+  assert.equal(steps.some((step) => step.id === "fixResult"), false);
+});
+
+test("Fix result is ready, never the green tick, whatever the report says", () => {
+  // A report means there is something to read. An investigation, a no-op and
+  // an attempt whose tests still fail all write the same file, and the row
+  // says so in their words, in one and the same state.
+  for (const [summary, tests] of [
+    ["Fixed the output-type validation regression.", "24 passed."],
+    ["Investigation complete; no source changes applied.", "Not run: investigation-only mode."],
+    ["Attempted fix; validation still fails.", "pytest: 2 failed, 18 passed."],
+    ["No code change was required.", "Not run: no code changed."],
+  ] as const) {
+    const row = stepIn(finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary, tests } }), "fixResult");
+    assert.equal(row.status, "ready", summary);
+    assert.equal(row.statusLabel, "report available");
+    assert.equal(row.summary, summary);
+    assert.equal(row.detail, `Tests: ${tests}`);
+    assert.equal(row.artifact, "fix_report.md");
+    assert.deepEqual([...row.actions], ["openFixReport"]);
+    assert.equal(row.error, undefined);
+    assert.equal(row.enabled, true);
+  }
+});
+
+test("a report with no Summary says only that it is there", () => {
+  const row = stepIn(finished({ artifacts: WITH_REPORT, fixReport: { readable: true } }), "fixResult");
+  assert.equal(row.summary, "Fix report available");
+  assert.equal(row.detail, undefined, "a Tests line was invented");
+  assert.equal(row.artifact, "fix_report.md");
+});
+
+test("a report with a Summary and no Tests shows no Tests line", () => {
+  const row = stepIn(finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." } }), "fixResult");
+  assert.equal(row.detail, undefined);
+});
+
+test("a listed report that could not be read is still a report to open", () => {
+  for (const fixReport of [{ readable: false }, undefined]) {
+    const row = stepIn(finished({ artifacts: WITH_REPORT, ...(fixReport ? { fixReport } : {}) }), "fixResult");
+    assert.equal(row.summary, "Fix report available");
+    assert.equal(row.detail, "Preview unavailable");
+    assert.equal(row.status, "ready");
+    assert.deepEqual([...row.actions], ["openFixReport"]);
+    assert.equal(row.error, undefined, "an unreadable preview became a failure");
+  }
+});
+
+test("a listed report is a row while a run is in flight too", () => {
+  // The rule is the file: listed, a row; not listed, none. Which listing a run
+  // keeps is the controller's business (only a report known to survive).
+  const running = progress("running", { issue_details: "done", code_search: "running" });
+  const steps = buildWorkflow(input({ progress: running, artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." } }));
+  assert.equal(stepIn(steps, "fixResult").summary, "Fixed it.");
+  // It is a file, not a step: it adds nothing to the count, which is of the
+  // chosen steps — five here, with Fix with AI unticked.
+  const without = buildWorkflow(input({ progress: running, artifacts: PREPARED_FILES }));
+  assert.equal(overallStatus(without, running).text, "Running 2/5…");
+  assert.equal(overallStatus(steps, running).text, "Running 2/5…");
+});
+
+test("a report does not change any of the six rows", () => {
+  const without = finished();
+  const withReport = finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." } });
+  assert.deepEqual(withReport.slice(0, 6), without);
+});
+
+test("the header says a report is available, and never that the bug is fixed", () => {
+  const report = { readable: true, summary: "Fixed it." };
+  const withReport = finished({ artifacts: WITH_REPORT, fixReport: report });
+  assert.deepEqual(overallStatus(withReport, progress("done", ALL_DONE)), { kind: "done", text: "Fix report available" });
+
+  // A reopened work item with no run.json to read still has its report.
+  const restored = buildWorkflow(input({ artifacts: WITH_REPORT, fixReport: report }));
+  assert.deepEqual(overallStatus(restored, progress("idle")), { kind: "done", text: "Fix report available" });
+
+  // Without a report the header is what it was.
+  assert.deepEqual(overallStatus(finished(), progress("done", ALL_DONE)), { kind: "done", text: "Context ready" });
+});
+
+test("what this session saw of the handoff outranks the report; a run failure outranks both", () => {
+  const report = { readable: true, summary: "Fixed it." };
+  const started = finished({ artifacts: WITH_REPORT, fixReport: report, fix: { status: "success", detail: "Handed to Claude Code in a terminal." } });
+  assert.equal(overallStatus(started, progress("done", ALL_DONE)).text, "AI fix started");
+
+  const notStarted = finished({
+    artifacts: WITH_REPORT,
+    fixReport: report,
+    fix: { status: "skipped", detail: "claude is not on PATH." },
+    handoffError: { kind: "agent", title: "AI agent unavailable", message: "x" },
+  });
+  assert.equal(overallStatus(notStarted, progress("done", ALL_DONE)).text, "AI fix did not start");
+
+  const failedRun = buildWorkflow(input({ progress: progress("failed", { issue_details: "failed" }), artifacts: WITH_REPORT, fixReport: report }));
+  assert.equal(overallStatus(failedRun, progress("failed", { issue_details: "failed" })).text, "Run failed");
+});
+
+test("none of the header's words claim more than a report exists", () => {
+  const steps = finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." } });
+  const text = overallStatus(steps, progress("done", ALL_DONE)).text.toLowerCase();
+  for (const claim of ["fixed", "complete", "verified", "resolved", "passed", "success"]) {
+    assert.equal(text.includes(claim), false, claim);
+  }
+});
+
 // --- which agent, and how -------------------------------------------------
 
 const never = async () => false;

@@ -27,6 +27,9 @@ export const CONTEXT_ARTIFACT = "context.md";
 export const RUN_ARTIFACT = "run.json";
 export const TASK_ARTIFACT = "task.md";
 
+/** The one post-agent report (Batch 5), written by the agent, never by a prepare run. */
+export const FIX_REPORT_ARTIFACT = "fix_report.md";
+
 export type ArtifactKind = "markdown" | "json" | "log" | "other";
 
 /**
@@ -64,9 +67,7 @@ export const GROUP_LABELS: Readonly<Record<ArtifactGroup, string>> = {
  * `test/artifacts.test.ts` reads that list to keep the two in step: a result
  * file added there but not here would silently stop being reported as missing.
  */
-export const RESULT_FILES: readonly string[] = [
-  "fix_report.md",
-];
+export const RESULT_FILES: readonly string[] = [FIX_REPORT_ARTIFACT];
 
 /**
  * Where each artifact belongs.
@@ -273,7 +274,7 @@ export type HistoryOutcome =
  * All written by something other than the prepare run — which is why they are
  * the interesting ones: they say whether anybody acted on the package.
  */
-const FIX_REPORT = "fix_report.md";
+const FIX_REPORT = FIX_REPORT_ARTIFACT;
 const USER_FEEDBACK = "user_feedback.md";
 const RETRY_PROMPT = "agent_retry_prompt.md";
 const STATUS_FILE = RUN_ARTIFACT;

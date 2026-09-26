@@ -1185,6 +1185,33 @@ button.icon .codicon {
   display: none;
 }
 
+/* Fix result has no checkbox: nobody chooses it and no run performs it. Its
+   label starts where the other rows' text does, and it is not clickable. By
+   id, because the page rewrites each row's classes from its status. */
+#step-fixResult .step-label {
+  padding-left: 20px;
+  cursor: default;
+}
+
+/* A report's lines are the agent's and can run long: three lines of summary,
+   two of tests, and the rest in the editor. Clamped, not cut — the whole
+   bounded line is still the element's text and its title. */
+#description-fixResult,
+#detail-fixResult {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+#detail-fixResult {
+  -webkit-line-clamp: 2;
+}
+
+#detail-fixResult[hidden] {
+  display: none;
+}
+
 /* Indented to the label, so the second line of a row starts under its text
    rather than under its checkbox. */
 .step-foot {

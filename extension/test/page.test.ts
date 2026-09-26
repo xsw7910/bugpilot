@@ -2891,6 +2891,159 @@ test("a result from one run does not survive into the next", () => {
   }
 });
 
+// --- Fix result (Batch 8) ---------------------------------------------------
+
+/** A finished work item whose agent left a report. */
+const reported = (fixReport: { readable: boolean; summary?: string; tests?: string }, extra = {}) =>
+  prepared({ artifacts: [...PREPARED_FILES, "fix_report.md"], fixReport, ...extra });
+
+test("no report, no Fix result row", () => {
+  const p = load();
+  p.send(prepared());
+
+  assert.equal(p.byId("step-fixResult").hidden, true);
+  assert.equal(p.byId("open-fix-report").hidden, true);
+  assert.equal(p.byId("artifact-fixResult").hidden, true);
+  assert.equal(p.byId("workflow-status").textContent, "Context ready");
+});
+
+test("a report is one row: the agent's summary, its tests line, the file and one button", () => {
+  const p = load();
+  p.send(reported({ readable: true, summary: "Fixed the output-type validation regression.", tests: "24 passed." }));
+
+  assert.equal(p.byId("step-fixResult").hidden, false);
+  assert.equal(p.byId("description-fixResult").textContent, "Fixed the output-type validation regression.");
+  assert.equal(p.byId("detail-fixResult").textContent, "Tests: 24 passed.");
+  assert.equal(p.byId("detail-fixResult").hidden, false);
+  assert.equal(p.byId("artifact-fixResult-name").textContent, "fix_report.md");
+  assert.equal(p.byId("artifact-fixResult").hidden, false);
+  assert.equal(p.byId("open-fix-report").hidden, false);
+  assert.equal(p.byId("actions-fixResult").hidden, false);
+  assert.equal(p.byId("workflow-status").textContent, "Fix report available");
+  // Clamped on screen; the whole line is the hover.
+  assert.equal(p.byId("description-fixResult").getAttribute("title"), "Fixed the output-type validation regression.");
+  assert.equal(p.byId("detail-fixResult").getAttribute("title"), "Tests: 24 passed.");
+});
+
+test("the row reads as a report to look at, not as a fix", () => {
+  // No tick: the glyph is reserved for a handoff that started, and nothing
+  // here knows whether the bug is fixed. The words carry the state.
+  const p = load();
+  p.send(reported({ readable: true, summary: "Attempted fix; validation still fails.", tests: "pytest: 2 failed, 18 passed." }));
+
+  assert.ok(p.byId("step-fixResult").classes.has("step-ready"));
+  assert.equal(p.byId("step-fixResult").classes.has("step-success"), false);
+  assert.equal(p.byId("status-fixResult").hidden, true, "a report wore a status glyph");
+  assert.equal(p.byId("step-fixResult").getAttribute("aria-label"), "Fix result: report available");
+  assert.equal(p.byId("description-fixResult").textContent, "Attempted fix; validation still fails.");
+  assert.equal(p.byId("detail-fixResult").textContent, "Tests: pytest: 2 failed, 18 passed.");
+});
+
+test("Open Fix Report and the file link ask for the file the host named, through openArtifact", () => {
+  const p = load();
+  p.send(reported({ readable: true, summary: "Fixed it." }));
+
+  p.byId("open-fix-report").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "openArtifact", name: "fix_report.md" });
+  p.byId("artifact-fixResult").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "openArtifact", name: "fix_report.md" });
+});
+
+test("a work item without a report forgets the last one's row, text and file", () => {
+  const p = load();
+  p.send(reported({ readable: true, summary: "Fixed it.", tests: "3 passed." }));
+  assert.equal(p.byId("step-fixResult").hidden, false);
+
+  p.send(prepared({}, { workItemId: "JR-2" }));
+  assert.equal(p.byId("step-fixResult").hidden, true);
+  assert.equal(p.byId("description-fixResult").textContent, "");
+  assert.equal(p.byId("detail-fixResult").textContent, "");
+  assert.equal(p.byId("detail-fixResult").hidden, true);
+  assert.equal(p.byId("artifact-fixResult-name").textContent, "");
+  assert.equal(p.byId("description-fixResult").getAttribute("title"), "");
+  assert.equal(p.byId("open-fix-report").hidden, true);
+
+  // And a click on the hidden controls sends nothing.
+  const before = p.posted.length;
+  p.byId("open-fix-report").dispatch("click");
+  p.byId("artifact-fixResult").dispatch("click");
+  assert.equal(p.posted.length, before);
+});
+
+test("a report with no summary, or one that could not be read, is still a row to open", () => {
+  const p = load();
+  p.send(reported({ readable: true }));
+  assert.equal(p.byId("description-fixResult").textContent, "Fix report available");
+  assert.equal(p.byId("detail-fixResult").hidden, true, "a Tests line appeared from nowhere");
+  assert.equal(p.byId("open-fix-report").hidden, false);
+
+  p.send(reported({ readable: false }));
+  assert.equal(p.byId("description-fixResult").textContent, "Fix report available");
+  assert.equal(p.byId("detail-fixResult").textContent, "Preview unavailable");
+  assert.equal(p.byId("open-fix-report").hidden, false);
+  // Not a failure: no card, and the header is not "Run failed".
+  assert.equal(p.byId("failure").hidden, true);
+  assert.equal(p.byId("workflow-status").textContent, "Fix report available");
+});
+
+test("report text renders as text", () => {
+  const hostile = '<img src=x onerror=alert(1)> <script>alert("x")</script>';
+  const p = load();
+  p.send(reported({ readable: true, summary: hostile, tests: hostile }));
+
+  assert.equal(p.byId("description-fixResult").textContent, hostile);
+  assert.equal(p.byId("description-fixResult").children.length, 0, "the summary became markup");
+  assert.equal(p.byId("detail-fixResult").textContent, `Tests: ${hostile}`);
+  assert.equal(p.byId("detail-fixResult").children.length, 0, "the tests line became markup");
+});
+
+test("Fix with AI keeps its own state beside a report", () => {
+  // A reopened work item: task.md is there, so Fix with AI is ready; the
+  // report is there, so Fix result shows it. Neither borrows the other's state.
+  const p = load();
+  p.send(reported({ readable: true, summary: "Fixed it." }));
+
+  assert.equal(p.byId("description-fixWithAI").textContent, "Ready");
+  assert.equal(p.byId("fix-with-ai").hidden, false);
+  assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
+
+  // And a handoff this session saw keeps the header, the report its row.
+  p.send(reported({ readable: true, summary: "Fixed it." }, { fix: { status: "success", detail: "Handed to Claude Code in a terminal." } }));
+  assert.equal(p.byId("workflow-status").textContent, "AI fix started");
+  assert.equal(p.byId("step-fixResult").hidden, false);
+});
+
+test("a report is a result: it alone makes a work item one worth opening the workflow for", () => {
+  // Idle rows — no run state to read — and a report on disk. Without the
+  // report this work item arrives "Ready to run" and the workflow stays shut;
+  // with it the header says "Fix report available" and the workflow opens.
+  const idle: ProgressView = { state: "idle", rows: [], artifacts: [] };
+  const arrive = (files: readonly string[], fixReport?: { readable: boolean; summary?: string }) =>
+    state({
+      progress: idle,
+      workItemId: "JR-12345",
+      workflow: buildWorkflow({
+        source: "jira",
+        plan: DEFAULT_FORM.plan,
+        fixWithAI: false,
+        progress: idle,
+        artifacts: files,
+        ...(fixReport ? { fixReport } : {}),
+      }),
+    });
+
+  const without = load();
+  without.send(arrive(PREPARED_FILES));
+  assert.equal(without.byId("workflow").open, false);
+  assert.equal(without.byId("step-fixResult").hidden, true);
+
+  const withReport = load();
+  withReport.send(arrive([...PREPARED_FILES, "fix_report.md"], { readable: true, summary: "Fixed it." }));
+  assert.equal(withReport.byId("workflow-status").textContent, "Fix report available");
+  assert.equal(withReport.byId("workflow").open, true);
+  assert.equal(withReport.byId("description-fixResult").textContent, "Fixed it.");
+});
+
 // --- Relevant files, under Code search --------------------------------------
 
 /** Two files, as the host hands them over: implementation first, then prose. */

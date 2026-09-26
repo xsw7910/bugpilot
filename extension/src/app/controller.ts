@@ -28,6 +28,8 @@ import {
 import { RETRIEVAL_ARTIFACT, parseRetrieval } from "./retrieval.ts";
 import { ISSUE_ARTIFACT, parseIssue } from "./issue.ts";
 import type { IssueSummary } from "./issue.ts";
+import { parseFixReport } from "./fixReport.ts";
+import type { FixReportPreview } from "./fixReport.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
@@ -49,7 +51,7 @@ import {
 import type { HintContext, HintProvider, IssueDetails } from "./hintImprovement.ts";
 import { ProgressTracker, viewFromStatus } from "./progress.ts";
 import type { ProgressView } from "./progress.ts";
-import { CONTEXT_ARTIFACT, RUN_ARTIFACT, TASK_ARTIFACT, buildArtifactList } from "./artifacts.ts";
+import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, RUN_ARTIFACT, TASK_ARTIFACT, buildArtifactList } from "./artifacts.ts";
 import type { ArtifactList } from "./artifacts.ts";
 import { COMMANDS } from "../commands.ts";
 import { diagnose } from "../errors.ts";
@@ -320,6 +322,11 @@ export class Controller {
   #searchCounts: ContextCounts = {};
   /** `issue.json`, for the Issue details row, as the last refresh read it. */
   #issue: IssueSummary | undefined;
+  /**
+   * `fix_report.md`, projected for the Fix result row, as the last refresh read
+   * it. Two bounded lines, never the report: the editor opens the file itself.
+   */
+  #fixReport: FixReportPreview | undefined;
   /** The rows of the Relevant Files list, as the last refresh read them. */
   #files: readonly RelevantFile[] = [];
   /** How many the artifact held beyond the ones being shown. */
@@ -610,6 +617,17 @@ export class Controller {
     this.#abort = abort;
     this.#running = true;
     this.#stoppedByUser = false;
+    // A re-prepare of the same Jira work item keeps fix_report.md — only Fresh
+    // deletes it, and the retry flow reads it — so the Fix result row stays
+    // through the run. Nothing else is known to survive: Fresh may delete it,
+    // another key or a hand-written bug is another work item.
+    const report =
+      form.source === "jira" &&
+      !form.fresh &&
+      form.issueKey.trim().toUpperCase() === this.#workItemId &&
+      this.#artifactNames.includes(FIX_REPORT_ARTIFACT)
+        ? this.#fixReport
+        : undefined;
     if (form.source === "jira") this.#setWorkItem(form.issueKey.trim().toUpperCase());
     else {
       // A hand-written bug's id arrives with the `started` event. Until then
@@ -617,10 +635,15 @@ export class Controller {
       // list on screen would offer files that `openArtifact` then refuses.
       this.#workItemId = undefined;
       this.#artifacts = { kind: "empty", detail: "Preparing…" };
-      this.#artifactNames = [];
     }
+    // For a Jira run too: the listing is the previous package's — or another
+    // work item's — until the run ends and the folder is read again. Kept, it
+    // let the push at `completed` offer a report a fresh run had just deleted.
+    // The one entry kept is the report that is known to survive.
+    this.#artifactNames = report === undefined ? [] : [FIX_REPORT_ARTIFACT];
     this.#canRetry = false;
     this.#forgetSummary();
+    if (report !== undefined) this.#fixReport = report;
     // Both, before anything is pushed: a stale card beside a Running… button
     // reads as the new run having failed instantly.
     this.#handoffError = undefined;
@@ -1022,9 +1045,12 @@ export class Controller {
     // it — not the error, and not the outcome either.
     this.#handoffError = undefined;
     this.#fix = undefined;
-    // Nor its issue or its search: `refreshArtifacts` pushes before it reads,
-    // and that push must not name the previous work item on these rows.
+    // Nor its issue, its search, its report or its file listing:
+    // `refreshArtifacts` pushes before it reads, and that push must not name
+    // the previous work item on these rows — nor offer its files, which is
+    // what the listing decides.
     this.#forgetSummary();
+    this.#artifactNames = [];
     this.#preparedFixMode = preparedFixModeFromStatus(parsed, this.#fixModes);
     this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
     await this.refreshArtifacts();
@@ -1551,6 +1577,7 @@ export class Controller {
   /** Drop what the rows report about a work item that is no longer shown. */
   #forgetSummary(): void {
     this.#issue = undefined;
+    this.#fixReport = undefined;
     this.#searchCounts = {};
     this.#files = [];
     this.#moreFiles = 0;
@@ -1572,6 +1599,11 @@ export class Controller {
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, ISSUE_ARTIFACT))
       : undefined;
     this.#issue = parseIssue(issueText);
+    // Only when listed: the listing decides whether there is a Fix result row,
+    // and a listed report that cannot be read is projected as unreadable.
+    this.#fixReport = names.includes(FIX_REPORT_ARTIFACT)
+      ? parseFixReport(await this.#ports.files.readFile(this.#itemFile(workItemId, FIX_REPORT_ARTIFACT)))
+      : undefined;
     const text = names.includes(RETRIEVAL_ARTIFACT)
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, RETRIEVAL_ARTIFACT))
       : undefined;
@@ -1671,6 +1703,7 @@ export class Controller {
       ...(this.#handoffError === undefined ? {} : { handoffError: this.#handoffError }),
       ...(failed === undefined ? {} : { runError: failed }),
       ...(strategy === undefined ? {} : { strategy }),
+      ...(this.#fixReport === undefined ? {} : { fixReport: this.#fixReport }),
     });
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.

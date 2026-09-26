@@ -1296,6 +1296,43 @@ fix_report.md
 
 当前阶段不要为了它额外添加一个空 row。
 
+### Confirmed decisions (Batch 8): Fix result
+
+1. **Fix result is optional and appears exactly when `fix_report.md` exists**
+   — a seventh workflow row straight after Fix with AI, owning the file, a run
+   in flight included. No report, no row: the prepare workflow is still the six
+   steps, a prepare still writes exactly five files, and the row never counts
+   towards "Running n/m…".
+2. **It is report availability, not fix success.** The row is `ready` (no
+   status glyph, announced as "report available"); the workflow header says
+   "Fix report available" when nothing newer is known. An investigation-only
+   pass, a no-op and an attempt whose tests still fail all write the same file,
+   and nothing claims the bug is fixed, the tests passed or the agent finished.
+3. **Summary and Tests are bounded projections, not classification**: the
+   first meaningful line of `## Summary` and of `## Tests`, in the agent's own
+   words, read with the CLI's own section rules (`section_of`). A report with
+   no Summary, or one that cannot be read, still gets its row: "Fix report
+   available", "Preview unavailable".
+4. **Full detail remains in `fix_report.md`**, which Open Fix Report opens in
+   the editor through the same constrained `openArtifact` message as every row's
+   file link. Only the two bounded lines reach the panel.
+5. **No agent-completion tracking**: no polling, no file watcher, no process
+   watcher. BugPilot knows a handoff started, never that an agent finished.
+6. **Existing reads decide when an externally written report becomes
+   visible**: the end of a run, reopening a work item (History, a window
+   reload), and the Artifacts / History views' Refresh command. The row is
+   rebuilt from the file on disk alone, with no handoff state.
+7. **A re-run shows a report the CLI keeps, and says no more about it.** A
+   non-Fresh re-prepare of the same work item leaves `fix_report.md` on disk
+   (the retry flow reads it), so its row stays through the run and after it.
+   Until an agent writes a new one it describes the previous attempt; nothing
+   on the row or in the header claims it belongs to the run in flight, that
+   this run completed, or that an agent finished. A Fresh run, another key or a
+   hand-written bug starts without the previous report.
+
+A future Review / Verify Fix step stays separate from this row; `run.json`
+carries no Fix result step.
+
 ---
 
 # 20. Step Secondary Text 状态原则

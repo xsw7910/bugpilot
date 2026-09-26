@@ -132,7 +132,7 @@
 
   const byId = (id) => document.getElementById(id);
 
-  /** The six rows, for wiring each row's artifact link once at load. */
+  /** Every row, for wiring each row's artifact link once at load. */
   const STEP_IDS_FOR_ARTIFACTS = {
     issueDetails: true,
     codeSearch: true,
@@ -140,6 +140,7 @@
     similarFixes: true,
     buildContext: true,
     fixWithAI: true,
+    fixResult: true,
   };
 
   let appliedRevision = -1;
@@ -633,7 +634,9 @@
       row.className = `step step-${step.status}${off ? " step-off" : ""}`;
       row.setAttribute(
         "aria-label",
-        `${step.label}: ${step.enabled || step.status !== "idle" ? meta.word : "not selected"}`,
+        `${step.label}: ${
+          step.enabled || step.status !== "idle" ? step.statusLabel || meta.word : "not selected"
+        }`,
       );
 
       const status = byId(`status-${step.id}`);
@@ -662,12 +665,14 @@
       artifact.hidden = rowArtifacts[step.id] === "";
       artifact.setAttribute("title", rowArtifacts[step.id] ? `Open ${rowArtifacts[step.id]}` : "");
 
-      renderError(`error-${step.id}`, step.error);
+      // Fix result has no card: a report that cannot be previewed is not a failure.
+      if (document.getElementById(`error-${step.id}`)) renderError(`error-${step.id}`, step.error);
     }
 
     const byStep = Object.fromEntries(steps.map((step) => [step.id, step]));
     renderSearch(byStep.codeSearch);
     renderStepActions(byStep.buildContext, byStep.fixWithAI);
+    renderFixResult(byStep.fixResult);
 
     const overall = state.overall || { kind: "idle", text: "" };
     const status = byId("workflow-status");
@@ -720,6 +725,29 @@
     const strategy = byId("strategy-fixWithAI");
     byId("strategy-fixWithAI-value").textContent = (fix && fix.strategy) || "";
     strategy.hidden = !(fix && fix.strategy);
+  }
+
+  /**
+   * The Fix result row, which exists only while the host's workflow has it.
+   *
+   * Absent, it is hidden and emptied — its link and button forget the file, so
+   * a work item without a report can never open the last one's.
+   */
+  function renderFixResult(step) {
+    byId("step-fixResult").hidden = !step;
+    const offered = Boolean(step && (step.actions || []).includes("openFixReport") && rowArtifacts.fixResult);
+    byId("open-fix-report").hidden = !offered;
+    byId("actions-fixResult").hidden = !offered;
+    // The lines are clamped on screen; the whole bounded line is the hover.
+    byId("description-fixResult").setAttribute("title", step ? step.summary || "" : "");
+    byId("detail-fixResult").setAttribute("title", step ? step.detail || "" : "");
+    if (step) return;
+    rowArtifacts.fixResult = "";
+    byId("artifact-fixResult").hidden = true;
+    byId("artifact-fixResult-name").textContent = "";
+    byId("description-fixResult").textContent = "";
+    byId("detail-fixResult").textContent = "";
+    byId("detail-fixResult").hidden = true;
   }
 
   /**
@@ -1763,6 +1791,13 @@
       if (rowArtifacts[id]) vscode.postMessage({ type: "openArtifact", name: rowArtifacts[id] });
     });
   }
+  // Open Fix Report: the same message as the row's file link, with the name the
+  // host put on the row — never one the page composed.
+  byId("open-fix-report").addEventListener("click", () => {
+    if (rowArtifacts.fixResult) {
+      vscode.postMessage({ type: "openArtifact", name: rowArtifacts.fixResult });
+    }
+  });
   // The dialog can only be opened by the host, so this asks — and carries the
   // form, because the host's copy can be a debounce interval stale.
   byId("add-attachment").addEventListener("click", () =>

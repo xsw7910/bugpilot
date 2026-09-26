@@ -29,9 +29,10 @@
  * not been handed over is `ready`, never the green tick.
  */
 
-import { CONTEXT_ARTIFACT, TASK_ARTIFACT } from "./artifacts.ts";
+import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_ARTIFACT } from "./artifacts.ts";
 import type { RelevantFile } from "./contextSummary.ts";
 import type { UserFacingError } from "./failures.ts";
+import type { FixReportPreview } from "./fixReport.ts";
 import type { PlanState, Source } from "./form.ts";
 import { HANDOFF_STARTED_TITLE } from "./handoff.ts";
 import type { IssueSummary } from "./issue.ts";
@@ -46,10 +47,17 @@ export type WorkflowStepId =
   | "gitHistory"
   | "similarFixes"
   | "buildContext"
-  | "fixWithAI";
+  | "fixWithAI"
+  | "fixResult";
 
-/** Top to bottom, which is also the order they run in. */
-export const WORKFLOW_STEP_IDS: readonly WorkflowStepId[] = [
+/**
+ * The six steps a developer chooses, top to bottom, which is also the order
+ * they run in.
+ *
+ * `fixResult` is not among them: nobody ticks it and no run performs it. It is
+ * a row that exists only while `fix_report.md` does (Batch 8), after these six.
+ */
+export const WORKFLOW_STEP_IDS: readonly Exclude<WorkflowStepId, "fixResult">[] = [
   "issueDetails",
   "codeSearch",
   "gitHistory",
@@ -69,7 +77,7 @@ export const WORKFLOW_STEP_IDS: readonly WorkflowStepId[] = [
 export type StepStatus = "idle" | "running" | "success" | "ready" | "failed" | "skipped";
 
 /** An action a row offers, once that row has produced what it acts on. */
-export type StepActionId = "openContext" | "copyContext" | "fixWithAI";
+export type StepActionId = "openContext" | "copyContext" | "fixWithAI" | "openFixReport";
 
 /** What Code search found, from `retrieval.json`, for its two disclosures. */
 export interface SearchContent {
@@ -88,6 +96,13 @@ export interface WorkflowStepResult {
   /** Runs whichever way the boxes are ticked: it is the input, not an option. */
   readonly required?: boolean;
   readonly status: StepStatus;
+  /**
+   * The row's state in words, where the status's own word would say too little.
+   *
+   * Only Fix result sets it: "ready" is true of a report but does not say what
+   * is ready, and the words are what a screen reader announces.
+   */
+  readonly statusLabel?: string;
   readonly durationMs?: number;
   /**
    * The row's secondary line, for the state it is in.
@@ -129,6 +144,7 @@ export const STEP_LABELS: Readonly<Record<WorkflowStepId, string>> = {
   similarFixes: "Similar fixes",
   buildContext: "Build context",
   fixWithAI: "Fix with AI",
+  fixResult: "Fix result",
 };
 
 const STEP_DESCRIPTIONS: Readonly<Record<Exclude<WorkflowStepId, "issueDetails">, string>> = {
@@ -137,10 +153,11 @@ const STEP_DESCRIPTIONS: Readonly<Record<Exclude<WorkflowStepId, "issueDetails">
   similarFixes: "Search for similar issues and solutions",
   buildContext: "Prepare structured context for AI",
   fixWithAI: "Run the prepared context with your AI coding agent",
+  fixResult: "The report the agent wrote in fix_report.md",
 };
 
 /** What a row says while it is the one working. */
-const RUNNING_TEXT: Readonly<Record<Exclude<WorkflowStepId, "issueDetails" | "fixWithAI">, string>> = {
+const RUNNING_TEXT: Readonly<Record<Exclude<WorkflowStepId, "issueDetails" | "fixWithAI" | "fixResult">, string>> = {
   codeSearch: "Searching repository…",
   gitHistory: "Collecting git history…",
   similarFixes: "Searching past fixes…",
@@ -203,10 +220,17 @@ export interface WorkflowInput {
   readonly runError?: UserFacingError;
   /** The prepared Fix Mode, as one line. */
   readonly strategy?: string;
+  /**
+   * `fix_report.md`, projected to two lines; absent when it was not read.
+   *
+   * Whether the Fix result row exists is the listing's to say, not this: a
+   * listed report that could not be read still gets its row.
+   */
+  readonly fixReport?: FixReportPreview;
 }
 
 /** The five capability rows, in `progress.ts` terms. */
-const CAPABILITY_OF: Readonly<Record<Exclude<WorkflowStepId, "fixWithAI">, Capability>> = {
+const CAPABILITY_OF: Readonly<Record<Exclude<WorkflowStepId, "fixWithAI" | "fixResult">, Capability>> = {
   issueDetails: "issue_details",
   codeSearch: "code_search",
   gitHistory: "git_history",
@@ -263,12 +287,45 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
   const steps = WORKFLOW_STEP_IDS.map((id) =>
     id === "fixWithAI" ? fixWithAiRow(input, present, running, capabilityRows) : capabilityRows.get(id)!,
   );
+  // Exactly while the report is on disk: listed, a row; not listed, none —
+  // a run in flight included. Which listing a run keeps is the controller's.
+  if (present.has(FIX_REPORT_ARTIFACT)) steps.push(fixResultRow(input));
   return steps;
+}
+
+/**
+ * The seventh row, present only while `fix_report.md` is: what the report says.
+ *
+ * `ready`, never `success`: a report being there means there is something to
+ * read, not that the bug is fixed — an investigation-only pass, a no-op and an
+ * attempt whose tests still fail all write the same file. The summary and the
+ * tests line are the agent's own first lines, unclassified; a report with
+ * neither, or one that could not be read, is still a report to open.
+ */
+function fixResultRow(input: WorkflowInput): WorkflowStepResult {
+  const report = input.fixReport;
+  const detail = report === undefined || !report.readable
+    ? "Preview unavailable"
+    : report.tests === undefined
+      ? undefined
+      : `Tests: ${report.tests}`;
+  return {
+    id: "fixResult",
+    label: STEP_LABELS.fixResult,
+    description: STEP_DESCRIPTIONS.fixResult,
+    enabled: true,
+    status: "ready",
+    statusLabel: "report available",
+    summary: report?.summary ?? "Fix report available",
+    ...(detail === undefined ? {} : { detail }),
+    artifact: FIX_REPORT_ARTIFACT,
+    actions: ["openFixReport"],
+  };
 }
 
 /** What a capability row says and offers, for the state it is in. */
 function resultOf(
-  id: Exclude<WorkflowStepId, "fixWithAI">,
+  id: Exclude<WorkflowStepId, "fixWithAI" | "fixResult">,
   status: StepStatus,
   input: WorkflowInput,
   present: ReadonlySet<string>,
@@ -323,7 +380,7 @@ function resultOf(
   }
 }
 
-function runningText(id: Exclude<WorkflowStepId, "fixWithAI">, input: WorkflowInput): string {
+function runningText(id: Exclude<WorkflowStepId, "fixWithAI" | "fixResult">, input: WorkflowInput): string {
   if (id !== "issueDetails") return RUNNING_TEXT[id];
   if (input.source !== "jira") return "Reading the description…";
   return input.workItemId ? `Loading ${input.workItemId}…` : "Loading the Jira issue…";
@@ -426,6 +483,9 @@ export function canOpenFolder(artifacts: readonly string[]): boolean {
 
 export type OverallKind = "idle" | "running" | "done" | "failed";
 
+/** What the header says while a report exists: that it does, and no more. */
+export const FIX_REPORT_AVAILABLE = "Fix report available";
+
 export interface OverallStatus {
   readonly kind: OverallKind;
   /** Short enough for the corner of the workflow header. */
@@ -448,7 +508,9 @@ export function overallStatus(
   steps: readonly WorkflowStepResult[],
   progress: ProgressView,
 ): OverallStatus {
-  const chosen = steps.filter((step) => step.enabled);
+  // The steps a run performs: Fix result is a file, not a step, so it never
+  // counts towards "Running 3/6…".
+  const chosen = steps.filter((step) => step.enabled && step.id !== "fixResult");
   if (progress.state === "running") {
     const finished = chosen.filter((step) =>
       step.status === "success" || step.status === "skipped",
@@ -460,11 +522,17 @@ export function overallStatus(
   }
   if (progress.state === "failed") return { kind: "failed", text: "Run failed" };
   if (progress.state === "stopped") return { kind: "idle", text: "Stopped" };
+  // A report on disk is the newest fact BugPilot can state about a work item
+  // after the handoff this session saw — and the only one about a reopened
+  // one, whose handoff nobody recorded. Factual, never "fixed".
+  const report = steps.some((step) => step.id === "fixResult");
   if (progress.state === "done") {
     const fix = steps.find((step) => step.id === "fixWithAI");
     if (fix?.status === "success") return { kind: "done", text: HANDOFF_STARTED_TITLE };
     if (fix?.status === "failed") return { kind: "failed", text: "AI fix did not start" };
+    if (report) return { kind: "done", text: FIX_REPORT_AVAILABLE };
     return { kind: "done", text: "Context ready" };
   }
+  if (report) return { kind: "done", text: FIX_REPORT_AVAILABLE };
   return { kind: "idle", text: "Ready to run" };
 }

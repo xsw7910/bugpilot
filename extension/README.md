@@ -205,6 +205,18 @@ a terminal; leave it alone and BugPilot stops once the context is ready, with a
 to is **Advanced settings → AI agent**: auto-detect, Claude Code, or a custom
 command of your own (see below).
 
+When the agent writes its report, `fix_report.md`, a **Fix result** row appears
+under Fix with AI: the report's first **Summary** line and its **Tests** line,
+in the agent's own words, and **Open Fix Report** for the rest. It says a report
+is there to read — not that the bug is fixed: an investigation-only pass, a
+no-op and an attempt whose tests still fail all write the same file. BugPilot
+does not watch the agent, so a report written after the handoff appears the next
+time the work item is read: press **Refresh** on the Artifacts or History view,
+reopen it from **History**, or reload the window. No report yet does not mean the
+agent is still working; it only means nothing has been written. A re-run that is
+not **Fresh** keeps the last report, so during and after it the row can show the
+previous attempt's report until an agent writes a new one.
+
 BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.
 

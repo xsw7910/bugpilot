@@ -368,6 +368,21 @@ const BUILD_CONTEXT_ACTIONS: readonly ActionButton[] = [
 ];
 
 /**
+ * Fix result's one action (Batch 8): the report, in the editor.
+ *
+ * Not a new host action: it posts the same constrained `openArtifact` message
+ * the row's file link does, with the file name the host put on the row — so it
+ * can only ever open `fix_report.md` inside the current work item.
+ */
+const OPEN_FIX_REPORT: ActionButton = {
+  id: "open-fix-report",
+  action: "openFixReport",
+  icon: "go-to-file",
+  label: "Open Fix Report",
+  title: "Open fix_report.md in the editor",
+};
+
+/**
  * The work item's own action. Not Build context's: the folder holds every
  * artifact the run wrote, so it sits at the foot of the workflow rather than
  * beside two buttons that act on one file.
@@ -490,6 +505,7 @@ ${ISSUE_FIELD}
 ${errorCard("failure")}
         <ol class="steps">
   ${WORKFLOW_STEP_IDS.map(step).join("\n")}
+${FIX_RESULT_ROW}
         </ol>
         <p id="activity" class="muted" aria-live="polite"></p>
         <p id="plan-note" class="muted" hidden>Without Build context, bugpilot only normalizes the report — search, history, similar fixes and the AI fix are skipped too.</p>
@@ -849,6 +865,31 @@ ${errorCard(`error-${id}`)}
         </li>`;
 }
 
+/**
+ * The seventh row, present only while `fix_report.md` is (Batch 8).
+ *
+ * Built like the six so it reads as part of the same list, with two
+ * differences that are the point: no checkbox — nobody chooses it and no run
+ * performs it — and no failure card, because a report that cannot be previewed
+ * is still a report, not an error. Hidden in the markup; the page shows it only
+ * while the host's workflow includes it.
+ */
+const FIX_RESULT_ROW = `        <li class="step" id="step-fixResult" hidden>
+          <div class="step-head">
+            <span class="step-label"><span>${STEP_LABELS.fixResult}</span></span>
+            <span class="step-duration" id="duration-fixResult"></span>
+            <span class="step-status codicon" id="status-fixResult" aria-hidden="true" hidden></span>
+          </div>
+          <div class="step-foot">
+            <p class="step-description" id="description-fixResult">${stepDescription("fixResult", "jira")}</p>
+            <button type="button" class="step-artifact" id="artifact-fixResult" hidden><span class="codicon codicon-file" aria-hidden="true"></span><span id="artifact-fixResult-name"></span></button>
+          </div>
+          <div class="step-body">
+            <p class="step-detail" id="detail-fixResult" hidden></p>
+${stepContent("fixResult")}
+          </div>
+        </li>`;
+
 /** What a row owns beyond its summary, in its body. */
 function stepContent(id: WorkflowStepId): string {
   if (id === "codeSearch") {
@@ -869,6 +910,11 @@ function stepContent(id: WorkflowStepId): string {
   if (id === "buildContext") {
     return `            <div class="step-actions" id="actions-buildContext" hidden>
               ${BUILD_CONTEXT_ACTIONS.map(actionButton).join("\n              ")}
+            </div>`;
+  }
+  if (id === "fixResult") {
+    return `            <div class="step-actions" id="actions-fixResult" hidden>
+              ${actionButton(OPEN_FIX_REPORT)}
             </div>`;
   }
   if (id === "fixWithAI") {

@@ -12,6 +12,7 @@ import type { FormState } from "../src/app/form.ts";
 import type { Environment } from "../src/app/environment.ts";
 import type { Envelope, StreamEvent } from "../src/protocol.ts";
 import type { PanelState } from "../src/panel/messages.ts";
+import { parsePanelMessage } from "../src/panel/messages.ts";
 import { fixModesFromPayload, managedFixModesFromPayload } from "../src/app/fixModes.ts";
 import type { FixModeCatalog, ManagedFixModes } from "../src/app/fixModes.ts";
 import type { FixModeRequest } from "../src/app/controller.ts";
@@ -2657,10 +2658,11 @@ test("a failed run is never crowned with a result", async () => {
 });
 
 test("no result is claimed while the run is still going", async () => {
-  // The hard case: the previous run's task.md and context.md are already in
-  // the listing (the same work item, reopened first), and Build context
-  // finishes before the run does. Only the `!running` guard keeps Fix with AI
-  // from offering the old task while the new one is being written.
+  // The hard case: the previous run's task.md and context.md were in the
+  // listing (the same work item, reopened first), and Build context finishes
+  // before the run does. Two things keep Fix with AI from offering the old
+  // task meanwhile: the run clears that listing as it starts (Batch 8), and
+  // the model's `!running` guard (pinned on its own in workflow.test.ts).
   const h = harness({
     ...PREPARED,
     directory: [...PREPARED.directory, "run.json"],
@@ -3833,4 +3835,265 @@ test("an unreadable folder leaves nothing of the previous work item on the rows"
 
   assert.equal(h.last().artifacts.kind, "error");
   assert.equal(mentionsFirst(h.last()), false, "JR-1's results were left on JR-2's rows");
+});
+
+// --- Batch 8: Fix result, from fix_report.md --------------------------------
+
+/** The report an agent leaves, in the shape `task.md` asks for. */
+const fixReportMd = (summary: string, tests: string) =>
+  `# Fix Report: JR-1\n\n## Summary\n\n${summary}\n\n## Analysis\n\nWhy.\n\n## Changes\n\nWhat.\n\n## Tests\n\n${tests}\n\n## Review Notes\n\nNone.\n`;
+
+const PREPARED_FILES = ["issue.json", "retrieval.json", "context.md", "task.md", "run.json"];
+
+/**
+ * Two restored work items: JR-1 with a report, JR-2 without one.
+ *
+ * `directory` is read live by the harness, so a test can move between them.
+ */
+function reportedAndNot() {
+  const options: { directory?: readonly string[]; directoryError?: string; files: Record<string, string> } = {
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: {
+      [nodePath.join("JR-1", "run.json")]: PREPARED_RUN_JSON,
+      [nodePath.join("JR-1", "fix_report.md")]: fixReportMd(
+        "Investigation complete; no source changes applied.",
+        "Not run: investigation-only mode.",
+      ),
+      [nodePath.join("JR-2", "run.json")]: PREPARED_RUN_JSON,
+    },
+  };
+  return { options, h: harness(options) };
+}
+
+const fixResultOf = (state: PanelState) => state.workflow.find((step) => step.id === "fixResult");
+
+test("a reopened work item with a report rebuilds Fix result from the file alone", () => {
+  // No handoff happened in this session — handoff state is never persisted —
+  // and the row comes back anyway, because the file is the source.
+  const { h } = reportedAndNot();
+  return (async () => {
+    await h.controller.refreshEnvironment();
+    await h.controller.showWorkItem("JR-1");
+
+    const row = fixResultOf(h.last());
+    assert.ok(row, "no Fix result row for a work item with a report");
+    assert.equal(row.status, "ready");
+    assert.equal(row.summary, "Investigation complete; no source changes applied.");
+    assert.equal(row.detail, "Tests: Not run: investigation-only mode.");
+    assert.equal(row.artifact, "fix_report.md");
+    assert.equal(h.last().overall.text, "Fix report available");
+    // And Fix with AI is what task.md says it is, independent of the report.
+    assert.equal(fixRow(h.last()).status, "ready");
+    // Nothing but the two lines crossed into the state: not the Analysis, not
+    // the Changes, not the report.
+    const sent = JSON.stringify(h.last());
+    assert.equal(sent.includes("## Analysis"), false);
+    assert.equal(sent.includes("Why."), false);
+  })();
+});
+
+test("switching to a work item without a report never shows the last one's Fix result", async () => {
+  // The stale-state bug Batch 6 found, for the seventh row: `refreshArtifacts`
+  // pushes before it reads, and that push must not carry JR-1's report.
+  const { options, h } = reportedAndNot();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+  assert.ok(fixResultOf(h.last()));
+  const before = h.states.length;
+
+  options.directory = PREPARED_FILES;
+  await h.controller.showWorkItem("JR-2");
+
+  const pushed = h.states.slice(before);
+  assert.ok(pushed.length > 1, "the switch pushed no intermediate state");
+  for (const state of pushed) {
+    assert.equal(fixResultOf(state), undefined, "a push during the switch carried JR-1's report");
+    assert.notEqual(state.overall.text, "Fix report available");
+  }
+  // The listing decides what every row offers, so the push before JR-2's
+  // listing is read offers none of JR-1's files either.
+  const loading = pushed[0]!;
+  assert.deepEqual([...buildRow(loading).actions], [], "JR-1's context actions were offered on JR-2");
+  assert.deepEqual([...loading.workItemActions], []);
+});
+
+test("an unreadable folder after a reported work item leaves no Fix result behind", async () => {
+  const { options, h } = reportedAndNot();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  options.directoryError = "EACCES: permission denied";
+  await h.controller.showWorkItem("JR-2");
+
+  assert.equal(fixResultOf(h.last()), undefined);
+});
+
+test("a run never offers the last listing's report, while it runs or as it finishes", async () => {
+  // A fresh re-run deletes fix_report.md, and a run on another key never had
+  // one. Until the run ends and the folder is read again, the listing is the
+  // old one — so no push from the run's start on may carry its report: not
+  // mid-run, not the push at `completed`, not the loading push after it.
+  const options: { events: readonly StreamEvent[]; directory: readonly string[]; files: Record<string, string> } = {
+    events: successfulRun,
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: {
+      "run.json": PREPARED_RUN_JSON,
+      "fix_report.md": fixReportMd("Fixed it last time.", "12 passed."),
+    },
+  };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.ok(fixResultOf(h.last()), "the reopened work item had no report to begin with");
+  const before = h.states.length;
+
+  // The fresh run removes the report; the harness lists what the CLI leaves.
+  options.directory = PREPARED_FILES;
+  await h.controller.run(jiraForm({ fresh: true }));
+
+  const pushed = h.states.slice(before);
+  assert.ok(pushed.some((state) => state.progress.state === "done"), "the run never finished");
+  for (const state of pushed) {
+    assert.equal(fixResultOf(state), undefined, `a ${state.progress.state} push carried the old report`);
+    assert.notEqual(state.overall.text, "Fix report available");
+  }
+});
+
+test("a re-run of the same work item keeps its Fix result row, start to finish", async () => {
+  // Not Fresh, same key: the CLI keeps fix_report.md (the retry flow reads
+  // it), so the file is there throughout and so is its row.
+  const h = harness({
+    events: successfulRun,
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it last time.", "12 passed.") },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  const before = h.states.length;
+
+  await h.controller.run(jiraForm());
+
+  const pushed = h.states.slice(before);
+  assert.ok(pushed.some((state) => state.progress.state === "running"));
+  assert.ok(pushed.some((state) => state.progress.state === "done"));
+  for (const state of pushed) {
+    assert.equal(fixResultOf(state)?.summary, "Fixed it last time.", `a ${state.progress.state} push lost the report`);
+    // Only the report survives the run's start: nothing else of the old
+    // listing is offered while the new package is written.
+    if (state.progress.state === "running") {
+      assert.deepEqual([...buildRow(state).actions], [], "the old context was offered mid-run");
+      assert.equal(canFix(state), false);
+      // Five chosen steps (Fix with AI unticked); the report adds none.
+      assert.match(state.overall.text, /^Running \d\/5…$/);
+    }
+  }
+});
+
+test("a run on another work item never shows the previous item's report", async () => {
+  const options: { events: readonly StreamEvent[]; directory: readonly string[]; files: Record<string, string> } = {
+    events: successfulRun,
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: {
+      [nodePath.join("JR-1", "run.json")]: PREPARED_RUN_JSON,
+      [nodePath.join("JR-1", "fix_report.md")]: fixReportMd("JR-1's report.", "1 passed."),
+      "run.json": PREPARED_RUN_JSON,
+    },
+  };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+  assert.ok(fixResultOf(h.last()));
+  const before = h.states.length;
+
+  options.directory = PREPARED_FILES;
+  await h.controller.run(jiraForm());
+
+  for (const state of h.states.slice(before)) {
+    assert.equal(fixResultOf(state), undefined, `a ${state.progress.state} push showed JR-1's report on JR-12345`);
+  }
+});
+
+test("a hand-written bug never shows the previous work item's report", async () => {
+  // Its id arrives with the `started` event: until then there is no work item,
+  // and after it, a new one — neither owns the report that was on screen.
+  const options: { events: readonly StreamEvent[]; directory: readonly string[]; files: Record<string, string> } = {
+    events: [
+      { type: "started", work_item_id: "local_20260904160612", source: "manual" },
+      ...successfulRun.filter((event) => event.type !== "started"),
+    ],
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: {
+      "run.json": PREPARED_RUN_JSON,
+      "fix_report.md": fixReportMd("JR-12345's report.", "1 passed."),
+    },
+  };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.ok(fixResultOf(h.last()));
+  const before = h.states.length;
+
+  options.directory = PREPARED_FILES;
+  await h.controller.run(jiraForm({ source: "manual", issueKey: "", description: "crash on save" }));
+
+  for (const state of h.states.slice(before)) {
+    assert.equal(fixResultOf(state), undefined, `a ${state.progress.state} push showed the previous item's report`);
+  }
+});
+
+test("a report listed but unreadable is still a Fix result to open", async () => {
+  // readFile gives undefined for a file that vanished or cannot be read.
+  const h = harness({ directory: [...PREPARED_FILES, "fix_report.md"], files: { "run.json": PREPARED_RUN_JSON } });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+
+  const row = fixResultOf(h.last());
+  assert.ok(row);
+  assert.equal(row.summary, "Fix report available");
+  assert.equal(row.detail, "Preview unavailable");
+  assert.equal(h.last().progress.state === "failed", false, "an unreadable preview became a run failure");
+  assert.equal(h.last().runError, undefined);
+});
+
+test("a report that appears later is picked up by the next refresh, and not before", async () => {
+  // No watcher and no polling: the row reflects the listing the host last
+  // read. The Refresh button (bugpilot.refreshViews) is one of the reads.
+  const options: { directory?: readonly string[]; files: Record<string, string> } = {
+    directory: PREPARED_FILES,
+    files: { "run.json": PREPARED_RUN_JSON },
+  };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(fixResultOf(h.last()), undefined);
+
+  // The agent writes its report; nothing re-reads the folder yet.
+  options.directory = [...PREPARED_FILES, "fix_report.md"];
+  h.files["fix_report.md"] = fixReportMd("Fixed the output-type validation.", "24 passed.");
+  await h.controller.handle({ type: "ready" });
+  assert.equal(fixResultOf(h.last()), undefined, "a state push re-read the folder");
+
+  await h.controller.refreshArtifacts();
+  assert.equal(fixResultOf(h.last())?.summary, "Fixed the output-type validation.");
+  assert.equal(fixResultOf(h.last())?.detail, "Tests: 24 passed.");
+});
+
+test("Open Fix Report opens fix_report.md in the current work item, and nothing else", async () => {
+  const { h } = reportedAndNot();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const message = parsePanelMessage({ type: "openArtifact", name: fixResultOf(h.last())!.artifact });
+  assert.ok(message);
+  await h.controller.handle(message);
+  assert.equal(h.opened.at(-1), nodePath.join(ROOT, ".ai", "JR-1", "fix_report.md"));
+
+  // What a page could try instead never reaches a file open.
+  const before = h.opened.length;
+  for (const name of ["../fix_report.md", "subdir/fix_report.md", "..\\fix_report.md", "/etc/passwd", "C:/Windows/win.ini", ".."]) {
+    const parsed = parsePanelMessage({ type: "openArtifact", name });
+    assert.equal(parsed, undefined, `the message parser accepted ${name}`);
+    await h.controller.openArtifact(name);
+  }
+  assert.equal(h.opened.length, before, "a path outside the work item was opened");
 });

@@ -296,9 +296,12 @@ test("there is one row, with one checkbox, for every workflow step", () => {
     assert.match(HTML, new RegExp(`id="step-${id}"`), `no row for ${id}`);
     assert.match(HTML, new RegExp(`id="plan-${id}"`), `no checkbox for ${id}`);
   }
+  // Then Fix result (Batch 8), last, and the one row nobody ticks.
   const rows = [...HTML.matchAll(/id="step-([A-Za-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(rows, [...WORKFLOW_STEP_IDS], "the rows are in the model's order");
-  assert.deepEqual([...WORKFLOW_CHECKBOX_IDS].sort(), rows.map((id) => `plan-${id}`).sort());
+  assert.deepEqual(rows, [...WORKFLOW_STEP_IDS, "fixResult"], "the rows are in the model's order");
+  const checkboxes = [...HTML.matchAll(/<input type="checkbox" id="(plan-[A-Za-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual([...WORKFLOW_CHECKBOX_IDS].sort(), [...checkboxes].sort());
+  assert.equal(HTML.includes('id="plan-fixResult"'), false, "Fix result became a choice");
 });
 
 test("the workflow is one section, not an Investigate box plus a Progress box", () => {
@@ -1804,6 +1807,7 @@ test("each result control exists exactly once, inside the row that owns it", () 
     ["open-context", "Open Context", "buildContext"],
     ["copy-context", "Copy", "buildContext"],
     ["fix-with-ai", "Fix with AI", "fixWithAI"],
+    ["open-fix-report", "Open Fix Report", "fixResult"],
   ] as const) {
     assert.equal(HTML.split(`id="${id}"`).length - 1, 1, `#${id} is declared more than once`);
     assert.ok(rowMarkup(owner).includes(`id="${id}"`), `#${id} is outside the ${owner} row`);
@@ -1811,6 +1815,41 @@ test("each result control exists exactly once, inside the row that owns it", () 
     assert.equal(labelled.length, 1, `"${label}" is on ${labelled.length} controls`);
     assert.ok(rowMarkup(owner).includes(labelled[0]!.markup), `"${label}" is outside the ${owner} row`);
   }
+});
+
+test("Fix result is a row the markup keeps hidden, with no checkbox and no failure card", () => {
+  // Batch 8. It exists only while fix_report.md does, so the page shows it
+  // when the host's workflow includes it and never before.
+  const row = rowMarkup("fixResult");
+  assert.match(row, /^<li class="step" id="step-fixResult" hidden>/);
+  // Nobody chooses it and no run performs it.
+  assert.equal(/<input\b/.test(row), false, "Fix result has a checkbox");
+  assert.equal(/<label\b/.test(row), false, "Fix result has a label for a control");
+  // A report that cannot be previewed is not a failure.
+  assert.equal(row.includes('class="failure"'), false, "Fix result has a failure card");
+  // Its line, its file, then its one action — the same order as every row.
+  const order = ['id="description-fixResult"', 'id="artifact-fixResult"', 'id="detail-fixResult"', 'id="open-fix-report"'].map((id) => row.indexOf(id));
+  assert.ok(order.every((at) => at !== -1), "a slot is missing");
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  // Secondary, like Build context's actions: not a second primary button.
+  assert.match(row, /<button type="button" class="result-link" id="open-fix-report" title="Open fix_report\.md in the editor" hidden>/);
+  assert.equal(row.includes('class="primary"'), false);
+  // And it is last.
+  const rows = [...HTML.matchAll(/<li class="step[^"]*" id="step-([A-Za-z]+)"/g)].map((match) => match[1]);
+  assert.equal(rows.at(-1), "fixResult");
+});
+
+test("the Fix result label lines up with the other rows' text, and is not clickable", () => {
+  // By id: the page rewrites each row's classes from its status, so a class
+  // on the row in the markup would not survive the first render.
+  assert.match(CSS, /#step-fixResult \.step-label \{[^}]*padding-left: 20px/s);
+  assert.match(CSS, /#step-fixResult \.step-label \{[^}]*cursor: default/s);
+});
+
+test("a long report line is clamped on screen, and still hidden when there is none", () => {
+  assert.match(CSS, /#description-fixResult,\s*#detail-fixResult \{[^}]*-webkit-line-clamp: 3/s);
+  assert.match(CSS, /#detail-fixResult \{\s*-webkit-line-clamp: 2/);
+  assert.match(CSS, /#detail-fixResult\[hidden\] \{\s*display: none/);
 });
 
 test("each row reads top to bottom: its line, its detail, what it owns, its card", () => {

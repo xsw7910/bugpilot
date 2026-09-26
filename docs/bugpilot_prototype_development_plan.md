@@ -6275,7 +6275,7 @@ run history, telemetry, and productizing the visual harness.
 
 ## 37. Artifact Simplification + Workflow Result Integration
 
-**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) committed at `adc3c53`; Batch 6 (`WorkflowStepResult`: the workflow rows are the result view) committed at `594ac5c`; Batch 7 (Fix Mode under Advanced settings → Strategy) complete, visually reviewed, independently reviewed and verified, uncommitted. A Fix Result row is not started.
+**Status:** Batches 1 (`issue.json`), 2 (`retrieval.json`), 3 (`context.md`, `task.md`) and 4 (`run.json`) committed at `7fde6aa`; Batch 5 (`fix_report.md`) committed at `adc3c53`; Batch 6 (`WorkflowStepResult`: the workflow rows are the result view) committed at `594ac5c`; Batch 7 (Fix Mode under Advanced settings → Strategy) committed at `317ecb0`; Batch 8 (Fix result from `fix_report.md`) complete, visually reviewed, independently reviewed and verified, uncommitted.
 
 **Canonical reference:** `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`
 (kept outside the repository). This section records what has landed against it.
@@ -8069,3 +8069,218 @@ persistence, the run payload, the controller and protocol, the artifacts,
   Fix while the next run is set to Investigate First — the Fix with AI row's
   Strategy line and the summary label now say both. 21 states in dark and light
   at 200, 300 and 400 px: 126 pages, zero horizontal overflow.
+
+### 37.52 Checkpoint — Fix report UI inventory (Batch 8 start)
+
+Read from the committed tree (`317ecb0`).
+
+| Where the extension notices `fix_report.md` | What it does with it |
+|---|---|
+| `artifacts.ts` `RESULT_FILES` / `GROUPS` | Artifacts tree: grouped under Results; listed as *missing* once `task.md` exists and it does not |
+| `artifacts.ts` `historyOutcome` (from `ports.ts` `probeWorkItem`, cached by directory mtime) | History row outcome `fixed`: codicon `verified`, hover "An agent wrote its report in fix_report.md." |
+| Clean / fresh confirmations | named as something an agent wrote that deletion removes |
+| The panel | nothing: no row, no text, no header |
+
+When the work item's directory is re-read (`refreshArtifacts` → the listing,
+`issue.json`, `retrieval.json`): at the end of a run, on `showWorkItem` (a
+History click, a context action on another row, the window restoring its last
+work item), on Retry and Clean, and on `bugpilot.refreshViews` (the Refresh
+button in the Artifacts and History view titles). After Fix with AI nothing is
+re-read: the handoff starts a terminal and the extension stops watching. There
+is no file-system watcher, no timer and no polling anywhere in the extension —
+so a report an external agent writes later is seen only at the next of those
+reads. Batch 8 keeps it that way.
+
+The History `fixed` outcome is left as it is: its hover is factual, but its
+`verified` badge reads as "verified fix" for an investigation-only report. A
+separate, presentation-only follow-up, not this batch.
+
+### 37.53 Checkpoint — `fix_report.md` presentation parser
+
+`extension/src/app/fixReport.ts`, host-side only:
+
+```ts
+interface FixReportPreview {
+  readonly readable: boolean;   // listed but unreadable is still a report
+  readonly summary?: string;    // first meaningful line of ## Summary
+  readonly tests?: string;      // first meaningful line of ## Tests
+}
+parseFixReport(text: string | undefined): FixReportPreview
+sectionOf(markdown, heading): string   // a port of core/fix_report.py section_of
+```
+
+Rules: lines split on every boundary Python's `str.splitlines()` knows (CRLF,
+a lone CR or LF, form feed, vertical tab, `\x1c`–`\x1e`, `\x85`, U+2028,
+U+2029); a heading matches after `trim().toLowerCase()` (surrounding
+whitespace and case forgiven, internal spacing not — as the CLI); a section
+runs to the next line starting `## `, so `###` stays inside; the first
+matching heading wins; a missing section is empty. The first meaningful line
+skips blank lines, rules, HTML comments (multi-line too), lines that are only
+HTML tags, subheadings, and a table's header and separator; drops a leading
+list, quote or task marker and `**bold**` wrapping a whole span (never a lone
+`**` or `__`, so `__init__.py` and `**kwargs` survive); joins table cells with
+" · "; prefers prose outside a code fence and otherwise takes a fence's first
+line literally; collapses whitespace; and is cut at 240 code points with an
+ellipsis, never mid-surrogate. Only the first 256 Ki characters of the text are
+parsed (the host reads the file whole, as it does `issue.json` and
+`retrieval.json`). No wording is classified: "Fixed …", "Investigation complete
+…", "Attempted fix …", "No code change was required." and "2 failed, 18
+passed" all pass through. A parity run of `sectionOf` against the Python
+`section_of` on 33 heading / input pairs (case, indentation, CRLF, a lone CR,
+Unicode separators, repeated headings and subheadings) matched exactly.
+`FIX_REPORT_ARTIFACT` joined the artifact-name constants; `RESULT_FILES` and
+the History probe use it. Review Notes are not surfaced: counting concerns
+out of prose would be classification, and the row stays two lines.
+
+### 37.54 Checkpoint — Fix result in `WorkflowStepResult`
+
+`WorkflowStepId` gained `fixResult` and `StepActionId` gained
+`openFixReport`; `WorkflowStepResult` gained an optional `statusLabel` (the
+words a screen reader announces). `WORKFLOW_STEP_IDS` stays the six plan rows,
+which own the checkboxes and the CLI plan. `buildWorkflow` appends one
+`fixResult` row exactly when `fix_report.md` is in the listing — a run in
+flight included (the rule as confirmed after review: file present, row; file
+absent, none) — built from `WorkflowInput.fixReport`. It is a file, not a step,
+so it never counts towards "Running n/m…":
+
+| Report | Row |
+|---|---|
+| Summary and Tests | `ready`, "report available"; summary = the Summary line; detail = "Tests: …"; `fix_report.md`; Open Fix Report |
+| Summary, no Tests | no detail line |
+| no Summary (partial) | "Fix report available" |
+| listed but unreadable | "Fix report available" / "Preview unavailable" — never a failure card |
+
+`overallStatus`: "Fix report available" when a report row exists, below a run
+failure, "AI fix did not start" and "AI fix started" (what this session saw
+of a handoff is newer than a file), above "Context ready" — and also for a
+reopened work item whose `run.json` gives idle rows. Fix with AI is untouched:
+a reopened work item shows it Ready from `task.md` beside the report, because
+handoff state is not persisted and none is invented.
+
+The controller reads the report in `#readSummary` only when listed
+(`parseFixReport` of the file text, or of `undefined` when it cannot be read),
+keeps only the preview, and clears it in `#forgetSummary`. Only the two lines
+reach the panel — a test checks the state carries none of Analysis.
+
+Markup: one more row after the six (`FIX_RESULT_ROW`), `hidden`, with no
+checkbox and no failure card, the same foot and body as the others, and a
+secondary Open Fix Report button (`result-link`, like Open Context). The page
+shows and fills the row only while the host's workflow has it
+(`renderFixResult`); absent, it is hidden and emptied and its file forgotten.
+The label is indented by id (`#step-fixResult`), because the page rewrites
+each row's classes from its status; the summary is clamped to three lines and
+the Tests line to two, with the whole bounded line as the title.
+
+### 37.55 Checkpoint — history, stale state and opening the report
+
+A reopened work item with a report rebuilds the row from the file alone, with
+the header "Fix report available". Switching work items clears the preview
+(`#forgetSummary`) — and, found while pinning that, the folder listing too:
+`showWorkItem` pushed a loading state while `#artifactNames` still held the
+previous work item's listing, so a Fix result row (and, since Batch 6, the
+previous item's Build context actions) could show on the new item for a push.
+`showWorkItem` now clears the listing before it re-reads; the regression test
+fails without that line. The same held for a run (review finding, below): a
+run now starts from an empty listing — Jira included — so no push before its
+folder is read again can offer a file the run may have changed. The one entry
+kept is `fix_report.md` itself, and its preview, when the run is a re-prepare
+of the same Jira work item without Fresh: the CLI keeps the report then (the
+retry flow reads it), so its row stays through the run — describing the
+previous attempt until an agent writes a new one, which nothing on the row
+claims otherwise. After a Fresh run, a
+run on another key or a hand-written bug, no push shows the previous report;
+a prepare-only run grows no row. Each case has a test that fails without it.
+
+Open Fix Report and the row's file link post `openArtifact` with the name the
+host put on the row; the message parser takes only a plain file name and the
+controller re-checks it, so `../fix_report.md`, `subdir/fix_report.md`,
+absolute and drive paths never reach a file open (tested through both).
+No new message type, no new host action, no shell.
+
+A report written after the handoff is picked up by the next read: a test
+writes one, sends a plain state push (nothing happens), then refreshes (the
+row appears).
+
+### 37.56 Checkpoint — responsive, theme and accessibility review
+
+Harness states added to the ignored `extension/.review/`, each built from
+Markdown through the real parser: a fix-style report, investigation-only,
+tests not run, failed-tests wording, partial (no Summary), unreadable, a long
+Summary, a long Tests line, a report after a handoff this session saw, a
+reopened work item (idle rows, report), and a switch from a reported work item
+to one without (a sequence of two states). With the prepared and handoff states
+already there, 32 states in dark and light at 200, 300 and 400 px.
+
+Found and fixed during the review: the label indent did not apply, because the
+page rewrites the row's classes from its status (now keyed by id), and a
+240-character summary wrapped to ten lines at 200 px (now clamped to three).
+Result: the row reads as one more step — label, the agent's line, `fix_report.md`
+at the right (its own line when the text is long), the Tests line, Open Fix
+Report — with no status glyph and no outcome colour in either theme; the label
+is at full strength like Fix with AI's ready row. Accessible name "Fix result:
+report available"; the summary and tests are the elements' text (clamping is
+visual); Open Fix Report has its label and a title.
+
+### 37.57 Checkpoint — Batch 8 verification and review
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1117 passed (unchanged: no Python change) |
+| `npm test` (extension) | 941 passed (baseline 888: +19 `fixReport.test.ts`, +12 workflow, +10 controller, +9 page, +3 panel) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` (real CLI, temp repositories, no Jira) | 9 passed |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `git diff --check` | clean; the two new files have no trailing whitespace |
+| `python tests/retrieval_corpus.py` | frozen pre-Batch-3 tree: all six cases **byte-identical**. Live tree: the same summary (top-3 2/5, MRR 0.292, docs 10) |
+| Visual harness | 32 states × dark/light × 200/300/400 px: 192 pages, zero horizontal overflow |
+
+**Real flow** (scratch `sample-repo`, the working tree's CLI via
+`python -m bugpilot`, the real `Controller` with a real runner and filesystem
+and a recording UI port — nothing opened, launched or probed): a prepare-only
+run left exactly five files and no Fix result; a canonical report written
+afterwards appeared only after `refreshArtifacts` (a plain state push re-read
+nothing), with the agent's Summary line, "Tests: …", `fix_report.md` and the
+header "Fix report available", and no Analysis text in the state; Open Fix
+Report opened `.ai/<id>/fix_report.md`, and traversal names were refused by
+the message parser; investigation-only wording gave the same `ready` row;
+switching to a work item without a report showed no Fix result in any push;
+`bugpilot manual-result` produced a report the same row showed ("Developer
+manual fix. TODO: …"); reopening the first item rebuilt its row from the file,
+with Fix with AI Ready from `task.md`.
+
+**Independent review** (whole diff vs `317ecb0`): no blocker. **Important,
+fixed**: a Jira run kept the previous listing, so the push at `completed`
+(progress done, the process not yet exited) and the loading push after it were
+built from it — after a fresh re-run that deleted the report, or a run on
+another key, a Fix result row and "Fix report available" flashed up, and the
+previous item's context actions with them. The run now clears the listing as
+it starts; the test that claimed this case was vacuous (its run never left
+`running`) and was rewritten with a completing run — it fails without the fix.
+Fixed from its minors: the parser's bold strip removed every `**` and `__`
+(mangling `__init__.py`, `**kwargs`); line splitting now matches
+`splitlines()`; multi-line comments, bare tags, fenced command blocks and table
+headers no longer become the preview; truncation cannot split an emoji; the
+page auto-open test passed without a report and now proves the report is what
+opens it. Noted, not changed:
+
+**After the review, the visibility rule was made strict** at the developer's
+request: `fix_report.md` present → the row; absent → none, a run in flight
+included (it had been hidden during runs). A same-key, non-Fresh re-run keeps
+the row throughout; a Fresh run, another key or a hand-written bug starts
+without it (see §37.55).
+
+- After an ordinary (not fresh) re-prepare, the previous attempt's report is
+  still on disk — deliberately: the retry flow reads it — so the Fix result row
+  shows it beside the new package and the header prefers "Fix report available"
+  to "Context ready", as the Batch 8 precedence says. Nothing marks the report
+  as older than the package; whether to (for example by comparing it with
+  `run.json`) is a product decision left open.
+- A reopened work item with no readable `run.json` (idle rows) and a report
+  does not auto-open the workflow: the controller's loading push reaches the
+  page first and consumes the once-per-work-item open, a pre-existing lifecycle
+  rule. The header still says "Fix report available" on the closed summary.
+- The preview bound applies after the host has read the file whole, as with
+  `issue.json` and `retrieval.json`.
+- The History row's `verified` badge for a work item with a report (§37.52)
+  remains a separate presentation-only follow-up.
