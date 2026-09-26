@@ -35,7 +35,8 @@ import { buildArtifactList, historyFromPayload } from "../src/app/artifacts.ts";
 import { buildPrepareArgs, DEFAULT_FORM } from "../src/app/form.ts";
 import { diagnose, knownCodes } from "../src/errors.ts";
 import { discoverExecutable } from "../src/executable.ts";
-import { isPlainPrompt, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
+import { isPlainPrompt } from "../src/app/agents.ts";
+import { reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));

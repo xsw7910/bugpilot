@@ -947,3 +947,23 @@ def test_refine_reports_the_mode_it_regenerated_under(tmp_path, home, mock_jira)
     assert "Do not change source code in this pass." in refined["next_step"]
     assert "## Investigation Handoff" in task
     assert "- Mode ID: `team-triage`" in task
+
+
+
+def test_summarize_results_and_get_status_claim_no_validation_or_review(tmp_path):
+    # The MCP tools read run.json through the same record as `status`: the
+    # checklist summarize_results renders is not a manual validation, and
+    # nothing here says one — or a review — happened (§37.70).
+    server = build_server(tmp_path)
+    prepared = _call(server, "prepare_bug_description", {"description": "crash"})
+    work_item = prepared["work_item_id"]
+    (tmp_path / ".ai" / work_item / "fix_report.md").write_text(
+        f"# Fix Report: {work_item}\n\n## Summary\n\nInvestigated only.\n", encoding="utf-8"
+    )
+
+    _call(server, "summarize_results", {"work_item_id": work_item})
+    steps = _call(server, "get_status", {"work_item_id": work_item})["steps"]
+
+    assert steps["result_summary"] == "pass"
+    assert "manual_validation" not in steps
+    assert "final_review_prompt" not in steps

@@ -126,15 +126,18 @@ def test_the_json_mode_writes_nothing_at_all(tmp_path, monkeypatch, capsys):
     assert "final_review_prompt" not in json.loads((target / "run.json").read_text(encoding="utf-8"))["steps"]
 
 
-def test_the_human_command_keeps_its_step_mark(tmp_path, monkeypatch, capsys):
-    # Unchanged: the step still records that it ran.
+def test_the_human_command_records_nothing_either(tmp_path, monkeypatch, capsys):
+    # It used to mark `final_review_prompt: pass`, which `status` showed as a
+    # review that had passed. Printing a prompt is not a review: run.json is
+    # byte-for-byte what it was (§37.70).
     target = _work_item(tmp_path)
     monkeypatch.chdir(tmp_path)
+    before = (target / "run.json").read_bytes()
 
     assert main(["review-package", "JR-12345"]) == 0
     capsys.readouterr()
 
-    assert json.loads((target / "run.json").read_text(encoding="utf-8"))["steps"]["final_review_prompt"] == "pass"
+    assert (target / "run.json").read_bytes() == before
 
 
 def test_a_missing_or_unsafe_work_item_is_refused_and_nothing_is_created(tmp_path, monkeypatch, capsys):
@@ -235,9 +238,60 @@ def test_the_prompt_stays_plain_enough_for_a_terminal_handoff():
     # The extension's Review with AI hands this prompt to an agent on a command
     # line, quoted the way every handoff is — which is safe only for text no
     # shell expands anything in. So the extension refuses anything outside this
-    # class (`isPlainPrompt` in reviewPackage.ts), and this pins the builder to
+    # class (`isPlainPrompt` in agents.ts), and this pins the builder to
     # it: a `$`, a quote or a backtick added here would turn Review with AI into
     # an error, and this test says so first.
     for work_item in ("JR-12345", "local_20260926010922"):
         prompt = workflow._build_final_review_prompt(work_item)
         assert re.fullmatch(r"\s*[A-Za-z0-9#][A-Za-z0-9\s.,:#/_-]*", prompt), work_item
+
+
+# --- what run.json says these commands did (§37.70) ------------------------------
+
+
+def test_status_never_reports_a_validation_or_a_review_that_did_not_happen(tmp_path, monkeypatch, capsys):
+    # Printing a checklist is not a manual validation, and printing a prompt is
+    # not a review. `result_summary` stays, meaning the overview was rendered —
+    # a command having run, never a verdict on the fix.
+    _work_item(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert main(["summarize-results", "JR-12345", "--no-jira-comment"]) == 0
+    assert main(["review-package", "JR-12345"]) == 0
+    capsys.readouterr()
+
+    assert main(["status", "JR-12345", "--json"]) == 0
+    payload = _json(capsys)
+    steps = payload["steps"]
+    assert steps["result_summary"] == "pass"
+    assert "manual_validation" not in steps
+    assert "final_review_prompt" not in steps
+    # Nothing else moved: the run is still prepared, and the report is there.
+    assert payload["status"] == "prepared"
+    assert (tmp_path / ".ai" / "JR-12345" / "fix_report.md").exists()
+
+    assert main(["status", "JR-12345"]) == 0
+    human = capsys.readouterr().out
+    assert "result_summary: pass" in human
+    assert "manual_validation" not in human
+    assert "final_review_prompt" not in human
+
+
+def test_marks_an_older_run_json_still_carries_are_not_reported(tmp_path, monkeypatch, capsys):
+    # A package summarized before this change has `manual_validation: pass` and
+    # `final_review_prompt: pass` on disk. They are not steps any more, so no
+    # status shows them, and the next write of run.json drops them.
+    target = _work_item(tmp_path)
+    run = json.loads((target / "run.json").read_text(encoding="utf-8"))
+    run["steps"].update({"manual_validation": "pass", "final_review_prompt": "pass"})
+    (target / "run.json").write_text(json.dumps(run), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["status", "JR-12345", "--json"]) == 0
+    steps = _json(capsys)["steps"]
+    assert "manual_validation" not in steps and "final_review_prompt" not in steps
+
+    assert main(["summarize-results", "JR-12345", "--no-jira-comment"]) == 0
+    capsys.readouterr()
+    on_disk = json.loads((target / "run.json").read_text(encoding="utf-8"))["steps"]
+    assert "manual_validation" not in on_disk and "final_review_prompt" not in on_disk
+    assert on_disk["result_summary"] == "pass"

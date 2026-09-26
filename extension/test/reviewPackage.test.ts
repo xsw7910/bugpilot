@@ -10,7 +10,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isPlainPrompt, MAX_RISKS, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
+import { isPlainPrompt } from "../src/app/agents.ts";
+import { MAX_RISKS, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
 import type { Envelope } from "../src/protocol.ts";
 
 const PROMPT = "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n";

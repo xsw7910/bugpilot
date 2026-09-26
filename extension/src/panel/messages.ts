@@ -269,6 +269,36 @@ export type PanelMessage =
   | { readonly type: "saveFixMode"; readonly draft: FixModeDraft };
 
 /**
+ * Every message type the page may send, each once.
+ *
+ * A `Record` over the union rather than a list, so a type added to
+ * `PanelMessage` without a place here — or one here the union does not have —
+ * fails to compile. It is the authority the page contract tests check against:
+ * every `postMessage` in `panel.js` must name one of these, and every one must
+ * parse from its well-formed shape (§37.70).
+ */
+const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
+  ready: true,
+  run: true,
+  stop: true,
+  retry: true,
+  formChanged: true,
+  addAttachments: true,
+  action: true,
+  command: true,
+  openArtifact: true,
+  openRelevantFile: true,
+  improveHint: true,
+  useImprovedHint: true,
+  dismissImprovedHint: true,
+  manageFixModes: true,
+  closeFixModes: true,
+  fixModeAction: true,
+  saveFixMode: true,
+};
+export const PANEL_MESSAGE_TYPES = Object.keys(MESSAGE_TYPES) as readonly PanelMessage["type"][];
+
+/**
  * Validate a message from the page.
  *
  * Returns undefined for anything unrecognized — a dropped message is a
@@ -282,6 +312,10 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     case "ready":
     case "stop":
     case "retry":
+      // Bare: the page sends these with nothing but their type. They once fell
+      // through into `improveHint`, which needs a form — so all three were
+      // dropped, and the panel's Stop and Retry did nothing (§37.70).
+      return { type };
     case "improveHint": {
       // Carries the form for the same reason `run` does: the host's copy can be
       // one debounce interval stale, and the hint being improved is whatever is

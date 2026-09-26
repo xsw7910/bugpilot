@@ -14,6 +14,8 @@
  * rather than a thrown exception.
  */
 
+import { isWorkItemId } from "./form.ts";
+
 /**
  * The context and task artifacts, as `bugpilot/core/artifacts.py` names them.
  *
@@ -443,7 +445,10 @@ export function historyFromPayload(
     .map((entry) => asRecord(entry))
     .flatMap((entry) => {
       const workItemId = typeof entry?.["work_item_id"] === "string" ? entry["work_item_id"] : "";
-      if (workItemId === "") return [];
+      // Only a name that is a work item id becomes a row: a row can be reopened,
+      // and reopening leads to a handoff's command line. Checked before the
+      // probe too, which reads files under `.ai/<id>/` (§37.70).
+      if (!isWorkItemId(workItemId)) return [];
       const probed = probe(workItemId);
       const outcome = probed ? historyOutcome(probed) : undefined;
       return [

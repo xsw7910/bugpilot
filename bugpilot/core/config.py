@@ -22,9 +22,13 @@ WORKFLOW_STEPS = [
     "agent_instructions",
     "memory_add",
     "agent_fix",
+    # What `summarize-results` did: the Result Overview was rendered (`pass`) or
+    # could not be (`fail`). A command having run, never a verdict on the fix.
+    # `manual_validation` and `final_review_prompt` were listed here too, and
+    # marked `pass` by printing a checklist and a prompt — read back by
+    # `status` as a validation and a review that never happened. Neither is a
+    # workflow step, so neither is recorded (§37.70).
     "result_summary",
-    "manual_validation",
-    "final_review_prompt",
     "memory_update",
     "delivery_check",
     "commit_plan",

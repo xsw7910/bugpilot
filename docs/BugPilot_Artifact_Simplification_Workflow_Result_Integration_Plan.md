@@ -1394,6 +1394,26 @@ carries no Fix result step.
    mailed; nothing says reviewed, passed or verified; the Validation checklist
    is untouched.
 
+### Confirmed decisions (stabilization after Batch 10)
+
+1. **Every page message is one the host parses.** `PANEL_MESSAGE_TYPES` is the
+   host's list; a test routes what the page actually posts through the parser
+   into the controller.
+2. **One work item id rule, in both languages.** `WORK_ITEM_ID_RE`, matched in
+   full; ids arriving from outside a form — History, the saved work item, a
+   command argument, the CLI's stream — are checked at the extension boundary,
+   and `bugpilot list` names only work item folders.
+3. **One prompt gate for every terminal handoff**, in `resolveAgent`: plain
+   characters only, refused otherwise. A mitigation, not argv: command lines
+   are still shell text, and that redesign stays deferred.
+4. **Fix with AI hands over at most one package at a time**, refused by the
+   host, and drops a handoff when a work item is opened (another, or the same
+   one again) or a run starts — as Review with AI does, with separate state.
+5. **`run.json` steps record steps that ran.** No `manual_validation` or
+   `final_review_prompt` step: a printed checklist is not a validation and a
+   printed prompt is not a review. `result_summary` means the Result Overview
+   was rendered.
+
 ---
 
 # 20. Step Secondary Text 状态原则

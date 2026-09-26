@@ -108,8 +108,8 @@ interface HarnessOptions {
   readonly directory?: readonly string[];
   /** Make the artifact directory unreadable rather than absent. */
   readonly directoryError?: string;
-  /** Called for every file the controller reads, so a test can count them. */
-  readonly onReadFile?: (file: string) => void;
+  /** Called for every file the controller reads, so a test can count them — or, returning a promise, hold a read open. */
+  readonly onReadFile?: (file: string) => unknown;
   /** Whether a Jira credential is stored. Configured unless a test says not. */
   readonly credentialsConfigured?: boolean;
   /** This extension's own version, which is not the CLI's. */
@@ -144,6 +144,10 @@ interface HarnessOptions {
   readonly agentProbe?: (command: string) => Promise<boolean>;
   /** Make opening a terminal throw, as a host that cannot start a shell would. */
   readonly terminalThrows?: Error;
+  /** Answer `revealAgentPanel` instead of `agentPanel`: a function may answer later. */
+  readonly revealAgent?: () => Promise<boolean>;
+  /** Hold a clipboard write open until the promise settles. */
+  readonly clipboardHold?: () => Promise<void>;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -208,7 +212,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
             ? { kind: "ok", names: [...options.directory] }
             : { kind: "missing" },
       readFile: async (file) => {
-        options.onReadFile?.(file);
+        await options.onReadFile?.(file);
         const key = Object.keys(files).find((name) => file.endsWith(name));
         return key ? files[key] : undefined;
       },
@@ -222,6 +226,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         opened.push(file);
       },
       copyToClipboard: async (text) => {
+        if (options.clipboardHold) await options.clipboardHold();
         if (options.clipboardThrows) throw options.clipboardThrows;
         clipboard.push(text);
       },
@@ -244,7 +249,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         folders.push(directory);
       },
       pickFiles: async () => options.pickFiles ?? [],
-      revealAgentPanel: async () => options.agentPanel ?? false,
+      revealAgentPanel: async () => (options.revealAgent ? options.revealAgent() : (options.agentPanel ?? false)),
     },
     log: {
       info: (message) => logged.push(message),
@@ -4965,4 +4970,304 @@ test("an agent probe that throws is a failure on the row, not a button left wait
   assert.deepEqual(review.error.action, { title: "Open Settings", command: COMMANDS.openSettings });
   assert.equal(offersReview(h.last()), true, "the button did not come back");
   assert.deepEqual(h.terminals, []);
+});
+
+// --- Stabilization (§37.70): Fix with AI's stale and double-press guards ---------
+
+const FIX: PanelMessage = { type: "action", id: "fixWithAI" };
+
+/** A probe that answers when the test says so, one resolver per call. */
+const heldProbe = () => {
+  const answers: ((found: boolean) => void)[] = [];
+  return { agentProbe: () => new Promise<boolean>((resolve) => { answers.push(resolve); }), answers };
+};
+
+test("a Fix with AI press for a work item that is no longer shown never lands on the new one", async () => {
+  // A on screen, Fix with AI pressed, B opened while the agent is still being
+  // looked for: no terminal for A under B, and nothing of it on B's row.
+  const probe = heldProbe();
+  const h = harness(twoReports(REVIEW_PACKAGE, { agentProbe: probe.agentProbe }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const pressing = h.controller.handle(FIX);
+  await settle();
+  assert.deepEqual(h.probed, ["claude"], "the probe was not reached");
+  await h.controller.showWorkItem("JR-2");
+  const rowOnB = fixRow(h.last());
+  const headerOnB = h.last().overall.text;
+  const noticesOnB = h.notices.length;
+  for (const answer of probe.answers) answer(true);
+  await pressing;
+
+  assert.deepEqual(h.terminals, [], "A's agent started with B on screen");
+  assert.deepEqual(fixRow(h.last()), rowOnB, "A's handoff changed B's row");
+  assert.equal(h.last().overall.text, headerOnB);
+  assert.equal(h.notices.length, noticesOnB);
+  assert.equal(JSON.stringify(h.last()).includes("AI fix started"), false);
+});
+
+test("with no agent, a stale Fix with AI press copies nothing and says nothing on the new work item", async () => {
+  const probe = heldProbe();
+  const h = harness(twoReports(REVIEW_PACKAGE, { agentProbe: probe.agentProbe, agentPanel: true }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const pressing = h.controller.handle(FIX);
+  await settle();
+  await h.controller.showWorkItem("JR-2");
+  const noticesOnB = h.notices.length;
+  for (const answer of probe.answers) answer(false);
+  await pressing;
+
+  assert.deepEqual(h.clipboard, [], "A's prompt went to the clipboard with B on screen");
+  assert.equal(fixRow(h.last()).error, undefined, "A's card landed on B");
+  assert.equal(fixRow(h.last()).status === "failed" || fixRow(h.last()).status === "skipped", false);
+  assert.equal(h.notices.length, noticesOnB);
+  assert.deepEqual(h.terminals, []);
+});
+
+test("a handoff that resumes while the panel is switching is already stale — Fix with AI", async () => {
+  // The switch drops the previous item's handoffs before its first wait, so
+  // one that resumes during that wait (reading B's run.json) finds itself stale.
+  let releaseRead: () => void = () => {};
+  const readHeld = new Promise<void>((resolve) => { releaseRead = resolve; });
+  const probe = heldProbe();
+  const h = harness(twoReports(REVIEW_PACKAGE, {
+    agentProbe: probe.agentProbe,
+    onReadFile: (file) => (file.includes("JR-2") && file.endsWith("run.json") ? readHeld : undefined),
+  }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const pressing = h.controller.handle(FIX);
+  await settle();
+  const noticesBefore = h.notices.length;
+  const switching = h.controller.showWorkItem("JR-2");
+  for (const answer of probe.answers) answer(true);
+  await pressing;
+  // Nothing of A's handoff reached the screen — not a terminal, and not a
+  // notice or an outcome about A's package either.
+  assert.deepEqual(h.terminals, [], "A's agent started while the panel was switching to B");
+  assert.equal(h.notices.length, noticesBefore, "A's handoff spoke while the panel was switching to B");
+  releaseRead();
+  await switching;
+  assert.equal(h.last().workItemId, "JR-2");
+  assert.deepEqual(h.terminals, []);
+  assert.equal(fixRow(h.last()).status === "skipped", false, "A's outcome landed on B");
+});
+
+test("a handoff that resumes while the panel is switching is already stale — Review with AI", async () => {
+  let releaseRead: () => void = () => {};
+  const readHeld = new Promise<void>((resolve) => { releaseRead = resolve; });
+  const probe = heldProbe();
+  const h = harness(twoReports(REVIEW_PACKAGE, {
+    agentProbe: probe.agentProbe,
+    onReadFile: (file) => (file.includes("JR-2") && file.endsWith("run.json") ? readHeld : undefined),
+  }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const reviewing = h.controller.handle(REVIEW);
+  await settle();
+  assert.deepEqual(h.probed, ["claude"], "the probe was not reached");
+  const switching = h.controller.showWorkItem("JR-2");
+  for (const answer of probe.answers) answer(true);
+  await reviewing;
+  assert.deepEqual(h.terminals, [], "A's reviewer started while the panel was switching to B");
+  releaseRead();
+  await switching;
+  assert.equal(reviewOf(h.last()), undefined);
+});
+
+test("Fix with AI pressed twice before the agent is found starts one handoff, whoever presses", async () => {
+  // The page hides the button, but the palette, the History menu and the end
+  // of a run reach the controller without it: the refusal is the host's.
+  const probe = heldProbe();
+  const h = await openedForReview(reviewOptions({ agentProbe: probe.agentProbe }));
+
+  const fromPage = h.controller.handle(FIX);
+  const fromPalette = h.controller.fixWithAI();
+  const again = h.controller.handle(FIX);
+  await settle();
+  for (const answer of probe.answers) answer(true);
+  await Promise.all([fromPage, fromPalette, again]);
+
+  assert.deepEqual(h.probed, ["claude"], "a second press looked for an agent again");
+  assert.equal(h.terminals.length, 1, "two presses opened two terminals");
+  assert.equal(h.logged.filter((line) => /Refusing a second Fix with AI/.test(line)).length, 2);
+  assert.equal(fixRow(h.last()).summary, "AI fix started");
+});
+
+test("once a handoff has finished, a deliberate second Fix with AI still works as before", async () => {
+  // Busy is about a handoff in flight, not a history: the existing product
+  // behaviour after a success is unchanged.
+  const h = await openedForReview();
+  await h.controller.fixWithAI();
+  await h.controller.fixWithAI();
+  assert.equal(h.terminals.length, 2);
+});
+
+test("a run starting while Fix with AI is being handed over drops the handoff", async () => {
+  const probe = heldProbe();
+  const h = await openedForReview(reviewOptions({ agentProbe: probe.agentProbe }));
+
+  const pressing = h.controller.handle(FIX);
+  await settle();
+  await h.controller.run(jiraForm());
+  const afterRun = fixRow(h.last());
+  for (const answer of probe.answers) answer(true);
+  await pressing;
+
+  assert.deepEqual(h.terminals, [], "the handoff pressed before the run started an agent after it");
+  assert.deepEqual(fixRow(h.last()), afterRun);
+});
+
+test("task.md gone while the agent was looked for: nothing is handed over, and the row says why", async () => {
+  const probe = heldProbe();
+  const options = reviewOptions({ agentProbe: probe.agentProbe });
+  const h = await openedForReview(options);
+
+  const pressing = h.controller.handle(FIX);
+  await settle();
+  options.directory = ["issue.json", "run.json"];
+  await h.controller.refreshArtifacts();
+  for (const answer of probe.answers) answer(true);
+  await pressing;
+
+  assert.deepEqual(h.terminals, []);
+  assert.deepEqual(h.clipboard, []);
+  assert.ok(h.notices.some((notice) => notice.kind === "warning" && /There is no task\.md for JR-12345/.test(notice.message)));
+});
+
+// --- Stabilization (§37.70): work item ids from outside a form -------------------
+
+test("a work item id that is not one is refused on the way in, and never reaches a handoff", async () => {
+  const h = await openedForReview();
+  const before = h.states.length;
+  const reads: string[] = [];
+  for (const id of ["x$(calc)", "x`calc`_1", "../JR-1", "JR-1/x_1", "JR-12345\n", " JR-12345", "JR-\"1", ""]) {
+    await h.controller.showWorkItem(id);
+    reads.push(id);
+  }
+  // Nothing switched, nothing was read for them, nothing was saved as the
+  // current work item — and the notices do not echo the names back.
+  assert.equal(h.controller.workItemId, "JR-12345");
+  assert.equal(h.states.length, before, "a refused id pushed a state");
+  assert.deepEqual(h.savedWorkItems.filter((id) => id !== "JR-12345"), []);
+  const refusals = h.notices.filter((notice) => /will not open this work item/.test(notice.message));
+  assert.equal(refusals.length, reads.length);
+  for (const notice of refusals) assert.equal(/calc|\.\.\//.test(notice.message), false, notice.message);
+
+  // A handoff afterwards is for the work item on screen, and only it.
+  await h.controller.handle(FIX);
+  assert.deepEqual(h.terminals.map((terminal) => terminal.commandLine), [
+    `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`,
+  ]);
+});
+
+test("with only an invalid id offered, there is nothing to hand over: no probe, no terminal, no clipboard", async () => {
+  const h = harness({ agentOnPath: true, directory: [...PREPARED_FILES], files: { "run.json": PREPARED_RUN_JSON } });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("x$(calc)");
+  await h.controller.handle(FIX);
+  await h.controller.handle(REVIEW);
+
+  assert.equal(h.controller.workItemId, undefined);
+  assert.deepEqual(h.probed, []);
+  assert.deepEqual(h.terminals, []);
+  assert.deepEqual(h.clipboard, []);
+  assert.deepEqual(h.jsonRuns, []);
+});
+
+test("an id the CLI streams is checked too: one that is not a work item id is not adopted", async () => {
+  const h = harness({
+    events: [
+      { type: "started", work_item_id: "local_1$(calc)", source: "manual" },
+      { type: "completed", ok: true },
+    ],
+    directory: ["task.md"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm({ source: "manual", description: "crash on save", issueKey: "" }));
+
+  assert.equal(h.controller.workItemId, undefined);
+  assert.deepEqual(h.savedWorkItems, []);
+});
+
+test("with no agent, a switch while the agent panel is being revealed leaves the new work item alone", async () => {
+  // The prompt was copied for A — A was on screen then — but by the time the
+  // reveal answers, B is: no outcome, card or notice of A's may land on B.
+  let reveal: (shown: boolean) => void = () => {};
+  const h = harness(twoReports(REVIEW_PACKAGE, {
+    agentOnPath: false,
+    revealAgent: () => new Promise<boolean>((resolve) => { reveal = resolve; }),
+  }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const pressing = h.controller.handle(FIX);
+  await settle();
+  assert.equal(h.clipboard.length, 1, "the no-agent branch was not reached");
+  await h.controller.showWorkItem("JR-2");
+  const rowOnB = fixRow(h.last());
+  const noticesOnB = h.notices.length;
+  reveal(true);
+  await pressing;
+
+  assert.deepEqual(fixRow(h.last()), rowOnB, "A's no-agent outcome landed on B");
+  assert.equal(fixRow(h.last()).error, undefined);
+  assert.equal(h.notices.length, noticesOnB);
+});
+
+test("a press dropped by a switch cannot free the new work item's handoff: still one terminal", async () => {
+  // A pressed, B opened, B pressed; A's probe answers after B's press. A's
+  // handoff must not clear B's busy flag, or a second press on B would start a
+  // second handoff alongside B's first.
+  const probe = heldProbe();
+  const h = harness(twoReports(REVIEW_PACKAGE, { agentProbe: probe.agentProbe }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const pressA = h.controller.handle(FIX);
+  await settle();
+  await h.controller.showWorkItem("JR-2");
+  const pressB = h.controller.handle(FIX);
+  await settle();
+  probe.answers[0]!(true);
+  await pressA;
+  const pressB2 = h.controller.handle(FIX);
+  await settle();
+  for (const answer of probe.answers.slice(1)) answer(true);
+  await Promise.all([pressB, pressB2]);
+
+  assert.equal(h.probed.length, 2, "a second press on B looked for an agent again");
+  assert.deepEqual(h.terminals.map((terminal) => terminal.name), ["Fix with AI · JR-2"]);
+});
+
+test("with no agent, a switch while the prompt is being copied brings no agent panel forward for it", async () => {
+  let release: () => void = () => {};
+  const reveals: string[] = [];
+  const h = harness(twoReports(REVIEW_PACKAGE, {
+    agentOnPath: false,
+    clipboardHold: () => new Promise<void>((resolve) => { release = resolve; }),
+    revealAgent: async () => {
+      reveals.push("revealed");
+      return true;
+    },
+  }));
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+
+  const pressing = h.controller.handle(FIX);
+  await settle();
+  await h.controller.showWorkItem("JR-2");
+  const rowOnB = fixRow(h.last());
+  const noticesOnB = h.notices.length;
+  release();
+  await pressing;
+
+  assert.deepEqual(reveals, [], "an agent panel was brought forward for A with B on screen");
+  assert.deepEqual(fixRow(h.last()), rowOnB);
+  assert.equal(h.notices.length, noticesOnB);
 });

@@ -473,3 +473,46 @@ test("the normalized issue is investigation input, not bookkeeping", () => {
   assert.equal(artifactGroup("issue.json"), "context");
   assert.equal(artifactGroup("memory_entry.md"), "state");
 });
+
+// --- History takes only work item ids (§37.70) -------------------------------
+
+test("a folder name that is not a work item id never becomes a History row, nor is probed", () => {
+  // `bugpilot list` skips them now; this is the extension's own check, for an
+  // older CLI or a hand-edited payload. A row can be reopened, and reopening
+  // leads to a handoff's command line.
+  const probed: string[] = [];
+  const list = historyFromPayload(
+    {
+      work_items: [
+        { work_item_id: "JR-12345", source: "jira", title: "Kept", prepared: true },
+        { work_item_id: "x$(calc)", source: null, title: null, prepared: false },
+        { work_item_id: "../JR-1", source: null, title: null, prepared: false },
+        { work_item_id: "JR-1\n", source: null, title: null, prepared: false },
+        { work_item_id: "scratch notes", source: null, title: null, prepared: false },
+      ],
+    },
+    () => undefined,
+    (id) => {
+      probed.push(id);
+      return undefined;
+    },
+  );
+  assert.equal(list.kind, "ready");
+  if (list.kind !== "ready") return;
+  assert.deepEqual(list.items.map((item) => item.workItemId), ["JR-12345"]);
+  assert.deepEqual(probed, ["JR-12345"], "a name that is not a work item id was probed on disk");
+});
+
+test("a summarized package keeps its History outcome: the marks that stopped do not move it", () => {
+  // summarize-results now records only `result_summary` (the overview was
+  // rendered); `manual_validation` and `final_review_prompt` are gone (§37.70).
+  // Neither the report's row nor the outcome may move because of that.
+  const files = ["issue.json", "retrieval.json", "context.md", "task.md", "run.json", "fix_report.md"];
+  const steps = { fetch: "pass", parse: "pass", context: "pass", prompt: "pass" };
+  const before = historyOutcome({ files, status: { status: "prepared", steps: { ...steps, result_summary: "pass", manual_validation: "pass", final_review_prompt: "pass" } } });
+  const after = historyOutcome({ files, status: { status: "prepared", steps: { ...steps, result_summary: "pass" } } });
+  const never = historyOutcome({ files, status: { status: "prepared", steps } });
+  assert.deepEqual(after, before);
+  assert.deepEqual(after, never);
+  assert.equal(after.outcome === "failed" || after.outcome === "incomplete", false);
+});

@@ -8,9 +8,11 @@ import {
   FIX_MODE_ID_RE,
   HINT_LIMIT,
   JIRA_ISSUE_KEY_RE,
+  WORK_ITEM_ID_RE,
   buildPrepareArgs,
   buildRetryArgs,
   canFixWithAI,
+  isWorkItemId,
   effectivePlan,
   parseKeywords,
   parsePaths,
@@ -61,6 +63,28 @@ test("the issue key pattern matches the one bugpilot enforces", () => {
   const match = /JIRA_ISSUE_KEY_RE = re\.compile\(r"([^"]+)"\)/.exec(source);
   assert.ok(match, "could not find JIRA_ISSUE_KEY_RE in bugpilot/core/identity.py");
   assert.equal(JIRA_ISSUE_KEY_RE.source, match[1]);
+});
+
+test("the work item id pattern matches the one bugpilot enforces", () => {
+  // The id becomes a directory name and part of a handoff prompt, so the two
+  // copies of this rule are held to one pattern (§37.70).
+  const source = readFileSync(new URL("../../bugpilot/core/identity.py", import.meta.url), "utf8");
+  const match = /WORK_ITEM_ID_RE = re\.compile\(r"([^"]+)"\)/.exec(source);
+  assert.ok(match, "could not find WORK_ITEM_ID_RE in bugpilot/core/identity.py");
+  assert.equal(WORK_ITEM_ID_RE.source, match[1]);
+});
+
+test("the shared work item id cases get the same answer here as in Python", () => {
+  // tests/fixtures/work_item_ids.json is read by tests/test_work_item_id_contract.py
+  // too. A pattern can match and the two languages still disagree — Python's
+  // `$` also matches before a trailing newline — so the cases are run, not
+  // only compared.
+  const cases = JSON.parse(
+    readFileSync(new URL("../../tests/fixtures/work_item_ids.json", import.meta.url), "utf8"),
+  ) as { valid: string[]; invalid: string[] };
+  assert.ok(cases.valid.includes("JR-12345") && cases.valid.includes("local_20260926010922"));
+  for (const id of cases.valid) assert.equal(isWorkItemId(id), true, JSON.stringify(id));
+  for (const id of cases.invalid) assert.equal(isWorkItemId(id), false, JSON.stringify(id));
 });
 
 // --- input source ----------------------------------------------------------

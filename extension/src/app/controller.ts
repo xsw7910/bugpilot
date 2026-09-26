@@ -18,7 +18,7 @@ import path from "node:path";
 
 import { isWithin } from "../workspace.ts";
 
-import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE } from "./form.ts";
+import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, isWorkItemId, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE } from "./form.ts";
 import {
   MAX_LISTED_FILES,
   contextCounts,
@@ -30,7 +30,7 @@ import { ISSUE_ARTIFACT, parseIssue } from "./issue.ts";
 import type { IssueSummary } from "./issue.ts";
 import { parseFixReport } from "./fixReport.ts";
 import type { FixReportPreview } from "./fixReport.ts";
-import { isPlainPrompt, reviewPackageArgs, reviewPackageFromEnvelope } from "./reviewPackage.ts";
+import { reviewPackageArgs, reviewPackageFromEnvelope } from "./reviewPackage.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
@@ -378,6 +378,13 @@ export class Controller {
    * ignored, which is the thing UI-A1 fixed for Run.
    */
   #handoffBusy = false;
+  /**
+   * Bumped whenever a Fix with AI handoff in flight stops being wanted: a work
+   * item opened — another, or the same one again — or a run starting (§37.70). The handoff checks it after each
+   * wait, so a press for A never lands on B — the rule Review with AI already
+   * keeps, with a counter of its own: the two are separate actions.
+   */
+  #fixEpoch = 0;
   #readiness: Readiness = { kind: "checking" };
   #root: string | undefined;
   #jiraConfigured = false;
@@ -676,11 +683,10 @@ export class Controller {
     this.#canRetry = false;
     this.#forgetSummary();
     if (report !== undefined) this.#fixReport = report;
-    // Both, before anything is pushed: a stale card beside a Running… button
-    // reads as the new run having failed instantly.
-    this.#handoffError = undefined;
-    // A previous run's handoff says nothing about this one.
-    this.#fix = undefined;
+    // Before anything is pushed: a stale card beside a Running… button reads as
+    // the new run having failed instantly, and a previous run's handoff says
+    // nothing about this one — nor may one still being worked out land on it.
+    this.#forgetFix();
     this.#progress = tracker.view();
     this.#push();
 
@@ -708,10 +714,19 @@ export class Controller {
           if (event.type === "completed" && event.warnings) {
             runWarnings = event.warnings.filter((entry) => typeof entry === "string");
           }
-          if (event.type === "started" && typeof event.work_item_id === "string") {
+          if (
+            event.type === "started" &&
+            typeof event.work_item_id === "string" &&
+            isWorkItemId(event.work_item_id)
+          ) {
             // A hand-written bug's id is minted by the CLI, so this is the only
-            // place the extension learns it.
+            // place the extension learns it — and, like every id that arrives
+            // from outside a form, it is checked before it is used (§37.70).
             this.#setWorkItem(event.work_item_id);
+          } else if (event.type === "started" && typeof event.work_item_id === "string") {
+            this.#ports.log.error(
+              `Ignoring a work item id from bugpilot that is not one: ${JSON.stringify(event.work_item_id)}`,
+            );
           }
           this.#progress = tracker.view();
           this.#push();
@@ -877,6 +892,15 @@ export class Controller {
    * that requirement asks for, which is why the box starts empty.
    */
   async fixWithAI(): Promise<void> {
+    // One handoff at a time, refused here and not only by the page: the
+    // palette, the History menu and the end of a run all reach this without
+    // the button, and two presses must never open two terminals (§37.70).
+    if (this.#handoffBusy) {
+      this.#ports.log.error("Refusing a second Fix with AI while one is being handed over.");
+      // Said, because the palette and the History menu have no button to show it.
+      this.#ports.ui.notify("info", "Fix with AI is already handing this work item over.");
+      return;
+    }
     // Cleared as the attempt starts rather than when it succeeds: the developer
     // pressed the button, and the old reason is about the press before it.
     if (this.#handoffError) {
@@ -889,37 +913,69 @@ export class Controller {
       this.#ports.ui.notify("warning", "Prepare a bug first; there is nothing to hand over yet.");
       return;
     }
+    // The prompt is built from the id, and it goes on a command line: an id
+    // that is not one is refused, never cleaned up into one (§37.70).
+    if (!isWorkItemId(workItemId)) {
+      this.#ports.log.error(`Refusing to hand over a work item whose id is not one: ${JSON.stringify(workItemId)}`);
+      this.#ports.ui.notify("warning", "BugPilot will not hand over this work item: its id is not one BugPilot could have created.");
+      return;
+    }
 
     // Said before the probe rather than after it: resolving an agent spawns a
     // process per candidate, and a button that does nothing visible for half a
-    // second reads as a click that was dropped.
+    // second reads as a click that was dropped. Set before the first wait, so a
+    // second press finds it set.
+    const epoch = this.#fixEpoch;
     this.#handoffBusy = true;
     this.#push();
     try {
-      await this.#handOver(workItemId, root);
+      await this.#handOver(workItemId, root, epoch);
     } finally {
-      this.#handoffBusy = false;
-      this.#push();
+      // A handoff dropped by a switch or a run leaves the state alone: it was
+      // reset where it changed, and may already belong to another press.
+      if (epoch === this.#fixEpoch) {
+        this.#handoffBusy = false;
+        this.#push();
+      }
     }
   }
 
-  /** The handoff itself, wrapped by `fixWithAI` so the busy flag always clears. */
-  async #handOver(workItemId: string, root: string): Promise<void> {
+  /** Drop Fix with AI's outcome, its card, and any handoff still being worked out. */
+  #forgetFix(): void {
+    this.#fix = undefined;
+    this.#handoffError = undefined;
+    this.#handoffBusy = false;
+    this.#fixEpoch += 1;
+  }
+
+  /**
+   * The handoff itself, wrapped by `fixWithAI` so the busy flag always clears.
+   *
+   * After every wait it asks whether the press is still wanted: another work
+   * item or a run since, and nothing of it — a terminal, a clipboard copy, an
+   * outcome, a card — may reach the screen.
+   */
+  async #handOver(workItemId: string, root: string, epoch: number): Promise<void> {
     // The prompt points at task.md, so a package without one has nothing to
     // hand over: an agent told to read a missing file starts by looking for it.
-    if (!this.#artifactNames.includes(TASK_ARTIFACT)) {
-      this.#fix = {
-        status: "skipped",
-        detail: `No ${TASK_ARTIFACT} was prepared, so nothing was handed to an agent.`,
-      };
-      this.#ports.ui.notify(
-        "warning",
-        `There is no ${TASK_ARTIFACT} for ${workItemId}. Run BugPilot with Build context enabled first.`,
-      );
-      return;
-    }
+    if (this.#noTaskToHandOver(workItemId)) return;
     const text = this.#handoffText(workItemId);
     const plan = await this.#resolveSelectedAgent(text);
+    if (epoch !== this.#fixEpoch) return;
+    // The folder may have been read again while the agent was looked for, and
+    // task.md gone with it (a Clean, say): the same answer as before the probe.
+    if (this.#noTaskToHandOver(workItemId)) return;
+
+    if (plan.kind === "refused") {
+      // Not reachable with a valid id — the sentence is plain — but the gate is
+      // shared with Review with AI, and a refusal is said, not swallowed.
+      this.#fix = {
+        status: "skipped",
+        detail: "The handoff prompt is not one BugPilot puts on a command line, so nothing was handed to an agent.",
+      };
+      this.#ports.ui.notify("warning", `BugPilot will not hand ${workItemId} over: ${plan.reason}`);
+      return;
+    }
 
     if (plan.kind === "run") {
       // A retry that works clears the card the previous attempt left behind.
@@ -940,7 +996,11 @@ export class Controller {
     // whatever agent they do have, rather than opening a terminal that prints
     // "command not found" and reads as our failure.
     await this.#ports.ui.copyToClipboard(text);
+    // Copied while this work item was on screen; if it is not any more, do not
+    // bring an agent's panel forward for it either.
+    if (epoch !== this.#fixEpoch) return;
     const revealed = await this.#ports.ui.revealAgentPanel();
+    if (epoch !== this.#fixEpoch) return;
     this.#fix = {
       status: "skipped",
       detail: `${plan.reason} The handoff prompt is on the clipboard instead.`,
@@ -958,6 +1018,20 @@ export class Controller {
         ? `${plan.reason} The handoff prompt is on the clipboard — paste it into your agent.`
         : `${plan.reason} The handoff prompt is on the clipboard; paste it into your agent, or install one.`,
     );
+  }
+
+  /** Whether the package has no task.md to hand over — said on the row and in a notice when so. */
+  #noTaskToHandOver(workItemId: string): boolean {
+    if (this.#artifactNames.includes(TASK_ARTIFACT)) return false;
+    this.#fix = {
+      status: "skipped",
+      detail: `No ${TASK_ARTIFACT} was prepared, so nothing was handed to an agent.`,
+    };
+    this.#ports.ui.notify(
+      "warning",
+      `There is no ${TASK_ARTIFACT} for ${workItemId}. Run BugPilot with Build context enabled first.`,
+    );
+    return true;
   }
 
   /**
@@ -1063,6 +1137,14 @@ export class Controller {
    */
   async showWorkItem(workItemId: string): Promise<void> {
     if (!this.#root) return;
+    // History, the saved work item and the command argument all arrive here,
+    // and none of them is trusted to name a work item (§37.70). Logged, not
+    // echoed into the notice: the name is not ours.
+    if (!isWorkItemId(workItemId)) {
+      this.#ports.log.error(`Refusing to open a work item whose id is not one: ${JSON.stringify(workItemId)}`);
+      this.#ports.ui.notify("warning", "BugPilot will not open this work item: its id is not one BugPilot could have created.");
+      return;
+    }
     if (this.#running) {
       // Silently ignoring the click looks like a broken tree; the run owns the
       // panel until it ends.
@@ -1073,18 +1155,19 @@ export class Controller {
       return;
     }
     this.#setWorkItem(workItemId);
-    const parsed = await this.#readStatus(workItemId);
-    this.#progress = viewFromStatus(parsed);
     // Another bug entirely: nothing of the previous one's handoff belongs to
-    // it — not the error, and not the outcome either.
-    this.#handoffError = undefined;
-    this.#fix = undefined;
-    // Nor its issue, its search, its report or its file listing:
-    // `refreshArtifacts` pushes before it reads, and that push must not name
-    // the previous work item on these rows — nor offer its files, which is
-    // what the listing decides.
+    // it — not the error, not the outcome, and not one still being worked out.
+    // Nor its issue, its search, its report, its review aids or its file
+    // listing: `refreshArtifacts` pushes before it reads, and that push must
+    // not name the previous work item on these rows — nor offer its files,
+    // which is what the listing decides. All before the first wait below, so a
+    // handoff or query of the previous item that resumes during it already
+    // finds itself stale (§37.70).
+    this.#forgetFix();
     this.#forgetSummary();
     this.#artifactNames = [];
+    const parsed = await this.#readStatus(workItemId);
+    this.#progress = viewFromStatus(parsed);
     this.#preparedFixMode = preparedFixModeFromStatus(parsed, this.#fixModes);
     this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
     await this.refreshArtifacts();
@@ -1766,13 +1849,6 @@ export class Controller {
       this.#reviewFailed(reviewHandoffError("prompt", result));
       return;
     }
-    if (!isPlainPrompt(result.prompt)) {
-      this.#reviewFailed(
-        reviewHandoffError("command-line", "The prompt holds characters a shell could act on, or starts like an option."),
-      );
-      return;
-    }
-
     let plan: AgentPlan;
     try {
       plan = await this.#resolveSelectedAgent(result.prompt);
@@ -1784,6 +1860,12 @@ export class Controller {
       return;
     }
     if (!this.#reviewStillWanted(epoch)) return;
+    // The shared prompt gate (`isPlainPrompt`, applied by `resolveAgent` before
+    // any probe): had, but not put on a command line.
+    if (plan.kind === "refused") {
+      this.#reviewFailed(reviewHandoffError("command-line", plan.reason));
+      return;
+    }
     if (plan.kind === "unavailable") {
       this.#resolvedAgent = { kind: "unavailable" };
       this.#reviewFailed(reviewHandoffError("agent", plan.reason));

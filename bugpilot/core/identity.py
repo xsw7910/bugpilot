@@ -40,7 +40,14 @@ JIRA_ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
 # Neither predicate strips whitespace: these validate the exact string that
 # becomes a path segment, and `" JR-12345"` is a different directory from
 # `"JR-12345"`. Callers that want lenient matching strip before calling.
-WORK_ITEM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*[-_]\d+$")
+#
+# Matched with `fullmatch`, not `match`: `$` also matches before a trailing
+# newline, so `match` accepted "JR-12345" plus a newline — a different directory,
+# and a string the extension's JavaScript copy of this pattern rejects. The shared
+# cases in tests/fixtures/work_item_ids.json hold both to one answer (§37.70).
+# `[0-9]`, not `\d`: Python's `\d` also matches other scripts' digits, which
+# JavaScript's does not.
+WORK_ITEM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*[-_][0-9]+$")
 
 LOCAL_ID_PREFIX = "local_"
 
@@ -51,12 +58,12 @@ def is_jira_issue_key(value: str) -> bool:
     This is the "can it be written back to Jira?" question. Answer it before
     drafting or posting a comment; a local id must never reach that path.
     """
-    return bool(JIRA_ISSUE_KEY_RE.match(value))
+    return bool(JIRA_ISSUE_KEY_RE.fullmatch(value))
 
 
 def is_local_work_item_id(value: str) -> bool:
     """True when ``value`` is an id this tool minted for a hand-written bug."""
-    return value.startswith(LOCAL_ID_PREFIX) and bool(WORK_ITEM_ID_RE.match(value))
+    return value.startswith(LOCAL_ID_PREFIX) and bool(WORK_ITEM_ID_RE.fullmatch(value))
 
 
 def is_known_work_item_id(value: str) -> bool:
@@ -79,7 +86,7 @@ def is_work_item_id(value: str) -> bool:
     so it is a containment check, not a classifier. To decide whether a user typed
     an id, use :func:`is_known_work_item_id`.
     """
-    return bool(WORK_ITEM_ID_RE.match(value))
+    return bool(WORK_ITEM_ID_RE.fullmatch(value))
 
 
 def validate_work_item_id(value: str) -> None:

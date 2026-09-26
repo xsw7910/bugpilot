@@ -41,7 +41,32 @@ export type AgentPlan =
       readonly label: string;
       readonly commandLine: string;
     }
-  | { readonly kind: "unavailable"; readonly reason: string };
+  | { readonly kind: "unavailable"; readonly reason: string }
+  /** The prompt is not one this module will put on a command line; see `isPlainPrompt`. */
+  | { readonly kind: "refused"; readonly reason: string };
+
+/**
+ * The characters a handoff prompt may be made of: letters, digits, whitespace
+ * and `. , : # / _ -` — opening with a letter, a digit or `#`, never a `-` an
+ * agent would read as an option. Both of today's prompts fit: Fix with AI's
+ * "Read .ai/<id>/task.md and complete the workflow." around a validated work
+ * item id, and Review with AI's canonical review prompt.
+ */
+const PLAIN_PROMPT = /^\s*[A-Za-z0-9#][A-Za-z0-9\s.,:#/_-]*$/;
+
+/**
+ * Whether a prompt may go on a command line at all.
+ *
+ * `quote` below is JSON's escaping, which is right only for text in which no
+ * shell expands anything — PowerShell and bash both act on `$(…)` and
+ * backticks inside double quotes, cmd on `%VAR%`. That is the recorded
+ * pre-release quoting issue (§37.27), and this is not its fix: it is the gate
+ * every terminal handoff passes, so nothing a shell could act on reaches one
+ * (§37.70). A prompt outside the class is refused, never "cleaned".
+ */
+export function isPlainPrompt(prompt: string): boolean {
+  return PLAIN_PROMPT.test(prompt);
+}
 
 export interface ResolveAgentInput {
   readonly choice: AgentChoice;
@@ -60,6 +85,15 @@ export interface ResolveAgentInput {
  * like the extension failed rather than like a tool is missing.
  */
 export async function resolveAgent(input: ResolveAgentInput): Promise<AgentPlan> {
+  // Before anything is probed: a prompt that may not go on a command line has
+  // no agent to look for. Both handoffs come through here, so both are held to
+  // the same rule.
+  if (!isPlainPrompt(input.prompt)) {
+    return {
+      kind: "refused",
+      reason: "The prompt holds characters a shell could act on, or starts like an option.",
+    };
+  }
   const prompt = flatten(input.prompt);
 
   if (input.choice === "custom") {

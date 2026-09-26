@@ -952,18 +952,20 @@ def summarize_results_step(repo_root: Path, issue_key: str) -> str:
     The old aggregate file (`result_summary.md`) was a concatenation of the
     agent's five result files; with one `fix_report.md` the aggregate *is* the
     report, so nothing is written — this returns what a developer needs next.
+
+    One step mark, `result_summary`: the overview was rendered, or could not
+    be. Rendering the checklist is not a manual validation, so no mark claims
+    one (§37.70).
     """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] summarize_results")
     try:
         summary = _build_result_overview(repo_root, issue_key)
         _mark_step(repo_root, issue_key, "result_summary", "pass")
-        _mark_step(repo_root, issue_key, "manual_validation", "pass")
         log(target, "[END] summarize_results: pass")
         return summary
     except Exception as exc:
         _mark_step(repo_root, issue_key, "result_summary", "fail")
-        _mark_step(repo_root, issue_key, "manual_validation", "fail")
         log(target, f"[ERROR] summarize_results: {exc}")
         raise
 
@@ -973,16 +975,18 @@ def review_package_step(repo_root: Path, issue_key: str) -> str:
 
     A pure function of the work item id and the canonical files: the developer
     pastes it into a reviewer, and nothing ever read it back from disk.
+
+    Records nothing in `run.json`. It used to mark `final_review_prompt: pass`,
+    which `status` showed as though a review had passed; printing a prompt is
+    not a review, so it is no longer a step (§37.70).
     """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] review_package")
     try:
         prompt = _build_final_review_prompt(issue_key)
-        _mark_step(repo_root, issue_key, "final_review_prompt", "pass")
         log(target, "[END] review_package: pass")
         return prompt
     except Exception as exc:
-        _mark_step(repo_root, issue_key, "final_review_prompt", "fail")
         log(target, f"[ERROR] review_package: {exc}")
         raise
 

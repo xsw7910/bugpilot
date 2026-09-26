@@ -198,6 +198,25 @@ export interface BuildOptions {
 export const JIRA_ISSUE_KEY_RE = /^[A-Z][A-Z0-9]+-\d+$/;
 
 /**
+ * A work item id — a `.ai/<work_item>/` directory name — matching
+ * `WORK_ITEM_ID_RE` in `bugpilot/core/identity.py`.
+ *
+ * Letters, digits, `_` and `-`, a letter first and `-<digits>` or `_<digits>`
+ * last: `JR-12345` and `local_20260926010922` both fit, and so does nothing a
+ * path or a shell could act on. Checked wherever an id enters the extension
+ * from outside a form — History, the saved work item, a command argument — and
+ * again before a handoff builds a prompt from it (§37.70). Guarded like the
+ * patterns above: `test/form.test.ts` compares it with the Python source and
+ * runs the shared cases in `tests/fixtures/work_item_ids.json` through both.
+ */
+export const WORK_ITEM_ID_RE = /^[A-Za-z][A-Za-z0-9_-]*[-_][0-9]+$/;
+
+/** Whether `value` is exactly a work item id: no trimming, since the id is a directory name. */
+export function isWorkItemId(value: string): boolean {
+  return WORK_ITEM_ID_RE.test(value);
+}
+
+/**
  * A Fix Mode id, matching `_MODE_ID_RE` in `bugpilot/core/fix_modes.py`.
  *
  * Checked before it reaches a command line even though the page only offers ids

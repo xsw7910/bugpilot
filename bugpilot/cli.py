@@ -20,6 +20,7 @@ from bugpilot.core.jira import JiraCommentPostError, JiraFetchError, fetch_issue
 from bugpilot.core.artifacts import CONTEXT_ARTIFACT, CORE_ARTIFACTS, FIX_REPORT_ARTIFACT, RUN_ARTIFACT
 from bugpilot.core.artifacts import ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
+from bugpilot.core.identity import is_work_item_id
 from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.issue import IssueArtifactError, read_issue_quietly
 from bugpilot.core.keywords import extract_keywords
@@ -1171,7 +1172,15 @@ def _list_work_items(repo_root: Path, json_output: bool) -> int:
     """
     ai_root = repo_root / ".ai"
     entries: list[dict[str, object]] = []
-    directories = sorted(path for path in ai_root.iterdir() if path.is_dir()) if ai_root.is_dir() else []
+    # Only folders named like a work item. Anything else under .ai/ is not one
+    # this tool made, and listing it would hand its name to every consumer of
+    # this list — the extension's History, and from there a handoff's command
+    # line (§37.70). Skipped, not touched: nothing here deletes or renames.
+    directories = (
+        sorted(path for path in ai_root.iterdir() if path.is_dir() and is_work_item_id(path.name))
+        if ai_root.is_dir()
+        else []
+    )
     for path in directories:
         issue = read_issue_quietly(repo_root, path.name)
         prepared = (path / RUN_ARTIFACT).exists()

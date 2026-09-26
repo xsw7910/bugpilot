@@ -8734,3 +8734,174 @@ report, which the batch brief accepts (§30) — it reviews the report on disk,
 and the docs say it may be the previous attempt's; Fix with AI still has no
 host-side double-press refusal and no catch around its terminal (pre-existing,
 §37.64).
+
+### 37.70 Stabilization pass (after Batch 10, before Batch 11)
+
+The retrospective review of Batches 1–10 (2026-09-26, at `4bf9243`) found one
+blocker and a few narrow prerequisites for any review-result work. This pass
+fixes exactly those — BL-1, I-2, the minimal slice of I-1, I-9 — and prepares
+U-1 for a manual check. Nothing else from that review is touched.
+
+**BL-1 — the panel's Stop and Retry did nothing.** In `parsePanelMessage`,
+`case "ready"`, `case "stop"` and `case "retry"` fell through into
+`case "improveHint"`, which c767ddd had inserted directly below them and which
+needs a form. The page sends those three bare, so all three came back
+`undefined` and `provider.ts` dropped them: the panel's Stop and Retry had been
+dead since c767ddd (the palette commands worked), and the page's `ready`
+handshake was lost. They now return `{ type }`. No test had crossed the parser:
+the page tests check what is posted, the controller tests call `handle()`, and
+the one test that compared the two did so against a hand-written list that
+named all three as understood.
+
+- `PANEL_MESSAGE_TYPES` (messages.ts): the host's list of message types — a
+  `Record` over the `PanelMessage` union, so a type missing from it, or one the
+  union lacks, fails to compile. `panel.test.ts` checks every `postMessage` type
+  in panel.js against it (the hand-written copy is gone), and parses one
+  well-formed message of every type as that type.
+- `page.test.ts` wires the real page, the real parser and the real controller
+  into one loop: the controller renders into the page, and whatever the page
+  posts goes through `parsePanelMessage` into `controller.handle`. Ready, Run,
+  Stop, Retry, Open Context, Copy, Open Fix Report, Copy Review Prompt, the
+  checklist, Review with AI, Fix with AI and Improve are pressed on the page and
+  must arrive and do what they do — Stop aborts the held run and the view says
+  stopped; Retry runs `bug <id> --retry`. All five of these tests fail on the
+  4bf9243 parser (checked by putting it back).
+- Cancellation and Retry themselves are unchanged; the Retry semantics the
+  review found (§ below) stay deferred.
+
+**I-2 — Fix with AI's stale and duplicate handoffs.** `#fixEpoch`, bumped by
+`#forgetFix()` whenever a work item is opened — another one, or the same one
+again from History, which re-reads it — or a run starts; `#handOver` checks it
+after the agent probe, and in the no-agent branch after the clipboard copy and
+again after the reveal. A dropped press touches nothing: no terminal, no
+clipboard, no outcome, no card, no notice. `task.md` is re-checked after the
+probe — a Clean while the agent was looked for gets the same "no task.md"
+answer as before it. `fixWithAI()` refuses while `#handoffBusy`, which is set
+before the first wait, so the page, the palette, the History menu and the end
+of a run cannot open a second terminal; only the press that set it clears it,
+so a press dropped by a switch cannot free the next item's. After a finished
+handoff, a deliberate second press still works, as before. Fix and Review keep
+separate state and separate counters.
+
+`showWorkItem` now drops the previous work item's Fix state, its review and
+validation state and its listing *before* its first wait (reading the new
+item's `run.json`). Before, a handoff or query resuming during that read was
+still current — for Fix, and for Review with AI's epoch too, which only bumped
+after the read. Both windows are pinned by tests that hold that read open.
+
+**I-1 (minimal slice) — work item ids from outside a form.** One extension-side
+rule, `WORK_ITEM_ID_RE` / `isWorkItemId` in form.ts, equal to `WORK_ITEM_ID_RE`
+in `bugpilot/core/identity.py` (compared by a test, like the Jira key) and held
+to the same answers by the shared cases in `tests/fixtures/work_item_ids.json`,
+which both languages run. It is enforced:
+
+- at `showWorkItem` — History, the saved work item and the command argument all
+  arrive there — refused with a notice that does not echo the name;
+- on the `started` id the CLI streams;
+- in History: `historyFromPayload` drops the row before the probe, which reads
+  files under `.ai/<id>/`;
+- again in `fixWithAI`, before the prompt is built — unreachable now, since
+  nothing invalid gets that far, and kept because the prompt gate below lets
+  `.` and `/` through.
+
+`bugpilot list` skips any folder under `.ai/` not named like a work item; it
+never deletes or renames one. Found while pinning the contract: Python's three
+id predicates used `re.match`, whose `$` also matches before a trailing
+newline, so `"JR-12345\n"` passed `is_work_item_id` (and `cleanup`, which
+deletes by that name, accepted it) while the JavaScript copy rejected it. They
+use `fullmatch` now — stricter only; every id BugPilot mints still passes.
+
+**One prompt gate for both handoffs.** `isPlainPrompt` moved from
+reviewPackage.ts to agents.ts, and `resolveAgent` — the one function both Fix
+with AI and Review with AI call — refuses a prompt outside the plain class
+before any agent is probed (`{ kind: "refused" }`). Review with AI's own check
+is gone: it shows the same `command-line` card from the plan. Fix with AI says
+`skipped` with a notice — unreachable by construction, because its sentence
+around a valid id is always plain; kept so a refusal can never fall into the
+no-agent branch and put the prompt on the clipboard. Both canonical prompts
+pass the gate (tested).
+
+**Still not the shell fix.** Command lines are still one string, quoted with
+`JSON.stringify` and parsed by whatever shell the terminal runs; PowerShell and
+bash still expand `$(…)` and backticks inside double quotes, cmd `%VAR%`. What
+changed is what can reach that string: validated ids, only work-item folders in
+History, and one gate on every prompt. The argv/tokenized-terminal redesign
+(§37.27) remains deferred.
+
+**I-9 — what `run.json` steps mean.** Before: `summarize-results` marked
+`result_summary` and `manual_validation` `pass` (both `fail` on an error), and
+the human `review-package` marked `final_review_prompt` `pass` — which
+`status`, `status --json` and MCP `get_status` then showed as a validation and
+a review. Consumers, checked before changing anything: `config.WORKFLOW_STEPS`
+(the step list — `run_to_dict` writes exactly those keys, each defaulting to
+`skipped`, for all three status surfaces and for the file), the two step
+functions, and tests. No extension code reads them; its only matches are
+grouping labels for the old `.md` files.
+
+Decision: `run.json` steps describe steps that ran.
+
+| Step | Before | Now |
+|---|---|---|
+| `manual_validation` | `pass` when the checklist was printed | not written, not a step (removed from `WORKFLOW_STEPS`) |
+| `final_review_prompt` | `pass` when the prompt was printed | not written, not a step; the human `review-package` records nothing, like `--json`, and no longer invents a `run.json` for an unknown id |
+| `result_summary` | `pass` / `fail` | unchanged, and stated: `summarize-results` rendered the Result Overview, or could not — a command having run, never a verdict on the fix |
+
+Because the status surfaces print through `run_to_dict`, an older `run.json`
+that still carries the two keys shows neither, and its next write drops them.
+The MCP `summarize_results` docstring says what its one mark means. History is
+unchanged for the same package (tested); an old file's `fail` mark under one of
+those keys would still read as failed until the file is next written —
+pre-release data, not migrated.
+
+**U-1 — the review prompt's leading `#`.** Not verified. Claude Code's local
+help (2.1.214) says nothing about a `#` prefix on the prompt argument; whether
+an interactive session started with `claude "# Final Review Request …"`
+treats it as a memory note rather than a prompt needs one manual run with a
+real agent, which this pass did not do. The canonical prompt is unchanged.
+
+**Deferred, untouched** (the retrospective's other findings): hint-improvement
+staleness, reopen and Fix Mode, the memory clobber, `jira_comment_on.flag`,
+Retry's semantics, History naming, the prepare-only documentation, the
+fake-DOM blind spots (only `disabled` is modelled), the argv redesign,
+publishability and git history, and the broad documentation cleanup.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q tests` | 1162 passed (baseline 1128: +31 `test_work_item_id_contract.py`, +2 status, +1 MCP; four tests that pinned the old marks updated in place) |
+| `npm test` (extension) | 1049 passed (baseline 1024: +16 controller, +4 page, +2 panel, +2 form, +2 artifacts, +1 workflow; the custom-command test now uses a plain prompt) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run smoke` | ok — 22 commands, 3 views, panel HTML |
+| `npm run integration` | 10 passed |
+| `python -m pytest -q tests/test_publishable.py` | 8 passed |
+| `python tests/retrieval_corpus.py` | retrieval code unchanged: on a frozen copy of the 4bf9243 tree, every line of the report is identical with 4bf9243's code and with this code. The live summary moves with the repository it searches (MRR 0.292 → 0.295; top-3/5/10, docs and terms unchanged) |
+| `git diff --check` | clean; no mixed line endings; the new files have no trailing whitespace |
+
+Each new guard was removed in turn and its test run: the parser fall-through
+(5 tests fail), the double-press refusal, the stale checks after the probe,
+after the copy and after the reveal, the task.md re-check, the busy flag freed
+by a dropped press, the switch dropping Fix state and review state only after
+its first wait, run start keeping a handoff, `showWorkItem` and the streamed id
+accepting any id, History keeping bad names, the shared prompt gate and its
+leading-dash rule, Review ignoring a refusal, the id rule's end anchor, and on
+the Python side the `list` filter, `fullmatch`, and each removed mark put back
+— every one fails a test. One does not: Fix with AI's `refused` branch, which
+no valid id can reach (above).
+
+No rendered UI changed — no markup, style or page-script edit; the only new
+words are notices — so no visual matrix was run.
+
+**Independent review** (whole diff vs `4bf9243`): no blocker, no important
+finding. Minors, all fixed: Python's `\d` also matched other scripts' digits
+where JavaScript's does not (`[0-9]` in both now, with two such cases in the
+shared fixture); a stale no-agent press could still reveal an agent's panel if
+the switch came during the clipboard copy (a check between the two); a reopen
+of the same work item drops a handoff in flight, as it resets Review with AI —
+documented rather than changed; an invalid saved work item warned at every
+start-up (the restore path now clears it quietly); a rejected streamed id left
+no log line; a second press from the palette said nothing (an info notice
+now); `npm test` strips types, so the message list is also checked against the
+union's source at run time; the page loop now presses only what is offered,
+includes Open Folder, and cannot hang on an already-aborted signal; a stale
+file name in the fixture's comment.

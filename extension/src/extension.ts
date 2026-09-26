@@ -18,7 +18,7 @@ import { installInstructions, resolveEnvironment } from "./app/environment.ts";
 import type { Environment } from "./app/environment.ts";
 import { TASK_ARTIFACT } from "./app/artifacts.ts";
 import { Controller } from "./app/controller.ts";
-import { DEFAULT_FORM } from "./app/form.ts";
+import { DEFAULT_FORM, isWorkItemId } from "./app/form.ts";
 import { fixModeCommandPort } from "./app/fixModeTransport.ts";
 import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
@@ -448,7 +448,15 @@ export function activate(context: vscode.ExtensionContext): void {
       // run.json — which only works if the window remembers which
       // work item to read it from.
       const last = context.workspaceState.get<string>(WORK_ITEM_STATE_KEY);
-      return last ? controller.showWorkItem(last) : undefined;
+      if (last === undefined) return undefined;
+      // Checked here, quietly, and cleared: `showWorkItem` would refuse it with
+      // a warning, and a saved value nobody can see would repeat that warning
+      // at every start-up (§37.70).
+      if (!isWorkItemId(last)) {
+        log.error(`Forgetting a saved work item whose id is not one: ${JSON.stringify(last)}`);
+        return context.workspaceState.update(WORK_ITEM_STATE_KEY, undefined);
+      }
+      return controller.showWorkItem(last);
     })
     .catch((error: unknown) => log.error(`Start-up failed: ${(error as Error).message}`));
 }

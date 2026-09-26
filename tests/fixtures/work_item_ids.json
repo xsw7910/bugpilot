@@ -1,0 +1,40 @@
+{
+  "_comment": "Work item ids, judged the same way by bugpilot/core/identity.py (is_work_item_id) and extension/src/app/form.ts (isWorkItemId). Read by tests/test_work_item_id_contract.py and extension/test/form.test.ts.",
+  "valid": [
+    "JR-12345",
+    "local_20260926010922",
+    "ABC-1",
+    "PROJ2-7",
+    "jr-12345"
+  ],
+  "invalid": [
+    "",
+    "JR",
+    "12345",
+    "-JR-12345",
+    "_local_20260926010922",
+    "JR-12345x",
+    "JR-1.2",
+    "x$(calc)",
+    "JR-1$(calc)_1",
+    "x`calc`_1",
+    "JR-%PATH%_1",
+    "../x",
+    "../JR-1",
+    "x/y_1",
+    "x\\y_1",
+    " JR-12345",
+    "JR-12345 ",
+    "JR-12345\n",
+    "\nJR-12345",
+    "JR-12345\r\n",
+    "JR-\"12345",
+    "JR-'12345",
+    "JR 12345",
+    "JR-12345;calc",
+    "JR-12345&calc",
+    "JR-12345|calc",
+    "JR-\u0661\u0662\u0663",
+    "local_\u0662\u0660\u0662\u0666"
+  ]
+}

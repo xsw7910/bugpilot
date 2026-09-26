@@ -19,6 +19,9 @@ import { readFileSync } from "node:fs";
 
 import { panelHtml } from "../src/panel/html.ts";
 import type { PanelState } from "../src/panel/messages.ts";
+import { parsePanelMessage } from "../src/panel/messages.ts";
+import { Controller } from "../src/app/controller.ts";
+import type { ControllerPorts } from "../src/app/controller.ts";
 import type { FixModeDraft } from "../src/app/fixModes.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
 import { buildWorkflow, overallStatus } from "../src/app/workflow.ts";
@@ -4061,4 +4064,243 @@ test("a review that did not start opens a workflow collapsed while it was starti
   p.byId("workflow").open = false;
   p.send(reported(REPORT, { review: { state: "failed", error: REVIEW_FAILED }, copyingReviewPrompt: true }));
   assert.equal(p.byId("workflow").open, false);
+});
+
+// --- The panel contract: page → parser → controller (§37.70) -----------------
+//
+// The tests above check what the page posts; the controller's tests call
+// `handle()` directly. Neither crossed the parser in between, which is how the
+// panel's Stop and Retry did nothing for a release while every test passed.
+// Here the three are one loop: the controller renders into the real page, and
+// whatever the page posts goes through the real `parsePanelMessage` into
+// `controller.handle`. A message the parser drops fails the test that sent it.
+
+const LOOP_RUN_JSON = JSON.stringify({
+  schema_version: 1,
+  work_item_id: "JR-12345",
+  status: "prepared",
+  steps: {
+    doctor: "pass", fetch: "pass", parse: "pass", keywords: "pass", memory_search: "pass",
+    code_search: "pass", git_context: "pass", context: "pass", prompt: "pass", memory_add: "pass",
+  },
+  generated_files: [],
+});
+
+const LOOP_REVIEW_PROMPT = "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n";
+
+interface Loop {
+  readonly page: Page;
+  readonly controller: Controller;
+  /** Every message that reached `controller.handle`, as `type` or `action:<id>`. */
+  readonly routed: string[];
+  readonly states: PanelState[];
+  readonly terminals: string[];
+  readonly clipboard: string[];
+  readonly opened: string[];
+  readonly jsonArgs: string[][];
+  readonly hintPrompts: string[];
+  readonly folders: string[];
+  readonly aborted: { value: boolean };
+  /** Deliver everything the page has posted, in order: parser, then controller. */
+  readonly drain: () => Promise<void>;
+}
+
+function loop(options: { holdRun?: boolean } = {}): Loop {
+  const page = load();
+  const routed: string[] = [];
+  const states: PanelState[] = [];
+  const terminals: string[] = [];
+  const clipboard: string[] = [];
+  const opened: string[] = [];
+  const jsonArgs: string[][] = [];
+  const hintPrompts: string[] = [];
+  const folders: string[] = [];
+  const aborted = { value: false };
+  const files: Record<string, string> = {
+    "run.json": LOOP_RUN_JSON,
+    "context.md": "# Bug Context\n",
+    "fix_report.md": "# Fix Report: JR-12345\n\n## Summary\n\nInvestigated.\n",
+  };
+  const ports: ControllerPorts = {
+    runner: {
+      runStreaming: async (_args, runOptions, onEvent) => {
+        onEvent({ type: "started", work_item_id: "JR-12345", source: "jira" });
+        if (options.holdRun && runOptions.signal?.aborted) aborted.value = true;
+        else if (options.holdRun) {
+          await new Promise<void>((resolve) => {
+            runOptions.signal?.addEventListener("abort", () => { aborted.value = true; resolve(); }, { once: true });
+          });
+        }
+        return {
+          result: { code: 0, stdout: "", stderr: "", aborted: runOptions.signal?.aborted ?? false },
+          terminated: !(runOptions.signal?.aborted ?? false),
+          events: [],
+        };
+      },
+      runJson: async (args) => {
+        jsonArgs.push([...args]);
+        if (args[0] === "review-package") {
+          return {
+            ok: true, command: "review-package", warnings: [], work_item_id: "JR-12345",
+            prompt: LOOP_REVIEW_PROMPT,
+            validation: { steps: ["Reproduce the original issue if possible."], regression_files: [], review_risks: [] },
+          };
+        }
+        return { ok: true, command: String(args[0]), warnings: [] };
+      },
+    },
+    files: {
+      listDirectory: async () => ({ kind: "ok", names: [...PREPARED_FILES, "fix_report.md"] }),
+      readFile: async (file) => {
+        const key = Object.keys(files).find((name) => file.replaceAll("\\", "/").endsWith(`/${name}`));
+        return key ? files[key] : undefined;
+      },
+      writeFile: async () => {},
+    },
+    ui: {
+      render: (state) => {
+        states.push(state);
+        page.send(state);
+      },
+      openFile: async (file) => { opened.push(file.replaceAll("\\", "/")); },
+      copyToClipboard: async (text) => { clipboard.push(text); },
+      confirm: async () => true,
+      notify: () => {},
+      refreshViews: () => {},
+      editCredentials: async () => {},
+      runInTerminal: (_name, _cwd, commandLine) => { terminals.push(commandLine); },
+      openFolder: async (directory) => { folders.push(directory.replaceAll("\\", "/")); },
+      pickFiles: async () => [],
+      revealAgentPanel: async () => false,
+      runCommand: async () => {},
+    },
+    log: { info: () => {}, error: () => {} },
+    environment: async () => ({ kind: "ready", root: "/work/app", executable: "bugpilot", report: { python_ok: true } }),
+    credentials: async () => ({ configured: true, environment: {} }),
+    descriptionFilePath: () => "/tmp/bugpilot-description.md",
+    canRun: async () => true,
+    improveHint: async (request) => {
+      hintPrompts.push(request.prompt);
+      return { ok: true, text: "Look in the widget controller." };
+    },
+    loadIssueDetails: async () => ({ title: "Widget rejects the output type", description: "After reload." }),
+  };
+  const controller = new Controller(ports, { ...DEFAULT_FORM, issueKey: "JR-12345", hint: "look in the widget" });
+  const drain = async () => {
+    while (page.posted.length > 0) {
+      const raw = page.posted.shift()!;
+      const message = parsePanelMessage(raw);
+      assert.ok(message, `the host dropped a message the page sent: ${JSON.stringify(raw)}`);
+      routed.push(message.type === "action" ? `action:${message.id}` : message.type);
+      await controller.handle(message);
+    }
+  };
+  return { page, controller, routed, states, terminals, clipboard, opened, jsonArgs, hintPrompts, folders, aborted, drain };
+}
+
+/** Let every pending promise callback run. */
+const loopSettle = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+test("ready reaches the controller, and the page adopts the state it answers with", async () => {
+  const l = loop();
+  // Posted by the page as it loads, before anything else.
+  assert.deepEqual(l.page.posted, [{ type: "ready" }]);
+  await l.drain();
+  assert.deepEqual(l.routed, ["ready"]);
+  assert.equal(l.states.length, 1, "the controller did not answer ready with a state");
+  // The answer carried a new revision, so the page took the host's form.
+  assert.equal(l.page.byId("issue").value, "JR-12345");
+});
+
+test("Run and then Stop, pressed on the page, reach the controller; Stop cancels the preparation", async () => {
+  const l = loop({ holdRun: true });
+  await l.drain();
+  await l.controller.refreshEnvironment();
+
+  l.page.byId("form").dispatch("submit");
+  const posted = l.page.posted.splice(0);
+  assert.equal(posted.length, 1);
+  const run = parsePanelMessage(posted[0]);
+  assert.ok(run, "the host dropped the page's run message");
+  assert.equal(run.type, "run");
+  const running = l.controller.handle(run);
+  await loopSettle();
+  assert.equal(l.page.byId("stop").hidden, false, "Stop is not offered while the run is in flight");
+
+  l.page.byId("stop").dispatch("click");
+  await l.drain();
+  await running;
+
+  assert.ok(l.routed.includes("stop"), "Stop never reached the controller");
+  assert.equal(l.aborted.value, true, "the running preparation was not cancelled");
+  assert.equal(l.states.at(-1)!.progress.state, "stopped");
+});
+
+test("Retry, pressed on the page, reaches the controller's retry", async () => {
+  const l = loop();
+  await l.drain();
+  await l.controller.refreshEnvironment();
+  await l.controller.showWorkItem("JR-12345");
+  assert.equal(l.page.byId("retry").hidden, false, "Retry is not offered for a prepared work item");
+
+  l.page.byId("retry").dispatch("click");
+  await l.drain();
+
+  assert.ok(l.routed.includes("retry"), "Retry never reached the controller");
+  assert.deepEqual(l.jsonArgs.at(-1), ["bug", "JR-12345", "--retry", "--prepare-only", "--json"]);
+});
+
+test("every row action and Improve, pressed on the page, reach the controller through the parser", async () => {
+  const l = loop();
+  await l.drain();
+  await l.controller.refreshEnvironment();
+  await l.controller.showWorkItem("JR-12345");
+  await l.drain();
+
+  // Only what the page is offering: the stub dispatches a click whatever the
+  // button's state, so reachability is asserted here, not assumed.
+  const press = async (id: string) => {
+    assert.equal(l.page.byId(id).hidden, false, `${id} is not offered`);
+    assert.equal(l.page.byId(id).disabled, false, `${id} is disabled`);
+    l.page.byId(id).dispatch("click");
+    await l.drain();
+  };
+  await press("open-context");
+  await press("copy-context");
+  await press("open-fix-report");
+  await press("copy-review-prompt");
+  const disclosure = l.page.byId("validation-checklist");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
+  await l.drain();
+  await press("review-with-ai");
+  await press("fix-with-ai");
+  await press("improve-hint");
+  await press("open-folder");
+
+  // Each reached the controller as itself, in order…
+  assert.deepEqual(
+    l.routed.filter((type) => type !== "ready" && type !== "formChanged"),
+    [
+      "action:openContext",
+      "action:copyContext",
+      "openArtifact",
+      "action:copyReviewPrompt",
+      "action:loadValidation",
+      "action:reviewWithAI",
+      "action:fixWithAI",
+      "improveHint",
+      "action:openFolder",
+    ],
+  );
+  assert.deepEqual(l.folders, ["/work/app/.ai/JR-12345"]);
+  // …and did what that action does.
+  assert.deepEqual(l.opened, ["/work/app/.ai/JR-12345/context.md", "/work/app/.ai/JR-12345/fix_report.md"]);
+  assert.deepEqual(l.clipboard, ["# Bug Context\n", LOOP_REVIEW_PROMPT]);
+  assert.equal(l.jsonArgs.filter((args) => args[0] === "review-package").length, 3);
+  assert.deepEqual(l.terminals, [
+    `claude ${JSON.stringify("# Final Review Request Review the BugPilot result for work item JR-12345.")}`,
+    `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`,
+  ]);
+  assert.equal(l.hintPrompts.length, 1, "Improve never reached the hint improver");
 });

@@ -5,9 +5,11 @@ import { readFileSync } from "node:fs";
 import {
   MAX_ATTACHMENTS,
   PANEL_ACTIONS,
+  PANEL_MESSAGE_TYPES,
   WORKFLOW_CHECKBOX_IDS,
   parsePanelMessage,
 } from "../src/panel/messages.ts";
+import type { PanelMessage } from "../src/panel/messages.ts";
 import { ADVANCED_FIELD_IDS, TEXT_FIELD_IDS, panelHtml } from "../src/panel/html.ts";
 import { DEFAULT_FORM, JIRA_ISSUE_KEY_RE } from "../src/app/form.ts";
 import { WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
@@ -178,27 +180,88 @@ test("every message the page sends is one the host understands", () => {
     (match) => match[1]!,
   );
   assert.ok(sent.length >= 6, `expected several message kinds, found ${sent.length}`);
-  const understood = new Set([
-    "ready",
-    "run",
-    "stop",
-    "retry",
-    "formChanged",
-    "addAttachments",
-    "action",
-    "command",
-    "openArtifact",
-    "openRelevantFile",
-    "manageFixModes",
-    "closeFixModes",
-    "fixModeAction",
-    "saveFixMode",
-    "improveHint",
-    "useImprovedHint",
-    "dismissImprovedHint",
-  ]);
+  // Against the host's own list, not a copy of it kept here: a copy is how
+  // "ready", "stop" and "retry" were listed as understood while the parser
+  // dropped all three (§37.70).
+  const understood = new Set<string>(PANEL_MESSAGE_TYPES);
   for (const type of sent) {
     assert.ok(understood.has(type), `the page sends "${type}", which the host drops`);
+  }
+  // And every action the page names is one the host has.
+  const actions = [...PAGE_JS.matchAll(/type:\s*"action",\s*id:\s*"([a-zA-Z]+)"/g)].map((match) => match[1]!);
+  for (const id of actions) {
+    assert.ok((PANEL_ACTIONS as readonly string[]).includes(id), `the page asks for action "${id}", which the host drops`);
+  }
+});
+
+/**
+ * One well-formed message per type the host declares.
+ *
+ * Keyed by the union, so a type added to `PanelMessage` without a sample here
+ * is a compile error, and the test below is what a type the parser cannot
+ * parse fails. The shapes are the page's own: bare types carry nothing else.
+ */
+const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>>> = {
+  ready: { type: "ready" },
+  run: { type: "run", form: DEFAULT_FORM },
+  stop: { type: "stop" },
+  retry: { type: "retry" },
+  formChanged: { type: "formChanged", form: DEFAULT_FORM },
+  addAttachments: { type: "addAttachments", form: DEFAULT_FORM },
+  action: { type: "action", id: "fixWithAI" },
+  command: { type: "command", id: "bugpilot.openSettings" },
+  openArtifact: { type: "openArtifact", name: "task.md" },
+  openRelevantFile: { type: "openRelevantFile", path: "src/widgets/WidgetController.cpp" },
+  improveHint: { type: "improveHint", form: DEFAULT_FORM },
+  useImprovedHint: { type: "useImprovedHint" },
+  dismissImprovedHint: { type: "dismissImprovedHint" },
+  manageFixModes: { type: "manageFixModes" },
+  closeFixModes: { type: "closeFixModes" },
+  fixModeAction: { type: "fixModeAction", action: "view", id: "standard", scope: "builtin" },
+  saveFixMode: {
+    type: "saveFixMode",
+    draft: {
+      intent: "create",
+      id: "careful-fix",
+      scope: "user",
+      executionKind: "fix",
+      version: 1,
+      name: "Careful Fix",
+      description: "Smaller steps.",
+      objective: "Fix the bug.",
+      investigation: "Read first.",
+      implementation: "Change little.",
+      verification: "Run the tests.",
+      constraints: "No refactors.",
+      completion: "Write fix_report.md.",
+    },
+  },
+};
+
+test("the host's list of message types is the PanelMessage union, read from its source", () => {
+  // The Record keeps them equal at compile time; `npm test` strips types, so
+  // the same is checked here against messages.ts itself.
+  const source = readFileSync(new URL("../src/panel/messages.ts", import.meta.url), "utf8");
+  const union = /export type PanelMessage =([\s\S]*?);\r?\n\r?\n/.exec(source)?.[1] ?? "";
+  const declared = [...union.matchAll(/readonly type: "([a-zA-Z]+)"/g)].map((match) => match[1]!);
+  assert.ok(declared.length >= 10, `read ${declared.length} types from the union`);
+  assert.deepEqual([...new Set(declared)].sort(), [...PANEL_MESSAGE_TYPES].sort());
+});
+
+test("every message type the host declares parses from its well-formed shape, as that type", () => {
+  // The contract `ready`, `stop` and `retry` broke: each fell through into
+  // `improveHint`, which needs a form, and came back undefined.
+  assert.deepEqual(Object.keys(WELL_FORMED).sort(), [...PANEL_MESSAGE_TYPES].sort());
+  for (const type of PANEL_MESSAGE_TYPES) {
+    const parsed = parsePanelMessage(WELL_FORMED[type]);
+    assert.ok(parsed, `a well-formed "${type}" message was dropped`);
+    assert.equal(parsed.type, type);
+  }
+  // The bare three come back as exactly themselves: no form is required of
+  // them, and none is invented.
+  for (const type of ["ready", "stop", "retry"] as const) {
+    assert.deepEqual(parsePanelMessage({ type }), { type });
+    assert.deepEqual(parsePanelMessage({ type, form: DEFAULT_FORM }), { type }, `"${type}" with a form turned into something else`);
   }
 });
 

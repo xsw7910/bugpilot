@@ -145,8 +145,6 @@ def test_run_json_generation(tmp_path):
         "memory_add": "pass",
         "agent_fix": "skipped",
         "result_summary": "skipped",
-        "manual_validation": "skipped",
-        "final_review_prompt": "skipped",
         "memory_update": "skipped",
         "delivery_check": "skipped",
         "commit_plan": "skipped",
@@ -1035,8 +1033,10 @@ def test_summarize_results_renders_the_overview_and_writes_nothing(tmp_path, mon
     assert "3. If source changes were made, confirm they do not affect unrelated behavior.\n" in overview
     assert "- src/EmployeeSearch.cpp" in overview
     assert "Looks safe" in overview
+    # `result_summary`: the overview was rendered. Rendering the checklist is
+    # not a manual validation, so nothing claims one (§37.70).
     assert status["steps"]["result_summary"] == "pass"
-    assert status["steps"]["manual_validation"] == "pass"
+    assert "manual_validation" not in status["steps"]
 
 
 def test_memory_update_replaces_final_result_section(tmp_path, monkeypatch):
@@ -1113,7 +1113,6 @@ def test_review_package_prints_the_final_review_prompt(tmp_path, monkeypatch, ca
 
     assert main(["review-package", "JR-12345"]) == 0
     prompt = capsys.readouterr().out
-    status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "# Final Review Request" in prompt
     assert "Review the BugPilot result for work item JR-12345." in prompt
@@ -1121,7 +1120,9 @@ def test_review_package_prints_the_final_review_prompt(tmp_path, monkeypatch, ca
     assert "Verdict:" in prompt
     assert "PASS / PASS WITH MINOR COMMENTS / NEEDS CHANGES" in prompt
     assert not (tmp_path / ".ai" / "JR-12345" / "final_review_prompt.md").exists()
-    assert status["steps"]["final_review_prompt"] == "pass"
+    # A printed prompt is not a review: no step mark, and so no run.json invented
+    # for a work item that has none (§37.70).
+    assert not (tmp_path / ".ai" / "JR-12345" / "run.json").exists()
 
 
 def test_phase_4_commands_trace_generated_and_updated_files(tmp_path, monkeypatch, execution_trace):

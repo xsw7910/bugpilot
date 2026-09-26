@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 
 import { buildWorkflow, canOpenFolder, overallStatus, stepDescription, WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
 import type { WorkflowInput } from "../src/app/workflow.ts";
-import { resolveAgent, KNOWN_AGENTS, PROMPT_PLACEHOLDER } from "../src/app/agents.ts";
+import { isPlainPrompt, resolveAgent, KNOWN_AGENTS, PROMPT_PLACEHOLDER } from "../src/app/agents.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
 import { CAPABILITIES, CAPABILITY_LABELS } from "../src/app/progress.ts";
 import type { ProgressView, RowState } from "../src/app/progress.ts";
@@ -637,7 +637,7 @@ test("a custom command is substituted, quoted, and probed by its own program", a
   const plan = await resolveAgent({
     choice: "custom",
     customCommand: `wsl my-agent --prompt ${PROMPT_PLACEHOLDER} --yes`,
-    prompt: 'fix "the" thing',
+    prompt: "Read .ai/JR-1/task.md and complete the workflow.",
     canRun: async (command) => {
       asked.push(command);
       return true;
@@ -648,8 +648,34 @@ test("a custom command is substituted, quoted, and probed by its own program", a
   assert.deepEqual(asked, ["wsl"]);
   assert.equal(
     plan.kind === "run" ? plan.commandLine : "",
-    'wsl my-agent --prompt "fix \\"the\\" thing" --yes',
+    'wsl my-agent --prompt "Read .ai/JR-1/task.md and complete the workflow." --yes',
   );
+});
+
+test("a prompt a shell could act on is refused before any agent is looked for, by every handoff", async () => {
+  // The one gate Fix with AI and Review with AI share (§37.70): quotes, `$(…)`,
+  // backticks and the rest never reach a command line, whichever agent is
+  // chosen — refused, not escaped.
+  for (const choice of ["auto", "claude", "custom"] as const) {
+    for (const prompt of ['fix "the" thing', "Read .ai/x$(calc)/task.md and complete the workflow.", "Read `id`", "-rf now", ""]) {
+      const asked: string[] = [];
+      const plan = await resolveAgent({
+        choice,
+        customCommand: `my-agent ${PROMPT_PLACEHOLDER}`,
+        prompt,
+        canRun: async (command) => {
+          asked.push(command);
+          return true;
+        },
+      });
+      assert.equal(plan.kind, "refused", `${choice}: ${JSON.stringify(prompt)}`);
+      assert.deepEqual(asked, [], `${choice}: an agent was probed for a refused prompt`);
+    }
+  }
+  // And both of today's prompts pass it.
+  for (const prompt of ["Read .ai/JR-12345/task.md and complete the workflow.", "Read .ai/local_20260926010922/task.md and complete the workflow.", "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n"]) {
+    assert.equal(isPlainPrompt(prompt), true, prompt);
+  }
 });
 
 test("a custom command without the placeholder is refused", async () => {
