@@ -1619,6 +1619,38 @@ carries no Fix result step.
     (guidance, never turned into Passed), Review Result (never converted into
     checks), Review with AI and Copy Review Prompt.
 
+### Confirmed decisions (release stabilization, after `cb434ca`)
+
+Found in a real VS Code window; each is the smallest correction of an existing
+contract, not a new concept.
+
+1. **Reopening a Jira work item names it in the Issue field** (amends Batch 7,
+   decision 6). The host re-selected the reopened item's prepared mode while
+   the field still named another key, so Run re-prepared that key with the
+   reopened item's mode — an investigate-only package could silently become a
+   fixing one. Now, while the field holds a key or nothing, a reopened Jira
+   item's key replaces it, Fresh is cleared (the next Run is about another
+   item), a hint suggestion made for the previous item is dropped, and the
+   item's prepared mode is selected again. A bug description being typed is
+   never replaced, and its selection stays its own. A hand-written bug's text
+   cannot come back from its `local_…` id, so its mode is re-selected only while
+   the field is empty. A form the host replaces also drops a change the page had
+   not yet sent, so the host and the page cannot disagree about the key.
+2. **Retry takes its turn with the other artifact writes** (amends Batch 12,
+   decision 8). It writes `user_feedback.md` and `agent_retry_prompt.md` into
+   the work item folder, so it is refused while a recording or a clean is in
+   flight ("Wait for the clean to finish before retrying."), and while it is
+   being prepared no clean, no recording and no run start. Its credentials are
+   read inside the guarded block, so a keyring that fails releases the guard (a
+   run's likewise no longer stays "running").
+3. **History's icon for a work item with `fix_report.md` is a document**
+   (`file-text`), not the check-badge `verified` (closes the semantic debt in
+   Batch 12, decision 11). The outcome and its sentence — "An agent wrote its
+   report in fix_report.md." — are unchanged; a report is not a verified fix.
+4. **The manifest has no comment keys inside `contributes.menus`**: VS Code
+   reads every key there as a menu id and logged "submenu items must be an
+   array" at every start. The comments moved to a top-level `//menus` key.
+
 ---
 
 # 20. Step Secondary Text 状态原则

@@ -78,17 +78,17 @@ panel warns when they are not ignored, and **BugPilot: Doctor** reports it as
    API token from your Atlassian account settings). They are kept in VS Code's
    SecretStorage and reach the CLI as environment variables — never in a
    command line, never in the panel.
-4. Type an issue key such as `JR-12345`, or switch the input source to **Bug
-   description** and describe the problem in your own words.
+4. In the **Issue** field, type an issue key such as `JR-12345`, or describe the
+   problem in your own words. The line under the field says which it read —
+   "Jira issue JR-12345" or "Bug description".
 5. Press **Run** (or `Ctrl+Enter`).
 
 That is the whole panel: one input, one button, and one list of steps.
 
 ```
-[Jira issue] [Bug description]
-
-Issue key
+Issue
 [ JR-12345                                  ]
+Jira issue JR-12345
 
 [        ▶ Run        ] [ Stop ]
          Ctrl+Enter
@@ -286,7 +286,7 @@ changed first. Each row's icon says what became of it:
 | Icon | What it means | What to do next |
 | --- | --- | --- |
 | bug | Context is ready; nothing has acted on it | Hand it to an agent |
-| verified | An agent wrote `fix_report.md` | Read the report |
+| document | An agent wrote `fix_report.md` — a report, not a verified fix | Read the report |
 | comment | A retry is waiting on you | Describe the miss in `user_feedback.md` |
 | restart | A second attempt is prepared | Hand `agent_retry_prompt.md` over |
 | error | The run failed | Hover to see which step |
@@ -294,7 +294,10 @@ changed first. Each row's icon says what became of it:
 
 Hover a row for the source, when it last changed, and that sentence in full.
 **Click** it to reopen the whole investigation in the panel — the six steps come
-back from `run.json` and the Artifacts view follows.
+back from `run.json` and the Artifacts view follows. A Jira work item's key goes
+into the Issue field (never over a bug description you are typing), **Fresh** is
+cleared, and its Fix Mode is selected again, so the next Run prepares that item
+as it was prepared before.
 
 **Right-click** for the things worth doing to a past work item: open
 `task.md`, copy the handoff prompt, reveal the artifacts folder, retry, or

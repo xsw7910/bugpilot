@@ -9310,3 +9310,91 @@ Edit basis check narrow that, and a cross-window lock stays future work.
 Deferred as before: free-form Markdown import, an MCP record-review, the live
 U-1 check. History's "verified" icon for a work item with `fix_report.md`
 remains semantic debt.
+
+### 37.75 Release stabilization (after `cb434ca`)
+
+**Status:** stabilization fixes verified, not committed. Not a feature batch: no
+new artifact, workflow concept or deferred feature was added.
+
+**Real VS Code, end to end.** The built VSIX installed into a disposable VS Code
+1.139.1 profile (its own user-data and extensions directories), the built wheel
+in a throwaway venv as `bugpilot.executablePath`, a synthetic git repository,
+and a local fake Jira on 127.0.0.1 serving only JR-12345 and JR-23456 through
+the ordinary Jira path (it refuses any POST; none came). The window was driven
+over its DevTools port with real mouse and key input; VS Code's own dialogs,
+notifications, editor tabs, History tree and terminals were the real ones. A
+test-only `sitecustomize.py` in the throwaway venv held a CLI command open on
+request, so a recording, a clean or a run could be kept in flight while Run,
+Fresh, Clean and the other recording were tried. Sections: Prepare, Fix with AI
+(a harmless custom agent), Fix result, Copy Review Prompt and Review with AI,
+Review Result (record, open, replace declined and accepted, in flight),
+Verification Evidence (defaults, three statuses and types, shell-hostile text,
+Edit, in flight), Resume / Retry / Fresh, Clean, and two items switched and
+reopened from History. The final pass on the rebuilt artifacts passed every
+scenario but one: the copied review prompt could not be compared, because this
+environment cannot read the system clipboard (the toast confirms the copy;
+Review with AI's terminal carries the same canonical prompt).
+
+**U-1, live: pass.** Claude Code 2.1.214 from PATH, launched by Review with AI
+with a first prompt beginning `# Final Review Request`: after the folder-trust
+question it worked on the review (reading files, tokens streaming). No
+`CLAUDE.md`, `CLAUDE.local.md` or `.claude/` appeared in the repository and
+`~/.claude/CLAUDE.md` was absent before and after — not a memory shortcut. The
+configured Claude Code ran in auto mode, so the reviewer used tools unattended
+in the synthetic repository; the terminal was killed after about seventy
+seconds, with the repository unchanged and no `review_report.md`.
+
+**Found and fixed.** (1) IMPORTANT — reopening one work item changed what a Run
+of another wrote: the selector took the reopened item's mode while the Issue
+field kept the previous key, and Run re-prepared that key with it (seen in the
+window: JR-12345's Conservative package became Standard). Reopening a Jira item
+now names it in the field (never over a bug description being typed; Fresh
+cleared, a stale hint suggestion dropped); a page change not yet sent no longer
+overwrites the form the host replaced. (2) IMPORTANT — Retry bypassed the
+one-write-at-a-time guard: during a clean it wrote `user_feedback.md` into the
+folder being deleted. It now waits its turn and holds the guard. (3) IMPORTANT —
+History drew a check-badge (`verified`) for any `fix_report.md`, including an
+investigation-only pass; now a document icon. (4) IMPORTANT, packaging — two
+comment keys inside `contributes.menus` made VS Code log "submenu items must be
+an array" at every start. (5) IMPORTANT — after a window reload History said
+"Open the repository you are fixing bugs in." with a repository open: it drew
+before the environment check found the repository and nothing re-read it, so
+reopening from History needed a manual refresh; finding the repository now
+re-reads both trees. (6) The extension README's first-run steps still described
+the removed Jira / Bug description switch. Each code fix has a regression test
+that fails without it (mutation-checked), and each was re-checked in the real
+window.
+
+**Independent release review** (against `cb434ca`): no blocker; two important
+findings, both fixed with tests that fail without them — Retry read its
+credentials outside the guarded block, so a keyring that failed would have left
+every artifact write refused until a reload (a run had the same shape for
+"running", now also fixed); and the Issue-field sync could replace a bug
+description being typed, at startup restore or from a History context menu.
+Minor findings fixed: Fresh carried over to the reopened item, a hint suggestion
+for the previous item survived, and Clean's refusal named a recording while a
+retry was in flight.
+
+**Recorded, not fixed.** MINOR: once per scripted pass the Issue field named the
+other item after a long sequence (never reproduced step by step; the next reopen
+corrected it; it can no longer carry another item's mode, since the host sends
+the field with every mode change). MINOR: `package.json` has no `repository`
+field (vsce warns). Environment: the clipboard cannot be read here. Unchanged
+and deferred: running verification commands, CI ingestion, MCP verification, a
+cross-window lock, free-form review import.
+
+**Regression.** Python 1258, extension 1195 (1181 at `cb434ca`), integration 12,
+publishability 15, typecheck clean, smoke 22 commands / 3 views, `git diff
+--check` clean; retrieval unchanged — the frozen `826a884` tree gives MRR 0.295,
+line for line as before, the live corpus 0.289. Packaging: wheel, sdist and VSIX
+rebuilt, `twine check` passed for both Python artifacts, the wheel installs in a
+clean venv (`import bugpilot`, `bugpilot --help`, `record-review --help`,
+`record-verification --help`), the VSIX activates in a clean profile with no
+manifest error, and a scan of all three found no local path, user name, company
+domain, old naming, private word or sample, harness or scratch file. The wheel
+sits beside `installer/install.ps1`, as the documented layout has it (ignored by
+git).
+
+**External caveat.** The old history is still reachable through GitHub's
+`refs/pull/1/head`; a GitHub Support purge or recreating the repository is the
+remedy, outside this repository.

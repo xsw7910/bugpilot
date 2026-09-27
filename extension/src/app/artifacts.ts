@@ -353,7 +353,11 @@ export const OUTCOME_ICONS: Readonly<Record<HistoryOutcome, string>> = {
   failed: "error",
   retried: "debug-restart",
   retrying: "comment",
-  fixed: "verified",
+  // A report file, and no more: an agent writes fix_report.md after an
+  // investigation-only pass or a failed attempt too. Not the check-badge
+  // "verified" it used to be — release stabilization, seen in a real window —
+  // since nothing here knows the fix was verified.
+  fixed: "file-text",
   prepared: "bug",
 };
 

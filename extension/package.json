@@ -30,6 +30,7 @@
   "//main": "The extension host requires CommonJS JS, so the packaged entry point is built by tsconfig.build.json. Tests run the TypeScript sources directly instead.",
   "main": "./out/extension.js",
   "activationEvents": [],
+  "//menus": "Comments for contributes.menus live here: VS Code reads every key inside `menus` as a menu id, so a comment there is reported as a submenu that is not an array. commandPalette: bugpilot.openArtifact and bugpilot.showWorkItem are invoked by a tree item with an argument; from the palette they would have nothing to act on. view/item/context: right-clicking a History row acts on that row: the handlers switch the panel to it first, so nothing happens invisibly to a different work item. `viewItem` keeps the menu off the placeholder rows.",
   "//capabilities": "Declared rather than left to the default. This extension spawns a process whose path a workspace can override (bugpilot.executablePath), so it has no business running in a folder the developer has not trusted - VS Code already disables it there, and saying so gives the reason instead of silent inaction. It also reads and writes the filesystem and runs a local CLI, none of which exists in a virtual workspace.",
   "capabilities": {
     "untrustedWorkspaces": {
@@ -182,7 +183,6 @@
       }
     ],
     "menus": {
-      "//commandPalette": "These two are invoked by a tree item with an argument; from the palette they would have nothing to act on.",
       "commandPalette": [
         {
           "command": "bugpilot.openArtifact",
@@ -193,7 +193,6 @@
           "when": "false"
         }
       ],
-      "//view/item/context": "Right-clicking a History row acts on that row: the handlers switch the panel to it first, so nothing happens invisibly to a different work item. `viewItem` keeps the menu off the placeholder rows.",
       "view/item/context": [
         {
           "command": "bugpilot.openAgentTask",
