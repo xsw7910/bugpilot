@@ -37,6 +37,9 @@ import { diagnose, knownCodes } from "../src/errors.ts";
 import { discoverExecutable } from "../src/executable.ts";
 import { isPlainPrompt } from "../src/app/agents.ts";
 import { reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
+import { recordReviewArgs, recordingOutcome, reviewPayload } from "../src/app/reviewCapture.ts";
+import { parseReviewReport } from "../src/app/reviewReport.ts";
+import { payloadCommandPort } from "../src/app/fixModeTransport.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -429,6 +432,71 @@ test("review-package --json gives the review aids and leaves the work item untou
   // And the human command still prints exactly the same prompt.
   const human = await runner().run([...MODULE, "review-package", workItemId], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
   assert.equal(human.stdout.replaceAll("\r\n", "\n"), review.prompt.replaceAll("\r\n", "\n"));
+});
+
+test("record-review through the extension's own port writes review_report.md, and nothing else", async () => {
+  // Record Review Result (Batch 11) end to end: the payload file, the real CLI,
+  // the extension's readers — and a work item in which only the one file appears.
+  const root = repository();
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.equal(built.ok, true);
+  if (!built.ok) return;
+  const tracker = new ProgressTracker(DEFAULT_FORM.plan);
+  await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+    (event) => tracker.apply(event),
+  );
+  const workItemId = tracker.view().workItemId!;
+  const directory = path.join(root, ".ai", workItemId);
+  writeFileSync(path.join(directory, "fix_report.md"), `# Fix Report: ${workItemId}\n\n## Summary\n\nFixed the KeyError.\n`, "utf8");
+  const snapshot = () => Object.fromEntries(readdirSync(directory).map((name) => [name, readFileSync(path.join(directory, name), "utf8")]));
+  const before = snapshot();
+
+  const port = payloadCommandPort(
+    () => root,
+    (args, cwd) => runner().runJson([...MODULE, ...args], { cwd, env: ENVIRONMENT, timeoutMs: 120_000 }),
+    { command: "record-review", prefix: "bugpilot-review", noRepository: "no repository" },
+  );
+  // Text a shell would act on, which must arrive as text.
+  const hostile = 'Quotes " backticks ` pipes | %VAR% $(x)\n## Critical\n- the id check';
+  const first = await port({
+    args: (file) => recordReviewArgs(workItemId, file, false),
+    payload: reviewPayload({ summary: "Reads correctly.", findings: hostile, validationNotes: "", recommendations: "Keep it." }),
+  });
+  assert.deepEqual(recordingOutcome(first), { recorded: true });
+
+  const after = snapshot();
+  assert.deepEqual(Object.keys(after).sort(), [...Object.keys(before), "review_report.md"].sort());
+  for (const name of Object.keys(before)) assert.equal(after[name], before[name], `${name} changed`);
+  const text = after["review_report.md"]!;
+  assert.match(text, /^# Review Report: /);
+  assert.ok(text.includes("backticks ` pipes | %VAR% $(x)"), "the review was not kept as text");
+  assert.ok(text.includes("### Critical"), "a heading in the text broke out of Findings");
+  assert.deepEqual(parseReviewReport(text), {
+    readable: true,
+    summary: "Reads correctly.",
+    findings: 'Quotes " backticks ` pipes | %VAR% $(x)',
+    validationNotes: false,
+    recommendations: true,
+  });
+
+  // Recorded once: a second recording keeps it, with a code this client knows,
+  // until it is asked to replace it.
+  const again = await port({
+    args: (file) => recordReviewArgs(workItemId, file, false),
+    payload: reviewPayload({ summary: "Second.", findings: "", validationNotes: "", recommendations: "" }),
+  });
+  assert.equal(again.ok, false);
+  assert.equal(!again.ok && again.error.code, "ARTIFACT_EXISTS");
+  assert.ok(knownCodes().includes("ARTIFACT_EXISTS"));
+  assert.equal(readFileSync(path.join(directory, "review_report.md"), "utf8"), text);
+  const replaced = await port({
+    args: (file) => recordReviewArgs(workItemId, file, true),
+    payload: reviewPayload({ summary: "Second.", findings: "", validationNotes: "", recommendations: "" }),
+  });
+  assert.deepEqual(recordingOutcome(replaced), { recorded: true });
+  assert.equal(parseReviewReport(readFileSync(path.join(directory, "review_report.md"), "utf8")).summary, "Second.");
 });
 
 // --- the install matrix ----------------------------------------------------

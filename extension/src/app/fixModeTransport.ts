@@ -32,18 +32,39 @@ export async function runFixModeCommand(
   runJson: (args: readonly string[]) => Promise<Envelope>,
   request: FixModeRequest,
 ): Promise<Envelope> {
+  return runPayloadCommand(runJson, request, "bugpilot-fix-mode");
+}
+
+/**
+ * Any command whose input is a payload file: the same lifecycle, named per use.
+ *
+ * Record Review Result (Batch 11) sends a review this way for the same reasons
+ * a Fix Mode goes: four multiline sections of someone's prose are neither argv
+ * nor shell text.
+ */
+export async function runPayloadCommand(
+  runJson: (args: readonly string[]) => Promise<Envelope>,
+  request: PayloadCommandRequest,
+  prefix: string,
+): Promise<Envelope> {
   if (request.payload === undefined) return runJson(request.args(""));
   const file = path.join(
     tmpdir(),
-    `bugpilot-fix-mode-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`,
+    `${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`,
   );
-  await writeFile(file, `${JSON.stringify(request.payload, null, 2)}\n`, "utf8");
+  await writeFile(file, `${JSON.stringify(request.payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   try {
     return await runJson(request.args(file));
   } finally {
     // Cleanup on both paths: a failed save leaves nothing behind either.
     await rm(file, { force: true }).catch(() => {});
   }
+}
+
+/** A command and the payload it reads from a file, as `args(file)`. */
+export interface PayloadCommandRequest {
+  readonly args: (payloadPath: string) => readonly string[];
+  readonly payload?: unknown;
 }
 
 /**
@@ -59,18 +80,24 @@ export function fixModeCommandPort(
   root: () => string | undefined,
   runJson: (args: readonly string[], cwd: string) => Promise<Envelope>,
 ): (request: FixModeRequest) => Promise<Envelope> {
+  return payloadCommandPort(root, runJson, {
+    command: "fix-mode",
+    prefix: "bugpilot-fix-mode",
+    noRepository: "No workspace repository is available for Fix Mode management.",
+  });
+}
+
+/** The same refusal and the same file lifecycle, for any payload command. */
+export function payloadCommandPort(
+  root: () => string | undefined,
+  runJson: (args: readonly string[], cwd: string) => Promise<Envelope>,
+  use: { readonly command: string; readonly prefix: string; readonly noRepository: string },
+): (request: PayloadCommandRequest) => Promise<Envelope> {
   return async (request) => {
     const cwd = root();
     if (!cwd) {
-      return {
-        ok: false,
-        command: "fix-mode",
-        error: {
-          code: "INVALID_INPUT",
-          message: "No workspace repository is available for Fix Mode management.",
-        },
-      };
+      return { ok: false, command: use.command, error: { code: "INVALID_INPUT", message: use.noRepository } };
     }
-    return runFixModeCommand((args) => runJson(args, cwd), request);
+    return runPayloadCommand((args) => runJson(args, cwd), request, use.prefix);
   };
 }

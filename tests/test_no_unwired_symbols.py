@@ -29,6 +29,11 @@ ROOT = Path(__file__).resolve().parents[1]
 # Symbols that exist without a production caller, each with the reason. Adding a
 # line here is a decision; leaving one out is a failing test.
 ALLOWED: dict[str, str] = {
+    "review_report.read_review_report": (
+        "The CLI-side reader of the format record-review writes (Batch 11). Its "
+        "tests pin the round trip the extension's parser mirrors; no Python "
+        "command needs to read a recorded review yet, and none is invented for it."
+    ),
     "workflow.run_bug_workflow": (
         "The Jira-shaped wrapper over run_investigation, documented in "
         "docs/architecture.md as the orchestrator entry point. The CLI moved to "

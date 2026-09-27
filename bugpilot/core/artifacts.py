@@ -9,6 +9,7 @@ and a filename spelled out in five modules is five chances to drift.
     task.md          the task package handed to the coding agent
     run.json         runtime state: step lifecycle, agent state
     fix_report.md    optional, only once a fix produced something to report
+    review_report.md optional, only once somebody recorded a review's result
 
 Every JSON artifact carries ``schema_version``. There is deliberately no
 migration and no reader for any earlier layout: BugPilot is pre-release, and a
@@ -25,9 +26,15 @@ CONTEXT_ARTIFACT = "context.md"
 TASK_ARTIFACT = "task.md"
 RUN_ARTIFACT = "run.json"
 FIX_REPORT_ARTIFACT = "fix_report.md"
+REVIEW_REPORT_ARTIFACT = "review_report.md"
+
+
+class WorkItemNotFoundError(FileNotFoundError):
+    """The work item directory does not exist."""
+
 
 # What a normal prepare-only run leaves behind once every batch has landed.
-# `fix_report.md` is not here: it exists only after a fix attempt.
+# The two reports are not here: each exists only once something wrote it.
 CORE_ARTIFACTS: tuple[str, ...] = (
     ISSUE_ARTIFACT,
     RETRIEVAL_ARTIFACT,

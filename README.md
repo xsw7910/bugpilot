@@ -342,6 +342,7 @@ bugpilot push-plan JR-12345
 - `bugpilot fix-mode duplicate|create|update|delete ... --scope user|project`: manage custom modes (`--expected-version N` guards `update` and `delete`; `--json` on every subcommand).
 - `bugpilot manual-result <ISSUE>`: create the developer manual-fix `fix_report.md` template without overwriting an existing report.
 - `bugpilot manual-result <ISSUE> --overwrite`: replace the report with a fresh manual-fix template.
+- `bugpilot record-review <ISSUE> --summary "..." [--findings "..."] [--validation-notes "..."] [--recommendations "..."]`: record the result of a completed review — from any reviewer — in `review_report.md`. It records what the review said, in its words, and checks nothing: the file means a result was recorded, not that the review passed, the fix is correct or tests ran. `--from-file <json>` takes the four sections as one JSON object (how the VS Code extension sends them); an existing report is kept unless `--replace` is given. Writes nothing else — no `run.json` mark, no Jira, no email.
 - `bugpilot delivery-check <ISSUE>`: check readiness for manual delivery.
 - `bugpilot notify <ISSUE>`: write the post-fix notification (`email_draft.md` + `notification.eml`); add `--execute` to send automatically (Graph if configured, else SMTP).
 - `bugpilot commit-plan <ISSUE>`: print a manual commit plan and email the fix summary at the commit gate (`--no-email` to skip).
@@ -402,14 +403,24 @@ Primary issue package:
 .ai/<issue>/
 ```
 
-Key artifacts include:
+What a prepare run writes:
 ```text
 .ai/<issue>/issue.json          the normalized bug, hint and Fix Mode
 .ai/<issue>/retrieval.json      search terms, ranked files and their matched lines
 .ai/<issue>/context.md          the evidence: issue details, code search, similar fixes, git history
 .ai/<issue>/task.md             what the agent is asked to do, team instructions included
-.ai/<issue>/jira_comment_draft.md
+.ai/<issue>/run.json            runtime state: step lifecycle and agent state
 ```
+
+Optional reports, written after it:
+```text
+.ai/<issue>/fix_report.md       the agent's report on the attempt (or manual-result's template)
+.ai/<issue>/review_report.md    a review's result, as somebody recorded it with record-review
+```
+
+A Fresh run removes both reports with the rest of the folder; a resume and a
+retry leave them. Side-band files — `jira_comment_draft.md`, `user_feedback.md`,
+`agent_retry_prompt.md` — are written only by the commands that need them.
 
 Shared memory entry:
 ```text

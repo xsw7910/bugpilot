@@ -205,6 +205,17 @@
   let validationSignature = "";
   /** What Review with AI's status and card last showed, for the same reason. */
   let reviewSignature = "";
+  // Record Review Result (Batch 11): which work item the form was opened for,
+  // whether the host was recording at the last push, and what the Review Result
+  // lines and the recording's status last said — so a push that changes nothing
+  // rewrites nothing, and the live region does not repeat itself.
+  let reviewEditorWorkItem;
+  let wasRecorded = false;
+  let reviewResultSignature = "";
+  let captureStatus = "";
+  let captureError = "";
+  /** The form's four text areas, in the order they are written to the report. */
+  const REVIEW_FIELDS = ["review-summary", "review-findings", "review-validation-notes", "review-recommendations"];
 
   // --- growing fields ------------------------------------------------------
 
@@ -760,7 +771,9 @@
     byId("open-fix-report").hidden = !opens;
     byId("copy-review-prompt").hidden = !copies;
     reviewButton.hidden = !(step && (actions.includes("reviewWithAI") || reviewing));
-    byId("actions-fixResult").hidden = !opens && !copies && reviewButton.hidden;
+    renderReviewResult(step, workItemId);
+    byId("actions-fixResult").hidden =
+      !opens && !copies && reviewButton.hidden && byId("record-review-result").hidden;
     // Waiting for the CLI: one press at a time, and said in words.
     const copying = Boolean(step && step.copyingReviewPrompt);
     byId("copy-review-prompt").disabled = copying;
@@ -874,6 +887,121 @@
       status.append(line("p", "muted review-status-detail", review.detail || ""));
     }
     renderError("review-error", review && review.state === "failed" ? review.error : undefined);
+  }
+
+  /**
+   * Review Result and the Record Review Result form (Batch 11).
+   *
+   * The lines are the host's: "Review result recorded", then the reviewer's own
+   * first lines — never a verdict, because none is known. The form is the page's:
+   * Record (or Replace) opens it, and Cancel, a recording that finished, or
+   * another work item closes it — the last two emptying it, so B never inherits
+   * what was typed for A. Save only asks; the host decides whether a recording
+   * may start, asks before replacing, and runs record-review.
+   */
+  function renderReviewResult(step, workItemId) {
+    const actions = (step && step.actions) || [];
+    const result = step ? step.reviewResult : undefined;
+    const capture = step ? step.reviewCapture : undefined;
+    const recording = Boolean(capture && capture.state === "recording");
+    const failed = Boolean(capture && capture.state === "failed");
+    const recorded = Boolean(capture && capture.state === "recorded");
+    const offered = actions.includes("recordReviewResult") || actions.includes("replaceReviewResult");
+    const editor = byId("review-editor");
+    // Checked by id rather than `contains`: the form's own controls are the only
+    // places a keyboard user can be inside it.
+    const hadFocus = [...REVIEW_FIELDS, "save-review-result", "cancel-review-result"].some(
+      (id) => byId(id) === document.activeElement,
+    );
+
+    const anotherItem = !step || workItemId !== reviewEditorWorkItem;
+    if (anotherItem) {
+      closeReviewEditor(true);
+      captureStatus = "";
+      captureError = "";
+      byId("review-capture-status").textContent = "";
+    }
+    reviewEditorWorkItem = step ? workItemId : undefined;
+    // Only the host's own word that it recorded closes and empties the form: a
+    // recording that stopped being tracked — a run started — may have failed, and
+    // what was typed is kept.
+    const finished = !anotherItem && recorded && !wasRecorded;
+    wasRecorded = recorded;
+    if (finished) closeReviewEditor(true);
+
+    const open = !editor.hidden;
+    const record = byId("record-review-result");
+    record.hidden = !(step && !result && (actions.includes("recordReviewResult") || open || recording));
+    record.setAttribute("aria-expanded", open ? "true" : "false");
+    const replace = byId("replace-review-result");
+    replace.hidden = !(result && (actions.includes("replaceReviewResult") || open || recording));
+    replace.setAttribute("aria-expanded", open ? "true" : "false");
+
+    // `aria-disabled`, as on Review with AI: a keyboard user who pressed Save
+    // keeps the focus while the host records, and the handler and host refuse.
+    const save = byId("save-review-result");
+    save.setAttribute("aria-disabled", recording || !offered ? "true" : "false");
+    save.setAttribute("aria-busy", recording ? "true" : "false");
+    byId("save-review-result-label").textContent = recording ? "Recording…" : "Save Review Result";
+    byId("cancel-review-result").setAttribute("aria-disabled", recording ? "true" : "false");
+
+    byId("review-result").hidden = !result;
+    byId("open-review-report").hidden = !(result && actions.includes("openReviewReport"));
+    const signature = result ? JSON.stringify([workItemId, result]) : "";
+    if (signature !== reviewResultSignature) {
+      reviewResultSignature = signature;
+      byId("review-result-status").textContent = result ? result.status : "";
+      const summary = byId("review-result-summary");
+      summary.textContent = result ? result.summary : "";
+      summary.setAttribute("title", result ? result.summary : "");
+      const detail = byId("review-result-detail");
+      detail.textContent = result && result.detail ? result.detail : "";
+      detail.setAttribute("title", result && result.detail ? result.detail : "");
+      detail.hidden = !(result && result.detail);
+      const also = byId("review-result-also");
+      also.textContent = result && result.alsoRecorded ? result.alsoRecorded : "";
+      also.hidden = !(result && result.alsoRecorded);
+    }
+
+    // The recording's status, said once per change: recording, then recorded —
+    // which stays until something else happens — or nothing while it failed.
+    let status = "";
+    if (recording) status = "Recording review result…";
+    else if (recorded) status = capture.replaced ? "Review result replaced." : "Review result recorded.";
+    if (status !== captureStatus) {
+      captureStatus = status;
+      byId("review-capture-status").textContent = status;
+    }
+    const message = failed ? capture.message || "" : "";
+    if (message !== captureError) {
+      captureError = message;
+      const error = byId("review-capture-error");
+      // Shown before it is filled: some screen readers announce an alert whose
+      // text is inserted, not one that is merely revealed.
+      error.hidden = message === "";
+      error.textContent = message;
+    }
+    // The form a keyboard user was in has closed because the recording
+    // finished: the status saying so is the natural next place (focusable, and
+    // present before the re-read file brings the result's own lines).
+    if (finished && hadFocus) byId("review-capture-status").focus({ preventScroll: true });
+  }
+
+  /** Close the form; `clear` empties it too. */
+  function closeReviewEditor(clear) {
+    byId("review-editor").hidden = true;
+    if (!clear) return;
+    for (const id of REVIEW_FIELDS) byId(id).value = "";
+  }
+
+  /** Record or Replace pressed: open the form at Summary, or close it again. */
+  function toggleReviewEditor(button) {
+    const editor = byId("review-editor");
+    if (button.hidden || button.getAttribute("aria-disabled") === "true") return;
+    editor.hidden = !editor.hidden;
+    byId("record-review-result").setAttribute("aria-expanded", editor.hidden ? "false" : "true");
+    byId("replace-review-result").setAttribute("aria-expanded", editor.hidden ? "false" : "true");
+    if (!editor.hidden) byId("review-summary").focus({ preventScroll: true });
   }
 
   /** An element with nothing in it but text. */
@@ -1887,9 +2015,20 @@
     submit();
   });
 
+  /**
+   * Whether an event came from the Record Review Result form. It sits inside the
+   * panel's form, with the workflow rows, but it is not the bug being prepared:
+   * Ctrl+Enter there must not Run, and typing there is not a form change.
+   */
+  function fromReviewEditor(event) {
+    const id = event && event.target && event.target.id;
+    return typeof id === "string" && (REVIEW_FIELDS.includes(id) || id === "save-review-result" || id === "cancel-review-result");
+  }
+
   // Ctrl+Enter from anywhere in the form, which is what a multi-line
   // description needs: Enter alone belongs to the textarea.
   byId("form").addEventListener("keydown", (event) => {
+    if (fromReviewEditor(event)) return;
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       submit();
@@ -1897,6 +2036,7 @@
   });
 
   byId("form").addEventListener("input", (event) => {
+    if (fromReviewEditor(event)) return;
     grow(event.target);
     // Since UI-A1 the input source is derived from the Issue field rather than
     // chosen with a radio, so it can change on a keystroke — which is why this
@@ -1910,6 +2050,7 @@
   // have a height, so it is where restored text gets sized.
   byId("advanced").addEventListener("toggle", growAll);
   byId("form").addEventListener("change", (event) => {
+    if (fromReviewEditor(event)) return;
     const target = event.target;
     if (target && target.id === "plan-buildContext") applyPlanCoupling();
     if (target && target.id === "agent") applyAgentVisibility();
@@ -1956,6 +2097,50 @@
     if (!button.hidden && button.getAttribute("aria-disabled") !== "true") {
       vscode.postMessage({ type: "action", id: "reviewWithAI" });
     }
+  });
+  // Record / Replace Review Result open the form; the host is asked nothing yet.
+  byId("record-review-result").addEventListener("click", () => toggleReviewEditor(byId("record-review-result")));
+  byId("replace-review-result").addEventListener("click", () => toggleReviewEditor(byId("replace-review-result")));
+  byId("cancel-review-result").addEventListener("click", () => {
+    if (byId("cancel-review-result").getAttribute("aria-disabled") === "true") return;
+    closeReviewEditor(true);
+    // A failure about the text just discarded is not worth keeping on screen —
+    // and forgotten, so the same failure after the next press is said again.
+    byId("review-capture-error").hidden = true;
+    captureError = "";
+    const toggle = byId("record-review-result").hidden ? byId("replace-review-result") : byId("record-review-result");
+    toggle.setAttribute("aria-expanded", "false");
+    if (!toggle.hidden) toggle.focus({ preventScroll: true });
+  });
+  // Save sends the four sections and nothing else: no work item, no path, no
+  // replace flag. The host knows which work item is on screen and asks itself
+  // before replacing a recorded result.
+  function saveReview() {
+    const save = byId("save-review-result");
+    if (byId("review-editor").hidden || save.getAttribute("aria-disabled") === "true") return;
+    vscode.postMessage({
+      type: "recordReview",
+      review: {
+        summary: byId("review-summary").value,
+        findings: byId("review-findings").value,
+        validationNotes: byId("review-validation-notes").value,
+        recommendations: byId("review-recommendations").value,
+      },
+    });
+  }
+  byId("save-review-result").addEventListener("click", saveReview);
+  // Ctrl+Enter in the form saves the review, as it runs the panel elsewhere;
+  // the panel's own handlers below leave the review fields alone.
+  byId("review-editor").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      saveReview();
+    }
+  });
+  // Open Review Report: an action, not a file name — the host opens the canonical
+  // file of the work item on screen, and only while it is listed.
+  byId("open-review-report").addEventListener("click", () => {
+    if (!byId("open-review-report").hidden) vscode.postMessage({ type: "action", id: "openReviewReport" });
   });
   // Opening the checklist is what asks for it — once, and never on a render.
   byId("validation-checklist").addEventListener("toggle", () => {

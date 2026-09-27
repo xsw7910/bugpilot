@@ -25,6 +25,8 @@ import type { UserFacingError } from "../app/failures.ts";
 import type { DiagnosticsView } from "../app/diagnostics.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
 import { WRITABLE_SCOPES } from "../app/fixModes.ts";
+import { MAX_REVIEW_SECTION } from "../app/reviewCapture.ts";
+import type { ReviewEntry } from "../app/reviewCapture.ts";
 import type {
   FixModeCatalog,
   FixModeDraft,
@@ -224,6 +226,9 @@ export const PANEL_ACTIONS = [
   // "run an agent with this prompt". The page names no prompt and no agent; the
   // host builds both, and refuses unless the row is offering it.
   "reviewWithAI",
+  // Review Result's file (Batch 11): an action, not a path — the host opens the
+  // canonical review_report.md of the work item on screen, and only while listed.
+  "openReviewReport",
 ] as const;
 export type PanelAction = (typeof PANEL_ACTIONS)[number];
 
@@ -266,7 +271,14 @@ export type PanelMessage =
       readonly id: string;
       readonly scope: string;
     }
-  | { readonly type: "saveFixMode"; readonly draft: FixModeDraft };
+  | { readonly type: "saveFixMode"; readonly draft: FixModeDraft }
+  /**
+   * "Record what this review said" (Batch 11): four sections of the developer's
+   * text, bounded. No work item, no path, no replace flag — the host knows which
+   * work item is on screen, whether a report is already recorded, and asks
+   * before replacing one.
+   */
+  | { readonly type: "recordReview"; readonly review: ReviewEntry };
 
 /**
  * Every message type the page may send, each once.
@@ -295,6 +307,7 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   closeFixModes: true,
   fixModeAction: true,
   saveFixMode: true,
+  recordReview: true,
 };
 export const PANEL_MESSAGE_TYPES = Object.keys(MESSAGE_TYPES) as readonly PanelMessage["type"][];
 
@@ -340,6 +353,23 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     case "saveFixMode": {
       const draft = asDraft(message?.["draft"]);
       return draft ? { type, draft } : undefined;
+    }
+    case "recordReview": {
+      const review = asRecord(message?.["review"]);
+      if (!review) return undefined;
+      // Text only; a missing field is a blank one. Clamped one past the cap, so a
+      // section that is too long is refused by record-review, never cut short
+      // and recorded as if that were what was entered.
+      const text = (field: string): string => asString(review[field], MAX_REVIEW_SECTION + 1) ?? "";
+      return {
+        type,
+        review: {
+          summary: text("summary"),
+          findings: text("findings"),
+          validationNotes: text("validationNotes"),
+          recommendations: text("recommendations"),
+        },
+      };
     }
     case "run":
     case "formChanged":

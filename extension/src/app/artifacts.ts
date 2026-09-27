@@ -32,6 +32,12 @@ export const TASK_ARTIFACT = "task.md";
 /** The one post-agent report (Batch 5), written by the agent, never by a prepare run. */
 export const FIX_REPORT_ARTIFACT = "fix_report.md";
 
+/**
+ * A review's result, as somebody recorded it (Batch 11) — only `record-review`
+ * writes it. Not a result file the agent owes: never listed as missing.
+ */
+export const REVIEW_REPORT_ARTIFACT = "review_report.md";
+
 export type ArtifactKind = "markdown" | "json" | "log" | "other";
 
 /**
@@ -95,6 +101,8 @@ const GROUPS: Readonly<Record<string, ArtifactGroup>> = {
   // What the search found: terms, ranked files and their matched lines.
   "retrieval.json": "context",
   "run.json": "state",
+  // Recorded after a review, beside the report it was about.
+  "review_report.md": "results",
   "copilot_task.md": "copilot",
   "copilot_handoff.md": "copilot",
   "copilot_analysis_prompt.md": "copilot",
@@ -126,6 +134,7 @@ const WITHIN_GROUP: readonly string[] = [
   "agent_retry_prompt.md",
   "user_feedback.md",
   "fix_report.md",
+  "review_report.md",
   "context.md",
   "retrieval.json",
 ];

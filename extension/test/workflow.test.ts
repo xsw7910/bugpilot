@@ -765,3 +765,97 @@ test("a review handoff moves neither Fix with AI nor the workflow header", () =>
     assert.deepEqual(overallStatus(steps, progress("done", ALL_DONE)), { kind: "done", text: "Fix report available" });
   }
 });
+
+// --- Batch 11: Review Result on Fix result ---------------------------------------
+
+const WITH_REVIEW = [...WITH_REPORT, "review_report.md"];
+const REVIEWED = {
+  readable: true,
+  summary: "The change reads correctly.",
+  findings: "One duplicate null check.",
+  validationNotes: false,
+  recommendations: true,
+} as const;
+
+test("no review_report.md, no Review Result", () => {
+  const row = stepIn(finished({ artifacts: WITH_REPORT, reviewReport: REVIEWED }), "fixResult");
+  assert.equal(row.reviewResult, undefined, "a preview with no file listed became a Review Result");
+});
+
+test("a listed review is exactly one Review Result, in the report's own words", () => {
+  const steps = finished({ artifacts: WITH_REVIEW, reviewReport: REVIEWED });
+  // No row of its own: the workflow is still the six steps and Fix result.
+  assert.deepEqual(steps.map((step) => step.id), [...WORKFLOW_STEP_IDS, "fixResult"]);
+  assert.deepEqual(stepIn(steps, "fixResult").reviewResult, {
+    status: "Review result recorded",
+    artifact: "review_report.md",
+    summary: "The change reads correctly.",
+    detail: "Findings: One duplicate null check.",
+    alsoRecorded: "Also recorded: recommendations",
+  });
+});
+
+test("a review with no Summary leads with its findings, and an unreadable one only says it is there", () => {
+  const findingsOnly = stepIn(
+    finished({ artifacts: WITH_REVIEW, reviewReport: { readable: true, findings: "Only this.", validationNotes: false, recommendations: false } }),
+    "fixResult",
+  ).reviewResult!;
+  assert.equal(findingsOnly.summary, "Only this.");
+  assert.equal(findingsOnly.detail, undefined);
+  assert.equal(findingsOnly.alsoRecorded, undefined);
+  for (const reviewReport of [{ readable: false, validationNotes: false, recommendations: false }, undefined]) {
+    const view = stepIn(finished({ artifacts: WITH_REVIEW, ...(reviewReport ? { reviewReport } : {}) }), "fixResult").reviewResult!;
+    assert.equal(view.summary, "Review result recorded");
+    assert.equal(view.detail, "Preview unavailable");
+  }
+});
+
+test("Record, Open and Replace follow the file and the host's say-so", () => {
+  const actions = (overrides: Partial<WorkflowInput>) => [...stepIn(finished(overrides), "fixResult").actions];
+  assert.deepEqual(actions({ artifacts: WITH_REPORT, canRecordReview: true }), [
+    "openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult",
+  ]);
+  assert.deepEqual(actions({ artifacts: WITH_REVIEW, reviewReport: REVIEWED, canRecordReview: true }), [
+    "openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport", "replaceReviewResult",
+  ]);
+  // A run or a recording in flight: nothing to record, but the file still opens.
+  assert.deepEqual(actions({ artifacts: WITH_REVIEW, reviewReport: REVIEWED, canRecordReview: false }), [
+    "openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport",
+  ]);
+});
+
+test("a recorded review changes nothing Fix result or the header says about the fix", () => {
+  const without = finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it.", tests: "3 passed." } });
+  const withReview = finished({
+    artifacts: WITH_REVIEW,
+    fixReport: { readable: true, summary: "Fixed it.", tests: "3 passed." },
+    reviewReport: REVIEWED,
+  });
+  const row = stepIn(withReview, "fixResult");
+  const before = stepIn(without, "fixResult");
+  assert.deepEqual(
+    [row.status, row.statusLabel, row.summary, row.detail, row.artifact, row.error],
+    [before.status, before.statusLabel, before.summary, before.detail, before.artifact, before.error],
+  );
+  const doneProgress = progress("done", ALL_DONE);
+  assert.deepEqual(overallStatus(withReview, doneProgress), overallStatus(without, doneProgress));
+});
+
+test("a recording's state rides on Fix result, and says nothing about the review", () => {
+  const recording = stepIn(finished({ artifacts: WITH_REPORT, reviewCapture: { state: "recording" } }), "fixResult");
+  assert.deepEqual(recording.reviewCapture, { state: "recording" });
+  const failed = stepIn(
+    finished({ artifacts: WITH_REPORT, reviewCapture: { state: "failed", message: "Review result was not recorded: x" } }),
+    "fixResult",
+  );
+  assert.equal(failed.error, undefined, "a recording failure became the row's failure");
+  assert.equal(failed.status, "ready");
+});
+
+test("nothing on Review Result claims a review passed, finished or verified anything", () => {
+  const view = stepIn(finished({ artifacts: WITH_REVIEW, reviewReport: { readable: false, validationNotes: false, recommendations: false } }), "fixResult").reviewResult!;
+  const words = JSON.stringify(view).toLowerCase();
+  for (const claim of ["passed", "verified", "approved", "complete", "reviewed"]) {
+    assert.equal(words.includes(claim), false, claim);
+  }
+});

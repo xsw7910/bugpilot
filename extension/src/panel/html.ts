@@ -925,17 +925,54 @@ function stepContent(id: WorkflowStepId): string {
     // document, so a screen reader hears it fill, and the row's own failure
     // card — Fix result has no other, since a report that cannot be previewed
     // is not a failure.
+    //
+    // Then Review Result (Batch 11): what somebody recorded after a review, in
+    // their words, and never more than that — "Review result recorded" is the
+    // whole claim. Record Review Result sits with the row's actions while none
+    // is recorded; once one is, Open and Replace sit with it. The form is four
+    // plain text areas; its status is a live region and its failure an alert,
+    // both about the recording and never about the review. A group, not a
+    // <form>: the rows sit inside the panel's own form, where a nested one is
+    // ignored and its submit button would submit the panel — a Run.
     return `            <div class="step-actions" id="actions-fixResult" hidden>
               ${actionButton(OPEN_FIX_REPORT)}
               <button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to review this result" hidden><span class="codicon codicon-copy" aria-hidden="true"></span><span id="copy-review-prompt-label">Copy Review Prompt</span></button>
               <button type="button" class="result-link" id="review-with-ai" title="Start the selected AI agent in a terminal with the review prompt" hidden><span class="codicon codicon-hubot" aria-hidden="true"></span><span id="review-with-ai-label">Review with AI</span></button>
+              <button type="button" class="result-link" id="record-review-result" title="Record what a completed review said, in review_report.md" aria-controls="review-editor" aria-expanded="false" hidden><span class="codicon codicon-edit" aria-hidden="true"></span><span>Record Review Result</span></button>
             </div>
             <div class="review-status" id="review-status" role="status" tabindex="-1"></div>
 ${errorCard("review-error")}
             <details class="validation" id="validation-checklist" hidden>
               <summary id="validation-summary">Validation checklist</summary>
               <div id="validation-body" aria-live="polite"></div>
-            </details>`;
+            </details>
+            <div class="review-result" id="review-result" role="group" aria-labelledby="review-result-heading" hidden>
+              <p class="review-result-heading result-label" id="review-result-heading" tabindex="-1"><span id="review-result-status"></span></p>
+              <p class="review-result-summary" id="review-result-summary"></p>
+              <p class="step-detail" id="review-result-detail" hidden></p>
+              <p class="muted review-result-also" id="review-result-also" hidden></p>
+              <div class="step-actions" id="actions-reviewResult">
+                <button type="button" class="result-link" id="open-review-report" title="Open review_report.md in the editor" hidden><span class="codicon codicon-go-to-file" aria-hidden="true"></span><span>Open Review Report</span></button>
+                <button type="button" class="result-link" id="replace-review-result" title="Record a new review result in place of this one" aria-controls="review-editor" aria-expanded="false" hidden><span class="codicon codicon-edit" aria-hidden="true"></span><span>Replace Review Result</span></button>
+              </div>
+            </div>
+            <div class="review-editor" id="review-editor" role="group" aria-label="Record review result" hidden>
+              <p class="muted review-editor-note">What the review said, in its words. BugPilot keeps it with this work item's files; it does not check it.</p>
+              <label for="review-summary">Summary</label>
+              <textarea id="review-summary" rows="2"></textarea>
+              <label for="review-findings">Findings</label>
+              <textarea id="review-findings" rows="3"></textarea>
+              <label for="review-validation-notes">Validation notes</label>
+              <textarea id="review-validation-notes" rows="2"></textarea>
+              <label for="review-recommendations">Recommendations</label>
+              <textarea id="review-recommendations" rows="2"></textarea>
+              <div class="review-editor-actions">
+                <button type="button" class="result-link" id="save-review-result"><span id="save-review-result-label">Save Review Result</span></button>
+                <button type="button" class="result-link" id="cancel-review-result">Cancel</button>
+              </div>
+            </div>
+            <div class="review-status" id="review-capture-status" role="status" tabindex="-1"></div>
+            <p class="error" id="review-capture-error" role="alert" hidden></p>`;
   }
   if (id === "fixWithAI") {
     // The mode the task was prepared with — what the agent was actually told,

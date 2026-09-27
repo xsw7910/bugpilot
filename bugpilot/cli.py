@@ -18,7 +18,14 @@ from bugpilot.core.fix_mode_store import FixModeCatalog, FixModeStore, scoped_mo
 from bugpilot.core.fix_modes import FixMode, FixModeError
 from bugpilot.core.jira import JiraCommentPostError, JiraFetchError, fetch_issue, parse_issue
 from bugpilot.core.artifacts import CONTEXT_ARTIFACT, CORE_ARTIFACTS, FIX_REPORT_ARTIFACT, RUN_ARTIFACT
-from bugpilot.core.artifacts import ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT
+from bugpilot.core.artifacts import ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT, WorkItemNotFoundError
+from bugpilot.core.review_report import (
+    MAX_SECTION_CHARS,
+    REVIEW_SECTIONS,
+    ReviewInput,
+    ReviewReportExistsError,
+    record_review,
+)
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
 from bugpilot.core.identity import is_work_item_id
 from bugpilot.core.input_adapters import bug_spec_from_description
@@ -130,6 +137,24 @@ def build_parser() -> argparse.ArgumentParser:
     manual_result_parser = subparsers.add_parser("manual-result", help="Generate the developer manual-fix report template.")
     manual_result_parser.add_argument("issue_key")
     manual_result_parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing fix report with the template.")
+
+    record_review_parser = subparsers.add_parser(
+        "record-review",
+        help="Record the result of a completed review in review_report.md. Records what the review said; checks nothing.",
+    )
+    record_review_parser.add_argument("issue_key")
+    record_review_parser.add_argument("--summary", default=None, help="What the review concluded, in its own words.")
+    record_review_parser.add_argument("--findings", default=None, help="The problems or observations the review reported.")
+    record_review_parser.add_argument("--validation-notes", dest="validation_notes", default=None, help="What the reviewer checked or ran, as they reported it.")
+    record_review_parser.add_argument("--recommendations", default=None, help="What the review recommends doing next.")
+    record_review_parser.add_argument(
+        "--from-file",
+        dest="from_file",
+        default=None,
+        help="A JSON object with summary, findings, validation_notes and recommendations, instead of the text options.",
+    )
+    record_review_parser.add_argument("--replace", action="store_true", help="Overwrite a review result that is already recorded.")
+    _add_json_flag(record_review_parser)
 
     fix_mode_parser = subparsers.add_parser("fix-mode", help="List, show or customize the AI fixing workflows.")
     fix_mode_parser.add_argument(
@@ -637,6 +662,9 @@ def _dispatch(args, repo_root: Path) -> int:
             print(f"  preserved: {file_name}")
         return 0
 
+    if args.command == "record-review":
+        return _record_review(repo_root, args)
+
     if args.command == "summarize-results":
         # The gate has to cover BUGPILOT_AUTO_JIRA_COMMENT too, not just the explicit
         # flag: an env var must not be able to post a comment for a work item that
@@ -1071,6 +1099,82 @@ def _report_bug_preflight_failure(args, code: str, message: str) -> None:
         cli_json.emit_failure("bug", code, message)
     else:
         print(f"ERROR: {message}", file=sys.stderr)
+
+
+def _record_review(repo_root: Path, args) -> int:
+    """`bugpilot record-review <ID>`: write what a completed review said.
+
+    The one writer of review_report.md. It records; it does not review, verify or
+    judge — the report has no verdict field, and nothing here reads one into it.
+    Text comes from the four options or, for the extension, from a JSON file, so
+    a review never has to fit on a command line.
+    """
+
+    def fail(code: str, message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("record-review", code, message, work_item_id=args.issue_key)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    flags = {key: getattr(args, key) for key, _heading in REVIEW_SECTIONS}
+    if args.from_file is not None:
+        if any(value is not None for value in flags.values()):
+            return fail(errors.INVALID_INPUT, "Give the review either as --from-file or as text options, not both.")
+        try:
+            review = _review_from_file(Path(args.from_file))
+        except (OSError, ValueError) as exc:
+            return fail(errors.INVALID_INPUT, str(exc))
+    else:
+        review = ReviewInput(**{key: value or "" for key, value in flags.items()})
+
+    try:
+        recorded = record_review(repo_root, args.issue_key, review, replace=args.replace)
+    except WorkItemNotFoundError as exc:
+        return fail(errors.WORK_ITEM_NOT_FOUND, str(exc))
+    except ReviewReportExistsError as exc:
+        return fail(errors.ARTIFACT_EXISTS, str(exc))
+    except ValueError as exc:
+        return fail(errors.INVALID_INPUT, str(exc))
+    except OSError as exc:
+        # The folder removed or unwritable mid-write — a clean or a Fresh run.
+        return fail(errors.error_code_for(exc), f"The review result could not be written: {exc}")
+
+    relative = f".ai/{args.issue_key}/{recorded.path.name}"
+    if args.json_output:
+        cli_json.emit(
+            cli_json.success(
+                "record-review",
+                work_item_id=args.issue_key,
+                review_report=relative,
+                replaced=recorded.replaced,
+            )
+        )
+        return 0
+    print(f"{'Replaced' if recorded.replaced else 'Recorded'} the review result: {relative}")
+    print("This records what the review said. It does not verify the fix or confirm that tests passed.")
+    return 0
+
+
+def _review_from_file(path: Path) -> ReviewInput:
+    """A review from a JSON object: the four sections, each a string or null."""
+    # Bounded before it is read: four capped sections, generously escaped.
+    if path.stat().st_size > 8 * len(REVIEW_SECTIONS) * MAX_SECTION_CHARS:
+        raise ValueError("--from-file is far larger than any review record-review accepts.")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"--from-file is not valid JSON: {exc.msg}.") from exc
+    if not isinstance(data, dict):
+        raise ValueError("--from-file must hold one JSON object.")
+    allowed = {key for key, _heading in REVIEW_SECTIONS}
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        raise ValueError(f"--from-file has fields record-review does not know: {', '.join(unknown)}.")
+    for key, value in data.items():
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"--from-file field {key} must be text.")
+    return ReviewInput(**{key: data.get(key) or "" for key in allowed})
 
 
 def _run_retry(repo_root: Path, args) -> int:

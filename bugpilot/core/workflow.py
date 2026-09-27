@@ -34,7 +34,14 @@ from .issue import (
 )
 from .memory import add_memory_entry, build_memory_entry, search_memory
 from .models import SOURCE_MANUAL, BugSpec, InvestigationOptions, InvestigationPlan, InvestigationRequest
-from .artifacts import CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT
+from .artifacts import (
+    CONTEXT_ARTIFACT,
+    FIX_REPORT_ARTIFACT,
+    ISSUE_ARTIFACT,
+    RETRIEVAL_ARTIFACT,
+    TASK_ARTIFACT,
+    WorkItemNotFoundError,
+)
 from .fix_report import FixReport, manual_fix_report_template, read_fix_report
 from .run import RunArtifact, RunError, load_run, read_run_quietly, save_run
 from .attachments import ATTACHMENTS_DIR, attachment_names, copy_attachments
@@ -1021,10 +1028,6 @@ def validation_checklist(repo_root: Path, issue_key: str) -> ValidationChecklist
         regression_files=tuple(retrieval.top_files(10)) if retrieval is not None else (),
         review_risks=tuple(line for line in review_notes.splitlines() if line.strip()),
     )
-
-
-class WorkItemNotFoundError(FileNotFoundError):
-    """The work item directory does not exist."""
 
 
 def review_package_projection(repo_root: Path, issue_key: str) -> tuple[str, ValidationChecklist]:

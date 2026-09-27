@@ -29,11 +29,13 @@
  * not been handed over is `ready`, never the green tick.
  */
 
-import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_ARTIFACT } from "./artifacts.ts";
+import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, REVIEW_REPORT_ARTIFACT, TASK_ARTIFACT } from "./artifacts.ts";
 import type { RelevantFile } from "./contextSummary.ts";
 import type { UserFacingError } from "./failures.ts";
 import type { FixReportPreview } from "./fixReport.ts";
 import type { ValidationChecklist } from "./reviewPackage.ts";
+import type { ReviewCapture } from "./reviewCapture.ts";
+import type { ReviewReportPreview } from "./reviewReport.ts";
 import type { PlanState, Source } from "./form.ts";
 import { HANDOFF_STARTED_TITLE, REVIEW_STARTED_TITLE } from "./handoff.ts";
 import type { IssueSummary } from "./issue.ts";
@@ -84,7 +86,33 @@ export type StepActionId =
   | "fixWithAI"
   | "openFixReport"
   | "copyReviewPrompt"
-  | "reviewWithAI";
+  | "reviewWithAI"
+  // Review Result (Batch 11): record one, replace the one recorded, open it.
+  | "recordReviewResult"
+  | "replaceReviewResult"
+  | "openReviewReport";
+
+/** What Fix result says once a review result is recorded, and only then. */
+export const REVIEW_RESULT_RECORDED = "Review result recorded";
+
+/**
+ * Fix result's Review Result, present exactly while `review_report.md` is
+ * listed (Batch 11).
+ *
+ * Recorded, never inferred: this says somebody recorded what a review said, in
+ * that person's words — the summary line and the findings line are the report's
+ * own first lines, unclassified. Nothing here means reviewed, passed, verified
+ * or applied.
+ */
+export interface ReviewResultView {
+  readonly status: typeof REVIEW_RESULT_RECORDED;
+  /** The canonical file, opened through the constrained `openReviewReport` action. */
+  readonly artifact: string;
+  readonly summary: string;
+  readonly detail?: string;
+  /** Which of the other sections hold something, in words; absent when neither does. */
+  readonly alsoRecorded?: string;
+}
 
 /**
  * Review with AI, as this session saw it (Batch 10). Transient: never written,
@@ -174,6 +202,10 @@ export interface WorkflowStepResult {
    * card — never this row's `error`, and never Fix with AI's.
    */
   readonly review?: ReviewHandoffView;
+  /** Fix result only: the recorded review result, while `review_report.md` is listed. */
+  readonly reviewResult?: ReviewResultView;
+  /** Fix result only: a recording in flight, or why the last one did not record. */
+  readonly reviewCapture?: ReviewCapture;
   /**
    * A failure this row owns.
    *
@@ -280,6 +312,12 @@ export interface WorkflowInput {
   readonly copyingReviewPrompt?: boolean;
   /** Review with AI, for the work item on screen; absent until pressed. */
   readonly review?: ReviewHandoff;
+  /** `review_report.md`, projected; absent when it was not read. The listing decides presence. */
+  readonly reviewReport?: ReviewReportPreview;
+  /** A recording in flight, or the last one's failure; absent otherwise. */
+  readonly reviewCapture?: ReviewCapture;
+  /** Whether Record (or Replace) Review Result may be pressed now: the host's call. */
+  readonly canRecordReview?: boolean;
 }
 
 /** The five capability rows, in `progress.ts` terms. */
@@ -357,6 +395,7 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
  */
 function fixResultRow(input: WorkflowInput): WorkflowStepResult {
   const report = input.fixReport;
+  const recorded = input.artifacts.includes(REVIEW_REPORT_ARTIFACT);
   const detail = report === undefined || !report.readable
     ? "Preview unavailable"
     : report.tests === undefined
@@ -376,12 +415,47 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
     // then — the one that acts — starting a reviewer. All offered with any
     // report: the prompt and the checklist are built from the work item's
     // files, and a partial report is still one to review.
-    actions: canStartReview(input.review)
-      ? ["openFixReport", "copyReviewPrompt", "reviewWithAI"]
-      : ["openFixReport", "copyReviewPrompt"],
+    actions: fixResultActions(input, recorded),
     ...(input.validation === undefined ? {} : { validation: input.validation }),
     ...(input.copyingReviewPrompt ? { copyingReviewPrompt: true as const } : {}),
     ...(input.review === undefined ? {} : { review: reviewView(input.review) }),
+    ...(recorded ? { reviewResult: reviewResultView(input.reviewReport) } : {}),
+    ...(input.reviewCapture === undefined ? {} : { reviewCapture: input.reviewCapture }),
+  };
+}
+
+/**
+ * Fix result's actions, in the order they are read: the report, the review aids,
+ * then Review Result's — record one, or open and replace the one recorded.
+ *
+ * Record and Replace only when the host says a recording may start (no run and
+ * no recording in flight); Open whenever the file is listed.
+ */
+function fixResultActions(input: WorkflowInput, recorded: boolean): StepActionId[] {
+  const actions: StepActionId[] = ["openFixReport", "copyReviewPrompt"];
+  if (canStartReview(input.review)) actions.push("reviewWithAI");
+  if (recorded) actions.push("openReviewReport");
+  if (input.canRecordReview) actions.push(recorded ? "replaceReviewResult" : "recordReviewResult");
+  return actions;
+}
+
+/** Review Result's lines: the report's own words, or plainly that there is one. */
+function reviewResultView(report: ReviewReportPreview | undefined): ReviewResultView {
+  const base = { status: REVIEW_RESULT_RECORDED, artifact: REVIEW_REPORT_ARTIFACT } as const;
+  if (report === undefined || !report.readable) {
+    return { ...base, summary: REVIEW_RESULT_RECORDED, detail: "Preview unavailable" };
+  }
+  const also = [
+    ...(report.validationNotes ? ["validation notes"] : []),
+    ...(report.recommendations ? ["recommendations"] : []),
+  ];
+  const summary = report.summary ?? report.findings ?? REVIEW_RESULT_RECORDED;
+  const detail = report.summary !== undefined && report.findings !== undefined ? `Findings: ${report.findings}` : undefined;
+  return {
+    ...base,
+    summary,
+    ...(detail === undefined ? {} : { detail }),
+    ...(also.length === 0 ? {} : { alsoRecorded: `Also recorded: ${also.join(" · ")}` }),
   };
 }
 

@@ -4304,3 +4304,279 @@ test("every row action and Improve, pressed on the page, reach the controller th
   ]);
   assert.equal(l.hintPrompts.length, 1, "Improve never reached the hint improver");
 });
+
+// --- Record Review Result and Review Result, under Fix result (Batch 11) --------
+
+const REVIEW_PREVIEW = {
+  readable: true,
+  summary: "The change reads correctly.",
+  findings: "One duplicate null check.",
+  validationNotes: true,
+  recommendations: false,
+} as const;
+
+/** A report on screen, recording allowed, and whatever else the test adds. */
+const recordable = (extra: Partial<WorkflowInput> = {}, overrides: Partial<PanelState> = {}) =>
+  reported(REPORT, { canRecordReview: true, ...extra }, overrides);
+
+/** A report with a recorded review on screen. */
+const reviewed = (extra: Partial<WorkflowInput> = {}, overrides: Partial<PanelState> = {}) =>
+  prepared(
+    {
+      artifacts: [...PREPARED_FILES, "fix_report.md", "review_report.md"],
+      fixReport: REPORT,
+      reviewReport: REVIEW_PREVIEW,
+      canRecordReview: true,
+      ...extra,
+    },
+    overrides,
+  );
+
+const typeReview = (p: Page, fields: Partial<Record<"summary" | "findings" | "validation-notes" | "recommendations", string>>) => {
+  for (const [field, value] of Object.entries(fields)) p.byId(`review-${field}`).value = value ?? "";
+};
+
+test("no report, no Record Review Result, no Review Result, no form", () => {
+  const p = load();
+  p.send(prepared());
+  assert.equal(p.byId("record-review-result").hidden, true);
+  assert.equal(p.byId("review-result").hidden, true);
+  assert.equal(p.byId("review-editor").hidden, true);
+});
+
+test("a report offers Record Review Result, which opens the form at Summary and asks the host nothing", () => {
+  const p = load();
+  p.send(recordable());
+  const record = p.byId("record-review-result");
+  assert.equal(record.hidden, false);
+  assert.equal(record.getAttribute("aria-expanded"), "false");
+  assert.equal(p.byId("review-result").hidden, true);
+  const before = p.posted.length;
+
+  record.dispatch("click");
+
+  assert.equal(p.byId("review-editor").hidden, false);
+  assert.equal(record.getAttribute("aria-expanded"), "true");
+  assert.equal(p.focused, "review-summary");
+  assert.equal(p.posted.length, before);
+});
+
+test("Save sends the four sections and nothing else, in a message the host parses", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "Reads correctly.", findings: "## Minor\n- one", "validation-notes": "", recommendations: "Drop it." });
+
+  p.byId("save-review-result").dispatch("click");
+
+  const message = p.posted.at(-1)!;
+  assert.deepEqual(message, {
+    type: "recordReview",
+    review: { summary: "Reads correctly.", findings: "## Minor\n- one", validationNotes: "", recommendations: "Drop it." },
+  });
+  assert.deepEqual(parsePanelMessage(message), message);
+});
+
+test("while the host records, Save waits and says so, and the status is announced once", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "Reads correctly." });
+  p.byId("save-review-result").dispatch("click");
+  p.send(recordable({ canRecordReview: false, reviewCapture: { state: "recording" } }));
+
+  const save = p.byId("save-review-result");
+  assert.equal(save.getAttribute("aria-disabled"), "true");
+  assert.equal(save.getAttribute("aria-busy"), "true");
+  assert.equal(save.disabled, false, "disabled would take the focus away");
+  assert.equal(p.byId("save-review-result-label").textContent, "Recording…");
+  assert.equal(p.byId("review-capture-status").textContent, "Recording review result…");
+  assert.equal(p.byId("review-editor").hidden, false);
+  const before = p.posted.length;
+  save.dispatch("click");
+  assert.equal(p.posted.length, before, "a second recording was asked for");
+});
+
+test("a recording that finished closes and empties the form, shows the result, and moves focus to it", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "Reads correctly." });
+  p.byId("save-review-result").dispatch("click");
+  p.byId("save-review-result").focus();
+  p.send(recordable({ canRecordReview: false, reviewCapture: { state: "recording" } }));
+
+  // The host's own word, first with the listing still being read, then with the
+  // result it read back — the order the controller pushes them in.
+  p.send(recordable({ reviewCapture: { state: "recorded", replaced: false } }));
+  assert.equal(p.byId("review-editor").hidden, true);
+  assert.equal(p.focused, "review-capture-status", "the focus was dropped with the form");
+  p.send(reviewed({ reviewCapture: { state: "recorded", replaced: false } }));
+
+  assert.equal(p.byId("review-editor").hidden, true);
+  assert.equal(p.byId("review-summary").value, "");
+  assert.equal(p.byId("review-capture-status").textContent, "Review result recorded.");
+  assert.equal(p.byId("review-result").hidden, false);
+  assert.equal(p.byId("review-result-status").textContent, "Review result recorded");
+  assert.equal(p.byId("review-result-summary").textContent, "The change reads correctly.");
+  assert.equal(p.byId("review-result-detail").textContent, "Findings: One duplicate null check.");
+  assert.equal(p.byId("review-result-also").textContent, "Also recorded: validation notes");
+  assert.equal(p.focused, "review-capture-status");
+  // Record gives way to Open and Replace.
+  assert.equal(p.byId("record-review-result").hidden, true);
+  assert.equal(p.byId("open-review-report").hidden, false);
+  assert.equal(p.byId("replace-review-result").hidden, false);
+});
+
+test("a recording that failed keeps the form and its text, and says so in the recording's own words", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "Reads correctly." });
+  p.send(recordable({ canRecordReview: false, reviewCapture: { state: "recording" } }));
+
+  p.send(recordable({ reviewCapture: { state: "failed", message: "Review result was not recorded: disk full." } }));
+
+  const error = p.byId("review-capture-error");
+  assert.equal(error.hidden, false);
+  assert.equal(error.textContent, "Review result was not recorded: disk full.");
+  assert.equal(p.byId("review-editor").hidden, false);
+  assert.equal(p.byId("review-summary").value, "Reads correctly.");
+  assert.equal(p.byId("review-capture-status").textContent, "");
+  assert.equal(p.byId("save-review-result").getAttribute("aria-disabled"), "false");
+  // Not the row's card, not the run's.
+  assert.equal(p.byId("review-error").hidden, true);
+  assert.equal(p.byId("failure").hidden, true);
+});
+
+test("Open Review Report asks for the one action, and names no file", () => {
+  const p = load();
+  p.send(reviewed());
+  p.byId("open-review-report").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "openReviewReport" });
+});
+
+test("Replace Review Result opens the same form, and the host is the one to ask before replacing", () => {
+  const p = load();
+  p.send(reviewed());
+  const replace = p.byId("replace-review-result");
+  replace.dispatch("click");
+  assert.equal(p.byId("review-editor").hidden, false);
+  assert.equal(replace.getAttribute("aria-expanded"), "true");
+  typeReview(p, { summary: "A second review." });
+  p.byId("save-review-result").dispatch("click");
+  // No replace flag: the page does not decide that.
+  assert.deepEqual(Object.keys(p.posted.at(-1)!).sort(), ["review", "type"]);
+});
+
+test("another work item closes the form and forgets what was typed for the last one", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "For JR-12345." });
+
+  p.send(recordable({ workItemId: "JR-77777" }, { workItemId: "JR-77777" }));
+
+  assert.equal(p.byId("review-editor").hidden, true);
+  assert.equal(p.byId("review-summary").value, "");
+  assert.equal(p.byId("record-review-result").getAttribute("aria-expanded"), "false");
+});
+
+test("Cancel closes and empties the form, and returns to the button that opened it", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "Draft." });
+  p.byId("cancel-review-result").dispatch("click");
+  assert.equal(p.byId("review-editor").hidden, true);
+  assert.equal(p.byId("review-summary").value, "");
+  assert.equal(p.focused, "record-review-result");
+});
+
+test("typing a review is not the bug being prepared: Ctrl+Enter there saves the review, never Runs", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "Reads correctly." });
+  const before = p.posted.length;
+
+  // The panel's form sees the event with the review field as its target.
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("review-summary") });
+  p.byId("form").dispatch("input", { target: p.byId("review-summary") });
+  p.flush();
+  assert.equal(p.posted.slice(before).some((message) => message["type"] === "run" || message["type"] === "formChanged"), false);
+
+  p.byId("review-editor").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("review-summary") });
+  assert.equal(p.posted.at(-1)!["type"], "recordReview");
+});
+
+test("with no recording allowed, Save stays but does nothing", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  p.send(recordable({ canRecordReview: false }));
+  assert.equal(p.byId("save-review-result").getAttribute("aria-disabled"), "true");
+  const before = p.posted.length;
+  p.byId("save-review-result").dispatch("click");
+  assert.equal(p.posted.length, before);
+});
+
+test("a push that changes nothing about the review result leaves its lines and status alone", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  p.send(recordable({ canRecordReview: false, reviewCapture: { state: "recording" } }));
+  p.send(reviewed());
+  const status = p.byId("review-capture-status").textContent;
+  p.send(reviewed({ copyingReviewPrompt: true }));
+  assert.equal(p.byId("review-capture-status").textContent, status);
+  assert.equal(p.byId("review-result-summary").textContent, "The change reads correctly.");
+});
+
+test("a hostile recorded line renders as text", () => {
+  const hostile = "<img src=x onerror=alert(1)>";
+  const p = load();
+  p.send(reviewed({ reviewReport: { ...REVIEW_PREVIEW, summary: hostile } }));
+  assert.equal(p.byId("review-result-summary").textContent, hostile);
+  assert.equal(p.byId("review-result-summary").children.length, 0);
+});
+
+test("a recording the host stopped tracking is not a success: the form and its text stay", () => {
+  // A run started mid-recording drops the capture while Fix result stays.
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "Keep me." });
+  p.send(recordable({ canRecordReview: false, reviewCapture: { state: "recording" } }));
+
+  p.send(recordable({ canRecordReview: false }));
+
+  assert.equal(p.byId("review-editor").hidden, false);
+  assert.equal(p.byId("review-summary").value, "Keep me.");
+  assert.equal(p.byId("review-capture-status").textContent, "");
+});
+
+test("Cancel takes a failure about the discarded text off the screen", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  p.send(recordable({ reviewCapture: { state: "failed", message: "Review result was not recorded: x." } }));
+  assert.equal(p.byId("review-capture-error").hidden, false);
+  p.byId("cancel-review-result").dispatch("click");
+  assert.equal(p.byId("review-capture-error").hidden, true);
+});
+
+test("the same failure after Cancel and a new press is said again", () => {
+  const failed = { state: "failed", message: "Review result was not recorded: enter at least one section." } as const;
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  p.send(recordable({ reviewCapture: failed }));
+  p.byId("cancel-review-result").dispatch("click");
+  p.byId("record-review-result").dispatch("click");
+  // The host clears its capture on the new press, then says the same thing.
+  p.send(recordable());
+  p.send(recordable({ reviewCapture: failed }));
+  assert.equal(p.byId("review-capture-error").hidden, false);
+  assert.equal(p.byId("review-capture-error").textContent, failed.message);
+});
