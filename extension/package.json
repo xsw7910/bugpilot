@@ -8,6 +8,10 @@
   "icon": "media/icon.png",
   "//license": "Proprietary, and pointed at a file rather than declared as an SPDX id. `UNLICENSED` says 'no rights granted at all', which is the wrong thing to tell someone installing it from the Marketplace: they need permission to use it. This form also makes vsce ship the file as the License asset the extension page links to.",
   "license": "SEE LICENSE IN LICENSE.txt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xsw7910/bugpilot.git"
+  },
   "//categories": "`Programming Languages` was wrong and was there: that category is for extensions that add language support - grammars, servers, debuggers - and browsing it for this would waste the reader's time. A category is a shelf in someone else's shop, not a keyword.",
   "categories": [
     "AI",
