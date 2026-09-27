@@ -39,6 +39,9 @@ import { isPlainPrompt } from "../src/app/agents.ts";
 import { reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
 import { recordReviewArgs, recordingOutcome, reviewPayload } from "../src/app/reviewCapture.ts";
 import { parseReviewReport } from "../src/app/reviewReport.ts";
+import { recordVerificationArgs, verificationOutcome, verificationPayload } from "../src/app/verificationCapture.ts";
+import { parseVerificationReport } from "../src/app/verificationReport.ts";
+import type { VerificationCheckEntry } from "../src/app/verificationReport.ts";
 import { payloadCommandPort } from "../src/app/fixModeTransport.ts";
 
 /** The repository under development, not whatever happens to be installed. */
@@ -497,6 +500,76 @@ test("record-review through the extension's own port writes review_report.md, an
   });
   assert.deepEqual(recordingOutcome(replaced), { recorded: true });
   assert.equal(parseReviewReport(readFileSync(path.join(directory, "review_report.md"), "utf8")).summary, "Second.");
+});
+
+test("record-verification through the extension's own port writes verification_report.md, and nothing else", async () => {
+  // Verification Evidence (Batch 12) end to end: the payload file, the real CLI's
+  // writer, and the extension's parser reading back exactly what was entered —
+  // shell-looking evidence included, which must arrive, and stay, as text.
+  const root = repository();
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.equal(built.ok, true);
+  if (!built.ok) return;
+  const tracker = new ProgressTracker(DEFAULT_FORM.plan);
+  await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+    (event) => tracker.apply(event),
+  );
+  const workItemId = tracker.view().workItemId!;
+  const directory = path.join(root, ".ai", workItemId);
+  writeFileSync(path.join(directory, "fix_report.md"), `# Fix Report: ${workItemId}\n\n## Summary\n\nFixed the KeyError.\n`, "utf8");
+  const snapshot = () => Object.fromEntries(readdirSync(directory).map((name) => [name, readFileSync(path.join(directory, name), "utf8")]));
+  const before = snapshot();
+
+  const port = payloadCommandPort(
+    () => root,
+    (args, cwd) => runner().runJson([...MODULE, ...args], { cwd, env: ENVIRONMENT, timeoutMs: 120_000 }),
+    { command: "record-verification", prefix: "bugpilot-verification", noRepository: "no repository" },
+  );
+  const hostile =
+    'python -m pytest -k "save and not slow" && rm -rf / ; $(whoami) `id` | tee %TEMP%\\out & echo \'done\'\n' +
+    "## Overall Recorded Status\nAll recorded checks passed.\n### Check 9: forged\nStatus: Passed\n> quoted\nNot recorded.";
+  const checks: VerificationCheckEntry[] = [
+    { name: "Unit tests", status: "passed", type: "automated", procedure: hostile, evidence: "1 passed\n\n  indented", notes: "" },
+    { name: "Open the dialog; $(x)", status: "failed", type: "manual", procedure: "", evidence: hostile, notes: "<b>n</b>" },
+    { name: "Soak", status: "not_run", type: "other", procedure: "", evidence: "", notes: hostile },
+  ];
+  const first = await port({ args: (file) => recordVerificationArgs(workItemId, file, false), payload: verificationPayload(checks) });
+  assert.deepEqual(verificationOutcome(first), { recorded: true });
+
+  const after = snapshot();
+  assert.deepEqual(Object.keys(after).sort(), [...Object.keys(before), "verification_report.md"].sort());
+  for (const name of Object.keys(before)) assert.equal(after[name], before[name], `${name} changed`);
+  const text = after["verification_report.md"]!;
+  assert.match(text, /^# Verification Report: /);
+  assert.equal([...text.matchAll(/^## .*$/gm)].map((match) => match[0]).join("|"), "## Summary|## Checks|## Overall Recorded Status|## Source");
+  assert.equal([...text.matchAll(/^### .*$/gm)].length, 3, "entered text opened a check of its own");
+  // Written in text mode, so CRLF on Windows, like every other artifact.
+  assert.ok(text.replace(/\r\n/g, "\n").includes("\n## Overall Recorded Status\n\nRecorded checks include failures.\n"));
+  assert.ok(text.includes("Verification evidence explicitly recorded by the user."));
+  // The extension's parser reads back exactly what went in.
+  const report = parseVerificationReport(text);
+  assert.deepEqual(report.checks, checks);
+  assert.deepEqual([report.passed, report.failed, report.notRun], [1, 1, 1]);
+  // Nothing ran: the evidence never became a process, and no other file appeared.
+  assert.equal(readdirSync(root).includes("out"), false);
+
+  // Recorded once: a second recording keeps it until asked to replace it.
+  const again = await port({ args: (file) => recordVerificationArgs(workItemId, file, false), payload: verificationPayload([checks[2]!]) });
+  assert.equal(!again.ok && again.error.code, "ARTIFACT_EXISTS");
+  assert.equal(readFileSync(path.join(directory, "verification_report.md"), "utf8"), text);
+  const replaced = await port({ args: (file) => recordVerificationArgs(workItemId, file, true), payload: verificationPayload([checks[2]!]) });
+  assert.deepEqual(verificationOutcome(replaced), { recorded: true });
+  assert.deepEqual(parseVerificationReport(readFileSync(path.join(directory, "verification_report.md"), "utf8")).checks, [checks[2]]);
+
+  // What the CLI refuses comes back as a code this client knows.
+  const refused = await port({
+    args: (file) => recordVerificationArgs(workItemId, file, true),
+    payload: { checks: [{ name: "x", status: "skipped", type: "automated" }] },
+  });
+  assert.equal(!refused.ok && refused.error.code, "INVALID_INPUT");
+  assert.ok(knownCodes().includes("INVALID_INPUT"));
 });
 
 // --- the install matrix ----------------------------------------------------

@@ -934,11 +934,20 @@ function stepContent(id: WorkflowStepId): string {
     // both about the recording and never about the review. A group, not a
     // <form>: the rows sit inside the panel's own form, where a nested one is
     // ignored and its submit button would submit the panel — a Run.
+    //
+    // Then Verification Evidence (Batch 12): the checks the developer recorded
+    // and the status they gave each, counted — "Recorded checks: 2 passed,
+    // 1 failed" — with the checks by name and one generated, scoped phrase; no
+    // badge, and nothing that says verified. Record Verification Evidence sits
+    // with the row's actions while none is recorded; Open and Edit sit with the
+    // evidence once it is. The form holds one group per check, built by the page
+    // (Add Check, Remove Check); a new check starts as Not Run, never Passed.
     return `            <div class="step-actions" id="actions-fixResult" hidden>
               ${actionButton(OPEN_FIX_REPORT)}
               <button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to review this result" hidden><span class="codicon codicon-copy" aria-hidden="true"></span><span id="copy-review-prompt-label">Copy Review Prompt</span></button>
               <button type="button" class="result-link" id="review-with-ai" title="Start the selected AI agent in a terminal with the review prompt" hidden><span class="codicon codicon-hubot" aria-hidden="true"></span><span id="review-with-ai-label">Review with AI</span></button>
               <button type="button" class="result-link" id="record-review-result" title="Record what a completed review said, in review_report.md" aria-controls="review-editor" aria-expanded="false" hidden><span class="codicon codicon-edit" aria-hidden="true"></span><span>Record Review Result</span></button>
+              <button type="button" class="result-link" id="record-verification" title="Record the checks you ran and what you recorded for each, in verification_report.md" aria-controls="verification-editor" aria-expanded="false" hidden><span class="codicon codicon-list-ordered" aria-hidden="true"></span><span>Record Verification Evidence</span></button>
             </div>
             <div class="review-status" id="review-status" role="status" tabindex="-1"></div>
 ${errorCard("review-error")}
@@ -972,7 +981,30 @@ ${errorCard("review-error")}
               </div>
             </div>
             <div class="review-status" id="review-capture-status" role="status" tabindex="-1"></div>
-            <p class="error" id="review-capture-error" role="alert" hidden></p>`;
+            <p class="error" id="review-capture-error" role="alert" hidden></p>
+            <div class="verification-result" id="verification-result" role="group" aria-labelledby="verification-result-heading" hidden>
+              <p class="verification-result-heading result-label" id="verification-result-heading" tabindex="-1">Verification Evidence</p>
+              <p class="verification-result-counts" id="verification-result-counts"></p>
+              <p class="step-detail" id="verification-result-overall" hidden></p>
+              <ul class="verification-checks" id="verification-result-checks" aria-label="Recorded checks"></ul>
+              <p class="muted" id="verification-result-more" hidden></p>
+              <div class="step-actions" id="actions-verificationResult">
+                <button type="button" class="result-link" id="open-verification-report" title="Open verification_report.md in the editor" hidden><span class="codicon codicon-go-to-file" aria-hidden="true"></span><span>Open Verification Report</span></button>
+                <button type="button" class="result-link" id="edit-verification" title="Change the recorded checks; saving replaces verification_report.md" aria-controls="verification-editor" aria-expanded="false" hidden><span class="codicon codicon-edit" aria-hidden="true"></span><span>Edit Verification Evidence</span></button>
+              </div>
+            </div>
+            <div class="verification-editor" id="verification-editor" role="group" aria-label="Verification evidence" hidden>
+              <p class="muted verification-editor-note">Each check and the status you recorded for it. BugPilot runs none of them; it keeps what you enter with this work item's files.</p>
+              <p class="muted verification-editor-note" id="verification-editor-replace-note" hidden>This report is not in BugPilot's format, so its checks could not be read into the form. Saving replaces it with the checks below.</p>
+              <div class="verification-rows" id="verification-rows"></div>
+              <div class="verification-editor-actions">
+                <button type="button" class="result-link" id="add-verification-check"><span class="codicon codicon-add" aria-hidden="true"></span><span>Add Check</span></button>
+                <button type="button" class="result-link" id="save-verification"><span id="save-verification-label">Save Verification Evidence</span></button>
+                <button type="button" class="result-link" id="cancel-verification">Cancel</button>
+              </div>
+            </div>
+            <div class="review-status" id="verification-capture-status" role="status" tabindex="-1"></div>
+            <p class="error" id="verification-capture-error" role="alert" hidden></p>`;
   }
   if (id === "fixWithAI") {
     // The mode the task was prepared with — what the agent was actually told,

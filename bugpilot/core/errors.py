@@ -39,7 +39,8 @@ ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
 MISSING_RESULTS = "MISSING_RESULTS"
 INVALID_INPUT = "INVALID_INPUT"
 # The artifact a command would write is already there, and the command keeps it
-# unless asked to replace it (record-review without --replace).
+# unless asked to replace it (record-review or record-verification without
+# --replace).
 ARTIFACT_EXISTS = "ARTIFACT_EXISTS"
 
 # --- other ------------------------------------------------------------------

@@ -178,6 +178,18 @@ export function activate(context: vscode.ExtensionContext): void {
           noRepository: "No workspace repository is open to record a review result in.",
         },
       ),
+      // Record Verification Evidence: the checks go the same way — a temporary
+      // file, removed afterwards — so a command line or a pasted log is never argv
+      // and never shell text. The extension runs none of the checks.
+      runVerificationCommand: payloadCommandPort(
+        () => controller.root,
+        (args, cwd) => new Runner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
+        {
+          command: "record-verification",
+          prefix: "bugpilot-verification",
+          noRepository: "No workspace repository is open to record verification evidence in.",
+        },
+      ),
       // Improving a hint reads the issue and asks an AI CLI; it never builds
       // context, and it never runs when there is no repository to read from.
       loadIssueDetails: async (issueKey) => {
@@ -400,14 +412,13 @@ export function activate(context: vscode.ExtensionContext): void {
     // confirmation below stays either way — that is the part that matters.
     const workItemId = workItemFromTree(argument) ?? (await askWorkItem(controller));
     if (!workItemId) return;
-    const confirmed = await vscode.window.showWarningMessage(
-      `Delete every artifact for ${workItemId}? Anything an agent wrote, including fix_report.md, is removed.`,
-      { modal: true },
-      "Delete",
-    );
-    if (confirmed !== "Delete") return;
-    await runText(executable, root, ["clean", workItemId], channel, log);
-    await controller.refreshArtifacts();
+    // The controller asks (modal) and runs it, because it owns the one guard for
+    // artifact writes: no clean over a review or verification recording in
+    // flight, and no recording or run while the clean runs (Batch 12).
+    const cleaned = await controller.clean(workItemId, async () => {
+      await runText(executable, root, ["clean", workItemId], channel, log);
+    });
+    if (!cleaned) return;
     artifactsView?.refresh();
     historyView?.refresh();
   });

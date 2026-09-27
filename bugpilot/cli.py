@@ -26,6 +26,15 @@ from bugpilot.core.review_report import (
     ReviewReportExistsError,
     record_review,
 )
+from bugpilot.core.verification_report import (
+    MAX_CHECKS,
+    MAX_NAME_CHARS,
+    MAX_TEXT_CHARS,
+    VerificationCheck,
+    VerificationReportExistsError,
+    record_verification,
+    summary_line,
+)
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
 from bugpilot.core.identity import is_work_item_id
 from bugpilot.core.input_adapters import bug_spec_from_description
@@ -155,6 +164,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     record_review_parser.add_argument("--replace", action="store_true", help="Overwrite a review result that is already recorded.")
     _add_json_flag(record_review_parser)
+
+    record_verification_parser = subparsers.add_parser(
+        "record-verification",
+        help=(
+            "Record verification evidence in verification_report.md: the checks you ran and the status you "
+            "recorded for each. Runs nothing and verifies nothing."
+        ),
+    )
+    record_verification_parser.add_argument("issue_key")
+    record_verification_parser.add_argument(
+        "--from-file",
+        dest="from_file",
+        default=None,
+        help=(
+            'A JSON object {"checks": [...]}; each check has a name and a status (passed, failed or not_run), '
+            "and optionally a type (automated, manual or other), procedure, evidence and notes."
+        ),
+    )
+    record_verification_parser.add_argument(
+        "--replace", action="store_true", help="Overwrite verification evidence that is already recorded."
+    )
+    _add_json_flag(record_verification_parser)
 
     fix_mode_parser = subparsers.add_parser("fix-mode", help="List, show or customize the AI fixing workflows.")
     fix_mode_parser.add_argument(
@@ -664,6 +695,9 @@ def _dispatch(args, repo_root: Path) -> int:
 
     if args.command == "record-review":
         return _record_review(repo_root, args)
+
+    if args.command == "record-verification":
+        return _record_verification(repo_root, args)
 
     if args.command == "summarize-results":
         # The gate has to cover BUGPILOT_AUTO_JIRA_COMMENT too, not just the explicit
@@ -1175,6 +1209,103 @@ def _review_from_file(path: Path) -> ReviewInput:
         if value is not None and not isinstance(value, str):
             raise ValueError(f"--from-file field {key} must be text.")
     return ReviewInput(**{key: data.get(key) or "" for key in allowed})
+
+
+def _record_verification(repo_root: Path, args) -> int:
+    """`bugpilot record-verification <ID> --from-file <json>`: write recorded evidence.
+
+    The one writer of verification_report.md. It records the checks the developer
+    gathered and the status they gave each; it runs no command and observes no
+    result, so every status in the report is the user's. The checks come as a JSON
+    file — transport only, never stored — so evidence never has to fit on a
+    command line or pass through a shell.
+    """
+
+    def fail(code: str, message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("record-verification", code, message, work_item_id=args.issue_key)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    if args.from_file is None:
+        return fail(errors.INVALID_INPUT, "Give the checks as --from-file <json>.")
+    try:
+        checks = _checks_from_file(Path(args.from_file))
+    except (OSError, ValueError) as exc:
+        return fail(errors.INVALID_INPUT, str(exc))
+    except RecursionError:
+        return fail(errors.INVALID_INPUT, "--from-file is nested too deeply to be the checks record-verification takes.")
+
+    try:
+        recorded = record_verification(repo_root, args.issue_key, checks, replace=args.replace)
+    except WorkItemNotFoundError as exc:
+        return fail(errors.WORK_ITEM_NOT_FOUND, str(exc))
+    except VerificationReportExistsError as exc:
+        return fail(errors.ARTIFACT_EXISTS, str(exc))
+    except ValueError as exc:
+        return fail(errors.INVALID_INPUT, str(exc))
+    except OSError as exc:
+        # The folder removed or unwritable mid-write — a clean or a Fresh run.
+        return fail(errors.error_code_for(exc), f"The verification evidence could not be written: {exc}")
+
+    counts = {status: sum(check.status == status for check in checks) for status in ("passed", "failed", "not_run")}
+    relative = f".ai/{args.issue_key}/{recorded.path.name}"
+    if args.json_output:
+        cli_json.emit(
+            cli_json.success(
+                "record-verification",
+                work_item_id=args.issue_key,
+                verification_report=relative,
+                replaced=recorded.replaced,
+                checks=counts,
+            )
+        )
+        return 0
+    print(f"{'Replaced' if recorded.replaced else 'Recorded'} the verification evidence: {relative}")
+    print(summary_line(counts["passed"], counts["failed"], counts["not_run"]))
+    print("BugPilot ran none of these checks: each status is the one you recorded.")
+    return 0
+
+
+_CHECK_FIELDS = ("name", "status", "type", "procedure", "evidence", "notes")
+
+
+def _checks_from_file(path: Path) -> list[VerificationCheck]:
+    """The checks from ``{"checks": [...]}``: name and status required, the rest optional."""
+    # Bounded before it is read: capped checks of capped fields, generously escaped.
+    if path.stat().st_size > 8 * MAX_CHECKS * (MAX_NAME_CHARS + 3 * MAX_TEXT_CHARS + 200):
+        raise ValueError("--from-file is far larger than any evidence record-verification accepts.")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"--from-file is not valid JSON: {exc.msg}.") from exc
+    if not isinstance(data, dict) or set(data) != {"checks"} or not isinstance(data["checks"], list):
+        raise ValueError('--from-file must hold one JSON object, {"checks": [...]}.')
+    checks: list[VerificationCheck] = []
+    for number, item in enumerate(data["checks"], start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"Check {number} must be a JSON object.")
+        unknown = sorted(set(item) - set(_CHECK_FIELDS))
+        if unknown:
+            raise ValueError(f"Check {number} has fields record-verification does not know: {', '.join(unknown)}.")
+        for key in ("name", "status"):
+            if not isinstance(item.get(key), str):
+                raise ValueError(f"Check {number}: {key} is required and must be text.")
+        for key in ("type", "procedure", "evidence", "notes"):
+            if item.get(key) is not None and not isinstance(item[key], str):
+                raise ValueError(f"Check {number}: {key} must be text.")
+        checks.append(
+            VerificationCheck(
+                name=item["name"],
+                status=item["status"],
+                type=item.get("type") or "other",
+                procedure=item.get("procedure") or "",
+                evidence=item.get("evidence") or "",
+                notes=item.get("notes") or "",
+            )
+        )
+    return checks
 
 
 def _run_retry(repo_root: Path, args) -> int:
