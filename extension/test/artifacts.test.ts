@@ -572,3 +572,13 @@ test("History's outcome ignores recorded evidence, with or without a review", ()
     );
   }
 });
+
+test("no History icon claims a fix was verified or passed", () => {
+  // A work item with fix_report.md is one an agent reported on — not a verified
+  // fix. The icon was the check-badge "verified" until release stabilization.
+  for (const [outcome, icon] of Object.entries(OUTCOME_ICONS)) {
+    const claims = icon.split("-").filter((part) => ["verified", "pass", "check", "shield", "thumbsup", "star"].includes(part));
+    assert.deepEqual(claims, [], `${outcome} uses ${icon}`);
+  }
+  assert.equal(OUTCOME_ICONS.fixed, "file-text");
+});

@@ -475,6 +475,10 @@
     renderFixModeOptions(state);
 
     if (typeof state.revision === "number" && state.revision !== appliedRevision && state.form) {
+      // The host's form supersedes a change still waiting on the debounce: sent
+      // after this, that snapshot of the old form would overwrite the host's copy
+      // and the two would disagree about which work item the field names.
+      clearTimeout(changeTimer);
       writeForm(state.form);
       appliedRevision = state.revision;
       persist(state.form);

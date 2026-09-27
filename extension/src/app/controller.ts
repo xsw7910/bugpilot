@@ -18,7 +18,7 @@ import path from "node:path";
 
 import { isWithin } from "../workspace.ts";
 
-import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, isWorkItemId, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE } from "./form.ts";
+import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, isWorkItemId, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE, JIRA_ISSUE_KEY_RE } from "./form.ts";
 import {
   MAX_LISTED_FILES,
   contextCounts,
@@ -277,19 +277,37 @@ export interface ControllerPorts {
 
 /**
  * The artifact writes the host performs itself, one at a time (Batch 12): recording
- * a review result, recording verification evidence, and cleaning a work item.
+ * a review result, recording verification evidence, cleaning a work item, and
+ * preparing a retry package (release stabilization: it writes into the folder too).
  */
-type ArtifactMutation = "review" | "verification" | "clean";
+type ArtifactMutation = "review" | "verification" | "clean" | "retry";
 
 /** What a run that has to wait is told, per mutation in flight. */
 const RUN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   review: "Wait for the review result recording to finish before starting a run.",
   verification: "Wait for the verification evidence recording to finish before starting a run.",
   clean: "Wait for the clean to finish before starting a run.",
+  retry: "Wait for the retry to finish before starting a run.",
+};
+
+/** What Retry is told, per artifact write in flight. */
+const RETRY_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
+  review: "Wait for artifact recording to finish before retrying.",
+  verification: "Wait for artifact recording to finish before retrying.",
+  clean: "Wait for the clean to finish before retrying.",
+  retry: "Wait for the retry to finish before retrying.",
 };
 
 /** What Clean is told while a recording is in flight. */
 export const CLEAN_WAITS = "Wait for artifact recording to finish before cleaning this work item.";
+
+/** What Clean is told, per artifact write in flight. */
+const CLEAN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
+  review: CLEAN_WAITS,
+  verification: CLEAN_WAITS,
+  clean: "Wait for the clean to finish before cleaning this work item.",
+  retry: "Wait for the retry to finish before cleaning this work item.",
+};
 
 /**
  * A Fix Mode management command, and the definition it carries.
@@ -580,6 +598,7 @@ export class Controller {
   }
 
   async #resolveEnvironment(): Promise<void> {
+    const previousRoot = this.#root;
     const environment = await this.#ports.environment();
     const credentials = await this.#ports.credentials();
     this.#jiraConfigured = credentials.configured;
@@ -622,6 +641,9 @@ export class Controller {
     // this runs on credential changes, executable changes and every Run. The
     // page asks for the form itself when it loads, with a `ready` message.
     this.#push();
+    // The trees read the repository from here: one drawn before it was known —
+    // at start-up, History says to open a repository — is re-read once it is.
+    if (this.#root !== previousRoot) this.#ports.ui.refreshViews();
   }
 
   async handle(message: PanelMessage): Promise<void> {
@@ -809,11 +831,12 @@ export class Controller {
     this.#progress = tracker.view();
     this.#push();
 
-    const credentials = await this.#ports.credentials();
-    this.#jiraConfigured = credentials.configured;
-    this.#ports.log.info(`bugpilot ${built.args.join(" ")}`);
-
     try {
+      // Inside the try: a keyring that fails to answer must not leave the panel
+      // running forever (release stabilization).
+      const credentials = await this.#ports.credentials();
+      this.#jiraConfigured = credentials.configured;
+      this.#ports.log.info(`bugpilot ${built.args.join(" ")}`);
       const outcome = await this.#ports.runner.runStreaming(
         built.args,
         {
@@ -916,9 +939,20 @@ export class Controller {
   async retry(): Promise<void> {
     const workItemId = this.#workItemId;
     if (!workItemId || !this.#root || this.#running) return;
+    // Retry writes user_feedback.md and agent_retry_prompt.md into the work item
+    // folder, so it takes its turn with the other artifact writes: never during a
+    // clean (it would write into a folder being deleted) or a recording, and none
+    // of them — nor a run — starts while it is being prepared.
+    if (this.#mutation !== undefined) {
+      this.#ports.ui.notify("warning", RETRY_WAITS_FOR[this.#mutation]);
+      return;
+    }
+    this.#mutation = "retry";
+    this.#push();
 
-    const credentials = await this.#ports.credentials();
     try {
+      // Inside the try, so a keyring that fails releases the guard in `finally`.
+      const credentials = await this.#ports.credentials();
       const envelope = await this.#ports.runner.runJson(buildRetryArgs(workItemId), {
         cwd: this.#root,
         env: credentials.environment,
@@ -948,6 +982,9 @@ export class Controller {
       );
     } catch (error) {
       this.#ports.ui.notify("error", `Retry failed: ${(error as Error).message}`);
+    } finally {
+      this.#mutation = undefined;
+      this.#push();
     }
   }
 
@@ -1292,7 +1329,27 @@ export class Controller {
     const parsed = await this.#readStatus(workItemId);
     this.#progress = viewFromStatus(parsed);
     this.#preparedFixMode = preparedFixModeFromStatus(parsed, this.#fixModes);
-    this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
+    // The reopened item is the subject of the next Run too, as far as that can
+    // be true without discarding what the developer typed (release
+    // stabilization). The selection follows whatever the next Run prepares:
+    // - a key (or nothing) in the field: a reopened Jira item's key replaces it,
+    //   Fresh is cleared — the next Run is about a different item — and the mode
+    //   it was prepared with is selected again;
+    // - a bug description being typed: never replaced, and its selection is its own;
+    // - a hand-written (local) item cannot come back into the field from its id,
+    //   so its mode is re-selected only while the field is empty.
+    const jira = JIRA_ISSUE_KEY_RE.test(workItemId);
+    const typed = (this.#form.source === "jira" ? this.#form.issueKey : this.#form.description).trim();
+    const keyOrEmpty = this.#form.source === "jira" || typed === "";
+    if (jira && keyOrEmpty) {
+      if (workItemScopeOf(this.#form) !== workItemId) {
+        this.#replaceForm({ ...this.#form, source: "jira", issueKey: workItemId, fresh: false });
+        this.#forgetHintSuggestion();
+      }
+      this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
+    } else if (!jira && typed === "") {
+      this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
+    }
     await this.refreshArtifacts();
     this.#push();
   }
@@ -2354,7 +2411,7 @@ export class Controller {
       return false;
     }
     if (this.#mutation !== undefined) {
-      this.#ports.ui.notify("warning", CLEAN_WAITS);
+      this.#ports.ui.notify("warning", CLEAN_WAITS_FOR[this.#mutation]);
       return false;
     }
     const confirmed = await this.#ports.ui.confirm(
@@ -2364,7 +2421,7 @@ export class Controller {
     if (!confirmed) return false;
     if (this.#running) return false;
     if (this.#mutation !== undefined) {
-      this.#ports.ui.notify("warning", CLEAN_WAITS);
+      this.#ports.ui.notify("warning", CLEAN_WAITS_FOR[this.#mutation]);
       return false;
     }
     this.#mutation = "clean";

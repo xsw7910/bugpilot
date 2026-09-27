@@ -113,6 +113,8 @@ interface HarnessOptions {
   readonly onReadFile?: (file: string) => unknown;
   /** Whether a Jira credential is stored. Configured unless a test says not. */
   readonly credentialsConfigured?: boolean;
+  /** Make reading the stored credentials reject, as a broken keyring can — from when it returns an error. */
+  readonly credentialsThrow?: () => Error | undefined;
   /** This extension's own version, which is not the CLI's. */
   readonly extensionVersion?: string;
   readonly confirm?: boolean;
@@ -263,10 +265,14 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       error: (message) => logged.push(`ERROR ${message}`),
     },
     environment: async () => options.environment ?? READY,
-    credentials: async () => ({
+    credentials: async () => {
+      const broken = options.credentialsThrow?.();
+      if (broken) throw broken;
+      return {
       configured: options.credentialsConfigured ?? true,
       environment: { JIRA_EMAIL: "me@example.com", JIRA_TOKEN: TOKEN },
-    }),
+      };
+    },
     descriptionFilePath: () => "/tmp/bugpilot-description.md",
     ...(options.extensionVersion === undefined
       ? {}
@@ -395,6 +401,7 @@ const PREPARED_RUN_JSON = JSON.stringify({
 test("a valid run streams, finishes, and refreshes what the editor shows", async () => {
   const h = harness({ events: successfulRun, directory: ["task.md", "context.md"] });
   await h.controller.refreshEnvironment();
+  const refreshesBefore = h.refreshes.count;
   await h.controller.run(jiraForm());
 
   assert.equal(h.streamRuns.length, 1);
@@ -402,7 +409,7 @@ test("a valid run streams, finishes, and refreshes what the editor shows", async
   assert.equal(h.streamRuns[0]!.options.cwd, ROOT);
   assert.equal(h.last().progress.state, "done");
   assert.equal(h.last().artifacts.kind, "ready");
-  assert.equal(h.refreshes.count, 1, "the trees must be re-read after a run changes .ai/");
+  assert.equal(h.refreshes.count - refreshesBefore, 1, "the trees must be re-read after a run changes .ai/");
   assert.equal(h.last().canRetry, true);
 });
 
@@ -1797,6 +1804,49 @@ test("switching to a work item with no recorded mode does not keep the previous 
 
   assert.equal(h.last().form?.fixModeId, "standard");
   assert.equal(h.last().preparedFixMode, undefined);
+});
+
+test("reopening a Jira work item puts its key in the Issue field, so Run prepares that item with its own mode", async () => {
+  // Release stabilization, found in a real window: reopening JR-23456 re-selected
+  // its mode while the Issue field still named JR-12345, and Run then re-prepared
+  // JR-12345 with JR-23456's mode — an investigate-only package silently becoming
+  // a fixing one. The reopened item is now the subject of the field too.
+  const h = harness({
+    fixModes: CATALOG,
+    form: jiraForm({ issueKey: "JR-12345", fixModeId: "investigate-first" }),
+    files: { "run.json": statusWith("standard", "Standard Fix") },
+    directory: ["task.md", "run.json"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-23456");
+
+  assert.equal(h.last().form?.issueKey, "JR-23456");
+  assert.equal(h.last().form?.source, "jira");
+  assert.equal(h.last().form?.fixModeId, "standard");
+  await h.controller.run(h.last().form!);
+  const args = h.streamRuns[0]!.args;
+  assert.ok(args.includes("JR-23456"), args.join(" "));
+  assert.equal(args.includes("JR-12345"), false, "the key still in the field was re-prepared with another item's mode");
+  assert.ok(args.includes("--fix-mode=standard"));
+});
+
+test("reopening a hand-written bug leaves a typed Jira key, and that key's mode, alone", async () => {
+  // A local id cannot be put back into the field — its text is the bug — so the
+  // field keeps naming the key the next Run prepares, and the selection stays that key's.
+  const h = harness({
+    fixModes: CATALOG,
+    form: jiraForm({ issueKey: "JR-12345", fixModeId: "investigate-first" }),
+    files: { "run.json": statusWith("standard", "Standard Fix") },
+    directory: ["task.md", "run.json"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("local_20260927101010");
+
+  assert.equal(h.last().form?.issueKey, "JR-12345");
+  assert.equal(h.last().form?.fixModeId, "investigate-first");
+  // The rows describe the reopened item all the same.
+  assert.equal(h.last().workItemId, "local_20260927101010");
+  assert.equal(h.last().preparedFixMode?.id, "standard");
 });
 
 test("a prepared mode the catalog no longer has is shown as unavailable", async () => {
@@ -6462,4 +6512,157 @@ test("Clean is refused while a run is in flight, and asks nothing", async () => 
   assert.ok(made.h.notices.some((notice) => /run is in progress/.test(notice.message)));
   made.h.release();
   await running;
+});
+
+test("Retry is refused while a clean is in flight, and asks the CLI nothing", async () => {
+  // Release stabilization: in a real window Retry ran during a clean and wrote
+  // user_feedback.md into the folder being deleted. Retry is an artifact write too.
+  const h = harness({
+    directory: [...PREPARED_FILES],
+    files: { "run.json": PREPARED_RUN_JSON },
+    json: { ok: true, command: "bug", warnings: [], retry: true, feedback_created: true },
+  });
+  await opened(h);
+  let finish!: () => void;
+  const cleaning = h.controller.clean("JR-12345", () => new Promise<void>((resolve) => (finish = resolve)));
+  await tick();
+
+  await h.controller.retry();
+
+  assert.equal(h.jsonRuns.filter((run) => run.args.includes("--retry")).length, 0, "a retry ran during a clean");
+  assert.ok(h.notices.some((notice) => notice.kind === "warning" && notice.message === "Wait for the clean to finish before retrying."));
+  finish();
+  assert.equal(await cleaning, true);
+});
+
+test("while a Retry is being prepared no clean, no recording and no run start", async () => {
+  let answer!: (envelope: Envelope) => void;
+  const h = harness({
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+    json: () => new Promise<Envelope>((resolve) => (answer = resolve)),
+    hold: true,
+    events: successfulRun.filter((event) => event.type !== "completed"),
+  });
+  await opened(h);
+  const retrying = h.controller.retry();
+  await tick();
+
+  let cleaned = 0;
+  assert.equal(await h.controller.clean("JR-12345", async () => void (cleaned += 1)), false);
+  assert.ok(offersNoRecording(h.last()));
+  void h.controller.run(jiraForm());
+  await tick();
+  assert.equal(cleaned, 0);
+  assert.equal(h.streamRuns.length, 0, "a run started while a retry was being prepared");
+  assert.ok(h.notices.some((notice) => notice.message === "Wait for the retry to finish before starting a run."));
+  assert.ok(h.notices.some((notice) => notice.message === "Wait for the retry to finish before cleaning this work item."));
+
+  answer({ ok: true, command: "bug", warnings: [], retry: true, feedback_created: true });
+  await retrying;
+  // Ended: Clean goes ahead again.
+  assert.equal(await h.controller.clean("JR-12345", async () => void (cleaned += 1)), true);
+  assert.equal(cleaned, 1);
+});
+
+// --- release stabilization: review findings ------------------------------------
+
+test("a Retry whose credentials cannot be read releases the write guard", async () => {
+  let broken = false;
+  const h = harness({
+    directory: [...PREPARED_FILES],
+    files: { "run.json": PREPARED_RUN_JSON },
+    credentialsThrow: () => (broken ? new Error("keyring unavailable") : undefined),
+  });
+  await opened(h);
+  broken = true;
+  await h.controller.retry().catch(() => {});
+  broken = false;
+  // Nothing is stuck: Clean goes ahead.
+  let cleaned = 0;
+  assert.equal(await h.controller.clean("JR-12345", async () => void (cleaned += 1)), true);
+  assert.equal(cleaned, 1);
+});
+
+test("a run whose credentials cannot be read does not stay running", async () => {
+  let broken = false;
+  const h = harness({ events: successfulRun, credentialsThrow: () => (broken ? new Error("keyring unavailable") : undefined) });
+  await h.controller.refreshEnvironment();
+  broken = true;
+  await h.controller.run(jiraForm()).catch(() => {});
+  broken = false;
+  assert.notEqual(h.last().progress.state, "running");
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(h.notices.some((notice) => /run is in progress/.test(notice.message)), false, "the panel still thinks a run is in flight");
+});
+
+test("reopening a work item never replaces a bug description being typed, nor its mode", async () => {
+  const draft = "Saving a record with no id crashes in commit_transaction; a long description in progress.";
+  const h = harness({
+    fixModes: CATALOG,
+    form: { ...DEFAULT_FORM, source: "manual", description: draft, fixModeId: "investigate-first" },
+    files: { "run.json": statusWith("standard", "Standard Fix") },
+    directory: ["task.md", "run.json"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-23456");
+  assert.equal(h.last().form?.source, "manual");
+  assert.equal(h.last().form?.description, draft);
+  assert.equal(h.last().form?.fixModeId, "investigate-first");
+  // A local item reopened over the draft leaves it too.
+  await h.controller.showWorkItem("local_20260927101010");
+  assert.equal(h.last().form?.description, draft);
+  assert.equal(h.last().form?.fixModeId, "investigate-first");
+});
+
+test("reopening another Jira item clears Fresh, so its reports are not deleted by the next Run unasked", async () => {
+  const h = harness({
+    fixModes: CATALOG,
+    form: jiraForm({ issueKey: "JR-12345", fresh: true }),
+    files: { "run.json": statusWith("standard", "Standard Fix") },
+    directory: ["task.md", "run.json"],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-23456");
+  assert.equal(h.last().form?.issueKey, "JR-23456");
+  assert.equal(h.last().form?.fresh, false);
+});
+
+test("reopening another Jira item drops a hint suggestion made for the previous one", async () => {
+  const h = hintHarness({ issueDetails: { title: "Empty volume crash", description: "No traces." } });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "improveHint", form: HINTED });
+  assert.ok(h.last().hintImprovement?.suggestion, "no suggestion to begin with");
+  await h.controller.showWorkItem("JR-23456");
+  assert.equal(h.last().hintImprovement?.suggestion, undefined);
+});
+
+test("Clean says a retry is what it waits for, while one is being prepared", async () => {
+  let answer!: (envelope: Envelope) => void;
+  const h = harness({
+    directory: [...PREPARED_FILES],
+    files: { "run.json": PREPARED_RUN_JSON },
+    json: () => new Promise<Envelope>((resolve) => (answer = resolve)),
+  });
+  await opened(h);
+  const retrying = h.controller.retry();
+  await tick();
+  assert.equal(await h.controller.clean("JR-12345", async () => {}), false);
+  assert.ok(h.notices.some((notice) => notice.message === "Wait for the retry to finish before cleaning this work item."));
+  answer({ ok: true, command: "bug", warnings: [], retry: true, feedback_created: true });
+  await retrying;
+});
+
+test("finding the repository re-reads the Artifacts and History trees", async () => {
+  // Release stabilization, seen after a window reload: History drew before the
+  // environment check found the repository, said "Open the repository you are
+  // fixing bugs in." and nothing re-read it — reopening from History was
+  // unavailable until a manual refresh.
+  const h = harness();
+  assert.equal(h.refreshes.count, 0);
+  await h.controller.refreshEnvironment();
+  assert.equal(h.refreshes.count, 1);
+  // The same repository again: nothing new to read.
+  await h.controller.refreshEnvironment();
+  assert.equal(h.refreshes.count, 1);
 });

@@ -253,3 +253,13 @@ test("the licence is a file the extension page can link to", () => {
   assert.match(text, /codicons/);
   assert.match(text, /CC BY 4\.0/);
 });
+
+test("every menu the manifest contributes is a list, so VS Code reports no submenu error", () => {
+  // Release stabilization, seen in a real window's log: a comment key inside
+  // `menus` ("//commandPalette") is read as a menu id whose items are not an
+  // array — "submenu items must be an array" at every start.
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  for (const [id, items] of Object.entries(manifest.contributes.menus as Record<string, unknown>)) {
+    assert.ok(Array.isArray(items), `contributes.menus["${id}"] is not a list`);
+  }
+});

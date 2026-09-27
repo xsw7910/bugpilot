@@ -1060,6 +1060,29 @@ test("a state push does not overwrite the form unless the revision changed", () 
   assert.equal(p.byId("issue").value, "JR-9", "a deliberate replacement must land");
 });
 
+test("a form the host replaces is not overwritten by a change the page had not yet sent", () => {
+  // Release stabilization, seen in a real window: the Fresh box ticked just before
+  // a History reopen. The debounced formChanged carried the form as it was before
+  // the reopen and landed after it, so the host's copy named the previous item
+  // while the page showed the reopened one — and the next reopen of that item no
+  // longer put its key in the Issue field.
+  const p = load();
+  p.send(state({ revision: 1, form: { ...DEFAULT_FORM, issueKey: "JR-23456" } }));
+  p.byId("fresh").checked = true;
+  p.byId("form").dispatch("change", { target: p.byId("fresh") });
+  // The host replaces the form (a reopen) before the debounce fires.
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, issueKey: "JR-12345" } }));
+  const before = p.posted.length;
+  p.flush();
+  const stale = p.posted.slice(before).filter((message) => message["type"] === "formChanged");
+  assert.deepEqual(stale, [], "a change made before the host replaced the form was sent after it");
+  assert.equal(p.byId("issue").value, "JR-12345");
+  // A change made after the replacement is sent as usual.
+  p.byId("form").dispatch("change", { target: p.byId("fresh") });
+  p.flush();
+  assert.equal((p.posted.at(-1)!["form"] as { issueKey: string }).issueKey, "JR-12345");
+});
+
 test("the footer names the version when the CLI reports one", () => {
   // Which of the machine's several bugpilots is running is otherwise invisible.
   const p = load();
