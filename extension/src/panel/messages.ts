@@ -27,6 +27,9 @@ import { isSafeRelativePath } from "../app/contextSummary.ts";
 import { WRITABLE_SCOPES } from "../app/fixModes.ts";
 import { MAX_REVIEW_SECTION } from "../app/reviewCapture.ts";
 import type { ReviewEntry } from "../app/reviewCapture.ts";
+import { MAX_CHECKS, MAX_CHECK_TEXT } from "../app/verificationCapture.ts";
+import { STATUS_LABELS, TYPE_LABELS } from "../app/verificationReport.ts";
+import type { CheckStatus, CheckType, VerificationCheckEntry } from "../app/verificationReport.ts";
 import type {
   FixModeCatalog,
   FixModeDraft,
@@ -229,6 +232,11 @@ export const PANEL_ACTIONS = [
   // Review Result's file (Batch 11): an action, not a path — the host opens the
   // canonical review_report.md of the work item on screen, and only while listed.
   "openReviewReport",
+  // Verification Evidence (Batch 12): open the canonical verification_report.md,
+  // and ask for the recorded checks to edit — the host sends them back once,
+  // parsed from the file, only while the report is listed and nothing is in flight.
+  "openVerificationReport",
+  "editVerification",
 ] as const;
 export type PanelAction = (typeof PANEL_ACTIONS)[number];
 
@@ -278,7 +286,20 @@ export type PanelMessage =
    * work item is on screen, whether a report is already recorded, and asks
    * before replacing one.
    */
-  | { readonly type: "recordReview"; readonly review: ReviewEntry };
+  | { readonly type: "recordReview"; readonly review: ReviewEntry }
+  /**
+   * "Record these checks as verification evidence" (Batch 12): the rows of the
+   * form, bounded, each with the status the developer chose. No work item and no
+   * path. `replace` says the form was opened by Edit; the host passes
+   * `--replace` only when that is so and a report is listed.
+   */
+  | {
+      readonly type: "recordVerification";
+      readonly checks: readonly VerificationCheckEntry[];
+      readonly replace: boolean;
+      /** The Edit answer (its token) the rows were filled from, for an Edit's save. */
+      readonly basis?: number;
+    };
 
 /**
  * Every message type the page may send, each once.
@@ -308,6 +329,7 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   fixModeAction: true,
   saveFixMode: true,
   recordReview: true,
+  recordVerification: true,
 };
 export const PANEL_MESSAGE_TYPES = Object.keys(MESSAGE_TYPES) as readonly PanelMessage["type"][];
 
@@ -370,6 +392,22 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
           recommendations: text("recommendations"),
         },
       };
+    }
+    case "recordVerification": {
+      const rows = message?.["checks"];
+      const replace = message?.["replace"];
+      const basis = message?.["basis"];
+      if (!Array.isArray(rows) || typeof replace !== "boolean") return undefined;
+      if (basis !== undefined && !(Number.isSafeInteger(basis) && (basis as number) > 0)) return undefined;
+      // One row past the cap is kept, so too many is refused by the host with a
+      // reason rather than cut short and recorded as if that were all.
+      const checks: VerificationCheckEntry[] = [];
+      for (const row of rows.slice(0, MAX_CHECKS + 1)) {
+        const check = asCheck(row);
+        if (!check) return undefined;
+        checks.push(check);
+      }
+      return { type, checks, replace, ...(basis === undefined ? {} : { basis: basis as number }) };
     }
     case "run":
     case "formChanged":
@@ -589,6 +627,29 @@ function asString(value: unknown, cap: number): string | undefined {
   // dropping a whole message because a paste was huge would look like the
   // panel had frozen.
   return value.length > cap ? value.slice(0, cap) : value;
+}
+
+/**
+ * One check row. The status and type are choices from a closed list — anything
+ * else is not a row the page could have sent. Text is clamped one past the CLI's
+ * cap, so an over-long field is refused there, never silently shortened.
+ */
+function asCheck(value: unknown): VerificationCheckEntry | undefined {
+  const row = asRecord(value);
+  if (!row) return undefined;
+  const status = row["status"];
+  const kind = row["type"];
+  if (typeof status !== "string" || !Object.hasOwn(STATUS_LABELS, status)) return undefined;
+  if (typeof kind !== "string" || !Object.hasOwn(TYPE_LABELS, kind)) return undefined;
+  const text = (field: string): string => asString(row[field], MAX_CHECK_TEXT + 1) ?? "";
+  return {
+    name: text("name"),
+    status: status as CheckStatus,
+    type: kind as CheckType,
+    procedure: text("procedure"),
+    evidence: text("evidence"),
+    notes: text("notes"),
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

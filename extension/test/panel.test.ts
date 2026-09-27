@@ -240,6 +240,11 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
     type: "recordReview",
     review: { summary: "Reads correctly.", findings: "", validationNotes: "", recommendations: "" },
   },
+  recordVerification: {
+    type: "recordVerification",
+    replace: false,
+    checks: [{ name: "Unit tests", status: "passed", type: "automated", procedure: "npm test", evidence: "", notes: "" }],
+  },
 };
 
 test("the host's list of message types is the PanelMessage union, read from its source", () => {
@@ -2142,4 +2147,61 @@ test("the page may ask for Review with AI and nothing more general", () => {
     parsePanelMessage({ type: "action", id: "reviewWithAI", prompt: "rm -rf ~", agent: "sh" }),
     { type: "action", id: "reviewWithAI" },
   );
+});
+
+test("Verification Evidence sits in Fix result after Review Result, as buttons in a group, never a form", () => {
+  // Batch 12. Record with the row's actions; the evidence, its Open and Edit,
+  // then the form and the recording's own status and alert — all after
+  // Review Result's.
+  const row = rowMarkup("fixResult");
+  const order = [
+    'id="record-review-result"',
+    'id="record-verification"',
+    'id="review-result"',
+    'id="review-capture-error"',
+    'id="verification-result"',
+    'id="open-verification-report"',
+    'id="edit-verification"',
+    'id="verification-editor"',
+    'id="verification-capture-status"',
+    'id="verification-capture-error"',
+  ].map((id) => row.indexOf(id));
+  assert.ok(order.every((at) => at !== -1), "a Verification Evidence slot is not on the Fix result row");
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.equal(/<form\b/.test(row), false, "a nested form would submit the panel — a Run");
+  for (const id of ["record-verification", "open-verification-report", "edit-verification", "add-verification-check", "save-verification", "cancel-verification"]) {
+    assert.match(row, new RegExp(`<button type="button" class="result-link" id="${id}"`), `#${id} is not a plain button`);
+  }
+  assert.match(row, /<div class="verification-editor" id="verification-editor" role="group" aria-label="Verification evidence" hidden>/);
+  assert.match(row, /<p class="verification-result-heading result-label" id="verification-result-heading" tabindex="-1">Verification Evidence<\/p>/);
+  assert.match(row, /<div class="review-status" id="verification-capture-status" role="status" tabindex="-1"><\/div>/);
+  assert.match(row, /<p class="error" id="verification-capture-error" role="alert" hidden><\/p>/);
+  assert.match(row, /aria-controls="verification-editor" aria-expanded="false"/);
+  for (const label of ["Record Verification Evidence", "Edit Verification Evidence", "Open Verification Report", "Add Check", "Save Verification Evidence"]) {
+    assert.ok(row.includes(`>${label}</span>`), `"${label}" is not a button label`);
+  }
+  // Remove Check is per row, built by the page.
+  assert.ok(PAGE_JS.includes('"Remove Check"'));
+});
+
+test("nothing about verification claims more than recorded evidence", () => {
+  // The wording the brief rules out, on the panel and in the page script.
+  for (const overclaim of [
+    "Verify Fix",
+    "Mark Verified",
+    "Approve Fix",
+    "Fix verified",
+    "Safe to merge",
+    "Verified",
+    "Approved",
+    "Confidence",
+    "Skipped",
+  ]) {
+    assert.equal(HTML.includes(overclaim), false, `the panel says "${overclaim}"`);
+    assert.equal(PAGE_JS.includes(overclaim), false, `the page script says "${overclaim}"`);
+  }
+  // A new check starts as Not Run: the first status offered is the default.
+  const statuses = /const CHECK_STATUSES = \[([\s\S]*?)\];/.exec(PAGE_JS)?.[1] ?? "";
+  assert.match(statuses.trim(), /^\["not_run", "Not Run"\]/);
+  assert.equal(statuses.includes("skipped"), false);
 });

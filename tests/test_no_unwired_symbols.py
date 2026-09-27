@@ -34,6 +34,12 @@ ALLOWED: dict[str, str] = {
         "tests pin the round trip the extension's parser mirrors; no Python "
         "command needs to read a recorded review yet, and none is invented for it."
     ),
+    "verification_report.read_verification_report": (
+        "The CLI-side reader of the format record-verification writes (Batch 12). "
+        "The writer parses its own output back before writing; this reads a file "
+        "on disk the same way, and its tests pin the round trip the extension's "
+        "parser mirrors. No Python command needs to read recorded evidence yet."
+    ),
     "workflow.run_bug_workflow": (
         "The Jira-shaped wrapper over run_investigation, documented in "
         "docs/architecture.md as the orchestrator entry point. The CLI moved to "

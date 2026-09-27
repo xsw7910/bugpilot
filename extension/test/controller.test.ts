@@ -134,6 +134,8 @@ interface HarnessOptions {
   readonly runFixMode?: (request: FixModeRequest) => Promise<Envelope>;
   /** What `record-review` does, and what it answers; absent means no such port. */
   readonly runReview?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  /** What `record-verification` does, and what it answers; absent means no such port. */
+  readonly runVerification?: (request: PayloadCommandRequest) => Promise<Envelope>;
   /** What the AI CLI answers when asked to improve a hint. */
   readonly improveHint?: (request: {
     provider: { id: string; label: string; command: string; args: readonly string[] };
@@ -290,6 +292,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       : { listManagedFixModes: async () => options.managed! }),
     ...(options.runFixMode === undefined ? {} : { runFixModeCommand: options.runFixMode }),
     ...(options.runReview === undefined ? {} : { runReviewCommand: options.runReview }),
+    ...(options.runVerification === undefined ? {} : { runVerificationCommand: options.runVerification }),
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return options.improveHint
@@ -4165,7 +4168,7 @@ test("a report offers Copy Review Prompt and Review with AI, after Open Fix Repo
   const h = reviewable();
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult", "recordVerification"]);
   // Nothing is run until somebody asks.
   assert.deepEqual(reviewRuns(h), []);
 });
@@ -4269,7 +4272,7 @@ test("a review prompt for a work item that is no longer shown is never copied on
   const copying = h.controller.handle({ type: "action", id: "copyReviewPrompt" });
   await Promise.resolve();
   await h.controller.showWorkItem("JR-2");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult", "recordVerification"]);
   answer({ ...REVIEW_PACKAGE, work_item_id: "JR-1", prompt: "# Final Review Request\n\nReview the BugPilot result for work item JR-1.\n" });
   await copying;
 
@@ -4624,7 +4627,7 @@ test("with no agent available, no reviewer starts and the row says why, beside a
   assert.deepEqual(h.clipboard, []);
   assert.equal(h.notices.length, noticesBefore);
   // The row, Fix with AI and the run stand; the button stays for a retry.
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult", "recordVerification"]);
   assert.equal(fixResultOf(h.last())?.error, undefined, "the review's failure became the row's");
   assert.deepEqual(fixRow(h.last()), fixBefore);
   assert.equal(h.last().runError, undefined);
@@ -5400,7 +5403,14 @@ test("a recorded review is one Review Result in its own words, with Open and Rep
     detail: "Findings: One duplicate null check.",
     alsoRecorded: "Also recorded: recommendations",
   });
-  assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport", "replaceReviewResult"]);
+  assert.deepEqual([...row.actions], [
+    "openFixReport",
+    "copyReviewPrompt",
+    "reviewWithAI",
+    "openReviewReport",
+    "replaceReviewResult",
+    "recordVerification",
+  ]);
   // One row for the fix, carrying one review result; no new workflow row.
   assert.equal(h.last().workflow.filter((step) => step.id === "fixResult").length, 1);
   assert.equal(h.last().workflow.length, 7);
@@ -5812,4 +5822,644 @@ test("a recording pressed while a run is still being set up keeps that run from 
   assert.ok(made.h.notices.some((notice) => notice.message === RUN_REFUSED));
   hold.resolve(RECORDED);
   await recording;
+});
+
+// --- Batch 12: Verification Evidence ---------------------------------------------
+
+const VERIFICATION_MD =
+  "# Verification Report: JR-12345\n\n" +
+  "## Summary\n\n3 checks recorded: 1 passed, 1 failed, 1 not run.\n\n" +
+  "## Checks\n\n" +
+  "### Check 1: Unit tests\n\nStatus: Passed\nType: Automated\n\n" +
+  "Command / Procedure:\n\n> npm test\n\nEvidence:\n\n> 1111 passed\n\nNotes:\n\nNot recorded.\n\n" +
+  "### Check 2: Open the dialog\n\nStatus: Failed\nType: Manual\n\n" +
+  "Command / Procedure:\n\nNot recorded.\n\nEvidence:\n\n> Crashed on save.\n\nNotes:\n\nNot recorded.\n\n" +
+  "### Check 3: Integration suite\n\nStatus: Not Run\nType: Automated\n\n" +
+  "Command / Procedure:\n\nNot recorded.\n\nEvidence:\n\nNot recorded.\n\nNotes:\n\nNot recorded.\n\n" +
+  "## Overall Recorded Status\n\nRecorded checks include failures.\n\n" +
+  "## Source\n\nVerification evidence explicitly recorded by the user.\n";
+
+const ONE_PASSED_MD =
+  "# Verification Report: JR-12345\n\n" +
+  "## Summary\n\n1 check recorded: 1 passed.\n\n" +
+  "## Checks\n\n" +
+  "### Check 1: Unit tests\n\nStatus: Passed\nType: Automated\n\n" +
+  "Command / Procedure:\n\n> npm test\n\nEvidence:\n\nNot recorded.\n\nNotes:\n\nNot recorded.\n\n" +
+  "## Overall Recorded Status\n\nAll recorded checks passed.\n\n" +
+  "## Source\n\nVerification evidence explicitly recorded by the user.\n";
+
+const CHECKS = [
+  { name: "Unit tests", status: "passed", type: "automated", procedure: "npm test", evidence: "", notes: "" },
+] as const;
+
+const VERIFICATION_RECORDED: Envelope = {
+  ok: true,
+  command: "record-verification",
+  warnings: [],
+  work_item_id: "JR-12345",
+  verification_report: ".ai/JR-12345/verification_report.md",
+  replaced: false,
+};
+
+const VERIFY_RUN_REFUSED = "Wait for the verification evidence recording to finish before starting a run.";
+const CLEAN_REFUSED = "Wait for artifact recording to finish before cleaning this work item.";
+
+/**
+ * A reopened work item with a fix report, optionally recorded evidence (the
+ * canonical report, or `evidence` text of the test's own), and ports for both
+ * recordings that behave like the CLI: they write the file into the live
+ * listing and answer. `answer` may hold a verification request open.
+ */
+function verifiable(setup: {
+  evidence?: boolean | string;
+  review?: boolean;
+  answer?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  reviewAnswer?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  port?: boolean;
+  hold?: boolean;
+  confirm?: boolean;
+} = {}) {
+  const calls: { args: readonly string[]; payload: unknown }[] = [];
+  const reviewCalls: { args: readonly string[] }[] = [];
+  const evidenceText = typeof setup.evidence === "string" ? setup.evidence : VERIFICATION_MD;
+  const options: {
+    directory: readonly string[];
+    files: Record<string, string>;
+    json: Envelope;
+    confirm?: boolean;
+    events?: readonly StreamEvent[];
+    hold?: boolean;
+    runReview?: (request: PayloadCommandRequest) => Promise<Envelope>;
+    runVerification?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  } = {
+    directory: [
+      ...PREPARED_FILES,
+      "fix_report.md",
+      ...(setup.review ? ["review_report.md"] : []),
+      ...(setup.evidence ? ["verification_report.md"] : []),
+    ],
+    files: {
+      "run.json": PREPARED_RUN_JSON,
+      "fix_report.md": fixReportMd("Fixed it.", "3 passed."),
+      ...(setup.review ? { "review_report.md": REVIEW_REPORT_MD("Recorded earlier.") } : {}),
+      ...(setup.evidence ? { "verification_report.md": evidenceText } : {}),
+    },
+    json: REVIEW_PACKAGE,
+    ...(setup.confirm === undefined ? {} : { confirm: setup.confirm }),
+    ...(setup.hold ? { events: successfulRun.filter((event) => event.type !== "completed"), hold: true } : {}),
+  };
+  options.runReview = async (request) => {
+    reviewCalls.push({ args: request.args("/tmp/bugpilot-review-payload.json") });
+    const envelope = setup.reviewAnswer ? await setup.reviewAnswer(request) : RECORDED;
+    if (envelope.ok && !options.directory.includes("review_report.md")) {
+      options.directory = [...options.directory, "review_report.md"];
+      h.files["review_report.md"] = REVIEW_REPORT_MD();
+    }
+    return envelope;
+  };
+  if (setup.port !== false) {
+    options.runVerification = async (request) => {
+      calls.push({ args: request.args("/tmp/bugpilot-verification-payload.json"), payload: request.payload });
+      const envelope = setup.answer ? await setup.answer(request) : VERIFICATION_RECORDED;
+      if (envelope.ok) {
+        if (!options.directory.includes("verification_report.md")) {
+          options.directory = [...options.directory, "verification_report.md"];
+        }
+        h.files["verification_report.md"] = ONE_PASSED_MD;
+      }
+      return envelope;
+    };
+  }
+  const h = harness(options);
+  return { h, calls, reviewCalls, options };
+}
+
+const RECORD_ACTIONS = ["recordReviewResult", "replaceReviewResult", "recordVerification", "editVerification"] as const;
+
+function offersNoRecording(state: PanelState): boolean {
+  const row = fixResultOf(state);
+  return row !== undefined && !RECORD_ACTIONS.some((action) => row.actions.includes(action));
+}
+
+test("with no fix report there is no Verification Evidence, nothing to record, and the host refuses", async () => {
+  const { h, calls, options } = verifiable();
+  options.directory = PREPARED_FILES;
+  await opened(h);
+  assert.equal(fixResultOf(h.last()), undefined);
+
+  await h.controller.handle({ type: "recordVerification", checks: [...CHECKS], replace: false });
+  await h.controller.handle({ type: "action", id: "editVerification" });
+  await h.controller.handle({ type: "action", id: "openVerificationReport" });
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(h.opened, []);
+  assert.ok(h.logged.some((line) => /Refusing to record verification evidence/.test(line)));
+  assert.ok(h.logged.some((line) => /Refusing to edit verification evidence/.test(line)));
+  assert.ok(h.logged.some((line) => /Refusing to open a verification report/.test(line)));
+});
+
+test("a fix report without evidence offers Record Verification Evidence, without needing a review", async () => {
+  const { h } = verifiable();
+  await opened(h);
+  const row = fixResultOf(h.last())!;
+  assert.equal(row.verificationResult, undefined);
+  assert.equal(row.verificationCapture, undefined);
+  assert.equal(row.reviewResult, undefined);
+  assert.ok(row.actions.includes("recordVerification"));
+  assert.equal(row.actions.includes("editVerification"), false);
+  assert.equal(row.actions.includes("openVerificationReport"), false);
+});
+
+test("recorded evidence is counts, the scoped phrase and the checks by name, with Open and Edit", async () => {
+  const { h } = verifiable({ evidence: true });
+  await opened(h);
+  const row = fixResultOf(h.last())!;
+  assert.deepEqual(row.verificationResult, {
+    artifact: "verification_report.md",
+    counts: "Recorded checks: 1 passed, 1 failed, 1 not run",
+    overall: "Recorded checks include failures.",
+    checks: [
+      { name: "Unit tests", status: "Passed", type: "Automated" },
+      { name: "Open the dialog", status: "Failed", type: "Manual" },
+      { name: "Integration suite", status: "Not Run", type: "Automated" },
+    ],
+  });
+  assert.deepEqual([...row.actions].slice(-2), ["openVerificationReport", "editVerification"]);
+  // One Fix result row, saying what it said before; no workflow row, no badge.
+  assert.equal(h.last().workflow.length, 7);
+  assert.equal(row.status, "ready");
+  assert.equal(row.statusLabel, "report available");
+  assert.doesNotMatch(JSON.stringify(h.last()), /[Vv]erified|Approved|Safe to merge|Fix verified/);
+});
+
+test("recording sends the checks through record-verification and shows the file it wrote, and nothing else", async () => {
+  const { h, calls } = verifiable();
+  await opened(h);
+  const noticesBefore = h.notices.length;
+
+  await h.controller.handle(parsePanelMessage({ type: "recordVerification", checks: [...CHECKS], replace: false })!);
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0]!.args, [
+    "record-verification",
+    "JR-12345",
+    "--from-file",
+    "/tmp/bugpilot-verification-payload.json",
+    "--json",
+  ]);
+  assert.deepEqual(calls[0]!.payload, { checks: [...CHECKS] });
+  const row = fixResultOf(h.last())!;
+  assert.deepEqual(row.verificationCapture, { state: "recorded", replaced: false });
+  assert.equal(row.verificationResult?.counts, "Recorded checks: 1 passed");
+  assert.equal(row.verificationResult?.overall, "All recorded checks passed.");
+  // No notification, no file written by the extension, no run.
+  assert.equal(h.notices.length, noticesBefore);
+  assert.deepEqual(h.written, []);
+  assert.equal(h.streamRuns.length, 0);
+});
+
+test("checks the CLI would refuse are refused locally, as the recording's failure, without a process", async () => {
+  const { h, calls } = verifiable();
+  await opened(h);
+
+  await h.controller.recordVerification([], false);
+  assert.deepEqual(fixResultOf(h.last())!.verificationCapture, {
+    state: "failed",
+    message: "Verification evidence was not recorded: add at least one check.",
+  });
+  await h.controller.recordVerification([{ ...CHECKS[0], name: "   " }], false);
+  assert.deepEqual(fixResultOf(h.last())!.verificationCapture, {
+    state: "failed",
+    message: "Verification evidence was not recorded: check 1 needs a name.",
+  });
+  const many = Array.from({ length: 26 }, (_, index) => ({ ...CHECKS[0], name: `Check ${index}` }));
+  await h.controller.recordVerification(many, false);
+  assert.deepEqual(fixResultOf(h.last())!.verificationCapture, {
+    state: "failed",
+    message: "Verification evidence was not recorded: at most 25 checks can be recorded.",
+  });
+  assert.deepEqual(calls, []);
+});
+
+test("a CLI failure is the recording's own and never reads as a check failing", async () => {
+  const { h } = verifiable({
+    answer: async () => ({ ok: false, command: "record-verification", error: { code: "INVALID_INPUT", message: "Check 1: invalid recorded status." } }),
+  });
+  await opened(h);
+  await h.controller.recordVerification([...CHECKS], false);
+  const row = fixResultOf(h.last())!;
+  assert.deepEqual(row.verificationCapture, {
+    state: "failed",
+    message: "Verification evidence was not recorded: Check 1: invalid recorded status.",
+  });
+  assert.equal(row.verificationResult, undefined);
+  assert.equal(row.error, undefined, "the recording's failure became the row's card");
+  assert.ok(row.actions.includes("recordVerification"));
+});
+
+test("evidence recorded elsewhere meanwhile is kept: the failure is said and the row offers Edit", async () => {
+  const { h, options } = verifiable({
+    answer: async () => {
+      options.directory = [...options.directory, "verification_report.md"];
+      h.files["verification_report.md"] = VERIFICATION_MD;
+      return { ok: false, command: "record-verification", error: { code: "ARTIFACT_EXISTS", message: "kept" } };
+    },
+  });
+  await opened(h);
+  await h.controller.recordVerification([...CHECKS], false);
+  const row = fixResultOf(h.last())!;
+  assert.match(
+    row.verificationCapture?.state === "failed" ? row.verificationCapture.message : "",
+    /^Verification evidence was not recorded: verification evidence is already recorded .* kept\. Use Edit/,
+  );
+  assert.equal(row.verificationResult?.counts, "Recorded checks: 1 passed, 1 failed, 1 not run");
+  assert.ok(row.actions.includes("editVerification"));
+});
+
+test("Edit sends the recorded checks once, and a save from Edit passes --replace", async () => {
+  const { h, calls } = verifiable({ evidence: true });
+  await opened(h);
+
+  await h.controller.handle(parsePanelMessage({ type: "action", id: "editVerification" })!);
+  const answered = h.states.at(-1)!;
+  const edit = fixResultOf(answered)!.verificationEdit!;
+  assert.equal(edit.structured, true);
+  assert.deepEqual(edit.checks.map((check) => [check.name, check.status, check.type, check.evidence]), [
+    ["Unit tests", "passed", "automated", "1111 passed"],
+    ["Open the dialog", "failed", "manual", "Crashed on save."],
+    ["Integration suite", "not_run", "automated", ""],
+  ]);
+  // One push carries it; the next does not.
+  await h.controller.refreshArtifacts();
+  assert.equal(fixResultOf(h.last())!.verificationEdit, undefined);
+  // A second Edit is a new answer, and only the latest answer's save replaces.
+  h.controller.editVerification();
+  const latest = fixResultOf(h.states.at(-1)!)!.verificationEdit!;
+  assert.ok(latest.token > edit.token);
+  await h.controller.recordVerification(edit.checks, true, edit.token);
+  assert.equal(calls.length, 0, "a save from an earlier Edit answer replaced the report");
+
+  await h.controller.recordVerification(latest.checks, true, latest.token);
+  assert.deepEqual(calls[0]!.args.slice(-2), ["--json", "--replace"]);
+  assert.deepEqual(fixResultOf(h.last())!.verificationCapture, { state: "recorded", replaced: true });
+});
+
+test("--replace only for an Edit of a listed report; Record never overwrites", async () => {
+  const listed = verifiable({ evidence: true, answer: async () => ({ ok: false, command: "record-verification", error: { code: "ARTIFACT_EXISTS", message: "kept" } }) });
+  await opened(listed.h);
+  // A page claiming Record over a listed report: no --replace, the CLI keeps it.
+  await listed.h.controller.recordVerification([...CHECKS], false);
+  assert.equal(listed.calls[0]!.args.includes("--replace"), false);
+
+  const absent = verifiable();
+  await opened(absent.h);
+  // A page claiming Edit with nothing listed: nothing to replace, so no --replace.
+  await absent.h.controller.recordVerification([...CHECKS], true);
+  assert.equal(absent.calls[0]!.args.includes("--replace"), false);
+});
+
+test("Edit of a report not in BugPilot's shape sends no guessed checks, and says saving replaces it", async () => {
+  const { h } = verifiable({ evidence: "# Notes\n\n## Checks\n\n### Check 1: tests\nStatus: Passed\nsome prose\n" });
+  await opened(h);
+  assert.equal(fixResultOf(h.last())!.verificationResult?.counts, "Recorded checks: 1 passed");
+  h.controller.editVerification();
+  assert.deepEqual(fixResultOf(h.states.at(-1)!)!.verificationEdit?.checks, []);
+  assert.equal(fixResultOf(h.states.at(-1)!)!.verificationEdit?.structured, false);
+});
+
+test("without a record-verification port the host says so, rather than writing the file itself", async () => {
+  const { h } = verifiable({ port: false });
+  await opened(h);
+  await h.controller.recordVerification([...CHECKS], false);
+  assert.deepEqual(fixResultOf(h.last())!.verificationCapture, {
+    state: "failed",
+    message: "Verification evidence was not recorded: this host cannot run record-verification.",
+  });
+  assert.deepEqual(h.written, []);
+});
+
+test("Open Verification Report opens the canonical file of the work item on screen, and nothing else", async () => {
+  const { h } = verifiable({ evidence: true });
+  await opened(h);
+  await h.controller.handle(parsePanelMessage({ type: "action", id: "openVerificationReport" })!);
+  assert.deepEqual(h.opened.map((file) => file.split(/[\\/]/).slice(-3).join("/")), [".ai/JR-12345/verification_report.md"]);
+  assert.equal(parsePanelMessage({ type: "recordVerification", checks: "not a list", replace: false }), undefined);
+  assert.equal(parsePanelMessage({ type: "recordVerification", checks: [{ ...CHECKS[0], status: "verified" }], replace: false }), undefined);
+  assert.equal(parsePanelMessage({ type: "recordVerification", checks: [{ ...CHECKS[0], status: "skipped" }], replace: false }), undefined);
+  assert.equal(parsePanelMessage({ type: "recordVerification", checks: [...CHECKS] }), undefined);
+});
+
+test("no run of any kind starts while verification evidence is being recorded; the host refuses it", async () => {
+  const hold = held();
+  const { h, options } = verifiable({ answer: hold.answer, hold: true });
+  let asked = 0;
+  (options as { confirmAnswer?: () => Promise<boolean> }).confirmAnswer = async () => {
+    asked += 1;
+    return true;
+  };
+  await opened(h);
+  const recording = h.controller.recordVerification([...CHECKS], false);
+  await tick();
+  const progressBefore = JSON.stringify(h.last().progress);
+
+  const attempts = [
+    h.controller.run(jiraForm()),
+    h.controller.run(jiraForm({ fresh: true })),
+    h.controller.handle(parsePanelMessage({ type: "run", form: jiraForm({ fresh: true }) })!),
+  ];
+  await tick();
+
+  assert.equal(h.streamRuns.length, 0, "a run started while a verification recording was in flight");
+  await Promise.all(attempts);
+  assert.equal(h.notices.filter((notice) => notice.message === VERIFY_RUN_REFUSED).length, 3);
+  // Refused before any setup: a Fresh run does not even ask to delete the folder.
+  assert.equal(asked, 0, "the Fresh confirmation was asked while a recording was in flight");
+  assert.equal(JSON.stringify(h.last().progress), progressBefore);
+  assert.deepEqual(fixResultOf(h.last())!.verificationCapture, { state: "recording" });
+  assert.ok(offersNoRecording(h.last()));
+
+  hold.resolve(VERIFICATION_RECORDED);
+  await recording;
+  const running = h.controller.run(jiraForm());
+  await tick();
+  assert.equal(h.streamRuns.length, 1);
+  h.release();
+  await running;
+});
+
+test("one artifact write at a time: neither recording starts while the other is in flight", async () => {
+  const holdVerification = held();
+  const first = verifiable({ answer: holdVerification.answer });
+  await opened(first.h);
+  const verifying = first.h.controller.recordVerification([...CHECKS], false);
+  await tick();
+  // Not awaited: one that did start would hold, and the test should fail, not hang.
+  void first.h.controller.recordReview(REVIEW_ENTRY);
+  void first.h.controller.recordVerification([...CHECKS], false);
+  await tick();
+  assert.deepEqual(first.reviewCalls, []);
+  assert.equal(first.calls.length, 1, "a second verification recording started");
+  holdVerification.resolve(VERIFICATION_RECORDED);
+  await verifying;
+
+  const holdReview = held();
+  const second = verifiable({ reviewAnswer: holdReview.answer });
+  await opened(second.h);
+  const reviewing = second.h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+  assert.ok(offersNoRecording(second.h.last()));
+  await second.h.controller.recordVerification([...CHECKS], false);
+  assert.deepEqual(second.calls, [], "verification was recorded over a review recording");
+  holdReview.resolve(RECORDED);
+  await reviewing;
+  assert.ok(fixResultOf(second.h.last())!.actions.includes("recordVerification"));
+});
+
+test("Clean is refused while either recording is in flight, and asks nothing", async () => {
+  for (const kind of ["review", "verification"] as const) {
+    const hold = held();
+    const made = verifiable(kind === "review" ? { reviewAnswer: hold.answer } : { answer: hold.answer });
+    await opened(made.h);
+    const recording =
+      kind === "review"
+        ? made.h.controller.recordReview(REVIEW_ENTRY)
+        : made.h.controller.recordVerification([...CHECKS], false);
+    await tick();
+    let cleaned = 0;
+    let asked = 0;
+    (made.options as { confirmAnswer?: () => Promise<boolean> }).confirmAnswer = async () => {
+      asked += 1;
+      return true;
+    };
+
+    assert.equal(await made.h.controller.clean("JR-12345", async () => void (cleaned += 1)), false);
+
+    assert.equal(cleaned, 0, `Clean ran over a ${kind} recording`);
+    assert.equal(asked, 0);
+    assert.ok(made.h.notices.some((notice) => notice.kind === "warning" && notice.message === CLEAN_REFUSED));
+    hold.resolve(kind === "review" ? RECORDED : VERIFICATION_RECORDED);
+    await recording;
+    // Ended: Clean goes ahead.
+    assert.equal(await made.h.controller.clean("JR-12345", async () => void (cleaned += 1)), true);
+    assert.equal(cleaned, 1);
+  }
+});
+
+test("a recording pressed while Clean's confirmation is open keeps the clean from running", async () => {
+  let answer!: (yes: boolean) => void;
+  const hold = held();
+  const made = verifiable({ answer: hold.answer });
+  (made.options as { confirmAnswer?: () => Promise<boolean> }).confirmAnswer = () =>
+    new Promise<boolean>((resolve) => (answer = resolve));
+  await opened(made.h);
+  let cleaned = 0;
+  const cleaning = made.h.controller.clean("JR-12345", async () => void (cleaned += 1));
+  await tick();
+  const recording = made.h.controller.recordVerification([...CHECKS], false);
+  await tick();
+  answer(true);
+
+  assert.equal(await cleaning, false);
+  assert.equal(cleaned, 0, "the clean ran over a recording started during its confirmation");
+  assert.ok(made.h.notices.some((notice) => notice.message === CLEAN_REFUSED));
+  hold.resolve(VERIFICATION_RECORDED);
+  await recording;
+});
+
+test("while Clean runs, no recording and no run start; afterwards the folder is read again", async () => {
+  const made = verifiable({ evidence: true, hold: true });
+  await opened(made.h);
+  let finish!: () => void;
+  const cleaning = made.h.controller.clean(
+    "JR-12345",
+    () =>
+      new Promise<void>((resolve) => {
+        finish = () => {
+          made.options.directory = [];
+          resolve();
+        };
+      }),
+  );
+  await tick();
+  assert.ok(offersNoRecording(made.h.last()));
+  void made.h.controller.recordVerification([...CHECKS], false);
+  void made.h.controller.recordReview(REVIEW_ENTRY);
+  void made.h.controller.run(jiraForm());
+  await tick();
+  assert.deepEqual(made.calls, []);
+  assert.deepEqual(made.reviewCalls, []);
+  assert.equal(made.h.streamRuns.length, 0);
+  assert.ok(made.h.notices.some((notice) => notice.message === "Wait for the clean to finish before starting a run."));
+
+  finish();
+  assert.equal(await cleaning, true);
+  assert.equal(fixResultOf(made.h.last()), undefined, "the cleaned work item still shows its reports");
+});
+
+test("a declined Clean runs nothing and leaves everything as it was", async () => {
+  const made = verifiable({ evidence: true, confirm: false });
+  await opened(made.h);
+  const before = JSON.stringify(fixResultOf(made.h.last()));
+  let cleaned = 0;
+  assert.equal(await made.h.controller.clean("JR-12345", async () => void (cleaned += 1)), false);
+  assert.equal(cleaned, 0);
+  assert.equal(JSON.stringify(fixResultOf(made.h.last())), before);
+  assert.ok(fixResultOf(made.h.last())!.actions.includes("editVerification"));
+});
+
+test("a verification recording still running after another item opens keeps runs and Clean out, unreported", async () => {
+  const hold = held();
+  const made = verifiable({ answer: hold.answer, hold: true });
+  await opened(made.h);
+  const recording = made.h.controller.recordVerification([...CHECKS], false);
+  await tick();
+  made.options.directory = [...PREPARED_FILES, "fix_report.md"];
+  await made.h.controller.showWorkItem("JR-77777");
+  assert.equal(fixResultOf(made.h.last())?.verificationCapture, undefined, "A's recording shows on B");
+
+  void made.h.controller.run(jiraForm({ issueKey: "JR-77777" }));
+  await tick();
+  assert.equal(made.h.streamRuns.length, 0);
+  assert.equal(await made.h.controller.clean("JR-77777", async () => {}), false);
+
+  hold.resolve(VERIFICATION_RECORDED);
+  await recording;
+  assert.equal(made.h.last().workItemId, "JR-77777");
+  assert.equal(fixResultOf(made.h.last())?.verificationCapture, undefined);
+  assert.equal(fixResultOf(made.h.last())?.actions.includes("recordVerification"), true);
+  const running = made.h.controller.run(jiraForm({ issueKey: "JR-77777" }));
+  await tick();
+  assert.equal(made.h.streamRuns.length, 1);
+  made.h.release();
+  await running;
+});
+
+test("a verification recording pressed while a run is still being set up keeps that run from starting", async () => {
+  let answer!: (yes: boolean) => void;
+  const hold = held();
+  const made = verifiable({ answer: hold.answer, hold: true });
+  (made.options as { confirmAnswer?: () => Promise<boolean> }).confirmAnswer = () =>
+    new Promise<boolean>((resolve) => (answer = resolve));
+  await opened(made.h);
+
+  const run = made.h.controller.run(jiraForm({ fresh: true }));
+  await tick();
+  const recording = made.h.controller.recordVerification([...CHECKS], false);
+  await tick();
+  answer(true);
+  await run;
+
+  assert.equal(made.h.streamRuns.length, 0, "the run started over a verification recording");
+  assert.ok(made.h.notices.some((notice) => notice.message === VERIFY_RUN_REFUSED));
+  hold.resolve(VERIFICATION_RECORDED);
+  await recording;
+});
+
+test("a verification recording that failed leaves Run, Record and Clean available again", async () => {
+  const made = verifiable({
+    hold: true,
+    answer: async () => ({ ok: false, command: "record-verification", error: { code: "INVALID_INPUT", message: "no" } }),
+  });
+  await opened(made.h);
+  await made.h.controller.recordVerification([...CHECKS], false);
+  assert.ok(fixResultOf(made.h.last())!.actions.includes("recordVerification"));
+  assert.ok(fixResultOf(made.h.last())!.actions.includes("recordReviewResult"));
+  const running = made.h.controller.run(jiraForm({ fresh: true }));
+  await tick();
+  assert.equal(made.h.streamRuns.length, 1);
+  made.h.release();
+  await running;
+});
+
+test("while a run is in flight no verification recording starts, and Edit is not offered", async () => {
+  const made = verifiable({ evidence: true, hold: true });
+  await opened(made.h);
+  const running = made.h.controller.run(jiraForm());
+  await tick();
+  assert.equal(made.h.last().progress.state, "running");
+  assert.ok(offersNoRecording(made.h.last()));
+  // The kept evidence stays on screen through the run, openable.
+  assert.equal(fixResultOf(made.h.last())!.verificationResult?.counts, "Recorded checks: 1 passed, 1 failed, 1 not run");
+  assert.ok(fixResultOf(made.h.last())!.actions.includes("openVerificationReport"));
+
+  await made.h.controller.recordVerification([...CHECKS], false);
+  made.h.controller.editVerification();
+  assert.deepEqual(made.calls, []);
+  assert.equal(fixResultOf(made.h.last())!.verificationEdit, undefined);
+  made.h.release();
+  await running;
+});
+
+test("a Fresh run drops the evidence from the screen with the rest of the attempt", async () => {
+  const fresh = verifiable({ evidence: true, review: true, hold: true });
+  await opened(fresh.h);
+  const run = fresh.h.controller.run(jiraForm({ fresh: true }));
+  await tick();
+  assert.equal(fixResultOf(fresh.h.last()), undefined);
+  fresh.h.release();
+  await run;
+});
+
+test("reopening a work item discovers its evidence from the file alone; an unreadable one still opens", async () => {
+  const { h, options } = verifiable();
+  await opened(h);
+  options.directory = [...options.directory, "verification_report.md"];
+  h.files["verification_report.md"] = ONE_PASSED_MD;
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(fixResultOf(h.last())!.verificationResult?.counts, "Recorded checks: 1 passed");
+
+  delete h.files["verification_report.md"];
+  await h.controller.refreshArtifacts();
+  const result = fixResultOf(h.last())!.verificationResult!;
+  assert.equal(result.counts, "Recorded checks: preview unavailable");
+  assert.equal(result.overall, undefined);
+  assert.ok(fixResultOf(h.last())!.actions.includes("openVerificationReport"));
+});
+
+test("an Edit's save never replaces a report that changed since Edit was opened; it is kept and said", async () => {
+  const { h, calls } = verifiable({ evidence: true });
+  await opened(h);
+  h.controller.editVerification();
+  const edit = fixResultOf(h.states.at(-1)!)!.verificationEdit!;
+  // Rewritten outside the panel — a terminal, an agent — without the listing changing.
+  h.files["verification_report.md"] = ONE_PASSED_MD;
+
+  await h.controller.handle(
+    parsePanelMessage({ type: "recordVerification", checks: [...edit.checks], replace: true, basis: edit.token })!,
+  );
+
+  assert.deepEqual(calls, [], "the changed report was overwritten unseen");
+  const row = fixResultOf(h.last())!;
+  assert.match(
+    row.verificationCapture?.state === "failed" ? row.verificationCapture.message : "",
+    /^Verification evidence was not recorded: verification_report\.md changed since Edit was opened, and it was kept\./,
+  );
+  // Read again: the row now shows the report as it is, and offers Edit and Run.
+  assert.equal(row.verificationResult?.counts, "Recorded checks: 1 passed");
+  assert.ok(row.actions.includes("editVerification"));
+  // An Edit save with no basis at all is refused the same way.
+  h.controller.editVerification();
+  await h.controller.recordVerification([...CHECKS], true);
+  assert.deepEqual(calls, []);
+  assert.equal(parsePanelMessage({ type: "recordVerification", checks: [...CHECKS], replace: true, basis: -1 }), undefined);
+  assert.equal(parsePanelMessage({ type: "recordVerification", checks: [...CHECKS], replace: true, basis: "1" }), undefined);
+});
+
+test("Clean is refused while a run is in flight, and asks nothing", async () => {
+  const made = verifiable({ hold: true });
+  let asked = 0;
+  (made.options as { confirmAnswer?: () => Promise<boolean> }).confirmAnswer = async () => {
+    asked += 1;
+    return true;
+  };
+  await opened(made.h);
+  const running = made.h.controller.run(jiraForm());
+  await tick();
+  let cleaned = 0;
+  assert.equal(await made.h.controller.clean("JR-12345", async () => void (cleaned += 1)), false);
+  assert.equal(cleaned, 0);
+  assert.equal(asked, 0);
+  assert.ok(made.h.notices.some((notice) => /run is in progress/.test(notice.message)));
+  made.h.release();
+  await running;
 });

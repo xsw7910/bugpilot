@@ -29,13 +29,22 @@
  * not been handed over is `ready`, never the green tick.
  */
 
-import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, REVIEW_REPORT_ARTIFACT, TASK_ARTIFACT } from "./artifacts.ts";
+import {
+  CONTEXT_ARTIFACT,
+  FIX_REPORT_ARTIFACT,
+  REVIEW_REPORT_ARTIFACT,
+  TASK_ARTIFACT,
+  VERIFICATION_REPORT_ARTIFACT,
+} from "./artifacts.ts";
 import type { RelevantFile } from "./contextSummary.ts";
 import type { UserFacingError } from "./failures.ts";
 import type { FixReportPreview } from "./fixReport.ts";
 import type { ValidationChecklist } from "./reviewPackage.ts";
 import type { ReviewCapture } from "./reviewCapture.ts";
 import type { ReviewReportPreview } from "./reviewReport.ts";
+import type { VerificationCapture } from "./verificationCapture.ts";
+import { STATUS_LABELS, TYPE_LABELS, overallPhrase } from "./verificationReport.ts";
+import type { VerificationCheckEntry, VerificationReportPreview } from "./verificationReport.ts";
 import type { PlanState, Source } from "./form.ts";
 import { HANDOFF_STARTED_TITLE, REVIEW_STARTED_TITLE } from "./handoff.ts";
 import type { IssueSummary } from "./issue.ts";
@@ -90,7 +99,11 @@ export type StepActionId =
   // Review Result (Batch 11): record one, replace the one recorded, open it.
   | "recordReviewResult"
   | "replaceReviewResult"
-  | "openReviewReport";
+  | "openReviewReport"
+  // Verification Evidence (Batch 12): record it, edit the recorded checks, open it.
+  | "recordVerification"
+  | "editVerification"
+  | "openVerificationReport";
 
 /** What Fix result says once a review result is recorded, and only then. */
 export const REVIEW_RESULT_RECORDED = "Review result recorded";
@@ -112,6 +125,49 @@ export interface ReviewResultView {
   readonly detail?: string;
   /** Which of the other sections hold something, in words; absent when neither does. */
   readonly alsoRecorded?: string;
+}
+
+/**
+ * Fix result's Verification Evidence, present exactly while
+ * `verification_report.md` is listed (Batch 12).
+ *
+ * Counts of recorded statuses and the checks' names — what the user recorded,
+ * scoped to each check. No global badge: the overall line is one of the four
+ * generated phrases, computed from the counts, never read from the file, and
+ * never "verified", "approved" or "safe to merge".
+ */
+export interface VerificationResultView {
+  /** The canonical file, opened through the constrained `openVerificationReport` action. */
+  readonly artifact: string;
+  /** "Recorded checks: 2 passed, 1 failed", or that the preview is unavailable. */
+  readonly counts: string;
+  /** The generated phrase; absent when no recorded status could be read. */
+  readonly overall?: string;
+  /** Up to five checks, in the report's order. */
+  readonly checks: readonly VerificationCheckView[];
+  /** "+N more in verification_report.md", beyond the preview. */
+  readonly more?: string;
+}
+
+export interface VerificationCheckView {
+  readonly name: string;
+  /** "Passed", "Failed", "Not Run" — or "Status not recorded" for a hand-edited row. */
+  readonly status: string;
+  readonly type?: string;
+}
+
+/**
+ * The recorded checks, sent once for Edit (Batch 12): `token` changes per
+ * request, so the page opens the form for this request and not again on the
+ * next push. `structured` is false when the report is not in BugPilot's shape —
+ * the form then starts empty, and saving replaces the report.
+ */
+export interface VerificationEdit {
+  readonly token: number;
+  readonly checks: readonly VerificationCheckEntry[];
+  readonly structured: boolean;
+  /** True when the file is listed but could not be read — not merely not canonical. */
+  readonly unreadable: boolean;
 }
 
 /**
@@ -206,6 +262,12 @@ export interface WorkflowStepResult {
   readonly reviewResult?: ReviewResultView;
   /** Fix result only: a recording in flight, or why the last one did not record. */
   readonly reviewCapture?: ReviewCapture;
+  /** Fix result only: the recorded evidence, while `verification_report.md` is listed. */
+  readonly verificationResult?: VerificationResultView;
+  /** Fix result only: a verification recording in flight, or why the last one did not record. */
+  readonly verificationCapture?: VerificationCapture;
+  /** Fix result only: the recorded checks for Edit, in the one push that answers it. */
+  readonly verificationEdit?: VerificationEdit;
   /**
    * A failure this row owns.
    *
@@ -318,6 +380,14 @@ export interface WorkflowInput {
   readonly reviewCapture?: ReviewCapture;
   /** Whether Record (or Replace) Review Result may be pressed now: the host's call. */
   readonly canRecordReview?: boolean;
+  /** `verification_report.md`, projected; absent when it was not read. The listing decides presence. */
+  readonly verificationReport?: VerificationReportPreview;
+  /** A verification recording in flight, or the last one's outcome; absent otherwise. */
+  readonly verificationCapture?: VerificationCapture;
+  /** Whether Record (or Edit) Verification Evidence may be pressed now: the host's call. */
+  readonly canRecordVerification?: boolean;
+  /** The recorded checks for Edit, only in the push that answers the request. */
+  readonly verificationEdit?: VerificationEdit;
 }
 
 /** The five capability rows, in `progress.ts` terms. */
@@ -396,6 +466,7 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
 function fixResultRow(input: WorkflowInput): WorkflowStepResult {
   const report = input.fixReport;
   const recorded = input.artifacts.includes(REVIEW_REPORT_ARTIFACT);
+  const evidence = input.artifacts.includes(VERIFICATION_REPORT_ARTIFACT);
   const detail = report === undefined || !report.readable
     ? "Preview unavailable"
     : report.tests === undefined
@@ -415,28 +486,59 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
     // then — the one that acts — starting a reviewer. All offered with any
     // report: the prompt and the checklist are built from the work item's
     // files, and a partial report is still one to review.
-    actions: fixResultActions(input, recorded),
+    actions: fixResultActions(input, recorded, evidence),
     ...(input.validation === undefined ? {} : { validation: input.validation }),
     ...(input.copyingReviewPrompt ? { copyingReviewPrompt: true as const } : {}),
     ...(input.review === undefined ? {} : { review: reviewView(input.review) }),
     ...(recorded ? { reviewResult: reviewResultView(input.reviewReport) } : {}),
     ...(input.reviewCapture === undefined ? {} : { reviewCapture: input.reviewCapture }),
+    ...(evidence ? { verificationResult: verificationResultView(input.verificationReport) } : {}),
+    ...(input.verificationCapture === undefined ? {} : { verificationCapture: input.verificationCapture }),
+    ...(input.verificationEdit === undefined ? {} : { verificationEdit: input.verificationEdit }),
   };
 }
 
 /**
  * Fix result's actions, in the order they are read: the report, the review aids,
- * then Review Result's — record one, or open and replace the one recorded.
+ * then Review Result's — record one, or open and replace the one recorded — then
+ * Verification Evidence's, the same way.
  *
- * Record and Replace only when the host says a recording may start (no run and
- * no recording in flight); Open whenever the file is listed.
+ * Record, Replace and Edit only when the host says a recording may start (no run
+ * and no artifact recording in flight); Open whenever the file is listed.
  */
-function fixResultActions(input: WorkflowInput, recorded: boolean): StepActionId[] {
+function fixResultActions(input: WorkflowInput, recorded: boolean, evidence: boolean): StepActionId[] {
   const actions: StepActionId[] = ["openFixReport", "copyReviewPrompt"];
   if (canStartReview(input.review)) actions.push("reviewWithAI");
   if (recorded) actions.push("openReviewReport");
   if (input.canRecordReview) actions.push(recorded ? "replaceReviewResult" : "recordReviewResult");
+  if (evidence) actions.push("openVerificationReport");
+  if (input.canRecordVerification) actions.push(evidence ? "editVerification" : "recordVerification");
   return actions;
+}
+
+/** Verification Evidence's lines: counts of recorded statuses, and the checks by name. */
+function verificationResultView(report: VerificationReportPreview | undefined): VerificationResultView {
+  const base = { artifact: VERIFICATION_REPORT_ARTIFACT } as const;
+  const total = report === undefined ? 0 : report.passed + report.failed + report.notRun;
+  if (report === undefined || !report.readable || total === 0) {
+    return { ...base, counts: "Recorded checks: preview unavailable", checks: [] };
+  }
+  const counts = [
+    ...(report.passed > 0 ? [`${report.passed} passed`] : []),
+    ...(report.failed > 0 ? [`${report.failed} failed`] : []),
+    ...(report.notRun > 0 ? [`${report.notRun} not run`] : []),
+  ];
+  return {
+    ...base,
+    counts: `Recorded checks: ${counts.join(", ")}`,
+    overall: overallPhrase(report.passed, report.failed, report.notRun),
+    checks: report.preview.map((check) => ({
+      name: check.name,
+      status: check.status === undefined ? "Status not recorded" : STATUS_LABELS[check.status],
+      ...(check.type === undefined ? {} : { type: TYPE_LABELS[check.type] }),
+    })),
+    ...(report.more > 0 ? { more: `+${report.more} more in ${VERIFICATION_REPORT_ARTIFACT}` } : {}),
+  };
 }
 
 /** Review Result's lines: the report's own words, or plainly that there is one. */

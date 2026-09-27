@@ -1366,6 +1366,121 @@ button.icon .codicon {
   cursor: default;
 }
 
+/* Verification Evidence (Batch 12): counts of recorded statuses and the checks
+   by name, in the row's quiet type. No tick, no colour and no badge: each status
+   is what the user recorded for one check, not BugPilot's judgement of the fix. */
+.verification-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.verification-result[hidden] {
+  display: none;
+}
+
+.verification-editor[hidden] {
+  display: none;
+}
+
+.verification-result p {
+  margin: 0;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+#verification-result-overall[hidden],
+#verification-result-more[hidden] {
+  display: none;
+}
+
+.verification-checks {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.9em;
+}
+
+.verification-checks li {
+  overflow-wrap: anywhere;
+}
+
+.verification-result-heading:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.verification-result-heading:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* The form: one group per check, each with its own Remove, then the form's
+   actions. The status and type are plain selects; the text is prose or a
+   command, so the text areas take the panel's own font. */
+.verification-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.verification-editor-note {
+  margin: 0;
+  font-size: 0.9em;
+}
+
+.verification-editor-note[hidden] {
+  display: none;
+}
+
+.verification-check {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.verification-check-heading {
+  margin: 0;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+.verification-check label {
+  margin-top: 4px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.verification-check textarea {
+  font-family: inherit;
+}
+
+.verification-check-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.verification-check-choices > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.verification-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.verification-editor [aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Indented to the label, so the second line of a row starts under its text
    rather than under its checkbox. */
 .step-foot {

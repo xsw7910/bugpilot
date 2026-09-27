@@ -254,6 +254,24 @@ removes it with the fix report; **Retry** leaves it, so after a retry it
 describes the earlier attempt until you replace it. History is not changed by
 it.
 
+**Record Verification Evidence** keeps the checks you ran with the work item's
+files: one row per check, with a name, the status you recorded — Passed,
+Failed or Not Run; a new row starts as Not Run — a type, and optionally the
+command or procedure, the evidence and notes. **Add Check** and **Remove
+Check** change the rows. BugPilot does not run any of them, read a terminal or
+watch CI: on Save the CLI writes `verification_report.md` with exactly what you
+entered, and **Verification Evidence** appears under Fix result — "Recorded
+checks: 2 passed, 1 failed", one line summarizing the recorded statuses, up to
+five checks by name, and **Open Verification Report**. A recorded status is
+about that one check; all of them passing does not mean the fix is correct.
+**Edit Verification Evidence** fills the form from the report and saving
+replaces it — unless the report changed since Edit was opened, which is kept
+and said. While a review result or verification evidence is being recorded, no
+run starts and **Clean** is refused until it ends; while Clean runs, neither
+recording starts. Plain Enter in a check's name never runs the panel.
+A **Fresh** run removes the report with the fix report; **Retry** leaves it.
+History is not changed by it.
+
 BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.
 

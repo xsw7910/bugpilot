@@ -9215,3 +9215,98 @@ new files. Not tuned.
 --from-markdown`); an MCP tool for recording; an extension-level Retry test
 (Python covers Retry, and the hands-on check exercised it); a live interactive
 U-1 check.
+
+### 37.74 Batch 12 — Verification Evidence (after `52cc279`)
+
+**Status:** implemented, verified, not committed. The contract is the canonical
+plan's §19 "Confirmed decisions (Batch 12)".
+
+**Why.** A review result is not verification, and BugPilot cannot prove a fix
+correct. What it can do is keep the evidence the developer gathered — which
+checks, what each was recorded as, how it was checked — with the work item, in
+one optional artifact, `verification_report.md`, worded so that a recorded
+status is scoped to its check and no global "verified" appears.
+
+**Audit before building.** History's outcome comes from file presence and reads
+`fix_report.md` as "verified" (icon) — semantic debt recorded, not extended: the
+verification report changes no outcome. Fresh deletes the work item folder, a
+resume keeps it, Retry touches only its own two files — the new report follows
+all three with no code. The Batch 11 Clean limitation (Clean not blocked while a
+review is recorded) closes here, with one host-side guard for every artifact
+write.
+
+**What was built.** `core/verification_report.py` renders the canonical format —
+every entered text line quoted `> `, `Not recorded.` for an empty field, the
+name on one line — with the summary and the one overall phrase generated from
+the counts, parses what it rendered back before writing, writes atomically and
+keeps an existing report unless `--replace` (`ARTIFACT_EXISTS`). `bugpilot
+record-verification <id> --from-file <json> [--replace] [--json]` takes
+`{"checks": [...]}`, refuses anything else (unknown fields, a status outside
+passed / failed / not_run, a type outside automated / manual / other, more than
+25 checks, a 200-character name, a 20,000-character field, nesting past the
+parser), records a check without a type as Other, and runs nothing. In the
+extension: `verificationReport.ts` (the tolerant preview — counts, up to five
+checks — and the strict read for Edit, both mirroring the Python reader),
+`verificationCapture.ts`, Verification Evidence on Fix result after Review
+Result ("Recorded checks: 2 passed, 1 failed", the scoped phrase, the checks by
+name, "+N more in verification_report.md"), Record / Edit Verification Evidence
+with a check-row form (Add Check, Remove Check, a new row Not Run and
+Automated), Open Verification Report, one message and two actions.
+
+**One artifact write at a time.** The Batch 11 in-flight flag became one
+host-side state, `#mutation`, for recording a review result, recording
+verification evidence and cleaning a work item. While any is in flight no run
+starts (checked before setup, so a Fresh run does not even ask, and again at the
+door), no recording starts, and Clean is refused — "Wait for artifact recording
+to finish before cleaning this work item." — before its confirmation and again
+after it. Clean now goes through the controller, which holds the guard while it
+runs, and it is refused during a run as well. Closes the Batch 11 deferred item
+"Clean not blocked while a review is recorded". The state clears only in the
+operation's `finally`; another work item or a reopen drops only the displayed
+outcome.
+
+**Edit.** The host sends the parsed checks once, in the push that answers the
+request (a token, so the page fills the form once and no later push carries
+every check). A save from Edit passes `--replace` only when a report is listed
+and only over the report that answer was read from: the host re-reads the file
+first and refuses — "verification_report.md changed since Edit was opened, and
+it was kept" — when it differs. A report not in BugPilot's shape, or unreadable,
+is sent as no checks, and the form says saving replaces it.
+
+**Review findings fixed.** The independent review against `52cc279` found no
+blocker and two important page defects, both fixed and mutation-tested: plain
+Enter in a check's one-line name implicitly submitted the panel's form — a Run
+(confirmed in the real browser: without the fix the bridged check started a run)
+— and collapsing the form, or pressing Record or Edit during a recording or
+after `ARTIFACT_EXISTS`, threw away what was typed. Also fixed from its minor
+and nit findings: an Edit's save overwriting a report changed meanwhile (the
+basis check above), Clean during a run, the host counting a name's length
+differently from the CLI, a `RecursionError` traceback from deeply nested JSON,
+and wording.
+
+**Unchanged.** History (a regression test holds the outcome with and without the
+report), `run.json` (recording leaves it byte-identical; a later run's
+`generated_files` lists whatever files the folder holds, this one included, as
+it already lists `review_report.md`), the Validation checklist, Review Result,
+Review with AI. Fresh deletes the report with the folder, a resume keeps it on
+screen through the run, Retry leaves it.
+
+**Tests.** Python 1258 (baseline 1201), extension 1181 (1111), integration 12
+(11) — the new one records shell-hostile evidence through the real CLI and reads
+it back with the extension's parser, byte for byte — publishability 15,
+typecheck clean, smoke 22 commands / 3 views, `git diff --check` clean. Mutation
+checks on every new guard (run, Clean, recording, Edit token and basis, replace,
+form handlers, default status, toggles) each fail a test. A bridged check — a
+real headless Chromium page running the panel's markup, stylesheet and script,
+bridged over the DevTools protocol to the real Controller and the real CLI
+(`--allow-mock`); VS Code's own surfaces faked — passed 20 of 20 scenarios. It
+is not a run inside VS Code. Retrieval code is unchanged: the working code over
+the frozen `826a884` tree gives MRR 0.295, line for line the same as
+`52cc279`'s; the live corpus gives 0.289, as after Batch 11.
+
+**Known limits.** The guards are per window: two VS Code windows, or the CLI in
+a terminal, can still race; the CLI's atomic write, keep-unless-replace and the
+Edit basis check narrow that, and a cross-window lock stays future work.
+Deferred as before: free-form Markdown import, an MCP record-review, the live
+U-1 check. History's "verified" icon for a work item with `fix_report.md`
+remains semantic debt.

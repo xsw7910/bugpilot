@@ -216,6 +216,42 @@
   let captureError = "";
   /** The form's four text areas, in the order they are written to the report. */
   const REVIEW_FIELDS = ["review-summary", "review-findings", "review-validation-notes", "review-recommendations"];
+  // Verification Evidence (Batch 12): the same bookkeeping, and the form's rows.
+  // Each row is the page's own — built here, read on Save — so what is typed
+  // survives every push until Cancel, another work item or a recorded save.
+  let verificationEditorWorkItem;
+  let wasVerificationRecorded = false;
+  let verificationResultSignature = "";
+  let verificationStatus = "";
+  let verificationError = "";
+  /** Whether the open form replaces a recorded report (Edit) or records the first one. */
+  let verificationMode = "record";
+  /** The last Edit answer the form was filled from, so a later push does not refill it. */
+  let verificationEditToken;
+  /** One entry per check row: its group and its controls. */
+  let verificationRows = [];
+  /** Unique within the page, so each row's labels point at its own controls. */
+  let verificationRowSerial = 0;
+  /** The CLI's caps, so the form says so before a process starts. */
+  const MAX_VERIFICATION_CHECKS = 25;
+  const MAX_CHECK_NAME = 200;
+  const CHECK_STATUSES = [
+    ["not_run", "Not Run"],
+    ["passed", "Passed"],
+    ["failed", "Failed"],
+  ];
+  const CHECK_TYPES = [
+    ["automated", "Automated"],
+    ["manual", "Manual"],
+    ["other", "Other"],
+  ];
+  const CHECK_TEXT_FIELDS = [
+    ["procedure", "Command / Procedure"],
+    ["evidence", "Evidence"],
+    ["notes", "Notes"],
+  ];
+  /** The form's own buttons, which the panel's form handlers leave alone. */
+  const VERIFICATION_CONTROLS = ["add-verification-check", "save-verification", "cancel-verification"];
 
   // --- growing fields ------------------------------------------------------
 
@@ -772,8 +808,13 @@
     byId("copy-review-prompt").hidden = !copies;
     reviewButton.hidden = !(step && (actions.includes("reviewWithAI") || reviewing));
     renderReviewResult(step, workItemId);
+    renderVerification(step, workItemId);
     byId("actions-fixResult").hidden =
-      !opens && !copies && reviewButton.hidden && byId("record-review-result").hidden;
+      !opens &&
+      !copies &&
+      reviewButton.hidden &&
+      byId("record-review-result").hidden &&
+      byId("record-verification").hidden;
     // Waiting for the CLI: one press at a time, and said in words.
     const copying = Boolean(step && step.copyingReviewPrompt);
     byId("copy-review-prompt").disabled = copying;
@@ -1002,6 +1043,333 @@
     byId("record-review-result").setAttribute("aria-expanded", editor.hidden ? "false" : "true");
     byId("replace-review-result").setAttribute("aria-expanded", editor.hidden ? "false" : "true");
     if (!editor.hidden) byId("review-summary").focus({ preventScroll: true });
+  }
+
+  /**
+   * Verification Evidence and its form (Batch 12).
+   *
+   * The lines are the host's: counts of recorded statuses, one generated phrase
+   * scoped to the recorded checks, and up to five checks by name — never a badge
+   * and never "verified". The form is the page's: Record opens it with one row,
+   * Edit asks the host for the recorded checks and opens it when they arrive
+   * (once per answer), and Cancel, a recorded save or another work item closes
+   * it — the last two emptying it. Save only asks; the host decides whether a
+   * recording may start and runs record-verification.
+   */
+  function renderVerification(step, workItemId) {
+    const actions = (step && step.actions) || [];
+    const result = step ? step.verificationResult : undefined;
+    const capture = step ? step.verificationCapture : undefined;
+    const edit = step ? step.verificationEdit : undefined;
+    const recording = Boolean(capture && capture.state === "recording");
+    const failed = Boolean(capture && capture.state === "failed");
+    const recorded = Boolean(capture && capture.state === "recorded");
+    const offered = actions.includes("recordVerification") || actions.includes("editVerification");
+    const editor = byId("verification-editor");
+    const hadFocus = verificationFocused();
+
+    const anotherItem = !step || workItemId !== verificationEditorWorkItem;
+    if (anotherItem) {
+      closeVerificationEditor(true);
+      verificationStatus = "";
+      verificationError = "";
+      byId("verification-capture-status").textContent = "";
+    }
+    verificationEditorWorkItem = step ? workItemId : undefined;
+    // Only the host's own word that it recorded closes and empties the form.
+    const finished = !anotherItem && recorded && !wasVerificationRecorded;
+    wasVerificationRecorded = recorded;
+    if (finished) closeVerificationEditor(true);
+
+    // The recorded checks, sent once for Edit: fill the form and open it.
+    if (step && edit && edit.token !== verificationEditToken) {
+      verificationEditToken = edit.token;
+      // Checks typed into a Record form that met a report recorded meanwhile are
+      // kept, after the recorded ones — nothing typed is dropped by asking to Edit.
+      const typed =
+        verificationMode === "record" ? verificationRows.map(readVerificationRow).filter((check) => check.name.trim() !== "") : [];
+      const checks = [...(edit.checks || []), ...typed].slice(0, MAX_VERIFICATION_CHECKS);
+      openVerificationEditor("edit", checks, edit.structured ? "" : edit.unreadable ? "unreadable" : "format");
+    }
+
+    const open = !editor.hidden;
+    // While the host records, neither toggle does anything — the form and what
+    // was typed stay exactly as they are until the recording has answered.
+    const record = byId("record-verification");
+    record.hidden = !(step && !result && (actions.includes("recordVerification") || open || recording));
+    record.setAttribute("aria-expanded", open ? "true" : "false");
+    record.setAttribute("aria-disabled", recording ? "true" : "false");
+    const editButton = byId("edit-verification");
+    editButton.hidden = !(result && (actions.includes("editVerification") || open || recording));
+    editButton.setAttribute("aria-expanded", open ? "true" : "false");
+    const closesEdit = open && verificationMode === "edit";
+    editButton.setAttribute("aria-disabled", recording || (!offered && !closesEdit) ? "true" : "false");
+
+    // `aria-disabled`, as on Save Review Result: a keyboard user who pressed a
+    // button keeps the focus while the host records; the handlers and host refuse.
+    const busy = recording || !offered;
+    const save = byId("save-verification");
+    save.setAttribute("aria-disabled", busy ? "true" : "false");
+    save.setAttribute("aria-busy", recording ? "true" : "false");
+    byId("save-verification-label").textContent = recording ? "Recording…" : "Save Verification Evidence";
+    byId("cancel-verification").setAttribute("aria-disabled", recording ? "true" : "false");
+    renderVerificationRowState(recording);
+
+    byId("verification-result").hidden = !result;
+    byId("open-verification-report").hidden = !(result && actions.includes("openVerificationReport"));
+    const signature = result ? JSON.stringify([workItemId, result]) : "";
+    if (signature !== verificationResultSignature) {
+      verificationResultSignature = signature;
+      byId("verification-result-counts").textContent = result ? result.counts : "";
+      const overall = byId("verification-result-overall");
+      overall.textContent = result && result.overall ? result.overall : "";
+      overall.hidden = !(result && result.overall);
+      const list = byId("verification-result-checks");
+      list.replaceChildren(
+        ...(result ? result.checks : []).map((check) =>
+          line("li", "", [check.name, check.status, check.type].filter(Boolean).join(" · ")),
+        ),
+      );
+      const more = byId("verification-result-more");
+      more.textContent = result && result.more ? result.more : "";
+      more.hidden = !(result && result.more);
+    }
+
+    let status = "";
+    if (recording) status = "Recording verification evidence…";
+    else if (recorded) status = capture.replaced ? "Verification evidence replaced." : "Verification evidence recorded.";
+    if (status !== verificationStatus) {
+      verificationStatus = status;
+      byId("verification-capture-status").textContent = status;
+    }
+    const message = failed ? capture.message || "" : "";
+    if (message !== verificationError) {
+      verificationError = message;
+      const error = byId("verification-capture-error");
+      // Shown before it is filled, as Review Result's is.
+      error.hidden = message === "";
+      error.textContent = message;
+    }
+    if (finished && hadFocus) byId("verification-capture-status").focus({ preventScroll: true });
+  }
+
+  /** Whether the keyboard is somewhere in the verification form. */
+  function verificationFocused() {
+    const active = document.activeElement;
+    if (VERIFICATION_CONTROLS.some((id) => byId(id) === active)) return true;
+    const focused = active && active.id;
+    return Boolean(focused) && verificationRows.some((row) => row.controls.some((control) => control.id === focused));
+  }
+
+  /**
+   * Open the form: `edit` with the recorded checks, `record` with one new row.
+   * An Edit of a report that could not be read into checks starts with one new
+   * row too, and says that saving replaces the report.
+   */
+  function openVerificationEditor(mode, checks, replaces) {
+    verificationMode = mode;
+    clearVerificationRows();
+    const rows = checks.length > 0 ? checks : [undefined];
+    for (const check of rows) addVerificationRow(check);
+    const note = byId("verification-editor-replace-note");
+    note.textContent =
+      replaces === "unreadable"
+        ? "This report could not be read, so its checks are not in the form. Saving replaces it with the checks below."
+        : "This report is not in BugPilot's format, so its checks could not be read into the form. Saving replaces it with the checks below.";
+    note.hidden = !replaces;
+    showVerificationEditor();
+  }
+
+  /** Show the form as it is, at its first check. */
+  function showVerificationEditor() {
+    byId("verification-editor").hidden = false;
+    setVerificationExpanded(true);
+    const first = verificationRows[0];
+    if (first) first.name.focus({ preventScroll: true });
+  }
+
+  /** One row, as the CLI receives it. */
+  function readVerificationRow(row) {
+    const check = { name: row.name.value, status: row.status.value, type: row.kind.value };
+    for (const text of row.texts) check[text.field] = text.area.value;
+    return check;
+  }
+
+  /** Close the form; `clear` empties it too. */
+  function closeVerificationEditor(clear) {
+    byId("verification-editor").hidden = true;
+    setVerificationExpanded(false);
+    if (!clear) return;
+    clearVerificationRows();
+    byId("verification-editor-replace-note").hidden = true;
+    verificationMode = "record";
+  }
+
+  function setVerificationExpanded(open) {
+    byId("record-verification").setAttribute("aria-expanded", open ? "true" : "false");
+    byId("edit-verification").setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function clearVerificationRows() {
+    verificationRows = [];
+    byId("verification-rows").replaceChildren();
+  }
+
+  /**
+   * One check's group: a name, a recorded status (Not Run until the developer
+   * says otherwise — never Passed), a type, three optional text fields and its
+   * own Remove. Built with `textContent` and `value`, never markup: a check's
+   * text is whatever was pasted, a command line included.
+   */
+  function addVerificationRow(check) {
+    verificationRowSerial += 1;
+    const key = `verification-check-${verificationRowSerial}`;
+    const group = document.createElement("div");
+    group.className = "verification-check";
+    group.setAttribute("role", "group");
+    const heading = line("p", "verification-check-heading", "");
+    const name = document.createElement("input");
+    name.type = "text";
+    name.id = `${key}-name`;
+    name.setAttribute("maxlength", String(MAX_CHECK_NAME));
+    name.value = check ? check.name : "";
+    const status = choice(`${key}-status`, CHECK_STATUSES, check ? check.status : "not_run");
+    const kind = choice(`${key}-type`, CHECK_TYPES, check ? check.type : "automated");
+    const texts = CHECK_TEXT_FIELDS.map(([field, label]) => {
+      const area = document.createElement("textarea");
+      area.id = `${key}-${field}`;
+      area.setAttribute("rows", field === "evidence" ? "3" : "2");
+      area.value = check ? check[field] || "" : "";
+      return { field, label, area };
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.id = `${key}-remove`;
+    remove.className = "result-link";
+    remove.textContent = "Remove Check";
+    const row = { group, heading, name, status, kind, texts, remove, controls: [] };
+    row.controls = [name, status, kind, ...texts.map((text) => text.area), remove];
+    for (const control of row.controls) control.setAttribute("data-editor", "verification");
+    name.addEventListener("input", () => labelVerificationRows());
+    remove.addEventListener("click", () => removeVerificationRow(row));
+
+    const choices = document.createElement("div");
+    choices.className = "verification-check-choices";
+    choices.append(labelled("Status", status), labelled("Type", kind));
+    group.append(heading, fieldLabel("Name", name), name, choices);
+    for (const text of texts) group.append(fieldLabel(text.label, text.area), text.area);
+    group.append(remove);
+    verificationRows.push(row);
+    byId("verification-rows").append(group);
+    labelVerificationRows();
+    return row;
+  }
+
+  function choice(id, options, selected) {
+    const select = document.createElement("select");
+    select.id = id;
+    for (const [value, label] of options) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.append(option);
+    }
+    select.value = selected;
+    return select;
+  }
+
+  function fieldLabel(text, control) {
+    const label = line("label", "", text);
+    label.setAttribute("for", control.id);
+    return label;
+  }
+
+  function labelled(text, control) {
+    const wrapper = document.createElement("div");
+    wrapper.append(fieldLabel(text, control), control);
+    return wrapper;
+  }
+
+  /**
+   * Number the rows and name their controls: "Check 2", "Check 2 name",
+   * "Remove check 2: Unit tests" — so a screen reader knows which check each
+   * control belongs to after a row is added or removed.
+   */
+  function labelVerificationRows() {
+    verificationRows.forEach((row, index) => {
+      const number = index + 1;
+      const name = row.name.value.trim();
+      row.heading.textContent = `Check ${number}`;
+      row.group.setAttribute("aria-label", `Check ${number}`);
+      row.name.setAttribute("aria-label", `Check ${number} name`);
+      row.status.setAttribute("aria-label", `Check ${number} recorded status`);
+      row.kind.setAttribute("aria-label", `Check ${number} type`);
+      for (const text of row.texts) text.area.setAttribute("aria-label", `Check ${number} ${text.label.toLowerCase()}`);
+      row.remove.setAttribute("aria-label", name === "" ? `Remove check ${number}` : `Remove check ${number}: ${name}`);
+    });
+    const full = verificationRows.length >= MAX_VERIFICATION_CHECKS;
+    const add = byId("add-verification-check");
+    add.setAttribute("aria-disabled", full || verificationBusy() ? "true" : "false");
+    add.setAttribute("title", full ? `At most ${MAX_VERIFICATION_CHECKS} checks can be recorded.` : "Add another check");
+  }
+
+  function verificationBusy() {
+    return byId("save-verification").getAttribute("aria-busy") === "true";
+  }
+
+  /** While recording, nothing in the form changes: its buttons wait. */
+  function renderVerificationRowState(recording) {
+    for (const row of verificationRows) row.remove.setAttribute("aria-disabled", recording ? "true" : "false");
+    labelVerificationRows();
+  }
+
+  function removeVerificationRow(row) {
+    if (row.remove.getAttribute("aria-disabled") === "true") return;
+    const index = verificationRows.indexOf(row);
+    if (index < 0) return;
+    verificationRows.splice(index, 1);
+    byId("verification-rows").replaceChildren(...verificationRows.map((entry) => entry.group));
+    labelVerificationRows();
+    // The keyboard goes to the row that took this one's place, or to Add Check.
+    const next = verificationRows[index] || verificationRows[index - 1];
+    if (next) next.remove.focus({ preventScroll: true });
+    else byId("add-verification-check").focus({ preventScroll: true });
+  }
+
+  /**
+   * Record pressed: open the form with one new row, or close it again. Closing
+   * keeps the rows, and opening again shows them as they were: only Cancel, a
+   * recorded save or another work item empties the form.
+   */
+  function toggleVerificationRecord() {
+    const button = byId("record-verification");
+    if (button.hidden || button.getAttribute("aria-disabled") === "true") return;
+    if (!byId("verification-editor").hidden) {
+      closeVerificationEditor(false);
+      return;
+    }
+    if (verificationMode === "record" && verificationRows.length > 0) showVerificationEditor();
+    else openVerificationEditor("record", [], "");
+  }
+
+  /**
+   * Edit pressed: close the open Edit form (keeping its rows), open it again as
+   * it was, or ask the host for the recorded checks. A Record form still open
+   * when a report appeared asks too; its typed checks are kept (renderVerification).
+   */
+  function toggleVerificationEdit() {
+    const button = byId("edit-verification");
+    if (button.hidden || button.getAttribute("aria-disabled") === "true") return;
+    const open = !byId("verification-editor").hidden;
+    if (open && verificationMode === "edit") {
+      closeVerificationEditor(false);
+      return;
+    }
+    if (!open && verificationMode === "edit" && verificationRows.length > 0) {
+      showVerificationEditor();
+      return;
+    }
+    vscode.postMessage({ type: "action", id: "editVerification" });
   }
 
   /** An element with nothing in it but text. */
@@ -2012,6 +2380,9 @@
 
   byId("form").addEventListener("submit", (event) => {
     event.preventDefault();
+    // An implicit submission from inside a review or verification form — Enter
+    // in a one-line field — is not a request to prepare the bug (Batch 12).
+    if (fromReviewEditor({ target: document.activeElement })) return;
     submit();
   });
 
@@ -2021,8 +2392,15 @@
    * Ctrl+Enter there must not Run, and typing there is not a form change.
    */
   function fromReviewEditor(event) {
-    const id = event && event.target && event.target.id;
-    return typeof id === "string" && (REVIEW_FIELDS.includes(id) || id === "save-review-result" || id === "cancel-review-result");
+    const target = event && event.target;
+    const id = target && target.id;
+    if (typeof id === "string" && (REVIEW_FIELDS.includes(id) || id === "save-review-result" || id === "cancel-review-result")) {
+      return true;
+    }
+    // The Verification Evidence form (Batch 12): its buttons by id, its rows by
+    // the mark every row control carries.
+    if (typeof id === "string" && VERIFICATION_CONTROLS.includes(id)) return true;
+    return Boolean(target && target.getAttribute && target.getAttribute("data-editor") === "verification");
   }
 
   // Ctrl+Enter from anywhere in the form, which is what a multi-line
@@ -2141,6 +2519,57 @@
   // file of the work item on screen, and only while it is listed.
   byId("open-review-report").addEventListener("click", () => {
     if (!byId("open-review-report").hidden) vscode.postMessage({ type: "action", id: "openReviewReport" });
+  });
+  // Verification Evidence (Batch 12). Record opens the form with one row; Edit
+  // asks the host for the recorded checks; Open is an action, not a file name.
+  byId("record-verification").addEventListener("click", toggleVerificationRecord);
+  byId("edit-verification").addEventListener("click", toggleVerificationEdit);
+  byId("open-verification-report").addEventListener("click", () => {
+    if (!byId("open-verification-report").hidden) {
+      vscode.postMessage({ type: "action", id: "openVerificationReport" });
+    }
+  });
+  byId("add-verification-check").addEventListener("click", () => {
+    const add = byId("add-verification-check");
+    if (byId("verification-editor").hidden || add.getAttribute("aria-disabled") === "true") return;
+    const row = addVerificationRow(undefined);
+    row.name.focus({ preventScroll: true });
+  });
+  byId("cancel-verification").addEventListener("click", () => {
+    if (byId("cancel-verification").getAttribute("aria-disabled") === "true") return;
+    const editing = verificationMode === "edit";
+    closeVerificationEditor(true);
+    byId("verification-capture-error").hidden = true;
+    verificationError = "";
+    const toggle = editing || byId("record-verification").hidden ? byId("edit-verification") : byId("record-verification");
+    if (!toggle.hidden) toggle.focus({ preventScroll: true });
+  });
+  // Save sends the rows and whether the form was opened by Edit — no work item,
+  // no path. Every status is the one chosen in the row; nothing is inferred.
+  function saveVerification() {
+    const save = byId("save-verification");
+    if (byId("verification-editor").hidden || save.getAttribute("aria-disabled") === "true") return;
+    const editing = verificationMode === "edit";
+    vscode.postMessage({
+      type: "recordVerification",
+      replace: editing,
+      // Which Edit answer the rows came from: the host replaces only the report
+      // that answer was read from, never one that changed since.
+      ...(editing && verificationEditToken !== undefined ? { basis: verificationEditToken } : {}),
+      checks: verificationRows.map(readVerificationRow),
+    });
+  }
+  byId("save-verification").addEventListener("click", saveVerification);
+  byId("verification-editor").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      saveVerification();
+      return;
+    }
+    // Plain Enter in a check's one-line name would submit the panel's form
+    // implicitly — a Run. Text areas keep their Enter.
+    if (event.target && event.target.type === "text") event.preventDefault();
   });
   // Opening the checklist is what asks for it — once, and never on a render.
   byId("validation-checklist").addEventListener("toggle", () => {

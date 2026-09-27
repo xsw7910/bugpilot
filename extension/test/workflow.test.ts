@@ -12,7 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildWorkflow, canOpenFolder, overallStatus, stepDescription, WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
-import type { WorkflowInput } from "../src/app/workflow.ts";
+import type { WorkflowInput, WorkflowStepResult } from "../src/app/workflow.ts";
 import { isPlainPrompt, resolveAgent, KNOWN_AGENTS, PROMPT_PLACEHOLDER } from "../src/app/agents.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
 import { CAPABILITIES, CAPABILITY_LABELS } from "../src/app/progress.ts";
@@ -858,4 +858,83 @@ test("nothing on Review Result claims a review passed, finished or verified anyt
   for (const claim of ["passed", "verified", "approved", "complete", "reviewed"]) {
     assert.equal(words.includes(claim), false, claim);
   }
+});
+
+// --- Batch 12: Verification Evidence on Fix result --------------------------------
+
+const WITH_EVIDENCE = [...WITH_REPORT, "verification_report.md"];
+const EVIDENCE = {
+  readable: true,
+  passed: 2,
+  failed: 0,
+  notRun: 1,
+  preview: [
+    { name: "Unit tests", status: "passed", type: "automated" },
+    { name: "Soak", status: "not_run", type: "other" },
+    { name: "Hand-edited" },
+  ],
+  more: 6,
+} as const;
+
+test("no verification_report.md, no Verification Evidence", () => {
+  const row = stepIn(finished({ artifacts: WITH_REPORT, verificationReport: EVIDENCE }), "fixResult");
+  assert.equal(row.verificationResult, undefined, "a preview with no file listed became evidence");
+});
+
+test("listed evidence is counts, the scoped phrase, five checks and how many more — no new row", () => {
+  const steps = finished({ artifacts: WITH_EVIDENCE, verificationReport: EVIDENCE });
+  assert.deepEqual(steps.map((step) => step.id), [...WORKFLOW_STEP_IDS, "fixResult"]);
+  assert.deepEqual(stepIn(steps, "fixResult").verificationResult, {
+    artifact: "verification_report.md",
+    counts: "Recorded checks: 2 passed, 1 not run",
+    overall: "Recorded checks have mixed or incomplete status.",
+    checks: [
+      { name: "Unit tests", status: "Passed", type: "Automated" },
+      { name: "Soak", status: "Not Run", type: "Other" },
+      { name: "Hand-edited", status: "Status not recorded" },
+    ],
+    more: "+6 more in verification_report.md",
+  });
+});
+
+test("unreadable evidence, or evidence with no recorded status, only says it is there", () => {
+  for (const verificationReport of [
+    { readable: false, passed: 0, failed: 0, notRun: 0, preview: [], more: 0 },
+    { readable: true, passed: 0, failed: 0, notRun: 0, preview: [{ name: "x" }], more: 0 },
+    undefined,
+  ]) {
+    const view = stepIn(
+      finished({ artifacts: WITH_EVIDENCE, ...(verificationReport ? { verificationReport } : {}) }),
+      "fixResult",
+    ).verificationResult!;
+    assert.deepEqual(view, { artifact: "verification_report.md", counts: "Recorded checks: preview unavailable", checks: [] });
+  }
+});
+
+test("Record, Open and Edit follow the file and the host's say-so, after Review Result's", () => {
+  const actions = (overrides: Partial<WorkflowInput>) => [...stepIn(finished(overrides), "fixResult").actions];
+  assert.deepEqual(actions({ artifacts: WITH_REPORT, canRecordReview: true, canRecordVerification: true }), [
+    "openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult", "recordVerification",
+  ]);
+  assert.deepEqual(
+    actions({ artifacts: [...WITH_EVIDENCE, "review_report.md"], verificationReport: EVIDENCE, canRecordReview: true, canRecordVerification: true }),
+    ["openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport", "replaceReviewResult", "openVerificationReport", "editVerification"],
+  );
+  // A run or an artifact write in flight: nothing to record or edit, but the file still opens.
+  assert.deepEqual(actions({ artifacts: WITH_EVIDENCE, verificationReport: EVIDENCE, canRecordVerification: false }), [
+    "openFixReport", "copyReviewPrompt", "reviewWithAI", "openVerificationReport",
+  ]);
+});
+
+test("recorded evidence changes nothing Fix result or the header says about the fix", () => {
+  const fixReport = { readable: true, summary: "Fixed it.", tests: "3 passed." };
+  const without = finished({ artifacts: WITH_REPORT, fixReport });
+  const withEvidence = finished({ artifacts: WITH_EVIDENCE, fixReport, verificationReport: { ...EVIDENCE, passed: 3, notRun: 0 } });
+  const strip = (row: WorkflowStepResult) => {
+    const { actions: _actions, verificationResult: _result, ...rest } = row;
+    return rest;
+  };
+  assert.deepEqual(strip(stepIn(withEvidence, "fixResult")), strip(stepIn(without, "fixResult")));
+  assert.deepEqual(overallStatus(withEvidence, progress("done", ALL_DONE)), overallStatus(without, progress("done", ALL_DONE)));
+  assert.equal(stepIn(withEvidence, "fixResult").status, "ready");
 });

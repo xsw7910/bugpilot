@@ -38,6 +38,13 @@ export const FIX_REPORT_ARTIFACT = "fix_report.md";
  */
 export const REVIEW_REPORT_ARTIFACT = "review_report.md";
 
+/**
+ * Verification evidence, as somebody recorded it (Batch 12) — only
+ * `record-verification` writes it. Optional like the review report: never listed
+ * as missing, and its presence changes no outcome.
+ */
+export const VERIFICATION_REPORT_ARTIFACT = "verification_report.md";
+
 export type ArtifactKind = "markdown" | "json" | "log" | "other";
 
 /**
@@ -103,6 +110,8 @@ const GROUPS: Readonly<Record<string, ArtifactGroup>> = {
   "run.json": "state",
   // Recorded after a review, beside the report it was about.
   "review_report.md": "results",
+  // Recorded verification evidence, beside the report and the review it follows.
+  "verification_report.md": "results",
   "copilot_task.md": "copilot",
   "copilot_handoff.md": "copilot",
   "copilot_analysis_prompt.md": "copilot",
@@ -135,6 +144,7 @@ const WITHIN_GROUP: readonly string[] = [
   "user_feedback.md",
   "fix_report.md",
   "review_report.md",
+  "verification_report.md",
   "context.md",
   "retrieval.json",
 ];

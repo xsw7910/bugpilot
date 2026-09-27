@@ -10,6 +10,8 @@ and a filename spelled out in five modules is five chances to drift.
     run.json         runtime state: step lifecycle, agent state
     fix_report.md    optional, only once a fix produced something to report
     review_report.md optional, only once somebody recorded a review's result
+    verification_report.md
+                     optional, only once somebody recorded verification evidence
 
 Every JSON artifact carries ``schema_version``. There is deliberately no
 migration and no reader for any earlier layout: BugPilot is pre-release, and a
@@ -27,6 +29,7 @@ TASK_ARTIFACT = "task.md"
 RUN_ARTIFACT = "run.json"
 FIX_REPORT_ARTIFACT = "fix_report.md"
 REVIEW_REPORT_ARTIFACT = "review_report.md"
+VERIFICATION_REPORT_ARTIFACT = "verification_report.md"
 
 
 class WorkItemNotFoundError(FileNotFoundError):
@@ -34,7 +37,7 @@ class WorkItemNotFoundError(FileNotFoundError):
 
 
 # What a normal prepare-only run leaves behind once every batch has landed.
-# The two reports are not here: each exists only once something wrote it.
+# The reports are not here: each exists only once something wrote it.
 CORE_ARTIFACTS: tuple[str, ...] = (
     ISSUE_ARTIFACT,
     RETRIEVAL_ARTIFACT,

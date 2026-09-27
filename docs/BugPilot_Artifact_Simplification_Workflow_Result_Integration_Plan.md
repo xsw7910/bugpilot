@@ -1505,6 +1505,120 @@ carries no Fix result step.
     (guidance, no checkboxes, never ticked by a review), History (no new
     outcome; a review report changes none) and `run.json`.
 
+### Confirmed decisions (Batch 12): Verification Evidence
+
+1. **One optional artifact, `verification_report.md`**, beside the two
+   reports. Its existence means only that verification evidence was
+   explicitly recorded — not that the fix is correct, that every relevant
+   behaviour was tested, that the repository's tests pass, that review
+   recommendations were applied, or that the work item is ready to merge. No
+   JSON sidecar, no flag files, nothing in `run.json`.
+2. **Evidence, scoped per check.** Each check has a name and a recorded status
+   — Passed, Failed or Not Run — plus a type (Automated, Manual, Other) and
+   optional Command / Procedure, Evidence and Notes. A status is what the user
+   recorded for that one check; BugPilot did not run or observe it. All
+   recorded checks passing is not proof that no defect remains. No confidence
+   score, no "skipped", no execution-source field yet.
+3. **The format is BugPilot's and fully round-trips**:
+
+   ```text
+   # Verification Report: <work-item>
+
+   ## Summary
+   <n> checks recorded: <counts>.
+
+   ## Checks
+
+   ### Check 1: <name>
+
+   Status: Passed | Failed | Not Run
+   Type: Automated | Manual | Other
+
+   Command / Procedure:
+
+   > <text>   (or: Not recorded.)
+
+   Evidence:
+
+   > <text>   (or: Not recorded.)
+
+   Notes:
+
+   > <text>   (or: Not recorded.)
+
+   ## Overall Recorded Status
+   <one scoped phrase>
+
+   ## Source
+   Verification evidence explicitly recorded by the user.
+   ```
+
+   Entered field text is stored as a Markdown quote, every line prefixed
+   `> `, so nothing a user types can open a heading, a check or a field of the
+   report's own; the name is one line. The overall phrase is generated from the
+   counts and is always one of: "All recorded checks passed.", "Recorded checks
+   include failures.", "No recorded check has been run.", "Recorded checks have
+   mixed or incomplete status." — never "verified", "correct", "approved" or
+   "safe to merge". The writer parses what it rendered before writing, so a
+   report it cannot read back is never written.
+4. **One writer: `bugpilot record-verification <id> --from-file <json>`**
+   (`core/verification_report.py`), with `--replace` and `--json`. The JSON —
+   `{"checks": [{name, status, type, procedure, evidence, notes}]}` — is
+   transport only and never stored. The writer validates the id, needs the work
+   item folder, requires at least one check, a name for each, a known status and
+   type, bounded fields (25 checks; 200 characters for a name, 20,000 for each
+   text), writes atomically, keeps an existing report unless `--replace`
+   (`ARTIFACT_EXISTS`), and has no other effect. It never runs a command. A
+   check sent without a type is recorded as Other — the CLI does not guess
+   Automated for it.
+5. **Readers, bounded.** The panel gets the counts, the overall phrase and up to
+   five checks (name, recorded status, type), "+N more in
+   verification_report.md" beyond that. A report that is not in the canonical
+   shape still previews as far as it can and opens, but is not turned into
+   structured checks: Edit then starts from one new check, says that saving
+   replaces the report, and saving does.
+6. **Verification Evidence belongs to Fix result**, after Review Result: not a
+   workflow row, never in "Running n/m", present exactly while the file is
+   listed. It reads "Recorded checks: 2 passed, 1 failed" — counts of recorded
+   statuses, no global badge — with the checks and **Open Verification Report**
+   (an action; the host opens the canonical file, only while listed).
+7. **Record Verification Evidence / Edit Verification Evidence** is offered
+   while Fix result is on screen and nothing is in flight — no run, no review
+   recording, no verification recording. It does not need a review. The form
+   has one row per check (Add Check, Remove Check); a new row defaults to Not
+   Run and Automated, never Passed. Edit fills the form from the report the host
+   parsed; saving an edit replaces the report, which the host passes as
+   `--replace` because the developer chose Edit — and only over the report that
+   Edit was filled from: one changed since (a terminal, an agent, another
+   window) is kept and said, never overwritten unseen. Closing the form keeps
+   what was typed; checks typed into a Record form that met a report recorded
+   meanwhile are kept, after the recorded ones, when Edit loads it. Plain Enter
+   in a check's name never runs the panel.
+8. **One artifact write at a time, host-side.** Recording a review result and
+   recording verification evidence are both artifact mutations; while either is
+   in flight no run of any kind starts (checked before setup and again at the
+   door), neither recording starts, and Clean is refused — "Wait for artifact
+   recording to finish before cleaning this work item." In-flight state is the
+   operation's own, cleared only when it ends; another work item or a reopen
+   drops only the displayed outcome. The guards are per window; across
+   processes the CLI's atomic write and keep-unless-replace are the protection,
+   and a real lock is future work. Clean holds the same guard while it runs —
+   no recording and no run start until it ends ("Wait for the clean to finish
+   before starting a run.") — so the controller, not the command, confirms and
+   runs it.
+9. **Failures are the recording's own**: "Verification evidence was not
+   recorded", with the reason — never worded as a check failing, which only a
+   recorded Failed status says.
+10. **Fresh, Resume, Retry follow the other reports.** Fresh deletes it with the
+    folder; a resume and a non-Fresh re-prepare keep it and it stays on screen
+    through the run; Retry neither creates, changes nor deletes it, so after a
+    retry the evidence may describe the earlier attempt until it is edited.
+11. **Unchanged**: History (a verification report changes no outcome; the
+    existing "verified" icon for a work item with `fix_report.md` is known
+    semantic debt, not extended here), `run.json`, the Validation checklist
+    (guidance, never turned into Passed), Review Result (never converted into
+    checks), Review with AI and Copy Review Prompt.
+
 ---
 
 # 20. Step Secondary Text 状态原则

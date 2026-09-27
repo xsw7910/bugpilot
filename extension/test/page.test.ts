@@ -4580,3 +4580,501 @@ test("the same failure after Cancel and a new press is said again", () => {
   assert.equal(p.byId("review-capture-error").hidden, false);
   assert.equal(p.byId("review-capture-error").textContent, failed.message);
 });
+
+// --- Verification Evidence, under Fix result (Batch 12) ------------------------
+
+const VERIFICATION_PREVIEW = {
+  readable: true,
+  passed: 1,
+  failed: 1,
+  notRun: 0,
+  preview: [
+    { name: "Unit tests", status: "passed", type: "automated" },
+    { name: "Open the dialog", status: "failed", type: "manual" },
+  ],
+  more: 0,
+} as const;
+
+/** A report on screen, verification recording allowed, and whatever else the test adds. */
+const verifiablePage = (extra: Partial<WorkflowInput> = {}, overrides: Partial<PanelState> = {}) =>
+  reported(REPORT, { canRecordVerification: true, ...extra }, overrides);
+
+/** A report with recorded evidence on screen. */
+const evidenced = (extra: Partial<WorkflowInput> = {}, overrides: Partial<PanelState> = {}) =>
+  prepared(
+    {
+      artifacts: [...PREPARED_FILES, "fix_report.md", "verification_report.md"],
+      fixReport: REPORT,
+      verificationReport: VERIFICATION_PREVIEW,
+      canRecordVerification: true,
+      ...extra,
+    },
+    overrides,
+  );
+
+/** The form's rows, by what each control is. */
+function checkRows(p: Page) {
+  return p.byId("verification-rows").children.map((group) => {
+    const all = flatten(group);
+    const find = (suffix: string) => {
+      const found = all.find((element) => element.id.endsWith(suffix));
+      assert.ok(found, `a check row has no control ending ${suffix}`);
+      return found;
+    };
+    return {
+      group,
+      heading: group.children[0]!,
+      name: find("-name"),
+      status: find("-status"),
+      type: find("-type"),
+      procedure: find("-procedure"),
+      evidence: find("-evidence"),
+      notes: find("-notes"),
+      remove: find("-remove"),
+    };
+  });
+}
+
+const openRecord = (p: Page) => p.byId("record-verification").dispatch("click");
+
+test("no report, no Record Verification Evidence, no evidence, no form", () => {
+  const p = load();
+  p.send(prepared());
+  assert.equal(p.byId("record-verification").hidden, true);
+  assert.equal(p.byId("verification-result").hidden, true);
+  assert.equal(p.byId("verification-editor").hidden, true);
+});
+
+test("Record opens the form with one check — Not Run and Automated, never Passed — and asks the host nothing", () => {
+  const p = load();
+  p.send(verifiablePage());
+  const record = p.byId("record-verification");
+  assert.equal(record.hidden, false);
+  assert.equal(p.byId("actions-fixResult").hidden, false);
+  const before = p.posted.length;
+
+  openRecord(p);
+
+  assert.equal(p.byId("verification-editor").hidden, false);
+  assert.equal(record.getAttribute("aria-expanded"), "true");
+  const rows = checkRows(p);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.status.value, "not_run");
+  assert.equal(rows[0]!.type.value, "automated");
+  assert.equal(rows[0]!.name.value, "");
+  assert.deepEqual(rows[0]!.status.children.map((option) => option.value), ["not_run", "passed", "failed"]);
+  assert.deepEqual(rows[0]!.type.children.map((option) => option.value), ["automated", "manual", "other"]);
+  assert.equal(p.focused, rows[0]!.name.id);
+  assert.equal(p.posted.length, before);
+});
+
+test("each row and control is named for its check, and renumbered when one goes", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  p.byId("add-verification-check").dispatch("click");
+  p.byId("add-verification-check").dispatch("click");
+  let rows = checkRows(p);
+  rows[1]!.name.value = "Unit tests";
+  rows[1]!.name.dispatch("input");
+  assert.deepEqual(rows.map((row) => row.heading.textContent), ["Check 1", "Check 2", "Check 3"]);
+  assert.equal(rows[1]!.group.getAttribute("aria-label"), "Check 2");
+  assert.equal(rows[1]!.name.getAttribute("aria-label"), "Check 2 name");
+  assert.equal(rows[1]!.status.getAttribute("aria-label"), "Check 2 recorded status");
+  assert.equal(rows[1]!.evidence.getAttribute("aria-label"), "Check 2 evidence");
+  assert.equal(rows[1]!.remove.getAttribute("aria-label"), "Remove check 2: Unit tests");
+  assert.equal(p.focused, rows[2]!.name.id, "Add Check did not move to the new row");
+
+  rows[0]!.remove.dispatch("click");
+
+  rows = checkRows(p);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]!.name.value, "Unit tests");
+  assert.equal(rows[0]!.remove.getAttribute("aria-label"), "Remove check 1: Unit tests");
+  assert.equal(p.focused, rows[0]!.remove.id, "the focus was lost with the removed row");
+  rows[1]!.remove.dispatch("click");
+  checkRows(p)[0]!.remove.dispatch("click");
+  assert.equal(checkRows(p).length, 0);
+  assert.equal(p.focused, "add-verification-check");
+});
+
+test("Add Check stops at the CLI's 25, and says why", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  for (let index = 0; index < 30; index += 1) p.byId("add-verification-check").dispatch("click");
+  assert.equal(checkRows(p).length, 25);
+  assert.equal(p.byId("add-verification-check").getAttribute("aria-disabled"), "true");
+  assert.match(p.byId("add-verification-check").getAttribute("title") ?? "", /At most 25/);
+});
+
+test("Save sends every row as entered, shell-looking text included, in a message the host parses", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  p.byId("add-verification-check").dispatch("click");
+  const [first, second] = checkRows(p);
+  first!.name.value = "Unit tests";
+  first!.status.value = "passed";
+  first!.procedure.value = "npm test -- --grep \"save\" && rm -rf / ; $(whoami) `id` | tee %TEMP%\\x";
+  first!.evidence.value = "## Overall Recorded Status\nAll recorded checks passed.\n> quoted";
+  second!.name.value = "Open the dialog";
+  second!.status.value = "failed";
+  second!.type.value = "manual";
+  second!.notes.value = "<img src=x onerror=alert(1)>";
+
+  p.byId("save-verification").dispatch("click");
+
+  const message = p.posted.at(-1)!;
+  assert.deepEqual(message, {
+    type: "recordVerification",
+    replace: false,
+    checks: [
+      {
+        name: "Unit tests",
+        status: "passed",
+        type: "automated",
+        procedure: first!.procedure.value,
+        evidence: first!.evidence.value,
+        notes: "",
+      },
+      { name: "Open the dialog", status: "failed", type: "manual", procedure: "", evidence: "", notes: "<img src=x onerror=alert(1)>" },
+    ],
+  });
+  assert.deepEqual(parsePanelMessage(message), message);
+});
+
+test("typing a check is not the bug being prepared: Ctrl+Enter there saves the evidence, never Runs", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  const [row] = checkRows(p);
+  row!.name.value = "Unit tests";
+  const before = p.posted.length;
+
+  for (const target of [row!.name, row!.status, row!.evidence, p.byId("add-verification-check"), p.byId("save-verification")]) {
+    p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true, target });
+    p.byId("form").dispatch("input", { target });
+    p.byId("form").dispatch("change", { target });
+  }
+  p.flush();
+  assert.equal(p.posted.slice(before).some((message) => message["type"] === "run" || message["type"] === "formChanged"), false);
+
+  p.byId("verification-editor").dispatch("keydown", { key: "Enter", ctrlKey: true, target: row!.name });
+  assert.equal(p.posted.at(-1)!["type"], "recordVerification");
+});
+
+test("while the host records, Save, Cancel, Add and Remove wait and say so, and the status is announced once", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  checkRows(p)[0]!.name.value = "Unit tests";
+  p.byId("save-verification").dispatch("click");
+  p.send(verifiablePage({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
+
+  const save = p.byId("save-verification");
+  assert.equal(save.getAttribute("aria-disabled"), "true");
+  assert.equal(save.getAttribute("aria-busy"), "true");
+  assert.equal(save.disabled, false, "disabled would take the focus away");
+  assert.equal(p.byId("save-verification-label").textContent, "Recording…");
+  assert.equal(p.byId("cancel-verification").getAttribute("aria-disabled"), "true");
+  assert.equal(p.byId("add-verification-check").getAttribute("aria-disabled"), "true");
+  assert.equal(checkRows(p)[0]!.remove.getAttribute("aria-disabled"), "true");
+  assert.equal(p.byId("verification-capture-status").textContent, "Recording verification evidence…");
+  const before = p.posted.length;
+  save.dispatch("click");
+  p.byId("add-verification-check").dispatch("click");
+  checkRows(p)[0]!.remove.dispatch("click");
+  p.byId("cancel-verification").dispatch("click");
+  assert.equal(p.posted.length, before, "a second recording was asked for");
+  assert.equal(checkRows(p).length, 1);
+  assert.equal(p.byId("verification-editor").hidden, false);
+});
+
+test("a recording that finished closes and empties the form, shows the evidence, and moves focus to it", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  checkRows(p)[0]!.name.value = "Unit tests";
+  p.byId("save-verification").dispatch("click");
+  p.byId("save-verification").focus();
+  p.send(verifiablePage({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
+
+  p.send(verifiablePage({ verificationCapture: { state: "recorded", replaced: false } }));
+  assert.equal(p.byId("verification-editor").hidden, true);
+  assert.equal(p.focused, "verification-capture-status");
+  p.send(evidenced({ verificationCapture: { state: "recorded", replaced: false } }));
+
+  assert.equal(checkRows(p).length, 0);
+  assert.equal(p.byId("verification-capture-status").textContent, "Verification evidence recorded.");
+  assert.equal(p.byId("verification-result").hidden, false);
+  assert.equal(p.byId("verification-result-counts").textContent, "Recorded checks: 1 passed, 1 failed");
+  assert.equal(p.byId("verification-result-overall").textContent, "Recorded checks include failures.");
+  assert.deepEqual(
+    p.byId("verification-result-checks").children.map((item) => item.textContent),
+    ["Unit tests · Passed · Automated", "Open the dialog · Failed · Manual"],
+  );
+  assert.equal(p.byId("verification-result-more").hidden, true);
+  assert.equal(p.byId("record-verification").hidden, true);
+  assert.equal(p.byId("open-verification-report").hidden, false);
+  assert.equal(p.byId("edit-verification").hidden, false);
+});
+
+test("the preview is bounded: five checks, then how many more are in the file", () => {
+  const p = load();
+  const preview = Array.from({ length: 5 }, (_, index) => ({ name: `Check ${index + 1}`, status: "not_run", type: "other" }) as const);
+  p.send(evidenced({ verificationReport: { readable: true, passed: 0, failed: 0, notRun: 9, preview, more: 4 } }));
+  assert.equal(p.byId("verification-result-checks").children.length, 5);
+  assert.equal(p.byId("verification-result-more").hidden, false);
+  assert.equal(p.byId("verification-result-more").textContent, "+4 more in verification_report.md");
+  assert.equal(p.byId("verification-result-overall").textContent, "No recorded check has been run.");
+});
+
+test("a recording that failed keeps the form and its rows, and says so in the recording's own words", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  checkRows(p)[0]!.name.value = "Unit tests";
+  p.send(verifiablePage({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
+
+  p.send(verifiablePage({ verificationCapture: { state: "failed", message: "Verification evidence was not recorded: disk full." } }));
+
+  const error = p.byId("verification-capture-error");
+  assert.equal(error.hidden, false);
+  assert.equal(error.textContent, "Verification evidence was not recorded: disk full.");
+  assert.equal(p.byId("verification-editor").hidden, false);
+  assert.equal(checkRows(p)[0]!.name.value, "Unit tests");
+  assert.equal(p.byId("verification-capture-status").textContent, "");
+  assert.equal(p.byId("save-verification").getAttribute("aria-disabled"), "false");
+  assert.equal(p.byId("review-capture-error").hidden, true);
+  assert.equal(p.byId("failure").hidden, true);
+});
+
+test("Edit asks the host for the checks, fills the form from its one answer, and saves as a replace", () => {
+  const p = load();
+  p.send(evidenced());
+  const edit = p.byId("edit-verification");
+  edit.dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "editVerification" });
+  assert.equal(p.byId("verification-editor").hidden, true, "the form opened before the checks arrived");
+
+  const checks = [
+    { name: "Unit tests", status: "passed", type: "automated", procedure: "npm test", evidence: "1111 passed", notes: "" },
+    { name: "Open the dialog", status: "failed", type: "manual", procedure: "", evidence: "Crashed.", notes: "n" },
+  ] as const;
+  p.send(evidenced({ verificationEdit: { token: 1, checks, structured: true, unreadable: false } }));
+
+  assert.equal(p.byId("verification-editor").hidden, false);
+  assert.equal(edit.getAttribute("aria-expanded"), "true");
+  assert.equal(p.byId("verification-editor-replace-note").hidden, true);
+  const rows = checkRows(p);
+  assert.deepEqual(rows.map((row) => [row.name.value, row.status.value, row.type.value, row.evidence.value, row.notes.value]), [
+    ["Unit tests", "passed", "automated", "1111 passed", ""],
+    ["Open the dialog", "failed", "manual", "Crashed.", "n"],
+  ]);
+  assert.equal(p.focused, rows[0]!.name.id);
+  // The next push does not carry the answer, and the form keeps what is typed.
+  rows[1]!.status.value = "passed";
+  p.send(evidenced());
+  assert.equal(checkRows(p)[1]!.status.value, "passed");
+  // Nor does the same answer twice refill it.
+  p.send(evidenced({ verificationEdit: { token: 1, checks, structured: true, unreadable: false } }));
+  assert.equal(checkRows(p)[1]!.status.value, "passed");
+
+  p.byId("save-verification").dispatch("click");
+  assert.equal(p.posted.at(-1)!["replace"], true);
+});
+
+test("Edit of a report BugPilot could not read into checks starts with one new row and says saving replaces it", () => {
+  const p = load();
+  p.send(evidenced({ verificationEdit: { token: 7, checks: [], structured: false, unreadable: false } }));
+  assert.equal(p.byId("verification-editor").hidden, false);
+  assert.equal(p.byId("verification-editor-replace-note").hidden, false);
+  assert.equal(checkRows(p).length, 1);
+  assert.equal(checkRows(p)[0]!.status.value, "not_run");
+});
+
+test("Open Verification Report asks for the one action, and names no file", () => {
+  const p = load();
+  p.send(evidenced());
+  p.byId("open-verification-report").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "openVerificationReport" });
+});
+
+test("another work item closes the form and forgets the rows typed for the last one", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  checkRows(p)[0]!.name.value = "For JR-12345.";
+  p.send(verifiablePage({ workItemId: "JR-77777" }, { workItemId: "JR-77777" }));
+  assert.equal(p.byId("verification-editor").hidden, true);
+  assert.equal(checkRows(p).length, 0);
+  assert.equal(p.byId("record-verification").getAttribute("aria-expanded"), "false");
+});
+
+test("Cancel closes and empties the form, and returns to the button that opened it", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  checkRows(p)[0]!.name.value = "Draft.";
+  p.send(verifiablePage({ verificationCapture: { state: "failed", message: "Verification evidence was not recorded: no." } }));
+  p.byId("cancel-verification").dispatch("click");
+  assert.equal(p.byId("verification-editor").hidden, true);
+  assert.equal(checkRows(p).length, 0);
+  assert.equal(p.byId("verification-capture-error").hidden, true);
+  assert.equal(p.focused, "record-verification");
+
+  const q = load();
+  q.send(evidenced({ verificationEdit: { token: 1, checks: [], structured: false, unreadable: false } }));
+  q.byId("cancel-verification").dispatch("click");
+  assert.equal(q.focused, "edit-verification");
+});
+
+test("with no recording allowed — a run, or another write in flight — nothing is offered and Save does nothing", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  checkRows(p)[0]!.name.value = "Unit tests";
+  p.send(verifiablePage({ canRecordVerification: false, reviewCapture: { state: "recording" } }));
+  assert.equal(p.byId("save-verification").getAttribute("aria-disabled"), "true");
+  const before = p.posted.length;
+  p.byId("save-verification").dispatch("click");
+  assert.equal(p.posted.length, before);
+
+  const q = load();
+  q.send(evidenced({ canRecordVerification: false }));
+  assert.equal(q.byId("edit-verification").hidden, true);
+  assert.equal(q.byId("open-verification-report").hidden, false);
+  const r = load();
+  r.send(verifiablePage({ canRecordVerification: false }));
+  assert.equal(r.byId("record-verification").hidden, true);
+});
+
+test("recorded lines render as text, and the page adds no verdict of its own", () => {
+  const hostile = "<img src=x onerror=alert(1)>";
+  const p = load();
+  p.send(
+    evidenced({
+      verificationReport: { ...VERIFICATION_PREVIEW, preview: [{ name: hostile, status: "passed", type: "automated" }] },
+    }),
+  );
+  const item = p.byId("verification-result-checks").children[0]!;
+  assert.equal(item.textContent, `${hostile} · Passed · Automated`);
+  assert.equal(item.children.length, 0);
+  const shown = [
+    p.byId("verification-result-counts").textContent,
+    p.byId("verification-result-overall").textContent,
+    item.textContent,
+  ].join(" ");
+  assert.doesNotMatch(shown, /Verified|Approved|Correct|Safe to merge|Fix verified/);
+});
+
+test("a push that changes nothing about the evidence leaves its lines and status alone", () => {
+  const p = load();
+  p.send(evidenced({ verificationCapture: { state: "recorded", replaced: true } }));
+  const first = p.byId("verification-result-checks").children[0];
+  assert.equal(p.byId("verification-capture-status").textContent, "Verification evidence replaced.");
+  p.send(evidenced({ verificationCapture: { state: "recorded", replaced: true }, copyingReviewPrompt: true }));
+  assert.equal(p.byId("verification-result-checks").children[0], first, "the list was rebuilt by an unrelated push");
+});
+
+test("plain Enter in a check's name never runs the panel: the implicit submit is ignored, the key is held", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  const [row] = checkRows(p);
+  row!.name.value = "Unit tests";
+  // The document knows the row's controls, as a real one would.
+  p.elements.set(row!.name.id, row!.name);
+  row!.name.focus();
+  const before = p.posted.length;
+  let prevented = false;
+
+  p.byId("verification-editor").dispatch("keydown", { key: "Enter", target: row!.name, preventDefault: () => (prevented = true) });
+  // Should the browser submit anyway, the form's own handler still refuses.
+  p.byId("form").dispatch("submit", { target: p.byId("form") });
+
+  assert.equal(prevented, true, "plain Enter in the name was left to submit the form");
+  assert.equal(p.posted.slice(before).some((message) => message["type"] === "run"), false);
+  // A text area keeps its Enter.
+  let areaPrevented = false;
+  p.byId("verification-editor").dispatch("keydown", { key: "Enter", target: row!.evidence, preventDefault: () => (areaPrevented = true) });
+  assert.equal(areaPrevented, false);
+  // And outside the editor, submitting still runs.
+  p.focused = undefined;
+  p.byId("form").dispatch("submit", { target: p.byId("form") });
+  assert.equal(p.posted.at(-1)!["type"], "run");
+});
+
+test("closing and reopening the form keeps what was typed; only Cancel, a save or another item empties it", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  p.byId("add-verification-check").dispatch("click");
+  checkRows(p)[0]!.name.value = "Unit tests";
+  checkRows(p)[1]!.name.value = "Open the dialog";
+
+  openRecord(p);
+  assert.equal(p.byId("verification-editor").hidden, true);
+  openRecord(p);
+  assert.equal(p.byId("verification-editor").hidden, false);
+  assert.deepEqual(checkRows(p).map((row) => row.name.value), ["Unit tests", "Open the dialog"]);
+});
+
+test("while the host records, Record and Edit do nothing: the form and its rows stay as they are", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  checkRows(p)[0]!.name.value = "Unit tests";
+  p.byId("save-verification").dispatch("click");
+  p.send(verifiablePage({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
+  assert.equal(p.byId("record-verification").getAttribute("aria-disabled"), "true");
+  openRecord(p);
+  openRecord(p);
+  assert.equal(p.byId("verification-editor").hidden, false);
+  assert.equal(checkRows(p)[0]!.name.value, "Unit tests");
+
+  const q = load();
+  q.send(evidenced({ verificationEdit: { token: 3, checks: [], structured: false, unreadable: false } }));
+  checkRows(q)[0]!.name.value = "Edited";
+  q.send(evidenced({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
+  const before = q.posted.length;
+  q.byId("edit-verification").dispatch("click");
+  assert.equal(q.byId("verification-editor").hidden, false);
+  assert.equal(checkRows(q)[0]!.name.value, "Edited");
+  assert.equal(q.posted.length, before);
+});
+
+test("a Record form that met a report recorded meanwhile keeps its checks when Edit loads the report", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  checkRows(p)[0]!.name.value = "Typed here";
+  checkRows(p)[0]!.status.value = "failed";
+  // The CLI kept the other report; the row read it and offers Edit.
+  p.send(evidenced({ verificationCapture: { state: "failed", message: "Verification evidence was not recorded: kept." } }));
+  assert.equal(p.byId("verification-editor").hidden, false);
+  p.byId("edit-verification").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "editVerification" });
+
+  const recorded = [{ name: "From a terminal", status: "not_run", type: "other", procedure: "", evidence: "", notes: "" }] as const;
+  p.send(evidenced({ verificationEdit: { token: 9, checks: recorded, structured: true, unreadable: false } }));
+
+  assert.deepEqual(checkRows(p).map((row) => [row.name.value, row.status.value]), [
+    ["From a terminal", "not_run"],
+    ["Typed here", "failed"],
+  ]);
+  p.byId("save-verification").dispatch("click");
+  assert.equal(p.posted.at(-1)!["replace"], true);
+  assert.equal(p.posted.at(-1)!["basis"], 9);
+  assert.deepEqual(parsePanelMessage(p.posted.at(-1)!), p.posted.at(-1));
+});
+
+test("Edit of a listed report that could not be read says so, not that it is in another format", () => {
+  const p = load();
+  p.send(evidenced({ verificationEdit: { token: 2, checks: [], structured: false, unreadable: true } }));
+  assert.match(p.byId("verification-editor-replace-note").textContent, /could not be read/);
+  const q = load();
+  q.send(evidenced({ verificationEdit: { token: 2, checks: [], structured: false, unreadable: false } }));
+  assert.match(q.byId("verification-editor-replace-note").textContent, /not in BugPilot's format/);
+});

@@ -543,3 +543,32 @@ test("History's outcome ignores a recorded review", () => {
     );
   }
 });
+
+// --- Batch 12: verification_report.md -----------------------------------------
+
+test("recorded evidence is listed with the results, after the review, and is never 'missing'", () => {
+  const list = buildArtifactList({
+    names: ["task.md", "verification_report.md", "fix_report.md", "review_report.md", "context.md"],
+  });
+  const results = list.kind === "ready" ? list.sections.find((section) => section.group === "results") : undefined;
+  assert.deepEqual(results?.entries.map((entry) => entry.name), ["fix_report.md", "review_report.md", "verification_report.md"]);
+  const without = buildArtifactList({ names: ["task.md", "fix_report.md"] });
+  const names = without.kind === "ready" ? without.sections.flatMap((section) => section.entries.map((entry) => entry.name)) : [];
+  assert.equal(names.includes("verification_report.md"), false, "evidence nobody recorded was listed as missing");
+});
+
+test("History's outcome ignores recorded evidence, with or without a review", () => {
+  const status = { status: "prepared", steps: { prepare: "pass" } };
+  for (const files of [
+    ["run.json", "task.md"],
+    ["run.json", "task.md", "fix_report.md"],
+    ["run.json", "task.md", "fix_report.md", "review_report.md"],
+    ["run.json", "task.md", "fix_report.md", "user_feedback.md"],
+  ]) {
+    assert.deepEqual(
+      historyOutcome({ files: [...files, "verification_report.md"], status }),
+      historyOutcome({ files, status }),
+      files.join(", "),
+    );
+  }
+});

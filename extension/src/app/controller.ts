@@ -35,6 +35,16 @@ import { parseReviewReport } from "./reviewReport.ts";
 import type { ReviewReportPreview } from "./reviewReport.ts";
 import { REVIEW_NOT_RECORDED, hasReviewContent, recordReviewArgs, recordingOutcome, reviewPayload } from "./reviewCapture.ts";
 import type { ReviewCapture, ReviewEntry } from "./reviewCapture.ts";
+import { parseVerificationReport } from "./verificationReport.ts";
+import type { VerificationCheckEntry, VerificationReportPreview } from "./verificationReport.ts";
+import {
+  VERIFICATION_NOT_RECORDED,
+  recordVerificationArgs,
+  verificationOutcome,
+  verificationPayload,
+  verificationProblem,
+} from "./verificationCapture.ts";
+import type { VerificationCapture } from "./verificationCapture.ts";
 import type { PayloadCommandRequest } from "./fixModeTransport.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
@@ -42,7 +52,7 @@ import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
 import type { AgentPlan } from "./agents.ts";
 import { buildWorkflow, canOpenFolder, canStartReview, overallStatus } from "./workflow.ts";
-import type { FixWithAiOutcome, ReviewHandoff, ValidationView } from "./workflow.ts";
+import type { FixWithAiOutcome, ReviewHandoff, ValidationView, VerificationEdit } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
 import { handoffError, reviewHandoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
@@ -59,7 +69,15 @@ import {
 import type { HintContext, HintProvider, IssueDetails } from "./hintImprovement.ts";
 import { ProgressTracker, viewFromStatus } from "./progress.ts";
 import type { ProgressView } from "./progress.ts";
-import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, REVIEW_REPORT_ARTIFACT, RUN_ARTIFACT, TASK_ARTIFACT, buildArtifactList } from "./artifacts.ts";
+import {
+  CONTEXT_ARTIFACT,
+  FIX_REPORT_ARTIFACT,
+  REVIEW_REPORT_ARTIFACT,
+  RUN_ARTIFACT,
+  TASK_ARTIFACT,
+  VERIFICATION_REPORT_ARTIFACT,
+  buildArtifactList,
+} from "./artifacts.ts";
 import type { ArtifactList } from "./artifacts.ts";
 import { COMMANDS } from "../commands.ts";
 import { diagnose } from "../errors.ts";
@@ -249,7 +267,29 @@ export interface ControllerPorts {
    * the extension records a review: it never writes `review_report.md` itself.
    */
   readonly runReviewCommand?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  /**
+   * `record-verification`, with the checks in a temporary file (Batch 12). The one
+   * way the extension records verification evidence: it never writes
+   * `verification_report.md` itself, and never runs a check.
+   */
+  readonly runVerificationCommand?: (request: PayloadCommandRequest) => Promise<Envelope>;
 }
+
+/**
+ * The artifact writes the host performs itself, one at a time (Batch 12): recording
+ * a review result, recording verification evidence, and cleaning a work item.
+ */
+type ArtifactMutation = "review" | "verification" | "clean";
+
+/** What a run that has to wait is told, per mutation in flight. */
+const RUN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
+  review: "Wait for the review result recording to finish before starting a run.",
+  verification: "Wait for the verification evidence recording to finish before starting a run.",
+  clean: "Wait for the clean to finish before starting a run.",
+};
+
+/** What Clean is told while a recording is in flight. */
+export const CLEAN_WAITS = "Wait for artifact recording to finish before cleaning this work item.";
 
 /**
  * A Fix Mode management command, and the definition it carries.
@@ -370,15 +410,27 @@ export class Controller {
   #reviewReport: ReviewReportPreview | undefined;
   /** A recording in flight, or why the last one did not record. Never persisted. */
   #reviewCapture: ReviewCapture | undefined;
+  /** `verification_report.md`, projected, while the listing names it (Batch 12). */
+  #verificationReport: VerificationReportPreview | undefined;
+  /** A verification recording in flight, or its outcome. Never persisted. */
+  #verificationCapture: VerificationCapture | undefined;
+  /** The recorded checks for Edit, held for exactly one push. */
+  #verificationEdit: VerificationEdit | undefined;
+  #verificationEditToken = 0;
+  /** The report text as last read, so an Edit's save can tell whether it changed. */
+  #verificationText: string | undefined;
+  /** The last Edit answer and the text it was parsed from. */
+  #verificationEditBasis: { readonly token: number; readonly text: string | undefined } | undefined;
   /**
-   * True from the press until `recordReview` itself returns — set before the
-   * first wait, cleared only in its `finally`. It means a record-review process
-   * (or the confirmation before one) is in flight, which is not the same as its
-   * outcome still being wanted: another work item or a reopen drops the outcome
-   * (the epoch) but cannot stop the process, and until that process has ended no
-   * run may start and no second recording either.
+   * The artifact write in flight, if any (Batch 11, generalized in Batch 12): a
+   * record-review, a record-verification or a clean process, or the confirmation
+   * before one. Set before the first wait and cleared only in that operation's
+   * `finally`. In flight is not the same as its outcome still being wanted:
+   * another work item or a reopen drops the outcome (the epoch) but cannot stop
+   * the process, and until it has ended no run starts, no recording starts and
+   * no clean either.
    */
-  #recordingReview = false;
+  #mutation: ArtifactMutation | undefined;
   /**
    * Bumped whenever a recording in flight stops being wanted: another work item,
    * a reopen, a run, or the report gone. A recording that resumes under an older
@@ -623,6 +675,9 @@ export class Controller {
       case "recordReview":
         await this.recordReview(message.review);
         return;
+      case "recordVerification":
+        await this.recordVerification(message.checks, message.replace, message.basis);
+        return;
       case "action":
         if (message.id === "openContext") await this.openArtifact(CONTEXT_ARTIFACT);
         else if (message.id === "copyContext") await this.copyContext();
@@ -632,6 +687,8 @@ export class Controller {
         else if (message.id === "loadValidation") await this.loadValidation();
         else if (message.id === "reviewWithAI") await this.reviewWithAI();
         else if (message.id === "openReviewReport") await this.openReviewReport();
+        else if (message.id === "openVerificationReport") await this.openVerificationReport();
+        else if (message.id === "editVerification") this.editVerification();
         else await this.#ports.ui.editCredentials();
         return;
       case "command": {
@@ -651,15 +708,13 @@ export class Controller {
   /** Prepare a bug. Rejects nothing: problems are rendered, not thrown. */
   async run(form: FormState): Promise<void> {
     if (this.#running) return;
-    // No run while a review result is being recorded (Batch 11). A Fresh run
-    // deletes the work item folder, and record-review's late write would put
-    // review_report.md back into the new package; any run would drop the
-    // recording's outcome. Refused here, the one door every run goes through —
-    // not by a page button. Nothing is marked: the run simply has not begun.
-    if (this.#recordingReview) {
-      this.#ports.ui.notify("warning", "Wait for the review result recording to finish before starting a run.");
-      return;
-    }
+    // No run while an artifact write is in flight (Batches 11–12). A Fresh run
+    // deletes the work item folder, and a recording's late write would put its
+    // report back into the new package; any run would drop the recording's
+    // outcome, and one racing a clean prepares into a folder being deleted.
+    // Refused here, the one door every run goes through — not by a page button.
+    // Nothing is marked: the run simply has not begun.
+    if (this.#refuseRunForMutation()) return;
     this.#form = form;
     this.#ports.saveForm?.(form);
 
@@ -692,13 +747,10 @@ export class Controller {
 
     for (const file of built.files) await this.#ports.files.writeFile(file.path, file.contents);
 
-    // Checked again at the door: a recording pressed while this run was still
-    // being set up (the environment, the Fresh confirmation, the files above)
-    // must not have a run start over it.
-    if (this.#recordingReview) {
-      this.#ports.ui.notify("warning", "Wait for the review result recording to finish before starting a run.");
-      return;
-    }
+    // Checked again at the door: a recording or a clean pressed while this run
+    // was still being set up (the environment, the Fresh confirmation, the files
+    // above) must not have a run start over it.
+    if (this.#refuseRunForMutation()) return;
     const tracker = new ProgressTracker(effectivePlan(form.plan), this.#ports.now);
     let runWarnings: readonly string[] = [];
     const abort = new AbortController();
@@ -716,10 +768,15 @@ export class Controller {
       this.#artifactNames.includes(FIX_REPORT_ARTIFACT)
         ? this.#fixReport
         : undefined;
-    // A recorded review survives exactly when its fix report does (Batch 11):
-    // Fresh deletes the folder, and nothing else in a run touches either file.
+    // A recorded review and recorded evidence survive exactly when their fix
+    // report does (Batches 11–12): Fresh deletes the folder, and nothing else in a
+    // run touches any of the three.
     const review =
       report !== undefined && this.#artifactNames.includes(REVIEW_REPORT_ARTIFACT) ? this.#reviewReport : undefined;
+    const evidence =
+      report !== undefined && this.#artifactNames.includes(VERIFICATION_REPORT_ARTIFACT)
+        ? this.#verificationReport
+        : undefined;
     if (form.source === "jira") this.#setWorkItem(form.issueKey.trim().toUpperCase());
     else {
       // A hand-written bug's id arrives with the `started` event. Until then
@@ -731,13 +788,20 @@ export class Controller {
     // For a Jira run too: the listing is the previous package's — or another
     // work item's — until the run ends and the folder is read again. Kept, it
     // let the push at `completed` offer a report a fresh run had just deleted.
-    // The one entry kept is the report that is known to survive.
+    // The entries kept are the reports that are known to survive.
     this.#artifactNames =
-      report === undefined ? [] : review === undefined ? [FIX_REPORT_ARTIFACT] : [FIX_REPORT_ARTIFACT, REVIEW_REPORT_ARTIFACT];
+      report === undefined
+        ? []
+        : [
+            FIX_REPORT_ARTIFACT,
+            ...(review === undefined ? [] : [REVIEW_REPORT_ARTIFACT]),
+            ...(evidence === undefined ? [] : [VERIFICATION_REPORT_ARTIFACT]),
+          ];
     this.#canRetry = false;
     this.#forgetSummary();
     if (report !== undefined) this.#fixReport = report;
     if (review !== undefined) this.#reviewReport = review;
+    if (evidence !== undefined) this.#verificationReport = evidence;
     // Before anything is pushed: a stale card beside a Running… button reads as
     // the new run having failed instantly, and a previous run's handoff says
     // nothing about this one — nor may one still being worked out land on it.
@@ -1755,6 +1819,8 @@ export class Controller {
     this.#issue = undefined;
     this.#fixReport = undefined;
     this.#reviewReport = undefined;
+    this.#verificationReport = undefined;
+    this.#verificationText = undefined;
     this.#forgetPostFix();
     this.#searchCounts = {};
     this.#files = [];
@@ -1994,16 +2060,27 @@ export class Controller {
    */
   #forgetCapture(): void {
     this.#reviewCapture = undefined;
-    // Not `#recordingReview`: a process in flight is still in flight.
+    this.#verificationCapture = undefined;
+    this.#verificationEdit = undefined;
+    this.#verificationEditBasis = undefined;
+    // Not `#mutation`: a process in flight is still in flight.
     this.#captureEpoch += 1;
   }
 
   /**
-   * Whether Record (or Replace) Review Result may start now: Fix result is on
-   * screen, no run is in flight, and no recording is.
+   * Whether an artifact recording — Record or Replace Review Result, Record or
+   * Edit Verification Evidence — may start now: Fix result is on screen, no run
+   * is in flight, and no artifact write is.
    */
-  #offersRecordReview(): boolean {
-    return this.#offersPostFix() && !this.#running && !this.#recordingReview;
+  #offersRecording(): boolean {
+    return this.#offersPostFix() && !this.#running && this.#mutation === undefined;
+  }
+
+  /** Refuse a run, saying why, while an artifact write is in flight. */
+  #refuseRunForMutation(): boolean {
+    if (this.#mutation === undefined) return false;
+    this.#ports.ui.notify("warning", RUN_WAITS_FOR[this.#mutation]);
+    return true;
   }
 
   /**
@@ -2019,9 +2096,9 @@ export class Controller {
   async recordReview(entry: ReviewEntry): Promise<void> {
     const workItemId = this.#workItemId;
     const root = this.#root;
-    if (!workItemId || !root || !this.#offersRecordReview()) {
+    if (!workItemId || !root || !this.#offersRecording()) {
       this.#ports.log.error(
-        "Refusing to record a review result: no fix report is on screen, a run is in flight, or a recording is.",
+        "Refusing to record a review result: no fix report is on screen, a run is in flight, or an artifact write is.",
       );
       return;
     }
@@ -2038,7 +2115,7 @@ export class Controller {
       this.#push();
       return;
     }
-    this.#recordingReview = true;
+    this.#mutation = "review";
     const epoch = this.#captureEpoch;
     try {
       const replace = this.#artifactNames.includes(REVIEW_REPORT_ARTIFACT);
@@ -2076,7 +2153,7 @@ export class Controller {
       // CLI did, it is not this panel's to report now.
       if (epoch !== this.#captureEpoch) return;
       // Ended: what is pushed from here offers Record, Replace and Run again.
-      this.#recordingReview = false;
+      this.#mutation = undefined;
       const outcome = recordingOutcome(envelope);
       if (!outcome.recorded) {
         this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_RECORDED}: ${oneSentence(outcome.reason)}` };
@@ -2098,11 +2175,208 @@ export class Controller {
       // The one place the flag clears. If it was still set, this recording ended
       // unreported (declined, or no longer wanted): push once, so whatever is on
       // screen now offers Record and Run again.
-      if (this.#recordingReview) {
-        this.#recordingReview = false;
+      if (this.#mutation === "review") {
+        this.#mutation = undefined;
         this.#push();
       }
     }
+  }
+
+  /**
+   * Record the checks the developer entered as verification evidence, in
+   * `verification_report.md` (Batch 12).
+   *
+   * Nothing here runs a check or reads a result: every status is the one the
+   * developer chose, and the report says so. `record-verification` does the
+   * writing, with the checks in a temporary file. `replace` is the page saying
+   * the form was opened by Edit — choosing Edit is the consent to overwrite, so
+   * there is no second question — and `--replace` is passed only when that is so
+   * and a report is listed, and only over the report that Edit answer (`basis`)
+   * was read from: one changed since — by a terminal, an agent, another window —
+   * is kept and said, never overwritten unseen. A Record that meets a report
+   * written meanwhile is refused by the CLI and the folder is read again.
+   */
+  async recordVerification(
+    checks: readonly VerificationCheckEntry[],
+    replace: boolean,
+    basis?: number,
+  ): Promise<void> {
+    const workItemId = this.#workItemId;
+    const root = this.#root;
+    if (!workItemId || !root || !this.#offersRecording()) {
+      this.#ports.log.error(
+        "Refusing to record verification evidence: no fix report is on screen, a run is in flight, or an artifact write is.",
+      );
+      return;
+    }
+    // A new press is a new attempt: the last failure or success is not about it.
+    this.#verificationCapture = undefined;
+    const problem = verificationProblem(checks);
+    if (problem !== undefined) {
+      this.#verificationCapture = { state: "failed", message: `${VERIFICATION_NOT_RECORDED}: ${problem}` };
+      this.#push();
+      return;
+    }
+    const port = this.#ports.runVerificationCommand;
+    if (!port) {
+      this.#verificationCapture = {
+        state: "failed",
+        message: `${VERIFICATION_NOT_RECORDED}: this host cannot run record-verification.`,
+      };
+      this.#push();
+      return;
+    }
+    const overwrite = replace && this.#artifactNames.includes(VERIFICATION_REPORT_ARTIFACT);
+    this.#mutation = "verification";
+    const epoch = this.#captureEpoch;
+    try {
+      this.#verificationCapture = { state: "recording" };
+      this.#push();
+
+      if (overwrite) {
+        const edited = this.#verificationEditBasis;
+        const current = await this.#ports.files.readFile(this.#itemFile(workItemId, VERIFICATION_REPORT_ARTIFACT));
+        if (epoch !== this.#captureEpoch) return;
+        if (edited === undefined || basis !== edited.token || current !== edited.text) {
+          this.#mutation = undefined;
+          this.#verificationCapture = {
+            state: "failed",
+            message:
+              `${VERIFICATION_NOT_RECORDED}: verification_report.md changed since Edit was opened, and it was kept. ` +
+              "Press Edit Verification Evidence again to load it.",
+          };
+          await this.refreshArtifacts();
+          return;
+        }
+      }
+
+      let envelope: Envelope;
+      try {
+        envelope = await port({
+          args: (payloadPath) => recordVerificationArgs(workItemId, payloadPath, overwrite),
+          payload: verificationPayload(checks),
+        });
+      } catch (error) {
+        envelope = {
+          ok: false,
+          command: "record-verification",
+          error: { code: "INTERNAL_ERROR", message: (error as Error).message },
+        };
+      }
+      // Another work item, a reopen, a run or the report gone since: whatever the
+      // CLI did, it is not this panel's to report now.
+      if (epoch !== this.#captureEpoch) return;
+      // Ended: what is pushed from here offers Record, Edit and Run again.
+      this.#mutation = undefined;
+      const outcome = verificationOutcome(envelope);
+      if (!outcome.recorded) {
+        this.#verificationCapture = {
+          state: "failed",
+          message: `${VERIFICATION_NOT_RECORDED}: ${oneSentence(outcome.reason)}`,
+        };
+        this.#push();
+        // Recorded elsewhere meanwhile: read the folder again so the row offers
+        // that report's Open and Edit instead of a Record that can only fail the
+        // same way. The failure stays said, and the form keeps what was typed.
+        if (!envelope.ok && envelope.error.code === "ARTIFACT_EXISTS" && epoch === this.#captureEpoch) {
+          await this.refreshArtifacts();
+        }
+        return;
+      }
+      // Said by the host, once the CLI answered for this work item: the one signal
+      // that lets the page close the form. The file is the result — read it back.
+      this.#verificationCapture = { state: "recorded", replaced: overwrite };
+      this.#verificationEditBasis = undefined;
+      await this.refreshArtifacts();
+    } finally {
+      // The one place the guard clears for this recording. Still set means it
+      // ended unreported: push once, so the screen offers Record and Run again.
+      if (this.#mutation === "verification") {
+        this.#mutation = undefined;
+        this.#push();
+      }
+    }
+  }
+
+  /**
+   * Send the recorded checks to the page for Edit — once, parsed from the file
+   * the host read. A report that is not in BugPilot's shape is sent as no checks,
+   * and the form says saving will replace it. Offered on the same terms as a
+   * recording: nothing to edit while something else is writing.
+   */
+  editVerification(): void {
+    if (!this.#offersRecording() || !this.#artifactNames.includes(VERIFICATION_REPORT_ARTIFACT)) {
+      this.#ports.log.error(
+        "Refusing to edit verification evidence: none is recorded for the work item on screen, or a write is in flight.",
+      );
+      return;
+    }
+    const checks = this.#verificationReport?.checks;
+    this.#verificationEditToken += 1;
+    this.#verificationEdit = {
+      token: this.#verificationEditToken,
+      checks: checks ?? [],
+      structured: checks !== undefined,
+      unreadable: this.#verificationReport?.readable === false,
+    };
+    this.#verificationEditBasis = { token: this.#verificationEditToken, text: this.#verificationText };
+    this.#verificationCapture = undefined;
+    this.#push();
+    // One push carries it: the page keeps the form from here, and the next push
+    // must not open it again or ship every check with each progress event.
+    this.#verificationEdit = undefined;
+  }
+
+  /** Open the recorded evidence — the canonical file, and only while it is listed. */
+  async openVerificationReport(): Promise<void> {
+    if (!this.#workItemId || !this.#artifactNames.includes(VERIFICATION_REPORT_ARTIFACT)) {
+      this.#ports.log.error("Refusing to open a verification report: none is recorded for the work item on screen.");
+      return;
+    }
+    await this.openArtifact(VERIFICATION_REPORT_ARTIFACT);
+  }
+
+  /**
+   * Clean a work item's artifacts — the Clean command — never over an artifact
+   * recording in flight (Batch 12). A clean that raced a recording could delete
+   * the folder under it, or the recording's late write could put a report back
+   * into a folder the developer just emptied. Refused before the confirmation and
+   * again after it, since a recording may be pressed while the question is open.
+   * While the clean runs it holds the same guard: no recording and no run start.
+   * `perform` is the CLI's `clean`; the host owns the process.
+   */
+  async clean(workItemId: string, perform: () => Promise<void>): Promise<boolean> {
+    if (this.#running) {
+      this.#ports.ui.notify(
+        "warning",
+        "A BugPilot run is in progress. Wait for it to finish, or press Stop, before cleaning a work item.",
+      );
+      return false;
+    }
+    if (this.#mutation !== undefined) {
+      this.#ports.ui.notify("warning", CLEAN_WAITS);
+      return false;
+    }
+    const confirmed = await this.#ports.ui.confirm(
+      `Delete every artifact for ${workItemId}? Anything an agent wrote, including fix_report.md, is removed.`,
+      "Delete",
+    );
+    if (!confirmed) return false;
+    if (this.#running) return false;
+    if (this.#mutation !== undefined) {
+      this.#ports.ui.notify("warning", CLEAN_WAITS);
+      return false;
+    }
+    this.#mutation = "clean";
+    this.#push();
+    try {
+      await perform();
+    } finally {
+      this.#mutation = undefined;
+    }
+    await this.refreshArtifacts();
+    this.#push();
+    return true;
   }
 
   /** Open the recorded review — the canonical file, and only while it is listed. */
@@ -2138,6 +2412,13 @@ export class Controller {
     // unreadable, one with "Preview unavailable".
     this.#reviewReport = names.includes(REVIEW_REPORT_ARTIFACT)
       ? parseReviewReport(await this.#ports.files.readFile(this.#itemFile(workItemId, REVIEW_REPORT_ARTIFACT)))
+      : undefined;
+    // And for recorded evidence: listed, a Verification Evidence section.
+    this.#verificationText = names.includes(VERIFICATION_REPORT_ARTIFACT)
+      ? await this.#ports.files.readFile(this.#itemFile(workItemId, VERIFICATION_REPORT_ARTIFACT))
+      : undefined;
+    this.#verificationReport = names.includes(VERIFICATION_REPORT_ARTIFACT)
+      ? parseVerificationReport(this.#verificationText)
       : undefined;
     const text = names.includes(RETRIEVAL_ARTIFACT)
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, RETRIEVAL_ARTIFACT))
@@ -2244,7 +2525,11 @@ export class Controller {
       ...(this.#review === undefined ? {} : { review: this.#review }),
       ...(this.#reviewReport === undefined ? {} : { reviewReport: this.#reviewReport }),
       ...(this.#reviewCapture === undefined ? {} : { reviewCapture: this.#reviewCapture }),
-      canRecordReview: this.#offersRecordReview(),
+      canRecordReview: this.#offersRecording(),
+      ...(this.#verificationReport === undefined ? {} : { verificationReport: this.#verificationReport }),
+      ...(this.#verificationCapture === undefined ? {} : { verificationCapture: this.#verificationCapture }),
+      canRecordVerification: this.#offersRecording(),
+      ...(this.#verificationEdit === undefined ? {} : { verificationEdit: this.#verificationEdit }),
     });
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.

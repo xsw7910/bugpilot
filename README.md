@@ -343,6 +343,7 @@ bugpilot push-plan JR-12345
 - `bugpilot manual-result <ISSUE>`: create the developer manual-fix `fix_report.md` template without overwriting an existing report.
 - `bugpilot manual-result <ISSUE> --overwrite`: replace the report with a fresh manual-fix template.
 - `bugpilot record-review <ISSUE> --summary "..." [--findings "..."] [--validation-notes "..."] [--recommendations "..."]`: record the result of a completed review — from any reviewer — in `review_report.md`. It records what the review said, in its words, and checks nothing: the file means a result was recorded, not that the review passed, the fix is correct or tests ran. `--from-file <json>` takes the four sections as one JSON object (how the VS Code extension sends them); an existing report is kept unless `--replace` is given. Writes nothing else — no `run.json` mark, no Jira, no email.
+- `bugpilot record-verification <ISSUE> --from-file <json> [--replace]`: record verification evidence in `verification_report.md` — the checks you ran and the status you recorded for each. The JSON is `{"checks": [...]}`; each check has a `name` and a `status` (`passed`, `failed` or `not_run`), and optionally a `type` (`automated`, `manual` or `other`; Other when left out), `procedure`, `evidence` and `notes` — at most 25 checks, 200 characters for a name and 20,000 for each text. BugPilot runs none of the checks and verifies nothing: each status is what you recorded, and the report's one generated line only summarizes the recorded statuses ("All recorded checks passed.", "Recorded checks include failures.", …). Entered text is kept as quoted text, so nothing in it can break the report's structure. An existing report is kept unless `--replace` is given. Writes nothing else — no `run.json` mark, no Jira, no email.
 - `bugpilot delivery-check <ISSUE>`: check readiness for manual delivery.
 - `bugpilot notify <ISSUE>`: write the post-fix notification (`email_draft.md` + `notification.eml`); add `--execute` to send automatically (Graph if configured, else SMTP).
 - `bugpilot commit-plan <ISSUE>`: print a manual commit plan and email the fix summary at the commit gate (`--no-email` to skip).
@@ -416,10 +417,12 @@ Optional reports, written after it:
 ```text
 .ai/<issue>/fix_report.md       the agent's report on the attempt (or manual-result's template)
 .ai/<issue>/review_report.md    a review's result, as somebody recorded it with record-review
+.ai/<issue>/verification_report.md
+                                verification evidence, as somebody recorded it with record-verification
 ```
 
-A Fresh run removes both reports with the rest of the folder; a resume and a
-retry leave them. Side-band files — `jira_comment_draft.md`, `user_feedback.md`,
+A Fresh run removes the reports with the rest of the folder; a resume and a
+retry leave them. None of them changes the work item's History outcome. Side-band files — `jira_comment_draft.md`, `user_feedback.md`,
 `agent_retry_prompt.md` — are written only by the commands that need them.
 
 Shared memory entry:
