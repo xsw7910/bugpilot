@@ -63,11 +63,12 @@ _CODE_EXT = CODE_SUFFIXES
 # search on their own (they'd match half the codebase). Used only to filter the
 # lower-tier "expanded" sub-tokens, never the primary keywords.
 #
-# Tuned against a large Qt/C++ codebase, which is why the framework prefixes are
-# here. `sample` is one such product prefix: harmless anywhere else — it only means
-# an identifier part spelled "sample" is not searched on alone — and worth keeping
-# rather than quietly changing the ranking of the repository this was built for.
-# A per-project list belongs in configuration; that is a feature, not a fix.
+# Tuned against a large Qt/C++ codebase, which is why framework prefixes are
+# here — and no product's own prefix is. A short one needs no entry: the length
+# rule in `_expanded_keywords` drops every part under four letters before this
+# set is consulted (so the short entries below, `qt` among them, only document
+# intent). A longer one is a specific word, worth recalling. A
+# per-project list belongs in configuration; that is a feature, not a fix.
 _GENERIC_PARTS = {
     "qt", "widget", "dialog", "window", "view", "model", "base", "impl",
     "item", "data", "info", "util", "utils", "helper", "manager", "controller",

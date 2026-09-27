@@ -2055,8 +2055,8 @@ JR-12345 的 summary 与 description**（「ExampleCustomer Reservoir Geophysics
 
 对真实目标仓库（遗留 C++/Qt 产品）的意义：这个现象**不是自测才有的怪癖**。
 release notes、changelog、以及**引用了 ticket 文本的测试名**都会造成同一效果，
-本仓库 `tests/test_workflow.py:873` 就有一行
-`"Fix in WidgetController.cxx: ..."`。
+本仓库 `tests/test_workflow.py:881` 就有一行
+`"Fix in WidgetController.cpp: ..."`。
 
 ### 顺带排除一个假警报
 

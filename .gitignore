@@ -34,3 +34,7 @@ tests/retrieval_corpus/
 # guard that names a company in a public repository discloses the thing it
 # exists to keep out. `tests/forbidden_words.example` is the committed template.
 tests/forbidden_words.txt
+# Its companion: real spellings the guard's digests must catch, for the one test
+# that proves them. Local for the same reason; `forbidden_samples.example` is the
+# committed template.
+tests/forbidden_samples.txt

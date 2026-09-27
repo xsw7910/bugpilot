@@ -435,12 +435,22 @@ def test_keywords_boost_stack_trace_identifiers():
 
 
 def test_keywords_expand_compound_identifiers():
-    kw = extract_keywords("Fix AbcQtExportDialog in abc_export_manager.cxx")
+    kw = extract_keywords("Fix SampleQtExportDialog in sample_export_manager.cxx")
     expanded = {w.lower() for w in kw["expanded_keywords"]}
-    # Specific middle token is surfaced for recall...
-    assert "export" in expanded
+    # Specific parts are surfaced for recall — a product prefix is one...
+    assert {"sample", "export"} <= expanded
     # ...but generic framework/structural parts are not.
-    assert expanded.isdisjoint({"qt", "abc", "dialog", "manager", "class"})
+    assert expanded.isdisjoint({"qt", "dialog", "manager", "class"})
+
+
+def test_keyword_expansion_needs_no_entry_for_a_short_product_prefix():
+    """A prefix under four letters is dropped by length, not by a list entry.
+
+    The generic-parts list once named one product's three-letter prefix; the
+    length rule had always dropped it first, so the entry did nothing.
+    """
+    kw = extract_keywords("Fix AbcQtExportDialog in abc_export_manager.cxx")
+    assert kw["expanded_keywords"] == ["export"]
 
 
 def test_keywords_extract_quoted_phrases():

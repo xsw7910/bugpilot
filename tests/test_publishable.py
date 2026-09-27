@@ -38,6 +38,7 @@ REPO = Path(__file__).resolve().parent.parent
 PACKAGE = REPO / "bugpilot"
 
 WORD_LIST = Path(__file__).resolve().parent / "forbidden_words.txt"
+SAMPLES = Path(__file__).resolve().parent / "forbidden_samples.txt"
 
 
 def _forbidden_words() -> list[str]:
@@ -117,11 +118,6 @@ if _forbidden_words():
 
 # Exemptions, with reasons. Empty, and kept as a mechanism so that adding one is
 # a decision somebody makes on purpose rather than a pattern quietly loosened.
-#
-# Not listed here, because it is not a disclosure: `keywords.py` keeps the
-# product prefix `sample` in its generic-parts list. That list is tuned for a
-# Qt/C++ codebase, the entry changes ranking for the repository this was built
-# for, and the three letters mean nothing anywhere else.
 ALLOWED: dict[str, str] = {}
 
 
@@ -287,42 +283,86 @@ REPOSITORY_FORBIDDEN: dict[str, re.Pattern[str]] = {
     ),
 }
 
-#: Names that are known to have leaked into this repository before: a company
-#: product and a customer, from real ticket text. Stored as SHA-256 digests of
-#: the lowercased word so that the guard does not spell out the names it keeps
-#: out. That is obfuscation, not secrecy: the names are short and unsalted, and
-#: anyone with a list of guesses can confirm one. A word matches alone or glued
-#: to its neighbour — across a line break too, since the docs are hard-wrapped —
-#: which covers the spaced, hyphenated and CamelCase spellings alike.
+#: Names that are known to have leaked into this repository before: a company,
+#: its product, one of its internal components and a customer (from real ticket
+#: text). Stored as SHA-256 digests of the lowercased word so that the guard
+#: does not spell out the names it keeps out. That is obfuscation, not secrecy:
+#: the names are short and unsalted, and anyone with a list of guesses can
+#: confirm one. A word matches alone or glued to its neighbour — across a line
+#: break too, since the docs are hard-wrapped — which covers the spaced,
+#: hyphenated and CamelCase spellings alike, and a mail domain's first label.
 KNOWN_LEAKED_NAMES = frozenset({
     "7aadb0b2843253081bc75b80529a8ee9b5dfbc49a01a91e4a5d3578999637ae1",
     "4c77cac1139b0f6d8f1811079c7e14daf82696b71a8804722e9fc44a509c1fc4",
+    "063f966031bcbca8d60e67d8b485da8d5300eb76c0290161e7549817e982cd2b",
+    "d4728fcba255e3225198978a29e37481b6a2f94f9883fff42391c71d70a7e58d",
 })
 
-LEAKED_NAME = "a known leaked company or customer name"
+#: The product family's prefix, as (length, digest of the lowercased prefix): a
+#: word that is the prefix or starts with it — a class prefix, a prefix inside
+#: a version tag, a snake_case or path segment, this tool's old project name.
+#: Splitting at case and digit boundaries makes each of those a word of its
+#: own, so no substring matching is needed, and none is done: it would flag
+#: unrelated words. The bare prefix right after a number reads as a unit of time
+#: and is left alone.
+KNOWN_LEAKED_PREFIXES = frozenset({
+    (3, "4e9682fa850ed767b6ad479026e96bbf69049f5574d0844e48e310e35bf57c58"),
+})
+
+LEAKED_NAME = "a known leaked company, product or customer name"
 
 
-def _leaked_names(text: str, digests: frozenset[str] = KNOWN_LEAKED_NAMES) -> list[int]:
-    """The lines on which a denied name appears, alone or glued to its neighbour.
+def _digest(word: str) -> str:
+    return hashlib.sha256(word.encode()).hexdigest()
+
+
+def _leaked_names(
+    text: str,
+    digests: frozenset[str] = KNOWN_LEAKED_NAMES,
+    prefixes: frozenset[tuple[int, str]] = KNOWN_LEAKED_PREFIXES,
+) -> list[int]:
+    """The lines on which a denied name or prefix appears.
 
     Words split at case and digit boundaries too, so a name inside a longer
-    identifier (`SampleGlobex`, `globex2`) is still a word of its own.
+    identifier (`SampleGlobex`, `globex2`) is still a word of its own. Capitals
+    glued straight to lowercase (`GLOBEXcorp`) split the other way round, so
+    the capital run is checked on its own as well.
     """
+    lines = set()
+    for caps in re.finditer(r"[A-Z]{2,}(?=[a-z])", text):
+        word = caps.group(0).lower()
+        if _digest(word) in digests or any(
+            len(word) >= length and _digest(word[:length]) == digest for length, digest in prefixes
+        ):
+            lines.add(text.count("\n", 0, caps.start()) + 1)
     tokens = list(re.finditer(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+", text))
     words = [token.group(0).lower() for token in tokens]
-    lines = set()
     for index, token in enumerate(tokens):
-        candidates = [words[index]]
+        word = words[index]
+        candidates = [word]
         if index + 1 < len(tokens):
-            candidates.append(words[index] + words[index + 1])
-        if any(hashlib.sha256(word.encode()).hexdigest() in digests for word in candidates):
+            candidates.append(word + words[index + 1])
+        hit = any(_digest(candidate) in digests for candidate in candidates)
+        for length, digest in prefixes:
+            if hit or len(word) < length or _digest(word[:length]) != digest:
+                continue
+            a_unit = (
+                len(word) == length and index > 0 and words[index - 1].isdigit()
+                and not text[tokens[index - 1].end():token.start()].strip()
+            )
+            hit = not a_unit
+        if hit:
             lines.add(text.count("\n", 0, token.start()) + 1)
     return sorted(lines)
 
 
-def repository_findings(text: str, digests: frozenset[str] = KNOWN_LEAKED_NAMES) -> list[tuple[int, str, str]]:
+def repository_findings(
+    text: str,
+    digests: frozenset[str] = KNOWN_LEAKED_NAMES,
+    prefixes: frozenset[tuple[int, str]] = KNOWN_LEAKED_PREFIXES,
+) -> list[tuple[int, str, str]]:
     """(line, what, shown) for everything the repository must not carry."""
-    found = [(line, LEAKED_NAME, "<withheld>") for line in _leaked_names(text, digests)]
+    found = [(line, LEAKED_NAME, "<withheld>") for line in _leaked_names(text, digests, prefixes)]
     for label, pattern in {**FORBIDDEN, **REPOSITORY_FORBIDDEN}.items():
         for match in pattern.finditer(text):
             line = text[: match.start()].count("\n") + 1
@@ -390,6 +430,7 @@ def test_the_scan_covers_the_repository_and_skips_what_is_generated():
         assert not any(name.startswith(excluded) for name in scanned), excluded
     assert SELF in scanned, "the guard's own samples are checked against SELF_FINDINGS"
     assert "tests/forbidden_words.txt" not in scanned, "the private word list is ignored, never read"
+    assert "tests/forbidden_samples.txt" not in scanned, "the private samples are ignored, never read"
     assert "extension/package-lock.json" not in scanned
     assert "extension/media/icon.png" not in scanned, "a binary file was read as text"
 
@@ -403,14 +444,30 @@ def test_the_guard_carries_exactly_its_pinned_samples():
     )
 
 
+#: Stand-ins for the real digests: a made-up name and a made-up prefix, so the
+#: matching rules are tested on values this file can spell out.
+STAND_IN_NAMES = frozenset({_digest("globex")})
+STAND_IN_PREFIXES = frozenset({(3, _digest("glx"))})
+
+
 def test_the_scanner_rejects_what_must_not_be_published():
-    stand_in = frozenset({hashlib.sha256(b"globex").hexdigest()})
     must_reject = {
         "Globex shipped it": LEAKED_NAME,
         "the Glo-bex reservoir team": LEAKED_NAME,
         "a hard-wrapped Glo-\nbex": LEAKED_NAME,
         "class SampleGlobexReader": LEAKED_NAME,
         "GLOBEX2 import": LEAKED_NAME,
+        "GLOBEXcorp import": LEAKED_NAME,
+        "mail ops@globex.example": LEAKED_NAME,
+        # The prefix family: alone, as a class prefix, inside a version tag, as
+        # a snake_case or path segment, and glued into a longer word.
+        "the GLX team": LEAKED_NAME,
+        "class GlxFoo": LEAKED_NAME,
+        "since preGLX12": LEAKED_NAME,
+        "open glx_process_manager.cxx": LEAKED_NAME,
+        "platform/glx/plugins/Selector.cpp": LEAKED_NAME,
+        "vault glxai": LEAKED_NAME,
+        "old name GLXai": LEAKED_NAME,
         # An unlisted five-digit number is what a real ticket looks like; this
         # one is made up. The real prefix is spelt in two pieces so that this
         # file carries no literal id of it either.
@@ -438,11 +495,45 @@ def test_the_scanner_rejects_what_must_not_be_published():
         "JIRA_BASE_URL=companyname.atlassian.net": "a specific Jira tenant",
     }
     for sample, label in must_reject.items():
-        labels = {found[1] for found in repository_findings(sample, stand_in)}
+        labels = {found[1] for found in repository_findings(sample, STAND_IN_NAMES, STAND_IN_PREFIXES)}
         assert label in labels, f"{sample!r} was not flagged as {label} (got {labels})"
-    # The real digests are two SHA-256 values, and neither is the stand-in.
-    assert len(KNOWN_LEAKED_NAMES) == 2
+    # The real digests are SHA-256 values, and none is a stand-in.
+    assert len(KNOWN_LEAKED_NAMES) == 4 and len(KNOWN_LEAKED_PREFIXES) == 1
     assert all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest in KNOWN_LEAKED_NAMES)
+    assert all(re.fullmatch(r"[0-9a-f]{64}", digest) for _length, digest in KNOWN_LEAKED_PREFIXES)
+
+
+def test_the_prefix_rule_leaves_unrelated_words_alone():
+    """No substring matching: the letters inside another word, or a unit after a number."""
+    must_allow = ["runs for 24 glx", "an 8glx window", "1.5 glx", "the ogglx frame", "count chglx"]
+    for sample in must_allow:
+        assert _leaked_names(sample, STAND_IN_NAMES, STAND_IN_PREFIXES) == [], sample
+
+
+def _samples() -> list[str]:
+    """The real spellings the digests must catch, from the gitignored samples file.
+
+    Local for the reason the word list is: a readable sample in a committed file
+    — even an encoded one that decodes in a line — would spell out every name
+    the digests exist to withhold. `forbidden_samples.example` is the template.
+    """
+    if not SAMPLES.exists():
+        return []
+    lines = (line.split("#", 1)[0].strip() for line in SAMPLES.read_text(encoding="utf-8").splitlines())
+    return [line for line in lines if line]
+
+
+def test_the_real_digests_catch_every_known_family():
+    samples = _samples()
+    if not samples:
+        pytest.skip(f"no {SAMPLES.name}: the real digests are proven only where the samples exist")
+    # Failures name the sample's position, never the sample: it is a real name.
+    for number, sample in enumerate(samples, start=1):
+        flagged = _leaked_names(sample.removeprefix("!")) != []
+        if sample.startswith("!"):
+            assert not flagged, f"must-pass sample #{number} in {SAMPLES.name} was flagged"
+        else:
+            assert flagged, f"sample #{number} in {SAMPLES.name} was not flagged"
 
 
 def test_the_scanner_allows_the_documented_examples():
@@ -524,18 +615,17 @@ def test_the_sdist_does_not_ship_the_test_suite():
 
 
 def test_the_package_does_not_carry_the_old_project_name():
-    """`sample-project` was this tool's name before it was bugpilot.
+    """Before it was bugpilot, this tool was named after a company product prefix.
 
-    Harmless in itself, but it is a company product prefix (`SampleQt…`) and it
-    would ship in a public package as a puzzle: readers would have to work out
-    that the two names are the same thing.
+    That prefix is in KNOWN_LEAKED_PREFIXES, so the old name — in any spelling —
+    is a finding like the other known names. Checked here against exactly what
+    a release ships, apart from the repository scan: the package and the
+    extension are what strangers install.
     """
     offenders = []
     for path in _sources():
         text = path.read_text(encoding="utf-8", errors="replace")
-        for index, line in enumerate(text.splitlines(), start=1):
-            if "sample_project" in line.lower() or "sample-project" in line.lower():
-                offenders.append(f"{_label(path)}:{index}: {line.strip()[:70]}")
+        offenders += [f"{_label(path)}:{line}" for line in _leaked_names(text)]
 
     # No exemption. There was one — a compatibility read of the old environment
     # variable names — and it was removed on the grounds that this tool has one
@@ -562,4 +652,14 @@ def test_the_word_list_is_present_and_private():
     assert "tests/forbidden_words.txt" in ignored, (
         "the word list is not gitignored, so committing it would publish the "
         "names this whole file exists to keep unpublished"
+    )
+
+    # The samples that prove the digests rot the same two ways.
+    assert _samples(), (
+        f"{SAMPLES.name} is missing or empty, so nothing proves the digests catch "
+        f"the real names. Copy forbidden_samples.example to it and fill it in."
+    )
+    assert "tests/forbidden_samples.txt" in ignored, (
+        "the samples file is not gitignored, so committing it would publish the "
+        "names the digests exist to withhold"
     )

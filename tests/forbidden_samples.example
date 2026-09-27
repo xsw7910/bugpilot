@@ -1,0 +1,21 @@
+# Real spellings that the digests in tests/test_publishable.py must catch.
+#
+# Copy this file to `forbidden_samples.txt` and put the real ones in it. That
+# file is gitignored, like `forbidden_words.txt` and for the same reason: the
+# guard keeps the names as digests so that the repository does not spell them
+# out, and a readable sample in a committed file would undo that.
+#
+# One sample per line, each a spelling the guard must flag: a name spaced,
+# hyphenated or glued, a mail domain, a prefix used as a class prefix, inside a
+# version tag or as a path segment. A leading "!" marks one it must NOT flag,
+# such as a short prefix read as a unit of time after a number. Blank lines and
+# "#" comments are ignored.
+#
+# These stand-ins show the shape; they are not what the real digests hold.
+Globex
+Glo-bex
+mail ops@globex.example
+GlxFoo::bar
+preGLX12
+platform/glx/Selector.cpp
+!24 glx

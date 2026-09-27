@@ -6832,14 +6832,14 @@ prefixed identifiers the batch removed; the removal diff itself is their record.
 (the project's generic prefix) stay. The tests keep every assertion; nested
 paths, both separators, click-to-open and the overflow line are still covered.
 
-Left on purpose, all present at HEAD and none introduced by Batches 1-2:
-`keywords._GENERIC_PARTS` keeps `sample` — a documented, deliberate retrieval rule
-this follow-up must not change — and `test_keywords_expand_compound_identifiers`
-keeps the `SampleQt…` input that exercises it; history in this plan (§33,
-`platform/sample` in the UI-B1 mockup) and `implementation_log.md`; the
-old-project-name guard in `test_publishable.py`; the untouched
-`test_search_budget.py` (`SampleFoo::bar`); and `scripts/setup-email.ps1`'s
-`'bugpilot'` vault name, a pre-rename leftover worth a separate look.
+Left on purpose, all present at HEAD and none introduced by Batches 1-2: a
+product prefix in `keywords._GENERIC_PARTS` — a documented retrieval rule this
+follow-up must not change — and the `test_keywords_expand_compound_identifiers`
+input that exercises it; history in this plan (§33, a product path in the UI-B1
+mockup) and `implementation_log.md`; the old-project-name guard in
+`test_publishable.py`; the untouched `test_search_budget.py`; and
+`scripts/setup-email.ps1`'s vault name, a pre-rename leftover worth a separate
+look. All of it was genericized in §37.72.
 
 | Check | Result |
 |---|---|
@@ -8975,9 +8975,102 @@ the README (`METADATA` / `PKG-INFO`); nothing else from this list shipped, since
 `docs/` and `tests/` are pruned; the `.vsix` is clean. They are unpublished and
 must be rebuilt anyway.
 
-**Not changed, for a decision.** The "SampleProduct" product family: the `sample` entry in
-`keywords._GENERIC_PARTS` (a retrieval rule — changing it changes ranking), the
-tests that exercise it (`SampleFoo::bar`, `SampleQtExportDialog…`), the
-internal-looking identifiers recorded on purpose in §37.12, `preSample12` from real
-ticket text, and the `'bugpilot'` vault name in `scripts/setup-email.ps1`. Also the
-personal licensor and publisher names (legal attribution, not examples).
+**Not changed, for a decision.** The product-prefix family: an entry in
+`keywords._GENERIC_PARTS`, the tests that exercise it, the internal-looking
+identifiers recorded in §37.12, a term from real ticket text, and the vault name
+in `scripts/setup-email.ps1` — genericized in §37.72. Also the personal licensor
+and publisher names (legal attribution, not examples).
+
+### 37.72 Final genericization before the history rewrite (after `b9ee482`)
+
+The user's decision, now final: the repository is generic and independent. Every
+reference to the former employer's company, its product family and its internal
+naming — full names, abbreviations, class and path prefixes, internal components
+and identifiers — leaves the tree, the tests, the docs, the publishability rules
+and the retrieval heuristics, and will leave history, commit messages and author
+emails in one future rewrite. This section describes the family without naming
+it; the guard in `tests/test_publishable.py` holds it as digests.
+
+**Production.** One product-specific rule existed: the product's three-letter
+prefix in `keywords._GENERIC_PARTS`. It was dead. `_expanded_keywords`, the
+set's only reader, drops every part under four letters before it consults the
+set, so the entry never matched anything. It is removed, and nothing replaces
+it: the length rule is the general mechanism, and a longer product prefix is a
+specific word, worth recalling. Proof of equivalence: `extract_keywords` on 569
+inputs — chunks of every text file in the frozen `b9ee482` tree plus prefixed
+identifiers — is identical under the old and new module, and the fixture corpus
+over the frozen tree is identical line for line (MRR 0.295, 53 terms). No
+ranking changed; nothing was tuned. The `_expanded_keywords` docstring's example
+now uses a generic widget name.
+
+**Fixtures and docs.** One naming map, one word per category: a class prefix
+becomes `Sample` (`SampleFoo::bar`), a path segment `platform/sample`, a version
+tag `preSample12`, a snake_case prefix `sample_`, and the product as a word in
+prose `SampleProduct`. Names the product's own checkout confirmed as internal
+were replaced whole, not just re-prefixed: a function
+(`mapSampleIndexToSampleValue`), a module (`sample_volume_cache.cpp`), a volume
+class (`SamplePoststackReader`), an inversion widget (now the
+`WidgetController.cpp` the workflow tests already use), the product's widget
+naming pattern (`SampleQtExportDialog` in the keyword tests) and an internal
+component named in the Fix Mode domain-independence notes and test (now "product
+volume type" in the docs and `seismic` in the test). Every replacement was
+confirmed absent from that checkout. The keyword-expansion test now expects a
+long product prefix to be surfaced like any specific word, and a new test pins
+the length rule with a three-letter prefix.
+
+**The email script.** Its secret vault is now `bugpilot`. An existing install's
+next profile load finds no vault by that name and registers one as the default
+vault, replacing the old name as default. SecretStore keeps one store per user,
+so the password saved under the old name should still be found; if it is not,
+the script asks for it once. The old registration can then be removed. (Not
+verified on a live install.)
+
+**Retained on purpose.** `VolumeDescriptor`, `OutputSelector` and `outputType`
+are generic technical compounds, not the product family — although all three
+also occur in the product checkout, `VolumeDescriptor` widely. Kept by the
+user's decision: they are generic engineering terms, outside the anonymization
+scope, which is now frozen. `OpenVDS`, `VDS` and `SEG-Y` are public formats.
+
+**Current tree.** Zero matches for every spelling of the family, including a
+plain case-insensitive search for the product prefix as a substring anywhere in
+tracked text.
+
+**The guard.** The leaked-name digests gained the company and the internal
+component. A new prefix digest flags a word that is the product prefix or starts
+with it — alone, as a class prefix, inside a version tag, as a snake_case or
+path segment, glued into the old project and vault names. Words are split at
+case and digit boundaries, so no substring matching is done; the bare prefix
+right after a number reads as a unit of time and passes. Stand-in digests test
+the rules in the tracked file. The real spellings that prove the real digests
+live in the gitignored `tests/forbidden_samples.txt` beside the word list
+(`forbidden_samples.example` is the template), so the repository carries no
+readable or encoded copy of any name. The old-project-name test uses the digests
+too. 15 tests.
+
+**History, read only.** 19 commits, 549 blobs, four pushed. The family is in
+every commit. Beyond what the tree held, older commits add two class names and
+three file names in the workflow tests, product paths in the extension tests
+(one in Windows spelling) and the customer name in a context-signal test. Every
+identifier that history shares with the product checkout gets a whole-name rule
+ahead of the general prefix rule — the widget, inversion-widget, volume and
+process class names and the transaction file become the generic names the later
+tree already uses — so none survives as a re-prefixed real name. File paths: 233
+distinct, none carrying the family, so no path rename is needed. Commit
+messages: two local commits (a class name, a ticket id). Identities: 35 author
+and committer entries use the company domain, five of them on pushed commits;
+the destination is the GitHub noreply address already on the root commit, and
+names stay as they are.
+
+**Rewrite inputs, prepared and not run.** A replace-text map, a message map and
+a one-line mailmap live outside the repository. Simulated the way `git
+filter-repo` applies them (every literal rule, then every regex rule), the map
+leaves no finding in any blob or message — nor any substring of the removed
+names — and changes no file in the current tree, so HEAD's tree survives the
+rewrite byte for byte. Applied to exported trees of three historical commits,
+the affected Python tests still pass (the private word list aside, which an
+export lacks).
+
+**Out of scope.** The personal licensor and publisher names: ownership, not the
+former employer. The stale 0.1.0 wheel and sdist carry the removed prefix and
+the old checkout path, and are rebuilt from the sanitized tree after the
+rewrite; the `.vsix` is clean but is rebuilt with them.
