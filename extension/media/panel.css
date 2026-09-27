@@ -1285,6 +1285,87 @@ button.icon .codicon {
   outline: none;
 }
 
+/* Review Result (Batch 11): what somebody recorded after a review, in the row's
+   quiet type. No tick and no colour — recorded is not passed, and the lines
+   are the reviewer's words, not BugPilot's judgement. */
+.review-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.review-result[hidden] {
+  display: none;
+}
+
+.review-editor[hidden] {
+  display: none;
+}
+
+.review-result p {
+  margin: 0;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.review-result-summary,
+#review-result-detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+#review-result-detail[hidden],
+.review-result-also[hidden] {
+  display: none;
+}
+
+.review-result-heading:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.review-result-heading:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* The form: four labelled text areas and two quiet buttons. Prose, not paths,
+   so the text areas take the panel's own font. */
+.review-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.review-editor label {
+  margin-top: 4px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.review-editor textarea {
+  font-family: inherit;
+}
+
+.review-editor-note {
+  margin: 0;
+  font-size: 0.9em;
+}
+
+.review-editor-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.review-editor-actions [aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Indented to the label, so the second line of a row starts under its text
    rather than under its checkbox. */
 .step-foot {

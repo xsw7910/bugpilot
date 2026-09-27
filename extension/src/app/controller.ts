@@ -31,6 +31,11 @@ import type { IssueSummary } from "./issue.ts";
 import { parseFixReport } from "./fixReport.ts";
 import type { FixReportPreview } from "./fixReport.ts";
 import { reviewPackageArgs, reviewPackageFromEnvelope } from "./reviewPackage.ts";
+import { parseReviewReport } from "./reviewReport.ts";
+import type { ReviewReportPreview } from "./reviewReport.ts";
+import { REVIEW_NOT_RECORDED, hasReviewContent, recordReviewArgs, recordingOutcome, reviewPayload } from "./reviewCapture.ts";
+import type { ReviewCapture, ReviewEntry } from "./reviewCapture.ts";
+import type { PayloadCommandRequest } from "./fixModeTransport.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
@@ -54,7 +59,7 @@ import {
 import type { HintContext, HintProvider, IssueDetails } from "./hintImprovement.ts";
 import { ProgressTracker, viewFromStatus } from "./progress.ts";
 import type { ProgressView } from "./progress.ts";
-import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, RUN_ARTIFACT, TASK_ARTIFACT, buildArtifactList } from "./artifacts.ts";
+import { CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, REVIEW_REPORT_ARTIFACT, RUN_ARTIFACT, TASK_ARTIFACT, buildArtifactList } from "./artifacts.ts";
 import type { ArtifactList } from "./artifacts.ts";
 import { COMMANDS } from "../commands.ts";
 import { diagnose } from "../errors.ts";
@@ -239,6 +244,11 @@ export interface ControllerPorts {
   }) => Promise<{ readonly ok: true; readonly text: string } | { readonly ok: false; readonly reason: string }>;
   /** One management command, with its definition written to a temporary file. */
   readonly runFixModeCommand?: (request: FixModeRequest) => Promise<Envelope>;
+  /**
+   * `record-review`, with the review in a temporary file (Batch 11). The one way
+   * the extension records a review: it never writes `review_report.md` itself.
+   */
+  readonly runReviewCommand?: (request: PayloadCommandRequest) => Promise<Envelope>;
 }
 
 /**
@@ -356,6 +366,25 @@ export class Controller {
    * the prompt depends on the work item alone.
    */
   #reviewEpoch = 0;
+  /** `review_report.md`, projected, while the listing names it (Batch 11). */
+  #reviewReport: ReviewReportPreview | undefined;
+  /** A recording in flight, or why the last one did not record. Never persisted. */
+  #reviewCapture: ReviewCapture | undefined;
+  /**
+   * True from the press until `recordReview` itself returns — set before the
+   * first wait, cleared only in its `finally`. It means a record-review process
+   * (or the confirmation before one) is in flight, which is not the same as its
+   * outcome still being wanted: another work item or a reopen drops the outcome
+   * (the epoch) but cannot stop the process, and until that process has ended no
+   * run may start and no second recording either.
+   */
+  #recordingReview = false;
+  /**
+   * Bumped whenever a recording in flight stops being wanted: another work item,
+   * a reopen, a run, or the report gone. A recording that resumes under an older
+   * epoch shows nothing, least of all under another work item.
+   */
+  #captureEpoch = 0;
   /** The rows of the Relevant Files list, as the last refresh read them. */
   #files: readonly RelevantFile[] = [];
   /** How many the artifact held beyond the ones being shown. */
@@ -591,6 +620,9 @@ export class Controller {
       case "saveFixMode":
         await this.saveFixMode(message.draft);
         return;
+      case "recordReview":
+        await this.recordReview(message.review);
+        return;
       case "action":
         if (message.id === "openContext") await this.openArtifact(CONTEXT_ARTIFACT);
         else if (message.id === "copyContext") await this.copyContext();
@@ -599,6 +631,7 @@ export class Controller {
         else if (message.id === "copyReviewPrompt") await this.copyReviewPrompt();
         else if (message.id === "loadValidation") await this.loadValidation();
         else if (message.id === "reviewWithAI") await this.reviewWithAI();
+        else if (message.id === "openReviewReport") await this.openReviewReport();
         else await this.#ports.ui.editCredentials();
         return;
       case "command": {
@@ -618,6 +651,15 @@ export class Controller {
   /** Prepare a bug. Rejects nothing: problems are rendered, not thrown. */
   async run(form: FormState): Promise<void> {
     if (this.#running) return;
+    // No run while a review result is being recorded (Batch 11). A Fresh run
+    // deletes the work item folder, and record-review's late write would put
+    // review_report.md back into the new package; any run would drop the
+    // recording's outcome. Refused here, the one door every run goes through —
+    // not by a page button. Nothing is marked: the run simply has not begun.
+    if (this.#recordingReview) {
+      this.#ports.ui.notify("warning", "Wait for the review result recording to finish before starting a run.");
+      return;
+    }
     this.#form = form;
     this.#ports.saveForm?.(form);
 
@@ -650,6 +692,13 @@ export class Controller {
 
     for (const file of built.files) await this.#ports.files.writeFile(file.path, file.contents);
 
+    // Checked again at the door: a recording pressed while this run was still
+    // being set up (the environment, the Fresh confirmation, the files above)
+    // must not have a run start over it.
+    if (this.#recordingReview) {
+      this.#ports.ui.notify("warning", "Wait for the review result recording to finish before starting a run.");
+      return;
+    }
     const tracker = new ProgressTracker(effectivePlan(form.plan), this.#ports.now);
     let runWarnings: readonly string[] = [];
     const abort = new AbortController();
@@ -667,6 +716,10 @@ export class Controller {
       this.#artifactNames.includes(FIX_REPORT_ARTIFACT)
         ? this.#fixReport
         : undefined;
+    // A recorded review survives exactly when its fix report does (Batch 11):
+    // Fresh deletes the folder, and nothing else in a run touches either file.
+    const review =
+      report !== undefined && this.#artifactNames.includes(REVIEW_REPORT_ARTIFACT) ? this.#reviewReport : undefined;
     if (form.source === "jira") this.#setWorkItem(form.issueKey.trim().toUpperCase());
     else {
       // A hand-written bug's id arrives with the `started` event. Until then
@@ -679,10 +732,12 @@ export class Controller {
     // work item's — until the run ends and the folder is read again. Kept, it
     // let the push at `completed` offer a report a fresh run had just deleted.
     // The one entry kept is the report that is known to survive.
-    this.#artifactNames = report === undefined ? [] : [FIX_REPORT_ARTIFACT];
+    this.#artifactNames =
+      report === undefined ? [] : review === undefined ? [FIX_REPORT_ARTIFACT] : [FIX_REPORT_ARTIFACT, REVIEW_REPORT_ARTIFACT];
     this.#canRetry = false;
     this.#forgetSummary();
     if (report !== undefined) this.#fixReport = report;
+    if (review !== undefined) this.#reviewReport = review;
     // Before anything is pushed: a stale card beside a Running… button reads as
     // the new run having failed instantly, and a previous run's handoff says
     // nothing about this one — nor may one still being worked out land on it.
@@ -1118,7 +1173,11 @@ export class Controller {
     // Nor is a review handoff, while the report is still there. Without one,
     // a handoff in flight is about a report that is gone — and so is an
     // outcome, which must not reappear with the next report.
-    if (!names.includes(FIX_REPORT_ARTIFACT)) this.#forgetReview();
+    if (!names.includes(FIX_REPORT_ARTIFACT)) {
+      this.#forgetReview();
+      // A recording is about the report on screen; without one it is stale.
+      this.#forgetCapture();
+    }
     await this.#readSummary(workItemId, names);
     // Retry needs a package to retry: `bug --retry` reads the prepared
     // artifacts, so offering it after a run that was stopped before producing
@@ -1695,6 +1754,7 @@ export class Controller {
   #forgetSummary(): void {
     this.#issue = undefined;
     this.#fixReport = undefined;
+    this.#reviewReport = undefined;
     this.#forgetPostFix();
     this.#searchCounts = {};
     this.#files = [];
@@ -1707,6 +1767,7 @@ export class Controller {
     this.#forgetValidation();
     this.#copyingReviewPrompt = false;
     this.#forgetReview();
+    this.#forgetCapture();
   }
 
   /**
@@ -1928,6 +1989,132 @@ export class Controller {
   }
 
   /**
+   * Drop a recording in flight and its outcome — dropped where it next looks.
+   * Recording or failed, it belongs to what is gone.
+   */
+  #forgetCapture(): void {
+    this.#reviewCapture = undefined;
+    // Not `#recordingReview`: a process in flight is still in flight.
+    this.#captureEpoch += 1;
+  }
+
+  /**
+   * Whether Record (or Replace) Review Result may start now: Fix result is on
+   * screen, no run is in flight, and no recording is.
+   */
+  #offersRecordReview(): boolean {
+    return this.#offersPostFix() && !this.#running && !this.#recordingReview;
+  }
+
+  /**
+   * Record what a completed review said, in `review_report.md` (Batch 11).
+   *
+   * The review happened elsewhere — Review with AI's terminal, another tool, a
+   * person — and nothing here knows how it went; the developer is telling us.
+   * So this records their four sections and says so, and no more: not reviewed,
+   * not passed, not verified. `record-review` does the writing, with the text in
+   * a temporary file. A report already recorded is replaced only after the
+   * developer confirms, and only then is `--replace` passed.
+   */
+  async recordReview(entry: ReviewEntry): Promise<void> {
+    const workItemId = this.#workItemId;
+    const root = this.#root;
+    if (!workItemId || !root || !this.#offersRecordReview()) {
+      this.#ports.log.error(
+        "Refusing to record a review result: no fix report is on screen, a run is in flight, or a recording is.",
+      );
+      return;
+    }
+    // A new press is a new attempt: the last failure or success is not about it.
+    this.#reviewCapture = undefined;
+    if (!hasReviewContent(entry)) {
+      this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_RECORDED}: enter at least one section.` };
+      this.#push();
+      return;
+    }
+    const port = this.#ports.runReviewCommand;
+    if (!port) {
+      this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_RECORDED}: this host cannot run record-review.` };
+      this.#push();
+      return;
+    }
+    this.#recordingReview = true;
+    const epoch = this.#captureEpoch;
+    try {
+      const replace = this.#artifactNames.includes(REVIEW_REPORT_ARTIFACT);
+      if (replace) {
+        // Pushed first so Save stops offering itself while the question is open.
+        this.#push();
+        let confirmed = false;
+        try {
+          confirmed = await this.#ports.ui.confirm(
+            `Replace the review result recorded for ${workItemId}? review_report.md will be overwritten.`,
+            "Replace",
+          );
+        } catch {
+          confirmed = false;
+        }
+        if (epoch !== this.#captureEpoch || !confirmed) return;
+      }
+      this.#reviewCapture = { state: "recording" };
+      this.#push();
+
+      let envelope: Envelope;
+      try {
+        envelope = await port({
+          args: (payloadPath) => recordReviewArgs(workItemId, payloadPath, replace),
+          payload: reviewPayload(entry),
+        });
+      } catch (error) {
+        envelope = {
+          ok: false,
+          command: "record-review",
+          error: { code: "INTERNAL_ERROR", message: (error as Error).message },
+        };
+      }
+      // Another work item, a reopen, a run or the report gone since: whatever the
+      // CLI did, it is not this panel's to report now.
+      if (epoch !== this.#captureEpoch) return;
+      // Ended: what is pushed from here offers Record, Replace and Run again.
+      this.#recordingReview = false;
+      const outcome = recordingOutcome(envelope);
+      if (!outcome.recorded) {
+        this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_RECORDED}: ${oneSentence(outcome.reason)}` };
+        this.#push();
+        // Recorded elsewhere meanwhile — a terminal, another window: read the folder
+        // again so the row offers that report's Open and Replace instead of a Record
+        // that can only fail the same way. The failure stays said.
+        if (!envelope.ok && envelope.error.code === "ARTIFACT_EXISTS" && epoch === this.#captureEpoch) {
+          await this.refreshArtifacts();
+        }
+        return;
+      }
+      // Said by the host, once the CLI answered for this work item: the one signal
+      // that lets the page close the form. The file is the result — read it back the
+      // way a reopen would. The row's status announces it; no second notification.
+      this.#reviewCapture = { state: "recorded", replaced: replace };
+      await this.refreshArtifacts();
+    } finally {
+      // The one place the flag clears. If it was still set, this recording ended
+      // unreported (declined, or no longer wanted): push once, so whatever is on
+      // screen now offers Record and Run again.
+      if (this.#recordingReview) {
+        this.#recordingReview = false;
+        this.#push();
+      }
+    }
+  }
+
+  /** Open the recorded review — the canonical file, and only while it is listed. */
+  async openReviewReport(): Promise<void> {
+    if (!this.#workItemId || !this.#artifactNames.includes(REVIEW_REPORT_ARTIFACT)) {
+      this.#ports.log.error("Refusing to open a review report: none is recorded for the work item on screen.");
+      return;
+    }
+    await this.openArtifact(REVIEW_REPORT_ARTIFACT);
+  }
+
+  /**
    * What the rows report: the issue, and what the search found.
    *
    * Two artifacts, each read once and parsed once. The retrieval's counts,
@@ -1946,6 +2133,11 @@ export class Controller {
     // and a listed report that cannot be read is projected as unreadable.
     this.#fixReport = names.includes(FIX_REPORT_ARTIFACT)
       ? parseFixReport(await this.#ports.files.readFile(this.#itemFile(workItemId, FIX_REPORT_ARTIFACT)))
+      : undefined;
+    // The same rule for the recorded review: listed, a Review Result; listed but
+    // unreadable, one with "Preview unavailable".
+    this.#reviewReport = names.includes(REVIEW_REPORT_ARTIFACT)
+      ? parseReviewReport(await this.#ports.files.readFile(this.#itemFile(workItemId, REVIEW_REPORT_ARTIFACT)))
       : undefined;
     const text = names.includes(RETRIEVAL_ARTIFACT)
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, RETRIEVAL_ARTIFACT))
@@ -2050,6 +2242,9 @@ export class Controller {
       ...(this.#validation === undefined ? {} : { validation: this.#validation }),
       copyingReviewPrompt: this.#copyingReviewPrompt,
       ...(this.#review === undefined ? {} : { review: this.#review }),
+      ...(this.#reviewReport === undefined ? {} : { reviewReport: this.#reviewReport }),
+      ...(this.#reviewCapture === undefined ? {} : { reviewCapture: this.#reviewCapture }),
+      canRecordReview: this.#offersRecordReview(),
     });
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.

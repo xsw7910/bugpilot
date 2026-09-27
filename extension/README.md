@@ -240,6 +240,20 @@ open another work item, reopen this one or run again; then the button is back.
 If no agent can be started, the row says why, and Copy Review Prompt still
 works.
 
+**Record Review Result** keeps what a completed review said with the work
+item's files. Any review counts — Review with AI's terminal, another assistant,
+a colleague, one done yesterday — because BugPilot does not know how a review
+went until you tell it. Four text areas open under the row — Summary, Findings,
+Validation notes, Recommendations — and you fill in what applies. On Save the
+CLI writes `review_report.md`, and **Review result** appears under Fix result:
+the review's first summary line and findings line, and **Open Review Report**.
+It says a result was recorded — not that the review passed, that the fix is
+correct, that tests ran or that its recommendations were applied. **Replace
+Review Result** records a new one in its place, after asking. A **Fresh** run
+removes it with the fix report; **Retry** leaves it, so after a retry it
+describes the earlier attempt until you replace it. History is not changed by
+it.
+
 BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.
 

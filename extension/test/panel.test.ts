@@ -236,6 +236,10 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
       completion: "Write fix_report.md.",
     },
   },
+  recordReview: {
+    type: "recordReview",
+    review: { summary: "Reads correctly.", findings: "", validationNotes: "", recommendations: "" },
+  },
 };
 
 test("the host's list of message types is the PanelMessage union, read from its source", () => {
@@ -1889,7 +1893,9 @@ test("Fix result is a row the markup keeps hidden, with no checkbox and no failu
   assert.match(row, /^<li class="step" id="step-fixResult" hidden>/);
   // Nobody chooses it and no run performs it.
   assert.equal(/<input\b/.test(row), false, "Fix result has a checkbox");
-  assert.equal(/<label\b/.test(row), false, "Fix result has a label for a control");
+  // Its only labels are Record Review Result's text areas (Batch 11) — never
+  // one for a checkbox.
+  assert.equal(/<label\b[^>]*for="plan-/.test(row), false, "Fix result has a label for a checkbox");
   // A report that cannot be previewed is not a failure: no card of the row's
   // own. The one card it holds is Review with AI's, about that action (Batch 10).
   assert.equal(row.includes('id="error-fixResult"'), false, "Fix result has a row failure card");
@@ -1919,7 +1925,20 @@ test("Fix result's review aids: read the report, copy a review prompt, open the 
   // runs. Secondary, like Open Fix Report, and hidden until a report is there.
   assert.match(row, /<button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to review this result" hidden>/);
   assert.match(row, /<span id="copy-review-prompt-label">Copy Review Prompt<\/span>/);
-  for (const overclaim of ["Review Result", "Run Review", "Verify Fix", "Reviewed", "Verified"]) {
+  // "Review Result" is Batch 11's, and says only that a result was recorded;
+  // nothing on the panel claims a review ran, passed or verified anything.
+  for (const overclaim of [
+    "Run Review",
+    "Verify Fix",
+    "Reviewed",
+    "Verified",
+    "Review Passed",
+    "Review complete",
+    "Complete Review",
+    "Mark Reviewed",
+    "Accept Review",
+    "Approved",
+  ]) {
     assert.equal(HTML.includes(overclaim), false, `the panel says "${overclaim}"`);
   }
 

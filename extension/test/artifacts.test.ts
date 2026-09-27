@@ -516,3 +516,30 @@ test("a summarized package keeps its History outcome: the marks that stopped do 
   assert.deepEqual(after, never);
   assert.equal(after.outcome === "failed" || after.outcome === "incomplete", false);
 });
+
+// --- Batch 11: review_report.md ------------------------------------------------
+
+test("a recorded review is listed with the agent's results, after the fix report, and is never 'missing'", () => {
+  const list = buildArtifactList({ names: ["task.md", "fix_report.md", "review_report.md", "context.md"] });
+  assert.equal(list.kind, "ready");
+  const results = list.kind === "ready" ? list.sections.find((section) => section.group === "results") : undefined;
+  assert.deepEqual(results?.entries.map((entry) => entry.name), ["fix_report.md", "review_report.md"]);
+  const withoutReview = buildArtifactList({ names: ["task.md", "fix_report.md"] });
+  const names = withoutReview.kind === "ready" ? withoutReview.sections.flatMap((section) => section.entries.map((entry) => entry.name)) : [];
+  assert.equal(names.includes("review_report.md"), false, "a review nobody recorded was listed as missing");
+});
+
+test("History's outcome ignores a recorded review", () => {
+  const status = { status: "prepared", steps: { prepare: "pass" } };
+  for (const files of [
+    ["run.json", "task.md"],
+    ["run.json", "task.md", "fix_report.md"],
+    ["run.json", "task.md", "fix_report.md", "user_feedback.md"],
+  ]) {
+    assert.deepEqual(
+      historyOutcome({ files: [...files, "review_report.md"], status }),
+      historyOutcome({ files, status }),
+      files.join(", "),
+    );
+  }
+});

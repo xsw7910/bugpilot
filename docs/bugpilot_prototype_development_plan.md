@@ -9074,3 +9074,144 @@ export lacks).
 former employer. The stale 0.1.0 wheel and sdist carry the removed prefix and
 the old checkout path, and are rebuilt from the sanitized tree after the
 rewrite; the `.vsix` is clean but is rebuilt with them.
+
+### 37.73 Batch 11 — Review Result Capture (after `826a884`)
+
+**Status:** implemented and verified, not committed. The contract is the
+canonical plan's §19 "Confirmed decisions (Batch 11)".
+
+**Why.** Review with AI hands a prompt to a terminal and stops there: BugPilot
+does not know whether the reviewer received it, finished, or what it said. A
+review's result therefore exists only once the developer records it, in one
+optional artifact, `review_report.md`. Started is not completed; recorded is not
+verified, not tests passed, not recommendations applied.
+
+**Audit before building.** Fresh already deletes the whole work item folder
+(`run_investigation(fresh=True)` → `clean_issue_artifacts`), so a review report
+goes with `fix_report.md` and needed no code; a resume keeps both. `bug --retry`
+writes only `agent_retry_prompt.md` and `user_feedback.md` and never touches
+`fix_report.md`; `review_report.md` follows the same rule, so after a retry a
+recorded review describes the earlier attempt until it is replaced. History's
+outcome comes from file presence; the review report changes none (tested).
+`manual-result`, the nearest writer, marks a `run.json` step; `record-review`
+does not.
+
+**CLI.** `core/review_report.py` renders, writes and reads the report; `bugpilot
+record-review <id>` takes `--summary`, `--findings`, `--validation-notes`,
+`--recommendations` or one JSON object in `--from-file`, plus `--replace` and
+`--json`. It validates the id first, needs the work item folder (never creates
+it), refuses an empty review and a section over 50,000 characters, keeps an
+existing report unless `--replace` (`ARTIFACT_EXISTS`, appended to the error
+codes and the extension's table), writes atomically, and touches nothing else.
+Every heading is always written; an empty section reads `Not recorded.`; `#
+`/`## ` lines up to three spaces in become `###` except inside code fences; the
+Source line is "Recorded from an external review." — external, not AI, because
+BugPilot cannot know who reviewed. `WorkItemNotFoundError` moved to
+`core/artifacts.py` (still importable from `workflow`). The Python reader has no
+production caller yet and is in the unwired-symbol allowlist with that reason.
+
+**Extension.** A bounded parser (`reviewReport.ts`: first line of Summary and
+Findings, whether Validation Notes and Recommendations were recorded — no
+verdict), the capture plumbing (`reviewCapture.ts`), and the payload transport
+generalized from Fix Mode's (`payloadCommandPort`: a temporary JSON file outside
+the repository, owner-only, removed afterwards — review text is never argv). Fix
+result gains a Review Result section ("Review result recorded", the summary and
+findings lines, Also recorded, Open Review Report) and Record / Replace Review
+Result, which open four labelled text areas under the row. Protocol: one message
+(`recordReview`, four bounded strings, no id, path or replace flag — clamped one
+past the cap so the CLI refuses instead of the text being cut) and one action
+(`openReviewReport`, resolved by the host to the canonical file, only while
+listed). No new row, nothing in "Running n/m", nothing in `run.json`.
+
+**Host state.** A busy flag set before the first wait refuses a second recording
+whatever the page shows; an epoch drops a recording in flight on another work
+item, a reopen, a run or the report going. A replace asks first and only a yes
+passes `--replace`. Success is the host's explicit `recorded` state — the only
+thing that closes and empties the form; failures are local ("Review result was
+not recorded: …"), never the row's, the run's or History's. `ARTIFACT_EXISTS`
+makes the row read the folder again, so a report recorded elsewhere is offered
+to open or replace. A non-Fresh re-prepare keeps the review on screen with the
+fix report; a Fresh run drops both.
+
+**The page.** The rows live inside the panel's `<form>`, so the editor is a
+group, not a nested form (whose Save would have submitted the panel — a Run);
+the panel's Ctrl+Enter, input and change handlers ignore the review fields, and
+Ctrl+Enter there saves the review. `aria-disabled` rather than `disabled` while
+recording; the status is a focusable live region written once per change; a
+finished recording moves focus from the form to it; another work item closes and
+empties the form.
+
+**Final stabilization: no run while a recording is in flight.** The last known
+race: a Fresh run started while `record-review` was still writing deletes the
+work item folder, and the late write would put `review_report.md` back into the
+new package — against "Fresh clears it". `Controller.run()` — the one door every
+Run, Fresh, Resume and re-prepare goes through, the page's message and any host
+path alike — refuses while a recording is in flight: first thing (before the
+Fresh confirmation), and again just before the run starts, since a recording can
+be pressed while a run is still being set up. The notice is neutral — "Wait for
+the review result recording to finish before starting a run." — nothing is
+marked and `run.json` is untouched. The final review found the first version's
+hole: the guard reused the flag that another work item or a reopen clears,
+although neither stops the process. "In flight" is now its own state, set on the
+press and cleared only when `recordReview` itself returns; another item or a
+reopen drops only the outcome (the epoch), and a recording that ends unreported
+pushes once so the screen offers Record and Run again. No second recording
+starts while one is in flight, and none during a run. Tests: every kind of run
+refused (directly and through the page's message), the same after a reopen and
+after switching items, a recording pressed during run setup winning, Run
+available after success, failure and a declined replace; each new test stops
+passing when its guard is removed. Known limits, not fixed here: each VS Code
+window guards only its own recordings, and two recordings racing without
+`--replace` (two windows) can both write.
+
+**U-1.** Checked against the installed Claude Code (2.1.214) rather than
+guessed: its embedded documentation lists "`#` prefix for quick memory entry"
+under "Removed keyboard and input shortcuts". An initial prompt starting `#
+Final Review Request` is therefore ordinary text for this version, and the
+prompt is unchanged. A live interactive agent check stays optional.
+
+**Hands-on check.** No VS Code window can be driven from this session, so the
+check ran one step short of it: a real Chromium page with the real markup,
+stylesheet and `panel.js`, its messages bridged over the DevTools protocol to
+the real `Controller`, which ran the real CLI (`python -m bugpilot`, with
+`--allow-mock` for the synthetic `JR-12345` / `JR-23456`) in a throwaway git
+repository; clicks and keys were real input events. Only VS Code's own surfaces
+were stand-ins: the webview wrapper, the confirm dialog (answered from a queue)
+and opening a file (recorded). All fifteen checks passed: a prepared item with
+`fix_report.md`, the review actions, Record offered, the form opened by Enter
+with focus in Summary, four fields typed and tabbed through, Ctrl+Enter saving
+the review without starting a run, exactly one Review Result in the reviewer's
+words with focus moved to the status, Open Review Report opening the canonical
+file, switching to another item and back, Replace asking first (No kept the
+report, Yes replaced it), Run and Fresh refused while a recording was held in
+flight with `run.json` unchanged, Run available once it finished, Fresh clearing
+the report on disk and on screen, Retry leaving it byte-identical, and no
+reviewed / passed / verified wording anywhere on the page. Cancel by Enter
+closed the form and returned focus to its button. The scratch harness
+screenshots (both themes, 200–400 px) had already fixed one heading ("Review
+result recorded"). A check in an actual VS Code window, with its real dialogs,
+remains worth a minute before release.
+
+**Independent review.** No blocker. Four important findings, all fixed: the page
+inferred success when the recording state merely disappeared (a same-item run
+drops it) and emptied the form — now only the host's `recorded` does; focus fell
+to the document after a first recording — the status is focusable and receives
+it, tested across the intermediate loading push; `ARTIFACT_EXISTS` left a Record
+that could only fail again — the row re-reads the folder; the message parser cut
+sections at the cap — now one past it, so the CLI refuses. Minor ones fixed:
+fence-aware and indentation-aware demotion, a stale failure cleared on Cancel
+and on a new press, one announcement instead of a status plus a notification,
+the temporary file owner-only, `--from-file` bounded before it is read. The
+follow-up page and controller tests fail without the fixes.
+
+**Tests.** Python 1201 (baseline 1170), extension 1111 (1049), integration 11
+(10), publishability 15, typecheck clean, smoke 22 commands / 3 views, `git diff
+--check` clean. Retrieval code is unchanged: the current code over the frozen
+`826a884` tree gives MRR 0.295, as before; the live corpus gives 0.289 because
+one case (`identifier-persist-fix-mode`, rank 7 → 9) now also finds this batch's
+new files. Not tuned.
+
+**Deferred.** Importing a free-form Markdown review (`record-review
+--from-markdown`); an MCP tool for recording; an extension-level Retry test
+(Python covers Retry, and the hands-on check exercised it); a live interactive
+U-1 check.

@@ -1414,6 +1414,97 @@ carries no Fix result step.
    printed prompt is not a review. `result_summary` means the Result Overview
    was rendered.
 
+### Confirmed decisions (Batch 11): Review Result Capture
+
+1. **One optional post-review artifact, `review_report.md`**, beside the
+   optional `fix_report.md`. Its existence means exactly one thing: somebody
+   explicitly recorded the result of a review. Not that the review passed,
+   that the fix is correct, that tests ran or passed, that recommendations were
+   applied, or that any review finished by itself. No `review_report.json`, no
+   review status file, and nothing about reviews in `run.json`.
+2. **Recorded, never inferred.** Review with AI still means a terminal was
+   opened with the prompt; nothing watches it, polls it or reads its output,
+   and a review result exists only once the developer records one. The review
+   may come from any AI, a person, or a session outside BugPilot, recorded now
+   or after a reopen.
+3. **The format is fixed and provider-neutral**:
+
+   ```text
+   # Review Report: <work-item>
+
+   ## Summary
+   ## Findings
+   ## Validation Notes
+   ## Recommendations
+   ## Source
+   Recorded from an external review.
+   ```
+
+   Every heading is always written. A section left empty reads
+   `Not recorded.`; at least one of the four must have content, and a section
+   over 50,000 characters is refused, never cut short. Entered text is kept as
+   entered, except that a line starting `# ` or `## ` (up to three spaces in)
+   becomes `### ` so the sections stay the file's own; lines inside a code
+   fence are left as they are. No verdict field, no provider metadata,
+   no prompt, transcript, terminal output, token or command is stored. The
+   Source line says "external review", not "AI review": BugPilot cannot know
+   who reviewed.
+4. **One writer: `bugpilot record-review <id>`** (`core/review_report.py`).
+   It validates the id with the shared rule, needs the work item folder (it
+   never creates one), writes UTF-8 atomically, and has no other effect — no
+   step mark, no Jira post, no email, no memory entry. An existing report is
+   kept: recording again fails with `ARTIFACT_EXISTS` unless `--replace` is
+   given. Text arrives as `--summary`, `--findings`, `--validation-notes` and
+   `--recommendations`, or as one JSON object in `--from-file` — how the
+   extension sends it, through a temporary file outside the repository that is
+   removed afterwards, so review text is never on a command line. Importing a
+   free-form Markdown review is future work.
+5. **One reader, bounded.** The panel gets the first meaningful line of
+   Summary and of Findings, and whether Validation Notes and Recommendations
+   were recorded — no verdict, no "approved", "clean" or "tests passed" read
+   out of the text. A missing section is absent; an unreadable report is still
+   a report to open, with "Preview unavailable".
+6. **Review Result belongs to Fix result**, below its review aids: not a
+   workflow row, never counted in "Running n/m", present exactly while
+   `review_report.md` is listed. It says "Review result recorded", the summary
+   line and the findings line, and offers **Open Review Report** — an action,
+   not a path: the host opens the canonical file of the work item on screen,
+   and only while it is listed.
+7. **Record Review Result** is offered while Fix result is — a work item with
+   `fix_report.md` listed — no run is in flight and no recording is. It opens
+   four text areas under the row; Save sends the text to the host, which runs
+   `record-review`. With a report already recorded the button reads **Replace
+   Review Result**, and the host asks before passing `--replace`. The words
+   say what the developer does: never "Complete Review", "Mark Reviewed",
+   "Review Passed" or "Accept Review".
+8. **Host-side state, one recording at a time.** The host refuses a second
+   recording while one is in flight, whatever the page shows. Another work
+   item, a reopen, a run starting or the report going drops a recording in
+   flight — its outcome is never shown, least of all under another work item;
+   a same-item refresh does not. Success is the host's explicit word
+   (`recorded`), and only that closes and empties the form: a recording that
+   was dropped is not taken for one that succeeded, and what was typed stays.
+   A report recorded elsewhere meanwhile (`ARTIFACT_EXISTS`) makes the row read
+   the folder again, so it offers that report's Open and Replace. No run of any
+   kind — Run, Fresh, Resume, a re-prepare — begins while a recording is in
+   flight: the host refuses it with "Wait for the review result recording to
+   finish before starting a run.", because a Fresh run would otherwise delete
+   the folder and the late write put the report back. No recording starts
+   during a run either.
+9. **Failures are the recording's own**: "Review result was not recorded",
+   with the reason, under the form, text kept. Never the row's, the run's or
+   History's, and never worded as the review having failed.
+10. **Fresh, Resume, Retry follow `fix_report.md`.** A Fresh run deletes the
+    work item folder, the review with it; a resume and a non-Fresh re-prepare
+    of the same work item keep both reports, and the row keeps showing them
+    through the run. Retry neither creates, changes nor deletes
+    `review_report.md`: a review recorded before a retry describes the earlier
+    attempt until it is replaced. There is no Retry Review.
+11. **Unchanged**: Review with AI (outcome-neutral, transient), Copy Review
+    Prompt (canonical prompt, never persisted), the Validation checklist
+    (guidance, no checkboxes, never ticked by a review), History (no new
+    outcome; a review report changes none) and `run.json`.
+
 ---
 
 # 20. Step Secondary Text 状态原则

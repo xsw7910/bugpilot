@@ -19,7 +19,7 @@ import type { Environment } from "./app/environment.ts";
 import { TASK_ARTIFACT } from "./app/artifacts.ts";
 import { Controller } from "./app/controller.ts";
 import { DEFAULT_FORM, isWorkItemId } from "./app/form.ts";
-import { fixModeCommandPort } from "./app/fixModeTransport.ts";
+import { fixModeCommandPort, payloadCommandPort } from "./app/fixModeTransport.ts";
 import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
 import { diagnose } from "./errors.ts";
@@ -165,6 +165,18 @@ export function activate(context: vscode.ExtensionContext): void {
       runFixModeCommand: fixModeCommandPort(
         () => controller.root,
         (args, cwd) => new Runner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
+      ),
+      // Record Review Result: the review goes the same way a Fix Mode does — a
+      // temporary file outside the repository, removed afterwards — so four
+      // sections of someone's prose are never argv and never shell text.
+      runReviewCommand: payloadCommandPort(
+        () => controller.root,
+        (args, cwd) => new Runner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
+        {
+          command: "record-review",
+          prefix: "bugpilot-review",
+          noRepository: "No workspace repository is open to record a review result in.",
+        },
       ),
       // Improving a hint reads the issue and asks an AI CLI; it never builds
       // context, and it never runs when there is no repository to read from.

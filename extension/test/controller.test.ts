@@ -16,6 +16,7 @@ import { parsePanelMessage } from "../src/panel/messages.ts";
 import { fixModesFromPayload, managedFixModesFromPayload } from "../src/app/fixModes.ts";
 import type { FixModeCatalog, ManagedFixModes } from "../src/app/fixModes.ts";
 import type { FixModeRequest } from "../src/app/controller.ts";
+import type { PayloadCommandRequest } from "../src/app/fixModeTransport.ts";
 
 import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
@@ -115,6 +116,8 @@ interface HarnessOptions {
   /** This extension's own version, which is not the CLI's. */
   readonly extensionVersion?: string;
   readonly confirm?: boolean;
+  /** Answer the confirm dialog later: a promise holds it open. */
+  readonly confirmAnswer?: () => Promise<boolean>;
   readonly form?: FormState;
   /** Hold the stream open so a Stop can be observed mid-run. */
   readonly hold?: boolean;
@@ -129,6 +132,8 @@ interface HarnessOptions {
   readonly managed?: ManagedFixModes;
   /** What a Fix Mode management command does, and what it answers. */
   readonly runFixMode?: (request: FixModeRequest) => Promise<Envelope>;
+  /** What `record-review` does, and what it answers; absent means no such port. */
+  readonly runReview?: (request: PayloadCommandRequest) => Promise<Envelope>;
   /** What the AI CLI answers when asked to improve a hint. */
   readonly improveHint?: (request: {
     provider: { id: string; label: string; command: string; args: readonly string[] };
@@ -230,7 +235,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         if (options.clipboardThrows) throw options.clipboardThrows;
         clipboard.push(text);
       },
-      confirm: async () => options.confirm ?? true,
+      confirm: async () => (options.confirmAnswer ? options.confirmAnswer() : (options.confirm ?? true)),
       notify: (kind, message) => notices.push({ kind, message }),
       refreshViews: () => {
         refreshes.count += 1;
@@ -284,6 +289,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       ? {}
       : { listManagedFixModes: async () => options.managed! }),
     ...(options.runFixMode === undefined ? {} : { runFixModeCommand: options.runFixMode }),
+    ...(options.runReview === undefined ? {} : { runReviewCommand: options.runReview }),
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return options.improveHint
@@ -4159,7 +4165,7 @@ test("a report offers Copy Review Prompt and Review with AI, after Open Fix Repo
   const h = reviewable();
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult"]);
   // Nothing is run until somebody asks.
   assert.deepEqual(reviewRuns(h), []);
 });
@@ -4263,7 +4269,7 @@ test("a review prompt for a work item that is no longer shown is never copied on
   const copying = h.controller.handle({ type: "action", id: "copyReviewPrompt" });
   await Promise.resolve();
   await h.controller.showWorkItem("JR-2");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult"]);
   answer({ ...REVIEW_PACKAGE, work_item_id: "JR-1", prompt: "# Final Review Request\n\nReview the BugPilot result for work item JR-1.\n" });
   await copying;
 
@@ -4618,7 +4624,7 @@ test("with no agent available, no reviewer starts and the row says why, beside a
   assert.deepEqual(h.clipboard, []);
   assert.equal(h.notices.length, noticesBefore);
   // The row, Fix with AI and the run stand; the button stays for a retry.
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult"]);
   assert.equal(fixResultOf(h.last())?.error, undefined, "the review's failure became the row's");
   assert.deepEqual(fixRow(h.last()), fixBefore);
   assert.equal(h.last().runError, undefined);
@@ -5270,4 +5276,540 @@ test("with no agent, a switch while the prompt is being copied brings no agent p
   assert.deepEqual(reveals, [], "an agent panel was brought forward for A with B on screen");
   assert.deepEqual(fixRow(h.last()), rowOnB);
   assert.equal(h.notices.length, noticesOnB);
+});
+
+// --- Batch 11: Review Result Capture -------------------------------------------
+
+const REVIEW_REPORT_MD = (summary = "The change reads correctly.") =>
+  "# Review Report: JR-12345\n\n" +
+  `## Summary\n\n${summary}\n\n` +
+  "## Findings\n\n- One duplicate null check.\n\n" +
+  "## Validation Notes\n\nNot recorded.\n\n" +
+  "## Recommendations\n\n- Remove the duplicate.\n\n" +
+  "## Source\n\nRecorded from an external review.\n";
+
+const REVIEW_ENTRY = {
+  summary: "The change reads correctly.",
+  findings: "- One duplicate null check.",
+  validationNotes: "",
+  recommendations: "- Remove the duplicate.",
+};
+
+const RECORDED: Envelope = {
+  ok: true,
+  command: "record-review",
+  warnings: [],
+  work_item_id: "JR-12345",
+  review_report: ".ai/JR-12345/review_report.md",
+  replaced: false,
+};
+
+/**
+ * A reopened work item with a fix report, optionally a recorded review, and a
+ * `record-review` port that behaves like the CLI: it writes the file (into the
+ * live listing) and answers. `answer` may hold the request open.
+ */
+function capturable(setup: {
+  review?: boolean;
+  confirm?: boolean;
+  answer?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  port?: boolean;
+} = {}) {
+  const calls: { args: readonly string[]; payload: unknown }[] = [];
+  const options: {
+    directory: readonly string[];
+    files: Record<string, string>;
+    json: Envelope;
+    confirm?: boolean;
+    runReview?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  } = {
+    directory: [...PREPARED_FILES, "fix_report.md", ...(setup.review ? ["review_report.md"] : [])],
+    files: {
+      "run.json": PREPARED_RUN_JSON,
+      "fix_report.md": fixReportMd("Fixed it.", "3 passed."),
+      ...(setup.review ? { "review_report.md": REVIEW_REPORT_MD("Recorded earlier.") } : {}),
+    },
+    json: REVIEW_PACKAGE,
+    ...(setup.confirm === undefined ? {} : { confirm: setup.confirm }),
+  };
+  if (setup.port !== false) {
+    options.runReview = async (request) => {
+      calls.push({ args: request.args("/tmp/bugpilot-review-payload.json"), payload: request.payload });
+      const envelope = setup.answer ? await setup.answer(request) : RECORDED;
+      if (envelope.ok) {
+        if (!options.directory.includes("review_report.md")) options.directory = [...options.directory, "review_report.md"];
+        h.files["review_report.md"] = REVIEW_REPORT_MD();
+      }
+      return envelope;
+    };
+  }
+  const h = harness(options);
+  return { h, calls, options };
+}
+
+const opened = async (h: Harness) => {
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+};
+
+/** A request held open until the test answers it. */
+function held(): { answer: (request: PayloadCommandRequest) => Promise<Envelope>; resolve: (envelope: Envelope) => void } {
+  let resolve: (envelope: Envelope) => void = () => {};
+  return {
+    answer: () => new Promise<Envelope>((done) => (resolve = done)),
+    resolve: (envelope) => resolve(envelope),
+  };
+}
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("with no fix report there is no Review Result and nothing to record, and the host refuses", async () => {
+  const { h, calls, options } = capturable();
+  options.directory = PREPARED_FILES;
+  await opened(h);
+  assert.equal(fixResultOf(h.last()), undefined);
+
+  await h.controller.handle({ type: "recordReview", review: REVIEW_ENTRY });
+  await h.controller.handle({ type: "action", id: "openReviewReport" });
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(h.opened, []);
+  assert.ok(h.logged.some((line) => /Refusing to record a review result/.test(line)));
+  assert.ok(h.logged.some((line) => /Refusing to open a review report/.test(line)));
+});
+
+test("a fix report without a recorded review offers Record Review Result, and shows no Review Result", async () => {
+  const { h } = capturable();
+  await opened(h);
+  const row = fixResultOf(h.last())!;
+  assert.equal(row.reviewResult, undefined);
+  assert.equal(row.reviewCapture, undefined);
+  assert.ok(row.actions.includes("recordReviewResult"));
+  assert.equal(row.actions.includes("openReviewReport"), false);
+  assert.equal(row.actions.includes("replaceReviewResult"), false);
+});
+
+test("a recorded review is one Review Result in its own words, with Open and Replace", async () => {
+  const { h } = capturable({ review: true });
+  await opened(h);
+  const row = fixResultOf(h.last())!;
+  assert.deepEqual(row.reviewResult, {
+    status: "Review result recorded",
+    artifact: "review_report.md",
+    summary: "Recorded earlier.",
+    detail: "Findings: One duplicate null check.",
+    alsoRecorded: "Also recorded: recommendations",
+  });
+  assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport", "replaceReviewResult"]);
+  // One row for the fix, carrying one review result; no new workflow row.
+  assert.equal(h.last().workflow.filter((step) => step.id === "fixResult").length, 1);
+  assert.equal(h.last().workflow.length, 7);
+  // The Fix result row itself says what it said before.
+  assert.equal(row.status, "ready");
+  assert.equal(row.statusLabel, "report available");
+});
+
+test("recording sends the four sections through record-review and shows the file it wrote", async () => {
+  const { h, calls } = capturable();
+  await opened(h);
+  const streamsBefore = h.streamRuns.length;
+  const writesBefore = h.written.length;
+  const progressBefore = JSON.stringify(h.last().progress);
+
+  await h.controller.handle(parsePanelMessage({ type: "recordReview", review: REVIEW_ENTRY })!);
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual([...calls[0]!.args], ["record-review", "JR-12345", "--from-file", "/tmp/bugpilot-review-payload.json", "--json"]);
+  assert.deepEqual(calls[0]!.payload, {
+    summary: "The change reads correctly.",
+    findings: "- One duplicate null check.",
+    validation_notes: "",
+    recommendations: "- Remove the duplicate.",
+  });
+  const row = fixResultOf(h.last())!;
+  assert.equal(row.reviewResult?.summary, "The change reads correctly.");
+  // Said by the host, explicitly: the page closes the form on this and nothing else.
+  assert.deepEqual(row.reviewCapture, { state: "recorded", replaced: false });
+  assert.ok(row.actions.includes("replaceReviewResult"));
+  // Announced once, by the row's status — no second notification.
+  assert.equal(h.notices.some((notice) => /Review result/.test(notice.message)), false);
+  // The extension wrote nothing itself, started no run, and changed no row but this one's result.
+  assert.equal(h.written.length, writesBefore);
+  assert.equal(h.streamRuns.length, streamsBefore);
+  assert.equal(JSON.stringify(h.last().progress), progressBefore);
+  assert.equal(h.last().runError, undefined);
+});
+
+test("while recording, the row says so and Record is not offered", async () => {
+  const hold = held();
+  const { h } = capturable({ answer: hold.answer });
+  await opened(h);
+
+  const recording = h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+  const row = fixResultOf(h.last())!;
+  assert.deepEqual(row.reviewCapture, { state: "recording" });
+  assert.equal(row.actions.includes("recordReviewResult"), false);
+
+  hold.resolve(RECORDED);
+  await recording;
+  assert.deepEqual(fixResultOf(h.last())!.reviewCapture, { state: "recorded", replaced: false });
+});
+
+test("nothing entered is refused locally, without running record-review", async () => {
+  const { h, calls } = capturable();
+  await opened(h);
+
+  await h.controller.recordReview({ summary: "  ", findings: "\n", validationNotes: "", recommendations: "\t" });
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(fixResultOf(h.last())!.reviewCapture, {
+    state: "failed",
+    message: "Review result was not recorded: enter at least one section.",
+  });
+});
+
+test("a CLI failure is the recording's own, says the result was not recorded, and changes nothing else", async () => {
+  const { h } = capturable({
+    answer: async () => ({ ok: false, command: "record-review", error: { code: "INVALID_INPUT", message: "Findings is longer than 50000 characters." } }),
+  });
+  await opened(h);
+  const progressBefore = JSON.stringify(h.last().progress);
+
+  await h.controller.recordReview(REVIEW_ENTRY);
+
+  const row = fixResultOf(h.last())!;
+  assert.deepEqual(row.reviewCapture, {
+    state: "failed",
+    message: "Review result was not recorded: Findings is longer than 50000 characters.",
+  });
+  assert.equal(row.reviewResult, undefined);
+  assert.equal(row.error, undefined, "the failure became the row's");
+  assert.equal(row.status, "ready");
+  assert.equal(h.last().runError, undefined);
+  assert.equal(JSON.stringify(h.last().progress), progressBefore);
+  // And it can be tried again.
+  assert.ok(row.actions.includes("recordReviewResult"));
+});
+
+test("a report recorded meanwhile is kept, and said plainly", async () => {
+  const { h } = capturable({
+    answer: async () => ({ ok: false, command: "record-review", error: { code: "ARTIFACT_EXISTS", message: "kept" } }),
+  });
+  await opened(h);
+  await h.controller.recordReview(REVIEW_ENTRY);
+  assert.match(
+    (fixResultOf(h.last())!.reviewCapture as { message: string }).message,
+    /^Review result was not recorded: a review result is already recorded for this work item, and it was kept\.$/,
+  );
+});
+
+test("replacing a recorded review asks first, and only a yes passes --replace", async () => {
+  const declined = capturable({ review: true, confirm: false });
+  await opened(declined.h);
+  await declined.h.controller.recordReview(REVIEW_ENTRY);
+  assert.deepEqual(declined.calls, []);
+  assert.equal(fixResultOf(declined.h.last())!.reviewResult?.summary, "Recorded earlier.");
+  assert.equal(fixResultOf(declined.h.last())!.reviewCapture, undefined);
+  assert.ok(fixResultOf(declined.h.last())!.actions.includes("replaceReviewResult"), "Replace was not offered again");
+
+  const accepted = capturable({ review: true, confirm: true });
+  await opened(accepted.h);
+  await accepted.h.controller.recordReview(REVIEW_ENTRY);
+  assert.deepEqual([...accepted.calls[0]!.args], [
+    "record-review", "JR-12345", "--from-file", "/tmp/bugpilot-review-payload.json", "--json", "--replace",
+  ]);
+  assert.equal(fixResultOf(accepted.h.last())!.reviewResult?.summary, "The change reads correctly.");
+  assert.deepEqual(fixResultOf(accepted.h.last())!.reviewCapture, { state: "recorded", replaced: true });
+});
+
+test("a second recording is refused by the host while one is in flight, whatever the page shows", async () => {
+  const hold = held();
+  const { h, calls } = capturable({ answer: hold.answer });
+  await opened(h);
+
+  const first = h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+  // Straight to the controller, as a page ignoring its own disabled button would.
+  await h.controller.handle({ type: "recordReview", review: REVIEW_ENTRY });
+  await h.controller.recordReview(REVIEW_ENTRY);
+  assert.equal(calls.length, 1);
+  assert.equal(h.logged.filter((line) => /Refusing to record a review result/.test(line)).length, 2);
+
+  hold.resolve(RECORDED);
+  await first;
+  assert.equal(calls.length, 1);
+});
+
+test("a recording in flight when another work item opens is never reported under it", async () => {
+  const hold = held();
+  const { h } = capturable({ answer: hold.answer });
+  await opened(h);
+  const recording = h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+
+  await h.controller.showWorkItem("JR-77777");
+  hold.resolve({ ok: false, command: "record-review", error: { code: "INVALID_INPUT", message: "late failure" } });
+  await recording;
+
+  assert.equal(h.last().workItemId, "JR-77777");
+  const row = fixResultOf(h.last());
+  assert.equal(row?.reviewCapture, undefined, "the previous item's recording landed on this one");
+  assert.equal(h.notices.some((notice) => /Review result/.test(notice.message)), false);
+  // And the new item may record its own.
+  assert.ok(row?.actions.includes("recordReviewResult"));
+});
+
+test("reopening the same work item drops a recording in flight, and a success is not announced", async () => {
+  const hold = held();
+  const { h } = capturable({ answer: hold.answer });
+  await opened(h);
+  const recording = h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+
+  await h.controller.showWorkItem("JR-12345");
+  hold.resolve(RECORDED);
+  await recording;
+
+  assert.equal(fixResultOf(h.last())!.reviewCapture, undefined);
+  assert.equal(h.notices.some((notice) => /Review result/.test(notice.message)), false);
+});
+
+/** A capturable item whose runs hold open, so a run in flight can be observed. */
+function capturableRuns(setup: Parameters<typeof capturable>[0] = {}) {
+  const made = capturable(setup);
+  (made.options as { events?: readonly StreamEvent[] }).events = successfulRun.filter((event) => event.type !== "completed");
+  (made.options as { hold?: boolean }).hold = true;
+  return made;
+}
+
+const RUN_REFUSED = "Wait for the review result recording to finish before starting a run.";
+
+test("no run of any kind starts while a review result is being recorded; the host refuses it", async () => {
+  const hold = held();
+  const { h } = capturableRuns({ answer: hold.answer });
+  await opened(h);
+  const recording = h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+  const progressBefore = JSON.stringify(h.last().progress);
+
+  // Run, Fresh and a re-prepare, straight to the controller and through the page's message.
+  // Not awaited one by one: a run that did start would hold here, and the test
+  // should fail on the count rather than hang.
+  const attempts = [
+    h.controller.run(jiraForm()),
+    h.controller.run(jiraForm({ fresh: true })),
+    h.controller.handle(parsePanelMessage({ type: "run", form: jiraForm({ fresh: true }) })!),
+  ];
+  await tick();
+
+  assert.equal(h.streamRuns.length, 0, "a run started while a recording was in flight");
+  await Promise.all(attempts);
+  assert.equal(h.notices.filter((notice) => notice.kind === "warning" && notice.message === RUN_REFUSED).length, 3);
+  assert.equal(JSON.stringify(h.last().progress), progressBefore);
+  assert.deepEqual(fixResultOf(h.last())!.reviewCapture, { state: "recording" });
+
+  // The recording finishes where it began, on the same work item.
+  hold.resolve(RECORDED);
+  await recording;
+  assert.equal(h.last().workItemId, "JR-12345");
+  assert.deepEqual(fixResultOf(h.last())!.reviewCapture, { state: "recorded", replaced: false });
+  assert.equal(fixResultOf(h.last())!.reviewResult?.summary, "The change reads correctly.");
+
+  // And now a run may start.
+  const running = h.controller.run(jiraForm());
+  await tick();
+  assert.equal(h.streamRuns.length, 1);
+  assert.equal(h.last().progress.state, "running");
+  h.release();
+  await running;
+});
+
+test("a recording that failed, or a replace declined, leaves Run available again", async () => {
+  const failing = capturableRuns({
+    answer: async () => ({ ok: false, command: "record-review", error: { code: "INVALID_INPUT", message: "no" } }),
+  });
+  await opened(failing.h);
+  await failing.h.controller.recordReview(REVIEW_ENTRY);
+  const afterFailure = failing.h.controller.run(jiraForm({ fresh: true }));
+  await tick();
+  assert.equal(failing.h.streamRuns.length, 1);
+  failing.h.release();
+  await afterFailure;
+
+  const declined = capturableRuns({ review: true, confirm: false });
+  await opened(declined.h);
+  await declined.h.controller.recordReview(REVIEW_ENTRY);
+  const afterDecline = declined.h.controller.run(jiraForm());
+  await tick();
+  assert.equal(declined.h.streamRuns.length, 1);
+  declined.h.release();
+  await afterDecline;
+});
+
+test("while a run is in flight no recording starts, and one refused leaves the run alone", async () => {
+  const { h, calls } = capturableRuns();
+  await opened(h);
+  const running = h.controller.run(jiraForm());
+  await tick();
+  assert.equal(h.last().progress.state, "running");
+  assert.equal(fixResultOf(h.last())!.actions.includes("recordReviewResult"), false);
+
+  await h.controller.recordReview(REVIEW_ENTRY);
+
+  assert.deepEqual(calls, []);
+  assert.equal(fixResultOf(h.last())!.reviewCapture, undefined);
+  assert.equal(h.last().progress.state, "running");
+  h.release();
+  await running;
+});
+
+test("Open Review Report opens the canonical file of the work item on screen, and nothing else", async () => {
+  const { h } = capturable({ review: true });
+  await opened(h);
+  await h.controller.handle(parsePanelMessage({ type: "action", id: "openReviewReport" })!);
+  assert.deepEqual(h.opened.map((file) => file.split(/[\\/]/).slice(-3).join("/")), [".ai/JR-12345/review_report.md"]);
+  // The page cannot name a file through it.
+  assert.equal(parsePanelMessage({ type: "action", id: "openReviewReport", name: "../../secret" })?.type, "action");
+  assert.equal(parsePanelMessage({ type: "recordReview", review: "not an object" }), undefined);
+});
+
+test("reopening a work item discovers its recorded review from the file alone", async () => {
+  const { h, options } = capturable();
+  await opened(h);
+  assert.equal(fixResultOf(h.last())!.reviewResult, undefined);
+  // Recorded outside this panel — by the CLI in a terminal, say.
+  options.directory = [...options.directory, "review_report.md"];
+  h.files["review_report.md"] = REVIEW_REPORT_MD("Recorded in a terminal.");
+
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(fixResultOf(h.last())!.reviewResult?.summary, "Recorded in a terminal.");
+  // An unreadable one is still a result to open.
+  delete h.files["review_report.md"];
+  await h.controller.refreshArtifacts();
+  assert.deepEqual(
+    { summary: fixResultOf(h.last())!.reviewResult?.summary, detail: fixResultOf(h.last())!.reviewResult?.detail },
+    { summary: "Review result recorded", detail: "Preview unavailable" },
+  );
+});
+
+test("a same-item re-prepare keeps the recorded review on screen; a Fresh run does not", async () => {
+  const kept = capturable({ review: true });
+  (kept.options as { events?: readonly StreamEvent[]; hold?: boolean }).events = successfulRun.filter((event) => event.type !== "completed");
+  (kept.options as { hold?: boolean }).hold = true;
+  await opened(kept.h);
+  const rerun = kept.h.controller.run(jiraForm());
+  await tick();
+  assert.equal(fixResultOf(kept.h.last())!.reviewResult?.summary, "Recorded earlier.");
+  kept.h.release();
+  await rerun;
+
+  const fresh = capturable({ review: true });
+  (fresh.options as { events?: readonly StreamEvent[]; hold?: boolean }).events = successfulRun.filter((event) => event.type !== "completed");
+  (fresh.options as { hold?: boolean }).hold = true;
+  await opened(fresh.h);
+  const freshRun = fresh.h.controller.run(jiraForm({ fresh: true }));
+  await tick();
+  assert.equal(fixResultOf(fresh.h.last()), undefined, "a Fresh run kept the previous attempt's reports on screen");
+  fresh.h.release();
+  await freshRun;
+});
+
+test("without a record-review port the host says so, rather than writing the file itself", async () => {
+  const { h } = capturable({ port: false });
+  await opened(h);
+  const writesBefore = h.written.length;
+  await h.controller.recordReview(REVIEW_ENTRY);
+  assert.equal(h.written.length, writesBefore);
+  assert.match((fixResultOf(h.last())!.reviewCapture as { message: string }).message, /^Review result was not recorded/);
+});
+
+test("a review recorded elsewhere meanwhile: the failure is said, and the row reads the folder again to offer it", async () => {
+  const setup = capturable({
+    answer: async () => ({ ok: false, command: "record-review", error: { code: "ARTIFACT_EXISTS", message: "kept" } }),
+  });
+  await opened(setup.h);
+  // Written by a terminal while the panel was open.
+  setup.options.directory = [...setup.options.directory, "review_report.md"];
+  setup.h.files["review_report.md"] = REVIEW_REPORT_MD("Recorded in a terminal.");
+
+  await setup.h.controller.recordReview(REVIEW_ENTRY);
+
+  const row = fixResultOf(setup.h.last())!;
+  assert.match((row.reviewCapture as { message: string }).message, /already recorded/);
+  assert.equal(row.reviewResult?.summary, "Recorded in a terminal.");
+  assert.ok(row.actions.includes("replaceReviewResult"));
+  assert.ok(row.actions.includes("openReviewReport"));
+});
+
+test("declining a replace leaves no earlier failure on screen", async () => {
+  const setup = capturable({ review: true, confirm: false });
+  await opened(setup.h);
+  await setup.h.controller.recordReview({ summary: " ", findings: "", validationNotes: "", recommendations: "" });
+  assert.equal(fixResultOf(setup.h.last())!.reviewCapture?.state, "failed");
+  await setup.h.controller.recordReview(REVIEW_ENTRY);
+  assert.equal(fixResultOf(setup.h.last())!.reviewCapture, undefined);
+});
+
+test("a section over the cap reaches record-review one character too long, never cut to fit", () => {
+  const message = parsePanelMessage({
+    type: "recordReview",
+    review: { summary: "x".repeat(60_000), findings: "", validationNotes: "", recommendations: "" },
+  }) as { review: { summary: string } };
+  assert.equal(message.review.summary.length, 50_001);
+});
+
+test("a record-review still running after a reopen or another item keeps every run out, and a second recording too", async () => {
+  // The outcome is dropped when the work item changes; the process is not. Until
+  // it ends, a Fresh run would delete the folder under its late write.
+  const hold = held();
+  const { h, calls } = capturableRuns({ answer: hold.answer });
+  await opened(h);
+  const recording = h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+
+  await h.controller.showWorkItem("JR-12345");
+  const sameAgain = h.controller.run(jiraForm({ fresh: true }));
+  await h.controller.recordReview(REVIEW_ENTRY);
+  await h.controller.showWorkItem("JR-77777");
+  const another = h.controller.run(jiraForm({ issueKey: "JR-77777", fresh: true }));
+  await tick();
+  assert.equal(h.streamRuns.length, 0, "a run started while record-review was still running");
+  assert.equal(calls.length, 1, "a second recording started while the first was still running");
+  assert.equal(fixResultOf(h.last())?.actions.includes("recordReviewResult"), false);
+  await Promise.all([sameAgain, another]);
+
+  hold.resolve(RECORDED);
+  await recording;
+  // Ended, unreported (another item is on screen) — and the screen is told so.
+  assert.equal(fixResultOf(h.last())?.reviewCapture, undefined);
+  assert.equal(fixResultOf(h.last())?.actions.includes("recordReviewResult"), true);
+  const running = h.controller.run(jiraForm({ issueKey: "JR-77777" }));
+  await tick();
+  assert.equal(h.streamRuns.length, 1);
+  h.release();
+  await running;
+});
+
+test("a recording pressed while a run is still being set up keeps that run from starting", async () => {
+  // Between run()'s first check and the run starting there are waits — the
+  // Fresh confirmation among them. A recording begun in that window wins.
+  let answer!: (yes: boolean) => void;
+  const hold = held();
+  const made = capturableRuns({ answer: hold.answer });
+  (made.options as { confirmAnswer?: () => Promise<boolean> }).confirmAnswer = () =>
+    new Promise<boolean>((resolve) => (answer = resolve));
+  await opened(made.h);
+
+  const run = made.h.controller.run(jiraForm({ fresh: true }));
+  await tick();
+  const recording = made.h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+  answer(true);
+  await run;
+
+  assert.equal(made.h.streamRuns.length, 0, "the run started over a recording");
+  assert.ok(made.h.notices.some((notice) => notice.message === RUN_REFUSED));
+  hold.resolve(RECORDED);
+  await recording;
 });

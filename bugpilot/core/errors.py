@@ -38,6 +38,9 @@ WORK_ITEM_NOT_FOUND = "WORK_ITEM_NOT_FOUND"
 ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
 MISSING_RESULTS = "MISSING_RESULTS"
 INVALID_INPUT = "INVALID_INPUT"
+# The artifact a command would write is already there, and the command keeps it
+# unless asked to replace it (record-review without --replace).
+ARTIFACT_EXISTS = "ARTIFACT_EXISTS"
 
 # --- other ------------------------------------------------------------------
 
@@ -83,6 +86,8 @@ def error_code_for(exc: BaseException) -> str:
 
     if isinstance(exc, FileNotFoundError):
         return ARTIFACT_NOT_FOUND
+    if isinstance(exc, FileExistsError):
+        return ARTIFACT_EXISTS
     # Before the ValueError arm it subclasses: an unusable run.json is a state
     # problem the caller fixes by re-preparing, not a bad argument.
     if isinstance(exc, RunArtifactError):

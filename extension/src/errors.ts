@@ -84,6 +84,10 @@ const TABLE: Record<string, Entry> = {
     action: "Finish the attempt, or start a second one with Retry.",
   },
   INVALID_INPUT: { summary: "bugpilot rejected those arguments." },
+  ARTIFACT_EXISTS: {
+    summary: "That file already exists, and bugpilot kept it.",
+    action: "Replace it explicitly if the new version should win.",
+  },
 
   // --- other --------------------------------------------------------------
   EMAIL_SEND_FAILED: {

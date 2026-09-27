@@ -86,7 +86,7 @@ export function sectionOf(markdown: string, heading: string): string {
  * fence wins; a section that is nothing but a fence yields its first line,
  * literally. Table cells are joined with " · ".
  */
-function firstLine(body: string): string | undefined {
+export function firstLine(body: string): string | undefined {
   const lines = body.split("\n");
   let fenced: string | undefined;
   let inFence = false;
