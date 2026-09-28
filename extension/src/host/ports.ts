@@ -99,6 +99,16 @@ export function createUiPort(deps: UiPortDeps): UiPort {
       terminal.show();
       terminal.sendText(commandLine, true);
     },
+    revealTerminal: (matches) => {
+      // The newest match that is still open: a later attempt's terminal is the
+      // session to go back to, and one whose shell has exited is not a session.
+      const terminal = [...vscode.window.terminals]
+        .reverse()
+        .find((candidate) => candidate.exitStatus === undefined && matches(candidate.name));
+      if (!terminal) return false;
+      terminal.show();
+      return true;
+    },
     openFolder: async (directory) => {
       // The editor's own explorer rather than the OS file manager: the point is
       // to look at what the run wrote, and that is one click from here.

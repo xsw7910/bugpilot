@@ -46,6 +46,8 @@
 
 import { WORKFLOW_STEP_IDS, STEP_LABELS, stepDescription } from "../app/workflow.ts";
 import type { WorkflowStepId } from "../app/workflow.ts";
+import { NEXT_ACTION_LABELS, RUN_HINT } from "../app/nextAction.ts";
+import type { NextActionId } from "../app/nextAction.ts";
 
 export interface PanelHtmlOptions {
   /** A fresh random nonce per document load. */
@@ -395,6 +397,33 @@ const OPEN_FOLDER: ActionButton = {
   title: "Reveal the generated artifacts in the explorer",
 };
 
+/**
+ * The ⋯ menu beside the primary action: the next steps that are not the next
+ * step. Each item is shown only while the host lists it in `primary.more`, so
+ * Start New Attempt does not exist on screen before the first attempt does.
+ */
+const MORE_ACTIONS: readonly { readonly id: NextActionId; readonly icon: string; readonly title: string }[] = [
+  {
+    id: "startNewAttempt",
+    icon: "debug-restart",
+    title: "Start a new AI session with the prepared context, and optional feedback",
+  },
+  {
+    id: "rebuildContext",
+    icon: "refresh",
+    title: "Prepare the context again from the form, keeping what the agent wrote",
+  },
+  {
+    id: "openSession",
+    icon: "terminal",
+    title: "Go back to the terminal the AI session is running in",
+  },
+];
+
+function menuItem(entry: (typeof MORE_ACTIONS)[number]): string {
+  return `        <button type="button" role="menuitem" class="menu-item" id="menu-${entry.id}" title="${entry.title}" hidden><span class="codicon codicon-${entry.icon}" aria-hidden="true"></span><span>${NEXT_ACTION_LABELS[entry.id]}</span></button>`;
+}
+
 function actionButton(entry: ActionButton): string {
   return `<button type="button" class="result-link" id="${entry.id}" title="${entry.title}" hidden><span class="codicon codicon-${entry.icon}" aria-hidden="true"></span>${entry.label}</button>`;
 }
@@ -470,6 +499,17 @@ export function panelHtml(options: PanelHtmlOptions): string {
 
 ${ISSUE_FIELD}
 
+      <!--
+        The one primary action, directly under the issue: Run, Fix with AI,
+        Open AI Session or Rebuild Context — whichever is next for the work item
+        and the form, as the host says (app/nextAction.ts) — or Running…. Its id
+        stays "run" because it is still the form's submit, and Ctrl+Enter still
+        presses it.
+
+        Beside it only what cannot be pressed at the same time (Stop, during a
+        run) or what is not the next step (the ⋯ menu: Start New Attempt,
+        Rebuild Context). Nothing here is a second primary button.
+      -->
       <div class="run">
         <div class="run-buttons">
           <button type="submit" id="run" class="primary">
@@ -477,11 +517,14 @@ ${ISSUE_FIELD}
             <span id="run-label">Run</span>
           </button>
           <button type="button" id="stop" hidden disabled>Stop</button>
-          <button type="button" id="retry" hidden>Retry</button>
+          <button type="button" id="more-actions" class="icon" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu" hidden><span class="codicon codicon-ellipsis" aria-hidden="true"></span></button>
         </div>
         <span class="kbd">Ctrl+Enter</span>
       </div>
-      <p class="hint" id="run-hint">Run prepares the issue context for AI-assisted fixing.</p>
+      <div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>
+${MORE_ACTIONS.map(menuItem).join("\n")}
+      </div>
+      <p class="hint" id="run-hint">${RUN_HINT}</p>
 
       <!--
         A disclosure rather than a section, since UI-A1: the six rows were the
@@ -1008,13 +1051,32 @@ ${errorCard("review-error")}
   }
   if (id === "fixWithAI") {
     // The mode the task was prepared with — what the agent was actually told,
-    // never what the selector says now — then the one thing to press.
+    // never what the selector says now. No button: handing the task over is
+    // the panel's primary action, at the top, and a second primary one here
+    // was a competing answer to "what next?".
+    //
+    // Then Start New Attempt's form, opened from the ⋯ menu beside the primary
+    // action and only once an attempt exists. A group, not a <form>, for the
+    // reason Record Review Result gives: a nested one would submit the panel.
+    // Its feedback is optional — empty writes nothing — and the two helpers
+    // only copy text in when pressed; Start Attempt is the one act.
     return `            <p class="step-strategy" id="strategy-fixWithAI" hidden><span class="result-label">Strategy</span> <span id="strategy-fixWithAI-value"></span></p>
-            <div class="step-primary" id="actions-fixWithAI" hidden>
-              <button type="button" id="fix-with-ai" class="primary" hidden>
-                <span class="codicon codicon-hubot" aria-hidden="true"></span>
-                <span>Fix with AI</span>
-              </button>
+            <div class="attempt-editor" id="attempt-editor" role="group" aria-labelledby="attempt-heading" hidden>
+              <p class="attempt-heading" id="attempt-heading" tabindex="-1">Start a new AI attempt</p>
+              <p class="muted attempt-note">A new AI session on the prepared context. To keep talking to the current one, use Open AI Session instead.</p>
+              <label for="attempt-feedback">Optional feedback</label>
+              <textarea id="attempt-feedback" rows="4" placeholder="What should the new attempt do differently?" aria-describedby="attempt-example attempt-storage"></textarea>
+              <p class="hint attempt-example" id="attempt-example">Example: The previous fix changed the wrong class. Focus on WidgetController.cpp and keep the existing public API unchanged.</p>
+              <p class="hint" id="attempt-storage">Feedback is saved to user_feedback.md for the new attempt, replacing earlier feedback. Left empty, nothing is written.</p>
+              <div class="step-actions attempt-helpers" id="attempt-helpers" hidden>
+                <button type="button" class="result-link" id="use-review-findings" title="Add the Findings and Recommendations recorded in review_report.md" hidden><span class="codicon codicon-comment-discussion" aria-hidden="true"></span><span>Use Review Findings</span></button>
+                <button type="button" class="result-link" id="use-verification-evidence" title="Add the checks recorded as Failed or Not Run in verification_report.md" hidden><span class="codicon codicon-checklist" aria-hidden="true"></span><span>Use Verification Evidence</span></button>
+              </div>
+              <p class="error" id="attempt-error" role="alert" hidden></p>
+              <div class="attempt-actions">
+                <button type="button" id="cancel-attempt">Cancel</button>
+                <button type="button" id="start-attempt"><span id="start-attempt-label">Start Attempt</span></button>
+              </div>
             </div>`;
   }
   return "";

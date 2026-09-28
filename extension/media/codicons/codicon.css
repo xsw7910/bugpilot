@@ -64,6 +64,17 @@
 .codicon-hubot:before { content: "\eb08"; }
 .codicon-terminal:before { content: "\ea85"; }
 
+/*
+ * The primary action's ⋯ menu and what it holds, and Start New Attempt's two
+ * feedback helpers. Code points read from the vendored codicon.ttf's own cmap
+ * and glyph names, the same font version as the rest of this file.
+ */
+.codicon-ellipsis:before { content: "\ea7c"; }
+.codicon-refresh:before { content: "\eb37"; }
+.codicon-debug-restart:before { content: "\ead2"; }
+.codicon-comment-discussion:before { content: "\eac7"; }
+.codicon-checklist:before { content: "\eab3"; }
+
 /* Attachments: the row's own icon, the add button, and each file's remove. */
 .codicon-attach:before { content: "\ec34"; }
 .codicon-add:before { content: "\ea60"; }

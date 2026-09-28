@@ -206,6 +206,8 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   run: { type: "run", form: DEFAULT_FORM },
   stop: { type: "stop" },
   retry: { type: "retry" },
+  nextAction: { type: "nextAction", action: "fixWithAI", form: DEFAULT_FORM },
+  startAttempt: { type: "startAttempt", feedback: "Focus on WidgetController.cpp.", form: DEFAULT_FORM },
   formChanged: { type: "formChanged", form: DEFAULT_FORM },
   addAttachments: { type: "addAttachments", form: DEFAULT_FORM },
   action: { type: "action", id: "fixWithAI" },
@@ -460,8 +462,9 @@ test("every icon the panel asks for is one the vendored font declares", () => {
 
 test("each action lives on the row that owns it (Batch 6)", () => {
   // Open Context and Copy act on context.md, which Build context produced; the
-  // Fix with AI button acts on task.md; Open Folder reveals every artifact, so
-  // it belongs to the work item, not to one row.
+  // Fix with AI row holds Start New Attempt's form, whose Start acts on the
+  // prepared task; Open Folder reveals every artifact, so it belongs to the work
+  // item, not to one row.
   const built = rowMarkup("buildContext");
   const buildButtons = [...built.matchAll(/<button[^>]*id="([A-Za-z-]+)"/g)].map((match) => match[1]);
   assert.deepEqual(buildButtons, ["artifact-buildContext", "open-context", "copy-context"]);
@@ -474,7 +477,9 @@ test("each action lives on the row that owns it (Batch 6)", () => {
   assert.match(built, /codicon-go-to-file/);
 
   const fix = rowMarkup("fixWithAI");
-  assert.match(fix, /<button type="button" id="fix-with-ai" class="primary" hidden>/);
+  assert.match(fix, /<div class="attempt-editor" id="attempt-editor" role="group" aria-labelledby="attempt-heading" hidden>/);
+  assert.match(fix, /<button type="button" id="start-attempt">/);
+  assert.equal(fix.includes('id="fix-with-ai"'), false, "the row still has a handoff button of its own");
 
   // Open Folder: at the foot of the workflow, on no row.
   for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]) {
@@ -495,17 +500,24 @@ test("there is no Context Ready card: the workflow header is the one global stat
   assert.match(HTML, /<span id="workflow-status" class="workflow-status" role="status">/);
 });
 
-test("Fix with AI is the one primary button in the workflow", () => {
+test("the workflow has no primary button: the one primary action is at the top", () => {
+  // Fix with AI used to be a second primary button inside its row, a competing
+  // answer to "what next?" under a disclosure that starts collapsed. Handing the
+  // task over is the top button's job now, in every state that offers it.
   const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n\s*<details class="group advanced"/.exec(HTML)?.[0] ?? "";
   assert.notEqual(workflow, "", "no workflow disclosure");
-  const primary = [...workflow.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)];
-  assert.deepEqual(primary.map((match) => match[1]), ["fix-with-ai"]);
+  assert.deepEqual([...workflow.matchAll(/<button[^>]*class="primary"/g)].length, 0);
+  // From the issue down through the workflow — the path every run reads —
+  // exactly one: Run's. (Advanced settings' hint suggestion keeps its own Use
+  // Improved, a choice about that suggestion rather than a next step.)
+  const path = /<section id="main-view">[\s\S]*?<details class="group advanced"/.exec(HTML)?.[0] ?? "";
+  const primary = [...path.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)].map((match) => match[1]);
+  assert.deepEqual(primary, ["run"]);
 });
 
 test("a row's result survives a narrow sidebar", () => {
-  // Full-width primary, wrapping secondaries, no absolute positioning. The
-  // panel is dragged to about 200px, so none of this can assume a width.
-  assert.match(CSS, /\.step-primary > button \{[^}]*flex: 1/s);
+  // Wrapping secondaries, no absolute positioning. The panel is dragged to
+  // about 200px, so none of this can assume a width.
   assert.match(CSS, /\.step-actions \{[^}]*flex-wrap: wrap/s);
   assert.match(CSS, /\.step-foot \{[^}]*flex-wrap: wrap/s);
   assert.match(CSS, /\.workflow-foot \{[^}]*flex-wrap: wrap/s);
@@ -522,7 +534,8 @@ test("a row with nothing but its summary is exactly as tall as before", () => {
   assert.match(CSS, /\.step-body:has\(> :not\(\[hidden\]\)\) \{[^}]*margin-top/s);
   assert.equal(/\.step-body \{[^}]*margin-top/s.test(CSS), false);
   assert.match(HTML, /<div class="step-actions" id="actions-buildContext" hidden>/);
-  assert.match(HTML, /<div class="step-primary" id="actions-fixWithAI" hidden>/);
+  assert.match(HTML, /<div class="attempt-editor" id="attempt-editor"[^>]*hidden>/);
+  assert.match(CSS, /\.attempt-editor\[hidden\] \{\s*display: none;/);
 });
 
 test("Advanced settings has a heading that says what it is for", () => {
@@ -887,20 +900,67 @@ test("every optional field is inside the collapsed Advanced settings", () => {
   }
 });
 
-test("Run, Stop and Retry are one row, in that order", () => {
+test("the primary action, Stop and the ⋯ menu are one row, in that order", () => {
   // Their first home was the bottom of the form, below Advanced settings — far
-  // from the button whose run they act on.
+  // from the button whose run they act on. Retry used to be the third; it is
+  // Start New Attempt now, inside the menu, and only once an attempt exists.
   const row = /<div class="run-buttons">[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(row, "", "could not find the button row");
-  const buttons = [...row.matchAll(/<button[^>]*id="([a-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(buttons, ["run", "stop", "retry"]);
+  const buttons = [...row.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(buttons, ["run", "stop", "more-actions"]);
+  assert.equal(HTML.includes('id="retry"'), false, "Retry is still a button of its own");
   // Hidden in the markup too, not just after the first state push: the page is
   // built before the host answers, and both would flash there.
-  for (const id of ["stop", "retry"]) {
+  for (const id of ["stop", "more-actions"]) {
     assert.match(row, new RegExp(`id="${id}"[^>]*hidden`), `${id} should start hidden`);
   }
+  // The menu button says what it is to a screen reader, and which list it opens.
+  assert.match(row, /id="more-actions"[^>]*aria-label="More actions"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="more-menu"/);
   // Run is the only one that is always there, so it is the one that stretches.
   assert.match(CSS, /#run\s*\{[^}]*flex:\s*1/);
+  assert.match(CSS, /#stop,\s*#more-actions\s*\{\s*flex: none;/);
+});
+
+test("the ⋯ menu holds Start New Attempt, Rebuild Context and Open AI Session, all hidden until offered", () => {
+  const menu = /<div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(menu, "", "no menu under the button row");
+  const items = [...menu.matchAll(/<button type="button" role="menuitem" class="menu-item" id="menu-([A-Za-z]+)" title="[^"]+" hidden>/g)].map(
+    (match) => match[1],
+  );
+  assert.deepEqual(items, ["startNewAttempt", "rebuildContext", "openSession"]);
+  assert.match(menu, /<span>Start New Attempt<\/span>/);
+  assert.match(menu, /<span>Rebuild Context<\/span>/);
+  // Nothing in it is a primary button, and nothing is called Retry, Resume or Fresh.
+  assert.equal(menu.includes('class="primary"'), false);
+  for (const word of ["Retry", "Resume", "Fresh"]) assert.equal(menu.includes(word), false, `the menu says ${word}`);
+  // And it lets `hidden` win, like the button row does.
+  assert.match(CSS, /\.more-menu\[hidden\] \{\s*display: none;/);
+  assert.match(CSS, /\.menu-item\[hidden\] \{\s*display: none;/);
+});
+
+test("Start New Attempt's form: optional feedback, the example, two helpers, Cancel and Start", () => {
+  const form = /<div class="attempt-editor"[\s\S]*?<div class="attempt-actions">[\s\S]*?<\/div>\s*<\/div>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(form, "", "no attempt form");
+  assert.match(form, /Start a new AI attempt/);
+  assert.match(form, /<label for="attempt-feedback">Optional feedback<\/label>/);
+  assert.match(form, /<textarea id="attempt-feedback" rows="4" placeholder="What should the new attempt do differently\?"/);
+  assert.match(form, /The previous fix changed the wrong class\. Focus on WidgetController\.cpp and keep the existing public API unchanged\./);
+  // Said before it happens: feedback is written, empty is not.
+  assert.match(form, /saved to user_feedback\.md[^<]*Left empty, nothing is written\./);
+  // The helpers start hidden; the host lists them only when their files exist.
+  assert.match(form, /id="attempt-helpers" hidden>/);
+  assert.match(form, /id="use-review-findings"[^>]*hidden>[\s\S]*?<span>Use Review Findings<\/span>/);
+  assert.match(form, /id="use-verification-evidence"[^>]*hidden>[\s\S]*?<span>Use Verification Evidence<\/span>/);
+  // Cancel, then Start — quiet buttons, not a second primary.
+  const actions = /<div class="attempt-actions">[\s\S]*?<\/div>/.exec(form)?.[0] ?? "";
+  assert.deepEqual([...actions.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]), ["cancel-attempt", "start-attempt"]);
+  assert.equal(form.includes('class="primary"'), false);
+  // A group, not a nested <form>: that would submit the panel — a Run.
+  assert.equal(/<form\b/.test(form), false);
+  // Nothing on it overclaims what a new attempt is.
+  for (const claim of ["Retry", "verified", "approved", "fixed"]) {
+    assert.equal(form.replace(/<!--[\s\S]*?-->/g, "").includes(claim), false, `the form says "${claim}"`);
+  }
 });
 
 test("Run is one prominent button with its shortcut spelled out", () => {
@@ -1735,9 +1795,9 @@ test("the page classifies nothing about a failure", () => {
 
 // --- UI-B3: the handoff outcome ----------------------------------------------
 
-test("Fix with AI's row reads: what happened, which mode, the button, its card", () => {
+test("Fix with AI's row reads: what happened, which mode, the new-attempt form, its card", () => {
   const row = rowMarkup("fixWithAI");
-  const order = ["description-fixWithAI", "detail-fixWithAI", "strategy-fixWithAI", "fix-with-ai", "error-fixWithAI"];
+  const order = ["description-fixWithAI", "detail-fixWithAI", "strategy-fixWithAI", "attempt-editor", "error-fixWithAI"];
   const positions = order.map((id) => row.indexOf(`id="${id}"`));
   assert.ok(positions.every((at) => at !== -1), `a slot is missing: ${order}`);
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "the row reordered itself");
@@ -1770,11 +1830,12 @@ test("the panel never claims a bug was fixed", () => {
   }
 });
 
-test("Fix with AI's button hides with its container until the row offers it", () => {
-  // Busy is the row's state now — a spinner and "Starting AI fix…" on the row —
-  // so the button never changes its label; it is shown or it is not.
-  assert.match(HTML, /<div class="step-primary" id="actions-fixWithAI" hidden>\s*<button type="button" id="fix-with-ai" class="primary" hidden>/);
-  assert.match(HTML, /<span class="codicon codicon-hubot" aria-hidden="true"><\/span>\s*<span>Fix with AI<\/span>/);
+test("Fix with AI has no button of its own: the row is status, the top button acts", () => {
+  // Busy is the row's state — a spinner and "Starting AI fix…" on the row — and
+  // the press is the primary action's, whose label the host sets.
+  assert.equal(HTML.includes('id="fix-with-ai"'), false);
+  assert.equal(HTML.includes('id="actions-fixWithAI"'), false);
+  assert.match(HTML, /<button type="submit" id="run" class="primary">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
 });
 
 // --- UI-V1: what rendering the page found ------------------------------------
@@ -1867,7 +1928,7 @@ test("Search details is a collapsed disclosure inside Code search, after Relevan
 
 test("each result control exists exactly once, inside the row that owns it", () => {
   // §52: one Relevant files, one Search details, one Open Context, one Copy,
-  // one Fix with AI. Checked by id and by what a developer reads, because a
+  // one Start Attempt. Checked by id and by what a developer reads, because a
   // second control could carry a new id and the same words.
   const controls = [...HTML.matchAll(/<(button|summary)\b[^>]*>([\s\S]*?)<\/\1>/g)].map((match) => ({
     markup: match[0],
@@ -1878,7 +1939,7 @@ test("each result control exists exactly once, inside the row that owns it", () 
     ["search-details", "Search details", "codeSearch"],
     ["open-context", "Open Context", "buildContext"],
     ["copy-context", "Copy", "buildContext"],
-    ["fix-with-ai", "Fix with AI", "fixWithAI"],
+    ["start-attempt", "Start Attempt", "fixWithAI"],
     ["open-fix-report", "Open Fix Report", "fixResult"],
     ["copy-review-prompt", "Copy Review Prompt", "fixResult"],
     ["validation-summary", "Validation checklist", "fixResult"],

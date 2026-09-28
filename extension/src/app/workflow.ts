@@ -46,6 +46,7 @@ import type { VerificationCapture } from "./verificationCapture.ts";
 import { STATUS_LABELS, TYPE_LABELS, overallPhrase } from "./verificationReport.ts";
 import type { VerificationCheckEntry, VerificationReportPreview } from "./verificationReport.ts";
 import type { PlanState, Source } from "./form.ts";
+import type { FeedbackHelperId } from "./nextAction.ts";
 import { HANDOFF_STARTED_TITLE, REVIEW_STARTED_TITLE } from "./handoff.ts";
 import type { IssueSummary } from "./issue.ts";
 import { ISSUE_ARTIFACT } from "./issue.ts";
@@ -88,11 +89,16 @@ export const WORKFLOW_STEP_IDS: readonly Exclude<WorkflowStepId, "fixResult">[] 
  */
 export type StepStatus = "idle" | "running" | "success" | "ready" | "failed" | "skipped";
 
-/** An action a row offers, once that row has produced what it acts on. */
+/**
+ * An action a row offers, once that row has produced what it acts on.
+ *
+ * Fix with AI is not among them any more: handing the task over is the panel's
+ * primary action (`nextAction.ts`), and a second primary button inside the row
+ * was a competing answer to "what do I do next?".
+ */
 export type StepActionId =
   | "openContext"
   | "copyContext"
-  | "fixWithAI"
   | "openFixReport"
   | "copyReviewPrompt"
   | "reviewWithAI"
@@ -201,6 +207,38 @@ export type ValidationView =
   | { readonly state: "ready"; readonly checklist: ValidationChecklist }
   | { readonly state: "failed"; readonly message: string };
 
+/**
+ * Start New Attempt, as far as the host has got with a press (see
+ * `Controller.startNewAttempt`). Absent when nothing is pending and the last
+ * press started — which is what lets the page close the form.
+ */
+export type AttemptView =
+  | { readonly state: "starting" }
+  | { readonly state: "failed"; readonly message: string };
+
+/**
+ * Text a feedback helper produced, sent once: `token` changes per press, so the
+ * page adds it to the form for this press and not again on the next push.
+ */
+export interface AttemptDraft {
+  readonly token: number;
+  readonly text: string;
+}
+
+/**
+ * The AI session this panel started for the work item on screen.
+ *
+ * Kept by the controller across a Rebuild Context of the same work item, which
+ * resets the handoff's outcome but not the fact that an agent is working on
+ * it; dropped with the work item. Never restored: a reopened work item knows
+ * only what its files say.
+ */
+export interface SessionSummary {
+  readonly agent: string;
+  /** How many handoffs this panel made for the work item, the first included. */
+  readonly attempts: number;
+}
+
 /** What Code search found, from `retrieval.json`, for its two disclosures. */
 export interface SearchContent {
   readonly files: readonly RelevantFile[];
@@ -268,6 +306,12 @@ export interface WorkflowStepResult {
   readonly verificationCapture?: VerificationCapture;
   /** Fix result only: the recorded checks for Edit, in the one push that answers it. */
   readonly verificationEdit?: VerificationEdit;
+  /** Fix with AI only: a new attempt being prepared, or why the last press did not start one. */
+  readonly attempt?: AttemptView;
+  /** Fix with AI only: text for the feedback form, in the one push that answers a helper. */
+  readonly attemptDraft?: AttemptDraft;
+  /** Fix with AI only: which feedback helpers the form may offer, by the artifacts that exist. */
+  readonly feedbackHelpers?: readonly FeedbackHelperId[];
   /**
    * A failure this row owns.
    *
@@ -388,6 +432,14 @@ export interface WorkflowInput {
   readonly canRecordVerification?: boolean;
   /** The recorded checks for Edit, only in the push that answers the request. */
   readonly verificationEdit?: VerificationEdit;
+  /** The session this panel started for the work item on screen, if any. */
+  readonly session?: SessionSummary;
+  /** Start New Attempt's state, for the form under Fix with AI. */
+  readonly attempt?: AttemptView;
+  /** A feedback helper's answer, only in the push that answers it. */
+  readonly attemptDraft?: AttemptDraft;
+  /** The feedback helpers the form may offer now: the host's call. */
+  readonly feedbackHelpers?: readonly FeedbackHelperId[];
 }
 
 /** The five capability rows, in `progress.ts` terms. */
@@ -663,9 +715,14 @@ function plural(count: number, noun: string): string {
 /**
  * The last row: what the extension did with the task, or can do with it.
  *
+ * A status and a result, not the place to act: the panel's primary action says
+ * what to press next (`nextAction.ts`). What this row owns is what happened —
+ * and, once an attempt exists, the form for starting a new one.
+ *
  * In order of precedence: a handoff being resolved, one that started, one that
- * could not start, one that was skipped, a task ready to hand over, and
- * otherwise waiting for a run to produce one.
+ * could not start, one that was skipped, a session this panel started before
+ * the context was rebuilt, a report an earlier attempt wrote, a task ready to
+ * hand over, and otherwise waiting for a run to produce one.
  */
 function fixWithAiRow(
   input: WorkflowInput,
@@ -679,6 +736,12 @@ function fixWithAiRow(
     label: STEP_LABELS[id],
     description: stepDescription(id, input.source),
     enabled: input.fixWithAI,
+    actions: [] as StepActionId[],
+    ...(input.attempt === undefined ? {} : { attempt: input.attempt }),
+    ...(input.attemptDraft === undefined ? {} : { attemptDraft: input.attemptDraft }),
+    ...(input.feedbackHelpers === undefined || input.feedbackHelpers.length === 0
+      ? {}
+      : { feedbackHelpers: input.feedbackHelpers }),
   };
   // A task this run produced: the file is there, the step that writes it
   // finished, and nothing is running that could replace it.
@@ -690,26 +753,26 @@ function fixWithAiRow(
   };
 
   if (input.handoffBusy) {
-    return { ...base, status: "running", summary: "Starting AI fix…", actions: [], ...prepared };
+    const summary = input.attempt?.state === "starting" ? "Starting a new attempt…" : "Starting AI fix…";
+    return { ...base, status: "running", summary, ...prepared };
   }
   const fix = input.fix;
   if (fix?.status === "success") {
     // "Started", and nothing further: the agent runs in a terminal this
-    // extension does not own. No second press — it would open a second
-    // terminal for the same package.
+    // extension does not own. Continuing it is Open AI Session's; a second
+    // handoff is Start New Attempt's, and only on purpose.
     return {
       ...base,
       status: "success",
       summary: HANDOFF_STARTED_TITLE,
       ...(fix.detail ? { detail: fix.detail } : {}),
-      actions: [],
       ...prepared,
     };
   }
   if (input.handoffError) {
     // The card says what failed and what to do, under its own title; the row's
-    // line says only the outcome, as the header does. The button stays for a
-    // retry.
+    // line says only the outcome, as the header does. The primary action stays
+    // what it was, for another try.
     // The detail line keeps what happened instead — the prompt went to the
     // clipboard — which the card, about what failed, does not say.
     return {
@@ -718,18 +781,39 @@ function fixWithAiRow(
       summary: "Did not start",
       ...(fix?.detail ? { detail: fix.detail } : {}),
       error: input.handoffError,
-      actions: taskReady ? ["fixWithAI"] : [],
       ...prepared,
     };
   }
   if (fix && fix.status !== "idle") {
-    return { ...base, status: fix.status, summary: fix.detail || FINISHED_TEXT[fix.status], actions: [] };
+    return { ...base, status: fix.status, summary: fix.detail || FINISHED_TEXT[fix.status] };
+  }
+  if (input.session && !running) {
+    // Started by this panel, and the context rebuilt since: the session is
+    // still the agent's, so the row still says it was started.
+    return {
+      ...base,
+      status: "success",
+      summary: HANDOFF_STARTED_TITLE,
+      detail: `Handed to ${input.session.agent} in a terminal.`,
+      ...prepared,
+    };
+  }
+  if (taskReady && present.has(FIX_REPORT_ARTIFACT)) {
+    // An earlier attempt — another window, a terminal, before a reload — wrote
+    // its report. Not "started": nobody here saw it start. Not "fixed" either.
+    return {
+      ...base,
+      status: "ready",
+      statusLabel: "fix report available",
+      summary: FIX_REPORT_AVAILABLE,
+      ...prepared,
+    };
   }
   if (taskReady) {
-    return { ...base, status: "ready", summary: FINISHED_TEXT.ready, actions: ["fixWithAI"], ...prepared };
+    return { ...base, status: "ready", summary: FINISHED_TEXT.ready, ...prepared };
   }
-  if (running) return { ...base, status: "idle", summary: "Waiting for task…", actions: [] };
-  return { ...base, status: "idle", summary: base.description, actions: [] };
+  if (running) return { ...base, status: "idle", summary: "Waiting for task…" };
+  return { ...base, status: "idle", summary: base.description };
 }
 
 /** Whether the work item directory has anything to reveal. */

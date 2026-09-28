@@ -253,6 +253,36 @@
   /** The form's own buttons, which the panel's form handlers leave alone. */
   const VERIFICATION_CONTROLS = ["add-verification-check", "save-verification", "cancel-verification"];
 
+  /**
+   * The primary action as the host last described it (`app/nextAction.ts`).
+   *
+   * The page never works out what the button should say: it shows the host's
+   * label and, when pressed, sends the host's action back with the form, and
+   * the host acts only if its answer for that form is still the same. Before
+   * the first push it is Run, which is what the markup says.
+   */
+  let primary = { action: "run", label: "Run", enabled: true, busy: false, hint: "", more: [] };
+  /** The icon beside each primary label; busy is a spinner whatever the action. */
+  const PRIMARY_ICONS = { run: "play", fixWithAI: "hubot", openSession: "terminal", rebuildContext: "refresh" };
+  /** The ⋯ menu's items, in the markup's order. */
+  const MORE_ITEMS = ["startNewAttempt", "rebuildContext", "openSession"];
+  // Start New Attempt's form: which work item it was opened for, whether the
+  // host was starting an attempt at the last push, the failure last shown and
+  // the last helper answer taken — so a push that changes nothing rewrites
+  // nothing, and a helper's text is added once.
+  let attemptEditorWorkItem;
+  let attemptWasStarting = false;
+  let attemptError = "";
+  let attemptDraftToken;
+  /** The form's own controls, which the panel's form handlers leave alone. */
+  const ATTEMPT_CONTROLS = [
+    "attempt-feedback",
+    "cancel-attempt",
+    "start-attempt",
+    "use-review-findings",
+    "use-verification-evidence",
+  ];
+
   // --- growing fields ------------------------------------------------------
 
   /**
@@ -469,6 +499,16 @@
     // clickable, and reading the previous render's `running` left the button
     // enabled for the whole first frame of a run.
     running = (state.progress || {}).state === "running";
+    // The same for the primary action: Start New Attempt's form, rendered with
+    // the workflow, asks whether a new attempt is on offer.
+    primary = state.primary || {
+      action: "run",
+      label: running ? "Running…" : "Run",
+      enabled: !running,
+      busy: running,
+      hint: "",
+      more: [],
+    };
 
     // Before the form is written: `writeForm` sets the select's value, and a
     // <select> silently drops a value that has no option yet.
@@ -731,6 +771,7 @@
     const byStep = Object.fromEntries(steps.map((step) => [step.id, step]));
     renderSearch(byStep.codeSearch);
     renderStepActions(byStep.buildContext, byStep.fixWithAI);
+    renderAttempt(byStep.fixWithAI, state.workItemId);
     renderFixResult(byStep.fixResult, state.workItemId);
 
     const overall = state.overall || { kind: "idle", text: "" };
@@ -765,11 +806,12 @@
   }
 
   /**
-   * What Build context and Fix with AI offer, from their rows.
+   * What Build context offers, and the mode Fix with AI's task was prepared with.
    *
    * The buttons are the host's decision: each is shown only when its row lists
-   * the action, which is only once the file it acts on exists — and, for Fix
-   * with AI, while a press would do something that has not been done.
+   * the action, which is only once the file it acts on exists. Fix with AI has
+   * no button of its own any more — handing over is the primary action, at the
+   * top — only its Strategy line and, once an attempt exists, the form below.
    */
   function renderStepActions(build, fix) {
     const buildActions = (build && build.actions) || [];
@@ -782,12 +824,111 @@
     // The containers hide with their contents, so an empty one adds no space.
     byId("actions-buildContext").hidden = !anyBuildAction;
 
-    const fixActions = (fix && fix.actions) || [];
-    byId("fix-with-ai").hidden = !fixActions.includes("fixWithAI");
-    byId("actions-fixWithAI").hidden = byId("fix-with-ai").hidden;
     const strategy = byId("strategy-fixWithAI");
     byId("strategy-fixWithAI-value").textContent = (fix && fix.strategy) || "";
     strategy.hidden = !(fix && fix.strategy);
+  }
+
+  /**
+   * Start New Attempt's form, under Fix with AI.
+   *
+   * The page's, like Record Review Result's: the ⋯ menu's Start New Attempt
+   * opens it, and Cancel, an attempt the host answered, or another work item
+   * closes it — the last two emptying it, so B never inherits feedback typed
+   * for A. Start Attempt only asks; the host decides whether a new attempt may
+   * start, writes user_feedback.md for typed feedback, and hands over.
+   *
+   * The helpers are shown only while the host lists them — a recorded review,
+   * a recorded check that did not pass — and add text only when pressed.
+   */
+  function renderAttempt(step, workItemId) {
+    const attempt = step ? step.attempt : undefined;
+    const starting = Boolean(attempt && attempt.state === "starting");
+    const failed = Boolean(attempt && attempt.state === "failed");
+    const hadFocus = ATTEMPT_CONTROLS.some((id) => byId(id) === document.activeElement);
+
+    if (workItemId !== attemptEditorWorkItem) {
+      closeAttemptEditor(true);
+      attemptWasStarting = false;
+    }
+    attemptEditorWorkItem = workItemId;
+    // Closed and emptied only on the host's own word that the press was
+    // answered — starting, then not, with an outcome on the row. A start that
+    // stopped being tracked (a run began) may not have happened, and what was
+    // typed is kept.
+    const answered =
+      attemptWasStarting && !starting && !failed && Boolean(step && (step.status === "success" || step.error));
+    attemptWasStarting = starting;
+    if (answered) {
+      closeAttemptEditor(true);
+      // The form a keyboard user was in has gone: the primary action — now Open
+      // AI Session — is where the next step is.
+      if (hadFocus) byId("run").focus({ preventScroll: true });
+    }
+
+    const offered = primary.enabled && (primary.more || []).includes("startNewAttempt");
+    // `aria-disabled`, as on Save Review Result: a keyboard user who pressed
+    // Start keeps the focus while the host works, and the handler refuses.
+    const start = byId("start-attempt");
+    start.setAttribute("aria-disabled", starting || !offered ? "true" : "false");
+    start.setAttribute("aria-busy", starting ? "true" : "false");
+    byId("start-attempt-label").textContent = starting ? "Starting…" : "Start Attempt";
+    byId("cancel-attempt").setAttribute("aria-disabled", starting ? "true" : "false");
+
+    const helpers = (step && step.feedbackHelpers) || [];
+    byId("use-review-findings").hidden = !helpers.includes("useReviewFindings");
+    byId("use-verification-evidence").hidden = !helpers.includes("useVerificationEvidence");
+    byId("attempt-helpers").hidden = helpers.length === 0;
+
+    // A helper's answer, taken once: added under what is already typed, never
+    // in place of it.
+    const draft = step ? step.attemptDraft : undefined;
+    if (draft && draft.token !== attemptDraftToken && !byId("attempt-editor").hidden) {
+      attemptDraftToken = draft.token;
+      const field = byId("attempt-feedback");
+      const typed = field.value.replace(/\s+$/, "");
+      field.value = typed === "" ? draft.text : `${typed}\n\n${draft.text}`;
+    }
+
+    const message = failed ? attempt.message || "" : "";
+    if (message !== attemptError) {
+      attemptError = message;
+      const error = byId("attempt-error");
+      // Shown before it is filled, like the review form's failure.
+      error.hidden = message === "";
+      error.textContent = message;
+    }
+  }
+
+  /** Open Start New Attempt's form, where it can be seen, at the feedback. */
+  function openAttemptEditor() {
+    // Inside the workflow, which may be collapsed.
+    byId("workflow").open = true;
+    byId("attempt-editor").hidden = false;
+    byId("attempt-feedback").focus({ preventScroll: true });
+    scrollIntoView(byId("attempt-editor"), "nearest");
+  }
+
+  /** Close the form; `clear` empties it too, and forgets its failure. */
+  function closeAttemptEditor(clear) {
+    byId("attempt-editor").hidden = true;
+    if (!clear) return;
+    byId("attempt-feedback").value = "";
+    attemptError = "";
+    byId("attempt-error").hidden = true;
+    byId("attempt-error").textContent = "";
+  }
+
+  /** Start Attempt: the feedback as typed, and the form, for the host to judge. */
+  function startAttempt() {
+    const start = byId("start-attempt");
+    if (byId("attempt-editor").hidden || start.getAttribute("aria-disabled") === "true") return;
+    // The press carries the form, so the change waiting on the debounce is
+    // not sent after it with an older snapshot.
+    clearTimeout(changeTimer);
+    const form = readForm();
+    persist(form);
+    vscode.postMessage({ type: "startAttempt", feedback: byId("attempt-feedback").value, form });
   }
 
   /**
@@ -1415,12 +1556,14 @@
    * header's status is the one global "Context ready".
    */
   function renderRunHint(state) {
-    const overall = (state.overall || {}).kind;
-    // What Run does, said until it has been done. Once the workflow header
-    // reports a result or a failure, the sentence is advice about a button the
-    // developer has already pressed, sitting directly above the proof of what
-    // it did.
-    byId("run-hint").hidden = overall === "done" || overall === "failed" || Boolean(state.runError);
+    // The host's sentence for the button it labelled: what Run does until it
+    // has been done, then why the button now says Fix with AI, Open AI Session
+    // or Rebuild Context. None while a run is in flight, or after one that
+    // left nothing to do next — advice about a press already made, sitting
+    // above the proof of what it did.
+    const hint = byId("run-hint");
+    hint.textContent = state.runError ? "" : primary.hint || "";
+    hint.hidden = hint.textContent === "";
   }
 
   /**
@@ -1683,22 +1826,47 @@
     // Disabled-but-visible was worse than absent: a greyed Stop under an idle
     // panel is a control that has never once been usable when it was on screen.
     const canStop = running;
-    // Not offered mid-run: `bug --retry` reads the artifacts of a finished
-    // attempt, so during one it could only be greyed out anyway.
-    const canRetry = Boolean(state.canRetry) && !running;
     byId("stop").hidden = !canStop;
     byId("stop").disabled = !canStop;
-    byId("retry").hidden = !canRetry;
-    byId("retry").disabled = !canRetry;
 
-    // The button says what it is doing. It is already disabled while a run is
-    // in flight — `renderReadiness` does that, and `submit()` refuses a second
-    // one regardless — but a greyed button still reading "Run" says the click
-    // was ignored rather than that the run is under way.
-    byId("run-label").textContent = running ? "Running…" : "Run";
-    byId("run-icon").className = running
+    // The button says what it will do, or what is under way. Disabled whenever
+    // the host says so — a run, a handoff or an artifact write in flight — on
+    // top of `renderReadiness`, and `submit()` refuses regardless: a greyed
+    // button still reading "Run" says the click was ignored rather than that
+    // something is happening.
+    const button = byId("run");
+    byId("run-label").textContent = primary.label;
+    byId("run-icon").className = primary.busy
       ? "codicon codicon-loading codicon-spin"
-      : "codicon codicon-play";
+      : `codicon codicon-${PRIMARY_ICONS[primary.action] || "play"}`;
+    if (!primary.enabled) button.disabled = true;
+    button.setAttribute("aria-busy", primary.busy ? "true" : "false");
+
+    // The ⋯ menu holds what the host listed and nothing else; with nothing to
+    // list, there is no menu button either.
+    const more = primary.enabled ? primary.more || [] : [];
+    for (const id of MORE_ITEMS) byId(`menu-${id}`).hidden = !more.includes(id);
+    byId("more-actions").hidden = more.length === 0;
+    if (more.length === 0) closeMoreMenu(false);
+  }
+
+  function openMoreMenu() {
+    byId("more-menu").hidden = false;
+    byId("more-actions").setAttribute("aria-expanded", "true");
+    const first = menuItems()[0];
+    if (first) first.focus();
+  }
+
+  function closeMoreMenu(returnFocus) {
+    const wasOpen = !byId("more-menu").hidden;
+    byId("more-menu").hidden = true;
+    byId("more-actions").setAttribute("aria-expanded", "false");
+    if (wasOpen && returnFocus) byId("more-actions").focus();
+  }
+
+  /** The menu's items that are on offer, in order. */
+  function menuItems() {
+    return MORE_ITEMS.map((id) => byId(`menu-${id}`)).filter((item) => !item.hidden);
   }
 
   /**
@@ -2377,9 +2545,21 @@
     changeTimer = setTimeout(() => vscode.postMessage({ type: "formChanged", form }), 400);
   }
 
+  /** The primary action — the button, or Ctrl+Enter. */
   function submit() {
-    if (running || byId("run").disabled) return;
-    vscode.postMessage({ type: "run", form: readForm() });
+    if (running || byId("run").disabled || !primary.enabled) return;
+    pressAction(primary.action);
+  }
+
+  /** Ask the host for an action it offered, with the form as it is now. */
+  function pressAction(action) {
+    // The press carries the whole form, so a change still waiting on the
+    // debounce is dropped rather than sent after it: arriving later, that older
+    // snapshot would overwrite the host's copy and turn the button back.
+    clearTimeout(changeTimer);
+    const form = readForm();
+    persist(form);
+    vscode.postMessage({ type: "nextAction", action, form });
   }
 
   byId("form").addEventListener("submit", (event) => {
@@ -2401,6 +2581,9 @@
     if (typeof id === "string" && (REVIEW_FIELDS.includes(id) || id === "save-review-result" || id === "cancel-review-result")) {
       return true;
     }
+    // Start New Attempt's form: its feedback is not a preparation input, and
+    // Ctrl+Enter there starts the attempt rather than pressing the primary action.
+    if (typeof id === "string" && ATTEMPT_CONTROLS.includes(id)) return true;
     // The Verification Evidence form (Batch 12): its buttons by id, its rows by
     // the mark every row control carries.
     if (typeof id === "string" && VERIFICATION_CONTROLS.includes(id)) return true;
@@ -2441,16 +2624,69 @@
   });
 
   byId("stop").addEventListener("click", () => vscode.postMessage({ type: "stop" }));
-  byId("retry").addEventListener("click", () => vscode.postMessage({ type: "retry" }));
   for (const [id, action] of Object.entries(RESULT_ACTIONS)) {
     byId(id).addEventListener("click", () => vscode.postMessage({ type: "action", id: action }));
   }
-  // The action the host has handled since phase 5 and nothing on the page ever
-  // sent. Hidden until there is a package, so a press can never reach a work
-  // item that has nothing to hand over.
-  byId("fix-with-ai").addEventListener("click", () =>
-    vscode.postMessage({ type: "action", id: "fixWithAI" }),
-  );
+  // The ⋯ menu: toggled by its button, closed by Escape or a choice. Arrow keys
+  // move between the items, as in the editor's own menus.
+  byId("more-actions").addEventListener("click", () => {
+    if (byId("more-menu").hidden) openMoreMenu();
+    else closeMoreMenu(false);
+  });
+  byId("more-menu").addEventListener("keydown", (event) => {
+    const items = menuItems();
+    const at = items.findIndex((item) => item === document.activeElement);
+    let next;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMoreMenu(true);
+      return;
+    }
+    if (event.key === "ArrowDown") next = items[(at + 1) % items.length];
+    else if (event.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
+    else if (event.key === "Home") next = items[0];
+    else if (event.key === "End") next = items[items.length - 1];
+    if (next) {
+      event.preventDefault();
+      next.focus();
+    }
+  });
+  for (const id of MORE_ITEMS) {
+    byId(`menu-${id}`).addEventListener("click", () => {
+      // Only what the host listed: the stub, a stale frame or a fast double
+      // press can reach a hidden item, and the host refuses it too.
+      if (byId(`menu-${id}`).hidden || !primary.enabled || !(primary.more || []).includes(id)) return;
+      closeMoreMenu(false);
+      if (id === "startNewAttempt") openAttemptEditor();
+      else pressAction(id);
+    });
+  }
+  // Start New Attempt's form: Start asks the host; Cancel closes and empties it;
+  // the helpers ask the host for text, which arrives once, in a push.
+  byId("start-attempt").addEventListener("click", startAttempt);
+  byId("cancel-attempt").addEventListener("click", () => {
+    if (byId("cancel-attempt").getAttribute("aria-disabled") === "true") return;
+    closeAttemptEditor(true);
+    if (!byId("more-actions").hidden) byId("more-actions").focus({ preventScroll: true });
+  });
+  byId("attempt-editor").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      startAttempt();
+    } else if (event.key === "Escape" && byId("cancel-attempt").getAttribute("aria-disabled") !== "true") {
+      event.preventDefault();
+      closeAttemptEditor(false);
+      if (!byId("more-actions").hidden) byId("more-actions").focus({ preventScroll: true });
+    }
+  });
+  byId("use-review-findings").addEventListener("click", () => {
+    if (!byId("use-review-findings").hidden) vscode.postMessage({ type: "action", id: "useReviewFindings" });
+  });
+  byId("use-verification-evidence").addEventListener("click", () => {
+    if (!byId("use-verification-evidence").hidden) {
+      vscode.postMessage({ type: "action", id: "useVerificationEvidence" });
+    }
+  });
   // Each row's artifact link: a plain file name the host named, re-checked on
   // the host by the same path the artifact tree uses.
   for (const id of Object.keys(STEP_IDS_FOR_ARTIFACTS)) {

@@ -9398,3 +9398,89 @@ git).
 **External caveat.** The old history is still reachable through GitHub's
 `refs/pull/1/head`; a GitHub Support purge or recreating the repository is the
 remedy, outside this repository.
+
+### 37.76 Next action — one primary CTA that follows the work item (after `647f24d`)
+
+**Status:** implemented and verified in the test suites, not committed, not
+pushed, not published. Extension only: no Python, no artifact contract and no
+CLI behaviour changed. The spec's final state model is in
+`BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Next action)" at the end of §19.
+
+**The problem.** Build Context with Fix with AI unticked left no visible way to
+start the fix: the top button still said **Run** (re-prepare everything),
+**Retry** beside it required knowing `bug --retry`, and the handoff was a second
+primary button inside a collapsed row.
+
+**What changed.**
+
+- The top button is now the host's `primary` view (`src/app/nextAction.ts`):
+  **Run** → **Fix with AI** → **Open AI Session**, **Rebuild Context** when the
+  form no longer describes the prepared context, **Running…** (disabled) while a
+  run, a handoff or an artifact write is in flight. A ⋯ menu beside it holds
+  Rebuild Context and, once an attempt exists, Start New Attempt. The Retry
+  button and the in-row Fix with AI button are gone; `PanelState.canRetry` is
+  replaced by `primary`.
+- The page posts `nextAction {action, form}`; the host re-derives its answer
+  from that form and acts only if it still offers the action — otherwise it
+  corrects the button and says so. A press drops the page's pending debounced
+  `formChanged`.
+- Staleness: `preparationFingerprint(form)` over every preparation input,
+  normalized like `buildPrepareArgs`; baseline taken when a run starts and when
+  a work item is opened; another work item in the form is stale regardless. A
+  stale context cannot be handed over from the button, a lagging label, the
+  palette or History (`fixWithAI()` refuses).
+- **Fix with AI** hands over the existing `task.md` — no preparation, no CLI
+  call. **Open AI Session** reveals the newest still-open terminal the last
+  handoff opened (`UiPort.revealTerminal`), or says neutrally that it is gone
+  and starts nothing. **Rebuild Context** is a non-Fresh run from the current
+  form with no handoff at the end; with the Fresh box ticked it asks first, as
+  Run does.
+- **Start New Attempt** (`startAttempt {feedback, form}`): empty feedback writes
+  nothing and re-hands `task.md`; typed feedback is written to
+  `user_feedback.md`, `bug <id> --retry --prepare-only --json` builds
+  `agent_retry_prompt.md`, and that is handed over. The write holds the
+  artifact-write guard (`attempt`). Terminals are numbered from the second
+  attempt. **Use Review Findings** / **Use Verification Evidence** appear only
+  while their artifact (and, for verification, a Failed or Not Run check)
+  exists, and add text only when pressed.
+- Sessions are tracked per work item for the window's life, survive a Rebuild
+  Context and switching away and back, and are dropped by Clean and a Fresh run.
+  The Fix with AI row says *Fix report available* for an attempt this window did
+  not see start.
+- Guards added: no handoff while a run or an artifact write is in flight; no
+  second run while the first is still being set up (the Fresh question, a long
+  description's temporary file) — both reachable before through the palette or
+  a fast second press.
+- Five codicons added to the vendored subset (`ellipsis`, `refresh`,
+  `debug-restart`, `comment-discussion`, `checklist`), code points read from the
+  vendored `codicon.ttf`'s own `cmap` and glyph names and checked against two
+  already-declared glyphs. The extension README and CHANGELOG describe the new
+  flow.
+
+**Tests.** New `test/nextAction.test.ts` (the state machine, the fingerprint,
+the feedback text, and the retry sentence against `bugpilot/core/handoff.py`);
+a "next action" section in `test/controller.test.ts` covering the twelve cases
+of the brief — initial Run; Build Context alone → Fix with AI; Fix with AI
+reuses `task.md` with the configured agent and no CLI call; → Open AI Session,
+terminal found and gone; Start New Attempt refused before an attempt; empty
+feedback writes nothing; feedback reaches `--retry` and the retry prompt, and
+its failures hand nothing over; every preparation input goes stale and back;
+stale handoffs refused three ways; Rebuild Context is `--resume`, no handoff,
+and asks when Fresh; busy runs, handoffs and set-up are exclusive; helpers
+listed by artifacts and sent once; no Rebuild-Context flicker and no revert
+from a late or whitespace-only form echo — plus sessions per work item and
+Clean. Page tests pin the rendering, the ⋯ menu (keyboard included), the form
+and the debounce; the page → parser → controller loop drives Start New Attempt
+and Open AI Session end to end. Existing tests that pinned the Retry button or
+the in-row button were rewritten to the new contract.
+
+**Regression.** Extension 1251 tests, all pass (1195 at `647f24d`); typecheck
+clean; smoke passes (activated, 22 commands, 3 views, panel HTML built); `git
+diff --check` clean. Python suite not run: no Python file changed.
+
+**Deferred.** A real-VS-Code pass of the new flow (the ⋯ menu's look in the four
+themes at 200px, Open AI Session against terminals VS Code revives after a
+reload, and the Fresh question while the button is pending), in the disposable
+profile used for §37.75. Open AI Session can only find a terminal; an agent
+started any other way is reported as not found.

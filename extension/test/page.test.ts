@@ -25,6 +25,8 @@ import type { ControllerPorts } from "../src/app/controller.ts";
 import type { FixModeDraft } from "../src/app/fixModes.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
 import { buildWorkflow, overallStatus } from "../src/app/workflow.ts";
+import { primaryView } from "../src/app/nextAction.ts";
+import type { NextActionInput } from "../src/app/nextAction.ts";
 import type { SearchContent, WorkflowInput, WorkflowStepResult } from "../src/app/workflow.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
 import type { ProgressView } from "../src/app/progress.ts";
@@ -265,6 +267,24 @@ function load(savedState?: unknown): Page {
 }
 
 /**
+ * The primary action as the host would compute it, through the real
+ * `primaryView` — so a page test cannot pass on a label the model never gives.
+ * Nothing prepared, nothing in flight, unless a test says otherwise.
+ */
+const primaryOf = (input: Partial<NextActionInput> = {}) =>
+  primaryView({
+    ready: true,
+    busy: false,
+    prepared: false,
+    stale: false,
+    attempted: false,
+    sessionKnown: false,
+    fresh: false,
+    settled: false,
+    ...input,
+  });
+
+/**
  * A state as the host would build it.
  *
  * The workflow rows go through the real `buildWorkflow`, so these tests fail if
@@ -301,11 +321,17 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
     artifacts: { kind: "empty", detail: "nothing yet" },
     warnings: [],
     jiraConfigured: false,
-    canRetry: false,
+    primary: primaryOf({
+      busy: progress.state === "running",
+      settled: progress.state === "done" || progress.state === "failed",
+    }),
     fixModes: { kind: "loading" },
     ...overrides,
   };
 };
+
+/** The page pressing Run: the primary action, sent back with the form. */
+const isRunPress = (message: Record<string, unknown>) => message["type"] === "nextAction" && message["action"] === "run";
 
 /** One capability row of a `ProgressView`, for driving the model. */
 const row = (capability: string, rowState: string, durationMs?: number) => ({
@@ -372,7 +398,16 @@ const prepared = (extra: Partial<WorkflowInput> = {}, overrides: Partial<PanelSt
     search: SEARCH,
     ...extra,
   });
-  return state({ progress, workflow, workItemId: "JR-12345", workItemActions: ["openFolder"], ...overrides });
+  const files = extra.artifacts ?? PREPARED_FILES;
+  const started = extra.fix?.status === "success" || extra.session !== undefined;
+  const primary = primaryOf({
+    busy: extra.handoffBusy === true,
+    prepared: files.includes("task.md"),
+    attempted: started || files.includes("fix_report.md"),
+    sessionKnown: started,
+    settled: true,
+  });
+  return state({ progress, workflow, workItemId: "JR-12345", workItemActions: ["openFolder"], primary, ...overrides });
 };
 
 /**
@@ -652,8 +687,9 @@ test("Ctrl+Enter runs without the button being clicked", () => {
   p.byId("issue").value = "JR-12345";
   p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
 
-  const message = p.posted.at(-1) as { type: string; form: Record<string, unknown> };
-  assert.equal(message.type, "run");
+  const message = p.posted.at(-1) as { type: string; action?: string; form: Record<string, unknown> };
+  assert.equal(message.type, "nextAction");
+  assert.equal(message.action, "run");
   assert.equal(message.form["issueKey"], "JR-12345");
 });
 
@@ -684,8 +720,9 @@ test("submitting sends the typed form", () => {
   p.byId("keywords").value = "save, crash";
   p.byId("form").dispatch("submit");
 
-  const message = p.posted.at(-1) as { type: string; form: Record<string, unknown> };
-  assert.equal(message.type, "run");
+  const message = p.posted.at(-1) as { type: string; action?: string; form: Record<string, unknown> };
+  assert.equal(message.type, "nextAction");
+  assert.equal(message.action, "run");
   // Not uppercased here: `buildPrepareArgs` owns that, and a box that rewrote
   // what was typed would fight the developer mid-word.
   assert.equal(message.form["issueKey"], "jr-1");
@@ -725,23 +762,65 @@ test("submitting again while running does nothing", () => {
   assert.equal(p.posted.length, before);
 });
 
-test("Stop and Retry send their own messages", () => {
+test("Stop and the ⋯ menu's items send their own messages", () => {
   const p = load();
-  p.send(state({ canRetry: true, progress: { state: "running", rows: [], artifacts: [] } }));
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
   p.byId("stop").dispatch("click");
   assert.deepEqual(p.posted.at(-1), { type: "stop" });
 
-  p.send(state({ canRetry: true }));
-  p.byId("retry").dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "retry" });
+  // Rebuild Context, from the menu: the next-action message, with the form.
+  p.send(prepared(STARTED));
+  p.byId("more-actions").dispatch("click");
+  assert.equal(p.byId("more-menu").hidden, false);
+  assert.equal(p.byId("more-actions").getAttribute("aria-expanded"), "true");
+  p.byId("menu-rebuildContext").dispatch("click");
+  const rebuild = p.posted.at(-1) as { type: string; action: string; form: unknown };
+  assert.equal(rebuild.type, "nextAction");
+  assert.equal(rebuild.action, "rebuildContext");
+  assert.ok(rebuild.form, "Rebuild Context went out without the form");
+  // Choosing closes the menu.
+  assert.equal(p.byId("more-menu").hidden, true);
+  assert.equal(p.byId("more-actions").getAttribute("aria-expanded"), "false");
+
+  // Open AI Session, from the menu while the context is stale.
+  p.send(prepared(STARTED, { primary: primaryOf({ prepared: true, stale: true, attempted: true, sessionKnown: true, settled: true }) }));
+  assert.equal(p.byId("run-label").textContent, "Rebuild Context");
+  assert.equal(p.byId("menu-openSession").hidden, false);
+  assert.equal(p.byId("menu-startNewAttempt").hidden, true, "a new attempt was offered on a stale context");
+  p.byId("menu-openSession").dispatch("click");
+  assert.equal((p.posted.at(-1) as { action: string }).action, "openSession");
 });
 
-test("Retry is hidden until there is something to retry", () => {
+test("Start New Attempt is not offered before the first attempt, and is once one exists", () => {
   const p = load();
   p.send(state());
-  assert.equal(p.byId("retry").hidden, true);
-  p.send(state({ canRetry: true }));
-  assert.equal(p.byId("retry").hidden, false);
+  assert.equal(p.byId("more-actions").hidden, true);
+  assert.equal(p.byId("menu-startNewAttempt").hidden, true);
+
+  // Prepared, never handed over: Fix with AI, and nothing about attempts.
+  p.send(prepared());
+  assert.equal(p.byId("menu-startNewAttempt").hidden, true);
+  // Pressing a hidden item — a stale frame, a fast double press — does nothing.
+  const before = p.posted.length;
+  p.byId("menu-startNewAttempt").dispatch("click");
+  assert.equal(p.posted.length, before);
+  assert.equal(p.byId("attempt-editor").hidden, true);
+
+  // Started: offered, behind ⋯.
+  p.send(prepared(STARTED));
+  assert.equal(p.byId("menu-startNewAttempt").hidden, false);
+});
+
+test("the ⋯ menu closes on Escape and gives the focus back to its button", () => {
+  const p = load();
+  p.send(prepared(STARTED));
+  p.byId("more-actions").dispatch("click");
+  assert.equal(p.focused, "menu-startNewAttempt", "the menu opened without focusing its first item");
+  p.byId("more-menu").dispatch("keydown", { key: "ArrowDown" });
+  assert.equal(p.focused, "menu-rebuildContext");
+  p.byId("more-menu").dispatch("keydown", { key: "Escape" });
+  assert.equal(p.byId("more-menu").hidden, true);
+  assert.equal(p.focused, "more-actions");
 });
 
 test("Stop is absent until there is a run to stop", () => {
@@ -762,17 +841,202 @@ test("Stop is absent until there is a run to stop", () => {
   assert.equal(p.byId("stop").hidden, true);
 });
 
-test("Retry is not offered while a run is in flight", () => {
-  // `bug --retry` reads the artifacts of a finished attempt, so mid-run it
-  // could only be greyed out — and the row already has Stop in it.
+test("the ⋯ menu is not offered while anything is in flight, and an open one closes", () => {
+  // Nothing in it may overlap a run, a handoff or an artifact write — and the
+  // row already has Stop in it.
   const p = load();
-  p.send(state({ canRetry: true, progress: { state: "running", rows: [], artifacts: [] } }));
-  assert.equal(p.byId("retry").hidden, true);
+  p.send(prepared(STARTED));
+  p.byId("more-actions").dispatch("click");
+  assert.equal(p.byId("more-menu").hidden, false);
+
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  assert.equal(p.byId("more-actions").hidden, true);
+  assert.equal(p.byId("more-menu").hidden, true, "the menu stayed open over a run");
   assert.equal(p.byId("stop").hidden, false);
 
-  p.send(state({ canRetry: true }));
-  assert.equal(p.byId("retry").hidden, false);
+  // A handoff in flight: busy too, though no run is.
+  p.send(prepared({ ...STARTED, handoffBusy: true }));
+  assert.equal(p.byId("more-actions").hidden, true);
+  assert.equal(p.byId("run-label").textContent, "Running…");
+
+  p.send(prepared(STARTED));
+  assert.equal(p.byId("more-actions").hidden, false);
   assert.equal(p.byId("stop").hidden, true);
+});
+
+// --- Start New Attempt's form -------------------------------------------------
+
+/** A work item whose first attempt started, with the form opened from the menu. */
+const withAttemptForm = (extra: Partial<WorkflowInput> = {}, overrides: Partial<PanelState> = {}) => {
+  const p = load();
+  p.send(prepared({ ...STARTED, ...extra }, overrides));
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-startNewAttempt").dispatch("click");
+  return p;
+};
+
+test("Start New Attempt opens its form under Fix with AI, at the feedback", () => {
+  const p = withAttemptForm();
+  assert.equal(p.byId("attempt-editor").hidden, false);
+  assert.equal(p.byId("workflow").open, true);
+  assert.equal(p.focused, "attempt-feedback");
+  assert.deepEqual(p.byId("attempt-editor").scrolledIntoView, { behavior: "smooth", block: "nearest" });
+  // Opening it asks the host nothing.
+  assert.equal(p.posted.some((message) => message["type"] === "startAttempt"), false);
+});
+
+test("Start Attempt sends the feedback as typed and the form; empty is allowed", () => {
+  const p = withAttemptForm();
+  p.byId("issue").value = "JR-12345";
+  p.byId("start-attempt").dispatch("click");
+  const empty = p.posted.at(-1) as { type: string; feedback: string; form: Record<string, unknown> };
+  assert.equal(empty.type, "startAttempt");
+  assert.equal(empty.feedback, "", "empty feedback is a choice, not an error the page decides");
+  assert.equal(empty.form["issueKey"], "JR-12345");
+
+  p.byId("attempt-feedback").value = "The previous fix changed the wrong class.";
+  p.byId("attempt-editor").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  const typed = p.posted.at(-1) as { type: string; feedback: string };
+  assert.equal(typed.type, "startAttempt", "Ctrl+Enter in the form pressed something else");
+  assert.equal(typed.feedback, "The previous fix changed the wrong class.");
+});
+
+test("typing feedback is not a form change, and Ctrl+Enter there never presses the primary action", () => {
+  const p = withAttemptForm();
+  const before = p.posted.length;
+  p.byId("attempt-feedback").value = "Keep the public API.";
+  p.byId("form").dispatch("input", { target: p.byId("attempt-feedback") });
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("attempt-feedback") });
+  p.flush();
+  assert.deepEqual(p.posted.slice(before), [], "the feedback reached the run form");
+});
+
+test("Cancel closes and empties the form; another work item does too", () => {
+  const p = withAttemptForm();
+  p.byId("attempt-feedback").value = "Focus on WidgetController.cpp.";
+  p.byId("cancel-attempt").dispatch("click");
+  assert.equal(p.byId("attempt-editor").hidden, true);
+  assert.equal(p.byId("attempt-feedback").value, "");
+
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-startNewAttempt").dispatch("click");
+  p.byId("attempt-feedback").value = "For JR-12345 only.";
+  p.send({ ...prepared(STARTED), workItemId: "JR-999" });
+  assert.equal(p.byId("attempt-editor").hidden, true);
+  assert.equal(p.byId("attempt-feedback").value, "", "JR-999 inherited feedback typed for JR-12345");
+});
+
+test("while an attempt starts, Start waits; once the host answers, the form closes and empties", () => {
+  const p = withAttemptForm();
+  p.byId("attempt-feedback").value = "Try the other overload.";
+  p.byId("start-attempt").dispatch("click");
+
+  p.send(prepared({ ...STARTED, handoffBusy: true, attempt: { state: "starting" } }));
+  assert.equal(p.byId("start-attempt").getAttribute("aria-disabled"), "true");
+  assert.equal(p.byId("start-attempt-label").textContent, "Starting…");
+  assert.equal(p.byId("description-fixWithAI").textContent, "Starting a new attempt…");
+  assert.equal(p.byId("attempt-editor").hidden, false);
+  // A second press is refused on the page too.
+  const before = p.posted.length;
+  p.byId("start-attempt").dispatch("click");
+  assert.equal(p.posted.length, before);
+
+  p.send(prepared({ fix: { status: "success", detail: "New attempt, with your feedback, handed to Claude Code in a terminal." } }));
+  assert.equal(p.byId("attempt-editor").hidden, true);
+  assert.equal(p.byId("attempt-feedback").value, "");
+  assert.equal(p.byId("detail-fixWithAI").textContent, "New attempt, with your feedback, handed to Claude Code in a terminal.");
+});
+
+test("an attempt that did not start keeps what was typed and says why", () => {
+  const p = withAttemptForm();
+  p.byId("attempt-feedback").value = "Try the other overload.";
+  p.byId("start-attempt").dispatch("click");
+  p.send(prepared({ ...STARTED, handoffBusy: true, attempt: { state: "starting" } }));
+  p.send(prepared({ ...STARTED, attempt: { state: "failed", message: "Not started: bugpilot could not run." } }));
+
+  assert.equal(p.byId("attempt-editor").hidden, false);
+  assert.equal(p.byId("attempt-feedback").value, "Try the other overload.");
+  assert.equal(p.byId("attempt-error").hidden, false);
+  assert.equal(p.byId("attempt-error").textContent, "Not started: bugpilot could not run.");
+  assert.equal(p.byId("start-attempt").getAttribute("aria-disabled"), "false", "Start did not come back for another try");
+});
+
+test("the feedback helpers appear only when the host lists them, and add text only when pressed", () => {
+  const p = withAttemptForm();
+  assert.equal(p.byId("attempt-helpers").hidden, true);
+  assert.equal(p.byId("use-review-findings").hidden, true);
+  assert.equal(p.byId("use-verification-evidence").hidden, true);
+
+  p.send(prepared({ ...STARTED, feedbackHelpers: ["useReviewFindings"] }));
+  assert.equal(p.byId("attempt-helpers").hidden, false);
+  assert.equal(p.byId("use-review-findings").hidden, false);
+  assert.equal(p.byId("use-verification-evidence").hidden, true);
+  // Listing a helper puts nothing in the form.
+  assert.equal(p.byId("attempt-feedback").value, "");
+
+  p.byId("use-review-findings").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "useReviewFindings" });
+
+  // The answer is added under what was typed, once — not again on the next push.
+  p.byId("attempt-feedback").value = "Mine first.";
+  const answer = { token: 1, text: "From review_report.md (a recorded review):\n\nFindings:\nDuplicate null check." };
+  p.send(prepared({ ...STARTED, feedbackHelpers: ["useReviewFindings"], attemptDraft: answer }));
+  assert.equal(p.byId("attempt-feedback").value, `Mine first.\n\n${answer.text}`);
+  p.send(prepared({ ...STARTED, feedbackHelpers: ["useReviewFindings"], attemptDraft: answer }));
+  assert.equal(p.byId("attempt-feedback").value, `Mine first.\n\n${answer.text}`, "one answer was added twice");
+
+  p.send(prepared({ ...STARTED, feedbackHelpers: ["useReviewFindings", "useVerificationEvidence"] }));
+  p.byId("use-verification-evidence").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "useVerificationEvidence" });
+});
+
+// --- the primary action and the debounce ---------------------------------------
+
+test("pressing the primary action drops the form change still waiting on the debounce", () => {
+  // The press carries the whole form. The older snapshot the timer holds,
+  // arriving after it, would overwrite the host's copy — and the host would
+  // put the button back to what it said before the press.
+  const p = load();
+  p.send(prepared());
+  p.byId("hint").value = "look at the controller";
+  p.byId("form").dispatch("input", { target: p.byId("hint") });
+  p.byId("form").dispatch("submit");
+  const press = p.posted.at(-1) as { type: string; form: Record<string, unknown> };
+  assert.equal(press.type, "nextAction");
+  assert.equal(press.form["hint"], "look at the controller");
+
+  p.flush();
+  assert.equal(p.posted.at(-1), press, "a form change was sent after the press that already carried it");
+});
+
+test("the page never labels the button itself: every push's label wins, in order", () => {
+  // The label is the host's answer for the form it holds. A page that
+  // remembered "Rebuild Context" once it had seen it, or worked a label out
+  // from what was typed, would be a second opinion that can go stale.
+  const p = load();
+  p.send(prepared());
+  assert.equal(p.byId("run-label").textContent, "Fix with AI");
+  p.byId("hint").value = "changed";
+  p.byId("form").dispatch("input", { target: p.byId("hint") });
+  assert.equal(p.byId("run-label").textContent, "Fix with AI", "the page decided the context was stale");
+
+  p.send(prepared({}, { primary: primaryOf({ prepared: true, stale: true, settled: true }) }));
+  assert.equal(p.byId("run-label").textContent, "Rebuild Context");
+  assert.match(p.byId("run-icon").className, /codicon-refresh/);
+  assert.match(p.byId("run-hint").textContent, /The form changed since this context was prepared/);
+
+  p.send(prepared());
+  assert.equal(p.byId("run-label").textContent, "Fix with AI");
+});
+
+test("a disabled primary action sends nothing, whichever way it is pressed", () => {
+  const p = load();
+  p.send(prepared({}, { primary: { ...primaryOf({ prepared: true }), enabled: false } }));
+  assert.equal(p.byId("run").disabled, true);
+  const before = p.posted.length;
+  p.byId("form").dispatch("submit");
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  assert.equal(p.posted.length, before);
 });
 
 // --- the checklist ---------------------------------------------------------
@@ -1329,7 +1593,7 @@ test("the run message carries the selected Fix Mode", () => {
   page.byId("fixModeId").value = "investigate-first";
   page.byId("form").dispatch("submit");
 
-  const run = page.posted.find((message) => message["type"] === "run");
+  const run = page.posted.find((message) => isRunPress(message));
   assert.equal((run?.["form"] as { fixModeId?: string } | undefined)?.fixModeId, "investigate-first");
 });
 
@@ -1353,7 +1617,7 @@ const WITH_CUSTOM = {
 
 /** The form of the last run message the page sent. */
 const lastRun = (page: Page) =>
-  page.posted.filter((message) => message["type"] === "run").at(-1)?.["form"] as
+  page.posted.filter((message) => isRunPress(message)).at(-1)?.["form"] as
     | { fixModeId?: string }
     | undefined;
 
@@ -2702,12 +2966,13 @@ test("the post-run actions are on the rows a finished run leaves open", () => {
     ["open-context", "openContext"],
     ["copy-context", "copyContext"],
     ["open-folder", "openFolder"],
-    ["fix-with-ai", "fixWithAI"],
   ] as const) {
     assert.equal(p.byId(id).hidden, false, id);
     p.byId(id).dispatch("click");
     assert.deepEqual(p.posted.at(-1), { type: "action", id: action });
   }
+  // And the next step is the button at the top, which never scrolled away.
+  assert.equal(p.byId("run-label").textContent, "Fix with AI");
 });
 
 // --- UI-A2: the regrouped fields still carry their state -------------------
@@ -2725,8 +2990,9 @@ test("the regrouped fields round-trip through the form unchanged", () => {
   p.byId("ignorePaths").value = "build/";
   p.byId("form").dispatch("submit");
 
-  const message = p.posted.at(-1) as { type: string; form: Record<string, unknown> };
-  assert.equal(message.type, "run");
+  const message = p.posted.at(-1) as { type: string; action?: string; form: Record<string, unknown> };
+  assert.equal(message.type, "nextAction");
+  assert.equal(message.action, "run");
   assert.equal(message.form["keywords"], "VolumeDescriptor, OpenVDS\noutputType");
   assert.equal(message.form["focusFiles"], "src/core/\nsrc/services/example.cpp");
   assert.equal(message.form["hint"], "check the output validation");
@@ -2772,12 +3038,14 @@ test("nothing about a result is shown before the first run", () => {
   const p = load();
   p.send(state());
 
-  for (const id of ["open-context", "copy-context", "open-folder", "fix-with-ai"]) {
+  for (const id of ["open-context", "copy-context", "open-folder", "more-actions"]) {
     assert.equal(p.byId(id).hidden, true, id);
   }
-  for (const id of ["relevant-files", "search-details", "strategy-fixWithAI", "actions-buildContext", "actions-fixWithAI"]) {
+  for (const id of ["relevant-files", "search-details", "strategy-fixWithAI", "actions-buildContext", "attempt-editor"]) {
     assert.equal(p.byId(id).hidden, true, id);
   }
+  // The one thing to press is Run.
+  assert.equal(p.byId("run-label").textContent, "Run");
   for (const id of STEP_IDS) {
     assert.equal(p.byId(`detail-${id}`).hidden, true, id);
     assert.equal(p.byId(`artifact-${id}`).hidden, true, id);
@@ -2794,9 +3062,10 @@ test("a run in flight shows progress on its rows, and offers nothing to press", 
   p.send(state({ progress: { state: "running", rows: [row("code_search", "running")], artifacts: [] } }));
 
   assert.equal(p.byId("description-codeSearch").textContent, "Searching repository…");
-  assert.equal(p.byId("fix-with-ai").hidden, true, "a handoff was offered mid-run");
+  assert.equal(p.byId("more-actions").hidden, true, "something else was offered mid-run");
   assert.equal(p.byId("open-folder").hidden, true);
   assert.equal(p.byId("run-label").textContent, "Running…");
+  assert.equal(p.byId("run").disabled, true);
   assert.equal(p.byId("workflow").open, true);
 });
 
@@ -2821,11 +3090,19 @@ test("a finished run reads as results on the rows, and one next action", () => {
   assert.equal(p.byId("actions-buildContext").hidden, false);
   assert.equal(p.byId("open-context").hidden, false);
   assert.equal(p.byId("copy-context").hidden, false);
-  // Fix with AI: ready, with the mode the task was prepared with, and the button.
+  // Fix with AI: ready, with the mode the task was prepared with — and the one
+  // next action is the top button's, which now says so.
   assert.equal(p.byId("description-fixWithAI").textContent, "Ready");
   assert.equal(p.byId("strategy-fixWithAI-value").textContent, "Standard Fix");
   assert.equal(p.byId("strategy-fixWithAI").hidden, false);
-  assert.equal(p.byId("fix-with-ai").hidden, false);
+  assert.equal(p.byId("run-label").textContent, "Fix with AI");
+  assert.match(p.byId("run-icon").className, /codicon-hubot/);
+  assert.equal(p.byId("run").disabled, false);
+  assert.equal(p.byId("run-hint").textContent, "Context is ready. Fix with AI hands task.md to your AI agent.");
+  // Behind ⋯, rebuilding it — and not yet a new attempt: none has started.
+  assert.equal(p.byId("more-actions").hidden, false);
+  assert.equal(p.byId("menu-rebuildContext").hidden, false);
+  assert.equal(p.byId("menu-startNewAttempt").hidden, true);
   // The work item's folder, at the foot of the workflow.
   assert.equal(p.byId("open-folder").hidden, false);
 });
@@ -2877,12 +3154,20 @@ test("an issue title renders as text", () => {
   assert.equal(p.byId("detail-issueDetails").children.length, 0, "the title became markup");
 });
 
-test("Fix with AI asks for the action the host has always handled", () => {
+test("Fix with AI, the top button, asks the host for exactly that — with the form", () => {
   const p = load();
   p.send(prepared());
+  p.byId("issue").value = "JR-12345";
 
-  p.byId("fix-with-ai").dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "action", id: "fixWithAI" });
+  p.byId("form").dispatch("submit");
+  const message = p.posted.at(-1) as { type: string; action: string; form: Record<string, unknown> };
+  assert.equal(message.type, "nextAction");
+  assert.equal(message.action, "fixWithAI");
+  // The form rides along so the host can check the context is still current.
+  assert.equal(message.form["issueKey"], "JR-12345");
+  // And Ctrl+Enter presses the same button.
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  assert.equal((p.posted.at(-1) as { action: string }).action, "fixWithAI");
 });
 
 test("a failed run keeps its failure on the row that failed, and claims no result", () => {
@@ -2895,7 +3180,7 @@ test("a failed run keeps its failure on the row that failed, and claims no resul
   // Owned by the row, so not repeated as a card of its own.
   assert.equal(p.byId("failure").hidden, true);
   assert.equal(p.byId("open-context").hidden, true);
-  assert.equal(p.byId("fix-with-ai").hidden, true);
+  assert.equal(p.byId("run-label").textContent, "Run", "a failed run offered something other than running again");
   assert.equal(p.byId("workflow-status").textContent, "Run failed");
   // And the plan is still there to change before trying again.
   assert.equal(p.byId("plan-buildContext").disabled, false);
@@ -2933,9 +3218,10 @@ test("a result from one run does not survive into the next", () => {
     assert.equal(p.byId(`detail-${id}`).hidden, true, id);
     assert.equal(p.byId(`artifact-${id}`).hidden, true, id);
   }
-  for (const id of ["open-context", "copy-context", "open-folder", "fix-with-ai", "strategy-fixWithAI", "relevant-files", "search-details"]) {
+  for (const id of ["open-context", "copy-context", "open-folder", "more-actions", "strategy-fixWithAI", "relevant-files", "search-details"]) {
     assert.equal(p.byId(id).hidden, true, id);
   }
+  assert.equal(p.byId("run-label").textContent, "Running…");
 });
 
 // --- Fix result (Batch 8) ---------------------------------------------------
@@ -3048,13 +3334,18 @@ test("report text renders as text", () => {
 });
 
 test("Fix with AI keeps its own state beside a report", () => {
-  // A reopened work item: task.md is there, so Fix with AI is ready; the
-  // report is there, so Fix result shows it. Neither borrows the other's state.
+  // A reopened work item: task.md is there, and an agent has written its
+  // report — so an attempt exists, even though this panel did not see it start.
+  // Fix with AI says the report is there, not that anything started; Fix result
+  // shows it; the next step is the earlier session, or a new attempt.
   const p = load();
   p.send(reported({ readable: true, summary: "Fixed it." }));
 
-  assert.equal(p.byId("description-fixWithAI").textContent, "Ready");
-  assert.equal(p.byId("fix-with-ai").hidden, false);
+  assert.equal(p.byId("description-fixWithAI").textContent, "Fix report available");
+  assert.equal(p.byId("step-fixWithAI").classes.has("step-success"), false, "a start nobody saw wore the tick");
+  assert.equal(p.byId("run-label").textContent, "Open AI Session");
+  assert.equal(p.byId("run-hint").textContent, "An earlier AI attempt wrote fix_report.md. Open its session, or start a new attempt from ⋯.");
+  assert.equal(p.byId("menu-startNewAttempt").hidden, false);
   assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
 
   // And a handoff this session saw keeps the header, the report its row.
@@ -3509,9 +3800,10 @@ test("a handoff failure is Fix with AI's own card, beside results that stay", ()
   assert.equal(p.byId("error-fixWithAI-title").textContent, "AI agent unavailable");
   assert.equal(p.byId("error-fixWithAI-detail").textContent, "claude is not on PATH.");
   assert.equal(p.byId("failure").hidden, true, "a handoff failure claimed the run card");
-  // And the button is back, because installing an agent and pressing again is
-  // a real thing to do.
-  assert.equal(p.byId("fix-with-ai").hidden, false);
+  // And the top button is still Fix with AI, because installing an agent and
+  // pressing again is a real thing to do.
+  assert.equal(p.byId("run-label").textContent, "Fix with AI");
+  assert.equal(p.byId("run").disabled, false);
   assert.equal(p.byId("workflow-status").textContent, "AI fix did not start");
 });
 
@@ -3572,23 +3864,28 @@ test("a handoff error disappears when the next attempt works", () => {
 
 const STARTED = { fix: { status: "success" as const, detail: "Handed to Claude Code in a terminal." } };
 
-test("before a handoff there is a button and no outcome", () => {
+test("before a handoff the top button is Fix with AI, and there is no outcome", () => {
   const p = load();
   p.send(prepared());
 
-  assert.equal(p.byId("fix-with-ai").hidden, false);
+  assert.equal(p.byId("run-label").textContent, "Fix with AI");
   assert.equal(p.byId("description-fixWithAI").textContent, "Ready");
   assert.equal(p.byId("detail-fixWithAI").hidden, true);
 });
 
-test("a successful handoff replaces the button with what actually happened", () => {
+test("a successful handoff turns the top button into Open AI Session, and says what happened", () => {
   const p = load();
   p.send(prepared({ ...STARTED, ...withSearch({ files: FOUND }) }));
 
   assert.ok(p.byId("step-fixWithAI").classes.has("step-success"));
   assert.equal(p.byId("description-fixWithAI").textContent, "AI fix started");
   assert.equal(p.byId("detail-fixWithAI").textContent, "Handed to Claude Code in a terminal.");
-  assert.equal(p.byId("fix-with-ai").hidden, true, "a second handoff was on offer");
+  assert.equal(p.byId("run-label").textContent, "Open AI Session", "a second handoff was the next step");
+  assert.match(p.byId("run-icon").className, /codicon-terminal/);
+  assert.equal(p.byId("run-hint").textContent, "An AI session was started for this work item. Continue the conversation there.");
+  // A new attempt is there, but behind ⋯ — not a competing button.
+  assert.equal(p.byId("menu-startNewAttempt").hidden, false);
+  assert.equal(p.byId("menu-rebuildContext").hidden, false);
   assert.equal(p.byId("workflow-status").textContent, "AI fix started");
 
   // And nothing the run produced moved.
@@ -3623,7 +3920,9 @@ test("the row says it is working, and offers no second press meanwhile", () => {
 
   assert.equal(p.byId("description-fixWithAI").textContent, "Starting AI fix…");
   assert.match(p.byId("status-fixWithAI").className, /codicon-spin/);
-  assert.equal(p.byId("fix-with-ai").hidden, true);
+  assert.equal(p.byId("run-label").textContent, "Running…");
+  assert.equal(p.byId("run").disabled, true);
+  assert.equal(p.byId("more-actions").hidden, true);
   // Busy is not an outcome.
   assert.equal(p.byId("step-fixWithAI").classes.has("step-success"), false);
 });
@@ -3664,16 +3963,22 @@ test("the outcome is announced as text, not as a tick", () => {
 
 test("the run hint stops explaining Run once Run has been pressed", () => {
   // Advice about a button, sitting directly above the proof of what that button
-  // did. Visible in every post-run screenshot until UI-V1.
+  // did. Visible in every post-run screenshot until UI-V1. Since the button
+  // follows the work item, the line explains whatever it now says instead.
   const p = load();
   p.send(state());
   assert.equal(p.byId("run-hint").hidden, false);
+  assert.equal(p.byId("run-hint").textContent, "Run prepares the issue context for AI-assisted fixing.");
 
   p.send(prepared());
-  assert.equal(p.byId("run-hint").hidden, true);
+  assert.equal(p.byId("run-hint").hidden, false);
+  assert.doesNotMatch(p.byId("run-hint").textContent, /Run prepares/);
 
   p.send(state({ runError: { kind: "run", title: "Run failed", message: "It stopped." } }));
   assert.equal(p.byId("run-hint").hidden, true);
+
+  p.send(state({ progress: { state: "done", rows: [], artifacts: [] } }));
+  assert.equal(p.byId("run-hint").hidden, true, "Run was explained again after it had run");
 
   // And it comes back for the next untouched state.
   p.send(state());
@@ -4123,6 +4428,10 @@ interface Loop {
   readonly jsonArgs: string[][];
   readonly hintPrompts: string[];
   readonly folders: string[];
+  /** Every file the controller wrote, by path, as written. */
+  readonly written: { path: string; contents: string }[];
+  /** Every terminal Open AI Session brought forward. */
+  readonly revealed: string[];
   readonly aborted: { value: boolean };
   /** Deliver everything the page has posted, in order: parser, then controller. */
   readonly drain: () => Promise<void>;
@@ -4138,6 +4447,9 @@ function loop(options: { holdRun?: boolean } = {}): Loop {
   const jsonArgs: string[][] = [];
   const hintPrompts: string[] = [];
   const folders: string[] = [];
+  const written: { path: string; contents: string }[] = [];
+  const revealed: string[] = [];
+  const terminalNames: string[] = [];
   const aborted = { value: false };
   const files: Record<string, string> = {
     "run.json": LOOP_RUN_JSON,
@@ -4169,6 +4481,9 @@ function loop(options: { holdRun?: boolean } = {}): Loop {
             validation: { steps: ["Reproduce the original issue if possible."], regression_files: [], review_risks: [] },
           };
         }
+        if (args.includes("--retry")) {
+          return { ok: true, command: "bug", warnings: [], retry: true, feedback_created: false };
+        }
         return { ok: true, command: String(args[0]), warnings: [] };
       },
     },
@@ -4178,7 +4493,9 @@ function loop(options: { holdRun?: boolean } = {}): Loop {
         const key = Object.keys(files).find((name) => file.replaceAll("\\", "/").endsWith(`/${name}`));
         return key ? files[key] : undefined;
       },
-      writeFile: async () => {},
+      writeFile: async (path, contents) => {
+        written.push({ path: path.replaceAll("\\", "/"), contents });
+      },
     },
     ui: {
       render: (state) => {
@@ -4191,7 +4508,15 @@ function loop(options: { holdRun?: boolean } = {}): Loop {
       notify: () => {},
       refreshViews: () => {},
       editCredentials: async () => {},
-      runInTerminal: (_name, _cwd, commandLine) => { terminals.push(commandLine); },
+      runInTerminal: (name, _cwd, commandLine) => {
+        terminals.push(commandLine);
+        terminalNames.push(name);
+      },
+      revealTerminal: (matches) => {
+        const name = [...terminalNames].reverse().find((candidate) => matches(candidate));
+        if (name !== undefined) revealed.push(name);
+        return name !== undefined;
+      },
       openFolder: async (directory) => { folders.push(directory.replaceAll("\\", "/")); },
       pickFiles: async () => [],
       revealAgentPanel: async () => false,
@@ -4218,7 +4543,7 @@ function loop(options: { holdRun?: boolean } = {}): Loop {
       await controller.handle(message);
     }
   };
-  return { page, controller, routed, states, terminals, clipboard, opened, jsonArgs, hintPrompts, folders, aborted, drain };
+  return { page, controller, routed, states, terminals, clipboard, opened, jsonArgs, hintPrompts, folders, written, revealed, aborted, drain };
 }
 
 /** Let every pending promise callback run. */
@@ -4245,7 +4570,8 @@ test("Run and then Stop, pressed on the page, reach the controller; Stop cancels
   assert.equal(posted.length, 1);
   const run = parsePanelMessage(posted[0]);
   assert.ok(run, "the host dropped the page's run message");
-  assert.equal(run.type, "run");
+  assert.equal(run.type, "nextAction");
+  assert.equal(run.type === "nextAction" && run.action, "run");
   const running = l.controller.handle(run);
   await loopSettle();
   assert.equal(l.page.byId("stop").hidden, false, "Stop is not offered while the run is in flight");
@@ -4259,18 +4585,36 @@ test("Run and then Stop, pressed on the page, reach the controller; Stop cancels
   assert.equal(l.states.at(-1)!.progress.state, "stopped");
 });
 
-test("Retry, pressed on the page, reaches the controller's retry", async () => {
+test("Start New Attempt, pressed on the page, writes the feedback and hands over the retry package", async () => {
+  // A reopened work item whose agent wrote fix_report.md: an attempt exists, so
+  // the menu offers a new one. Everything below goes through the real parser.
   const l = loop();
   await l.drain();
   await l.controller.refreshEnvironment();
   await l.controller.showWorkItem("JR-12345");
-  assert.equal(l.page.byId("retry").hidden, false, "Retry is not offered for a prepared work item");
+  assert.equal(l.page.byId("run-label").textContent, "Open AI Session");
+  assert.equal(l.page.byId("menu-startNewAttempt").hidden, false, "Start New Attempt is not offered after an attempt");
 
-  l.page.byId("retry").dispatch("click");
+  l.page.byId("more-actions").dispatch("click");
+  l.page.byId("menu-startNewAttempt").dispatch("click");
+  l.page.byId("attempt-feedback").value = "The previous fix changed the wrong class.";
+  l.page.byId("start-attempt").dispatch("click");
   await l.drain();
 
-  assert.ok(l.routed.includes("retry"), "Retry never reached the controller");
+  assert.ok(l.routed.includes("startAttempt"), "Start Attempt never reached the controller");
+  assert.deepEqual(l.written.map((file) => file.path), ["/work/app/.ai/JR-12345/user_feedback.md"]);
+  assert.match(l.written[0]!.contents, /The previous fix changed the wrong class\./);
+  // The CLI's own retry loop builds the package from it…
   assert.deepEqual(l.jsonArgs.at(-1), ["bug", "JR-12345", "--retry", "--prepare-only", "--json"]);
+  // …and that package is what the new session is told to read.
+  assert.deepEqual(l.terminals, [`claude ${JSON.stringify("Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.")}`]);
+  assert.equal(l.page.byId("attempt-editor").hidden, true, "the form stayed open after the host started the attempt");
+  assert.equal(l.page.byId("run-label").textContent, "Open AI Session");
+
+  // Open AI Session goes back to that terminal.
+  l.page.byId("form").dispatch("submit");
+  await l.drain();
+  assert.deepEqual(l.revealed, ["Fix with AI · JR-12345"]);
 });
 
 test("every row action and Improve, pressed on the page, reach the controller through the parser", async () => {
@@ -4297,7 +4641,11 @@ test("every row action and Improve, pressed on the page, reach the controller th
   disclosure.dispatch("toggle");
   await l.drain();
   await press("review-with-ai");
-  await press("fix-with-ai");
+  // A report on disk means an attempt exists: a new one is behind ⋯, and with
+  // no feedback it is the same task.md handoff Fix with AI makes.
+  await press("more-actions");
+  await press("menu-startNewAttempt");
+  await press("start-attempt");
   await press("improve-hint");
   await press("open-folder");
 
@@ -4311,11 +4659,13 @@ test("every row action and Improve, pressed on the page, reach the controller th
       "action:copyReviewPrompt",
       "action:loadValidation",
       "action:reviewWithAI",
-      "action:fixWithAI",
+      "startAttempt",
       "improveHint",
       "action:openFolder",
     ],
   );
+  // Empty feedback wrote nothing.
+  assert.deepEqual(l.written, []);
   assert.deepEqual(l.folders, ["/work/app/.ai/JR-12345"]);
   // …and did what that action does.
   assert.deepEqual(l.opened, ["/work/app/.ai/JR-12345/context.md", "/work/app/.ai/JR-12345/fix_report.md"]);
@@ -4527,7 +4877,7 @@ test("typing a review is not the bug being prepared: Ctrl+Enter there saves the 
   p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("review-summary") });
   p.byId("form").dispatch("input", { target: p.byId("review-summary") });
   p.flush();
-  assert.equal(p.posted.slice(before).some((message) => message["type"] === "run" || message["type"] === "formChanged"), false);
+  assert.equal(p.posted.slice(before).some((message) => isRunPress(message) || message["type"] === "formChanged"), false);
 
   p.byId("review-editor").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("review-summary") });
   assert.equal(p.posted.at(-1)!["type"], "recordReview");
@@ -4781,7 +5131,7 @@ test("typing a check is not the bug being prepared: Ctrl+Enter there saves the e
     p.byId("form").dispatch("change", { target });
   }
   p.flush();
-  assert.equal(p.posted.slice(before).some((message) => message["type"] === "run" || message["type"] === "formChanged"), false);
+  assert.equal(p.posted.slice(before).some((message) => isRunPress(message) || message["type"] === "formChanged"), false);
 
   p.byId("verification-editor").dispatch("keydown", { key: "Enter", ctrlKey: true, target: row!.name });
   assert.equal(p.posted.at(-1)!["type"], "recordVerification");
@@ -5018,7 +5368,7 @@ test("plain Enter in a check's name never runs the panel: the implicit submit is
   p.byId("form").dispatch("submit", { target: p.byId("form") });
 
   assert.equal(prevented, true, "plain Enter in the name was left to submit the form");
-  assert.equal(p.posted.slice(before).some((message) => message["type"] === "run"), false);
+  assert.equal(p.posted.slice(before).some((message) => isRunPress(message)), false);
   // A text area keeps its Enter.
   let areaPrevented = false;
   p.byId("verification-editor").dispatch("keydown", { key: "Enter", target: row!.evidence, preventDefault: () => (areaPrevented = true) });
@@ -5026,7 +5376,9 @@ test("plain Enter in a check's name never runs the panel: the implicit submit is
   // And outside the editor, submitting still runs.
   p.focused = undefined;
   p.byId("form").dispatch("submit", { target: p.byId("form") });
-  assert.equal(p.posted.at(-1)!["type"], "run");
+  // (The primary action, whatever it says: here a report exists, so it is
+  // Open AI Session.)
+  assert.equal(p.posted.at(-1)!["type"], "nextAction", "submitting outside the editor did not press the primary action");
 });
 
 test("closing and reopening the form keeps what was typed; only Cancel, a save or another item empties it", () => {

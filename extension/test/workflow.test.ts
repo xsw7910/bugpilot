@@ -327,7 +327,8 @@ test("Fix with AI waits, is ready, starts, starts successfully, or fails — and
   const ready = stepIn(buildWorkflow(input(prepared)), "fixWithAI");
   assert.equal(ready.status, "ready");
   assert.equal(ready.summary, "Ready");
-  assert.deepEqual([...ready.actions], ["fixWithAI"]);
+  // No button of its own: handing over is the panel's primary action now.
+  assert.deepEqual([...ready.actions], []);
   assert.equal(ready.artifact, "task.md");
   assert.equal(ready.strategy, "Standard Fix");
 
@@ -356,7 +357,8 @@ test("Fix with AI waits, is ready, starts, starts successfully, or fails — and
   assert.equal(failed.summary, "Did not start");
   assert.equal(failed.error, card);
   assert.equal(failed.detail, "claude is not on PATH.");
-  assert.deepEqual([...failed.actions], ["fixWithAI"], "the retry button went away");
+  // Another try is the primary action's, which stays Fix with AI.
+  assert.deepEqual([...failed.actions], []);
 
   const skipped = stepIn(
     buildWorkflow(input({ progress: progress("done", ALL_DONE), fix: { status: "skipped", detail: "No task.md was prepared." } })),
@@ -536,10 +538,19 @@ test("a listed report is a row while a run is in flight too", () => {
   assert.equal(overallStatus(steps, running).text, "Running 2/5…");
 });
 
-test("a report does not change any of the six rows", () => {
+test("a report changes none of the five capability rows, and Fix with AI only says it is there", () => {
   const without = finished();
   const withReport = finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." } });
-  assert.deepEqual(withReport.slice(0, 6), without);
+  assert.deepEqual(withReport.slice(0, 5), without.slice(0, 5));
+  // An attempt this session did not see start wrote it: the row says a report is
+  // available, which is all that is known — not started, not fixed, not the tick.
+  const fix = stepIn(withReport, "fixWithAI");
+  assert.deepEqual(
+    { status: fix.status, statusLabel: fix.statusLabel, summary: fix.summary },
+    { status: "ready", statusLabel: "fix report available", summary: "Fix report available" },
+  );
+  assert.equal(fix.artifact, "task.md");
+  assert.deepEqual([...fix.actions], []);
 });
 
 test("the header says a report is available, and never that the bug is fixed", () => {

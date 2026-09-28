@@ -92,7 +92,7 @@ Jira issue JR-12345
 
 [        ▶ Run        ] [ Stop ]
          Ctrl+Enter
-Prepare context and optionally fix with AI.
+Run prepares the issue context for AI-assisted fixing.
 ──────────────────────────────────────────────
 Investigation & AI Fix           Running 3/6…
 ☑ Issue details                        ●
@@ -111,8 +111,21 @@ Investigation & AI Fix           Running 3/6…
 ▸ Advanced settings (optional)
 ```
 
-**Stop** joins Run in that row while a run is in flight, and **Retry** once a
-prepared attempt exists. Neither is ever shown greyed out.
+The button under the issue is always the next step, and changes with the work
+item — you never need to know what resume, retry or fresh mean to find it:
+
+| The button says | When | Pressing it |
+| --- | --- | --- |
+| **Run** | Nothing is prepared yet | Prepares the context (and hands it over, if **Fix with AI** is ticked) |
+| **Fix with AI** | `task.md` is ready and no agent has had it | Hands the prepared `task.md` to your agent — no second preparation |
+| **Open AI Session** | An attempt has started | Brings back the terminal the agent is running in |
+| **Rebuild Context** | You changed the issue, hint, keywords, focus files, Fix Mode or another preparation setting since | Prepares it again, keeping what the agent wrote |
+| **Running…** | Something is in flight | Nothing — it waits |
+
+**Stop** joins it while a run is in flight. Once there is a context, a **⋯**
+button beside it holds what is not the next step: **Rebuild Context**, and —
+once an attempt exists — **Start New Attempt**. Nothing is ever shown greyed
+out beside it.
 
 ## Fix Mode
 
@@ -200,10 +213,17 @@ keep what they found.
 
 **Fix with AI** is the last step, and it starts unticked. Tick it and Run does
 everything above it and then hands the finished package to your coding agent in
-a terminal; leave it alone and BugPilot stops once the context is ready, with a
-**Fix with AI** button on that row for when you want it. Which agent it hands
-to is **Advanced settings → AI agent**: auto-detect, Claude Code, or a custom
-command of your own (see below).
+a terminal; leave it alone and BugPilot stops once the context is ready, and the
+button at the top becomes **Fix with AI** for when you want it. Either way the
+row says what happened — Ready, AI fix started, Did not start — and "started"
+means only that: BugPilot does not watch the agent, so it never says the fix
+worked, tests passed or files changed. Which agent it hands to is **Advanced
+settings → AI agent**: auto-detect, Claude Code, or a custom command of your own
+(see below).
+
+After the handoff the button is **Open AI Session**: keep talking to the agent
+in its terminal. If that terminal has been closed, BugPilot says so rather than
+pretending to reopen it.
 
 When the agent writes its report, `fix_report.md`, a **Fix result** row appears
 under Fix with AI: the report's first **Summary** line and its **Tests** line,
@@ -250,8 +270,9 @@ the review's first summary line and findings line, and **Open Review Report**.
 It says a result was recorded — not that the review passed, that the fix is
 correct, that tests ran or that its recommendations were applied. **Replace
 Review Result** records a new one in its place, after asking. A **Fresh** run
-removes it with the fix report; **Retry** leaves it, so after a retry it
-describes the earlier attempt until you replace it. History is not changed by
+removes it with the fix report; **Rebuild Context** and **Start New Attempt**
+leave it, so after a new attempt it describes the earlier one until you replace
+it. History is not changed by
 it.
 
 **Record Verification Evidence** keeps the checks you ran with the work item's
@@ -269,7 +290,8 @@ replaces it — unless the report changed since Edit was opened, which is kept
 and said. While a review result or verification evidence is being recorded, no
 run starts and **Clean** is refused until it ends; while Clean runs, neither
 recording starts. Plain Enter in a check's name never runs the panel.
-A **Fresh** run removes the report with the fix report; **Retry** leaves it.
+A **Fresh** run removes the report with the fix report; **Rebuild Context** and
+**Start New Attempt** leave it.
 History is not changed by it.
 
 BugPilot never involves a model by itself. A step you tick is the difference:
@@ -306,13 +328,26 @@ to a work item you cannot see.
 
 ## When a fix did not work
 
-Press **Retry**, which appears under **Run** once a prepared attempt exists. The first press creates `user_feedback.md` and opens it —
-describe what the previous attempt got wrong, save, and press Retry again. That
-second press builds `agent_retry_prompt.md`, which carries your correction plus
-a summary of the last attempt.
+If the agent is still running, tell it in its terminal — **Open AI Session**
+takes you there. For a clean start instead — the session ended, the approach
+was wrong, a review or a check found problems — choose **⋯ → Start New
+Attempt**. A form opens under Fix with AI with one optional box: *What should
+the new attempt do differently?*
 
-This is deliberately two steps: handing an agent an unfilled template defeats
-the only purpose of the loop.
+- Left empty, nothing is written: a new session gets the same `task.md`.
+- With text, BugPilot saves it as `user_feedback.md` (replacing earlier
+  feedback), builds `agent_retry_prompt.md` from it — your correction plus a
+  summary of the last attempt — and hands that to the new session.
+
+**Use Review Findings** and **Use Verification Evidence** appear in the form
+when a review result, or a check recorded as Failed or Not Run, exists; they
+copy that text into the box when you press them, and nothing else. Start New
+Attempt reuses the prepared context — to prepare it again, use **Rebuild
+Context**.
+
+The command palette's **BugPilot: Retry After a Failed Fix** is still there: the
+CLI's own two-step loop, which creates the `user_feedback.md` template for you
+to fill in first.
 
 ## Advanced settings
 

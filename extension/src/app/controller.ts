@@ -18,7 +18,19 @@ import path from "node:path";
 
 import { isWithin } from "../workspace.ts";
 
-import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, isWorkItemId, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE, JIRA_ISSUE_KEY_RE } from "./form.ts";
+import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, isWorkItemId, preparationFingerprint, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE, JIRA_ISSUE_KEY_RE } from "./form.ts";
+import {
+  MAX_ATTEMPT_FEEDBACK,
+  USER_FEEDBACK_ARTIFACT,
+  feedbackFromReview,
+  feedbackFromVerification,
+  hasUnsettledChecks,
+  offeredActions,
+  primaryView,
+  retryHandoffText,
+  userFeedbackMarkdown,
+} from "./nextAction.ts";
+import type { FeedbackHelperId, NextActionId, PrimaryView } from "./nextAction.ts";
 import {
   MAX_LISTED_FILES,
   contextCounts,
@@ -52,7 +64,7 @@ import type { FieldProblem, FormState } from "./form.ts";
 import { resolveAgent } from "./agents.ts";
 import type { AgentPlan } from "./agents.ts";
 import { buildWorkflow, canOpenFolder, canStartReview, overallStatus } from "./workflow.ts";
-import type { FixWithAiOutcome, ReviewHandoff, ValidationView, VerificationEdit } from "./workflow.ts";
+import type { AttemptDraft, AttemptView, FixWithAiOutcome, ReviewHandoff, ValidationView, VerificationEdit } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
 import { handoffError, reviewHandoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
@@ -165,6 +177,14 @@ export interface UiPort {
   editCredentials(): Promise<void>;
   /** Open a terminal in `cwd` and run one command line in it. */
   runInTerminal(name: string, cwd: string, commandLine: string): void;
+  /**
+   * Bring forward the most recently opened terminal, still open, whose name
+   * `matches` — Open AI Session's way back to the agent a handoff started.
+   *
+   * Returns false when there is none: closed, or never opened in this window.
+   * Nothing is started in its place; the caller says so instead.
+   */
+  revealTerminal(matches: (name: string) => boolean): boolean;
   /** Reveal a directory in the editor's own explorer. */
   openFolder(directory: string): Promise<void>;
   /**
@@ -278,9 +298,10 @@ export interface ControllerPorts {
 /**
  * The artifact writes the host performs itself, one at a time (Batch 12): recording
  * a review result, recording verification evidence, cleaning a work item, and
- * preparing a retry package (release stabilization: it writes into the folder too).
+ * preparing a retry package (release stabilization: it writes into the folder too)
+ * — which Start New Attempt does too, when it carries feedback.
  */
-type ArtifactMutation = "review" | "verification" | "clean" | "retry";
+type ArtifactMutation = "review" | "verification" | "clean" | "retry" | "attempt";
 
 /** What a run that has to wait is told, per mutation in flight. */
 const RUN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
@@ -288,6 +309,7 @@ const RUN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   verification: "Wait for the verification evidence recording to finish before starting a run.",
   clean: "Wait for the clean to finish before starting a run.",
   retry: "Wait for the retry to finish before starting a run.",
+  attempt: "Wait for the new attempt to be prepared before starting a run.",
 };
 
 /** What Retry is told, per artifact write in flight. */
@@ -296,6 +318,7 @@ const RETRY_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   verification: "Wait for artifact recording to finish before retrying.",
   clean: "Wait for the clean to finish before retrying.",
   retry: "Wait for the retry to finish before retrying.",
+  attempt: "Wait for the new attempt to be prepared before retrying.",
 };
 
 /** What Clean is told while a recording is in flight. */
@@ -307,7 +330,46 @@ const CLEAN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   verification: CLEAN_WAITS,
   clean: "Wait for the clean to finish before cleaning this work item.",
   retry: "Wait for the retry to finish before cleaning this work item.",
+  attempt: "Wait for the new attempt to be prepared before cleaning this work item.",
 };
+
+/** What a handoff is told, per artifact write in flight: it would read a folder being written. */
+const HANDOFF_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
+  review: "Wait for the review result recording to finish before handing this work item to an agent.",
+  verification: "Wait for the verification evidence recording to finish before handing this work item to an agent.",
+  clean: "Wait for the clean to finish before handing this work item to an agent.",
+  retry: "Wait for the retry to finish before handing this work item to an agent.",
+  attempt: "Wait for the new attempt to be prepared before handing this work item to an agent.",
+};
+
+/** What the primary action is waiting for, per artifact write in flight. */
+const BUSY_WITH: Readonly<Record<ArtifactMutation, string>> = {
+  review: "Wait for the review result recording to finish.",
+  verification: "Wait for the verification evidence recording to finish.",
+  clean: "Wait for the clean to finish.",
+  retry: "Wait for the retry to finish.",
+  attempt: "Wait for the new attempt to be prepared.",
+};
+
+/** Why a handoff refuses a context the form no longer describes. */
+export const STALE_HANDOFF =
+  "The form changed since this context was prepared, so nothing was handed over. Press Rebuild Context first, or undo the change.";
+
+/**
+ * The AI session a handoff started, as this panel saw it: which terminal, which
+ * agent, and how many handoffs it has made for the work item.
+ */
+interface SessionRecord {
+  readonly terminal: string;
+  readonly agent: string;
+  readonly attempts: number;
+}
+
+/** What a handoff hands over, and what the row says once it has. */
+interface Launch {
+  readonly prompt: string;
+  readonly detail: (agent: string) => string;
+}
 
 /**
  * A Fix Mode management command, and the definition it carries.
@@ -382,7 +444,30 @@ export class Controller {
    * "attempted and did nothing" are different rows on screen.
    */
   #fix: FixWithAiOutcome | undefined;
-  #canRetry = false;
+  /**
+   * The AI sessions this panel started, by work item, for the life of the window.
+   *
+   * By work item rather than one slot: opening another bug from History and
+   * coming back must not turn Open AI Session back into Fix with AI — pressing
+   * that would start a second agent on a package one is already working on.
+   * Dropped by Clean and by a Fresh run, which delete what the agent was given.
+   */
+  readonly #sessions = new Map<string, SessionRecord>();
+  /**
+   * The form the package on screen was prepared from, fingerprinted — the
+   * baseline that tells the primary action the context went stale.
+   *
+   * Set when a run starts (from the form it was given, so no push after it can
+   * compare against an older one) and when a work item is opened (from the form
+   * the panel then shows: what built a package on disk is not recorded, and the
+   * form is what Rebuild Context would use).
+   */
+  #preparedWith: string | undefined;
+  /** Start New Attempt, from the press until it has started or said why not. */
+  #attempt: AttemptView | undefined;
+  /** A feedback helper's text, held for exactly one push. */
+  #attemptDraft: AttemptDraft | undefined;
+  #attemptDraftToken = 0;
   /**
    * Code search's two numbers, as the last artifact refresh read them.
    *
@@ -543,6 +628,16 @@ export class Controller {
   #abort: AbortController | undefined;
   #running = false;
   /**
+   * True from the moment a run is asked for until it is running or has given up.
+   *
+   * `#running` is set only once the process is about to start — after the
+   * environment check, the Fresh confirmation and any file a long description
+   * needs — and a second press in that window used to start a second run.
+   */
+  #runPending = false;
+  /** How many runs have started, so `run()` can tell whether its own did. */
+  #runsStarted = 0;
+  /**
    * Whether this run's abort came from the developer.
    *
    * The Runner reports `aborted` for both a Stop and a timeout, so without
@@ -667,6 +762,12 @@ export class Controller {
       case "retry":
         await this.retry();
         return;
+      case "nextAction":
+        await this.nextAction(message.action, message.form);
+        return;
+      case "startAttempt":
+        await this.startNewAttempt(message.feedback, message.form);
+        return;
       case "openArtifact":
         await this.openArtifact(message.name);
         return;
@@ -711,7 +812,9 @@ export class Controller {
         else if (message.id === "openReviewReport") await this.openReviewReport();
         else if (message.id === "openVerificationReport") await this.openVerificationReport();
         else if (message.id === "editVerification") this.editVerification();
-        else await this.#ports.ui.editCredentials();
+        else if (message.id === "useReviewFindings" || message.id === "useVerificationEvidence") {
+          await this.useFeedbackHelper(message.id);
+        } else await this.#ports.ui.editCredentials();
         return;
       case "command": {
         // Only ids this host is currently offering, and only while the offer
@@ -727,9 +830,70 @@ export class Controller {
     }
   }
 
-  /** Prepare a bug. Rejects nothing: problems are rendered, not thrown. */
-  async run(form: FormState): Promise<void> {
-    if (this.#running) return;
+  /**
+   * Do what the primary button — or its ⋯ menu — offered, if it still offers it.
+   *
+   * The form comes first, because the answer depends on it and the page's copy
+   * is the freshest there is: the label the developer pressed was computed from
+   * the host's copy, up to one debounce interval older. When the two disagree —
+   * a hint edited and Fix with AI pressed before the panel caught up — nothing
+   * happens except the button being corrected: an agent handed a context the
+   * form no longer describes is the one outcome this must never produce.
+   */
+  async nextAction(action: NextActionId, form: FormState): Promise<void> {
+    await this.#formChanged(form);
+    const view = this.#primaryView();
+    if (!offeredActions(view).includes(action)) {
+      this.#ports.log.error(
+        `Refusing ${action}: the panel offers ${offeredActions(view).join(", ") || "nothing"} for this form.`,
+      );
+      if (view.busy) this.#ports.ui.notify("info", this.#busyReason());
+      else if (view.enabled) {
+        this.#ports.ui.notify(
+          "info",
+          `Nothing was started: the form changed before the panel caught up. The button now reads “${view.label}”.`,
+        );
+      }
+      this.#push();
+      return;
+    }
+    switch (action) {
+      case "run":
+        await this.run(this.#form);
+        return;
+      case "rebuildContext":
+        // The same preparation as Run, and never Fresh unless the developer
+        // ticked it — in which case run() asks before deleting anything. Not a
+        // handoff: an attempt that exists is continued or restarted on purpose.
+        await this.run(this.#form, { handOff: false });
+        return;
+      case "fixWithAI":
+        await this.fixWithAI();
+        return;
+      case "openSession":
+        this.openSession();
+        return;
+      case "startNewAttempt":
+        // Opens the page's form; the attempt itself arrives as `startAttempt`.
+        return;
+    }
+  }
+
+  /** Why nothing can start right now, in a sentence. */
+  #busyReason(): string {
+    if (this.#running || this.#runPending) return "A BugPilot run is in progress. Wait for it to finish, or press Stop.";
+    if (this.#mutation !== undefined) return BUSY_WITH[this.#mutation];
+    return "BugPilot is still handing this work item to an agent.";
+  }
+
+  /**
+   * Prepare a bug. Rejects nothing: problems are rendered, not thrown.
+   *
+   * `handOff: false` is Rebuild Context: the same preparation, without the
+   * Fix with AI box starting a handoff at the end of it.
+   */
+  async run(form: FormState, options: { readonly handOff?: boolean } = {}): Promise<void> {
+    if (this.#running || this.#runPending) return;
     // No run while an artifact write is in flight (Batches 11–12). A Fresh run
     // deletes the work item folder, and a recording's late write would put its
     // report back into the new package; any run would drop the recording's
@@ -737,6 +901,20 @@ export class Controller {
     // Refused here, the one door every run goes through — not by a page button.
     // Nothing is marked: the run simply has not begun.
     if (this.#refuseRunForMutation()) return;
+    this.#runPending = true;
+    const before = this.#runsStarted;
+    try {
+      await this.#prepare(form, options);
+    } finally {
+      const started = this.#runsStarted !== before;
+      this.#runPending = false;
+      // A run that never began — declined, invalid, refused — may have been
+      // pushed as busy while it was being set up; say it is not any more.
+      if (!started) this.#push();
+    }
+  }
+
+  async #prepare(form: FormState, options: { readonly handOff?: boolean }): Promise<void> {
     this.#form = form;
     this.#ports.saveForm?.(form);
 
@@ -778,7 +956,13 @@ export class Controller {
     const abort = new AbortController();
     this.#abort = abort;
     this.#running = true;
+    this.#runPending = false;
+    this.#runsStarted += 1;
     this.#stoppedByUser = false;
+    // The baseline the primary action compares the form against, from the form
+    // this run was given — set now, so no push after the run can compare against
+    // the one before it and flicker Rebuild Context.
+    this.#preparedWith = preparationFingerprint(form);
     // A re-prepare of the same Jira work item keeps fix_report.md — only Fresh
     // deletes it, and the retry flow reads it — so the Fix result row stays
     // through the run. Nothing else is known to survive: Fresh may delete it,
@@ -799,8 +983,12 @@ export class Controller {
       report !== undefined && this.#artifactNames.includes(VERIFICATION_REPORT_ARTIFACT)
         ? this.#verificationReport
         : undefined;
-    if (form.source === "jira") this.#setWorkItem(form.issueKey.trim().toUpperCase());
-    else {
+    if (form.source === "jira") {
+      this.#setWorkItem(form.issueKey.trim().toUpperCase());
+      // Fresh deletes everything the agent was given and wrote; the session it
+      // started is not one to reopen for the package this run builds.
+      if (form.fresh) this.#sessions.delete(form.issueKey.trim().toUpperCase());
+    } else {
       // A hand-written bug's id arrives with the `started` event. Until then
       // there is no current work item — and leaving the previous one's artifact
       // list on screen would offer files that `openArtifact` then refuses.
@@ -819,7 +1007,6 @@ export class Controller {
             ...(review === undefined ? [] : [REVIEW_REPORT_ARTIFACT]),
             ...(evidence === undefined ? [] : [VERIFICATION_REPORT_ARTIFACT]),
           ];
-    this.#canRetry = false;
     this.#forgetSummary();
     if (report !== undefined) this.#fixReport = report;
     if (review !== undefined) this.#reviewReport = review;
@@ -898,7 +1085,6 @@ export class Controller {
 
     for (const warning of runWarnings) this.#ports.ui.notify("warning", warning);
 
-    // canRetry is decided by refreshArtifacts, from whether a package exists.
     await this.refreshArtifacts();
     // What the run actually prepared, read back from its own status file rather
     // than assumed from the form: the two agree here, and the panel should be
@@ -910,7 +1096,7 @@ export class Controller {
     // itself. Reached only when the developer ticked it *and* the run produced
     // something to hand over — a prompt pointing at artifacts that a failed run
     // never wrote would send an agent looking for a missing file.
-    if (canFixWithAI(form)) {
+    if (options.handOff !== false && canFixWithAI(form)) {
       if (this.#progress.state === "done") await this.fixWithAI();
       else {
         this.#fix = {
@@ -988,6 +1174,217 @@ export class Controller {
     }
   }
 
+  /**
+   * Bring the AI session back: the terminal the last handoff for this work item
+   * opened.
+   *
+   * A terminal is the only kind of session a handoff starts, and the only one
+   * this can find. When it is gone — closed, or never opened in this window —
+   * the answer is said, and nothing is started in its place: reopening a
+   * session is not the same act as starting another, and Start New Attempt is
+   * one press away for that.
+   */
+  openSession(): void {
+    const workItemId = this.#workItemId;
+    if (!workItemId) {
+      this.#ports.ui.notify("warning", "Run BugPilot first; there is no AI session to open yet.");
+      return;
+    }
+    const session = this.#sessions.get(workItemId);
+    const base = fixTerminalName(workItemId);
+    const shown = this.#ports.ui.revealTerminal((name) =>
+      session ? name === session.terminal : name === base || name.startsWith(`${base} (`),
+    );
+    if (shown) return;
+    this.#ports.ui.notify(
+      "info",
+      session
+        ? `The terminal BugPilot opened for ${workItemId} has been closed, so there is no session to bring back. To continue, use ⋯ → Start New Attempt: it starts a new session with the prepared context.`
+        : `No AI session terminal for ${workItemId} is open in this window, so there is none to bring back. Use ⋯ → Start New Attempt to start a new session with the prepared context.`,
+    );
+  }
+
+  /**
+   * Start a new AI session on the prepared context — Start New Attempt.
+   *
+   * Not the way to continue a conversation (Open AI Session is), and offered
+   * only once an attempt exists: this is for an agent that stopped, went the
+   * wrong way, or left findings a review or a check turned up.
+   *
+   * Empty feedback writes nothing: the new session gets the same `task.md`
+   * handoff the first one did. Feedback is written to `user_feedback.md` —
+   * replacing what an earlier attempt left there — and `bug --retry` builds
+   * `agent_retry_prompt.md` from it, the package the CLI's own retry loop hands
+   * over. That write takes its turn with the other artifact writes: no run, no
+   * clean and no recording while it is in progress, and none of them under it.
+   */
+  async startNewAttempt(feedback: string, form: FormState): Promise<void> {
+    await this.#formChanged(form);
+    const view = this.#primaryView();
+    if (!offeredActions(view).includes("startNewAttempt")) {
+      this.#ports.log.error("Refusing to start a new attempt: the panel is not offering one for this form.");
+      this.#attempt = {
+        state: "failed",
+        message: view.busy
+          ? `Not started. ${this.#busyReason()}`
+          : this.#prepared() && this.#stale()
+            ? "Not started: the form changed since this context was prepared. Press Rebuild Context first, or undo the change."
+            : "Not started: a new attempt is offered once an AI attempt exists for a prepared work item.",
+      };
+      this.#push();
+      return;
+    }
+    const workItemId = this.#workItemId!;
+    const root = this.#root!;
+    const text = feedback.trim();
+    if (text.length > MAX_ATTEMPT_FEEDBACK) {
+      this.#attempt = {
+        state: "failed",
+        message: `Not started: the feedback is ${text.length} characters. Keep it under ${MAX_ATTEMPT_FEEDBACK}, and attach anything longer as a file.`,
+      };
+      this.#push();
+      return;
+    }
+
+    const epoch = this.#fixEpoch;
+    this.#handoffError = undefined;
+    this.#attempt = { state: "starting" };
+    this.#handoffBusy = true;
+    if (text !== "") this.#mutation = "attempt";
+    this.#push();
+    try {
+      let launch: Launch = {
+        prompt: this.#handoffText(workItemId),
+        detail: (agent) => `New attempt handed to ${agent} in a terminal.`,
+      };
+      if (text !== "") {
+        if (!(await this.#prepareRetryPackage(workItemId, root, text, epoch))) return;
+        launch = {
+          prompt: retryHandoffText(workItemId),
+          detail: (agent) => `New attempt, with your feedback, handed to ${agent} in a terminal.`,
+        };
+      }
+      if (epoch !== this.#fixEpoch) return;
+      await this.#handOver(workItemId, root, epoch, launch);
+      // Started, or said why not on the row's own card: either way the form's
+      // press has been answered, and the page may close it.
+      if (epoch === this.#fixEpoch) this.#attempt = undefined;
+    } catch (error) {
+      if (epoch === this.#fixEpoch) {
+        this.#attempt = { state: "failed", message: `Not started: ${oneSentence((error as Error).message)}` };
+      }
+    } finally {
+      if (this.#mutation === "attempt") this.#mutation = undefined;
+      // Like Fix with AI's: dropped by a switch or a run, the busy flag was reset
+      // where that happened and may belong to another press by now.
+      if (epoch === this.#fixEpoch) this.#handoffBusy = false;
+      this.#push();
+    }
+  }
+
+  /**
+   * Write the developer's feedback and have `bug --retry` build the package
+   * from it. False when it did not happen — said on the form — or when the
+   * work item on screen changed meanwhile, in which case nothing is said.
+   */
+  async #prepareRetryPackage(workItemId: string, root: string, text: string, epoch: number): Promise<boolean> {
+    try {
+      await this.#ports.files.writeFile(
+        this.#itemFile(workItemId, USER_FEEDBACK_ARTIFACT),
+        userFeedbackMarkdown(workItemId, text),
+      );
+      if (epoch !== this.#fixEpoch) return false;
+      const credentials = await this.#ports.credentials();
+      const envelope = await this.#ports.runner.runJson(buildRetryArgs(workItemId), {
+        cwd: root,
+        env: credentials.environment,
+        timeoutMs: 60_000,
+      });
+      if (epoch !== this.#fixEpoch) return false;
+      if (!envelope.ok) {
+        const diagnosis = diagnose(envelope.error.code, envelope.error.message);
+        this.#attempt = {
+          state: "failed",
+          message: `Not started: ${diagnosis.action ? `${diagnosis.summary} ${diagnosis.action}` : diagnosis.summary}`,
+        };
+        return false;
+      }
+      // The CLI creates a template only when there is no feedback file, so this
+      // means the file just written is not the one it read: hand over nothing.
+      if (envelope["feedback_created"] === true) {
+        this.#attempt = {
+          state: "failed",
+          message: `Not started: bugpilot did not find the feedback just written to ${USER_FEEDBACK_ARTIFACT}.`,
+        };
+        return false;
+      }
+    } catch (error) {
+      if (epoch === this.#fixEpoch) {
+        this.#attempt = { state: "failed", message: `Not started: ${oneSentence((error as Error).message)}` };
+      }
+      return false;
+    } finally {
+      // The folder is written; the handoff that follows reads it and writes nothing.
+      if (this.#mutation === "attempt") this.#mutation = undefined;
+    }
+    // The two files are in the folder now, and the tree should say so.
+    await this.refreshArtifacts();
+    this.#ports.ui.refreshViews();
+    return epoch === this.#fixEpoch;
+  }
+
+  /**
+   * The feedback helpers Start New Attempt's form may offer: each while its
+   * source is listed — and, for verification, while a check recorded there did
+   * not pass — and only while a new attempt could start at all.
+   */
+  #feedbackHelpers(view: PrimaryView): FeedbackHelperId[] {
+    if (!offeredActions(view).includes("startNewAttempt")) return [];
+    const helpers: FeedbackHelperId[] = [];
+    if (this.#artifactNames.includes(REVIEW_REPORT_ARTIFACT)) helpers.push("useReviewFindings");
+    if (this.#artifactNames.includes(VERIFICATION_REPORT_ARTIFACT) && hasUnsettledChecks(this.#verificationReport)) {
+      helpers.push("useVerificationEvidence");
+    }
+    return helpers;
+  }
+
+  /**
+   * Put what a review or a recorded check said into the feedback form — when the
+   * developer asks, never on its own.
+   *
+   * Read from the file when pressed, like Copy: somebody may have edited it
+   * since the panel last looked. The text is sent once, for the page to add to
+   * what is already typed; nothing is written and nothing reaches an agent until
+   * Start Attempt, and nothing here says reviewed, approved or verified.
+   */
+  async useFeedbackHelper(helper: FeedbackHelperId): Promise<void> {
+    const workItemId = this.#workItemId;
+    if (!workItemId || !this.#feedbackHelpers(this.#primaryView()).includes(helper)) {
+      this.#ports.log.error(`Refusing ${helper}: the feedback form is not offering it.`);
+      return;
+    }
+    const review = helper === "useReviewFindings";
+    const file = await this.#ports.files.readFile(
+      this.#itemFile(workItemId, review ? REVIEW_REPORT_ARTIFACT : VERIFICATION_REPORT_ARTIFACT),
+    );
+    if (this.#workItemId !== workItemId) return;
+    const text = review ? feedbackFromReview(file) : feedbackFromVerification(parseVerificationReport(file));
+    if (text === undefined) {
+      this.#ports.ui.notify(
+        "info",
+        review
+          ? `${REVIEW_REPORT_ARTIFACT} has no Findings or Recommendations recorded.`
+          : `${VERIFICATION_REPORT_ARTIFACT} has no check recorded as Failed or Not Run.`,
+      );
+      return;
+    }
+    this.#attemptDraftToken += 1;
+    this.#attemptDraft = { token: this.#attemptDraftToken, text };
+    this.#push();
+    // One push carries it: the page keeps the text from here.
+    this.#attemptDraft = undefined;
+  }
+
   /** Open one artifact of the current work item. */
   async openArtifact(name: string): Promise<void> {
     const workItemId = this.#workItemId;
@@ -1058,9 +1455,11 @@ export class Controller {
       return;
     }
     // Cleared as the attempt starts rather than when it succeeds: the developer
-    // pressed the button, and the old reason is about the press before it.
-    if (this.#handoffError) {
+    // pressed the button, and the old reason is about the press before it — as
+    // is a new attempt's refusal, which a handoff answers just as well.
+    if (this.#handoffError || this.#attempt?.state === "failed") {
       this.#handoffError = undefined;
+      this.#attempt = undefined;
       this.#push();
     }
     const workItemId = this.#workItemId;
@@ -1077,6 +1476,24 @@ export class Controller {
       return;
     }
 
+    // Not while task.md may be rewritten or deleted under the agent: a run
+    // prepares it again, a clean removes it. Refused here, the one door every
+    // handoff goes through — the palette and History reach it without a button.
+    if (this.#running || this.#runPending) {
+      this.#ports.ui.notify("warning", "A BugPilot run is in progress. Wait for it to finish before handing this work item to an agent.");
+      return;
+    }
+    if (this.#mutation !== undefined) {
+      this.#ports.ui.notify("warning", HANDOFF_WAITS_FOR[this.#mutation]);
+      return;
+    }
+    // Nor a package the form no longer describes: the developer changed what
+    // the context is about and has not rebuilt it.
+    if (this.#stale()) {
+      this.#ports.ui.notify("warning", STALE_HANDOFF);
+      return;
+    }
+
     // Said before the probe rather than after it: resolving an agent spawns a
     // process per candidate, and a button that does nothing visible for half a
     // second reads as a click that was dropped. Set before the first wait, so a
@@ -1085,7 +1502,10 @@ export class Controller {
     this.#handoffBusy = true;
     this.#push();
     try {
-      await this.#handOver(workItemId, root, epoch);
+      await this.#handOver(workItemId, root, epoch, {
+        prompt: this.#handoffText(workItemId),
+        detail: (agent) => `Handed to ${agent} in a terminal.`,
+      });
     } finally {
       // A handoff dropped by a switch or a run leaves the state alone: it was
       // reset where it changed, and may already belong to another press.
@@ -1096,11 +1516,13 @@ export class Controller {
     }
   }
 
-  /** Drop Fix with AI's outcome, its card, and any handoff still being worked out. */
+  /** Drop Fix with AI's outcome, its card, and any handoff or new attempt still being worked out. */
   #forgetFix(): void {
     this.#fix = undefined;
     this.#handoffError = undefined;
     this.#handoffBusy = false;
+    this.#attempt = undefined;
+    this.#attemptDraft = undefined;
     this.#fixEpoch += 1;
   }
 
@@ -1111,11 +1533,11 @@ export class Controller {
    * item or a run since, and nothing of it — a terminal, a clipboard copy, an
    * outcome, a card — may reach the screen.
    */
-  async #handOver(workItemId: string, root: string, epoch: number): Promise<void> {
+  async #handOver(workItemId: string, root: string, epoch: number, launch: Launch): Promise<void> {
     // The prompt points at task.md, so a package without one has nothing to
     // hand over: an agent told to read a missing file starts by looking for it.
     if (this.#noTaskToHandOver(workItemId)) return;
-    const text = this.#handoffText(workItemId);
+    const text = launch.prompt;
     const plan = await this.#resolveSelectedAgent(text);
     if (epoch !== this.#fixEpoch) return;
     // The folder may have been read again while the agent was looked for, and
@@ -1137,12 +1559,17 @@ export class Controller {
       // A retry that works clears the card the previous attempt left behind.
       this.#handoffError = undefined;
       this.#resolvedAgent = { kind: "resolved", label: plan.label };
+      // Numbered from the second, so Open AI Session — and the developer, in
+      // the terminal list — can tell this attempt's terminal from the last one.
+      const attempts = (this.#sessions.get(workItemId)?.attempts ?? 0) + 1;
+      const terminal = attempts === 1 ? fixTerminalName(workItemId) : `${fixTerminalName(workItemId)} (${attempts})`;
       this.#ports.log.info(`Handing ${workItemId} to ${plan.label}: ${plan.commandLine}`);
-      this.#ports.ui.runInTerminal(`Fix with AI · ${workItemId}`, root, plan.commandLine);
+      this.#ports.ui.runInTerminal(terminal, root, plan.commandLine);
+      this.#sessions.set(workItemId, { terminal, agent: plan.label, attempts });
       // "success" means handed over, and the detail says so. The agent runs in
       // a terminal this extension does not own, so whether it *fixed* anything
       // is not knowable here and is not claimed.
-      this.#fix = { status: "success", detail: `Handed to ${plan.label} in a terminal.` };
+      this.#fix = { status: "success", detail: launch.detail(plan.label) };
       // No push here: `fixWithAI`'s `finally` does one, and pushing before it
       // would put a state on screen that is both busy and finished at once.
       return;
@@ -1280,10 +1707,6 @@ export class Controller {
       this.#forgetCapture();
     }
     await this.#readSummary(workItemId, names);
-    // Retry needs a package to retry: `bug --retry` reads the prepared
-    // artifacts, so offering it after a run that was stopped before producing
-    // any would send the developer into WORK_ITEM_NOT_FOUND.
-    this.#canRetry = names.includes(TASK_ARTIFACT);
     // Pushed here rather than only by the callers: `refreshArtifacts` is also a
     // command of its own, and without this the panel keeps showing "loading".
     this.#push();
@@ -1350,6 +1773,11 @@ export class Controller {
     } else if (!jira && typed === "") {
       this.#deriveFixModeFor(workItemId, this.#preparedFixMode);
     }
+    // What built the package on disk is not recorded anywhere the panel can
+    // read, so the baseline is the form as it now stands — what Rebuild Context
+    // would use. A form about another bug still reads as stale: that is decided
+    // by which work item it names, not by this.
+    this.#preparedWith = preparationFingerprint(this.#form);
     await this.refreshArtifacts();
     this.#push();
   }
@@ -1736,6 +2164,9 @@ export class Controller {
    */
   async #formChanged(form: FormState): Promise<void> {
     const previous = this.#form;
+    // Compared after, so an edit that makes the context stale — or undoes that —
+    // is on the button with the next push, and not only on the next Run.
+    const primaryBefore = JSON.stringify(this.#primaryView());
     this.#form = form;
     this.#ports.saveForm?.(form);
     // Editing the hint, or moving to another issue, makes the suggestion an
@@ -1753,7 +2184,7 @@ export class Controller {
     // `undefined` is a half-typed key: not yet any work item, so not yet a
     // reason to conclude the developer moved to another one.
     if (scope === undefined || scope === this.#fixModeWorkItem) {
-      if (changed) this.#push();
+      if (changed || JSON.stringify(this.#primaryView()) !== primaryBefore) this.#push();
       return;
     }
     const prepared =
@@ -1763,7 +2194,8 @@ export class Controller {
     // Only the selection follows the typed key. `#preparedFixMode` keeps
     // describing the work item whose artifacts and progress are on screen,
     // which is still the one that was opened.
-    if (this.#deriveFixModeFor(scope, prepared) || changed) this.#push();
+    const derived = this.#deriveFixModeFor(scope, prepared);
+    if (derived || changed || JSON.stringify(this.#primaryView()) !== primaryBefore) this.#push();
   }
 
   /**
@@ -2431,6 +2863,8 @@ export class Controller {
     } finally {
       this.#mutation = undefined;
     }
+    // Everything the agent was given is gone; so is the session to reopen.
+    this.#sessions.delete(workItemId);
     await this.refreshArtifacts();
     this.#push();
     return true;
@@ -2517,6 +2951,65 @@ export class Controller {
   }
 
   /**
+   * Whether the work item on screen has a context ready to hand over: task.md
+   * listed, from a Build context that finished, and no run rewriting it — the
+   * same condition as the Fix with AI row's Ready.
+   */
+  #prepared(): boolean {
+    if (this.#running || this.#workItemId === undefined) return false;
+    const build = this.#progress.rows.find((row) => row.capability === "build_context");
+    return build?.state === "done" && this.#artifactNames.includes(TASK_ARTIFACT);
+  }
+
+  /**
+   * Whether the form no longer describes the prepared context.
+   *
+   * Two questions. Is it about the same work item — a Jira key names one, a
+   * description names a new hand-written one, a half-typed key names none? And
+   * if so, did any preparation input change since the baseline? Only what a
+   * run would read counts (`preparationFingerprint`), so the agent picker, the
+   * Fix with AI box or Fresh never make a context stale.
+   */
+  #stale(form: FormState = this.#form): boolean {
+    const workItemId = this.#workItemId;
+    if (!this.#prepared() || workItemId === undefined) return false;
+    const preparedScope = JIRA_ISSUE_KEY_RE.test(workItemId) ? workItemId : MANUAL_WORK_ITEM_SCOPE;
+    if (workItemScopeOf(form) !== preparedScope) return true;
+    return this.#preparedWith !== undefined && preparationFingerprint(form) !== this.#preparedWith;
+  }
+
+  /**
+   * Whether an AI attempt exists for the work item on screen: this panel
+   * started one, or an agent wrote fix_report.md. Either way the next step is
+   * to continue it — or to start another on purpose — not Fix with AI again.
+   */
+  #attempted(): boolean {
+    const workItemId = this.#workItemId;
+    if (workItemId === undefined) return false;
+    return this.#sessions.has(workItemId) || this.#artifactNames.includes(FIX_REPORT_ARTIFACT);
+  }
+
+  /** A run, a handoff, a new attempt or an artifact write in flight: nothing else may start. */
+  #busy(): boolean {
+    return this.#running || this.#runPending || this.#handoffBusy || this.#mutation !== undefined;
+  }
+
+  /** The primary action and its menu, for the form and work item on screen. */
+  #primaryView(): PrimaryView {
+    const workItemId = this.#workItemId;
+    return primaryView({
+      ready: this.#readiness.kind === "ready" && this.#root !== undefined,
+      busy: this.#busy(),
+      prepared: this.#prepared(),
+      stale: this.#stale(),
+      attempted: this.#attempted(),
+      sessionKnown: workItemId !== undefined && this.#sessions.has(workItemId),
+      fresh: this.#form.fresh,
+      settled: this.#progress.state === "done" || this.#progress.state === "failed",
+    });
+  }
+
+  /**
    * Why the last run did not finish, as a card.
    *
    * Nothing is classified while a run is in flight: the tracker's failure is
@@ -2555,6 +3048,8 @@ export class Controller {
     // what the run did.
     const failed = this.#runFailure();
     const strategy = this.#strategyLine();
+    const primary = this.#primaryView();
+    const session = this.#workItemId === undefined ? undefined : this.#sessions.get(this.#workItemId);
     const workflow = buildWorkflow({
       source: this.#form.source,
       plan: effectivePlan(this.#form.plan),
@@ -2587,6 +3082,10 @@ export class Controller {
       ...(this.#verificationCapture === undefined ? {} : { verificationCapture: this.#verificationCapture }),
       canRecordVerification: this.#offersRecording(),
       ...(this.#verificationEdit === undefined ? {} : { verificationEdit: this.#verificationEdit }),
+      ...(session === undefined ? {} : { session: { agent: session.agent, attempts: session.attempts } }),
+      ...(this.#attempt === undefined ? {} : { attempt: this.#attempt }),
+      ...(this.#attemptDraft === undefined ? {} : { attemptDraft: this.#attemptDraft }),
+      feedbackHelpers: this.#feedbackHelpers(primary),
     });
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.
@@ -2626,10 +3125,18 @@ export class Controller {
       diagnostics: this.#diagnostics(),
       warnings: this.#warnings,
       jiraConfigured: this.#jiraConfigured,
-      canRetry: this.#canRetry,
+      primary,
       ...(this.#workItemId === undefined ? {} : { workItemId: this.#workItemId }),
     });
   }
+}
+
+/**
+ * The terminal Fix with AI opens for a work item; later attempts add " (2)",
+ * " (3)". Open AI Session looks for it by this name.
+ */
+function fixTerminalName(workItemId: string): string {
+  return `Fix with AI · ${workItemId}`;
 }
 
 /** A CLI message, bounded for a notification or a panel line. */

@@ -481,6 +481,39 @@ function pushNumber(
 }
 
 /**
+ * What a form would prepare, as one comparable string.
+ *
+ * The prepared context goes stale when this changes: it is every input that
+ * reaches `buildPrepareArgs` — the issue, the guidance, the retrieval
+ * overrides, the attachments, the Fix Mode and the plan — and nothing that
+ * describes what happens afterwards. `fixWithAI`, the agent and its command are
+ * the handoff's, `fresh` is how a run treats the old folder rather than what it
+ * prepares, and `useIssueDetails` only gates the hint improver.
+ *
+ * Normalized the way the argument builder reads each field, so whitespace a
+ * run would ignore — a trailing space, a blank keyword line, a lowercase key —
+ * does not make a package look out of date. A hand-written bug's title and
+ * description count only on the manual path, as they do on the command line.
+ */
+export function preparationFingerprint(form: FormState): string {
+  const manual = form.source === "manual";
+  return JSON.stringify({
+    source: form.source,
+    issue: manual ? form.description.trim() : form.issueKey.trim().toUpperCase(),
+    title: manual ? form.title.trim() : "",
+    hint: form.hint.trim(),
+    keywords: parseKeywords(form.keywords),
+    focusFiles: parsePaths(form.focusFiles),
+    ignorePaths: parsePaths(form.ignorePaths),
+    maxFiles: form.maxFiles.trim(),
+    maxSearchLines: form.maxSearchLines.trim(),
+    attachments: form.attachments.filter((entry) => entry.trim() !== ""),
+    fixModeId: form.fixModeId.trim(),
+    plan: planFlags(form.plan),
+  });
+}
+
+/**
  * The retry invocation for a work item.
  *
  * `--json` rather than `--json-lines` on purpose: the CLI's retry path only

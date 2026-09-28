@@ -708,9 +708,9 @@ button:focus-visible {
   margin-top: 2px;
 }
 
-/* One row. Stop and Retry are never both in it — Stop belongs to a run in
-   flight and Retry to a finished one — so at 200px this is two buttons at
-   most. */
+/* One row: the primary action, then Stop during a run or the ⋯ menu button
+   after one — never both, since the menu is empty while anything is in flight —
+   so at 200px this is two buttons at most. */
 .run-buttons {
   display: flex;
   gap: 6px;
@@ -730,7 +730,7 @@ button:focus-visible {
    above beat it and Stop sat beside Run, greyed out, in every state including
    an untouched panel. It was invisible to the tests because the DOM stub
    records the property rather than laying anything out; a screenshot found it
-   in one look. Retry had the same fault. */
+   in one look. The Retry button that used to sit here had the same fault. */
 .run-buttons > button[hidden] {
   display: none;
 }
@@ -743,8 +743,60 @@ button:focus-visible {
 }
 
 #stop,
-#retry {
+#more-actions {
   flex: none;
+}
+
+/* The ⋯ button sits in a row of full-height buttons, so it is as tall as they
+   are rather than a toolbar square. */
+#more-actions {
+  padding: 4px 6px;
+  border-color: var(--vscode-button-border, transparent);
+  background: var(--vscode-button-secondaryBackground, transparent);
+}
+
+#more-actions:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+/* The menu: a short list under the row, in the editor's own menu colours. Not
+   positioned over anything — a sidebar is too narrow for a popover to have
+   anywhere to go — so it opens in the flow, the way a disclosure does. */
+.more-menu {
+  display: flex;
+  flex-direction: column;
+  margin: 4px 0 0;
+  padding: 4px 0;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  border-radius: 2px;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+}
+
+.more-menu[hidden] {
+  display: none;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  color: inherit;
+  background: none;
+}
+
+.menu-item[hidden] {
+  display: none;
+}
+
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
 }
 
 .kbd {
@@ -1584,27 +1636,74 @@ button.icon .codicon {
   display: none;
 }
 
-/* Fix with AI's button: full width like Run, because it is the next step. */
-.step-primary {
+/* Start New Attempt's form, under Fix with AI: a heading, one text area, the
+   optional helpers and two plain buttons — the same quiet shape as Record
+   Review Result's, because it is the same kind of thing: something typed here
+   that the host acts on only when asked. */
+.attempt-editor {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
-.step-primary[hidden] {
+.attempt-editor[hidden] {
   display: none;
 }
 
-.step-primary > button {
+.attempt-heading {
+  margin: 0;
+  font-weight: 600;
+}
+
+.attempt-heading:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.attempt-heading:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.attempt-note {
+  margin: 0;
+  font-size: 0.9em;
+}
+
+.attempt-editor label {
+  margin-top: 4px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.attempt-editor textarea {
+  font-family: inherit;
+}
+
+.attempt-example {
+  white-space: pre-line;
+}
+
+.attempt-helpers {
+  margin-top: 2px;
+}
+
+#attempt-error[hidden] {
+  display: none;
+}
+
+.attempt-actions {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 6px;
-  flex: 1;
-  min-width: 0;
-  padding: 5px 12px;
+  margin-top: 6px;
 }
 
-.step-primary > button[hidden] {
-  display: none;
+.attempt-actions [aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* A ready task: the label at full strength, since there is something to do,

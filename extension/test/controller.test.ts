@@ -39,8 +39,12 @@ const buildRow = (state: PanelState) => stepOf(state, "buildContext");
 const fixRow = (state: PanelState) => stepOf(state, "fixWithAI");
 /** A finished package the panel reports: Build context says the context is ready. */
 const reportsContext = (state: PanelState) => buildRow(state).summary === "Context ready";
-/** Fix with AI offers its button. */
-const canFix = (state: PanelState) => fixRow(state).actions.includes("fixWithAI");
+/**
+ * Fix with AI is on offer: the panel's primary action, pressable. Since the
+ * next-action redesign that is the only place it is offered — the row keeps
+ * the status and no button.
+ */
+const canFix = (state: PanelState) => state.primary.action === "fixWithAI" && state.primary.enabled;
 /**
  * The run's failure card, wherever it is rendered: on the row whose step was in
  * flight, or standalone when no row owns it. Never the handoff's card, which is
@@ -78,6 +82,10 @@ interface Harness {
   readonly refreshes: { count: number };
   readonly ranCommands: string[];
   readonly terminals: { name: string; cwd: string; commandLine: string }[];
+  /** Terminal names still open, newest last: every one the harness opened, less any a test closes. */
+  readonly openTerminals: string[];
+  /** Every terminal Open AI Session brought forward, by name. */
+  readonly revealed: string[];
   readonly folders: string[];
   /** Which executables `canRun` was asked about, in order. */
   readonly probed: string[];
@@ -173,6 +181,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const savedWorkItems: string[] = [];
   const ranCommands: string[] = [];
   const terminals: { name: string; cwd: string; commandLine: string }[] = [];
+  const openTerminals: string[] = [];
+  const revealed: string[] = [];
   const folders: string[] = [];
   const probed: string[] = [];
   const fixModeCalls = { count: 0 };
@@ -253,6 +263,13 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       runInTerminal: (name, cwd, commandLine) => {
         if (options.terminalThrows) throw options.terminalThrows;
         terminals.push({ name, cwd, commandLine });
+        openTerminals.push(name);
+      },
+      revealTerminal: (matches) => {
+        const name = [...openTerminals].reverse().find((candidate) => matches(candidate));
+        if (name === undefined) return false;
+        revealed.push(name);
+        return true;
       },
       openFolder: async (directory) => {
         folders.push(directory);
@@ -330,6 +347,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     refreshes,
     ranCommands,
     terminals,
+    openTerminals,
+    revealed,
     saved,
     savedWorkItems,
     fixModeCalls,
@@ -410,7 +429,7 @@ test("a valid run streams, finishes, and refreshes what the editor shows", async
   assert.equal(h.last().progress.state, "done");
   assert.equal(h.last().artifacts.kind, "ready");
   assert.equal(h.refreshes.count - refreshesBefore, 1, "the trees must be re-read after a run changes .ai/");
-  assert.equal(h.last().canRetry, true);
+  assert.equal(h.last().primary.action, "fixWithAI", "a prepared task is the next thing to hand over");
 });
 
 test("the Jira token travels in the environment and never in argv or the panel", async () => {
@@ -596,6 +615,7 @@ test("an unusable CLI is re-checked on Run before refusing", async () => {
       editCredentials: async () => {},
       runCommand: async () => {},
       runInTerminal: () => {},
+      revealTerminal: () => false,
       openFolder: async () => {},
       pickFiles: async () => [],
       revealAgentPanel: async () => false,
@@ -888,10 +908,10 @@ test("an environment refresh does not overwrite what is being typed", async () =
   assert.equal(h.last().revision, afterReady, "the form must not be replaced by a refresh");
 });
 
-test("Retry is offered only when there is a package to retry", async () => {
-  // `bug --retry` reads the prepared artifacts. After a run that was stopped
-  // before producing any, offering Retry sends the developer into
-  // WORK_ITEM_NOT_FOUND.
+test("Fix with AI is the primary action only when there is a package to hand over", async () => {
+  // A run that was stopped before producing a task has nothing to hand over:
+  // the button stays Run. (It was Retry's rule too, while Retry had a button:
+  // `bug --retry` reads the prepared artifacts.)
   const stopped = harness({
     hold: true,
     terminated: false,
@@ -904,12 +924,13 @@ test("Retry is offered only when there is a package to retry", async () => {
   await Promise.resolve();
   stopped.controller.stop();
   await running;
-  assert.equal(stopped.last().canRetry, false);
+  assert.equal(stopped.last().primary.action, "run");
+  assert.deepEqual(stopped.last().primary.more, []);
 
   const finished = harness({ events: successfulRun, directory: ["task.md"] });
   await finished.controller.refreshEnvironment();
   await finished.controller.run(jiraForm());
-  assert.equal(finished.last().canRetry, true);
+  assert.equal(finished.last().primary.action, "fixWithAI");
 });
 
 test("starting a hand-written run drops the previous item's artifact list", async () => {
@@ -1084,6 +1105,7 @@ test("overlapping environment refreshes share one probe", async () => {
       editCredentials: async () => {},
       runCommand: async () => {},
       runInTerminal: () => {},
+      revealTerminal: () => false,
       openFolder: async () => {},
       pickFiles: async () => [],
       revealAgentPanel: async () => false,
@@ -3345,7 +3367,7 @@ test("success and a failure card are never both on screen", async () => {
   }
 });
 
-test("a new run clears the outcome the previous one reached", async () => {
+test("a new run clears the outcome the previous one reached, and keeps the session it started", async () => {
   const h = harness({ ...WITH_FILES, agentOnPath: true });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -3361,10 +3383,17 @@ test("a new run clears the outcome the previous one reached", async () => {
     assert.equal(state.overall.kind, "running");
     assert.notEqual(fixRow(state).status, "success", "the last run's outcome showed on this one");
     assert.equal(canFix(state), false, "a handoff was offered mid-run");
+    assert.equal(state.primary.busy, true);
   }
-  // And the finished run is a fresh package with nothing handed over yet.
-  assert.notEqual(fixRow(h.last()).status, "success");
-  assert.equal(canFix(h.last()), true);
+  // The package is rebuilt, and the agent the first press started is still the
+  // one working on this work item: the next step is to go back to it — or to
+  // start another on purpose — never Fix with AI as if nothing had started.
+  assert.equal(canFix(h.last()), false, "a second agent was offered for a work item one is working on");
+  assert.equal(h.last().primary.action, "openSession");
+  assert.deepEqual(h.last().primary.more, ["startNewAttempt", "rebuildContext"]);
+  assert.equal(fixRow(h.last()).status, "success");
+  assert.equal(fixRow(h.last()).detail, "Handed to Claude Code in a terminal.");
+  assert.equal(h.terminals.length, 1, "rebuilding the context handed it over again");
 });
 
 test("the outcome does not follow the developer to another work item", async () => {
@@ -6665,4 +6694,498 @@ test("finding the repository re-reads the Artifacts and History trees", async ()
   // The same repository again: nothing new to read.
   await h.controller.refreshEnvironment();
   assert.equal(h.refreshes.count, 1);
+});
+
+// --- the primary action: Run → Fix with AI → Open AI Session ----------------
+//
+// The button at the top follows the work item, so a developer never has to know
+// what Resume, Retry or Fresh mean to find the next step. These drive it the way
+// the page does — `nextAction` and `startAttempt`, each carrying the form — and
+// check what the host decided, did, and refused.
+
+const TASK_HANDOFF = `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`;
+const RETRY_HANDOFF = `claude ${JSON.stringify("Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.")}`;
+const RETRY_BUILT: Envelope = { ok: true, command: "bug", warnings: [], retry: true, feedback_created: false };
+
+const next = (action: "run" | "fixWithAI" | "openSession" | "rebuildContext" | "startNewAttempt", form: FormState = jiraForm()) =>
+  ({ type: "nextAction", action, form }) as const;
+const startAttempt = (feedback: string, form: FormState = jiraForm()) => ({ type: "startAttempt", feedback, form }) as const;
+const retryRuns = (h: Harness) => h.jsonRuns.filter((run) => run.args.includes("--retry"));
+
+/** Prepared through the primary action, as the page would press it. */
+async function preparedHarness(options: HarnessOptions = {}) {
+  const h = harness({ ...WITH_FILES, agentOnPath: true, ...options });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run"));
+  return h;
+}
+
+/** Prepared, and the first attempt handed over. */
+async function attemptedHarness(options: HarnessOptions = {}) {
+  const h = await preparedHarness(options);
+  await h.controller.handle(next("fixWithAI"));
+  assert.equal(h.terminals.length, 1, "the first handoff did not start");
+  return h;
+}
+
+test("next action 1: with nothing prepared, the one primary action is Run", async () => {
+  const h = harness({ ...WITH_FILES, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  const primary = h.last().primary;
+  assert.equal(primary.action, "run");
+  assert.equal(primary.label, "Run");
+  assert.equal(primary.enabled, true);
+  assert.equal(primary.hint, "Run prepares the issue context for AI-assisted fixing.");
+  assert.deepEqual(primary.more, [], "a menu was offered before anything was prepared");
+});
+
+test("next action 2: Build Context alone prepares, launches nothing, and the button becomes Fix with AI", async () => {
+  const h = await preparedHarness();
+  assert.equal(h.streamRuns.length, 1);
+  assert.equal(h.terminals.length, 0, "Run with Fix with AI unticked launched an agent");
+  const primary = h.last().primary;
+  assert.equal(primary.action, "fixWithAI");
+  assert.equal(primary.label, "Fix with AI");
+  assert.equal(primary.enabled, true);
+  assert.deepEqual(primary.more, ["rebuildContext"]);
+  // The row is the status, and says the task is ready — not started.
+  assert.equal(fixRow(h.last()).status, "ready");
+  assert.deepEqual(fixRow(h.last()).actions, []);
+});
+
+test("next action 3: Fix with AI hands over the prepared task.md, and prepares nothing again", async () => {
+  const h = await preparedHarness();
+  const runs = h.streamRuns.length;
+  const queries = h.jsonRuns.length;
+  await h.controller.handle(next("fixWithAI"));
+
+  assert.equal(h.streamRuns.length, runs, "Fix with AI prepared the context again");
+  assert.equal(h.jsonRuns.length, queries, "Fix with AI asked bugpilot for anything");
+  assert.deepEqual(h.written, [], "Fix with AI wrote a file");
+  assert.deepEqual(h.terminals, [{ name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: TASK_HANDOFF }]);
+  // "Started", and nothing about what the agent did.
+  assert.equal(fixRow(h.last()).summary, "AI fix started");
+  assert.equal(fixRow(h.last()).detail, "Handed to Claude Code in a terminal.");
+});
+
+test("next action 3: Fix with AI uses the agent the form has selected now", async () => {
+  const custom = jiraForm({ agent: "custom", agentCommand: "my-agent --prompt {prompt}" });
+  const h = harness({ ...WITH_FILES, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", custom));
+  await h.controller.handle(next("fixWithAI", custom));
+  assert.equal(h.terminals.length, 1);
+  assert.equal(h.terminals[0]!.commandLine, `my-agent --prompt ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`);
+  // The agent is not a preparation input: choosing it did not make the context stale.
+  assert.equal(h.streamRuns.length, 1);
+});
+
+test("next action 4: once the handoff starts, the button is Open AI Session, which goes back to that terminal", async () => {
+  const h = await attemptedHarness();
+  const primary = h.last().primary;
+  assert.equal(primary.action, "openSession");
+  assert.equal(primary.label, "Open AI Session");
+  assert.equal(primary.hint, "An AI session was started for this work item. Continue the conversation there.");
+  assert.deepEqual(primary.more, ["startNewAttempt", "rebuildContext"]);
+
+  await h.controller.handle(next("openSession"));
+  assert.deepEqual(h.revealed, ["Fix with AI · JR-12345"]);
+  assert.equal(h.terminals.length, 1, "Open AI Session started a terminal");
+  assert.equal(h.notices.some((notice) => /session/i.test(notice.message)), false, "a found session was talked about");
+});
+
+test("next action 4: a session whose terminal is gone is said plainly, and nothing is started in its place", async () => {
+  const h = await attemptedHarness();
+  h.openTerminals.length = 0;
+  await h.controller.handle(next("openSession"));
+
+  assert.deepEqual(h.revealed, []);
+  assert.equal(h.terminals.length, 1, "a new session was started instead of saying the old one is gone");
+  const notice = h.notices.at(-1)!;
+  assert.equal(notice.kind, "info");
+  assert.match(notice.message, /has been closed, so there is no session to bring back/);
+  assert.match(notice.message, /Start New Attempt/);
+  assert.doesNotMatch(notice.message, /restored|reopened|resumed|reconnected/i);
+});
+
+test("next action 4: an earlier attempt's report makes it Open AI Session too, which never invents a session", async () => {
+  // Reopened after a reload: an agent wrote fix_report.md, but this window never
+  // saw a handoff. The next step is still that attempt, not a second Fix with AI.
+  const h = harness({
+    agentOnPath: true,
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(h.last().primary.action, "openSession");
+  assert.match(h.last().primary.hint, /An earlier AI attempt wrote fix_report\.md/);
+  assert.equal(fixRow(h.last()).summary, "Fix report available");
+  assert.notEqual(fixRow(h.last()).status, "success", "a start nobody saw was reported");
+
+  await h.controller.handle(next("openSession"));
+  assert.equal(h.terminals.length, 0);
+  assert.match(h.notices.at(-1)!.message, /No AI session terminal for JR-12345 is open in this window/);
+});
+
+test("next action 5: Start New Attempt is not offered, and refused, before the first attempt", async () => {
+  const h = await preparedHarness();
+  assert.equal(h.last().primary.more.includes("startNewAttempt"), false);
+
+  await h.controller.handle(startAttempt("Try again."));
+  assert.equal(h.terminals.length, 0, "a new attempt started before any attempt");
+  assert.deepEqual(h.written, []);
+  assert.equal(retryRuns(h).length, 0);
+  const attempt = fixRow(h.last()).attempt;
+  assert.equal(attempt?.state, "failed");
+  assert.match(attempt?.state === "failed" ? attempt.message : "", /offered once an AI attempt exists/);
+
+  // After the first handoff, it is.
+  await h.controller.handle(next("fixWithAI"));
+  assert.deepEqual(h.last().primary.more, ["startNewAttempt", "rebuildContext"]);
+  assert.equal(fixRow(h.last()).attempt, undefined, "the refusal outlived the handoff");
+});
+
+test("next action 6: a new attempt with empty feedback writes nothing and hands over task.md again", async () => {
+  const h = await attemptedHarness();
+  await h.controller.handle(startAttempt("   \n  "));
+
+  assert.deepEqual(h.written, [], "empty feedback wrote user_feedback.md");
+  assert.equal(retryRuns(h).length, 0, "empty feedback ran bug --retry, which writes a template");
+  assert.equal(h.terminals.length, 2);
+  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345 (2)", cwd: ROOT, commandLine: TASK_HANDOFF });
+  assert.equal(fixRow(h.last()).detail, "New attempt handed to Claude Code in a terminal.");
+  assert.equal(fixRow(h.last()).attempt, undefined, "the form was not told the press was answered");
+  assert.equal(h.last().primary.action, "openSession");
+
+  // Open AI Session now goes to the new attempt's terminal, not the first one's.
+  await h.controller.handle(next("openSession"));
+  assert.deepEqual(h.revealed, ["Fix with AI · JR-12345 (2)"]);
+});
+
+test("next action 7: feedback goes into user_feedback.md, bug --retry builds the package, and that is handed over", async () => {
+  const h = await attemptedHarness({ json: RETRY_BUILT });
+  await h.controller.handle(startAttempt("  The previous fix changed the wrong class.\nKeep the public API.\n"));
+
+  assert.deepEqual(h.written, [
+    {
+      path: nodePath.join(ROOT, ".ai", "JR-12345", "user_feedback.md"),
+      contents: "# User Feedback: JR-12345\n\n## Required Next Attempt\n\nThe previous fix changed the wrong class.\nKeep the public API.\n",
+    },
+  ]);
+  // The CLI's own retry path, the same invocation the palette's Retry uses —
+  // `--json`, so it never launches an agent of its own.
+  assert.deepEqual(retryRuns(h).map((run) => run.args), [["bug", "JR-12345", "--retry", "--prepare-only", "--json"]]);
+  assert.equal(retryRuns(h)[0]!.options.env?.["JIRA_TOKEN"], TOKEN);
+  assert.equal(h.terminals.length, 2);
+  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345 (2)", cwd: ROOT, commandLine: RETRY_HANDOFF });
+  assert.equal(fixRow(h.last()).detail, "New attempt, with your feedback, handed to Claude Code in a terminal.");
+  // The context was not rebuilt for it.
+  assert.equal(h.streamRuns.length, 1);
+});
+
+test("next action 7: a retry package that could not be built hands nothing over and says why on the form", async () => {
+  const failed = await attemptedHarness({
+    json: { ok: false, command: "bug", error: { code: "WORK_ITEM_NOT_FOUND", message: "No workflow package found for JR-12345." } },
+  });
+  await failed.controller.handle(startAttempt("Try the other overload."));
+  assert.equal(failed.terminals.length, 1, "a package that was not built was handed over");
+  const attempt = fixRow(failed.last()).attempt;
+  assert.equal(attempt?.state, "failed");
+  assert.match(attempt?.state === "failed" ? attempt.message : "", /^Not started: /);
+  assert.equal(failed.last().primary.enabled, true, "the failure left the panel busy");
+
+  // The CLI making its own template means it did not read what was written: nothing is handed over.
+  const template = await attemptedHarness({ json: { ...RETRY_BUILT, feedback_created: true } });
+  await template.controller.handle(startAttempt("Try the other overload."));
+  assert.equal(template.terminals.length, 1);
+  assert.match(JSON.stringify(fixRow(template.last()).attempt), /did not find the feedback just written/);
+});
+
+test("next action 7: while the feedback is being written, no run, clean or second attempt starts over it", async () => {
+  let answer: (envelope: Envelope) => void = () => {};
+  const h = await attemptedHarness({ json: () => new Promise<Envelope>((resolve) => { answer = resolve; }) });
+  const attempt = h.controller.handle(startAttempt("Try the other overload."));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  const primary = h.last().primary;
+  assert.equal(primary.busy, true);
+  assert.equal(primary.enabled, false);
+  assert.equal(primary.label, "Running…");
+  assert.equal(fixRow(h.last()).summary, "Starting a new attempt…");
+
+  await h.controller.run(jiraForm());
+  assert.equal(h.streamRuns.length, 1, "a run started while the new attempt was being prepared");
+  assert.ok(h.notices.some((notice) => notice.message === "Wait for the new attempt to be prepared before starting a run."));
+  assert.equal(await h.controller.clean("JR-12345", async () => { throw new Error("cleaned"); }), false);
+  assert.ok(h.notices.some((notice) => notice.message === "Wait for the new attempt to be prepared before cleaning this work item."));
+  await h.controller.handle(startAttempt("A second press."));
+  assert.equal(h.written.length, 1, "a second attempt wrote over the first one's feedback");
+
+  answer(RETRY_BUILT);
+  await attempt;
+  assert.equal(h.terminals.length, 2);
+  assert.equal(h.last().primary.busy, false);
+});
+
+test("next action 8: a changed preparation input makes the context stale, and Rebuild Context the button", async () => {
+  const h = await preparedHarness();
+  for (const change of [
+    { hint: "look at the controller" },
+    { keywords: "VolumeDescriptor" },
+    { focusFiles: "src/widgets/WidgetController.cpp" },
+    { ignorePaths: "build/" },
+    { maxFiles: "5" },
+    { fixModeId: "conservative" },
+    { attachments: ["/logs/crash.txt"] },
+    { plan: { ...DEFAULT_FORM.plan, gitHistory: false } },
+    { issueKey: "JR-99999" },
+    { source: "manual" as const, issueKey: "", description: "The dialog crashes on save." },
+  ]) {
+    await h.controller.handle({ type: "formChanged", form: jiraForm(change) });
+    const primary = h.last().primary;
+    assert.equal(primary.action, "rebuildContext", `${JSON.stringify(change)} left the context current`);
+    assert.equal(primary.label, "Rebuild Context");
+    assert.match(primary.hint, /The form changed since this context was prepared/);
+    // Undone: current again, without a run.
+    await h.controller.handle({ type: "formChanged", form: jiraForm() });
+    assert.equal(h.last().primary.action, "fixWithAI", `undoing ${JSON.stringify(change)} did not make it current`);
+  }
+  // What happens after a run is not a preparation input.
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ agent: "claude", fixWithAI: true, fresh: true, useIssueDetails: false }) });
+  assert.equal(h.last().primary.action, "fixWithAI");
+  assert.equal(h.streamRuns.length, 1);
+});
+
+test("next action 8: a stale context is never handed over — from the button, a stale label, or the palette", async () => {
+  const h = await preparedHarness();
+  const edited = jiraForm({ hint: "look at the controller" });
+  // The page still showed Fix with AI: the edit had not reached the host yet.
+  await h.controller.handle(next("fixWithAI", edited));
+  assert.equal(h.terminals.length, 0, "a stale context was handed over");
+  assert.equal(h.last().primary.action, "rebuildContext", "the button was not corrected");
+  assert.match(h.notices.at(-1)!.message, /Nothing was started: the form changed before the panel caught up\. The button now reads “Rebuild Context”\./);
+  // The command palette's Fix with AI goes through the same door.
+  await h.controller.fixWithAI();
+  assert.equal(h.terminals.length, 0);
+  assert.match(h.notices.at(-1)!.message, /The form changed since this context was prepared, so nothing was handed over/);
+  // Nor a new attempt, once an attempt exists.
+  await h.controller.handle({ type: "formChanged", form: jiraForm() });
+  await h.controller.handle(next("fixWithAI"));
+  await h.controller.handle(startAttempt("", edited));
+  assert.equal(h.terminals.length, 1, "a new attempt started on a stale context");
+  assert.match(JSON.stringify(fixRow(h.last()).attempt), /Press Rebuild Context first/);
+});
+
+test("next action 9: Rebuild Context prepares again with --resume, never Fresh unasked, and hands nothing over", async () => {
+  let asked = 0;
+  const h = await attemptedHarness({ confirmAnswer: async () => { asked += 1; return true; } });
+  const edited = jiraForm({ hint: "look at the controller", fixWithAI: true });
+  await h.controller.handle({ type: "formChanged", form: edited });
+  await h.controller.handle(next("rebuildContext", edited));
+
+  assert.equal(h.streamRuns.length, 2);
+  const args = h.streamRuns[1]!.args;
+  assert.ok(args.includes("--resume"), "Rebuild Context did not keep the folder");
+  assert.equal(args.includes("--fresh"), false, "Rebuild Context deleted the folder");
+  assert.ok(args.includes("--hint=look at the controller"), "Rebuild Context used an older form");
+  assert.equal(asked, 0, "a question was asked about a rebuild that deletes nothing");
+  // The Fix with AI box is ticked, but this is a rebuild: the attempt that
+  // exists is continued, or restarted on purpose — never a second agent unasked.
+  assert.equal(h.terminals.length, 1, "Rebuild Context handed the context over");
+  // Current again, and the attempt still exists.
+  assert.equal(h.last().primary.action, "openSession");
+  assert.deepEqual(h.last().primary.more, ["startNewAttempt", "rebuildContext"]);
+});
+
+test("next action 9: Rebuild Context with Delete previous artifacts ticked asks first, and a no is no run", async () => {
+  let asked = 0;
+  const h = await preparedHarness({ confirmAnswer: async () => { asked += 1; return false; } });
+  const fresh = jiraForm({ hint: "look at the controller", fresh: true });
+  await h.controller.handle({ type: "formChanged", form: fresh });
+  assert.match(h.last().primary.hint, /Delete previous artifacts first is on, so it asks before deleting anything\./);
+  await h.controller.handle(next("rebuildContext", fresh));
+  assert.equal(asked, 1, "a Fresh rebuild did not ask");
+  assert.equal(h.streamRuns.length, 1, "a declined Fresh rebuild ran anyway");
+});
+
+test("next action 9: rebuilding a context nobody handed over leaves Fix with AI the next step", async () => {
+  const h = await preparedHarness();
+  await h.controller.handle(next("rebuildContext"));
+  assert.equal(h.streamRuns.length, 2);
+  assert.equal(h.last().primary.action, "fixWithAI");
+  assert.equal(h.terminals.length, 0);
+});
+
+test("next action 10: while a run is in flight the button is Running…, disabled, and a second press starts nothing", async () => {
+  const h = harness({ ...WITH_FILES, agentOnPath: true, hold: true, events: successfulRun.filter((event) => event.type !== "completed") });
+  await h.controller.refreshEnvironment();
+  const running = h.controller.handle(next("run"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  const primary = h.last().primary;
+  assert.equal(primary.label, "Running…");
+  assert.equal(primary.enabled, false);
+  assert.equal(primary.busy, true);
+  assert.deepEqual(primary.more, []);
+
+  await h.controller.handle(next("run"));
+  await h.controller.handle(next("rebuildContext"));
+  assert.equal(h.streamRuns.length, 1, "a second run started over the first");
+  assert.match(h.notices.at(-1)!.message, /A BugPilot run is in progress/);
+  // Nor a handoff of the task.md the run is rewriting, however it is asked for.
+  await h.controller.fixWithAI();
+  assert.equal(h.terminals.length, 0, "a handoff started during a run");
+
+  h.release();
+  await running;
+  assert.equal(h.last().primary.busy, false);
+});
+
+test("next action 10: while a handoff is being worked out, neither a second one nor a new attempt starts", async () => {
+  let probe: (value: boolean) => void = () => {};
+  const h = await preparedHarness({ agentProbe: () => new Promise<boolean>((resolve) => { probe = resolve; }) });
+  const first = h.controller.handle(next("fixWithAI"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(h.last().primary.label, "Running…");
+  assert.equal(h.last().primary.enabled, false);
+
+  await h.controller.handle(next("fixWithAI"));
+  await h.controller.handle(startAttempt(""));
+  probe(true);
+  await first;
+  assert.equal(h.terminals.length, 1, "two presses started two agents");
+});
+
+test("next action 11: the feedback helpers are offered only by the artifacts that exist, and add text only when pressed", async () => {
+  const both = harness({
+    agentOnPath: true,
+    directory: [...PREPARED_FILES, "fix_report.md", "review_report.md", "verification_report.md"],
+    files: {
+      "run.json": PREPARED_RUN_JSON,
+      "fix_report.md": fixReportMd("Fixed it.", "3 passed."),
+      "review_report.md": REVIEW_REPORT_MD(),
+      "verification_report.md": VERIFICATION_MD,
+    },
+  });
+  await both.controller.refreshEnvironment();
+  await both.controller.showWorkItem("JR-12345");
+  assert.deepEqual(fixRow(both.last()).feedbackHelpers, ["useReviewFindings", "useVerificationEvidence"]);
+  // Listing them puts nothing anywhere.
+  assert.equal(fixRow(both.last()).attemptDraft, undefined);
+
+  await both.controller.handle({ type: "action", id: "useReviewFindings" });
+  const review = both.states.at(-1)!;
+  assert.equal(fixRow(review).attemptDraft?.token, 1);
+  assert.equal(
+    fixRow(review).attemptDraft?.text,
+    "From review_report.md (a recorded review):\n\nFindings:\n- One duplicate null check.\n\nRecommendations:\n- Remove the duplicate.",
+  );
+  await both.controller.handle({ type: "action", id: "useVerificationEvidence" });
+  const evidence = fixRow(both.states.at(-1)!).attemptDraft;
+  assert.equal(evidence?.token, 2);
+  assert.match(evidence?.text ?? "", /- Open the dialog — recorded as Failed/);
+  assert.match(evidence?.text ?? "", /- Integration suite — recorded as Not Run/);
+  assert.doesNotMatch(evidence?.text ?? "", /Unit tests|verified|approved/i);
+  // Sent once, and nothing written, recorded or handed over by pressing them.
+  await both.controller.refreshArtifacts();
+  assert.equal(fixRow(both.last()).attemptDraft, undefined, "a helper's text was sent twice");
+  assert.deepEqual(both.written, []);
+  assert.equal(both.terminals.length, 0);
+
+  // Evidence where every check passed has nothing to add; no review, no review helper.
+  const passed = harness({
+    agentOnPath: true,
+    directory: [...PREPARED_FILES, "fix_report.md", "verification_report.md"],
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed."), "verification_report.md": ONE_PASSED_MD },
+  });
+  await passed.controller.refreshEnvironment();
+  await passed.controller.showWorkItem("JR-12345");
+  assert.equal(fixRow(passed.last()).feedbackHelpers, undefined);
+  await passed.controller.handle({ type: "action", id: "useVerificationEvidence" });
+  await passed.controller.handle({ type: "action", id: "useReviewFindings" });
+  assert.equal(passed.states.some((state) => fixRow(state).attemptDraft !== undefined), false, "a helper nobody was offered answered");
+});
+
+test("next action 11: no helper before an attempt exists, whatever files are there", async () => {
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    directory: [...WITH_FILES.directory, "review_report.md"],
+    files: { ...WITH_FILES.files, "review_report.md": REVIEW_REPORT_MD() },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run"));
+  assert.equal(h.last().primary.action, "fixWithAI");
+  assert.equal(fixRow(h.last()).feedbackHelpers, undefined);
+});
+
+test("next action 12: a late form change carrying the prepared form, or whitespace, never turns the button back", async () => {
+  const form = jiraForm({ hint: "look at the controller", keywords: "a, b" });
+  const h = harness({ ...WITH_FILES, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", form));
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  // The debounce's echo of the form the run was pressed with, after the run.
+  await h.controller.handle({ type: "formChanged", form });
+  assert.equal(h.last().primary.action, "fixWithAI", "the run's own form made its context stale");
+  await h.controller.handle({ type: "formChanged", form: { ...form, hint: "look at the controller  ", keywords: "a,\nb" } });
+  assert.equal(h.last().primary.action, "fixWithAI", "whitespace made the context stale");
+});
+
+test("next action 12: re-preparing with a changed form never flickers Rebuild Context on the way", async () => {
+  const h = await preparedHarness();
+  const edited = jiraForm({ hint: "look at the controller" });
+  await h.controller.handle({ type: "formChanged", form: edited });
+  assert.equal(h.last().primary.action, "rebuildContext");
+
+  const before = h.states.length;
+  await h.controller.handle(next("rebuildContext", edited));
+  const during = h.states.slice(before);
+  const settled = during.findIndex((state) => !state.primary.busy);
+  // From the moment it starts, the button is Running…, then the next step —
+  // never Rebuild Context again for a push computed against the old baseline.
+  assert.ok(settled > 0, "the rebuild never showed Running…");
+  for (const state of during.slice(settled)) {
+    assert.notEqual(state.primary.action, "rebuildContext", "a push after the rebuild compared against the old form");
+  }
+  assert.equal(h.last().primary.action, "fixWithAI");
+});
+
+test("the session belongs to its work item: another item and back keeps it, Clean drops it", async () => {
+  const h = await attemptedHarness({
+    directory: [...WITH_FILES.directory, "run.json"],
+    files: { ...WITH_FILES.files, "run.json": PREPARED_RUN_JSON },
+  });
+  await h.controller.showWorkItem("JR-2");
+  assert.equal(h.last().primary.action, "fixWithAI", "another work item inherited this one's session");
+  await h.controller.showWorkItem("JR-12345");
+  assert.equal(h.last().primary.action, "openSession", "coming back offered a second agent for the same package");
+
+  assert.equal(await h.controller.clean("JR-12345", async () => {}), true);
+  // The harness keeps its listing, so the package is still "there": what
+  // changed is that the session to reopen is gone with what it was given.
+  assert.equal(h.last().primary.action, "fixWithAI");
+});
+
+test("next action 10: a second press while a run is still being set up starts nothing, and a declined one frees the button", async () => {
+  // Before the process starts there is the Fresh question: a press made while it
+  // is open used to be a second run waiting behind the first.
+  let asked = 0;
+  let answer: (yes: boolean) => void = () => {};
+  const h = await preparedHarness({ confirmAnswer: () => { asked += 1; return new Promise<boolean>((resolve) => { answer = resolve; }); } });
+  const fresh = jiraForm({ hint: "look at the controller", fresh: true });
+  await h.controller.handle({ type: "formChanged", form: fresh });
+  const first = h.controller.handle(next("rebuildContext", fresh));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await h.controller.handle(next("rebuildContext", fresh));
+  await h.controller.run(fresh);
+  assert.equal(asked, 1, "a second press asked the Fresh question again");
+
+  answer(false);
+  await first;
+  assert.equal(h.streamRuns.length, 1, "a declined or doubled rebuild ran");
+  assert.equal(h.last().primary.busy, false, "the button stayed Running… after the question was declined");
+  assert.equal(h.last().primary.action, "rebuildContext");
 });

@@ -66,7 +66,8 @@ test("a prepared task that nobody handed over is ready, not the green tick", () 
   const { row } = fixRow();
   assert.equal(row.status, "ready");
   assert.equal(row.summary, "Ready");
-  assert.deepEqual([...row.actions], ["fixWithAI"]);
+  // Offered by the primary action, not by the row.
+  assert.deepEqual([...row.actions], []);
 });
 
 test("a success with nothing to add about the agent still reports itself", () => {

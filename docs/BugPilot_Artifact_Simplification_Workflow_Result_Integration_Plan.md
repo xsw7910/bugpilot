@@ -919,6 +919,11 @@ task.md
 
 的 owner。
 
+> **Superseded in part (Next action, after `647f24d`):** the row keeps its
+> states below, but no longer carries the `[Fix with AI]` button — handing the
+> task over is the panel's primary action. See "Confirmed decisions (Next
+> action)" at the end of §19.
+
 ## Ready
 
 ```text
@@ -1650,6 +1655,120 @@ contract, not a new concept.
 4. **The manifest has no comment keys inside `contributes.menus`**: VS Code
    reads every key there as a menu id and logged "submenu items must be an
    array" at every start. The comments moved to a top-level `//menus` key.
+
+### Confirmed decisions (Next action): one primary CTA that follows the work item
+
+The problem: after **Build Context** with **Fix with AI** unticked, nothing on
+the screen said how to start the fix. The top button still read **Run** — which
+now meant "prepare it all again" — **Retry** sat beside it asking the developer
+to know what `bug --retry` does, and the handoff button was a second primary
+button inside the Fix with AI row, under a disclosure that starts collapsed.
+
+1. **One primary action, directly under the Issue field, that is always the
+   next step.** It is computed by the host (`extension/src/app/nextAction.ts`,
+   `primaryView`) on every push, like the workflow rows, and the page only
+   renders it:
+
+   ```text
+   nothing prepared                         → Run
+   task.md ready, no attempt                → Fix with AI
+   an attempt exists                        → Open AI Session
+   the form changed since it was prepared   → Rebuild Context
+   a run, handoff or artifact write in flight → Running…   (disabled)
+   ```
+
+   Precedence is top to bottom after *busy*, which wins over everything.
+   *Prepared* is the Fix with AI row's own Ready condition: `task.md` listed,
+   from a Build context that finished, no run in flight. *An attempt exists*
+   means this window started a handoff for the work item, or an agent wrote
+   `fix_report.md` (a reopened item after a reload). One line under the button
+   says why it reads what it reads; it is Run's old sentence until a run has
+   finished or failed.
+
+2. **Everything else is behind a ⋯ menu beside it**, never a second primary
+   button: **Rebuild Context** once there is a context, **Start New Attempt**
+   once an attempt exists (and never before the first handoff), and **Open AI
+   Session** while the context is stale but a session exists. The menu is empty
+   — and its button absent — while anything is in flight.
+
+3. **What each action means.**
+
+   | Action | Meaning |
+   | --- | --- |
+   | **Run** | Initial preparation. Honors the plan boxes; with **Fix with AI** ticked it hands over at the end, as before. |
+   | **Fix with AI** | The first handoff of the prepared `task.md`: no Jira fetch, no search, no preparation — the same one-sentence prompt and terminal as before. "AI fix started" still means only that the terminal started. |
+   | **Open AI Session** | Continue the existing interaction: bring forward the terminal the last handoff opened (the newest still-open one with that name). If it is gone, say so in a neutral notice and start nothing — BugPilot never claims to have restored a session. |
+   | **Start New Attempt** | A new AI session on the existing context, with optional feedback (decision 5). Not the way to continue a conversation. |
+   | **Rebuild Context** | Regenerate the preparation after a change: the same `bug … --resume --prepare-only --json-lines` a Run sends, from the current form, and never a handoff at the end of it. Non-Fresh: `fix_report.md`, `review_report.md` and `verification_report.md` survive as they do for any re-prepare. |
+   | **Fresh / Resume** | Advanced and recovery, unchanged: Fresh is still the *Delete previous artifacts first* box, and a Rebuild Context with it ticked asks before deleting, as Run does — never silently. The CLI's two-step **Retry** stays in the command palette and the History menu. |
+
+4. **Staleness is decided by the host, from the form it is given.** The
+   baseline is a fingerprint of every preparation input
+   (`preparationFingerprint` in `form.ts`: issue key or description and title,
+   hint, keywords, focus files, ignore paths, both limits, attachments, Fix
+   Mode, the effective plan), normalized the way `buildPrepareArgs` reads them,
+   so whitespace a run ignores changes nothing. The agent, its command, the Fix
+   with AI box, Fresh and *Use issue details* are not inputs. It is taken when a
+   run starts (from that run's form — so no push after it can compare against an
+   older one) and when a work item is opened (from the form then shown; what
+   built a package on disk is not recorded). A form naming another work item is
+   stale regardless. A stale context is never handed over: the primary action
+   becomes Rebuild Context, Start New Attempt is withdrawn, and `fixWithAI()`
+   itself refuses — so the command palette and History cannot bypass it.
+
+5. **Start New Attempt's feedback is optional, and only typed text is written.**
+   The menu item opens an inline form under Fix with AI (not a modal): *Optional
+   feedback*, placeholder *What should the new attempt do differently?*, an
+   example, Cancel and Start Attempt. Empty: nothing is written and `bug
+   --retry` is not run — it would write the placeholder template — and the new
+   session gets the same `task.md` handoff. Typed: the host writes
+   `user_feedback.md` (the template's heading, `## Required Next Attempt`, and
+   the text; replacing earlier feedback, which the form says), runs `bug <id>
+   --retry --prepare-only --json` to build `agent_retry_prompt.md`, and hands
+   over `Read .ai/<id>/agent_retry_prompt.md and continue the workflow.` — the
+   CLI's own `retry_handoff_prompt`. No `attempts/` directory; artifact storage
+   is unchanged. The write takes the one-artifact-write-at-a-time guard
+   (`attempt`): no run, clean or recording starts while it is in progress. Each
+   handoff's terminal is numbered from the second, `Fix with AI · <id> (2)`, so
+   Open AI Session goes to the newest.
+
+6. **The feedback helpers copy text in only when pressed.** **Use Review
+   Findings** is listed while `review_report.md` is, and adds its Findings and
+   Recommendations verbatim. **Use Verification Evidence** is listed while
+   `verification_report.md` records a check as Failed or Not Run, and adds those
+   checks as recorded. Both are read from the file when pressed and sent once;
+   nothing is written or handed over until Start Attempt, and neither says
+   reviewed, approved or verified.
+
+7. **Fix with AI's row is a status and result area.** It says Ready, Starting
+   AI fix… / Starting a new attempt…, AI fix started (with which agent, and
+   whether the attempt carried feedback), Did not start (with its card), or
+   *Fix report available* for an attempt this window did not see start — never
+   the green tick for that. It keeps Strategy and the task link, and holds
+   Start New Attempt's form. A session this window started survives a Rebuild
+   Context of the same work item, so the row and the button stay "started" /
+   Open AI Session rather than inviting a second agent onto a package one is
+   working on. Sessions are kept per work item for the window's life; Clean and
+   a Fresh run drop them.
+
+8. **The host stays authoritative; the webview is presentation and intent.**
+   The page posts `nextAction` with the action it showed and its whole form, or
+   `startAttempt` with the feedback and the form. The host re-derives its answer
+   from that form and acts only if it still offers that action; otherwise it
+   corrects the button and says "Nothing was started: the form changed before
+   the panel caught up." A press also cancels the page's pending debounced
+   `formChanged`, whose older snapshot would otherwise overwrite the host's copy
+   after it. The existing guards hold unchanged — one handoff at a time, one
+   artifact write at a time, no run over a recording or a clean — and gain two:
+   no handoff while a run is in flight or an artifact write is, and no second
+   run while the first is still being set up (the Fresh question, a long
+   description's file).
+
+9. **Protocol.** `PanelState.primary` replaces `canRetry`; the Retry button is
+   gone. New messages `nextAction` and `startAttempt`; new actions
+   `useReviewFindings` and `useVerificationEvidence`. `run`, `retry` and the
+   `fixWithAI` action are still accepted, for the CLI-facing commands and older
+   callers. `UiPort.revealTerminal` is the one new port. No Python change.
 
 ---
 

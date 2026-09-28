@@ -38,6 +38,8 @@ import type {
   WritableScope,
 } from "../app/fixModes.ts";
 import { FIX_MODE_ACTIONS } from "../app/controller.ts";
+import { MAX_ATTEMPT_FEEDBACK, NEXT_ACTIONS } from "../app/nextAction.ts";
+import type { NextActionId, PrimaryView } from "../app/nextAction.ts";
 import type { FixModeActionId } from "../app/controller.ts";
 
 /**
@@ -124,8 +126,14 @@ export interface PanelState {
   readonly warnings: readonly Notice[];
   /** Whether a Jira credential is stored. Never the credential itself. */
   readonly jiraConfigured: boolean;
-  /** Set when a previous attempt exists, which is what enables Retry. */
-  readonly canRetry: boolean;
+  /**
+   * The one primary action and its ⋯ menu, for the work item and form on
+   * screen: Run, Fix with AI, Open AI Session, Rebuild Context, or Running….
+   *
+   * The host's answer, never the page's: the page renders the label and posts
+   * the action back with its form, and the host acts only if it still agrees.
+   */
+  readonly primary: PrimaryView;
   readonly workItemId?: string;
   /**
    * The AI Fix Modes bugpilot offers, and whether they could be read at all.
@@ -237,6 +245,11 @@ export const PANEL_ACTIONS = [
   // parsed from the file, only while the report is listed and nothing is in flight.
   "openVerificationReport",
   "editVerification",
+  // Start New Attempt's feedback helpers: the host reads review_report.md or
+  // verification_report.md and sends text back once, for the page to add to the
+  // form. Nothing is written, and nothing reaches an agent until Start Attempt.
+  "useReviewFindings",
+  "useVerificationEvidence",
 ] as const;
 export type PanelAction = (typeof PANEL_ACTIONS)[number];
 
@@ -246,6 +259,21 @@ export type PanelMessage =
   | { readonly type: "run"; readonly form: FormState }
   | { readonly type: "stop" }
   | { readonly type: "retry" }
+  /**
+   * "Do what the primary button — or its menu — said": Run, Fix with AI, Open
+   * AI Session or Rebuild Context.
+   *
+   * Carries the form for the same reason `run` does, and for one more: the host
+   * decides from this form whether the action is still the one it offers, so a
+   * label a debounce interval behind the form cannot act on a stale context.
+   */
+  | { readonly type: "nextAction"; readonly action: NextActionId; readonly form: FormState }
+  /**
+   * "Start a new AI attempt with this feedback": the inline form's Start
+   * Attempt. Empty feedback is a new session on the existing context; the host
+   * writes user_feedback.md only for text that was typed.
+   */
+  | { readonly type: "startAttempt"; readonly feedback: string; readonly form: FormState }
   | { readonly type: "formChanged"; readonly form: FormState }
   /**
    * "Open the file dialog and add what I choose."
@@ -315,6 +343,8 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   run: true,
   stop: true,
   retry: true,
+  nextAction: true,
+  startAttempt: true,
   formChanged: true,
   addAttachments: true,
   action: true,
@@ -408,6 +438,20 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
         checks.push(check);
       }
       return { type, checks, replace, ...(basis === undefined ? {} : { basis: basis as number }) };
+    }
+    case "nextAction": {
+      const action = message?.["action"];
+      const form = parseForm(message?.["form"]);
+      if (!(NEXT_ACTIONS as readonly string[]).includes(action as string) || !form) return undefined;
+      return { type, action: action as NextActionId, form };
+    }
+    case "startAttempt": {
+      const form = parseForm(message?.["form"]);
+      // A missing field is no feedback. Clamped one past the cap, so feedback
+      // that is too long is refused with a reason rather than cut short and
+      // handed to an agent as if that were what was typed.
+      const feedback = asString(message?.["feedback"], MAX_ATTEMPT_FEEDBACK + 1) ?? "";
+      return form ? { type, feedback, form } : undefined;
     }
     case "run":
     case "formChanged":
