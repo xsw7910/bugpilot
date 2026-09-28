@@ -10,7 +10,7 @@
   "license": "SEE LICENSE IN LICENSE.txt",
   "repository": {
     "type": "git",
-    "url": "https://github.com/xsw7910/bugpilot.git"
+    "url": "https://github.com/xsw7910/bugpilot-public.git"
   },
   "//categories": "`Programming Languages` was wrong and was there: that category is for extensions that add language support - grammars, servers, debuggers - and browsing it for this would waste the reader's time. A category is a shelf in someone else's shop, not a keyword.",
   "categories": [
