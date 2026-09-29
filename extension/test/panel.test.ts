@@ -737,8 +737,8 @@ test("helper text survives only where a placeholder could not carry it", () => {
   assert.match(advanced, /Prioritize files you already suspect are relevant\./);
   // A checkbox with no input to hang a placeholder on, saying what it lets the
   // improver read — and, just as importantly, what it does not.
-  assert.match(HTML, /No repository, history or files are read\./);
-  // Fix Mode, Hint and Use issue details keep their helper lines, on the form.
+  assert.match(HTML, /Includes only the issue title and description\. Repository files and history are not read\./);
+  // Fix Mode, Hint and Include issue details keep their helper lines, on the form.
   const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
   for (const id of ["fixModeId", "hint", "useIssueDetails"]) assert.ok(form.includes(`id="${id}-hint"`), id);
 });
@@ -1562,7 +1562,8 @@ test("the Issue field is one box that says it takes either kind of input", () =>
   );
   assert.deepEqual(
     controls,
-    ["issue", "fixModeId", "manage-fix-modes", "hint", "useIssueDetails", "improve-hint", "hint-use", "hint-keep"],
+    // Improve with AI before Include issue details: the action, then the option (§37.92).
+    ["issue", "fixModeId", "manage-fix-modes", "hint", "improve-hint", "useIssueDetails", "hint-use", "hint-keep"],
     "the order above Run is not Issue, Fix Mode, Hint",
   );
 });
@@ -1689,11 +1690,11 @@ test("the panel never teaches the retrieval pipeline's own vocabulary", () => {
   }
 });
 
-test("Improve is one word, with a tooltip that says what it will do", () => {
+test("Improve with AI says it uses AI, with a tooltip that says what it will do", () => {
   const button = /<button type="button" id="improve-hint"[\s\S]*?<\/button>/.exec(HTML)?.[0] ?? "";
-  assert.notEqual(button, "", "the Improve button is gone");
-  assert.match(button, /<span id="improve-hint-label">Improve<\/span>/);
-  assert.match(button, /title="Improve this hint with AI"/);
+  assert.notEqual(button, "", "the Improve with AI button is gone");
+  assert.match(button, /<span id="improve-hint-label">Improve with AI<\/span>/);
+  assert.match(button, /title="Improve this guidance with AI while preserving your intent"/);
   // The vendored font has no spark glyph; hubot is its AI icon and is already
   // what the AI agent setting uses. A name not in the subset renders as a box.
   assert.match(button, /codicon-hubot/);
@@ -1709,11 +1710,12 @@ test("the section headings are a rule, not a card", () => {
   assert.match(CSS, /\.settings-section \{[^}]*margin: 0 0 18px/s);
 });
 
-test("the hint row puts its two controls at opposite ends and lets them stack", () => {
-  // At 200px "Use issue details" and "Improve" cannot share a line. Wrapping is
-  // the answer; overlapping or clipping would hide the feature.
+test("the hint row lets its two controls stack, Improve with AI first, the option whole on its line", () => {
+  // At 200px "Improve with AI" and "Include issue details" cannot share a line.
+  // Wrapping is the answer; overlapping or clipping would hide the feature. The
+  // option and its helper are one group with a floor, so it wraps as one.
   assert.match(CSS, /\.hint-actions \{[^}]*flex-wrap: wrap/s);
-  assert.match(CSS, /\.hint-actions \{[^}]*justify-content: space-between/s);
+  assert.match(CSS, /\.hint-include \{[^}]*flex: 1 1 14em;[^}]*min-width: 0;/s);
   assert.equal(/\.hint-actions \{[^}]*white-space: nowrap/s.test(CSS), false);
   assert.equal(/\.hint-actions \{[^}]*position: absolute/s.test(CSS), false);
 });
@@ -2664,4 +2666,53 @@ test("Advanced Settings wraps between words at 200px, never inside one", () => {
   assert.match(rule, /overflow-wrap: normal;/);
   assert.equal(/(?<![a-z-])width:|white-space: nowrap|word-break: break-all/.test(rule), false);
   assert.match(CSS, /\.settings-entry \{[^}]*flex-wrap: wrap;/s);
+});
+
+// --- Hint actions: Improve with AI, Include issue details (§37.92) -----------
+
+const HINT_ROW = /<div class="hint-actions">[\s\S]*?<\/div>\s*<\/div>/.exec(HTML)?.[0] ?? "";
+
+test("the hint actions say what they do: Improve with AI, Include issue details — the old labels are gone", () => {
+  assert.notEqual(HINT_ROW, "", "no hint actions row");
+  assert.match(HINT_ROW, /<span id="improve-hint-label">Improve with AI<\/span>/);
+  assert.match(HINT_ROW, /<label class="choice" for="useIssueDetails"[^>]*>\s*<input type="checkbox" id="useIssueDetails"[^>]*>\s*Include issue details\s*<\/label>/);
+  const visible = HTML.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ");
+  assert.equal(visible.includes("Use issue details"), false, "the old checkbox label is still on screen");
+  // "Improve" alone, as this button's label, is gone — the word may appear elsewhere.
+  assert.equal(/<span id="improve-hint-label">Improve<\/span>/.test(HTML), false);
+  assert.match(PAGE_JS, /label\.textContent = busy \? "Improving…" : "Improve with AI";/);
+});
+
+test("Improve with AI comes before Include issue details in the markup, so in the tab order too", () => {
+  const improve = HINT_ROW.indexOf('id="improve-hint"');
+  const include = HINT_ROW.indexOf('id="useIssueDetails"');
+  assert.ok(improve !== -1 && include !== -1);
+  assert.ok(improve < include, "the option comes before the action");
+  // Not reordered by CSS behind the markup's back.
+  for (const rule of ["order:", "flex-direction: row-reverse", "flex-direction: column-reverse"]) {
+    assert.equal(new RegExp(`\\.(hint-actions|hint-include|choice)[^{]*\\{[^}]*${rule}`, "s").test(CSS), false, rule);
+  }
+});
+
+test("the two controls' tooltips and names agree with what they do", () => {
+  const button = /<button type="button" id="improve-hint"[^>]*>/.exec(HINT_ROW)?.[0] ?? "";
+  assert.match(button, /title="Improve this guidance with AI while preserving your intent"/);
+  // Its name is its text, Improve with AI — no aria-label to drift from it.
+  assert.equal(button.includes("aria-label"), false);
+  const label = /<label class="choice" for="useIssueDetails"[^>]*>/.exec(HINT_ROW)?.[0] ?? "";
+  assert.match(label, /title="Include the current issue title and description in the AI guidance"/);
+  // Nothing wider than the issue text is promised.
+  assert.doesNotMatch(label, /repository|history|attachment|code search|comments/i);
+  // The Hint itself gains no tooltip: its label and helper already explain it.
+  assert.equal(/<textarea[^>]*id="hint"[^>]*title=/.test(HTML), false);
+});
+
+test("the helper belongs to Include issue details: in its group, under it, and describing it", () => {
+  const group = /<div class="hint-include">[\s\S]*?<\/div>/.exec(HINT_ROW)?.[0] ?? "";
+  assert.notEqual(group, "", "the option is not grouped with its helper");
+  assert.match(group, /<p class="hint" id="useIssueDetails-hint">Includes only the issue title and description\. Repository files and history are not read\.<\/p>/);
+  assert.ok(group.indexOf('id="useIssueDetails"') < group.indexOf('id="useIssueDetails-hint"'));
+  assert.equal(group.includes('id="improve-hint"'), false);
+  assert.match(group, /aria-describedby="useIssueDetails-hint"/);
+  assert.equal(HTML.includes("The issue title and description only. No repository, history or files are read."), false, "the old helper is still there");
 });

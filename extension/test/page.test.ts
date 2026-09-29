@@ -2882,7 +2882,7 @@ test("a request in flight says so, and cannot be started twice", () => {
   assert.match(page.byId("improve-hint-icon").className, /codicon-loading/);
 
   page.send(state({ hintImprovement: { busy: false } }));
-  assert.equal(page.byId("improve-hint-label").textContent, "Improve");
+  assert.equal(page.byId("improve-hint-label").textContent, "Improve with AI");
   assert.equal(page.byId("improve-hint").disabled, false);
 });
 
@@ -6824,4 +6824,37 @@ test("a settings summary, which is cut with an ellipsis, is whole on hover", () 
   const p = load();
   p.send(prepared({ settingsSummaries: { codeSearch: "4 keywords · 2 focus paths · max 10 files" } }));
   assert.equal(p.byId("settings-summary-codeSearch").getAttribute("title"), "4 keywords · 2 focus paths · max 10 files");
+});
+
+// --- Hint actions (§37.92): behaviour unchanged ------------------------------
+
+test("Improve with AI sends the same request, and leaves Include issue details as it was", () => {
+  const page = load();
+  page.send(state({ revision: 2, form: { ...DEFAULT_FORM, hint: "check the cache", useIssueDetails: false } }));
+  assert.equal(page.byId("useIssueDetails").checked, false);
+  const before = page.posted.length;
+  page.byId("improve-hint").dispatch("click");
+  const sent = page.posted.slice(before);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!["type"], "improveHint");
+  assert.equal((sent[0]!["form"] as { useIssueDetails: boolean; hint: string }).useIssueDetails, false);
+  assert.equal((sent[0]!["form"] as { hint: string }).hint, "check the cache");
+  assert.equal(page.byId("useIssueDetails").checked, false, "pressing the action changed the option");
+  assert.equal(page.byId("hint").value, "check the cache", "the hint was rewritten before the result flow said so");
+});
+
+test("ticking Include issue details is a form change, and never starts an improvement", () => {
+  const page = load();
+  page.send(state({ revision: 2, form: { ...DEFAULT_FORM, useIssueDetails: true } }));
+  const before = page.posted.length;
+  page.byId("useIssueDetails").checked = false;
+  page.byId("form").dispatch("change", { target: page.byId("useIssueDetails") });
+  page.flush();
+  const sent = page.posted.slice(before);
+  assert.equal(sent.some((message) => message["type"] === "improveHint"), false, "the option started an improvement");
+  const change = sent.filter((message) => message["type"] === "formChanged").at(-1);
+  assert.equal((change?.["form"] as { useIssueDetails: boolean }).useIssueDetails, false);
+  // And the host's copy, pushed back, is what the box shows.
+  page.send(state({ revision: 3, form: { ...DEFAULT_FORM, useIssueDetails: false } }));
+  assert.equal(page.byId("useIssueDetails").checked, false);
 });

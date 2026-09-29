@@ -134,20 +134,28 @@ ${settingHeader({ forId: "issue", label: "Issue" })}
  * one field's affordance and not a second feature. The suggestion appears
  * beside the field and never in it — the developer's own words are not
  * something this replaces without being asked.
+ *
+ * Improve with AI first — the immediate action — then Include issue details,
+ * the standing option, with its helper line under it in the same group so it
+ * reads as the checkbox's and not the button's (§37.92). The order is the
+ * markup's, so the tab order is the reading order.
  */
 const HINT_IMPROVEMENT = `      <div class="hint-actions">
-        <label class="choice" for="useIssueDetails">
-          <input type="checkbox" id="useIssueDetails" name="useIssueDetails" checked
-                 aria-describedby="useIssueDetails-hint">
-          Use issue details
-        </label>
         <button type="button" id="improve-hint" class="link"
-                title="Improve this hint with AI">
+                title="Improve this guidance with AI while preserving your intent">
           <span class="codicon codicon-hubot" id="improve-hint-icon" aria-hidden="true"></span>
-          <span id="improve-hint-label">Improve</span>
+          <span id="improve-hint-label">Improve with AI</span>
         </button>
+        <div class="hint-include">
+          <label class="choice" for="useIssueDetails"
+                 title="Include the current issue title and description in the AI guidance">
+            <input type="checkbox" id="useIssueDetails" name="useIssueDetails" checked
+                   aria-describedby="useIssueDetails-hint">
+            Include issue details
+          </label>
+          <p class="hint" id="useIssueDetails-hint">Includes only the issue title and description. Repository files and history are not read.</p>
+        </div>
       </div>
-      <p class="hint" id="useIssueDetails-hint">The issue title and description only. No repository, history or files are read.</p>
       <p class="muted" id="hint-improve-notice" hidden></p>
       <p class="error" id="hint-improve-error" role="alert" hidden></p>
       <div id="hint-suggestion" class="hint-suggestion" hidden>
@@ -195,7 +203,7 @@ ${settingHeader({
 
 /**
  * Guidance: what the AI is told, beyond the bug report itself — on the main
- * page under Fix Mode (§37.84), with its Improve and Use issue details.
+ * page under Fix Mode (§37.84), with Improve with AI and Include issue details.
  *
  * One field, and that is the point of giving it a heading of its own. UI-A2's
  * question was which of these settings talk to the agent and which decide what

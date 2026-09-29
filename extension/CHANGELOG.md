@@ -62,7 +62,7 @@ First release. What it does today:
 - Jira credentials live in VS Code's SecretStorage and reach the CLI as
   environment variables — never on a command line, never in the panel.
 - **The problem at the top.** Issue, **Fix Mode** and **Hint** (with Improve
-  and Use issue details) sit together above the button: what the bug is, how
+  with AI and Include issue details) sit together above the button: what the bug is, how
   the AI should approach it, and any guidance. The Issue field says it takes a
   Jira ticket (e.g. JR-12345) or a description.
 - **Advanced Settings.** A ⚙ on each step that has settings — Issue details,

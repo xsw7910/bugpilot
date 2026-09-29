@@ -2609,6 +2609,32 @@ Navigation)" (§37.77); the page and what it edits are unchanged.
    visible text, *Advanced Settings*; its tooltip *Open advanced workflow
    settings*. It wraps between words at 200px, never inside one.
 
+### Confirmed decisions (Hint actions)
+
+1. **Hint actions use explicit user-facing wording: Improve with AI, Include
+   issue details** (were *Improve* and *Use issue details*). The busy label
+   stays *Improving…*.
+
+2. **Improve with AI is shown before Include issue details** because it is the
+   immediate action, while Include issue details is a persistent input option.
+   The order is the markup's, so the tab order is Hint → Improve with AI →
+   Include issue details; no CSS reordering.
+
+3. **The helper belongs to the checkbox.** *Includes only the issue title and
+   description. Repository files and history are not read.* sits under the
+   checkbox in one group (`.hint-include`, a 14em floor), tied by
+   `aria-describedby`; at 200px the group wraps whole under Improve with AI.
+
+4. **Tooltips and names.** Improve with AI: *Improve this guidance with AI while
+   preserving your intent*, its visible text its accessible name. Include issue
+   details: *Include the current issue title and description in the AI
+   guidance* on its label, the label text its accessible name. The Hint field
+   gains none.
+
+5. **No behaviour change.** The same `improveHint` request with the form as it
+   stands; `useIssueDetails` stored and sent as before; neither control changes
+   the other.
+
 ---
 
 # 20. Step Secondary Text 状态原则

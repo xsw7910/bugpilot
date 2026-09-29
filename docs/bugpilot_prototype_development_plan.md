@@ -10384,3 +10384,42 @@ in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
 tests that anchored on the entry after the workflow, the old label, the gear's
 tone and three messages updated); typecheck, smoke and `git diff --check`
 clean.
+
+### 37.92 Hint actions: Improve with AI, then Include issue details (after `e9e12c7`, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Hint actions)" at the end of §19.
+
+**What changed.**
+
+- `html.ts`: the hint row is Improve with AI, then a `.hint-include` group of
+  the checkbox (*Include issue details*) and its helper (new wording); new
+  tooltips on the button and on the checkbox's label.
+- `panel.js`: the idle label is *Improve with AI*.
+- `panel.css`: the row left-aligned with a wider gap; the group's 14em floor.
+- README diagram and CHANGELOG line.
+
+**Real VS Code pass** (the disposable profile, the throwaway work item).
+
+- PASS A: 360px — Improve with AI, then Include issue details on the same line,
+  the helper under the checkbox.
+- PASS B: the live `title`s — *Improve this guidance with AI while preserving
+  your intent*, *Include the current issue title and description in the AI
+  guidance* (the webview's own tooltip pop-up is drawn outside the page and was
+  not captured).
+- PASS C: the checkbox toggled off and on by click; no improvement started.
+- PASS D: a hint typed, the box unticked, Improve with AI pressed — the same
+  request reached the host, which answered with its existing message for a
+  custom agent (this profile's agent is `cmd /c echo`, so no model was called);
+  the box stayed unticked, the hint unchanged.
+- PASS E: 200px — Improve with AI on its own line, then the checkbox and its
+  helper; one line each; no overflow.
+- PASS F: keyboard — Hint → Improve with AI → Include issue details → the
+  primary button; Space toggles the checkbox.
+- PASS G: Dark, Light, High Contrast Dark, High Contrast Light.
+
+**Regression.** Extension 1523 tests pass (1517 before: 4 panel and 2 page tests
+added; the label, order, helper and layout tests updated); typecheck, smoke and
+`git diff --check` clean.

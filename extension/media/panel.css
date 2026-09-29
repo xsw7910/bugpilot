@@ -205,13 +205,28 @@ h2 {
  * puts them at opposite ends while they fit and stacks them when they do not;
  * neither is allowed to overlap the other, which is the only rule here.
  */
+/* Improve with AI, then Include issue details with its helper under it
+   (§37.92). The group keeps a floor so that at a narrow width it wraps whole
+   onto its own line, Improve with AI still first, rather than squeezing. */
 .hint-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px 8px;
+  align-items: flex-start;
+  gap: 4px 16px;
   margin-top: 4px;
+}
+
+.hint-include {
+  flex: 1 1 14em;
+  min-width: 0;
+}
+
+.hint-include .choice {
+  margin: 0;
+}
+
+.hint-include .hint {
+  margin: 1px 0 0;
 }
 
 .hint-actions button {

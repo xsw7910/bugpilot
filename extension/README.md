@@ -107,7 +107,7 @@ Fix Mode
 [ Standard Fix                            ▾ ] ⚙
 Hint
 [ e.g. Check initialization logic…          ]
-☑ Use issue details   Improve
+Improve with AI   ☑ Include issue details
 
 [        ▶ Run        ] [ Stop ]
          Ctrl+Enter

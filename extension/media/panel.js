@@ -2509,10 +2509,8 @@
     const busy = view.busy === true;
 
     const label = byId("improve-hint-label");
-    // "Improve", not "Improve with AI": it sits under a Guidance heading next
-    // to a robot icon, and the third mention of AI in one row was noise. The
-    // button's `title` says what it does and with what.
-    label.textContent = busy ? "Improving…" : "Improve";
+    // Says the AI does it (§37.92): "Improve" alone read as a vague edit.
+    label.textContent = busy ? "Improving…" : "Improve with AI";
     // A spinner from the theme's own icon set rather than a word that moves.
     byId("improve-hint-icon").className = busy
       ? "codicon codicon-loading codicon-spin"
