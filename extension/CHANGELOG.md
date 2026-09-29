@@ -15,7 +15,9 @@ First release. What it does today:
   **Fix with AI** once `task.md` is ready, **Open AI Session** once an agent has
   it, **Rebuild Context** when the form has changed since it was prepared, and
   **Running…** while anything is in flight. Rebuild Context and Start New Attempt
-  sit behind a **⋯** beside it.
+  sit behind a **⋯** beside it. Open AI Session acknowledges every press under
+  the button — "AI session focused", or that the session is no longer available
+  — and never starts a new one.
 - **Fix with AI** hands the finished package to a coding agent in a terminal.
   Auto-detect, Claude Code, or a custom command of your own with a `{prompt}`
   placeholder. Off by default: preparing context and involving a model stay two

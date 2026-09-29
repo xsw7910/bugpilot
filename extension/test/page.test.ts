@@ -6594,3 +6594,53 @@ test("the status words reach a screen reader; the mark does not", () => {
   p.send(state({ workflow: [step({ id: "gitHistory", label: "Git history", enabled: true })] }));
   assert.equal(p.byId("step-gitHistory").getAttribute("aria-label"), "Git history: not started");
 });
+
+// --- Open AI Session acknowledgement (§37.87) --------------------------------
+
+const sessionOpened = (feedback?: PanelState["sessionFeedback"]) =>
+  prepared({ fix: { status: "success", detail: "Handed to Claude Code in a terminal." } }, feedback === undefined ? {} : { sessionFeedback: feedback });
+
+test("Open AI Session's answer appears under the button, in the host's words, and the focus stays put", () => {
+  const p = load();
+  p.send(sessionOpened());
+  assert.equal(p.byId("run-label").textContent, "Open AI Session");
+  assert.equal(p.byId("session-feedback").textContent, "");
+  p.byId("run").focus();
+
+  p.send(sessionOpened({ kind: "focused", message: "AI session focused", seq: 1 }));
+  assert.equal(p.byId("session-feedback").textContent, "AI session focused");
+  assert.ok(p.byId("session-feedback").classes.has("is-focused"));
+  assert.equal(p.focused, "run", "the acknowledgement moved the keyboard focus");
+  assert.equal(p.byId("run").disabled, false);
+
+  // Gone when the host drops it.
+  p.send(sessionOpened());
+  assert.equal(p.byId("session-feedback").textContent, "");
+});
+
+test("a redraw with the same answer changes nothing, so it is not announced again", () => {
+  const p = load();
+  p.send(sessionOpened({ kind: "focused", message: "AI session focused", seq: 4 }));
+  // Something else on the page changes the element's text, to see whether a
+  // redraw writes it again: it must not.
+  p.byId("session-feedback").textContent = "untouched";
+  p.send(sessionOpened({ kind: "focused", message: "AI session focused", seq: 4 }));
+  assert.equal(p.byId("session-feedback").textContent, "untouched");
+  // A new press is written.
+  p.send(sessionOpened({ kind: "unavailable", message: "AI session is no longer available in this window. To continue, use ⋯ → Start New Attempt.", seq: 5 }));
+  assert.match(p.byId("session-feedback").textContent, /^AI session is no longer available/);
+  assert.ok(p.byId("session-feedback").classes.has("is-unavailable"));
+});
+
+test("the page sends only the intent: which terminal, and whether it is there, are the host's", () => {
+  const p = load();
+  p.send(sessionOpened());
+  const before = p.posted.length;
+  p.byId("form").dispatch("submit");
+  const sent = p.posted.slice(before);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!["type"], "nextAction");
+  assert.equal(sent[0]!["action"], "openSession");
+  // No feedback until the host answers.
+  assert.equal(p.byId("session-feedback").textContent, "");
+});

@@ -29,6 +29,7 @@ import { parseVerificationReport } from "../src/app/verificationReport.ts";
 import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
 import { GITIGNORE_ACTION_NAME, GITIGNORE_FAILED } from "../src/app/controller.ts";
+import { SESSION_FEEDBACK_MS } from "../src/app/controller.ts";
 import type { GitignoreDocument, GitignoreIo } from "../src/app/gitignore.ts";
 
 /**
@@ -192,6 +193,8 @@ interface HarnessOptions {
   readonly schedule?: NonNullable<ControllerPorts["schedule"]>;
   /** The repository's .gitignore, for Repository Files' quick fix; absent means the host has none. */
   readonly gitignore?: GitignoreIo;
+  /** Make bringing a found terminal forward throw, as an editor that cannot show it would. */
+  readonly revealThrows?: Error;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -299,6 +302,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       revealTerminal: (matches) => {
         const name = [...openTerminals].reverse().find((candidate) => matches(candidate));
         if (name === undefined) return false;
+        if (options.revealThrows) throw options.revealThrows;
         revealed.push(name);
         return true;
       },
@@ -7280,7 +7284,9 @@ test("next action 4: once the handoff starts, the button is Open AI Session, whi
   await h.controller.handle(next("openSession"));
   assert.deepEqual(h.revealed, ["Fix with AI · JR-12345"]);
   assert.equal(h.terminals.length, 1, "Open AI Session started a terminal");
-  assert.equal(h.notices.some((notice) => /session/i.test(notice.message)), false, "a found session was talked about");
+  // Acknowledged under the button, not in a notification (§37.87).
+  assert.equal(h.notices.some((notice) => /session/i.test(notice.message)), false, "a toast about a found session");
+  assert.equal(h.last().sessionFeedback?.message, "AI session focused");
 });
 
 test("next action 4: a session whose terminal is gone is said plainly, and nothing is started in its place", async () => {
@@ -7290,11 +7296,13 @@ test("next action 4: a session whose terminal is gone is said plainly, and nothi
 
   assert.deepEqual(h.revealed, []);
   assert.equal(h.terminals.length, 1, "a new session was started instead of saying the old one is gone");
-  const notice = h.notices.at(-1)!;
-  assert.equal(notice.kind, "info");
-  assert.match(notice.message, /has been closed, so there is no session to bring back/);
-  assert.match(notice.message, /Start New Attempt/);
-  assert.doesNotMatch(notice.message, /restored|reopened|resumed|reconnected/i);
+  // Said under the button, neutrally (§37.87): not a toast, not a failure.
+  const feedback = h.last().sessionFeedback!;
+  assert.equal(feedback.kind, "unavailable");
+  assert.match(feedback.message, /^AI session is no longer available — its terminal was closed\./);
+  assert.match(feedback.message, /Start New Attempt/);
+  assert.doesNotMatch(feedback.message, /restored|reopened|resumed|reconnected|failed/i);
+  assert.equal(h.notices.length, 0);
 });
 
 test("next action 4: an earlier attempt's report makes it Open AI Session too, which never invents a session", async () => {
@@ -7314,7 +7322,8 @@ test("next action 4: an earlier attempt's report makes it Open AI Session too, w
 
   await h.controller.handle(next("openSession"));
   assert.equal(h.terminals.length, 0);
-  assert.match(h.notices.at(-1)!.message, /No AI session terminal for JR-12345 is open in this window/);
+  assert.equal(h.last().sessionFeedback?.kind, "unavailable");
+  assert.match(h.last().sessionFeedback?.message ?? "", /^AI session is no longer available in this window\./);
 });
 
 test("next action 5: Start New Attempt is not offered, and refused, before the first attempt", async () => {
@@ -8945,4 +8954,129 @@ test("gitignore fix: while the re-check runs the card stays as it was at the pre
   }
   assert.equal(repositoryFiles(h.last()), undefined);
   assert.match(h.last().noticeStatus ?? "", /Git now ignores/);
+});
+
+// --- Open AI Session acknowledgement (§37.87) --------------------------------
+
+/** An attempted work item with a hand-run timer, for Open AI Session's feedback. */
+async function sessionHarness(extra: HarnessOptions = {}) {
+  const timers: { callback: () => void; delay: number; cancelled: boolean; ran: boolean }[] = [];
+  const h = await attemptedHarness({
+    schedule: (callback, delay) => {
+      const timer = { callback, delay, cancelled: false, ran: false };
+      timers.push(timer);
+      return { cancel: () => { timer.cancelled = true; } };
+    },
+    ...extra,
+  });
+  const live = () => timers.filter((timer) => timer.delay === SESSION_FEEDBACK_MS && !timer.cancelled && !timer.ran);
+  const expire = () => {
+    for (const timer of live()) {
+      timer.ran = true;
+      timer.callback();
+    }
+  };
+  return { h, timers, live, expire, open: () => h.controller.handle(next("openSession")) };
+}
+
+/** What the rows and the button say, which the acknowledgement must never touch. */
+const workflowOf = (state: PanelState) => JSON.stringify({ workflow: state.workflow, primary: state.primary, overall: state.overall });
+
+test("Open AI Session: the found terminal is brought forward, and the press says so — for a while", async () => {
+  const { h, live, expire, open } = await sessionHarness();
+  const before = workflowOf(h.last());
+  await open();
+  assert.deepEqual(h.revealed, ["Fix with AI · JR-12345"]);
+  assert.equal(h.terminals.length, 1, "a second terminal");
+  assert.deepEqual(
+    { kind: h.last().sessionFeedback?.kind, message: h.last().sessionFeedback?.message },
+    { kind: "focused", message: "AI session focused" },
+  );
+  assert.equal(live().length, 1);
+  assert.equal(live()[0]!.delay, 1800);
+  // Presentation only: the rows, the button and the header are what they were.
+  assert.equal(workflowOf(h.last()), before);
+
+  expire();
+  assert.equal(h.last().sessionFeedback, undefined, "the acknowledgement outlived its time");
+  assert.equal(workflowOf(h.last()), before, "the timeout took something else with it");
+  // Nothing written, nothing run.
+  assert.deepEqual(h.written, []);
+});
+
+test("Open AI Session pressed again and again: one terminal, one acknowledgement, one timer", async () => {
+  const { h, timers, live, open } = await sessionHarness();
+  await open();
+  const first = h.last().sessionFeedback!.seq;
+  await open();
+  await open();
+  assert.equal(h.revealed.length, 3);
+  assert.equal(h.terminals.length, 1, "a press started a session");
+  assert.equal(live().length, 1, "timers piled up");
+  assert.equal(timers.filter((timer) => timer.delay === SESSION_FEEDBACK_MS && timer.cancelled).length, 2, "an old timer was not replaced");
+  assert.equal(h.last().sessionFeedback!.seq, first + 2);
+  assert.equal(h.last().sessionFeedback!.message, "AI session focused");
+});
+
+test("Open AI Session with its terminal closed: a neutral word that stays, and nothing started", async () => {
+  const { h, live, open } = await sessionHarness();
+  h.openTerminals.length = 0;
+  const before = workflowOf(h.last());
+  await open();
+  assert.equal(h.terminals.length, 1, "a new terminal was started");
+  assert.equal(h.last().sessionFeedback?.kind, "unavailable");
+  assert.equal(live().length, 0, "the guidance would vanish before it could be read");
+  assert.equal(workflowOf(h.last()), before, "the attempt changed");
+  assert.equal(fixRow(h.last()).status, "success", "the row now reads as a failed fix");
+});
+
+test("Open AI Session when the editor cannot show the terminal: a neutral message, and nothing else changes", async () => {
+  const { h, live, open } = await sessionHarness({ revealThrows: new Error("Terminal has been disposed") });
+  const before = workflowOf(h.last());
+  await open();
+  assert.deepEqual(
+    { kind: h.last().sessionFeedback?.kind, message: h.last().sessionFeedback?.message },
+    { kind: "failed", message: "Could not open the existing AI session." },
+  );
+  assert.equal(h.terminals.length, 1, "a new session was started");
+  assert.equal(live().length, 0);
+  assert.equal(workflowOf(h.last()), before, "the workflow changed on a focus failure");
+  assert.equal(fixRow(h.last()).attempt, undefined, "the attempt was touched");
+  assert.ok(h.logged.some((line) => /^ERROR Could not show the AI session terminal for JR-12345: Terminal has been disposed/.test(line)));
+});
+
+test("Open AI Session's word goes with a new attempt, another work item, or a panel that no longer offers it", async () => {
+  const { h, open } = await sessionHarness();
+  h.openTerminals.length = 0;
+  await open();
+  assert.equal(h.last().sessionFeedback?.kind, "unavailable");
+  // Start New Attempt opens a new terminal: the old "no longer available" is stale.
+  await h.controller.handle(startAttempt(""));
+  assert.equal(h.last().sessionFeedback, undefined);
+
+  await open();
+  assert.equal(h.last().sessionFeedback?.kind, "focused");
+  // A run: the button is Running…, so there is nothing for it to be about.
+  await h.controller.handle(next("rebuildContext"));
+  assert.equal(h.last().sessionFeedback, undefined);
+});
+
+test("Open AI Session's timer is cancelled when the panel goes away", async () => {
+  const { h, timers, live, open } = await sessionHarness();
+  await open();
+  assert.equal(live().length, 1);
+  h.controller.dispose();
+  assert.equal(live().length, 0);
+  assert.equal(timers.filter((timer) => timer.delay === SESSION_FEEDBACK_MS).every((timer) => timer.cancelled), true);
+});
+
+test("Open AI Session's acknowledgement is never persisted", async () => {
+  const { h, open } = await sessionHarness();
+  const savedItems = h.savedWorkItems.length;
+  await open();
+  // The press saves the form as every primary press does; nothing of the
+  // acknowledgement goes with it, and no work item or artifact is written.
+  assert.equal(JSON.stringify(h.saved.at(-1) ?? {}).includes("session"), false);
+  assert.equal(h.savedWorkItems.length, savedItems);
+  assert.deepEqual(h.written, []);
 });

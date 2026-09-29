@@ -175,6 +175,14 @@ export interface PanelState {
   /** What the hint improver is doing, and what it has to show for it. */
   readonly hintImprovement?: HintImprovementView;
   /**
+   * What the last Open AI Session press came to (§37.87), shown under the
+   * primary button. The host's answer, never the page's guess: `focused` for
+   * a while after a terminal was brought forward, `unavailable` or `failed`
+   * until the next press or until Open AI Session is no longer offered.
+   * `seq` changes with each press, so a redraw does not announce it again.
+   */
+  readonly sessionFeedback?: SessionFeedback;
+  /**
    * A run failure no workflow row owns, classified and worded for a human.
    *
    * A failure while a step was in flight is carried by that step's row
@@ -199,6 +207,12 @@ export interface PanelState {
  * things: joining them into one paragraph put a Jira misconfiguration under a
  * heading about repository files. The page renders one card per notice.
  */
+export interface SessionFeedback {
+  readonly kind: "focused" | "unavailable" | "failed";
+  readonly message: string;
+  readonly seq: number;
+}
+
 export interface Notice {
   readonly title: string;
   readonly message: string;

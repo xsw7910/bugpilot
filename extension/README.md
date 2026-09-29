@@ -283,8 +283,11 @@ Settings → Fix with AI → AI agent**: auto-detect, Claude Code, or a custom
 command of your own (see below).
 
 After the handoff the button is **Open AI Session**: keep talking to the agent
-in its terminal. If that terminal has been closed, BugPilot says so rather than
-pretending to reopen it.
+in its terminal. It brings that terminal forward and says **AI session
+focused** under the button for a moment — also when the terminal was already in
+front, so a press never looks like it did nothing. It never starts a session or
+a second terminal: if that terminal has been closed, the line says **AI session
+is no longer available** and points to ⋯ → Start New Attempt.
 
 When the agent writes its report, `fix_report.md`, a **Fix result** row appears
 under Fix with AI: the report's first **Summary** line and its **Tests** line,

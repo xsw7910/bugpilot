@@ -665,6 +665,7 @@
     renderWorkflow(state);
     renderRun(state);
     renderRunHint(state);
+    renderSessionFeedback(state);
     // Outside the result on purpose: whether this is the environment the
     // developer thinks it is has nothing to do with whether a run succeeded.
     renderDiagnostics(state);
@@ -1932,6 +1933,24 @@
    * everything it held is on the workflow row that owns it, and the workflow
    * header's status is the one global "Context ready".
    */
+  /** The press last acknowledged, so a redraw neither repeats nor re-announces it. */
+  let shownSessionFeedback = 0;
+
+  /**
+   * Open AI Session's acknowledgement (§37.87), under the button: the host's
+   * words for what the press came to. Text changes only when a new press is
+   * answered or the answer goes away; the focus is never moved.
+   */
+  function renderSessionFeedback(state) {
+    const feedback = state.sessionFeedback;
+    const line = byId("session-feedback");
+    const seq = feedback ? feedback.seq : 0;
+    if (seq === shownSessionFeedback) return;
+    shownSessionFeedback = seq;
+    line.textContent = feedback ? feedback.message : "";
+    line.className = feedback ? `session-feedback is-${feedback.kind}` : "session-feedback";
+  }
+
   function renderRunHint(state) {
     // The host's sentence for the button it labelled: what Run does until it
     // has been done, then why the button now says Fix with AI, Open AI Session

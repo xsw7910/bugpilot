@@ -536,6 +536,10 @@ ${GUIDANCE_FIELDS.map(field).join("\n")}
         </div>
         <span class="kbd">Ctrl+Enter</span>
       </div>
+      <!-- What Open AI Session came to (§37.87): a live region that is always in
+           the document, empty until the host answers a press, so the answer is
+           announced without moving the keyboard focus. -->
+      <p class="session-feedback" id="session-feedback" role="status" aria-live="polite"></p>
       <div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>
 ${MORE_ACTIONS.map(menuItem).join("\n")}
       </div>

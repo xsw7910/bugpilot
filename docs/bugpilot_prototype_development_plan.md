@@ -10169,3 +10169,49 @@ described bug).
 **Regression.** Extension 1473 tests pass (1458 before: 3 model, 7 page and 5
 panel tests added; tests that pinned status words in `summary` or the old
 icons updated); typecheck, smoke and `git diff --check` clean.
+
+### 37.87 Open AI Session acknowledgement (after `d3779ee`, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Open AI Session acknowledgement)" at the end of §19.
+
+**What changed.**
+
+- `controller.ts`: `openSession()` keeps its lookup and sets
+  `#sessionFeedback` — focused (1.8s timer via `#schedule`), unavailable (closed
+  or not in this window) or failed (the reveal threw) — in place of the two
+  `notify` toasts; `#showSessionFeedback` replaces the message and cancels the
+  old timer; `#push` drops it for another work item or when Open AI Session is
+  not offered; a new handoff and `dispose()` clear it.
+- `messages.ts`: `PanelState.sessionFeedback {kind, message, seq}`.
+- `html.ts` / `panel.js` / `panel.css`: `#session-feedback`, a polite live
+  region under the button, written only when `seq` changes; neutral colours,
+  wraps at any width.
+- `UiPort.revealTerminal`: documented to throw when a found terminal cannot be
+  shown; the VS Code implementation is unchanged.
+
+**Real VS Code pass** (the disposable profile, a fresh throwaway repository,
+Fix with AI set to the custom command `cmd /c echo {prompt}` so the handoff
+opens a real terminal and starts no agent).
+
+- PASS A: the terminal existed, an editor had the focus and the panel was
+  closed — the press brought the panel up with the terminal focused and showed
+  *AI session focused*, gone after about 1.8s; the row, button and hint unchanged.
+- PASS B: the terminal already in front and focused — the press showed the same
+  acknowledgement.
+- PASS C: the terminal killed — the press showed *AI session is no longer
+  available — its terminal was closed…*, which stayed; no terminal was started.
+- PASS D: four presses — one terminal throughout, one message; a second press
+  1.4s after the first kept it past the first timer, and it cleared about 1.8s
+  after the last.
+- PASS E: 200px (no overflow; the label wraps between words, the messages wrap);
+  keyboard (Tab from the Issue reaches Open AI Session, Enter focuses the
+  terminal and shows the message); Dark, Light, High Contrast Dark, High
+  Contrast Light. A new attempt from ⋯ cleared a standing "no longer available".
+- Not exercised in the real window: a reveal that throws (controller tests).
+
+**Regression.** Extension 1485 tests pass (1473 before: 7 controller, 3 page and
+2 panel tests added; the two that read the toasts now read the inline message);
+typecheck, smoke and `git diff --check` clean.

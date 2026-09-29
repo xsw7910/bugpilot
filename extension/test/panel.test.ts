@@ -2512,3 +2512,24 @@ test("lighter rows: a soft rule and a little air, at full strength in High Contr
   assert.match(CSS, /\.step-duration \{[^}]*color: var\(--vscode-descriptionForeground\)/s);
   assert.match(CSS, /\.step-status \{[^}]*color: var\(--vscode-descriptionForeground\)/s);
 });
+
+// --- Open AI Session acknowledgement (§37.87) --------------------------------
+
+test("Open AI Session's acknowledgement is a live region under the button, always in the document", () => {
+  const line = /<p class="session-feedback" id="session-feedback"[^>]*><\/p>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(line, "", "no session feedback line");
+  assert.match(line, /role="status"/);
+  assert.match(line, /aria-live="polite"/);
+  // Not hidden: a live region added or unhidden with its text is not reliably read.
+  assert.equal(/ hidden/.test(line), false);
+  const run = HTML.indexOf('<div class="run">');
+  assert.ok(run !== -1 && run < HTML.indexOf('id="session-feedback"'));
+  assert.ok(HTML.indexOf('id="session-feedback"') < HTML.indexOf('id="run-hint"'));
+});
+
+test("the acknowledgement wraps in a narrow sidebar and is never styled as an error", () => {
+  const rule = /\.session-feedback \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /overflow-wrap: anywhere/);
+  assert.equal(/(?<![a-z-])width:|white-space: nowrap/.test(rule), false);
+  assert.equal(/\.session-feedback[^{]*\{[^}]*errorForeground/s.test(CSS), false, "a closed terminal is not a failure");
+});

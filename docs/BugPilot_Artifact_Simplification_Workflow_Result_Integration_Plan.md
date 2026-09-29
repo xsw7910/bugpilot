@@ -2449,6 +2449,42 @@ workflow state is shown, not the state.
 
 7. **The context-ready hint is short:** *Context ready. Next: Fix with AI.*
 
+### Confirmed decisions (Open AI Session acknowledgement)
+
+1. **Open AI Session focuses an existing BugPilot-owned session and provides
+   visible acknowledgement even when the session is already open.** The lookup
+   is unchanged — the newest open terminal this panel named for the work item's
+   handoff — and nothing is started, relaunched, restored or recreated.
+
+2. **The host answers; the page shows.** The page sends the intent
+   (`nextAction: openSession`); the controller reveals the terminal and sets
+   `PanelState.sessionFeedback {kind, message, seq}`:
+   - `focused` — *AI session focused*, for 1.8s (`SESSION_FEEDBACK_MS`);
+   - `unavailable` — *AI session is no longer available — its terminal was
+     closed. To continue, use ⋯ → Start New Attempt.*, or *…no longer available
+     in this window…* for an attempt this window never saw start;
+   - `failed` — *Could not open the existing AI session.* when the reveal
+     throws; logged, and nothing else changes.
+   The latter two stay until the next press. The notification toasts they
+   replace are gone.
+
+3. **No "already open" variant.** VS Code's `activeTerminal` is the terminal
+   panel's current tab whether or not the panel is shown, so it cannot tell
+   "brought forward" from "already in front"; every successful reveal says
+   *AI session focused*.
+
+4. **One acknowledgement, one timer.** A press replaces the last message and
+   cancels its timer; the timer is cancelled on dispose; the message goes when
+   a new session is opened, the work item changes, or Open AI Session is no
+   longer offered (a run, a rebuild). Presentation only: never persisted, never
+   an artifact, never a change to the attempt or the rows.
+
+5. **Accessible without moving focus.** `#session-feedback` is a polite live
+   region always in the document (empty, so no height, until answered), under
+   the button; its text changes only when a new press is answered, so a redraw
+   does not announce it again. The page never moves the keyboard focus; the
+   terminal takes it because focusing it is the action.
+
 ---
 
 # 20. Step Secondary Text 状态原则

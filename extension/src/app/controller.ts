@@ -127,6 +127,7 @@ import type {
   PanelAction,
   PanelMessage,
   PanelState,
+  SessionFeedback,
   Readiness,
 } from "../panel/messages.ts";
 
@@ -190,7 +191,8 @@ export interface UiPort {
    * `matches` — Open AI Session's way back to the agent a handoff started.
    *
    * Returns false when there is none: closed, or never opened in this window.
-   * Nothing is started in its place; the caller says so instead.
+   * Nothing is started in its place; the caller says so instead. Throws when
+   * there is one and the editor could not show it.
    */
   revealTerminal(matches: (name: string) => boolean): boolean;
   /** Reveal a directory in the editor's own explorer. */
@@ -345,6 +347,18 @@ export interface ControllerPorts {
 
 /** Artifact events closer together than this are one refresh. */
 export const ARTIFACT_REFRESH_DEBOUNCE_MS = 250;
+
+/** How long "AI session focused" stays under the button (§37.87). */
+export const SESSION_FEEDBACK_MS = 1800;
+
+export const SESSION_FOCUSED = "AI session focused";
+export const SESSION_FOCUS_FAILED = "Could not open the existing AI session.";
+/** A terminal this panel opened, since closed. Neutral: the fix did not fail. */
+export const SESSION_CLOSED =
+  "AI session is no longer available — its terminal was closed. To continue, use ⋯ → Start New Attempt.";
+/** An attempt this window never saw start (a reload, another window). */
+export const SESSION_NOT_IN_WINDOW =
+  "AI session is no longer available in this window. To continue, use ⋯ → Start New Attempt.";
 /** A read that failed mid-write is tried once more, this much later. */
 export const ARTIFACT_REFRESH_RETRY_MS = 750;
 
@@ -572,6 +586,14 @@ export class Controller {
    * Dropped by Clean and by a Fresh run, which delete what the agent was given.
    */
   readonly #sessions = new Map<string, SessionRecord>();
+  /**
+   * Open AI Session's acknowledgement (§37.87): presentation only — never
+   * persisted, never an artifact, and never a change to the attempt. One at a
+   * time, for the work item it was pressed on, with at most one timer.
+   */
+  #sessionFeedback: (SessionFeedback & { readonly workItemId: string }) | undefined;
+  #sessionFeedbackTimer: { cancel(): void } | undefined;
+  #sessionFeedbackSeq = 0;
   /**
    * The form the package on screen was prepared from, fingerprinted — the
    * baseline that tells the primary action the context went stale.
@@ -1538,16 +1560,49 @@ export class Controller {
     }
     const session = this.#sessions.get(workItemId);
     const base = fixTerminalName(workItemId);
-    const shown = this.#ports.ui.revealTerminal((name) =>
-      session ? name === session.terminal : name === base || name.startsWith(`${base} (`),
-    );
-    if (shown) return;
-    this.#ports.ui.notify(
-      "info",
-      session
-        ? `The terminal BugPilot opened for ${workItemId} has been closed, so there is no session to bring back. To continue, use ⋯ → Start New Attempt: it starts a new session with the prepared context.`
-        : `No AI session terminal for ${workItemId} is open in this window, so there is none to bring back. Use ⋯ → Start New Attempt to start a new session with the prepared context.`,
-    );
+    let shown: boolean;
+    try {
+      shown = this.#ports.ui.revealTerminal((name) =>
+        session ? name === session.terminal : name === base || name.startsWith(`${base} (`),
+      );
+    } catch (error) {
+      // The terminal is there and the editor would not show it. Said, and
+      // nothing else: the attempt, its terminal and the row stay as they are.
+      this.#ports.log.error(`Could not show the AI session terminal for ${workItemId}: ${(error as Error)?.message ?? String(error)}`);
+      this.#showSessionFeedback(workItemId, "failed", SESSION_FOCUS_FAILED);
+      return;
+    }
+    // Always said, found or not: a terminal already in front changes nothing
+    // visible, and a press that changes nothing looks like one that did nothing.
+    // VS Code cannot tell "brought forward" from "already in front" reliably
+    // (`activeTerminal` is the panel's current tab, shown or not), so both are
+    // "focused".
+    if (shown) this.#showSessionFeedback(workItemId, "focused", SESSION_FOCUSED);
+    else this.#showSessionFeedback(workItemId, "unavailable", session ? SESSION_CLOSED : SESSION_NOT_IN_WINDOW);
+  }
+
+  /** One acknowledgement at a time: a press replaces the last one, and its timer. */
+  #showSessionFeedback(workItemId: string, kind: SessionFeedback["kind"], message: string): void {
+    this.#sessionFeedbackTimer?.cancel();
+    this.#sessionFeedbackTimer = undefined;
+    this.#sessionFeedbackSeq += 1;
+    this.#sessionFeedback = { kind, message, seq: this.#sessionFeedbackSeq, workItemId };
+    if (kind === "focused") {
+      const seq = this.#sessionFeedbackSeq;
+      this.#sessionFeedbackTimer = this.#schedule(() => {
+        this.#sessionFeedbackTimer = undefined;
+        if (this.#sessionFeedback?.seq !== seq || this.#disposed) return;
+        this.#sessionFeedback = undefined;
+        this.#push();
+      }, SESSION_FEEDBACK_MS);
+    }
+    this.#push();
+  }
+
+  #clearSessionFeedback(): void {
+    this.#sessionFeedbackTimer?.cancel();
+    this.#sessionFeedbackTimer = undefined;
+    this.#sessionFeedback = undefined;
   }
 
   /**
@@ -1912,6 +1967,8 @@ export class Controller {
       this.#ports.log.info(`Handing ${workItemId} to ${plan.label}: ${plan.commandLine}`);
       this.#ports.ui.runInTerminal(terminal, root, plan.commandLine);
       this.#sessions.set(workItemId, { terminal, agent: plan.label, attempts });
+      // A new session: what the last Open AI Session press said is about the old one.
+      this.#clearSessionFeedback();
       // "success" means handed over, and the detail says so. The agent runs in
       // a terminal this extension does not own, so whether it *fixed* anything
       // is not knowable here and is not claimed.
@@ -2194,6 +2251,7 @@ export class Controller {
     this.#artifactRefreshTimer = undefined;
     this.#artifactWatch?.handle.dispose();
     this.#artifactWatch = undefined;
+    this.#clearSessionFeedback();
   }
 
   /**
@@ -4105,6 +4163,14 @@ export class Controller {
     const failed = this.#runFailure();
     const strategy = this.#strategyLine();
     const primary = this.#primaryView();
+    // Open AI Session's word lasts only while it is about what is on screen:
+    // another work item, or a panel no longer offering the press, drops it.
+    if (
+      this.#sessionFeedback !== undefined &&
+      (this.#sessionFeedback.workItemId !== this.#workItemId || !offeredActions(primary).includes("openSession"))
+    ) {
+      this.#clearSessionFeedback();
+    }
     const session = this.#workItemId === undefined ? undefined : this.#sessions.get(this.#workItemId);
     const workflow = buildWorkflow({
       source: this.#form.source,
@@ -4191,6 +4257,15 @@ export class Controller {
       ...(this.#noticeStatus === undefined ? {} : { noticeStatus: this.#noticeStatus }),
       jiraConfigured: this.#jiraConfigured,
       primary,
+      ...(this.#sessionFeedback === undefined
+        ? {}
+        : {
+            sessionFeedback: {
+              kind: this.#sessionFeedback.kind,
+              message: this.#sessionFeedback.message,
+              seq: this.#sessionFeedback.seq,
+            },
+          }),
       ...(this.#attachmentPick === undefined ? {} : { attachmentPick: this.#attachmentPick }),
       ...(this.#workItemId === undefined ? {} : { workItemId: this.#workItemId }),
     });

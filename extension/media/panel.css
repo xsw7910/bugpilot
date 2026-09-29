@@ -821,6 +821,25 @@ button:focus-visible {
   text-align: center;
 }
 
+/* Open AI Session's acknowledgement, under the button (§37.87). Empty — and so
+   no height — until a press is answered; it wraps rather than widening the
+   panel. Neutral in every case: a closed terminal is not a failed fix. */
+.session-feedback {
+  margin: 0;
+  font-size: 0.9em;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+
+.session-feedback:not(:empty) {
+  margin: 2px 0;
+}
+
+.session-feedback.is-focused {
+  color: var(--vscode-foreground);
+}
+
 /* --- buttons -------------------------------------------------------------- */
 
 .actions {
