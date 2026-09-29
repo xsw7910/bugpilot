@@ -7,7 +7,10 @@ First release. What it does today:
 - **One workflow panel.** A Jira issue key or a bug you describe, one primary
   button, and six steps: issue details, code search, git history, similar fixes,
   build context, and an optional **Fix with AI**. Each row is both the choice and
-  the outcome.
+  the outcome: the checkbox on the left, and on the right how it went, said once
+  in words — Completed, Skipped, Running, Failed, Context ready — with a small
+  dot, never a second check mark. A second line only when it adds something, the
+  file it wrote under that.
 - **The button is the next step.** It reads **Run** until there is a context,
   **Fix with AI** once `task.md` is ready, **Open AI Session** once an agent has
   it, **Rebuild Context** when the form has changed since it was prepared, and

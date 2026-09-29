@@ -113,19 +113,21 @@ Hint
          Ctrl+Enter
 Run prepares the issue context for AI-assisted fixing.
 ──────────────────────────────────────────────
-Investigation & AI Fix           Running 3/6…
-☑ Issue details                     ●  ⚙
-  Fetch Jira issue information     Always runs
-☑ Code search                32.5s  ●  ⚙
-  Search relevant code in the repository
+Investigation & AI Fix                Running 3/6…
+☑ Issue details         <0.1s  ● Completed  ⚙
+  JR-12345 · Jira issue
+  issue.json
+☑ Code search           32.5s  ● Completed  ⚙
+  11 terms · 6 relevant files
   4 keywords · 2 focus paths · max 10 files
-☑ Git history                       ◌
-  Find recent related changes
+  retrieval.json
+☑ Git history                   ◌ Running
+  Collecting git history…
 ☑ Similar fixes
   Search for similar issues and solutions
-☑ Build context                        ⚙
+☑ Build context                              ⚙
   Prepare structured context for AI
-☐ Fix with AI                          ⚙
+☐ Fix with AI                                ⚙
   Run the prepared context with your AI coding agent
   Claude Code
 ──────────────────────────────────────────────
@@ -250,16 +252,22 @@ Three things worth knowing:
 At most ten files, 10 MB each.
 
 Each step is both the choice and the outcome, and the two ends of the row say
-which is which: the checkbox on the left decides whether it runs, the icon on
-the right says how it went. A step that has not started shows nothing there. Untick what you do not need —
-Issue details always runs, because it is the input rather than an option.
+which is which: the checkbox on the left decides whether it runs; the right says
+how it went, in words — **Completed**, **Skipped**, **Running**, **Failed**,
+**Context ready** — with a small dot beside them (the spinner while it runs),
+after how long it took. The checkbox is the row's only check mark, and the
+status is said once. A step that has not started shows nothing there. Untick
+what you do not need — Issue details always runs, because it is the input
+rather than an option. In a narrow sidebar the duration, status and gear move
+under the step's name rather than squeezing it.
 
-Once a step finishes, its row says what it produced, with the file it wrote as
-a link on the right. **Issue details** names the issue (`issue.json`). **Code
-search** counts the terms it searched and the relevant files it found
-(`retrieval.json`), with **Relevant files** and **Search details** folded
-beneath it. **Build context** says **Context ready** (`context.md`) and offers
-**Open Context** and **Copy**. **Open Folder**, at the foot of the list, reveals
+Once a step finishes, its second line says what it produced, if that is more
+than its status, with the file it wrote as a link under it. **Issue details**
+names the issue (`issue.json`). **Code search** counts the terms it searched
+and the relevant files it found (`retrieval.json`), with **Relevant files** and
+**Search details** folded beneath it. **Git history** and **Similar fixes** say
+only **Completed** — their results are inside `context.md`. **Build context**
+says **Context ready** (`context.md`) and offers **Open Context** and **Copy**. **Open Folder**, at the foot of the list, reveals
 the whole work item. The list stays open after a run, because those rows are
 the result; if a step fails, its card appears on that row and the rows above it
 keep what they found.
@@ -268,7 +276,7 @@ keep what they found.
 everything above it and then hands the finished package to your coding agent in
 a terminal; leave it alone and BugPilot stops once the context is ready, and the
 button at the top becomes **Fix with AI** for when you want it. Either way the
-row says what happened — Ready, AI fix started, Did not start — and "started"
+row says what happened — Ready, Started, Failed: Did not start — and "started"
 means only that: BugPilot does not watch the agent, so it never says the fix
 worked, tests passed or files changed. Which agent it hands to is **Workflow
 Settings → Fix with AI → AI agent**: auto-detect, Claude Code, or a custom

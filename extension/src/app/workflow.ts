@@ -337,19 +337,21 @@ export interface WorkflowStepResult {
   readonly required?: boolean;
   readonly status: StepStatus;
   /**
-   * The row's state in words, where the status's own word would say too little.
-   *
-   * Only Fix result sets it: "ready" is true of a report but does not say what
-   * is ready, and the words are what a screen reader announces.
+   * The row's state in words, once, on its first line (§37.86): Completed,
+   * Skipped, Running, Failed, Context ready — and for the two rows whose
+   * finished state is something else, Started (Fix with AI) and Report
+   * available (Fix result). `""` while the step has not started. It is the
+   * authoritative statement; the dot beside it only echoes it.
    */
-  readonly statusLabel?: string;
+  readonly statusText: string;
   readonly durationMs?: number;
   /**
-   * The row's secondary line, for the state it is in.
+   * The row's second line: only what `statusText` does not already say.
    *
-   * The description while pending, what it is doing while running, and what it
-   * produced once done — a finished step that still says what it plans to do is
-   * a step that looks like it did nothing.
+   * The description while pending, what it is doing while running ("Searching
+   * repository…"), and what it produced once done ("Manual bug description",
+   * "4 terms · 6 relevant files"). `""` when the only thing to say is the
+   * status itself — a row never says Completed twice.
    */
   readonly summary: string;
   /** A quieter second line, when the result has one: the issue's title, which agent. */
@@ -561,7 +563,7 @@ const STATUS_OF_ROW: Readonly<Record<RowState, StepStatus>> = {
   failed: "failed",
 };
 
-/** A finished row with no summary of its own says this, and nothing invented. */
+/** A finished row with no result of its own to report says this, and nothing invented. */
 const FINISHED_TEXT: Readonly<Record<StepStatus, string>> = {
   idle: "",
   running: "",
@@ -577,7 +579,7 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
   const running = input.progress.state === "running";
   const failedCapability = input.progress.failure?.capability;
 
-  const capabilityRows = new Map<WorkflowStepId, WorkflowStepResult>();
+  const capabilityRows = new Map<WorkflowStepId, RowDraft>();
   for (const id of WORKFLOW_STEP_IDS) {
     if (id === "fixWithAI") continue;
     const row = rows.get(CAPABILITY_OF[id]);
@@ -607,7 +609,50 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
   // Exactly while the report is on disk: listed, a row; not listed, none —
   // a run in flight included. Which listing a run keeps is the controller's.
   if (present.has(FIX_REPORT_ARTIFACT)) steps.push(fixResultRow(input));
-  return steps;
+  return steps.map(withStatusText);
+}
+
+/**
+ * The status each row states once, on its first line (§37.86).
+ *
+ * The row's summary said "Completed", "Skipped", "Context ready" or "AI fix
+ * started" as its whole second line, under a status icon that meant the same;
+ * now the status is said once, in words, and the second line is left for what
+ * it does not say — or is empty.
+ */
+function withStatusText(step: RowDraft): WorkflowStepResult {
+  const statusText = statusTextOf(step);
+  const repeats = step.summary !== "" && (step.summary === statusText || restates(statusText, step.summary));
+  return { ...step, statusText, summary: repeats ? "" : step.summary };
+}
+
+const STATUS_TEXT: Readonly<Record<StepStatus, string>> = {
+  idle: "",
+  running: "Running",
+  success: "Completed",
+  ready: "Ready",
+  failed: "Failed",
+  skipped: "Skipped",
+};
+
+/** Second lines that only restate a status in other words. */
+function restates(statusText: string, summary: string): boolean {
+  if (statusText === "Started") return summary === HANDOFF_STARTED_TITLE;
+  if (statusText === "Report available") return summary === FIX_REPORT_AVAILABLE;
+  return false;
+}
+
+/** A row as its builder makes it; `withStatusText` adds the status and trims the summary. */
+type RowDraft = Omit<WorkflowStepResult, "statusText">;
+
+function statusTextOf(step: RowDraft): string {
+  if (step.status === "success" && step.id === "buildContext" && step.artifact === CONTEXT_ARTIFACT) return "Context ready";
+  // The agent runs in a terminal this extension does not own: started is all
+  // that is known, and "Completed" would claim the fix was done.
+  if (step.status === "success" && step.id === "fixWithAI") return "Started";
+  // A report on disk is something to read, never a verdict (Batch 8).
+  if (step.id === "fixResult") return "Report available";
+  return STATUS_TEXT[step.status];
 }
 
 /**
@@ -619,7 +664,7 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
  * tests line are the agent's own first lines, unclassified; a report with
  * neither, or one that could not be read, is still a report to open.
  */
-function fixResultRow(input: WorkflowInput): WorkflowStepResult {
+function fixResultRow(input: WorkflowInput): RowDraft {
   const report = input.fixReport;
   const recorded = input.artifacts.includes(REVIEW_REPORT_ARTIFACT);
   const evidence = input.artifacts.includes(VERIFICATION_REPORT_ARTIFACT);
@@ -634,8 +679,7 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
     description: STEP_DESCRIPTIONS.fixResult,
     enabled: true,
     status: "ready",
-    statusLabel: "report available",
-    summary: report?.summary ?? "Fix report available",
+    summary: report?.summary ?? FIX_REPORT_AVAILABLE,
     ...(detail === undefined ? {} : { detail }),
     artifact: FIX_REPORT_ARTIFACT,
     // Reading the report first, then preparing someone else's review of it,
@@ -821,7 +865,7 @@ function resultOf(
   status: StepStatus,
   input: WorkflowInput,
   present: ReadonlySet<string>,
-): Pick<WorkflowStepResult, "summary" | "detail" | "artifact" | "actions" | "search"> {
+): Pick<RowDraft, "summary" | "detail" | "artifact" | "actions" | "search"> {
   const description = stepDescription(id, input.source);
   if (status === "idle") return { summary: description, actions: [] };
   if (status === "running") return { summary: runningText(id, input), actions: [] };
@@ -912,8 +956,8 @@ function fixWithAiRow(
   input: WorkflowInput,
   present: ReadonlySet<string>,
   running: boolean,
-  rows: ReadonlyMap<WorkflowStepId, WorkflowStepResult>,
-): WorkflowStepResult {
+  rows: ReadonlyMap<WorkflowStepId, RowDraft>,
+): RowDraft {
   const id: WorkflowStepId = "fixWithAI";
   const base = {
     id,
@@ -988,7 +1032,6 @@ function fixWithAiRow(
     return {
       ...base,
       status: "ready",
-      statusLabel: "fix report available",
       summary: FIX_REPORT_AVAILABLE,
       ...prepared,
     };

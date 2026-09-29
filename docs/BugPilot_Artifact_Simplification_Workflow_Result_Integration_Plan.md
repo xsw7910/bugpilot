@@ -2409,6 +2409,46 @@ moved Fix Mode and Hint onto the settings page.
    (busy while it runs, `aria-disabled` so the focus stays) and status, and on
    success a line under the notices that takes the focus if the button had it.
 
+### Confirmed decisions (Investigation & AI Fix visual simplification)
+
+This refines the row design of §16 and the Batch 6 result rows; it changes how
+workflow state is shown, not the state.
+
+1. **The left checkbox represents workflow enablement**, and only that: ticked,
+   the step runs; unticked, it is skipped. Its behaviour is unchanged, and it is
+   the row's only check-mark control.
+
+2. **The right-side completion check icon is removed.** The filled check
+   (`codicon-pass-filled`) on finished rows and the prohibition circle on
+   skipped ones are gone; the glyph is no longer vendored.
+
+3. **Workflow state uses status text and a small dot.** The host sets one
+   `statusText` per row — Completed, Skipped, Running, Failed, Context ready;
+   Ready for a task to hand over, Started for a handoff, Report available for
+   Fix result — and the page draws it after the duration, with a 6px dot in the
+   status's theme tone (success, accent, muted, error) or, while running, the
+   spinner instead of the dot. The words are authoritative and are in the row's
+   accessible name; the mark is `aria-hidden`. High Contrast rings the dot.
+
+4. **Each row shows its status only once.** `summary` no longer restates the
+   status: the model blanks it when it would say the same thing (Completed,
+   Skipped, Context ready, Ready, "AI fix started", "Fix report available").
+
+5. **The second line is reserved for additional useful information** — what a
+   pending step does, what a running one is doing, what a finished one produced
+   ("Manual bug description", "11 terms · 6 relevant files"), a failure's reason
+   ("Did not start") — and is omitted when there is none. The artifact link is
+   its own line under the row's text, never in the metadata.
+
+6. **First line: choice, then metadata.** Checkbox and name, then duration,
+   status and gear as one cluster that wraps under the name when the row is
+   narrow; the name keeps an 8em floor and never breaks between letters. Gears
+   only on rows with settings (not Git history or Similar fixes). Rows are
+   separated by a lighter rule (the panel border at 55%, full strength in High
+   Contrast) and a little more padding.
+
+7. **The context-ready hint is short:** *Context ready. Next: Fix with AI.*
+
 ---
 
 # 20. Step Secondary Text 状态原则

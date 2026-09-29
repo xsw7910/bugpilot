@@ -405,6 +405,7 @@ const step = (overrides: Partial<WorkflowStepResult> = {}): WorkflowStepResult =
   description: "Search relevant code in the repository",
   enabled: true,
   status: "idle",
+  statusText: "",
   summary: "Search relevant code in the repository",
   actions: [],
   ...overrides,
@@ -1100,7 +1101,10 @@ test("a disabled primary action sends nothing, whichever way it is pressed", () 
 
 // --- the checklist ---------------------------------------------------------
 
-test("each row carries an icon and its state in the accessible name", () => {
+/** A row's status as the first line shows it: its words, or null while hidden. */
+const statusOf = (p: Page, id: string) => (p.byId(`status-${id}`).hidden ? null : p.byId(`status-text-${id}`).textContent);
+
+test("each row carries its status in words, with a mark, and in the accessible name", () => {
   // The accessible name is what makes the workflow readable without colour,
   // which is the §5.4 requirement a screen reader also depends on.
   const p = load();
@@ -1114,14 +1118,24 @@ test("each row carries an icon and its state in the accessible name", () => {
     }),
   );
 
-  assert.equal(p.byId("step-issueDetails").getAttribute("aria-label"), "Issue details: done");
-  assert.equal(p.byId("step-codeSearch").getAttribute("aria-label"), "Code search: running");
-  // A filled disc, not a tick: a tick beside a ticked checkbox was one check
-  // mark too many, and this is the glyph the editor's Testing view uses.
-  assert.ok(p.byId("status-issueDetails").classes.has("codicon-pass-filled"));
-  assert.equal(p.byId("status-issueDetails").classes.has("codicon-check"), false);
-  assert.ok(p.byId("status-codeSearch").classes.has("codicon-loading"));
-  assert.ok(p.byId("status-codeSearch").classes.has("codicon-spin"), "the running row turns");
+  assert.equal(p.byId("step-issueDetails").getAttribute("aria-label"), "Issue details: Completed");
+  assert.equal(p.byId("step-codeSearch").getAttribute("aria-label"), "Code search: Running");
+  // The words, once, on the first line (§37.86)…
+  assert.equal(statusOf(p, "issueDetails"), "Completed");
+  assert.equal(statusOf(p, "codeSearch"), "Running");
+  // …beside a small dot — never a tick or a filled check: the checkbox at the
+  // left is the row's only check mark.
+  const done = p.byId("mark-issueDetails");
+  assert.ok(done.classes.has("step-dot"));
+  for (const glyph of ["codicon", "codicon-pass-filled", "codicon-pass", "codicon-check"]) {
+    assert.equal(done.classes.has(glyph), false, glyph);
+  }
+  assert.equal(done.getAttribute("aria-hidden"), undefined, "set in the markup, where it is checked");
+  // Running: the spinner alone, no dot beside it.
+  const running = p.byId("mark-codeSearch");
+  assert.ok(running.classes.has("codicon-loading"));
+  assert.ok(running.classes.has("codicon-spin"), "the running row turns");
+  assert.equal(running.classes.has("step-dot"), false, "a dot and a spinner at once");
   assert.ok(p.byId("step-codeSearch").classes.has("step-running"));
   assert.equal(p.byId("duration-issueDetails").textContent, "0.5s");
 });
@@ -1180,7 +1194,8 @@ test("Build context's actions appear only once its file exists", () => {
   // The step finished but wrote no context: nothing to open, so nothing
   // offered — a disabled icon invites a click that explains nothing.
   p.send(prepared({ artifacts: ["issue.json", "run.json"] }, { workItemActions: ["openFolder"] }));
-  assert.equal(p.byId("description-buildContext").textContent, "Completed");
+  assert.equal(statusOf(p, "buildContext"), "Completed");
+  assert.equal(p.byId("description-buildContext").hidden, true, "Completed said twice");
   assert.equal(p.byId("actions-buildContext").hidden, true);
   assert.equal(p.byId("open-context").hidden, true);
   assert.equal(p.byId("copy-context").hidden, true);
@@ -2946,7 +2961,7 @@ test("a run opens the workflow, and it stays open as the run finishes", () => {
 
   p.send(prepared());
   assert.equal(p.byId("workflow").open, true);
-  assert.equal(p.byId("description-buildContext").textContent, "Context ready");
+  assert.equal(statusOf(p, "buildContext"), "Context ready");
 });
 
 test("a developer who collapses the workflow is not overruled", () => {
@@ -3185,23 +3200,29 @@ test("a finished run reads as results on the rows, and one next action", () => {
   // Code search: what was searched and what it found, from retrieval.json.
   assert.equal(p.byId("description-codeSearch").textContent, "53 terms · 8 relevant files");
   assert.equal(p.byId("artifact-codeSearch-name").textContent, "retrieval.json");
-  // Git history and Similar fixes say only what is known.
-  assert.equal(p.byId("description-gitHistory").textContent, "Completed");
+  // Git history and Similar fixes say only what is known: Completed, once.
+  for (const id of ["gitHistory", "similarFixes"]) {
+    assert.equal(statusOf(p, id), "Completed", id);
+    assert.equal(p.byId(`description-${id}`).hidden, true, `${id}: a second line that says Completed again`);
+    assert.equal(p.byId(`foot-${id}`).hidden, true, `${id}: an empty second line`);
+  }
   assert.equal(p.byId("artifact-gitHistory").hidden, true);
-  // Build context: the context is ready, and its two actions are on its row.
-  assert.equal(p.byId("description-buildContext").textContent, "Context ready");
+  // Build context: the context is ready — once — and its two actions are on its row.
+  assert.equal(statusOf(p, "buildContext"), "Context ready");
+  assert.equal(p.byId("description-buildContext").hidden, true, "Context ready said twice");
   assert.equal(p.byId("actions-buildContext").hidden, false);
   assert.equal(p.byId("open-context").hidden, false);
   assert.equal(p.byId("copy-context").hidden, false);
   // Fix with AI: ready, with the mode the task was prepared with — and the one
   // next action is the top button's, which now says so.
-  assert.equal(p.byId("description-fixWithAI").textContent, "Ready");
+  assert.equal(statusOf(p, "fixWithAI"), "Ready");
   assert.equal(p.byId("strategy-fixWithAI-value").textContent, "Standard Fix");
   assert.equal(p.byId("strategy-fixWithAI").hidden, false);
   assert.equal(p.byId("run-label").textContent, "Fix with AI");
   assert.match(p.byId("run-icon").className, /codicon-hubot/);
   assert.equal(p.byId("run").disabled, false);
-  assert.equal(p.byId("run-hint").textContent, "Context is ready. Fix with AI hands task.md to your AI agent.");
+  // Short, and no file names in the instruction (§37.86).
+  assert.equal(p.byId("run-hint").textContent, "Context ready. Next: Fix with AI.");
   // Behind ⋯, rebuilding it — and not yet a new attempt: none has started.
   assert.equal(p.byId("more-actions").hidden, false);
   assert.equal(p.byId("menu-rebuildContext").hidden, false);
@@ -3210,13 +3231,14 @@ test("a finished run reads as results on the rows, and one next action", () => {
   assert.equal(p.byId("open-folder").hidden, false);
 });
 
-test("a ready task is not the green tick", () => {
-  // The tick is reserved for a handoff that actually started.
+test("a ready task says Ready, once, with a dot — no tick", () => {
   const p = load();
   p.send(prepared());
 
   assert.ok(p.byId("step-fixWithAI").classes.has("step-ready"));
-  assert.equal(p.byId("status-fixWithAI").hidden, true, "a ready row wore a status glyph");
+  assert.equal(statusOf(p, "fixWithAI"), "Ready");
+  assert.ok(p.byId("mark-fixWithAI").classes.has("step-dot"));
+  assert.equal(p.byId("description-fixWithAI").hidden, true, "Ready said twice");
   assert.ok(p.byId("step-buildContext").classes.has("step-success"));
   // Unticked, but part of what happened: not greyed out as "not chosen".
   assert.equal(p.byId("step-fixWithAI").classes.has("step-off"), false);
@@ -3228,7 +3250,8 @@ test("a search whose retrieval could not be read says Completed rather than zero
   const p = load();
   p.send(prepared({ search: { content: { files: [], terms: [] } } }));
 
-  assert.equal(p.byId("description-codeSearch").textContent, "Completed");
+  assert.equal(statusOf(p, "codeSearch"), "Completed");
+  assert.equal(p.byId("description-codeSearch").hidden, true);
   assert.equal(p.byId("relevant-files").hidden, true);
   assert.equal(p.byId("search-details").hidden, true);
 });
@@ -3372,8 +3395,10 @@ test("the row reads as a report to look at, not as a fix", () => {
 
   assert.ok(p.byId("step-fixResult").classes.has("step-ready"));
   assert.equal(p.byId("step-fixResult").classes.has("step-success"), false);
-  assert.equal(p.byId("status-fixResult").hidden, true, "a report wore a status glyph");
-  assert.equal(p.byId("step-fixResult").getAttribute("aria-label"), "Fix result: report available");
+  // A report to read, said once — never Completed, never a tick.
+  assert.equal(statusOf(p, "fixResult"), "Report available");
+  assert.ok(p.byId("mark-fixResult").classes.has("step-dot"));
+  assert.equal(p.byId("step-fixResult").getAttribute("aria-label"), "Fix result: Report available");
   assert.equal(p.byId("description-fixResult").textContent, "Attempted fix; validation still fails.");
   assert.equal(p.byId("detail-fixResult").textContent, "Tests: pytest: 2 failed, 18 passed.");
 });
@@ -3412,12 +3437,13 @@ test("a work item without a report forgets the last one's row, text and file", (
 test("a report with no summary, or one that could not be read, is still a row to open", () => {
   const p = load();
   p.send(reported({ readable: true }));
-  assert.equal(p.byId("description-fixResult").textContent, "Fix report available");
+  assert.equal(statusOf(p, "fixResult"), "Report available");
+  assert.equal(p.byId("description-fixResult").hidden, true, "the status said again as a second line");
   assert.equal(p.byId("detail-fixResult").hidden, true, "a Tests line appeared from nowhere");
   assert.equal(p.byId("open-fix-report").hidden, false);
 
   p.send(reported({ readable: false }));
-  assert.equal(p.byId("description-fixResult").textContent, "Fix report available");
+  assert.equal(statusOf(p, "fixResult"), "Report available");
   assert.equal(p.byId("detail-fixResult").textContent, "Preview unavailable");
   assert.equal(p.byId("open-fix-report").hidden, false);
   // Not a failure: no card, and the header is not "Run failed".
@@ -3894,9 +3920,11 @@ test("a handoff failure is Fix with AI's own card, beside results that stay", ()
   assert.equal(p.byId("description-codeSearch").textContent, "53 terms · 8 relevant files");
   assert.equal(p.byId("relevant-files").hidden, false);
   assert.equal(p.byId("open-context").hidden, false);
-  assert.equal(p.byId("description-buildContext").textContent, "Context ready");
-  // Only Fix with AI failed: its line, the route the prompt took, its card.
+  assert.equal(statusOf(p, "buildContext"), "Context ready");
+  // Only Fix with AI failed: Failed once, then the reason, the route the prompt
+  // took, and its card.
   assert.ok(p.byId("step-fixWithAI").classes.has("step-failed"));
+  assert.equal(statusOf(p, "fixWithAI"), "Failed");
   assert.equal(p.byId("description-fixWithAI").textContent, "Did not start");
   assert.match(p.byId("detail-fixWithAI").textContent, /clipboard/);
   assert.equal(p.byId("error-fixWithAI").hidden, false);
@@ -3960,7 +3988,7 @@ test("a handoff error disappears when the next attempt works", () => {
   p.send(prepared({ fix: { status: "success", detail: "Handed to Claude Code in a terminal." } }));
 
   assert.equal(p.byId("error-fixWithAI").hidden, true);
-  assert.equal(p.byId("description-fixWithAI").textContent, "AI fix started");
+  assert.equal(statusOf(p, "fixWithAI"), "Started");
 });
 
 // --- the successful handoff, on its row -------------------------------------
@@ -3972,7 +4000,8 @@ test("before a handoff the top button is Fix with AI, and there is no outcome", 
   p.send(prepared());
 
   assert.equal(p.byId("run-label").textContent, "Fix with AI");
-  assert.equal(p.byId("description-fixWithAI").textContent, "Ready");
+  assert.equal(statusOf(p, "fixWithAI"), "Ready");
+  assert.equal(p.byId("description-fixWithAI").hidden, true);
   assert.equal(p.byId("detail-fixWithAI").hidden, true);
 });
 
@@ -3981,7 +4010,9 @@ test("a successful handoff turns the top button into Open AI Session, and says w
   p.send(prepared({ ...STARTED, ...withSearch({ files: FOUND }) }));
 
   assert.ok(p.byId("step-fixWithAI").classes.has("step-success"));
-  assert.equal(p.byId("description-fixWithAI").textContent, "AI fix started");
+  // Started, once, on the first line; the second says who has it.
+  assert.equal(statusOf(p, "fixWithAI"), "Started");
+  assert.equal(p.byId("description-fixWithAI").hidden, true);
   assert.equal(p.byId("detail-fixWithAI").textContent, "Handed to Claude Code in a terminal.");
   assert.equal(p.byId("run-label").textContent, "Open AI Session", "a second handoff was the next step");
   assert.match(p.byId("run-icon").className, /codicon-terminal/);
@@ -4013,7 +4044,9 @@ test("a handoff with nothing to say about the agent shows one line, not two", ()
   const p = load();
   p.send(prepared({ fix: { status: "success" } }));
 
-  assert.equal(p.byId("description-fixWithAI").textContent, "AI fix started");
+  // Nothing but the status, which is on the first line: no second line at all.
+  assert.equal(statusOf(p, "fixWithAI"), "Started");
+  assert.equal(p.byId("foot-fixWithAI").hidden, true);
   assert.equal(p.byId("detail-fixWithAI").hidden, true);
 });
 
@@ -4022,7 +4055,8 @@ test("the row says it is working, and offers no second press meanwhile", () => {
   p.send(prepared({ handoffBusy: true }));
 
   assert.equal(p.byId("description-fixWithAI").textContent, "Starting AI fix…");
-  assert.match(p.byId("status-fixWithAI").className, /codicon-spin/);
+  assert.equal(statusOf(p, "fixWithAI"), "Running");
+  assert.match(p.byId("mark-fixWithAI").className, /codicon-spin/);
   assert.equal(p.byId("run-label").textContent, "Running…");
   assert.equal(p.byId("run").disabled, true);
   assert.equal(p.byId("more-actions").hidden, true);
@@ -4043,7 +4077,7 @@ test("a handoff that failed shows the card, not the outcome", () => {
 test("the outcome goes away with the run it belonged to", () => {
   const p = load();
   p.send(prepared(STARTED));
-  assert.equal(p.byId("description-fixWithAI").textContent, "AI fix started");
+  assert.equal(statusOf(p, "fixWithAI"), "Started");
 
   p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
 
@@ -4058,8 +4092,10 @@ test("the outcome is announced as text, not as a tick", () => {
   const p = load();
   p.send(prepared(STARTED));
 
-  assert.equal(p.byId("description-fixWithAI").textContent, "AI fix started");
-  assert.match(p.byId("step-fixWithAI").getAttribute("aria-label") ?? "", /^Fix with AI: done$/);
+  assert.equal(statusOf(p, "fixWithAI"), "Started");
+  assert.match(p.byId("step-fixWithAI").getAttribute("aria-label") ?? "", /^Fix with AI: Started$/);
+  // The mark is decoration, never the only carrier.
+  assert.equal(p.byId("mark-fixWithAI").textContent, "");
 });
 
 // --- UI-V1: what rendering the page found ------------------------------------
@@ -4404,7 +4440,8 @@ test("once started, the button goes and the row says what happened, in plain wor
   assert.equal(p.byId("copy-review-prompt").hidden, false);
   assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
   assert.equal(p.byId("workflow-status").textContent, "Fix report available");
-  assert.equal(p.byId("status-fixResult").hidden, true, "the row grew a status glyph");
+  // The row's own status is unchanged by the review: still a report to read.
+  assert.equal(statusOf(p, "fixResult"), "Report available");
 });
 
 test("a review that did not start shows its card under the row, and the button for a retry", () => {
@@ -6412,4 +6449,148 @@ test("what the last press came to is on the card, under the warning", () => {
   assert.equal(status?.textContent, "Could not update .gitignore. The BugPilot output has the details.");
   // A retry is still offered.
   assert.ok(noticeButton(page));
+});
+
+// --- Investigation & AI Fix: one status per row (§37.86) --------------------
+
+/** Every text a row shows, visible or not, as the page left it. */
+function rowTexts(p: Page, id: string): { text: string; hidden: boolean }[] {
+  const ids = [`status-text-${id}`, `description-${id}`, `detail-${id}`, `note-${id}`, `settings-summary-${id}`, `artifact-${id}-name`];
+  return ids
+    .filter((slot) => p.elements.has(slot))
+    .map((slot) => {
+      const element = p.byId(slot);
+      // A slot inside a hidden container is hidden too.
+      const container =
+        slot.startsWith("status-text-") ? p.byId(`status-${id}`) : slot.startsWith("artifact-") ? p.byId(`artifact-${id}`) : element;
+      return { text: element.textContent, hidden: element.hidden || container.hidden };
+    });
+}
+const shownTimes = (p: Page, id: string, words: string) =>
+  rowTexts(p, id).filter((entry) => !entry.hidden && entry.text === words).length;
+
+/** A finished run with Code search unticked: skipped, as the CLI reports it. */
+const skippedSearch = () => {
+  const progress: ProgressView = {
+    state: "done",
+    rows: CAPABILITY_IDS.map((capability) => row(capability, capability === "code_search" ? "skipped" : "done", 60)),
+    artifacts: PREPARED_FILES,
+  };
+  const plan = { ...DEFAULT_FORM.plan, codeSearch: false };
+  return state({
+    progress,
+    form: { ...DEFAULT_FORM, plan },
+    revision: 2,
+    workflow: buildWorkflow({
+      source: "manual",
+      plan,
+      fixWithAI: false,
+      progress,
+      artifacts: PREPARED_FILES,
+      workItemId: "local_1",
+      issue: { id: "local_1", source: "manual", title: "" },
+    }),
+  });
+};
+
+test("a completed workflow: each row says Completed or Context ready once, and no row wears a tick", () => {
+  const p = load();
+  p.send(prepared());
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes"]) {
+    assert.equal(shownTimes(p, id, "Completed"), 1, `${id}: Completed not exactly once`);
+  }
+  assert.equal(shownTimes(p, "buildContext", "Context ready"), 1);
+  assert.equal(shownTimes(p, "buildContext", "Completed"), 0);
+  // No status glyph that is a check mark, anywhere in the workflow's rows.
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]) {
+    const mark = p.byId(`mark-${id}`);
+    assert.equal([...mark.classes].some((name) => /pass|check/.test(name)), false, `${id}: ${mark.className}`);
+    // The checkbox is still the row's one check-mark control, untouched.
+    const box = p.byId(`plan-${id}`);
+    assert.equal(box.classes.size, 0, `${id}: the checkbox was restyled`);
+  }
+});
+
+test("a skipped Code search: unticked, Skipped once, a muted dot, no prohibition icon, no second line", () => {
+  const p = load();
+  p.send(skippedSearch());
+  assert.equal(p.byId("plan-codeSearch").checked, false);
+  assert.ok(p.byId("step-codeSearch").classes.has("step-skipped"));
+  assert.equal(statusOf(p, "codeSearch"), "Skipped");
+  assert.equal(shownTimes(p, "codeSearch", "Skipped"), 1);
+  assert.equal(p.byId("foot-codeSearch").hidden, true, "a second line under Skipped");
+  const mark = p.byId("mark-codeSearch");
+  assert.ok(mark.classes.has("step-dot"));
+  assert.equal([...mark.classes].some((name) => name.startsWith("codicon")), false, "a glyph beside Skipped");
+  // Still a checkbox a developer can tick for the next run.
+  p.byId("plan-codeSearch").checked = true;
+  p.byId("form").dispatch("change", { target: p.byId("plan-codeSearch") });
+  p.flush();
+  const change = p.posted.filter((message) => message["type"] === "formChanged").at(-1);
+  assert.equal((change?.["form"] as { plan: { codeSearch: boolean } }).plan.codeSearch, true);
+});
+
+test("Issue details keeps what it adds: the source line and issue.json, under one Completed", () => {
+  const p = load();
+  p.send(skippedSearch());
+  assert.equal(statusOf(p, "issueDetails"), "Completed");
+  assert.equal(p.byId("description-issueDetails").textContent, "Manual bug description");
+  assert.equal(p.byId("description-issueDetails").hidden, false);
+  assert.equal(p.byId("artifact-issueDetails").hidden, false);
+  assert.equal(p.byId("artifact-issueDetails-name").textContent, "issue.json");
+  assert.equal(shownTimes(p, "issueDetails", "Completed"), 1);
+  // The file opens through the constrained message, as before.
+  p.byId("artifact-issueDetails").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "openArtifact", name: "issue.json" });
+});
+
+test("Build context: Context ready once, context.md under it, and Open Context and Copy still work", () => {
+  const p = load();
+  p.send(prepared());
+  assert.equal(shownTimes(p, "buildContext", "Context ready"), 1);
+  assert.equal(p.byId("artifact-buildContext-name").textContent, "context.md");
+  assert.equal(p.byId("artifact-buildContext").hidden, false);
+  p.byId("open-context").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "openContext" });
+  p.byId("copy-context").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "copyContext" });
+});
+
+test("a running step has one indicator: the spinner and Running, never a dot as well", () => {
+  const p = load();
+  p.send(state({ progress: { state: "running", rows: [row("issue_details", "done", 40), row("code_search", "running")], artifacts: [] } }));
+  assert.equal(statusOf(p, "codeSearch"), "Running");
+  const mark = p.byId("mark-codeSearch");
+  assert.ok(mark.classes.has("codicon-loading") && mark.classes.has("codicon-spin"));
+  assert.equal(mark.classes.has("step-dot"), false);
+  // What it is doing is the second line; Running is not repeated there.
+  assert.equal(p.byId("description-codeSearch").textContent, "Searching repository…");
+  assert.equal(shownTimes(p, "codeSearch", "Running"), 1);
+  // A pending row states no status at all, and keeps its description.
+  assert.equal(statusOf(p, "gitHistory"), null);
+  assert.equal(p.byId("description-gitHistory").hidden, false);
+});
+
+test("a failed step: Failed once, then the reason — the card still under it", () => {
+  const p = load();
+  p.send(prepared(AGENT_FAILED));
+  assert.equal(statusOf(p, "fixWithAI"), "Failed");
+  assert.equal(shownTimes(p, "fixWithAI", "Failed"), 1);
+  assert.equal(p.byId("description-fixWithAI").textContent, "Did not start");
+  assert.equal(p.byId("error-fixWithAI").hidden, false);
+  assert.ok(p.byId("mark-fixWithAI").classes.has("step-dot"));
+});
+
+test("the status words reach a screen reader; the mark does not", () => {
+  const p = load();
+  p.send(prepared());
+  // The words are ordinary text on the row, and the row's name carries them too.
+  assert.equal(p.byId("status-text-gitHistory").getAttribute("aria-hidden"), undefined);
+  assert.equal(p.byId("step-gitHistory").getAttribute("aria-label"), "Git history: Completed");
+  assert.equal(p.byId("step-buildContext").getAttribute("aria-label"), "Build context: Context ready");
+  // A pending row, and one nobody chose, say which.
+  p.send(state({ workflow: [step({ id: "gitHistory", label: "Git history", enabled: false })] }));
+  assert.equal(p.byId("step-gitHistory").getAttribute("aria-label"), "Git history: not selected");
+  p.send(state({ workflow: [step({ id: "gitHistory", label: "Git history", enabled: true })] }));
+  assert.equal(p.byId("step-gitHistory").getAttribute("aria-label"), "Git history: not started");
 });

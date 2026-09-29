@@ -132,22 +132,20 @@
   const COUPLED_TO_CONTEXT = ["codeSearch", "gitHistory", "similarFixes", "fixWithAI"];
 
   /**
-   * Icon plus the word used in the accessible name, so state is not colour.
+   * The mark beside a row's status words (§37.86): a small dot in the status's
+   * tone, or the spinner while it runs — one indicator, never both, and never a
+   * tick: the checkbox at the left is the row's only check mark. The words are
+   * the host's `statusText`; the mark only echoes them.
    *
-   * `idle` has no icon: the checkbox at the other end of the row already says
-   * the step is going to run, and an outline circle for every unstarted step
-   * is five glyphs saying nothing has happened yet. The rest are round —
-   * a bare tick here read as a second checkbox.
+   * `idle` has none: a step that has not started has no status to state.
    */
-  const STEP_STATES = {
-    idle: { icon: "", spin: false, word: "not started" },
-    running: { icon: "loading", spin: true, word: "running" },
-    success: { icon: "pass-filled", spin: false, word: "done" },
-    // No glyph, on purpose: the green tick is for a handoff that started, and
-    // the button on the row is what says there is something to press.
-    ready: { icon: "", spin: false, word: "ready" },
-    failed: { icon: "error", spin: false, word: "failed" },
-    skipped: { icon: "circle-slash", spin: false, word: "skipped" },
+  const STEP_MARKS = {
+    idle: "",
+    running: "codicon codicon-loading codicon-spin",
+    success: "step-dot",
+    ready: "step-dot",
+    failed: "step-dot",
+    skipped: "step-dot",
   };
 
   const byId = (id) => document.getElementById(id);
@@ -844,33 +842,36 @@
   function renderWorkflow(state) {
     const steps = state.workflow || [];
     for (const step of steps) {
-      const meta = STEP_STATES[step.status] || STEP_STATES.idle;
       const row = byId(`step-${step.id}`);
       // "Not chosen" only greys a row that has not happened: a Fix with AI row
       // that is ready or was handed over is part of the run, ticked or not.
       const off = !step.enabled && step.status === "idle";
       row.className = `step step-${step.status}${off ? " step-off" : ""}`;
+      const statusText = step.statusText || "";
       row.setAttribute(
         "aria-label",
-        `${step.label}: ${
-          step.enabled || step.status !== "idle" ? step.statusLabel || meta.word : "not selected"
-        }`,
+        `${step.label}: ${statusText || (step.enabled ? "not started" : "not selected")}`,
       );
 
-      const status = byId(`status-${step.id}`);
-      status.hidden = meta.icon === "";
-      status.className = meta.icon
-        ? `step-status codicon codicon-${meta.icon}${meta.spin ? " codicon-spin" : ""}`
-        : "step-status codicon";
+      // First line: the status once, in words, with its mark.
+      const mark = STEP_MARKS[step.status] || "";
+      byId(`status-${step.id}`).hidden = statusText === "";
+      byId(`status-text-${step.id}`).textContent = statusText;
+      byId(`mark-${step.id}`).className = mark === "" ? "step-mark" : `step-mark ${mark}`;
       byId(`duration-${step.id}`).textContent =
         typeof step.durationMs === "number" ? formatDuration(step.durationMs) : "";
 
-      // The secondary line, for the state the row is in: what it does while
-      // pending, what it is doing while running, what it produced once done.
-      byId(`description-${step.id}`).textContent = step.summary || step.description || "";
+      // The second line, only for what the status does not say: what it does
+      // while pending, what it is doing while running, what it produced once
+      // done. A finished row with nothing more to say has no second line.
+      const secondLine = step.status === "idle" ? step.summary || step.description || "" : step.summary || "";
+      const description = byId(`description-${step.id}`);
+      description.textContent = secondLine;
+      description.hidden = secondLine === "";
       // "Always runs" is plan information: once the row has run, it is noise.
       const note = document.getElementById(`note-${step.id}`);
       if (note) note.hidden = step.status !== "idle";
+      byId(`foot-${step.id}`).hidden = description.hidden && (!note || note.hidden);
 
       const detail = byId(`detail-${step.id}`);
       detail.textContent = step.detail || "";

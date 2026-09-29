@@ -464,8 +464,6 @@ html:has(#workflow-settings-view:not([hidden])) {
    a touch screen alike. `flex: none` so it never squeezes the label. */
 .step-settings {
   flex: none;
-  /* At the right end, also when the head wraps and it is alone on a line. */
-  margin-left: auto;
   opacity: 0.6;
 }
 
@@ -1204,9 +1202,16 @@ button.icon .codicon {
   padding: 0;
 }
 
+/* Rows separated by a light rule and a little air — not a table's lines. */
 .step {
-  padding: 3px 0;
-  border-top: 1px solid var(--vscode-panel-border);
+  padding: 5px 0;
+  border-top: 1px solid color-mix(in srgb, var(--vscode-panel-border) 55%, transparent);
+}
+
+/* High Contrast themes: the theme's own border, at full strength. */
+body.vscode-high-contrast .step,
+body.vscode-high-contrast-light .step {
+  border-top-color: var(--vscode-panel-border);
 }
 
 .step:first-child {
@@ -1233,32 +1238,83 @@ button.icon .codicon {
   align-items: center;
   gap: 6px;
   margin: 0;
-  flex: 1 1 5em;
+  /* A floor wide enough for a step's name: below it the metadata moves under
+     the name instead of the name breaking a letter at a time. */
+  flex: 1 1 8em;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   cursor: pointer;
+}
+
+/* The step's name is what a row is scanned by. */
+.step-name {
+  min-width: 0;
+}
+
+/* The right side of the first line: duration, status, gear — metadata, in
+   that order, kept together; when the row is too narrow they wrap as one
+   cluster under the name, at the right. */
+.step-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  /* Tight enough that "<0.1s · Context ready · gear" stays one line at 200px
+     (measured in the real window: 138px of the row's 140). */
+  gap: 2px 4px;
+  margin-left: auto;
+  min-width: 0;
 }
 
 .step-duration {
   flex: none;
-  /* Keeps the right end of the row at the right when the head wraps. */
-  margin-left: auto;
-  padding-left: 6px;
   color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-/* An annotation, not a control: smaller than the checkbox it used to sit
-   beside, and at the other end of the row from it. */
+.step-duration:empty {
+  display: none;
+}
+
+/* The status: its words, with a small mark before them. Words first in
+   importance — the dot only echoes them, so nothing depends on colour. */
 .step-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex: none;
-  margin-left: 6px;
-  font-size: 14px;
+  font-size: 0.9em;
   color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
 }
 
 .step-status[hidden] {
+  display: none;
+}
+
+/* A dot, not a glyph: round, small, filled — nothing like the checkbox.
+   Sized by its padding, so no pixel width can widen a narrow row. */
+.step-dot {
+  display: inline-block;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--bugpilot-icon-muted);
+}
+
+/* High Contrast: a ring the theme draws at full strength, so the dot is not
+   a colour alone. */
+body.vscode-high-contrast .step-dot,
+body.vscode-high-contrast-light .step-dot {
+  outline: 1px solid var(--vscode-contrastBorder, var(--vscode-foreground));
+}
+
+.step-mark.codicon {
+  font-size: 12px;
+}
+
+.step-mark:not(.step-dot):not(.codicon) {
   display: none;
 }
 
@@ -1673,6 +1729,11 @@ button.icon .codicon {
   margin-left: 20px;
 }
 
+.step-foot[hidden],
+.step-description[hidden] {
+  display: none;
+}
+
 .step-description {
   margin: 0;
   font-size: 0.9em;
@@ -1728,14 +1789,15 @@ button.icon .codicon {
   overflow-wrap: anywhere;
 }
 
-/* The canonical artifact a row owns: a file name as a quiet link at the end
-   of the summary line. Present so ownership is visible, small so six of them
-   do not turn the workflow into a file list. */
+/* The canonical artifact a row owns: a file name as a quiet link on its own
+   line under the row's text, apart from the status. Present so ownership is
+   visible, small so six of them do not turn the workflow into a file list. */
 .step-artifact {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 3px;
-  margin-left: auto;
+  max-width: 100%;
   padding: 0;
   border: none;
   background: none;
@@ -1859,22 +1921,38 @@ button.icon .codicon {
   margin: 4px 0 6px;
 }
 
-/* Colour is the secondary signal; the icon and the accessible name carry the
-   state as well, which is what keeps this readable in High Contrast. */
-.step-success .step-status {
-  color: var(--bugpilot-icon-success);
+/* Colour is the secondary signal, on the mark only: the words carry the state,
+   which is what keeps this readable in High Contrast and without colour. */
+.step-success .step-dot {
+  background: var(--bugpilot-icon-success);
+}
+
+.step-ready .step-dot {
+  background: var(--bugpilot-icon-primary);
+}
+
+.step-skipped .step-dot {
+  background: var(--bugpilot-icon-muted);
+}
+
+.step-failed .step-dot {
+  background: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
+}
+
+.step-running .step-mark {
+  color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
 }
 
 .step-running .step-status {
-  color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  color: var(--vscode-foreground);
+}
+
+.step-failed .step-status {
+  color: var(--vscode-errorForeground);
 }
 
 .step-running .step-label {
   font-weight: 600;
-}
-
-.step-failed .step-status {
-  color: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
 }
 
 .step-failed .step-label {

@@ -472,11 +472,12 @@ test("every icon the panel asks for is one the vendored font declares", () => {
   );
   const literal = [...HTML.matchAll(/codicon-([a-z-]+)/g), ...PAGE_JS.matchAll(/codicon-([a-z-]+)/g)]
     .map((match) => match[1]!);
-  // The names the page substitutes into `codicon-${...}` at render time.
+  // The names the page substitutes into `codicon-${...}` at render time. The
+  // workflow rows use none any more (§37.86): a dot, or the spinner, which is a
+  // literal above.
   const templated = [...PAGE_JS.matchAll(/icon: "([a-z-]*)"/g)]
     .map((match) => match[1]!)
     .filter((name) => name !== "");
-  assert.ok(templated.length >= 4, "expected the step-state icons to be found");
 
   const used = new Set([...literal, ...templated]);
   for (const name of used) {
@@ -592,13 +593,14 @@ test("the gear is quieter, never hidden, has a focus ring, and never squeezes it
   assert.match(CSS, /\.step:hover \.step-settings,\s*\.step-settings:hover,\s*\.step-settings:focus-visible \{\s*opacity: 1;/);
   assert.match(CSS, /\.step-settings:focus-visible \{[^}]*outline: 1px solid var\(--vscode-focusBorder\)/s);
   // The label takes the space and may shrink; the summary is cut, not wrapped.
-  assert.match(CSS, /\.step-label \{[^}]*flex: 1 1 5em;[^}]*min-width: 0;/s);
+  assert.match(CSS, /\.step-label \{[^}]*flex: 1 1 8em;[^}]*min-width: 0;/s);
   // Found at 200px in the real window: with a duration, a status and the gear,
   // a label that took all the shrinking broke between every letter. The head
-  // wraps instead, keeping the label a floor, and the rest stays at the right.
+  // wraps instead, keeping the label a floor; the duration, status and gear
+  // are one cluster that wraps under it and stays at the right (§37.86).
   assert.match(CSS, /\.step-head \{[^}]*flex-wrap: wrap;/s);
-  assert.match(CSS, /\.step-duration \{[^}]*margin-left: auto;/s);
-  assert.match(CSS, /\.step-settings \{[^}]*margin-left: auto;/s);
+  assert.match(CSS, /\.step-meta \{[^}]*flex-wrap: wrap;[^}]*margin-left: auto;/s);
+  assert.equal(/\.step-label \{[^}]*overflow-wrap: anywhere/s.test(CSS), false, "a name may break between letters");
   assert.match(CSS, /\.step-settings-summary \{[^}]*text-overflow: ellipsis/s);
   // The arrival highlight is an outline, which a high-contrast theme keeps —
   // and only an outline: a fill behind the section's inputs was loud enough in
@@ -2071,8 +2073,8 @@ test("Fix result is a row the markup keeps hidden, with no checkbox and no failu
   assert.equal(row.includes('id="error-fixResult"'), false, "Fix result has a row failure card");
   assert.deepEqual([...row.matchAll(/class="failure"[^>]*/g)].length, 1);
   assert.match(row, /<div id="review-error" class="failure" role="alert" hidden>/);
-  // Its line, its file, then its one action — the same order as every row.
-  const order = ['id="description-fixResult"', 'id="artifact-fixResult"', 'id="detail-fixResult"', 'id="open-fix-report"'].map((id) => row.indexOf(id));
+  // Its lines, its file, then its one action — the same order as every row.
+  const order = ['id="description-fixResult"', 'id="detail-fixResult"', 'id="artifact-fixResult"', 'id="open-fix-report"'].map((id) => row.indexOf(id));
   assert.ok(order.every((at) => at !== -1), "a slot is missing");
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   // Secondary, like Build context's actions: not a second primary button.
@@ -2145,9 +2147,11 @@ test("a long report line is clamped on screen, and still hidden when there is no
 
 test("each row reads top to bottom: its line, its detail, what it owns, its card", () => {
   const orders: Record<string, string[]> = {
-    issueDetails: ["plan-issueDetails", "status-issueDetails", "description-issueDetails", "artifact-issueDetails", "detail-issueDetails", "error-issueDetails"],
-    codeSearch: ["plan-codeSearch", "status-codeSearch", "description-codeSearch", "artifact-codeSearch", "detail-codeSearch", "relevant-files", "search-details", "error-codeSearch"],
-    buildContext: ["plan-buildContext", "status-buildContext", "description-buildContext", "artifact-buildContext", "detail-buildContext", "actions-buildContext", "error-buildContext"],
+    // The first line (choice, then status), the second line, the detail, then
+    // the file on a line of its own, then what the row owns (§37.86).
+    issueDetails: ["plan-issueDetails", "status-issueDetails", "description-issueDetails", "detail-issueDetails", "artifact-issueDetails", "error-issueDetails"],
+    codeSearch: ["plan-codeSearch", "status-codeSearch", "description-codeSearch", "detail-codeSearch", "artifact-codeSearch", "relevant-files", "search-details", "error-codeSearch"],
+    buildContext: ["plan-buildContext", "status-buildContext", "description-buildContext", "detail-buildContext", "artifact-buildContext", "actions-buildContext", "error-buildContext"],
   };
   for (const [id, order] of Object.entries(orders)) {
     const row = rowMarkup(id);
@@ -2446,4 +2450,65 @@ test("the line that says what the quick fix did is a live region the page can fo
   assert.match(line, /tabindex="-1"/);
   assert.match(line, / hidden/);
   assert.ok(HTML.indexOf('id="notices"') < HTML.indexOf('id="notice-status"'));
+});
+
+// --- Investigation & AI Fix: status as words and a dot (§37.86) -------------
+
+test("each row's first line is the choice, then the metadata — duration, status, gear — and the file is not among them", () => {
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]) {
+    const row = rowMarkup(id);
+    const meta = /<span class="step-meta">([\s\S]*?)<\/span>\s*<\/div>/.exec(row)?.[1] ?? "";
+    assert.notEqual(meta, "", `${id}: no metadata cluster`);
+    assert.ok(meta.includes(`id="duration-${id}"`), `${id}: duration`);
+    assert.ok(meta.includes(`id="status-${id}"`), `${id}: status`);
+    assert.equal(meta.includes("step-artifact"), false, `${id}: the artifact link is in the metadata`);
+    // The checkbox comes first, in the label, before any of it.
+    assert.ok(row.indexOf(`id="plan-${id}"`) < row.indexOf('class="step-meta"'), id);
+  }
+});
+
+test("the status is words with a decorative mark — no tick glyph is ever in a row's markup", () => {
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI", "fixResult"]) {
+    const row = rowMarkup(id);
+    // The mark first, decorative; then the words, which are not.
+    assert.ok(
+      row.includes(
+        `<span class="step-status" id="status-${id}" hidden><span class="step-mark" id="mark-${id}" aria-hidden="true"></span><span class="step-status-text" id="status-text-${id}"></span></span>`,
+      ),
+      id,
+    );
+    assert.equal(/codicon-(pass|pass-filled|check|circle-slash)(?![a-z-])/.test(row), false, `${id}: a tick or a prohibition glyph`);
+  }
+  // Nowhere in the page script either: the marks are a dot or the spinner.
+  const marks = /const STEP_MARKS = \{([\s\S]*?)\};/.exec(PAGE_JS)?.[1] ?? "";
+  assert.notEqual(marks, "");
+  assert.equal(/pass|check|circle-slash/.test(marks), false);
+  assert.equal([...marks.matchAll(/codicon-loading/g)].length, 1, "one running indicator");
+});
+
+test("the dot is small, round, sized without a pixel width, and coloured from the theme", () => {
+  assert.match(CSS, /\.step-dot \{[^}]*padding: 3px;[^}]*border-radius: 50%;/s);
+  for (const status of ["success", "ready", "skipped", "failed"]) {
+    assert.match(CSS, new RegExp(`\\.step-${status} \\.step-dot \\{[^}]*background: var\\(--`), status);
+  }
+  // High Contrast draws a ring, so it is never colour alone.
+  assert.match(CSS, /body\.vscode-high-contrast \.step-dot,\s*body\.vscode-high-contrast-light \.step-dot \{[^}]*outline: 1px solid/s);
+});
+
+test("gears only where a step has settings, as buttons in the metadata", () => {
+  for (const id of ["issueDetails", "codeSearch", "buildContext", "fixWithAI"]) {
+    const row = rowMarkup(id);
+    assert.match(row, new RegExp(`<button type="button" class="icon step-settings" id="settings-${id}"`), id);
+  }
+  for (const id of ["gitHistory", "similarFixes"]) {
+    assert.equal(rowMarkup(id).includes("step-settings"), false, `${id} has a gear`);
+  }
+});
+
+test("lighter rows: a soft rule and a little air, at full strength in High Contrast", () => {
+  assert.match(CSS, /\.step \{[^}]*padding: 5px 0;[^}]*border-top: 1px solid color-mix\(in srgb, var\(--vscode-panel-border\) 55%, transparent\);/s);
+  assert.match(CSS, /body\.vscode-high-contrast \.step,\s*body\.vscode-high-contrast-light \.step \{\s*border-top-color: var\(--vscode-panel-border\);/);
+  // Muted metadata: the duration and status are quieter than the name.
+  assert.match(CSS, /\.step-duration \{[^}]*color: var\(--vscode-descriptionForeground\)/s);
+  assert.match(CSS, /\.step-status \{[^}]*color: var\(--vscode-descriptionForeground\)/s);
 });

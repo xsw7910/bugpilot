@@ -41,7 +41,6 @@
  * a filled disc shares no silhouette with a square control.
  */
 .codicon-loading:before { content: "\eb19"; }
-.codicon-pass-filled:before { content: "\ebb3"; }
 .codicon-error:before { content: "\ea87"; }
 .codicon-circle-slash:before { content: "\eabd"; }
 

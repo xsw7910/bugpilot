@@ -200,7 +200,9 @@ test("Issue details says what it is doing, then what it read", () => {
 
 test("an issue that could not be read finishes as Completed, not as a guess", () => {
   const row = stepIn(buildWorkflow(input({ progress: progress("done", ALL_DONE) })), "issueDetails");
-  assert.equal(row.summary, "Completed");
+  // Completed once, as the status; no second line repeating it (§37.86).
+  assert.equal(row.statusText, "Completed");
+  assert.equal(row.summary, "");
   assert.equal(row.detail, undefined);
   assert.equal(row.artifact, undefined);
 });
@@ -215,9 +217,11 @@ test("a failed step carries the run's card; the rows before it keep their result
     input({ progress: failed, runError: card, artifacts: ["issue.json"], issue: ISSUE }),
   );
   assert.equal(stepIn(steps, "codeSearch").status, "failed");
-  assert.equal(stepIn(steps, "codeSearch").summary, "Failed");
+  assert.equal(stepIn(steps, "codeSearch").statusText, "Failed");
+  assert.equal(stepIn(steps, "codeSearch").summary, "", "Failed said twice");
   assert.equal(stepIn(steps, "codeSearch").error, card);
   assert.equal(stepIn(steps, "issueDetails").summary, "JR-12345 · Jira issue");
+  assert.equal(stepIn(steps, "issueDetails").statusText, "Completed");
   assert.equal(stepIn(steps, "issueDetails").error, undefined);
   // Exactly one row owns it.
   assert.equal(steps.filter((step) => step.error !== undefined).length, 1);
@@ -274,14 +278,16 @@ test("a search with no relevant files says 0, and a missing retrieval says only 
   );
   assert.equal(none.summary, "4 terms · 0 relevant files");
   const missing = stepIn(buildWorkflow(input({ progress: progress("done", ALL_DONE) })), "codeSearch");
-  assert.equal(missing.summary, "Completed");
+  assert.equal(missing.statusText, "Completed");
+  assert.equal(missing.summary, "");
   assert.equal(missing.search, undefined);
   // A retrieval with neither list readable is the same "Completed".
   const empty = stepIn(
     buildWorkflow(input({ progress: progress("done", ALL_DONE), search: { content: { files: [], terms: [] } } })),
     "codeSearch",
   );
-  assert.equal(empty.summary, "Completed");
+  assert.equal(empty.statusText, "Completed");
+  assert.equal(empty.summary, "");
   assert.equal(empty.search, undefined);
 });
 
@@ -294,12 +300,15 @@ test("Git history and Similar fixes report only what is known", () => {
   ] as const) {
     assert.equal(stepIn(buildWorkflow(input({ progress: progress("running", { [capability]: "running" }) })), id).summary, runningText);
     const done = stepIn(buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: ["context.md"] })), id);
-    assert.equal(done.summary, "Completed");
+    // One Completed, as the status: no second line that only says it again.
+    assert.equal(done.statusText, "Completed");
+    assert.equal(done.summary, "");
     assert.equal(done.detail, undefined);
     assert.equal(done.artifact, undefined);
     assert.equal(done.search, undefined);
     const skipped = stepIn(buildWorkflow(input({ progress: progress("done", { [capability]: "skipped" }) })), id);
-    assert.equal(skipped.summary, "Skipped");
+    assert.equal(skipped.statusText, "Skipped");
+    assert.equal(skipped.summary, "");
   }
 });
 
@@ -308,15 +317,13 @@ test("Build context says Context ready only with its file, and Building while it
     stepIn(buildWorkflow(input({ progress: progress("running", { build_context: "running" }) })), "buildContext").summary,
     "Building context…",
   );
-  assert.equal(
-    stepIn(buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: ["context.md"] })), "buildContext").summary,
-    "Context ready",
-  );
+  const ready = stepIn(buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: ["context.md"] })), "buildContext");
+  // Context ready once — the status — with context.md and its two actions under it.
+  assert.deepEqual([ready.statusText, ready.summary, ready.artifact], ["Context ready", "", "context.md"]);
+  assert.deepEqual([...ready.actions], ["openContext", "copyContext"]);
   // Finished, but the file is gone: no claim about a context that is not there.
-  assert.equal(
-    stepIn(buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: [] })), "buildContext").summary,
-    "Completed",
-  );
+  const gone = stepIn(buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: [] })), "buildContext");
+  assert.deepEqual([gone.statusText, gone.summary], ["Completed", ""]);
 });
 
 test("Fix with AI waits, is ready, starts, starts successfully, or fails — and says which", () => {
@@ -326,7 +333,8 @@ test("Fix with AI waits, is ready, starts, starts successfully, or fails — and
 
   const ready = stepIn(buildWorkflow(input(prepared)), "fixWithAI");
   assert.equal(ready.status, "ready");
-  assert.equal(ready.summary, "Ready");
+  assert.equal(ready.statusText, "Ready");
+  assert.equal(ready.summary, "");
   // No button of its own: handing over is the panel's primary action now.
   assert.deepEqual([...ready.actions], []);
   assert.equal(ready.artifact, "task.md");
@@ -334,6 +342,8 @@ test("Fix with AI waits, is ready, starts, starts successfully, or fails — and
 
   const starting = stepIn(buildWorkflow(input({ ...prepared, handoffBusy: true })), "fixWithAI");
   assert.equal(starting.status, "running");
+  assert.equal(starting.statusText, "Running");
+  // What it is doing, which "Running" does not say.
   assert.equal(starting.summary, "Starting AI fix…");
   assert.deepEqual([...starting.actions], [], "a second press while resolving");
 
@@ -342,7 +352,9 @@ test("Fix with AI waits, is ready, starts, starts successfully, or fails — and
     "fixWithAI",
   );
   assert.equal(started.status, "success");
-  assert.equal(started.summary, "AI fix started");
+  // Started, not Completed: the agent runs in a terminal nobody here watches.
+  assert.equal(started.statusText, "Started");
+  assert.equal(started.summary, "", "AI fix started said twice");
   assert.equal(started.detail, "Handed to my-agent in a terminal.");
   assert.deepEqual([...started.actions], [], "a second terminal for the same package");
 
@@ -354,6 +366,8 @@ test("Fix with AI waits, is ready, starts, starts successfully, or fails — and
     "fixWithAI",
   );
   assert.equal(failed.status, "failed");
+  assert.equal(failed.statusText, "Failed");
+  // The reason, which "Failed" does not say.
   assert.equal(failed.summary, "Did not start");
   assert.equal(failed.error, card);
   assert.equal(failed.detail, "claude is not on PATH.");
@@ -492,7 +506,7 @@ test("Fix result is ready, never the green tick, whatever the report says", () =
   ] as const) {
     const row = stepIn(finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary, tests } }), "fixResult");
     assert.equal(row.status, "ready", summary);
-    assert.equal(row.statusLabel, "report available");
+    assert.equal(row.statusText, "Report available");
     assert.equal(row.summary, summary);
     assert.equal(row.detail, `Tests: ${tests}`);
     assert.equal(row.artifact, "fix_report.md");
@@ -504,7 +518,9 @@ test("Fix result is ready, never the green tick, whatever the report says", () =
 
 test("a report with no Summary says only that it is there", () => {
   const row = stepIn(finished({ artifacts: WITH_REPORT, fixReport: { readable: true } }), "fixResult");
-  assert.equal(row.summary, "Fix report available");
+  // The status says it; a second line saying "Fix report available" would too.
+  assert.equal(row.statusText, "Report available");
+  assert.equal(row.summary, "");
   assert.equal(row.detail, undefined, "a Tests line was invented");
   assert.equal(row.artifact, "fix_report.md");
 });
@@ -517,7 +533,8 @@ test("a report with a Summary and no Tests shows no Tests line", () => {
 test("a listed report that could not be read is still a report to open", () => {
   for (const fixReport of [{ readable: false }, undefined]) {
     const row = stepIn(finished({ artifacts: WITH_REPORT, ...(fixReport ? { fixReport } : {}) }), "fixResult");
-    assert.equal(row.summary, "Fix report available");
+    assert.equal(row.statusText, "Report available");
+    assert.equal(row.summary, "");
     assert.equal(row.detail, "Preview unavailable");
     assert.equal(row.status, "ready");
     assert.deepEqual([...row.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI"]);
@@ -546,8 +563,8 @@ test("a report changes none of the five capability rows, and Fix with AI only sa
   // available, which is all that is known — not started, not fixed, not the tick.
   const fix = stepIn(withReport, "fixWithAI");
   assert.deepEqual(
-    { status: fix.status, statusLabel: fix.statusLabel, summary: fix.summary },
-    { status: "ready", statusLabel: "fix report available", summary: "Fix report available" },
+    { status: fix.status, statusText: fix.statusText, summary: fix.summary },
+    { status: "ready", statusText: "Ready", summary: "Fix report available" },
   );
   assert.equal(fix.artifact, "task.md");
   assert.deepEqual([...fix.actions], []);
@@ -846,8 +863,8 @@ test("a recorded review changes nothing Fix result or the header says about the 
   const row = stepIn(withReview, "fixResult");
   const before = stepIn(without, "fixResult");
   assert.deepEqual(
-    [row.status, row.statusLabel, row.summary, row.detail, row.artifact, row.error],
-    [before.status, before.statusLabel, before.summary, before.detail, before.artifact, before.error],
+    [row.status, row.statusText, row.summary, row.detail, row.artifact, row.error],
+    [before.status, before.statusText, before.summary, before.detail, before.artifact, before.error],
   );
   const doneProgress = progress("done", ALL_DONE);
   assert.deepEqual(overallStatus(withReview, doneProgress), overallStatus(without, doneProgress));
@@ -1052,6 +1069,45 @@ test("the captured review's words: Reviewing…, finished, or a capture that gav
   assert.match(withReply.next ?? "", /The reply is in Paste Review Output/);
   const said = JSON.stringify([failed, withReply, view({ state: "captured", agent: "Claude Code" })]);
   for (const verdict of ["Passed", "Approved", "Verified", "safe to merge", "Review failed", "Rejected"]) {
+    assert.equal(said.includes(verdict), false, verdict);
+  }
+});
+
+// --- one status per row (§37.86) --------------------------------------------
+
+test("every row states its status once: the status words never reappear as its second line", () => {
+  const words = ["Completed", "Skipped", "Running", "Failed", "Context ready", "Ready", "Started", "Report available"];
+  const cases = [
+    input(),
+    input({ progress: progress("running", { issue_details: "done", code_search: "running" }) }),
+    input({ progress: progress("done", ALL_DONE), artifacts: ["context.md", "task.md"] }),
+    input({ progress: progress("done", { ...ALL_DONE, code_search: "skipped" }), artifacts: ["context.md"] }),
+    input({ progress: progress("failed", { issue_details: "done", code_search: "failed" }) }),
+    input({ progress: progress("done", ALL_DONE), artifacts: ["context.md", "task.md"], fix: { status: "success", detail: "Handed to my-agent in a terminal." } }),
+    input({ progress: progress("done", ALL_DONE), artifacts: WITH_REPORT, fixReport: { readable: true } }),
+  ];
+  for (const [index, each] of cases.entries()) {
+    for (const row of buildWorkflow(each)) {
+      assert.ok(!words.includes(row.summary), `case ${index}: ${row.id} says "${row.summary}" twice`);
+      assert.ok(row.statusText === "" || words.includes(row.statusText), `case ${index}: ${row.id} "${row.statusText}"`);
+      // A step that has not started has no status to state.
+      if (row.status === "idle") assert.equal(row.statusText, "", `case ${index}: ${row.id}`);
+    }
+  }
+});
+
+test("a pending row keeps its description as its only line, and states no status", () => {
+  for (const row of buildWorkflow(input())) {
+    if (row.id === "fixResult") continue;
+    assert.equal(row.statusText, "");
+    assert.equal(row.summary, row.description, row.id);
+  }
+});
+
+test("the statuses are the concise ones — no global verdict among them", () => {
+  const done = buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." } }));
+  const said = done.map((row) => row.statusText).join(" ");
+  for (const verdict of ["Success", "Successful", "Passed", "Verified", "Approved", "Done"]) {
     assert.equal(said.includes(verdict), false, verdict);
   }
 });

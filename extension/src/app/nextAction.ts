@@ -90,7 +90,7 @@ export interface NextActionInput {
 }
 
 export const RUN_HINT = "Run prepares the issue context for AI-assisted fixing.";
-export const FIX_HINT = "Context is ready. Fix with AI hands task.md to your AI agent.";
+export const FIX_HINT = "Context ready. Next: Fix with AI.";
 export const SESSION_HINT = "An AI session was started for this work item. Continue the conversation there.";
 export const EARLIER_ATTEMPT_HINT =
   "An earlier AI attempt wrote fix_report.md. Open its session, or start a new attempt from ⋯.";

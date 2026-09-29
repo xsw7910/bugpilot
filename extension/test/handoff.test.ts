@@ -40,7 +40,9 @@ test("a handoff that started an agent says so, and says which one", () => {
   const { row, overall } = fixRow({ status: "success", detail: "Handed to Claude Code in a terminal." });
 
   assert.equal(row.status, "success");
-  assert.equal(row.summary, "AI fix started");
+  // Said once, as the row's status (§37.86); the header still says it in full.
+  assert.equal(row.statusText, "Started");
+  assert.equal(row.summary, "");
   // The host's own record of the launch. The headline above names no vendor.
   assert.equal(row.detail, "Handed to Claude Code in a terminal.");
   assert.equal(overall.text, "AI fix started");
@@ -59,20 +61,23 @@ test("nothing else is a success", () => {
   ] as const) {
     assert.notEqual(fixRow(fix).row.status, "success", JSON.stringify(fix));
     assert.notEqual(fixRow(fix).row.summary, HANDOFF_STARTED_TITLE, JSON.stringify(fix));
+    assert.notEqual(fixRow(fix).row.statusText, "Started", JSON.stringify(fix));
   }
 });
 
 test("a prepared task that nobody handed over is ready, not the green tick", () => {
   const { row } = fixRow();
   assert.equal(row.status, "ready");
-  assert.equal(row.summary, "Ready");
+  assert.equal(row.statusText, "Ready");
+  assert.equal(row.summary, "");
   // Offered by the primary action, not by the row.
   assert.deepEqual([...row.actions], []);
 });
 
 test("a success with nothing to add about the agent still reports itself", () => {
   const { row } = fixRow({ status: "success" });
-  assert.equal(row.summary, HANDOFF_STARTED_TITLE);
+  assert.equal(row.statusText, "Started");
+  assert.equal(row.summary, "", `${HANDOFF_STARTED_TITLE} said twice`);
   assert.equal(row.detail, undefined);
 });
 

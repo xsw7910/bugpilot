@@ -10109,3 +10109,63 @@ rebuilt wheel reinstalled with pipx).
 (which now expects the save listener) and `git diff --check` clean. Python 1260
 pass (the per-directory test added, the old function's tests moved to the new
 one).
+
+### 37.86 Investigation & AI Fix visual simplification (after §37.85, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Investigation & AI Fix visual simplification)" at the end
+of §19.
+
+**What changed.**
+
+- `workflow.ts`: `WorkflowStepResult.statusText` (replacing Fix result's
+  `statusLabel`), set by `withStatusText` after every row is built; `summary`
+  blanked when it only restates the status.
+- `html.ts`: each row's head is the label (checkbox, `.step-name`) and a
+  `.step-meta` cluster — duration, `.step-status` (an `aria-hidden` mark and the
+  words), gear; the description line has an id so it can hide; the artifact
+  link moved under the row's text.
+- `panel.js`: `STEP_MARKS` (a dot, or the spinner while running) replaces
+  `STEP_STATES`' icons; the row's accessible name uses the status words; the
+  second line and its container hide when empty.
+- `panel.css`: the dot, its tones and a High Contrast ring; the metadata
+  cluster wraps as one under the name; label floor 8em without letter breaks;
+  lighter row rule and padding. `codicon-pass-filled` removed from the vendored
+  codicon.css.
+- `nextAction.ts`: the context-ready hint is *Context ready. Next: Fix with AI.*
+
+**Found in the real window and fixed.** At 200px Build context's gear wrapped
+onto a line of its own ("<0.1s ● Context ready ⚙" measured 147px of the row's
+140); the cluster's gaps were tightened to 4px and it now fits.
+
+**Real VS Code pass** (the disposable profile, a throwaway git repository, a
+described bug).
+
+- PASS A: a completed run — left checkboxes, no tick anywhere, Completed once
+  on Issue details, Code search, Git history and Similar fixes; Git history and
+  Similar fixes have no second line.
+- PASS B: Code search unticked by a click and run — Skipped once, a dot, no
+  prohibition icon, no second line.
+- PASS C: Build context — Context ready once, context.md under it, Open Context
+  and Copy under that.
+- PASS D: Code search, Git history and Build context caught running — the
+  spinner and Running only, no dot, and what each was doing on the second line.
+- PASS E: a Jira key with no Jira site — Issue details Failed once, the reason
+  in its card; the other rows pending with their descriptions. No warning state
+  exists in the model, so none was exercised.
+- PASS F (FIXED): 200px and 360px — no horizontal overflow, names on one line;
+  metadata under the name at 200px, beside it at 360px.
+- PASS G: keyboard — Tab reaches each checkbox, gear and file link in order;
+  Space toggles a checkbox; Enter on a gear opens its settings. Dark, Light,
+  High Contrast Dark, High Contrast Light.
+- Incident: one recheck pressed the primary button while it read Fix with AI (a
+  restored prepared work item) and handed the task to the real Claude Code in
+  the disposable window's terminal, in the throwaway repository. The window was
+  closed within about a minute; the repository was left unchanged (clean tree,
+  no report). The harness now refuses to press the button unless it reads Run.
+
+**Regression.** Extension 1473 tests pass (1458 before: 3 model, 7 page and 5
+panel tests added; tests that pinned status words in `summary` or the old
+icons updated); typecheck, smoke and `git diff --check` clean.

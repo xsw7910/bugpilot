@@ -948,19 +948,25 @@ function step(id: WorkflowStepId): string {
     ? `\n            <button type="button" class="icon step-settings" id="settings-${id}" title="${SETTINGS_ACTION_LABELS[section]}" aria-label="${SETTINGS_ACTION_LABELS[section]}"><span class="codicon codicon-settings-gear" aria-hidden="true"></span></button>`
     : "";
   const summary = section ? `\n            <p class="step-settings-summary" id="settings-summary-${id}" hidden></p>` : "";
+  // First line: the choice (the checkbox and the name), then the metadata —
+  // how long it took, how it went, its gear. The status is words with a small
+  // dot or the spinner beside them, never a second tick (§37.86). The
+  // artifact link sits under the row's lines, not among the metadata.
   return `        <li class="step" id="step-${id}">
           <div class="step-head">
-            <label class="step-label" for="plan-${id}">${box}<span>${STEP_LABELS[id]}</span></label>
-            <span class="step-duration" id="duration-${id}"></span>
-            <span class="step-status codicon" id="status-${id}" aria-hidden="true" hidden></span>${gear}
+            <label class="step-label" for="plan-${id}">${box}<span class="step-name">${STEP_LABELS[id]}</span></label>
+            <span class="step-meta">
+              <span class="step-duration" id="duration-${id}"></span>
+              ${stepStatus(id)}${gear}
+            </span>
           </div>
-          <div class="step-foot">
+          <div class="step-foot" id="foot-${id}">
             <p class="step-description" id="description-${id}">${description}</p>
             ${note}
-            <button type="button" class="step-artifact" id="artifact-${id}" hidden><span class="codicon codicon-file" aria-hidden="true"></span><span id="artifact-${id}-name"></span></button>
           </div>
           <div class="step-body">${summary}
             <p class="step-detail" id="detail-${id}" hidden></p>
+            ${stepArtifact(id)}
 ${stepContent(id)}
 ${errorCard(`error-${id}`)}
           </div>
@@ -979,19 +985,34 @@ ${errorCard(`error-${id}`)}
  */
 const FIX_RESULT_ROW = `        <li class="step" id="step-fixResult" hidden>
           <div class="step-head">
-            <span class="step-label"><span>${STEP_LABELS.fixResult}</span></span>
-            <span class="step-duration" id="duration-fixResult"></span>
-            <span class="step-status codicon" id="status-fixResult" aria-hidden="true" hidden></span>
+            <span class="step-label"><span class="step-name">${STEP_LABELS.fixResult}</span></span>
+            <span class="step-meta">
+              <span class="step-duration" id="duration-fixResult"></span>
+              ${stepStatus("fixResult")}
+            </span>
           </div>
-          <div class="step-foot">
+          <div class="step-foot" id="foot-fixResult">
             <p class="step-description" id="description-fixResult">${stepDescription("fixResult", "jira")}</p>
-            <button type="button" class="step-artifact" id="artifact-fixResult" hidden><span class="codicon codicon-file" aria-hidden="true"></span><span id="artifact-fixResult-name"></span></button>
           </div>
           <div class="step-body">
             <p class="step-detail" id="detail-fixResult" hidden></p>
+            ${stepArtifact("fixResult")}
 ${stepContent("fixResult")}
           </div>
         </li>`;
+
+/**
+ * A row's status: a mark — a small dot, or the spinner while it runs — and the
+ * words. The mark is decorative; the words are the status, for everyone.
+ */
+function stepStatus(id: WorkflowStepId): string {
+  return `<span class="step-status" id="status-${id}" hidden><span class="step-mark" id="mark-${id}" aria-hidden="true"></span><span class="step-status-text" id="status-text-${id}"></span></span>`;
+}
+
+/** The canonical artifact a row owns, as a quiet file link on a line of its own. */
+function stepArtifact(id: WorkflowStepId): string {
+  return `<button type="button" class="step-artifact" id="artifact-${id}" hidden><span class="codicon codicon-file" aria-hidden="true"></span><span id="artifact-${id}-name"></span></button>`;
+}
 
 /** What a row owns beyond its summary, in its body. */
 function stepContent(id: WorkflowStepId): string {

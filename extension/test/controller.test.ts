@@ -48,7 +48,7 @@ const codeRow = (state: PanelState) => stepOf(state, "codeSearch");
 const buildRow = (state: PanelState) => stepOf(state, "buildContext");
 const fixRow = (state: PanelState) => stepOf(state, "fixWithAI");
 /** A finished package the panel reports: Build context says the context is ready. */
-const reportsContext = (state: PanelState) => buildRow(state).summary === "Context ready";
+const reportsContext = (state: PanelState) => buildRow(state).statusText === "Context ready";
 /**
  * Fix with AI is on offer: the panel's primary action, pressable. Since the
  * next-action redesign that is the only place it is offered — the row keeps
@@ -2751,7 +2751,8 @@ test("counts are omitted, not guessed, when the retrieval cannot be read", async
     const state = h.last();
     assert.ok(reportsContext(state), "an unreadable retrieval took the context with it");
     // Finished, and saying only that: no number, no files, no terms.
-    assert.equal(codeRow(state).summary, "Completed", "a number was invented");
+    assert.equal(codeRow(state).statusText, "Completed");
+    assert.equal(codeRow(state).summary, "", "a number was invented");
     assert.equal(codeRow(state).search, undefined);
   }
 });
@@ -2772,7 +2773,8 @@ test("the old retrieval files are not read, even when they are on disk", async (
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  assert.equal(codeRow(h.last()).summary, "Completed");
+  assert.equal(codeRow(h.last()).statusText, "Completed");
+  assert.equal(codeRow(h.last()).summary, "");
   assert.equal(codeRow(h.last()).search, undefined);
   assert.deepEqual(
     reads.filter((file) => /related_files|search_quality/.test(file)),
@@ -2886,7 +2888,7 @@ test("a handoff that already happened closes the door on a second one", async ()
   assert.equal(canFix(h.last()), false);
   // The outcome, not a vanished button: a title, a provider-neutral sentence,
   // and the host's own record of which agent it started.
-  assert.equal(fixRow(h.last()).summary, "AI fix started");
+  assert.equal(fixRow(h.last()).statusText, "Started");
   assert.match(fixRow(h.last()).detail ?? "", /Handed to/);
 });
 
@@ -3315,7 +3317,7 @@ test("a manual handoff that works reports itself and keeps everything else", asy
   assert.equal(h.terminals.length, 1);
   // The headline names no vendor; the host's own record of the launch does.
   assert.equal(fixRow(after).status, "success");
-  assert.equal(fixRow(after).summary, "AI fix started");
+  assert.equal(fixRow(after).statusText, "Started");
   assert.match(fixRow(after).detail ?? "", /^Handed to .+ in a terminal\.$/);
   assert.equal(canFix(after), false, "a second handoff was still on offer");
   assert.equal(fixRow(after).error, undefined);
@@ -3401,7 +3403,7 @@ test("a retry that works clears the failure and reports the success", async () =
 
   const after = h.last();
   assert.equal(fixRow(after).error, undefined, "a stale failure survived the retry");
-  assert.equal(fixRow(after).summary, "AI fix started");
+  assert.equal(fixRow(after).statusText, "Started");
   assert.deepEqual(codeRow(after), codeRow(prepared));
   assert.equal(h.terminals.length, 1, "the failed attempt left a terminal behind");
 });
@@ -3950,7 +3952,7 @@ const mentionsFirst = (state: PanelState) => {
   return (
     /JR-1\b|Title of one/.test(`${issue.summary} ${issue.detail ?? ""}`) ||
     (code.search?.files.length ?? 0) > 0 ||
-    code.summary !== "Completed"
+    code.summary !== ""
   );
 };
 
@@ -4207,7 +4209,8 @@ test("a report listed but unreadable is still a Fix result to open", async () =>
 
   const row = fixResultOf(h.last());
   assert.ok(row);
-  assert.equal(row.summary, "Fix report available");
+  assert.equal(row.statusText, "Report available");
+  assert.equal(row.summary, "");
   assert.equal(row.detail, "Preview unavailable");
   assert.equal(h.last().progress.state === "failed", false, "an unreadable preview became a run failure");
   assert.equal(h.last().runError, undefined);
@@ -5034,7 +5037,7 @@ test("Review with AI and Fix with AI keep their own outcomes", async () => {
 
   // Fix with AI succeeds: the review's start stays.
   await h.controller.handle({ type: "action", id: "fixWithAI" });
-  assert.equal(fixRow(h.last()).summary, "AI fix started");
+  assert.equal(fixRow(h.last()).statusText, "Started");
   assert.equal(reviewOf(h.last())?.state, "started", "a fix handoff cleared the review's");
   assert.equal(h.last().overall.text, "AI fix started");
 });
@@ -5253,7 +5256,7 @@ test("Fix with AI pressed twice before the agent is found starts one handoff, wh
   assert.deepEqual(h.probed, ["claude"], "a second press looked for an agent again");
   assert.equal(h.terminals.length, 1, "two presses opened two terminals");
   assert.equal(h.logged.filter((line) => /Refusing a second Fix with AI/.test(line)).length, 2);
-  assert.equal(fixRow(h.last()).summary, "AI fix started");
+  assert.equal(fixRow(h.last()).statusText, "Started");
 });
 
 test("once a handoff has finished, a deliberate second Fix with AI still works as before", async () => {
@@ -5565,7 +5568,7 @@ test("a recorded review is one Review Result in its own words, with Open and Rep
   assert.equal(h.last().workflow.length, 7);
   // The Fix result row itself says what it said before.
   assert.equal(row.status, "ready");
-  assert.equal(row.statusLabel, "report available");
+  assert.equal(row.statusText, "Report available");
 });
 
 test("recording sends the four sections through record-review and shows the file it wrote", async () => {
@@ -6553,7 +6556,7 @@ test("recorded evidence is counts, the scoped phrase and the checks by name, wit
   // One Fix result row, saying what it said before; no workflow row, no badge.
   assert.equal(h.last().workflow.length, 7);
   assert.equal(row.status, "ready");
-  assert.equal(row.statusLabel, "report available");
+  assert.equal(row.statusText, "Report available");
   assert.doesNotMatch(JSON.stringify(h.last()), /[Vv]erified|Approved|Safe to merge|Fix verified/);
 });
 
@@ -7250,7 +7253,7 @@ test("next action 3: Fix with AI hands over the prepared task.md, and prepares n
   assert.deepEqual(h.written, [], "Fix with AI wrote a file");
   assert.deepEqual(h.terminals, [{ name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: TASK_HANDOFF }]);
   // "Started", and nothing about what the agent did.
-  assert.equal(fixRow(h.last()).summary, "AI fix started");
+  assert.equal(fixRow(h.last()).statusText, "Started");
   assert.equal(fixRow(h.last()).detail, "Handed to Claude Code in a terminal.");
 });
 
