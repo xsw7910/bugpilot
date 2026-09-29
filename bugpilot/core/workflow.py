@@ -1726,6 +1726,11 @@ def _build_final_review_prompt(issue_key: str) -> str:
     # Source-, outcome- and provider-neutral: the work item may be a Jira issue
     # or a hand-written bug, and the result an applied fix, an attempt, a no-op
     # or an investigation only — the reviewer reads fix_report.md to learn which.
+    #
+    # The answer is asked for in review_report.md's four sections, so the
+    # extension's Paste Review Output can fill the Review Result form from it.
+    # No verdict is asked for: BugPilot records what a reviewer said and never
+    # reads a pass, an approval or "verified" out of it.
     return (
         "# Final Review Request\n\n"
         f"Review the BugPilot result for work item {issue_key}.\n\n"
@@ -1740,16 +1745,25 @@ def _build_final_review_prompt(issue_key: str) -> str:
         "3. Whether the result matches the reported issue\n"
         "4. Whether any source change is minimal and safe\n"
         "5. Whether tests are sufficient\n"
-        "6. Whether memory entry should be updated\n"
-        "7. Any follow-up work\n\n"
-        "Expected output:\n"
-        "Verdict:\n"
-        "PASS / PASS WITH MINOR COMMENTS / NEEDS CHANGES\n\n"
-        "Blocking issues:\n"
-        "Non-blocking suggestions:\n"
-        "Test concerns:\n"
-        "Memory update suggestions:\n"
-        "Recommended next step:\n"
+        "6. Missing edge cases\n"
+        "7. Whether the change touches unrelated code\n"
+        "8. Whether memory entry should be updated\n"
+        "9. Any follow-up work\n\n"
+        "Rules:\n"
+        "- Say which conclusions come from reading the code and which from commands you actually ran.\n"
+        "- Do not claim that a test or check ran unless you ran it and saw its result.\n"
+        "- Do not describe the result as verified unless you name the evidence.\n"
+        "- Do not approve the change or call it safe to merge. Report what you found.\n"
+        "- If a section has nothing to report, write: Nothing to report.\n\n"
+        "Return exactly these four sections, in this order:\n\n"
+        "## Summary\n"
+        "Your overall review conclusion, in your own words.\n\n"
+        "## Findings\n"
+        "Specific problems, risks, omissions or observations.\n\n"
+        "## Validation Notes\n"
+        "What you inspected, and anything you actually ran, with what you observed.\n\n"
+        "## Recommendations\n"
+        "Suggested next actions.\n"
     )
 
 

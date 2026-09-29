@@ -277,38 +277,86 @@ report's Review Notes. It is guidance, not a verification — nothing is ticked,
 recorded or written, and neither aid changes the run, the report or History.
 Posting to Jira, committing and pushing stay separate and manual.
 
-**Review with AI** starts a reviewer instead: the same prompt, handed to the
-agent **Workflow Settings → Fix with AI → AI agent** selects — the one Fix with AI uses — in a
-terminal at the repository root, where the reviewer can read those files and
-the diff. The row then says **AI review started** and which agent it went to,
-and that is all it knows: BugPilot does not read the reviewer's output or wait
-for it, so nothing says the review finished, passed or approved anything, and
-nothing is written — no review file, no change to `fix_report.md` or `run.json`,
-nothing on your clipboard. It reviews the report on disk, which after a re-run
-that is not **Fresh** can be the previous attempt's. The status lasts until you
-open another work item, reopen this one or run again; then the button is back.
-If no agent can be started, the row says why, and Copy Review Prompt still
-works.
+After a fix, the flow is **Review with AI** → **Review Result** →
+**Verification Evidence**. Review and verification are kept apart on purpose: a
+review is what a reviewer said about the change; verification evidence is what
+you actually ran or tried, and what you saw.
 
-**Record Review Result** keeps what a completed review said with the work
-item's files. Any review counts — Review with AI's terminal, another assistant,
-a colleague, one done yesterday — because BugPilot does not know how a review
-went until you tell it. Four text areas open under the row — Summary, Findings,
-Validation notes, Recommendations — and you fill in what applies. On Save the
-CLI writes `review_report.md`, and **Review result** appears under Fix result:
+**Review with AI** starts a reviewer instead, with the same prompt and the
+agent **Workflow Settings → Fix with AI → AI agent** selects — the one Fix with
+AI uses — at the repository root, where the reviewer can read those files and
+the diff. The prompt asks for four sections — `## Summary`, `## Findings`,
+`## Validation Notes` and `## Recommendations` — tells the reviewer to keep
+reading the code apart from anything it actually ran, and asks for no verdict:
+not "pass", not "approved", not "safe to merge".
+
+- **Claude Code (Auto-detect or Claude Code):** BugPilot runs it once,
+  non-interactively (`claude -p --output-format json`), with the prompt on its
+  input and no terminal. The reviewer can read files and run `git diff`,
+  `git status`, `git log` and `git show`, and nothing else: it cannot edit
+  files or run other commands, and neither your Claude Code settings nor the
+  repository's widen that. The row says **Reviewing…** until it exits. When its
+  reply has the four sections, the Review Result form opens filled in, marked
+  *Prefilled from AI review — review before saving*, and the row says **Review
+  result ready to save** — nothing is saved until you check it and press
+  **Save Review Result**. If the reviewer exits without such a reply, the row
+  says *Review result could not be captured automatically* or *AI review did
+  not produce a usable structured result*, with the reason, and **Paste Review
+  Output** is the way on (a reply that only needs a heading fixed is already in
+  the box). Nothing is ever read from a terminal.
+- **A custom agent command** (Codex included) is never run for its output: it
+  is a shell template, so the prompt goes to it in a terminal as before, the
+  row says **AI review started**, and you bring the reply back with Paste
+  Review Output.
+
+Review with AI is offered once per fix. It disappears as soon as a reviewer
+starts, and stays hidden for that fix — through a reload, a reopen, saving a
+review result, adding verification evidence, a settings change, Rebuild
+Context, or Start New Attempt on its own. It comes back when the fix report
+changes: a new attempt's `fix_report.md`, with different content, is a new fix
+to review. If the reviewer never started — no agent, a prompt that could not be
+had — the row says why and the button stays. BugPilot remembers which fix was
+reviewed in VS Code's workspace state, not in the repository; the reviewer's
+unsaved reply is kept only while the window is open.
+
+**Paste Review Output** brings a reviewer's reply back by hand — from the
+terminal, another assistant, or a colleague. Paste it into the box that opens,
+and press **Parse**: BugPilot reads
+the four sections — headings matched case-insensitively, anything inside a code
+fence left as code, a lead-in before `## Summary` left out and said so — and
+fills in the Review Result form, marked *Prefilled from structured review
+output — review before saving*. Nothing is saved yet: check and edit the text,
+then press **Save Review Result**. A reply in any other shape, with a section
+missing or repeated, or too long, is refused with the reason, and the pasted
+text stays for you to fix. Nothing is read into it: "PASS" or "LGTM" in the
+reply is kept as the reviewer's words, never turned into a status.
+
+**Add Review Result** is the same form, empty, for a review you type yourself.
+Any review counts — Review with AI's terminal, another assistant, a colleague's
+code review, one done yesterday — because BugPilot does not know how a review
+went until you tell it. Four text areas open under the row — Summary (the
+overall conclusion in the reviewer's words), Findings (problems, risks,
+omissions, observations), Validation Notes (what the reviewer actually
+inspected or ran — not tests that did not run) and Recommendations (next
+actions) — and you fill in what applies. On **Save Review Result** the CLI
+writes `review_report.md`, and **Review result saved** appears under Fix result:
 the review's first summary line and findings line, and **Open Review Report**.
-It says a result was recorded — not that the review passed, that the fix is
+It says a result was saved — not that the review passed, that the fix is
 correct, that tests ran or that its recommendations were applied. **Replace
-Review Result** records a new one in its place, after asking. A **Fresh** run
-removes it with the fix report; **Rebuild Context** and **Start New Attempt**
-leave it, so after a new attempt it describes the earlier one until you replace
-it. History is not changed by
+Review Result** saves a new one in its place, after asking; Paste Review Output
+can fill that form too. A **Fresh** run removes it with the fix report;
+**Rebuild Context** and **Start New Attempt** leave it, so after a new attempt
+it describes the earlier one until you replace it. History is not changed by
 it.
 
-**Record Verification Evidence** keeps the checks you ran with the work item's
-files: one row per check, with a name, the status you recorded — Passed,
-Failed or Not Run; a new row starts as Not Run — a type, and optionally the
-command or procedure, the evidence and notes. **Add Check** and **Remove
+**Add Verification Evidence** keeps the checks you actually performed with the
+work item's files — not what a reviewer noticed while reading the change, which
+belongs in the review result. One row per check, with a name (what was
+checked), the status you are recording — Passed, Failed or Not Run; a new row
+starts as Not Run — a type (Automated, Manual or Other), and optionally the
+command you ran or the steps you followed, the evidence you observed and notes.
+The fields show examples such as *Targeted unit tests · npm test · 1285 passed,
+0 failed* as placeholders; they are never saved. **Add Check** and **Remove
 Check** change the rows. BugPilot does not run any of them, read a terminal or
 watch CI: on Save the CLI writes `verification_report.md` with exactly what you
 entered, and **Verification Evidence** appears under Fix result — "Recorded
@@ -370,8 +418,9 @@ the new attempt do differently?*
   summary of the last attempt — and hands that to the new session.
 
 **Use Review Findings** and **Use Verification Evidence** appear in the form
-when a review result, or a check recorded as Failed or Not Run, exists; they
-copy that text into the box when you press them, and nothing else. Start New
+when a saved review result, or a check recorded as Failed or Not Run, exists;
+they copy that text into the box when you press them, and nothing else. A
+pasted review that has not been saved is not used. Start New
 Attempt reuses the prepared context — to prepare it again, use **Rebuild
 Context**.
 

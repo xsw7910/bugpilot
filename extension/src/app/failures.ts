@@ -153,7 +153,7 @@ export function handoffError(reason: string): UserFacingError {
  * Where Review with AI stopped: the prompt could not be had, it could be had but
  * not put on a command line, the agent, or the terminal.
  */
-export type ReviewHandoffCause = "prompt" | "command-line" | "agent" | "terminal";
+export type ReviewHandoffCause = "prompt" | "command-line" | "agent" | "terminal" | "busy";
 
 /**
  * A review handoff that could not start (Batch 10), as a card under Fix result.
@@ -174,6 +174,9 @@ export function reviewHandoffError(cause: ReviewHandoffCause, reason: string): U
         "BugPilot couldn't start the selected AI agent. Check that it is installed and available from your terminal, or choose another in Workflow Settings → Fix with AI. Copy Review Prompt still gives you the prompt.",
       action: OPEN_SETTINGS,
     };
+  }
+  if (cause === "busy") {
+    return { ...base, message: "Something else started on this work item first, so no reviewer was started. Try again when it finishes." };
   }
   if (cause === "terminal") {
     return {

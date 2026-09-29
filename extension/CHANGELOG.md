@@ -22,9 +22,25 @@ First release. What it does today:
   prepared, failed, unfinished — and reopens any of them in the panel.
 - **Start New Attempt.** A new agent session on the prepared context, with
   optional feedback: empty writes nothing; typed feedback becomes
-  `user_feedback.md` and the retry package the CLI builds from it. A recorded
-  review's findings, or checks recorded as Failed or Not Run, can be copied in.
+  `user_feedback.md` and the retry package the CLI builds from it. A saved
+  review's findings, or checks recorded as Failed or Not Run, can be copied in
+  when you press Use Review Findings or Use Verification Evidence.
   The CLI's two-step retry loop stays in the command palette.
+- **After a fix: review, then verification — kept apart.** Under the fix
+  report, **Review with AI** asks for `## Summary`, `## Findings`,
+  `## Validation Notes` and `## Recommendations` and for no verdict. With
+  Claude Code it runs one read-only, non-interactive review, shows
+  **Reviewing…**, and opens the Review Result form filled in from the reply,
+  marked *Prefilled from AI review*; with a custom command it hands the prompt
+  over in a terminal. Review with AI is offered once per fix and comes back only
+  when the fix report changes. **Paste Review Output** reads a reply in those
+  four sections into the same form — the fallback when a reply could not be
+  captured, and the way in for any other reviewer. Nothing is saved until
+  **Save Review Result**. **Add Review Result** is the same form for a review
+  typed by hand. **Add Verification Evidence** records the checks you actually
+  performed — each with the status you chose, Not Run by default — and what you
+  observed. BugPilot runs none of them and reads no pass, approval or
+  "verified" out of either record.
 - Jira credentials live in VS Code's SecretStorage and reach the CLI as
   environment variables — never on a command line, never in the panel.
 - **Workflow Settings.** A ⚙ on each step that has settings — Issue details,

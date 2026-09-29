@@ -26,6 +26,7 @@ import type { DiagnosticsView } from "../app/diagnostics.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
 import { WRITABLE_SCOPES } from "../app/fixModes.ts";
 import { MAX_REVIEW_SECTION } from "../app/reviewCapture.ts";
+import { MAX_REVIEW_OUTPUT } from "../app/reviewOutput.ts";
 import type { ReviewEntry } from "../app/reviewCapture.ts";
 import { MAX_CHECKS, MAX_CHECK_TEXT } from "../app/verificationCapture.ts";
 import { STATUS_LABELS, TYPE_LABELS } from "../app/verificationReport.ts";
@@ -336,6 +337,14 @@ export type PanelMessage =
    */
   | { readonly type: "recordReview"; readonly review: ReviewEntry }
   /**
+   * "Read this pasted review into the form" (Paste Review Output): the text as
+   * pasted, bounded. The host answers once with the sections or the reason it
+   * could not read them; nothing is saved.
+   */
+  | { readonly type: "parseReviewOutput"; readonly text: string }
+  /** Cancel on a prefilled Review Result form: the host drops its draft. Bare. */
+  | { readonly type: "discardReviewDraft" }
+  /**
    * "Record these checks as verification evidence" (Batch 12): the rows of the
    * form, bounded, each with the status the developer chose. No work item and no
    * path. `replace` says the form was opened by Edit; the host passes
@@ -381,6 +390,8 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   fixModeAction: true,
   saveFixMode: true,
   recordReview: true,
+  parseReviewOutput: true,
+  discardReviewDraft: true,
   recordVerification: true,
 };
 export const PANEL_MESSAGE_TYPES = Object.keys(MESSAGE_TYPES) as readonly PanelMessage["type"][];
@@ -410,6 +421,7 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       const form = parseForm(message?.["form"]);
       return form ? { type: "improveHint", form } : undefined;
     }
+    case "discardReviewDraft":
     case "useImprovedHint":
     case "dismissImprovedHint":
     case "manageFixModes":
@@ -444,6 +456,12 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
           recommendations: text("recommendations"),
         },
       };
+    }
+    case "parseReviewOutput": {
+      // Clamped one past the cap, so a paste that is too long is refused by the
+      // parser with a reason, never cut short and read as if that were all.
+      const text = asString(message?.["text"], MAX_REVIEW_OUTPUT + 1);
+      return text === undefined ? undefined : { type, text };
     }
     case "recordVerification": {
       const rows = message?.["checks"];

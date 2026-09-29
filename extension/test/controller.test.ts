@@ -18,6 +18,10 @@ import type { FixModeCatalog, ManagedFixModes } from "../src/app/fixModes.ts";
 import type { FixModeRequest } from "../src/app/controller.ts";
 import type { PayloadCommandRequest } from "../src/app/fixModeTransport.ts";
 
+import { REVIEW_NEXT_STEP } from "../src/app/workflow.ts";
+import { MAX_REVIEW_OUTPUT } from "../src/app/reviewOutput.ts";
+import { CLAUDE_CAPTURED_REVIEW } from "../src/app/agents.ts";
+import type { CapturedRun } from "../src/app/reviewRun.ts";
 import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
 
@@ -165,6 +169,10 @@ interface HarnessOptions {
   readonly revealAgent?: () => Promise<boolean>;
   /** Hold a clipboard write open until the promise settles. */
   readonly clipboardHold?: () => Promise<void>;
+  /** Answer a captured one-shot review; absent means the host has none. */
+  readonly runCaptured?: NonNullable<ControllerPorts["runCapturedReview"]>;
+  /** The persisted reviewed-fix store; absent keeps it for the controller's life. */
+  readonly reviewedFixes?: NonNullable<ControllerPorts["reviewedFixes"]>;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -316,6 +324,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     ...(options.runFixMode === undefined ? {} : { runFixModeCommand: options.runFixMode }),
     ...(options.runReview === undefined ? {} : { runReviewCommand: options.runReview }),
     ...(options.runVerification === undefined ? {} : { runVerificationCommand: options.runVerification }),
+    ...(options.runCaptured === undefined ? {} : { runCapturedReview: options.runCaptured }),
+    ...(options.reviewedFixes === undefined ? {} : { reviewedFixes: options.reviewedFixes }),
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return options.improveHint
@@ -4254,7 +4264,7 @@ test("a report offers Copy Review Prompt and Review with AI, after Open Fix Repo
   const h = reviewable();
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult", "recordVerification"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "pasteReviewOutput", "recordReviewResult", "recordVerification"]);
   // Nothing is run until somebody asks.
   assert.deepEqual(reviewRuns(h), []);
 });
@@ -4358,7 +4368,7 @@ test("a review prompt for a work item that is no longer shown is never copied on
   const copying = h.controller.handle({ type: "action", id: "copyReviewPrompt" });
   await Promise.resolve();
   await h.controller.showWorkItem("JR-2");
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult", "recordVerification"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "pasteReviewOutput", "recordReviewResult", "recordVerification"]);
   answer({ ...REVIEW_PACKAGE, work_item_id: "JR-1", prompt: "# Final Review Request\n\nReview the BugPilot result for work item JR-1.\n" });
   await copying;
 
@@ -4647,6 +4657,7 @@ test("Review with AI hands review-package's prompt to the selected agent in a te
     state: "started",
     summary: "AI review started",
     detail: "Handed to Claude Code in a terminal.",
+    next: REVIEW_NEXT_STEP,
   });
   assert.equal(offersReview(h.last()), false, "a second reviewer was offered for the same report");
   // Nothing else moved: not Fix with AI, not the checklist, not the report,
@@ -4676,7 +4687,7 @@ test("a custom agent gets the same prompt through the same template — which is
 
   assert.deepEqual(h.probed, ["codex"]);
   assert.equal(h.terminals[0]?.commandLine, `codex exec ${JSON.stringify(oneLine(REVIEW_PROMPT))}`);
-  assert.deepEqual(reviewOf(h.last()), { state: "started", summary: "AI review started", detail: "Handed to codex in a terminal." });
+  assert.deepEqual(reviewOf(h.last()), { state: "started", summary: "AI review started", detail: "Handed to codex in a terminal.", next: REVIEW_NEXT_STEP });
 });
 
 test("Review with AI uses the agent selected now, the same one Fix with AI uses", async () => {
@@ -4713,7 +4724,7 @@ test("with no agent available, no reviewer starts and the row says why, beside a
   assert.deepEqual(h.clipboard, []);
   assert.equal(h.notices.length, noticesBefore);
   // The row, Fix with AI and the run stand; the button stays for a retry.
-  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult", "recordVerification"]);
+  assert.deepEqual([...fixResultOf(h.last())!.actions], ["openFixReport", "copyReviewPrompt", "reviewWithAI", "pasteReviewOutput", "recordReviewResult", "recordVerification"]);
   assert.equal(fixResultOf(h.last())?.error, undefined, "the review's failure became the row's");
   assert.deepEqual(fixRow(h.last()), fixBefore);
   assert.equal(h.last().runError, undefined);
@@ -4932,17 +4943,18 @@ test("a review in flight survives the folder being read again: same work item, s
   assert.equal(reviewOf(h.last())?.state, "started");
 });
 
-test("reopened, a work item offers Review with AI again; the last start is not restored", async () => {
+test("reopened, the same fix stays reviewed: no second Review with AI, and the row says an attempt was made", async () => {
   const h = await openedForReview();
   await h.controller.handle(REVIEW);
   assert.equal(reviewOf(h.last())?.state, "started");
 
   await h.controller.showWorkItem("JR-12345");
-  assert.equal(reviewOf(h.last()), undefined, "a transient start came back");
-  assert.equal(offersReview(h.last()), true);
-  // A second review is an explicit second press, after the reset.
+  // The transient start is gone; the fact that this fix had an attempt is not.
+  assert.equal(reviewOf(h.last())?.state, "earlier");
+  assert.equal((reviewOf(h.last()) as { summary: string }).summary, "AI review already started for this fix");
+  assert.equal(offersReview(h.last()), false);
   await h.controller.handle(REVIEW);
-  assert.equal(h.terminals.length, 2);
+  assert.equal(h.terminals.length, 1, "a second reviewer started for the same fix");
 });
 
 test("a run forgets the last review handoff, even when it keeps the report", async () => {
@@ -5004,9 +5016,15 @@ test("a review's outcome does not outlive its report", async () => {
 
   options.directory = PREPARED_FILES;
   await h.controller.refreshArtifacts();
+  // The same report back — the same fix, by content — is still reviewed.
   options.directory = [...PREPARED_FILES, "fix_report.md"];
   await h.controller.refreshArtifacts();
+  assert.equal(reviewOf(h.last())?.state, "earlier");
+  assert.equal(offersReview(h.last()), false);
 
+  // A different report is a new fix: no attempt was made for it.
+  h.files["fix_report.md"] = fixReportMd("Fixed it differently.", "4 passed.");
+  await h.controller.refreshArtifacts();
   assert.equal(reviewOf(h.last()), undefined, "the last report's review showed on the next");
   assert.equal(offersReview(h.last()), true);
 });
@@ -5467,7 +5485,7 @@ test("with no fix report there is no Review Result and nothing to record, and th
   assert.ok(h.logged.some((line) => /Refusing to open a review report/.test(line)));
 });
 
-test("a fix report without a recorded review offers Record Review Result, and shows no Review Result", async () => {
+test("a fix report without a saved review offers Add Review Result and Paste Review Output, and shows no Review Result", async () => {
   const { h } = capturable();
   await opened(h);
   const row = fixResultOf(h.last())!;
@@ -5483,7 +5501,7 @@ test("a recorded review is one Review Result in its own words, with Open and Rep
   await opened(h);
   const row = fixResultOf(h.last())!;
   assert.deepEqual(row.reviewResult, {
-    status: "Review result recorded",
+    status: "Review result saved",
     artifact: "review_report.md",
     summary: "Recorded earlier.",
     detail: "Findings: One duplicate null check.",
@@ -5494,6 +5512,7 @@ test("a recorded review is one Review Result in its own words, with Open and Rep
     "copyReviewPrompt",
     "reviewWithAI",
     "openReviewReport",
+    "pasteReviewOutput",
     "replaceReviewResult",
     "recordVerification",
   ]);
@@ -5561,7 +5580,7 @@ test("nothing entered is refused locally, without running record-review", async 
   assert.deepEqual(calls, []);
   assert.deepEqual(fixResultOf(h.last())!.reviewCapture, {
     state: "failed",
-    message: "Review result was not recorded: enter at least one section.",
+    message: "Review result was not saved: enter at least one section.",
   });
 });
 
@@ -5577,7 +5596,7 @@ test("a CLI failure is the recording's own, says the result was not recorded, an
   const row = fixResultOf(h.last())!;
   assert.deepEqual(row.reviewCapture, {
     state: "failed",
-    message: "Review result was not recorded: Findings is longer than 50000 characters.",
+    message: "Review result was not saved: Findings is longer than 50000 characters.",
   });
   assert.equal(row.reviewResult, undefined);
   assert.equal(row.error, undefined, "the failure became the row's");
@@ -5596,7 +5615,7 @@ test("a report recorded meanwhile is kept, and said plainly", async () => {
   await h.controller.recordReview(REVIEW_ENTRY);
   assert.match(
     (fixResultOf(h.last())!.reviewCapture as { message: string }).message,
-    /^Review result was not recorded: a review result is already recorded for this work item, and it was kept\.$/,
+    /^Review result was not saved: a review result is already saved for this work item, and it was kept\.$/,
   );
 });
 
@@ -5785,7 +5804,7 @@ test("reopening a work item discovers its recorded review from the file alone", 
   await h.controller.refreshArtifacts();
   assert.deepEqual(
     { summary: fixResultOf(h.last())!.reviewResult?.summary, detail: fixResultOf(h.last())!.reviewResult?.detail },
-    { summary: "Review result recorded", detail: "Preview unavailable" },
+    { summary: "Review result saved", detail: "Preview unavailable" },
   );
 });
 
@@ -5817,7 +5836,7 @@ test("without a record-review port the host says so, rather than writing the fil
   const writesBefore = h.written.length;
   await h.controller.recordReview(REVIEW_ENTRY);
   assert.equal(h.written.length, writesBefore);
-  assert.match((fixResultOf(h.last())!.reviewCapture as { message: string }).message, /^Review result was not recorded/);
+  assert.match((fixResultOf(h.last())!.reviewCapture as { message: string }).message, /^Review result was not saved/);
 });
 
 test("a review recorded elsewhere meanwhile: the failure is said, and the row reads the folder again to offer it", async () => {
@@ -5832,7 +5851,7 @@ test("a review recorded elsewhere meanwhile: the failure is said, and the row re
   await setup.h.controller.recordReview(REVIEW_ENTRY);
 
   const row = fixResultOf(setup.h.last())!;
-  assert.match((row.reviewCapture as { message: string }).message, /already recorded/);
+  assert.match((row.reviewCapture as { message: string }).message, /already saved/);
   assert.equal(row.reviewResult?.summary, "Recorded in a terminal.");
   assert.ok(row.actions.includes("replaceReviewResult"));
   assert.ok(row.actions.includes("openReviewReport"));
@@ -5853,6 +5872,422 @@ test("a section over the cap reaches record-review one character too long, never
     review: { summary: "x".repeat(60_000), findings: "", validationNotes: "", recommendations: "" },
   }) as { review: { summary: string } };
   assert.equal(message.review.summary.length, 50_001);
+});
+
+// --- Review with AI, captured: one-shot, read back, prefilled, never saved -----
+
+const CAPTURED_REVIEW =
+  "Let me look at the diff first.\n\n## Summary\nThe change handles the null input.\n\n## Findings\nNothing to report.\n\n" +
+  "## Validation Notes\nRead fix_report.md and ran git diff. No tests were run.\n\n## Recommendations\nAdd a regression test.\n";
+
+const CAPTURED_ENTRY = {
+  summary: "The change handles the null input.",
+  findings: "Nothing to report.",
+  validationNotes: "Read fix_report.md and ran git diff. No tests were run.",
+  recommendations: "Add a regression test.",
+};
+
+/** Claude Code's `--output-format json` result object around a reply. */
+const claudeJson = (result: string, extra: Record<string, unknown> = {}) =>
+  JSON.stringify({ type: "result", subtype: "success", is_error: false, result, session_id: "s", ...extra });
+
+type CapturedCall = { command: string; args: readonly string[]; cwd: string; input: string };
+
+/**
+ * A report on screen and a captured-review port that records its call and
+ * answers — or holds, until `finish` is called.
+ */
+function capturedReview(answer: (call: CapturedCall) => Promise<CapturedRun> | CapturedRun, extra: HarnessOptions = {}) {
+  const calls: CapturedCall[] = [];
+  const store = new Map<string, string>();
+  const options = reviewOptions({
+    runCaptured: async (call) => {
+      calls.push({ ...call, args: [...call.args] });
+      return answer(call);
+    },
+    reviewedFixes: { get: (id) => store.get(id), set: (id, fix) => (fix === undefined ? store.delete(id) : store.set(id, fix)) },
+    ...extra,
+  });
+  return { options, calls, store };
+}
+
+const ok = (stdout: string): CapturedRun => ({ code: 0, stdout, stderr: "", aborted: false });
+
+test("a supported agent reviews one-shot: the prompt on stdin, the repository as cwd, no terminal", async () => {
+  const { options, calls } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)));
+  const h = await openedForReview(options);
+
+  await h.controller.handle(REVIEW);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.command, "claude");
+  assert.deepEqual(calls[0]!.args, [...CLAUDE_CAPTURED_REVIEW.args]);
+  assert.equal(calls[0]!.cwd, ROOT);
+  // The prompt review-package gave, exactly, on stdin; never on a command line.
+  assert.equal(calls[0]!.input, REVIEW_PROMPT);
+  assert.equal(calls[0]!.args.some((arg) => arg.includes("Final Review Request")), false);
+  assert.deepEqual(h.terminals, [], "a captured review opened a terminal");
+});
+
+test("started is not finished: while the reviewer runs the row says Reviewing…, and nothing else may start", async () => {
+  let finish: (run: CapturedRun) => void = () => {};
+  const { options, calls } = capturedReview(() => new Promise<CapturedRun>((resolve) => (finish = resolve)));
+  const h = await openedForReview(options);
+
+  const reviewing = h.controller.handle(REVIEW);
+  await tick();
+  const row = fixResultOf(h.last())!;
+  assert.equal(reviewOf(h.last())?.state, "reviewing");
+  assert.equal((reviewOf(h.last()) as { summary: string }).summary, "Reviewing…");
+  assert.equal(row.reviewPrefill, undefined, "a draft before the reviewer finished");
+  assert.equal(row.actions.includes("reviewWithAI"), false);
+  // Everything that would touch the folder waits: a second review, recordings, a paste, a run.
+  assert.equal(row.actions.includes("pasteReviewOutput"), false);
+  assert.equal(row.actions.includes("recordReviewResult"), false);
+  assert.equal(h.last().primary.busy || !h.last().primary.enabled, true, "the primary action stayed available");
+  await h.controller.handle(REVIEW);
+  await h.controller.recordReview(REVIEW_ENTRY);
+  await h.controller.handle({ type: "parseReviewOutput", text: CAPTURED_REVIEW });
+  await h.controller.run(jiraForm());
+  assert.equal(calls.length, 1, "a second reviewer started");
+  assert.equal(h.streamRuns.length, 0, "a run started under the reviewer");
+  assert.match(h.notices.at(-1)?.message ?? "", /Wait for the AI review to finish/);
+  const cleaned = await h.controller.clean("JR-12345", async () => assert.fail("cleaned under the reviewer"));
+  assert.equal(cleaned, false);
+
+  finish(ok(claudeJson(CAPTURED_REVIEW)));
+  await reviewing;
+  assert.equal(reviewOf(h.last())?.state, "captured");
+});
+
+test("a finished review whose reply parses becomes the draft — prefilled, marked as AI, and not saved", async () => {
+  const { options } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)));
+  const saves: unknown[] = [];
+  options.runReview = async (request) => {
+    saves.push(request.payload);
+    return RECORDED;
+  };
+  const h = await openedForReview(options);
+
+  await h.controller.handle(REVIEW);
+
+  const row = fixResultOf(h.last())!;
+  assert.deepEqual(row.reviewPrefill, { token: 1, entry: CAPTURED_ENTRY, leftOut: true, source: "ai" });
+  assert.equal(reviewOf(h.last())?.state, "captured");
+  assert.equal((reviewOf(h.last()) as { summary: string }).summary, "AI review finished");
+  // Not saved: no record-review, no review_report.md, no Review Result.
+  assert.deepEqual(saves, []);
+  assert.deepEqual(h.written, []);
+  assert.equal(row.reviewResult, undefined);
+  assert.equal(row.actions.includes("recordReviewResult"), true);
+  // Held across pushes, the same token each time.
+  await h.controller.refreshArtifacts();
+  assert.deepEqual(fixResultOf(h.last())!.reviewPrefill, row.reviewPrefill);
+  // Save, with the developer's edits, is what records — and it drops the draft.
+  await h.controller.handle({ type: "recordReview", review: { ...CAPTURED_ENTRY, findings: "One nit." } });
+  assert.deepEqual(saves, [{
+    summary: CAPTURED_ENTRY.summary,
+    findings: "One nit.",
+    validation_notes: CAPTURED_ENTRY.validationNotes,
+    recommendations: CAPTURED_ENTRY.recommendations,
+  }]);
+  assert.equal(fixResultOf(h.last())!.reviewPrefill, undefined);
+  // Saving does not bring Review with AI back: it is the same fix.
+  assert.equal(offersReview(h.last()), false);
+});
+
+test("the captured and the pasted path give the same draft for the same reply", async () => {
+  const captured = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)));
+  const a = await openedForReview(captured.options);
+  await a.controller.handle(REVIEW);
+  const b = await openedForReview(capturedReview(() => ok("")).options);
+  await b.controller.handle({ type: "parseReviewOutput", text: CAPTURED_REVIEW });
+  const fromCapture = fixResultOf(a.last())!.reviewPrefill as { entry: unknown; leftOut?: boolean };
+  const fromPaste = fixResultOf(b.last())!.reviewPrefill as { entry: unknown; leftOut?: boolean };
+  assert.deepEqual(fromCapture.entry, fromPaste.entry);
+  assert.equal(fromCapture.leftOut, fromPaste.leftOut);
+});
+
+test("a finished review with no usable reply gives no draft, keeps Review with AI hidden, and offers the paste", async () => {
+  const cases: { run: CapturedRun; title: RegExp; reply?: boolean }[] = [
+    { run: ok(""), title: /^Review result could not be captured automatically\.$/ },
+    { run: ok("Here is my review, in prose."), title: /^Review result could not be captured automatically\.$/ },
+    { run: ok(claudeJson("## Summary\nA.\n## Findings\nB.\n")), title: /^Review result could not be captured automatically\.$/, reply: true },
+    { run: ok(claudeJson(`${CAPTURED_REVIEW}\n## Recommendations\nAdd a regression test.\n`)), title: /could not be captured/, reply: true },
+    { run: { code: 1, stdout: "", stderr: "Not logged in\n", aborted: false }, title: /^AI review did not produce a usable structured result\.$/ },
+    { run: { code: 1, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false }, title: /did not produce a usable/ },
+    { run: ok(claudeJson("Credit balance too low", { is_error: true, subtype: "error_during_execution" })), title: /did not produce a usable/ },
+    { run: { code: null, stdout: "", stderr: "", aborted: true }, title: /did not produce a usable/ },
+  ];
+  for (const { run, title, reply } of cases) {
+    const { options } = capturedReview(() => run);
+    const h = await openedForReview(options);
+    await h.controller.handle(REVIEW);
+    const row = fixResultOf(h.last())!;
+    const view = reviewOf(h.last()) as { state: string; summary: string; detail: string; reply?: string };
+    assert.equal(view.state, "captureFailed", JSON.stringify(run));
+    assert.match(view.summary, title);
+    assert.equal(/fail(ed)?\b|rejected/i.test(view.summary), false, view.summary);
+    assert.equal(row.reviewPrefill, undefined, "a draft from an unusable reply");
+    assert.equal(row.actions.includes("reviewWithAI"), false, "Review with AI came back after a started review");
+    assert.equal(row.actions.includes("pasteReviewOutput"), true);
+    assert.equal(view.reply !== undefined, reply === true, JSON.stringify(run));
+    assert.deepEqual(h.written, []);
+  }
+});
+
+test("a reviewer that never launched is not an attempt: Review with AI stays offered", async () => {
+  const { options, store } = capturedReview(() => {
+    throw Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" });
+  });
+  const h = await openedForReview(options);
+  await h.controller.handle(REVIEW);
+  assert.equal(reviewOf(h.last())?.state, "failed");
+  assert.equal(offersReview(h.last()), true);
+  assert.equal(store.size, 0, "a launch that failed was remembered as a review attempt");
+  // Nor is an agent that is not on PATH.
+  const unavailable = await openedForReview(capturedReview(() => ok(""), { agentOnPath: false }).options);
+  await unavailable.controller.handle(REVIEW);
+  assert.equal(offersReview(unavailable.last()), true);
+});
+
+test("a custom agent is never captured: it gets the terminal, and the paste afterwards", async () => {
+  const { options, calls } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)), {
+    form: { ...DEFAULT_FORM, agent: "custom", agentCommand: "codex {prompt}" },
+  });
+  const h = await openedForReview(options);
+  await h.controller.handle(REVIEW);
+  assert.deepEqual(calls, []);
+  assert.equal(h.terminals.length, 1);
+  assert.equal(reviewOf(h.last())?.state, "started");
+  assert.match((reviewOf(h.last()) as { next: string }).next, /Paste Review Output/);
+  assert.equal(offersReview(h.last()), false);
+});
+
+test("the attempt belongs to the fix: settings, Rebuild Context and a new attempt keep it hidden; a new report brings it back", async () => {
+  const { options, store } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)));
+  const h = await openedForReview(options);
+  await h.controller.handle(REVIEW);
+  assert.equal(offersReview(h.last()), false);
+
+  // A settings change, even one that makes the context stale.
+  await h.controller.handle({ type: "applySettings", form: jiraForm({ keywords: "cache" }) });
+  assert.equal(offersReview(h.last()), false, "a settings change brought Review with AI back");
+  // Rebuild Context: a non-Fresh re-prepare keeps the same report.
+  await h.controller.run(jiraForm());
+  assert.equal(offersReview(h.last()), false, "Rebuild Context brought Review with AI back");
+  // The same report written again, byte for byte (CRLF this time): the same fix.
+  h.files["fix_report.md"] = fixReportMd("Fixed it.", "3 passed.").replace(/\n/g, "\r\n");
+  await h.controller.refreshArtifacts();
+  assert.equal(offersReview(h.last()), false, "the same report, rewritten, counted as a new fix");
+  // A new attempt's report is a new fix.
+  h.files["fix_report.md"] = fixReportMd("Fixed it in the controller instead.", "5 passed.");
+  await h.controller.refreshArtifacts();
+  assert.equal(offersReview(h.last()), true);
+  assert.equal(reviewOf(h.last()), undefined, "the last fix's review showed on the new one");
+  assert.equal(store.size, 1);
+});
+
+test("the reviewed fix survives a reload of the host, and one work item's review does not hide another's", async () => {
+  const { options, store } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)));
+  const first = await openedForReview(options);
+  await first.controller.handle(REVIEW);
+  assert.equal(store.size, 1);
+
+  // A new controller over the same persisted store: a reloaded window.
+  const reloaded = await openedForReview({ ...options });
+  assert.equal(offersReview(reloaded.last()), false);
+  assert.equal(reviewOf(reloaded.last())?.state, "earlier");
+  assert.equal(fixResultOf(reloaded.last())!.reviewPrefill, undefined, "an unsaved draft outlived the host");
+
+  // Another work item, with its own report: never reviewed.
+  const other = capturedReview(() => ok(""), twoReports(REVIEW_PACKAGE));
+  for (const [id, fix] of store) other.store.set(id, fix);
+  const b = await openedForReview(other.options, "JR-2");
+  assert.equal(offersReview(b.last()), true);
+});
+
+test("a saved review is not overwritten by a new captured draft: Save asks before replacing", async () => {
+  let confirmed = 0;
+  const { options } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)), {
+    directory: [...PREPARED_FILES, "fix_report.md", "review_report.md"],
+    confirmAnswer: async () => {
+      confirmed += 1;
+      return false;
+    },
+  });
+  options.files!["review_report.md"] = REVIEW_REPORT_MD("Saved earlier.");
+  const saves: unknown[] = [];
+  options.runReview = async (request) => {
+    saves.push(request.payload);
+    return RECORDED;
+  };
+  const h = await openedForReview(options);
+  await h.controller.handle(REVIEW);
+  const row = fixResultOf(h.last())!;
+  assert.ok(row.reviewPrefill && "entry" in row.reviewPrefill);
+  assert.equal(row.reviewResult?.summary, "Saved earlier.", "the saved review was touched");
+  assert.ok(row.actions.includes("replaceReviewResult"));
+  await h.controller.handle({ type: "recordReview", review: CAPTURED_ENTRY });
+  assert.equal(confirmed, 1);
+  assert.deepEqual(saves, [], "a saved review was replaced without asking");
+});
+
+// --- Paste Review Output: a pasted review fills the form, and saves nothing ----
+
+const PASTED_REVIEW =
+  "Here is my review.\n\n## Summary\nMain fix addresses the issue.\n\n## Findings\nMissing null handling in WidgetController.\n\n" +
+  "## Validation Notes\nReviewed the diff. No tests were run.\n\n## Recommendations\nAdd a regression test.\n";
+
+const PASTED_ENTRY = {
+  summary: "Main fix addresses the issue.",
+  findings: "Missing null handling in WidgetController.",
+  validationNotes: "Reviewed the diff. No tests were run.",
+  recommendations: "Add a regression test.",
+};
+
+test("a pasted review is read into the four sections and sent once — nothing is saved or written", async () => {
+  const { h, calls } = capturable();
+  await opened(h);
+  assert.ok(fixResultOf(h.last())!.actions.includes("pasteReviewOutput"));
+  const before = h.states.length;
+
+  await h.controller.handle({ type: "parseReviewOutput", text: PASTED_REVIEW });
+
+  const pushed = h.states.slice(before);
+  assert.equal(pushed.length, 1, "one push carries the answer");
+  assert.deepEqual(fixResultOf(pushed[0]!)!.reviewPrefill, { token: 1, entry: PASTED_ENTRY, leftOut: true });
+  // Reading is not saving: no record-review, no file, no Review Result, no capture.
+  assert.deepEqual(calls, []);
+  assert.deepEqual(h.written, []);
+  assert.equal(fixResultOf(h.last())!.reviewResult, undefined);
+  assert.equal(fixResultOf(h.last())!.reviewCapture, undefined);
+  // Held, with the same token, until saved or discarded: a recreated panel
+  // fills its form again, and the page's token check keeps it from refilling.
+  await h.controller.refreshArtifacts();
+  assert.deepEqual(fixResultOf(h.last())!.reviewPrefill, { token: 1, entry: PASTED_ENTRY, leftOut: true });
+  // A second paste is a second answer, with its own token.
+  await h.controller.handle({ type: "parseReviewOutput", text: PASTED_REVIEW.replace("Here is my review.\n\n", "") });
+  assert.deepEqual(fixResultOf(h.states.at(-1)!)!.reviewPrefill, { token: 2, entry: PASTED_ENTRY });
+  // Cancel discards it.
+  await h.controller.handle({ type: "discardReviewDraft" });
+  assert.equal(fixResultOf(h.last())!.reviewPrefill, undefined);
+});
+
+test("the prefilled review, edited and saved, is what record-review receives", async () => {
+  const { h, calls } = capturable();
+  await opened(h);
+  await h.controller.handle({ type: "parseReviewOutput", text: PASTED_REVIEW });
+  const edited = { ...PASTED_ENTRY, recommendations: "Add a regression test for the null path." };
+
+  await h.controller.handle({ type: "recordReview", review: edited });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0]!.payload, {
+    summary: edited.summary,
+    findings: edited.findings,
+    validation_notes: edited.validationNotes,
+    recommendations: edited.recommendations,
+  });
+  assert.deepEqual(fixResultOf(h.last())!.reviewCapture, { state: "recorded", replaced: false });
+});
+
+test("a paste that is not in the four-section shape is refused with the reason, and nothing else changes", async () => {
+  const { h, calls } = capturable();
+  await opened(h);
+
+  await h.controller.handle({ type: "parseReviewOutput", text: "Verdict: PASS\nLooks good to me.\n" });
+
+  const prefill = fixResultOf(h.states.at(-1)!)!.reviewPrefill as { token: number; error: string };
+  assert.equal(prefill.token, 1);
+  assert.match(prefill.error, /^Review output was not read: these sections are missing: ## Summary, ## Findings/);
+  assert.equal("entry" in prefill, false);
+  assert.deepEqual(calls, []);
+  assert.equal(fixResultOf(h.last())!.reviewCapture, undefined, "a parse failure was reported as a save failure");
+});
+
+test("an oversized paste is refused safely, however the page sent it", async () => {
+  const { h, calls } = capturable();
+  await opened(h);
+  const huge = `## Summary\n${"x".repeat(300_000)}\n## Findings\n\n## Validation Notes\n\n## Recommendations\n`;
+  const message = parsePanelMessage({ type: "parseReviewOutput", text: huge });
+  assert.ok(message && message.type === "parseReviewOutput");
+  // Clamped one past the cap, so the parser refuses it rather than reading a cut-short review.
+  assert.equal(message.text.length, MAX_REVIEW_OUTPUT + 1);
+  assert.equal(parsePanelMessage({ type: "parseReviewOutput", text: 5 }), undefined, "a paste that is not text");
+  assert.equal(parsePanelMessage({ type: "parseReviewOutput" }), undefined);
+
+  await h.controller.handle(message);
+
+  const prefill = fixResultOf(h.states.at(-1)!)!.reviewPrefill as { error: string };
+  assert.match(prefill.error, /^Review output was not read: it is longer than/);
+  assert.deepEqual(calls, []);
+});
+
+test("no pass, fail or approval is read out of a pasted review", async () => {
+  const { h } = capturable();
+  await opened(h);
+  const overallBefore = JSON.stringify(h.last().overall);
+  await h.controller.handle({
+    type: "parseReviewOutput",
+    text: "## Summary\nPASS — approved, safe to merge.\n## Findings\nNone.\n## Validation Notes\nVerified.\n## Recommendations\nMerge.\n",
+  });
+  const row = fixResultOf(h.states.at(-1)!)!;
+  const prefill = row.reviewPrefill as unknown as { entry: Record<string, string> };
+  assert.deepEqual(Object.keys(prefill).sort(), ["entry", "token"]);
+  assert.equal(prefill.entry["summary"], "PASS — approved, safe to merge.");
+  // The row says nothing new: no result, no status, the same summary.
+  assert.equal(row.reviewResult, undefined);
+  assert.equal(row.status, "ready");
+  assert.equal(row.summary, "Fixed it.");
+  assert.equal(JSON.stringify(h.last().overall), overallBefore, "the header changed");
+});
+
+test("with no fix report, or while a save is in flight, a paste is refused and nothing is sent", async () => {
+  const none = capturable();
+  none.options.directory = PREPARED_FILES;
+  await opened(none.h);
+  const before = none.h.states.length;
+  await none.h.controller.handle({ type: "parseReviewOutput", text: PASTED_REVIEW });
+  assert.equal(none.h.states.length, before);
+  assert.ok(none.h.logged.some((line) => /Refusing to read review output/.test(line)));
+
+  const hold = held();
+  const busy = capturable({ answer: hold.answer });
+  await opened(busy.h);
+  const saving = busy.h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+  assert.equal(fixResultOf(busy.h.last())!.actions.includes("pasteReviewOutput"), false);
+  await busy.h.controller.handle({ type: "parseReviewOutput", text: PASTED_REVIEW });
+  assert.equal(busy.h.states.some((state) => fixResultOf(state)?.reviewPrefill !== undefined), false);
+  hold.resolve(RECORDED);
+  await saving;
+});
+
+test("an unsaved pasted review is not Start New Attempt feedback; a saved one is", async () => {
+  const setup = {
+    agentOnPath: true,
+    directory: [...PREPARED_FILES, "fix_report.md"],
+    files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+  };
+  const h = harness(setup);
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-12345");
+  await h.controller.handle({ type: "parseReviewOutput", text: PASTED_REVIEW });
+  assert.equal(fixRow(h.last()).feedbackHelpers, undefined, "Use Review Findings was offered for an unsaved review");
+  await h.controller.handle({ type: "action", id: "useReviewFindings" });
+  assert.equal(h.states.some((state) => fixRow(state).attemptDraft !== undefined), false);
+
+  // Saved — review_report.md listed — the helper is offered, and still only on a press.
+  const saved = harness({
+    ...setup,
+    directory: [...setup.directory, "review_report.md"],
+    files: { ...setup.files, "review_report.md": REVIEW_REPORT_MD() },
+  });
+  await saved.controller.refreshEnvironment();
+  await saved.controller.showWorkItem("JR-12345");
+  assert.deepEqual(fixRow(saved.last()).feedbackHelpers, ["useReviewFindings"]);
+  assert.equal(fixRow(saved.last()).attemptDraft, undefined);
 });
 
 test("a record-review still running after a reopen or another item keeps every run out, and a second recording too", async () => {
@@ -6044,7 +6479,7 @@ test("with no fix report there is no Verification Evidence, nothing to record, a
   assert.ok(h.logged.some((line) => /Refusing to open a verification report/.test(line)));
 });
 
-test("a fix report without evidence offers Record Verification Evidence, without needing a review", async () => {
+test("a fix report without evidence offers Add Verification Evidence, without needing a review", async () => {
   const { h } = verifiable();
   await opened(h);
   const row = fixResultOf(h.last())!;
@@ -7114,6 +7549,31 @@ test("next action 11: the feedback helpers are offered only by the artifacts tha
   assert.equal(passed.states.some((state) => fixRow(state).attemptDraft !== undefined), false, "a helper nobody was offered answered");
 });
 
+test("Start New Attempt on its own keeps Review with AI hidden; the new attempt's report brings it back", async () => {
+  const store = new Map<string, string>();
+  const h = await preparedHarness({
+    directory: [...WITH_FILES.directory, "fix_report.md"],
+    files: { ...WITH_FILES.files, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+    json: REVIEW_PACKAGE,
+    runCaptured: async () => ({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false }),
+    reviewedFixes: { get: (id) => store.get(id), set: (id, fix) => (fix === undefined ? store.delete(id) : store.set(id, fix)) },
+  });
+  assert.equal(offersReview(h.last()), true);
+  await h.controller.handle(REVIEW);
+  assert.equal(offersReview(h.last()), false);
+
+  await h.controller.handle(startAttempt(""));
+  assert.equal(h.terminals.length, 1, "the new attempt did not start");
+  assert.equal(offersReview(h.last()), false, "a new session is not a new fix");
+  // The session wrote nothing useful: the same report, read again.
+  await h.controller.refreshArtifacts();
+  assert.equal(offersReview(h.last()), false);
+  // It wrote a new report: a new fix to review.
+  h.files["fix_report.md"] = fixReportMd("Fixed it at the call site.", "6 passed.");
+  await h.controller.refreshArtifacts();
+  assert.equal(offersReview(h.last()), true);
+});
+
 test("next action 11: no helper before an attempt exists, whatever files are there", async () => {
   const h = harness({
     ...WITH_FILES,
@@ -7228,7 +7688,7 @@ test("settings 10: an applied agent, Fresh or hint-reading choice leaves the con
 });
 
 test("settings 14: no summary carries a value the developer typed, a path or a command", async () => {
-  const secret = "C:/Users/someone/secret/project";
+  const secret = "C:/Users/user/secret/project";
   const h = await preparedHarness();
   await h.controller.handle(
     applySettings(

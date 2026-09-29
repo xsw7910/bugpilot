@@ -267,6 +267,17 @@
   let captureError = "";
   /** The form's four text areas, in the order they are written to the report. */
   const REVIEW_FIELDS = ["review-summary", "review-findings", "review-validation-notes", "review-recommendations"];
+  // Paste Review Output: the last host answer the form was filled from, so a
+  // later push does not fill it again, and the paste box's own controls, which
+  // the panel's form handlers leave alone.
+  let reviewPrefillToken;
+  const PASTE_CONTROLS = ["review-paste-text", "parse-review-output", "cancel-review-paste"];
+  /** Neutral about the source: BugPilot knows only that the text was pasted in the review's shape. */
+  const PREFILL_NOTE = "Prefilled from structured review output — review before saving.";
+  /** When BugPilot ran the reviewer and read its reply itself, it can say so. */
+  const PREFILL_NOTE_AI = "Prefilled from AI review — review before saving.";
+  const PREFILL_LEFT_OUT = " Text before the first section was left out.";
+  const PREFILL_READY = "Review result ready to save.";
   // Verification Evidence (Batch 12): the same bookkeeping, and the form's rows.
   // Each row is the page's own — built here, read on Save — so what is typed
   // survives every push until Cancel, another work item or a recorded save.
@@ -301,6 +312,21 @@
     ["evidence", "Evidence"],
     ["notes", "Notes"],
   ];
+  /** One line under each field on what goes in it: what was done and seen, never a verdict. */
+  const CHECK_HINTS = {
+    name: "What was checked.",
+    status: "The status you are recording for this check.",
+    type: "Automated, Manual or Other.",
+    procedure: "The command you ran or the manual steps you followed.",
+    evidence: "The observed output or result supporting the recorded status.",
+    notes: "Optional limitations or context.",
+  };
+  /** Examples as placeholders only: shown in an empty field, never saved. */
+  const CHECK_PLACEHOLDERS = {
+    name: "e.g. Targeted unit tests, or Original bug reproduction",
+    procedure: "e.g. npm test, or Repeat the reported workflow manually",
+    evidence: "e.g. 1285 passed, 0 failed, or The issue no longer reproduces",
+  };
   /** The form's own buttons, which the panel's form handlers leave alone. */
   const VERIFICATION_CONTROLS = ["add-verification-check", "save-verification", "cancel-verification"];
 
@@ -1069,6 +1095,7 @@
       !opens &&
       !copies &&
       reviewButton.hidden &&
+      byId("paste-review-output").hidden &&
       byId("record-review-result").hidden &&
       byId("record-verification").hidden;
     // Waiting for the CLI: one press at a time, and said in words.
@@ -1087,7 +1114,7 @@
     // The button a keyboard user just pressed has gone, because the reviewer
     // started: the status saying so is the natural next place, rather than the
     // top of the document. Only then — never on an ordinary push.
-    if (hadFocus && reviewButton.hidden && review && review.state === "started") {
+    if (hadFocus && reviewButton.hidden && review && (review.state === "started" || review.state === "reviewing")) {
       byId("review-status").focus({ preventScroll: true });
     }
     // The lines are clamped on screen; the whole bounded line is the hover.
@@ -1179,22 +1206,41 @@
     reviewSignature = signature;
     const status = byId("review-status");
     status.replaceChildren();
-    if (review && review.state === "started") {
+    // Every state but starting and failed has the host's words: started (a
+    // terminal), reviewing, captured, a capture that gave no draft, or an
+    // attempt an earlier session made. Text only — never a tick or a verdict.
+    const said = review && review.state !== "starting" && review.state !== "failed";
+    status.setAttribute("aria-busy", review && review.state === "reviewing" ? "true" : "false");
+    if (said) {
       status.append(line("p", "review-status-title", review.summary || ""));
-      status.append(line("p", "muted review-status-detail", review.detail || ""));
+      if (review.detail) status.append(line("p", "muted review-status-detail", review.detail));
+      if (review.next) status.append(line("p", "muted review-status-detail", review.next));
     }
     renderError("review-error", review && review.state === "failed" ? review.error : undefined);
+    // A capture that gave no draft but had a reply: put it where it can be fixed
+    // and parsed — never over something already typed there.
+    if (review && review.state === "captureFailed" && typeof review.reply === "string") {
+      const box = byId("review-paste-text");
+      if (box.value.trim() === "") box.value = review.reply;
+      if (!byId("paste-review-output").hidden) {
+        byId("review-paste").hidden = false;
+        byId("paste-review-output").setAttribute("aria-expanded", "true");
+      }
+    }
   }
 
   /**
-   * Review Result and the Record Review Result form (Batch 11).
+   * Review Result, its form and Paste Review Output (Batch 11).
    *
-   * The lines are the host's: "Review result recorded", then the reviewer's own
+   * The lines are the host's: "Review result saved", then the reviewer's own
    * first lines — never a verdict, because none is known. The form is the page's:
-   * Record (or Replace) opens it, and Cancel, a recording that finished, or
-   * another work item closes it — the last two emptying it, so B never inherits
-   * what was typed for A. Save only asks; the host decides whether a recording
-   * may start, asks before replacing, and runs record-review.
+   * Add (or Replace) opens it, and Cancel, a save that finished, or another work
+   * item closes it — the last two emptying it, so B never inherits what was
+   * typed for A. Paste Review Output's Parse asks the host to read the pasted
+   * reply; its answer, once per token, either says why it could not be read or
+   * fills the form and says so — prefilled is never saved. Save only asks; the
+   * host decides whether a save may start, asks before replacing, and runs
+   * record-review.
    */
   function renderReviewResult(step, workItemId) {
     const actions = (step && step.actions) || [];
@@ -1214,6 +1260,7 @@
     const anotherItem = !step || workItemId !== reviewEditorWorkItem;
     if (anotherItem) {
       closeReviewEditor(true);
+      closeReviewPaste(true);
       captureStatus = "";
       captureError = "";
       byId("review-capture-status").textContent = "";
@@ -1225,6 +1272,24 @@
     const finished = !anotherItem && recorded && !wasRecorded;
     wasRecorded = recorded;
     if (finished) closeReviewEditor(true);
+
+    // Paste Review Output's answer, acted on once: the reason it could not be
+    // read, or the form filled from it — for the developer to check and save.
+    const prefill = step ? step.reviewPrefill : undefined;
+    if (step && prefill && prefill.token !== reviewPrefillToken) {
+      reviewPrefillToken = prefill.token;
+      applyReviewPrefill(prefill);
+    }
+
+    const pasting = !byId("review-paste").hidden;
+    const paste = byId("paste-review-output");
+    paste.hidden = !(step && (actions.includes("pasteReviewOutput") || pasting));
+    paste.setAttribute("aria-expanded", pasting ? "true" : "false");
+    // Not while a save is in flight: the form it would fill is being saved.
+    byId("parse-review-output").setAttribute(
+      "aria-disabled",
+      recording || !actions.includes("pasteReviewOutput") ? "true" : "false",
+    );
 
     const open = !editor.hidden;
     const record = byId("record-review-result");
@@ -1239,7 +1304,7 @@
     const save = byId("save-review-result");
     save.setAttribute("aria-disabled", recording || !offered ? "true" : "false");
     save.setAttribute("aria-busy", recording ? "true" : "false");
-    byId("save-review-result-label").textContent = recording ? "Recording…" : "Save Review Result";
+    byId("save-review-result-label").textContent = recording ? "Saving…" : "Save Review Result";
     byId("cancel-review-result").setAttribute("aria-disabled", recording ? "true" : "false");
 
     byId("review-result").hidden = !result;
@@ -1260,11 +1325,13 @@
       also.hidden = !(result && result.alsoRecorded);
     }
 
-    // The recording's status, said once per change: recording, then recorded —
-    // which stays until something else happens — or nothing while it failed.
+    // The saving's status, said once per change: saving, then saved — which
+    // stays until something else happens — or, while the form holds a pasted
+    // review not yet saved, that it is ready to save. Never "passed".
     let status = "";
-    if (recording) status = "Recording review result…";
-    else if (recorded) status = capture.replaced ? "Review result replaced." : "Review result recorded.";
+    if (recording) status = "Saving review result…";
+    else if (recorded) status = capture.replaced ? "Review result replaced." : "Review result saved.";
+    else if (!byId("review-prefill-note").hidden) status = PREFILL_READY;
     if (status !== captureStatus) {
       captureStatus = status;
       byId("review-capture-status").textContent = status;
@@ -1284,11 +1351,75 @@
     if (finished && hadFocus) byId("review-capture-status").focus({ preventScroll: true });
   }
 
-  /** Close the form; `clear` empties it too. */
+  /** Close the form; `clear` empties it too, and forgets that it was prefilled. */
   function closeReviewEditor(clear) {
     byId("review-editor").hidden = true;
     if (!clear) return;
     for (const id of REVIEW_FIELDS) byId(id).value = "";
+    const note = byId("review-prefill-note");
+    note.hidden = true;
+    note.textContent = "";
+  }
+
+  /** Close the paste box; `clear` empties it and its failure too. */
+  function closeReviewPaste(clear) {
+    byId("review-paste").hidden = true;
+    byId("paste-review-output").setAttribute("aria-expanded", "false");
+    if (!clear) return;
+    byId("review-paste-text").value = "";
+    const error = byId("review-paste-error");
+    error.hidden = true;
+    error.textContent = "";
+  }
+
+  /**
+   * The host's reading of a paste. Unread: say why under the paste, which keeps
+   * its text for a fix. Read: fill the four fields — replacing what they held,
+   * since Parse was pressed to do exactly that — open the form at Summary, and
+   * say it was prefilled. Nothing is sent: Save is still the developer's.
+   */
+  function applyReviewPrefill(prefill) {
+    const error = byId("review-paste-error");
+    if (typeof prefill.error === "string") {
+      // Shown before it is filled, as the saving's failure is.
+      error.hidden = false;
+      error.textContent = prefill.error;
+      return;
+    }
+    const entry = prefill.entry || {};
+    byId("review-summary").value = entry.summary || "";
+    byId("review-findings").value = entry.findings || "";
+    byId("review-validation-notes").value = entry.validationNotes || "";
+    byId("review-recommendations").value = entry.recommendations || "";
+    closeReviewPaste(true);
+    const note = byId("review-prefill-note");
+    note.textContent = (prefill.source === "ai" ? PREFILL_NOTE_AI : PREFILL_NOTE) + (prefill.leftOut ? PREFILL_LEFT_OUT : "");
+    note.hidden = false;
+    byId("review-editor").hidden = false;
+    // A paste was just parsed: the form is the next place. A captured review
+    // arrives on its own, minutes later — the live status says so, and the
+    // keyboard stays wherever the developer is.
+    if (prefill.source !== "ai") byId("review-summary").focus({ preventScroll: true });
+  }
+
+  /** Paste Review Output pressed: open the paste box at its text, or close it again. */
+  function toggleReviewPaste() {
+    const button = byId("paste-review-output");
+    if (button.hidden || button.getAttribute("aria-disabled") === "true") return;
+    if (!byId("review-paste").hidden) {
+      closeReviewPaste(false);
+      return;
+    }
+    byId("review-paste").hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    byId("review-paste-text").focus({ preventScroll: true });
+  }
+
+  /** Parse: the pasted text to the host, which reads it and answers once. */
+  function parseReviewPaste() {
+    const parse = byId("parse-review-output");
+    if (byId("review-paste").hidden || parse.getAttribute("aria-disabled") === "true") return;
+    vscode.postMessage({ type: "parseReviewOutput", text: byId("review-paste-text").value });
   }
 
   /** Record or Replace pressed: open the form at Summary, or close it again. */
@@ -1488,6 +1619,7 @@
     name.type = "text";
     name.id = `${key}-name`;
     name.setAttribute("maxlength", String(MAX_CHECK_NAME));
+    name.setAttribute("placeholder", CHECK_PLACEHOLDERS.name);
     name.value = check ? check.name : "";
     const status = choice(`${key}-status`, CHECK_STATUSES, check ? check.status : "not_run");
     const kind = choice(`${key}-type`, CHECK_TYPES, check ? check.type : "automated");
@@ -1495,6 +1627,7 @@
       const area = document.createElement("textarea");
       area.id = `${key}-${field}`;
       area.setAttribute("rows", field === "evidence" ? "3" : "2");
+      if (CHECK_PLACEHOLDERS[field]) area.setAttribute("placeholder", CHECK_PLACEHOLDERS[field]);
       area.value = check ? check[field] || "" : "";
       return { field, label, area };
     });
@@ -1511,9 +1644,9 @@
 
     const choices = document.createElement("div");
     choices.className = "verification-check-choices";
-    choices.append(labelled("Status", status), labelled("Type", kind));
-    group.append(heading, fieldLabel("Name", name), name, choices);
-    for (const text of texts) group.append(fieldLabel(text.label, text.area), text.area);
+    choices.append(labelled("Status", status, "status"), labelled("Type", kind, "type"));
+    group.append(heading, fieldLabel("Name", name), fieldHint(name, "name"), name, choices);
+    for (const text of texts) group.append(fieldLabel(text.label, text.area), fieldHint(text.area, text.field), text.area);
     group.append(remove);
     verificationRows.push(row);
     byId("verification-rows").append(group);
@@ -1540,10 +1673,18 @@
     return label;
   }
 
-  function labelled(text, control) {
+  function labelled(text, control, field) {
     const wrapper = document.createElement("div");
-    wrapper.append(fieldLabel(text, control), control);
+    wrapper.append(fieldLabel(text, control), fieldHint(control, field), control);
     return wrapper;
+  }
+
+  /** A field's one line of help, tied to it so a screen reader reads it with the field. */
+  function fieldHint(control, field) {
+    const hint = line("p", "hint", CHECK_HINTS[field] || "");
+    hint.id = `${control.id}-hint`;
+    control.setAttribute("aria-describedby", hint.id);
+    return hint;
   }
 
   /**
@@ -2793,9 +2934,10 @@
   });
 
   /**
-   * Whether an event came from the Record Review Result form. It sits inside the
-   * panel's form, with the workflow rows, but it is not the bug being prepared:
-   * Ctrl+Enter there must not Run, and typing there is not a form change.
+   * Whether an event came from the Review Result form or the paste box. They sit
+   * inside the panel's form, with the workflow rows, but they are not the bug
+   * being prepared: Ctrl+Enter there must not Run, and typing there is not a
+   * form change.
    */
   function fromReviewEditor(event) {
     const target = event && event.target;
@@ -2803,6 +2945,7 @@
     if (typeof id === "string" && (REVIEW_FIELDS.includes(id) || id === "save-review-result" || id === "cancel-review-result")) {
       return true;
     }
+    if (typeof id === "string" && PASTE_CONTROLS.includes(id)) return true;
     // Start New Attempt's form: its feedback is not a preparation input, and
     // Ctrl+Enter there starts the attempt rather than pressing the primary action.
     if (typeof id === "string" && ATTEMPT_CONTROLS.includes(id)) return true;
@@ -2961,16 +3104,40 @@
       vscode.postMessage({ type: "action", id: "reviewWithAI" });
     }
   });
-  // Record / Replace Review Result open the form; the host is asked nothing yet.
+  // Paste Review Output opens the paste box; Parse asks the host to read it, and
+  // its answer fills the form (renderReviewResult). Nothing is saved from here.
+  byId("paste-review-output").addEventListener("click", toggleReviewPaste);
+  byId("parse-review-output").addEventListener("click", parseReviewPaste);
+  byId("cancel-review-paste").addEventListener("click", () => {
+    closeReviewPaste(true);
+    const button = byId("paste-review-output");
+    if (!button.hidden) button.focus({ preventScroll: true });
+  });
+  // Ctrl+Enter in the paste box parses, as it saves in the form below.
+  byId("review-paste").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      parseReviewPaste();
+    }
+  });
+  // Add / Replace Review Result open the form; the host is asked nothing yet.
   byId("record-review-result").addEventListener("click", () => toggleReviewEditor(byId("record-review-result")));
   byId("replace-review-result").addEventListener("click", () => toggleReviewEditor(byId("replace-review-result")));
   byId("cancel-review-result").addEventListener("click", () => {
     if (byId("cancel-review-result").getAttribute("aria-disabled") === "true") return;
+    // A prefilled form is the host's draft: Cancel discards it there too, so a
+    // recreated panel does not fill the form with it again.
+    if (!byId("review-prefill-note").hidden) vscode.postMessage({ type: "discardReviewDraft" });
     closeReviewEditor(true);
     // A failure about the text just discarded is not worth keeping on screen —
     // and forgotten, so the same failure after the next press is said again.
     byId("review-capture-error").hidden = true;
     captureError = "";
+    // Nor is "ready to save" about a form just emptied.
+    if (captureStatus === PREFILL_READY) {
+      captureStatus = "";
+      byId("review-capture-status").textContent = "";
+    }
     const toggle = byId("record-review-result").hidden ? byId("replace-review-result") : byId("record-review-result");
     toggle.setAttribute("aria-expanded", "false");
     if (!toggle.hidden) toggle.focus({ preventScroll: true });

@@ -449,6 +449,30 @@ export async function improveHintWithProvider(request: {
   }
 }
 
+/**
+ * Run a captured one-shot review (§37.80) and hand back what it printed.
+ *
+ * The agent's fixed argv (`CapturedReviewInvocation`), no shell, the review
+ * prompt on **stdin**, and the repository root as its working directory — the
+ * reviewer reads that repository's files and diff. Its own flags keep it
+ * read-only. The prompt is the canonical one from `review-package`; nothing of
+ * the developer's secrets is added to the environment. A spawn that fails
+ * throws, which the controller reads as "never started".
+ */
+export async function runCapturedReview(request: {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly input: string;
+}): Promise<{ code: number | null; stdout: string; stderr: string; aborted: boolean }> {
+  return new Runner(request.command).run([...request.args], {
+    cwd: request.cwd,
+    input: request.input,
+    // A review reads a diff and a few files; past this it is not coming back.
+    timeoutMs: 15 * 60_000,
+  });
+}
+
 function firstLine(text: string): string {
   return text.trim().split("\n")[0]?.trim() ?? "";
 }

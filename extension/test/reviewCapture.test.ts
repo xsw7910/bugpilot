@@ -1,5 +1,5 @@
 /**
- * Record Review Result's plumbing (Batch 11): what is sent to record-review, how
+ * Save Review Result's plumbing (Batch 11): what is sent to record-review, how
  * its answer is read, and the payload file the review travels in.
  */
 
@@ -10,7 +10,7 @@ import { access, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 import {
-  REVIEW_NOT_RECORDED,
+  REVIEW_NOT_SAVED,
   hasReviewContent,
   recordReviewArgs,
   recordingOutcome,
@@ -46,11 +46,11 @@ test("an entry is worth recording only when some section says something", () => 
 test("the answer is recorded, or why not — about the recording, never the review", () => {
   assert.deepEqual(recordingOutcome({ ok: true, command: "record-review", warnings: [] }), { recorded: true });
   const exists = recordingOutcome({ ok: false, command: "record-review", error: { code: "ARTIFACT_EXISTS", message: "x" } });
-  assert.deepEqual(exists, { recorded: false, reason: "a review result is already recorded for this work item, and it was kept." });
+  assert.deepEqual(exists, { recorded: false, reason: "a review result is already saved for this work item, and it was kept." });
   const other = recordingOutcome({ ok: false, command: "record-review", error: { code: "INVALID_INPUT", message: " two\n lines " } });
   assert.deepEqual(other, { recorded: false, reason: "two lines" });
-  assert.match(REVIEW_NOT_RECORDED, /not recorded/);
-  assert.equal(/review (failed|did not pass)/i.test(REVIEW_NOT_RECORDED), false);
+  assert.match(REVIEW_NOT_SAVED, /not saved/);
+  assert.equal(/review (failed|did not pass)/i.test(REVIEW_NOT_SAVED), false);
 });
 
 test("the review travels in a temporary file that is gone afterwards, never in argv", async () => {

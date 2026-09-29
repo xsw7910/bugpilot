@@ -41,6 +41,7 @@ import type { UserFacingError } from "./failures.ts";
 import type { FixReportPreview } from "./fixReport.ts";
 import type { ValidationChecklist } from "./reviewPackage.ts";
 import type { ReviewCapture } from "./reviewCapture.ts";
+import type { ReviewPrefill } from "./reviewOutput.ts";
 import type { ReviewReportPreview } from "./reviewReport.ts";
 import type { VerificationCapture } from "./verificationCapture.ts";
 import { STATUS_LABELS, TYPE_LABELS, overallPhrase } from "./verificationReport.ts";
@@ -102,7 +103,9 @@ export type StepActionId =
   | "openFixReport"
   | "copyReviewPrompt"
   | "reviewWithAI"
-  // Review Result (Batch 11): record one, replace the one recorded, open it.
+  // Review Result (Batch 11): record one, replace the one recorded, open it —
+  // and fill the form from a pasted structured review first, if wanted.
+  | "pasteReviewOutput"
   | "recordReviewResult"
   | "replaceReviewResult"
   | "openReviewReport"
@@ -111,8 +114,11 @@ export type StepActionId =
   | "editVerification"
   | "openVerificationReport";
 
-/** What Fix result says once a review result is recorded, and only then. */
-export const REVIEW_RESULT_RECORDED = "Review result recorded";
+/**
+ * What Fix result says once a review result is saved, and only then: a saved
+ * record of what a reviewer said — never passed, approved or verified.
+ */
+export const REVIEW_RESULT_SAVED = "Review result saved";
 
 /**
  * Fix result's Review Result, present exactly while `review_report.md` is
@@ -124,7 +130,7 @@ export const REVIEW_RESULT_RECORDED = "Review result recorded";
  * or applied.
  */
 export interface ReviewResultView {
-  readonly status: typeof REVIEW_RESULT_RECORDED;
+  readonly status: typeof REVIEW_RESULT_SAVED;
   /** The canonical file, opened through the constrained `openReviewReport` action. */
   readonly artifact: string;
   readonly summary: string;
@@ -177,23 +183,68 @@ export interface VerificationEdit {
 }
 
 /**
- * Review with AI, as this session saw it (Batch 10). Transient: never written,
- * never restored — a reopened work item offers the button again.
+ * Review with AI's attempt for the fix on screen, as this session saw it
+ * (Batch 10; captured reviews since §37.80). Transient: the attempt's own
+ * progress is never written. Whether the *current fix* has had an attempt
+ * started is a separate, persisted fact (`reviewedCurrentFix`), which is what
+ * hides the button across a reload.
  *
- * `started` means a terminal was opened with the review prompt in it, and no
- * more: nothing comes back from the reviewer, so nothing says it finished,
- * passed or agreed.
+ * - `starting`: the prompt and the agent are being worked out.
+ * - `started`: a terminal was opened with the prompt — nothing comes back.
+ * - `reviewing`: a captured one-shot review is running.
+ * - `captured`: it finished and its reply filled the Review Result draft.
+ * - `captureFailed`: it started, but no draft came of it.
+ * - `failed`: it never started, so the button is offered again.
+ *
+ * None of them means the review passed, agreed or was saved.
  */
 export type ReviewHandoff =
   | { readonly state: "starting" }
   | { readonly state: "started"; readonly agent: string }
+  | { readonly state: "reviewing"; readonly agent: string }
+  | { readonly state: "captured"; readonly agent: string }
+  | {
+      readonly state: "captureFailed";
+      readonly agent: string;
+      readonly title: string;
+      readonly detail: string;
+      /** The reviewer's reply, when there was one, for Paste Review Output. */
+      readonly reply?: string;
+    }
   | { readonly state: "failed"; readonly error: UserFacingError };
 
-/** The same, in the words Fix result shows. */
+/** The same, in the words Fix result shows. `earlier`: an attempt this session did not see. */
 export type ReviewHandoffView =
   | { readonly state: "starting" }
-  | { readonly state: "started"; readonly summary: string; readonly detail: string }
+  | {
+      readonly state: "started" | "reviewing" | "captured" | "captureFailed" | "earlier";
+      readonly summary: string;
+      readonly detail: string;
+      readonly next?: string;
+      readonly reply?: string;
+    }
   | { readonly state: "failed"; readonly error: UserFacingError };
+
+/** Said while a captured review runs. Never "Review passed", never a percentage. */
+export const REVIEWING_TITLE = "Reviewing…";
+/** Said when a captured review's reply filled the draft: finished, not approved. */
+export const REVIEW_CAPTURED_TITLE = "AI review finished";
+/** Said after a reload, when this fix already had an attempt this session did not see. */
+export const REVIEW_EARLIER_TITLE = "AI review already started for this fix";
+/** How a failed capture is recovered: the paste, never a second automatic run. */
+export const REVIEW_FALLBACK_NEXT =
+  "Use Paste Review Output to add the reviewer's reply, or Add Review Result to type one.";
+/** The same, when a review result is already saved and Replace is what the row offers. */
+export const REVIEW_FALLBACK_NEXT_SAVED =
+  "Use Paste Review Output to add the reviewer's reply, or Replace Review Result to type one.";
+
+/**
+ * Said under "AI review started": how the reviewer's reply gets back. BugPilot
+ * does not read the terminal, so the reply comes back only when the developer
+ * pastes it — and even then it fills a form, it does not save one.
+ */
+export const REVIEW_NEXT_STEP =
+  "When the reviewer replies, use Paste Review Output to fill in the review result, then check it and save it.";
 
 /**
  * Fix result's Validation checklist, as far as it has been asked for.
@@ -306,6 +357,8 @@ export interface WorkflowStepResult {
   readonly reviewResult?: ReviewResultView;
   /** Fix result only: a recording in flight, or why the last one did not record. */
   readonly reviewCapture?: ReviewCapture;
+  /** Fix result only: a pasted review read into the form's sections, in the one push that answers it. */
+  readonly reviewPrefill?: ReviewPrefill;
   /** Fix result only: the recorded evidence, while `verification_report.md` is listed. */
   readonly verificationResult?: VerificationResultView;
   /** Fix result only: a verification recording in flight, or why the last one did not record. */
@@ -424,12 +477,20 @@ export interface WorkflowInput {
   readonly copyingReviewPrompt?: boolean;
   /** Review with AI, for the work item on screen; absent until pressed. */
   readonly review?: ReviewHandoff;
+  /**
+   * Whether the fix on screen — this `fix_report.md`, by content — has already
+   * had a review attempt started, in this session or an earlier one. The host's
+   * persisted answer; it alone hides Review with AI once an attempt is over.
+   */
+  readonly reviewedCurrentFix?: boolean;
   /** `review_report.md`, projected; absent when it was not read. The listing decides presence. */
   readonly reviewReport?: ReviewReportPreview;
   /** A recording in flight, or the last one's failure; absent otherwise. */
   readonly reviewCapture?: ReviewCapture;
   /** Whether Record (or Replace) Review Result may be pressed now: the host's call. */
   readonly canRecordReview?: boolean;
+  /** Paste Review Output's answer, only in the push that answers it. */
+  readonly reviewPrefill?: ReviewPrefill;
   /** `verification_report.md`, projected; absent when it was not read. The listing decides presence. */
   readonly verificationReport?: VerificationReportPreview;
   /** A verification recording in flight, or the last one's outcome; absent otherwise. */
@@ -551,9 +612,14 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
     actions: fixResultActions(input, recorded, evidence),
     ...(input.validation === undefined ? {} : { validation: input.validation }),
     ...(input.copyingReviewPrompt ? { copyingReviewPrompt: true as const } : {}),
-    ...(input.review === undefined ? {} : { review: reviewView(input.review) }),
+    ...(input.review === undefined
+      ? input.reviewedCurrentFix
+        ? { review: recorded ? EARLIER_REVIEW_SAVED : EARLIER_REVIEW }
+        : {}
+      : { review: reviewView(input.review, input.reviewPrefill !== undefined && "entry" in input.reviewPrefill, recorded) }),
     ...(recorded ? { reviewResult: reviewResultView(input.reviewReport) } : {}),
     ...(input.reviewCapture === undefined ? {} : { reviewCapture: input.reviewCapture }),
+    ...(input.reviewPrefill === undefined ? {} : { reviewPrefill: input.reviewPrefill }),
     ...(evidence ? { verificationResult: verificationResultView(input.verificationReport) } : {}),
     ...(input.verificationCapture === undefined ? {} : { verificationCapture: input.verificationCapture }),
     ...(input.verificationEdit === undefined ? {} : { verificationEdit: input.verificationEdit }),
@@ -570,9 +636,9 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
  */
 function fixResultActions(input: WorkflowInput, recorded: boolean, evidence: boolean): StepActionId[] {
   const actions: StepActionId[] = ["openFixReport", "copyReviewPrompt"];
-  if (canStartReview(input.review)) actions.push("reviewWithAI");
+  if (canStartReview(input.review, input.reviewedCurrentFix ?? false)) actions.push("reviewWithAI");
   if (recorded) actions.push("openReviewReport");
-  if (input.canRecordReview) actions.push(recorded ? "replaceReviewResult" : "recordReviewResult");
+  if (input.canRecordReview) actions.push("pasteReviewOutput", recorded ? "replaceReviewResult" : "recordReviewResult");
   if (evidence) actions.push("openVerificationReport");
   if (input.canRecordVerification) actions.push(evidence ? "editVerification" : "recordVerification");
   return actions;
@@ -605,15 +671,15 @@ function verificationResultView(report: VerificationReportPreview | undefined): 
 
 /** Review Result's lines: the report's own words, or plainly that there is one. */
 function reviewResultView(report: ReviewReportPreview | undefined): ReviewResultView {
-  const base = { status: REVIEW_RESULT_RECORDED, artifact: REVIEW_REPORT_ARTIFACT } as const;
+  const base = { status: REVIEW_RESULT_SAVED, artifact: REVIEW_REPORT_ARTIFACT } as const;
   if (report === undefined || !report.readable) {
-    return { ...base, summary: REVIEW_RESULT_RECORDED, detail: "Preview unavailable" };
+    return { ...base, summary: REVIEW_RESULT_SAVED, detail: "Preview unavailable" };
   }
   const also = [
     ...(report.validationNotes ? ["validation notes"] : []),
     ...(report.recommendations ? ["recommendations"] : []),
   ];
-  const summary = report.summary ?? report.findings ?? REVIEW_RESULT_RECORDED;
+  const summary = report.summary ?? report.findings ?? REVIEW_RESULT_SAVED;
   const detail = report.summary !== undefined && report.findings !== undefined ? `Findings: ${report.findings}` : undefined;
   return {
     ...base,
@@ -624,21 +690,79 @@ function reviewResultView(report: ReviewReportPreview | undefined): ReviewResult
 }
 
 /**
- * Whether Review with AI can be pressed: never pressed, or pressed and failed.
+ * Whether Review with AI can be pressed: the current fix has had no review
+ * attempt started, and none is being started now — or the last press never
+ * started one.
  *
- * Not while one is starting — a second press would be a second reviewer — and
- * not once one started, for the same reason: the same work item, reopened, or
- * the next run offers it again. The controller refuses on the same condition.
+ * Bound to the fix, not the work item: a new fix report (a new attempt's, by
+ * content) offers it again; a reopen, a reload, Rebuild Context, a settings
+ * change, Start New Attempt on its own, or saving a review result do not. A
+ * capture that failed after the reviewer started does not either — that fix had
+ * its attempt, and Paste Review Output is the way on. The controller refuses on
+ * the same condition.
  */
-export function canStartReview(review: ReviewHandoff | undefined): boolean {
-  return review === undefined || review.state === "failed";
+export function canStartReview(review: ReviewHandoff | undefined, reviewedCurrentFix: boolean): boolean {
+  if (review?.state === "failed") return !reviewedCurrentFix;
+  return review === undefined && !reviewedCurrentFix;
 }
 
-function reviewView(review: ReviewHandoff): ReviewHandoffView {
-  if (review.state === "started") {
-    return { state: "started", summary: REVIEW_STARTED_TITLE, detail: `Handed to ${review.agent} in a terminal.` };
+const EARLIER_REVIEW: ReviewHandoffView = {
+  state: "earlier",
+  summary: REVIEW_EARLIER_TITLE,
+  detail: "BugPilot does not keep the reviewer's reply between sessions.",
+  next: REVIEW_FALLBACK_NEXT,
+};
+
+/**
+ * `drafted`: the captured reply is still a draft in the form, not saved or
+ * discarded. `saved`: a review result is saved, so the row offers Replace.
+ */
+/** The same, once a review result is saved: nothing left to point at. */
+const EARLIER_REVIEW_SAVED: ReviewHandoffView = {
+  state: "earlier",
+  summary: REVIEW_EARLIER_TITLE,
+  detail: "BugPilot does not keep the reviewer's reply between sessions.",
+};
+
+function reviewView(review: ReviewHandoff, drafted: boolean, saved: boolean): ReviewHandoffView {
+  switch (review.state) {
+    case "started":
+      return {
+        state: "started",
+        summary: REVIEW_STARTED_TITLE,
+        detail: `Handed to ${review.agent} in a terminal.`,
+        next: REVIEW_NEXT_STEP,
+      };
+    case "reviewing":
+      return {
+        state: "reviewing",
+        summary: REVIEWING_TITLE,
+        detail: `${review.agent} is reviewing this fix. Its reply will fill in the review result for you to check.`,
+      };
+    case "captured":
+      return {
+        state: "captured",
+        summary: REVIEW_CAPTURED_TITLE,
+        detail: drafted
+          ? `The review result below is filled in from ${review.agent}'s reply. Check it, then save it.`
+          : `${review.agent}'s reply was captured.`,
+      };
+    case "captureFailed":
+      return {
+        state: "captureFailed",
+        summary: review.title,
+        detail: review.detail,
+        next:
+          review.reply === undefined
+            ? saved
+              ? REVIEW_FALLBACK_NEXT_SAVED
+              : REVIEW_FALLBACK_NEXT
+            : "The reply is in Paste Review Output: fix its sections and Parse, or add the review yourself.",
+        ...(review.reply === undefined ? {} : { reply: review.reply }),
+      };
+    default:
+      return review;
   }
-  return review;
 }
 
 /** What a capability row says and offers, for the state it is in. */

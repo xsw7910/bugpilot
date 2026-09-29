@@ -9556,7 +9556,7 @@ committed. No Python change; no version change.
 **How.** The packaged VSIX in a disposable VS Code 1.139.1 profile
 (`--user-data-dir`/`--extensions-dir`, the verified `bugpilot` CLI, custom
 dialogs, the simple file dialog), opened on the real target workspace
-`C:\path\to\sample-repo` and driven over its DevTools port with real
+(`<repo-root>`) and driven over its DevTools port with real
 mouse and key input; screenshots read back for every visual judgment. The
 developer's own VS Code was not closed or reconfigured. Real preparations of a
 hand-described bug ran against the monorepo (≈2.5 min each); the AI agent was a
@@ -9600,3 +9600,194 @@ scrolled out of view; Cancel, always visible in the footer, does the same.
 **Regression.** Extension 1285 tests pass (1284 before: one page test for the
 repeated refusal; the CSS fixes extend existing tests); typecheck, smoke and
 `git diff --check` clean.
+
+### 37.79 Review / Verification UX clarification, structured review capture and prefill (after `b6974b6`)
+
+**Status:** implemented and verified in the test suites, not committed, not
+pushed, not published; on top of `b6974b6`. One Python change, approved before
+it was made: the canonical review prompt. No artifact, CLI command or format
+change, no new file type, no version change. Decisions in
+`BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Review / Verification UX Clarification)" at the end of
+§19.
+
+**Why.** After a fix the row offered Review with AI, Record Review Result and
+Record Verification Evidence with nothing saying how they differ, and the
+reviewer was asked for a `Verdict: PASS / PASS WITH MINOR COMMENTS / NEEDS
+CHANGES` plus five headings that matched none of the four boxes its answer then
+had to be retyped into.
+
+**What changed.**
+
+- *Prompt* (`bugpilot/core/workflow.py`, `_build_final_review_prompt`): asks for
+  exactly `## Summary`, `## Findings`, `## Validation Notes`,
+  `## Recommendations`, and no verdict; adds missing edge cases and unrelated
+  changes to the focus, and rules against claiming unrun tests, "verified"
+  without evidence, approval or "safe to merge". Still inside `isPlainPrompt`.
+  Stopped before this change and asked; approved.
+- *Parser* (`extension/src/app/reviewOutput.ts`, new): deterministic section
+  extraction of the canonical four headings — case-insensitive, fence-aware,
+  unrelated `##` headings kept as text, lead-in left out and said, bounded
+  (208,192 characters in all, 50,000 per section), duplicate / missing / all
+  empty refused with a reason. No verdict or status extraction.
+- *Capture path*: explicit **Paste Review Output** only — BugPilot still reads
+  no terminal, and the architecture has no agent result file to read.
+  `parseReviewOutput { text }` → the host parses → `reviewPrefill { token,
+  entry | error }` in one push. The page fills the form, marks it "Prefilled
+  from structured review output — review before saving.", says "Review result
+  ready to save.", and saves nothing; **Save Review Result** still goes through
+  `record-review`, Replace still asks first. The host refuses a parse while a
+  recording could not start.
+- *Wording*: **Add Review Result** (was Record Review Result), **Save Review
+  Result**, "Review result saved" / "Saving review result…" / "Review result
+  was not saved: …"; **Add Verification Evidence** (was Record Verification
+  Evidence). Ids, action ids, commands and files unchanged. Under "AI review
+  started" the row now says how the reply comes back (`REVIEW_NEXT_STEP`).
+- *Form help*: one described line per review field and per verification field;
+  the verification form opens with "Record checks you actually performed and
+  what you observed. BugPilot does not run these checks or infer the result.",
+  and says review observations belong in Review Result. Examples are
+  placeholders, never saved; a new check is still Not Run.
+- *Start New Attempt*: unchanged in mechanism — Use Review Findings reads only a
+  saved `review_report.md`; an unsaved paste offers and injects nothing (now
+  tested).
+- Docs: the plan's decisions block, `extension/README.md`,
+  `extension/CHANGELOG.md`.
+
+**Files.** Production: `bugpilot/core/workflow.py`,
+`extension/src/app/reviewOutput.ts` (new), `reviewCapture.ts`, `workflow.ts`,
+`controller.ts`, `extension/src/panel/messages.ts`, `html.ts`,
+`extension/media/panel.js`, `panel.css`. Tests: `tests/test_workflow.py`,
+`tests/test_review_package.py`, `extension/test/reviewOutput.test.ts` (new),
+`controller.test.ts`, `page.test.ts`, `panel.test.ts`, `workflow.test.ts`,
+`reviewPackage.test.ts`, `reviewCapture.test.ts`,
+`test-integration/cli.integration.test.ts`.
+
+**Regression.** Extension 1327 tests pass (1285 before; 42 new: 17 parser, 7
+controller, 14 page, 2 markup, 1 workflow, 1 prompt, plus assertions added to
+existing ones); typecheck, smoke and `git diff --check` clean. Python:
+1258 passed, 1 failed —
+`test_publishable.py::test_the_repository_names_no_company_customer_person_path_or_real_ticket`,
+on two lines already in `b6974b6` and outside this batch (a local path in
+§37.78, and a planted home directory in an older controller test); left for
+the publishability cleanup rather than changed here. The two review
+integration tests (`review-package --json`,
+`record-review` through the extension's port) pass against the working-tree
+CLI. The pipx-installed `bugpilot` is a frozen wheel and still prints the old
+prompt until rebuilt.
+
+**Deferred.** A real-VS-Code pass: Review with AI's handoff and the prompt the
+agent receives, Paste Review Output with a real reply, parse success and each
+refusal, the prefilled form and editing it, Save Review Result, manual entry,
+Add Verification Evidence with its help lines and Not Run default, 200px width,
+keyboard-only use, Dark / Light / High Contrast. Reading the reviewer's reply
+without a paste (a terminal or session capture) and an opt-in auto-save of
+completed structured reviews, neither of which can be made reliable while the
+reply's only source is the developer's paste. A form-based Edit Review Result
+that loads the saved report back into the fields; today Open Review Report
+edits the file and Replace starts from a paste or blank form.
+
+### 37.80 Captured AI review prefill, and Review with AI once per fix (after §37.79, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, not published, no version change. Extension
+only — no Python change in this step; the pipx CLI was rebuilt from the
+working tree so it serves §37.79's prompt. Two requests handled together
+because the second refines the first: *Captured AI Review Result Prefill*, and
+*Review with AI Reappearance for a New Fix*. Decisions in
+`BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Captured AI Review and Review with AI per fix)" at the
+end of §19.
+
+**Measured before building.** Claude Code 2.1.214 `--help`: `-p`,
+`--output-format json` (one result object), `--no-session-persistence`,
+`--tools`, `--allowedTools`, `--permission-mode dontAsk`, `--setting-sources`,
+`--strict-mcp-config`. Two probes in a throwaway git repository: with only
+`--allowedTools` / `--disallowedTools Write`, the developer's `auto` mode let the
+model write a file through Bash; with the final flag set every write was denied
+and `git diff` ran. The JSON `result` held only the final answer, with a
+one-line lead-in before `## Summary`.
+
+**What changed.**
+
+- `agents.ts`: `KnownAgent.capturedReview` (`CLAUDE_CAPTURED_REVIEW`) and
+  `resolveReviewer` — captured for auto/claude when the host has the port,
+  terminal otherwise; custom commands never captured.
+- `reviewRun.ts` (new): `capturedReviewOutcome` (process finished + success
+  result + parser success, two neutral failure titles, the unparsed reply kept
+  for the paste box), `fixReportIdentity` (SHA-256 of `fix_report.md`, line
+  endings unified), `reviewedFixStore` (bounded, validated map over any store).
+- `host/ports.ts`: `runCapturedReview` — `Runner`, no shell, prompt on stdin,
+  repository cwd, 15-minute timeout. `extension.ts`: that port, and
+  `reviewedFixes` over `workspaceState` key `bugpilot.reviewedFixes`.
+- `controller.ts`: `#runCapturedReview` under a new `aiReview` mutation (runs,
+  Retry, handoffs, attempts, Clean, recordings and pastes wait, each told why);
+  the fix marked reviewed when a reviewer starts, unmarked if the spawn itself
+  throws; `#reviewDraft` held across pushes until saved, discarded or stale
+  (`discardReviewDraft`); the identity read with the report, carried through a
+  non-Fresh run, and a different identity dropping the last attempt's status.
+- `workflow.ts`: `ReviewHandoff` gains `reviewing`, `captured`,
+  `captureFailed`; the view gains `earlier` (an attempt from an earlier session);
+  `canStartReview(review, reviewedCurrentFix)`; wording that follows the row
+  (a held draft, a saved review).
+- `panel.js`: the new states as text (`aria-busy` while reviewing), the AI
+  note, the reply put in the paste box, Cancel discarding the host's draft, no
+  focus move when a captured draft arrives.
+- `failures.ts`: a `busy` cause for a reviewer refused because something else
+  started first.
+
+**Publishability cleanup.** The full suite's one failure since §37.79 was two
+pre-existing lines: the local checkout path in §37.78 (now `<repo-root>`) and
+a planted home directory in a controller test (now the generic `user`).
+
+**Found in the real window, and fixed.** After Save, the row still said
+"Check it, then save it"; the earlier-attempt line and the failed-capture hint
+named Add Review Result when only Replace was on screen; the replace dialog
+said "recorded". The CHANGELOG bullet added in §37.79 had split the Start New
+Attempt bullet; its last line is back in place.
+
+**Real VS Code pass.** A disposable profile (own `--user-data-dir`,
+`--extensions-dir`, debugging port) with the packaged VSIX and the rebuilt
+pipx CLI, on a synthetic git repository with a hand-described bug and a
+hand-written fix and report — no real repository involved; the developer's
+VS Code was left running. Real Claude Code for the captured review; a harmless
+`cmd /c echo {prompt}` as the custom agent; a nonexistent command for the
+launch failure; a copy of `where.exe` named `claude.exe` first on the
+instance's PATH for a reviewer that starts and exits without a result.
+
+- PASS: Review with AI visible on a new fix; hidden once the reviewer started;
+  Reviewing… with `aria-busy`, no terminal, Paste / Add hidden meanwhile;
+  captured after 51 s, the four fields filled, *Prefilled from AI review*,
+  *Review result ready to save*, the keyboard not moved; the repository
+  unchanged by the reviewer; `review_report.md` absent until Save; an edited
+  field saved as edited; after Save, Replace offered and Review with AI still
+  hidden; Developer: Reload Window keeping it hidden with *AI review already
+  started for this fix*; a settings change and a refresh with the same report
+  keeping it hidden; a changed `fix_report.md` bringing it back with the saved
+  review kept; the custom agent's terminal handoff with the Paste guidance; a
+  launch failure keeping the button; a reviewer that exited with code 2 giving
+  no draft, the button hidden, Paste offered, the saved review untouched;
+  keyboard-only Paste → Parse → Save with the Replace confirmation declined;
+  200px with no horizontal overflow; Dark, Light, High Contrast Dark and High
+  Contrast Light.
+- DEFERRED: Start New Attempt in the window. A reopened hand-described bug
+  reads as a stale context (Rebuild Context is the primary action, Start New
+  Attempt not offered) even with its description and title typed back in — a
+  pre-existing reopen behaviour, recorded, not changed here. The controller
+  test covers the rule.
+- DEFERRED: a captured reply that finished but did not parse, in the window —
+  the installed agent cannot be made to answer malformed on purpose; unit and
+  controller tests cover it.
+
+**Regression.** Extension 1359 tests pass (1327 after §37.79; 32 new or
+rewritten: 13 capture unit, 11 controller, 6 page, 2 workflow — three §37.79
+tests changed meaning: a reopen no longer offers the button again, a report
+back with the same content is the same fix, a paste draft is held rather than
+sent once); typecheck, smoke and `git diff --check` clean. Python:
+1259 passed, the full suite green again (publishability included). Integration: 12 of 12 pass (the working-tree CLI).
+
+**Deferred.** Review Again for the same fix. Persisting an unsaved draft
+across a window reload. Captured review for agents other than Claude Code
+(Codex's non-interactive mode is not measured as a reviewer; custom commands
+are shell templates). Detecting manual source edits after a review — only a
+changed `fix_report.md` is a new fix.

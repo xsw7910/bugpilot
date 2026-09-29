@@ -27,9 +27,11 @@ import { discoverExecutable } from "./executable.ts";
 import { Runner } from "./runner.ts";
 import { CredentialStore } from "./secrets.ts";
 import { PanelHost } from "./panel/provider.ts";
+import { reviewedFixStore } from "./app/reviewRun.ts";
 import { ArtifactsTree, HistoryTree } from "./views/trees.ts";
 import {
   improveHintWithProvider,
+  runCapturedReview,
   loadIssueDetails,
   canRun,
   createFilesPort,
@@ -53,6 +55,8 @@ import {
 const ROOT_STATE_KEY = "bugpilot.repoRoot";
 const FORM_STATE_KEY = "bugpilot.form";
 const WORK_ITEM_STATE_KEY = "bugpilot.workItem";
+/** Which fix each work item's last review attempt was for (§37.80); host state, never a repository file. */
+const REVIEWED_FIXES_STATE_KEY = "bugpilot.reviewedFixes";
 
 /**
  * This extension's id, as the marketplace and an `@ext:` settings filter spell
@@ -201,6 +205,13 @@ export function activate(context: vscode.ExtensionContext): void {
         return loadIssueDetails(runJson, issueKey);
       },
       improveHint: improveHintWithProvider,
+      // Review with AI's captured one-shot run: the agent's own argv, the prompt
+      // on stdin, the repository as cwd, stdout read at exit. No terminal.
+      runCapturedReview,
+      reviewedFixes: reviewedFixStore(
+        () => context.workspaceState.get(REVIEWED_FIXES_STATE_KEY),
+        (value) => void context.workspaceState.update(REVIEWED_FIXES_STATE_KEY, value),
+      ),
       canRun,
     },
     context.workspaceState.get<FormState>(FORM_STATE_KEY) ?? DEFAULT_FORM,

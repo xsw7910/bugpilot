@@ -230,6 +230,8 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   manageFixModes: { type: "manageFixModes" },
   closeFixModes: { type: "closeFixModes" },
   fixModeAction: { type: "fixModeAction", action: "view", id: "standard", scope: "builtin" },
+  parseReviewOutput: { type: "parseReviewOutput", text: "## Summary\nReads correctly.\n" },
+  discardReviewDraft: { type: "discardReviewDraft" },
   saveFixMode: {
     type: "saveFixMode",
     draft: {
@@ -2044,7 +2046,7 @@ test("Fix result is a row the markup keeps hidden, with no checkbox and no failu
   assert.match(row, /^<li class="step" id="step-fixResult" hidden>/);
   // Nobody chooses it and no run performs it.
   assert.equal(/<input\b/.test(row), false, "Fix result has a checkbox");
-  // Its only labels are Record Review Result's text areas (Batch 11) — never
+  // Its only labels are Review Result's text areas (Batch 11) — never
   // one for a checkbox.
   assert.equal(/<label\b[^>]*for="plan-/.test(row), false, "Fix result has a label for a checkbox");
   // A report that cannot be previewed is not a failure: no card of the row's
@@ -2261,7 +2263,7 @@ test("Review with AI is a quiet secondary button whose label is its name", () =>
   // Fix with AI primary — hidden until the host offers it.
   assert.match(
     row,
-    /<button type="button" class="result-link" id="review-with-ai" title="Start the selected AI agent in a terminal with the review prompt" hidden>/,
+    /<button type="button" class="result-link" id="review-with-ai" title="Start the selected AI agent in a terminal with the review prompt\. Starting a reviewer is not a review result\." hidden>/,
   );
   assert.match(row, /<span id="review-with-ai-label">Review with AI<\/span>/);
   assert.equal(row.includes('class="primary"'), false);
@@ -2323,11 +2325,53 @@ test("Verification Evidence sits in Fix result after Review Result, as buttons i
   assert.match(row, /<div class="review-status" id="verification-capture-status" role="status" tabindex="-1"><\/div>/);
   assert.match(row, /<p class="error" id="verification-capture-error" role="alert" hidden><\/p>/);
   assert.match(row, /aria-controls="verification-editor" aria-expanded="false"/);
-  for (const label of ["Record Verification Evidence", "Edit Verification Evidence", "Open Verification Report", "Add Check", "Save Verification Evidence"]) {
+  for (const label of ["Add Verification Evidence", "Edit Verification Evidence", "Open Verification Report", "Add Check", "Save Verification Evidence"]) {
     assert.ok(row.includes(`>${label}</span>`), `"${label}" is not a button label`);
   }
   // Remove Check is per row, built by the page.
   assert.ok(PAGE_JS.includes('"Remove Check"'));
+});
+
+test("the post-fix actions say Review with AI, Paste Review Output, Add Review Result and Add Verification Evidence", () => {
+  const row = rowMarkup("fixResult");
+  // In the order the flow reads: start a reviewer, bring its reply back, or type
+  // a review by hand; then the checks actually performed.
+  const order = [
+    'id="review-with-ai"',
+    'id="paste-review-output"',
+    'id="record-review-result"',
+    'id="record-verification"',
+    'id="review-paste"',
+    'id="review-editor"',
+  ].map((id) => row.indexOf(id));
+  assert.ok(order.every((at) => at !== -1));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  for (const label of ["Review with AI", "Paste Review Output", "Add Review Result", "Replace Review Result", "Save Review Result", "Add Verification Evidence"]) {
+    assert.ok(row.includes(`>${label}</span>`), `"${label}" is not a button label`);
+  }
+  // The old wording stays in ids only, never on screen.
+  for (const old of [">Record Review Result<", ">Record Verification Evidence<"]) {
+    assert.equal(row.includes(old), false, old);
+  }
+  assert.match(row, /<button type="button" class="result-link" id="paste-review-output" [^>]*aria-controls="review-paste" aria-expanded="false" hidden>/);
+});
+
+test("the paste box is a group of its own, with a described text area, Parse, Cancel and an alert", () => {
+  const row = rowMarkup("fixResult");
+  assert.match(row, /<div class="review-paste" id="review-paste" role="group" aria-label="Paste review output" hidden>/);
+  assert.match(row, /<label for="review-paste-text">Review output<\/label>/);
+  assert.match(row, /<textarea id="review-paste-text" rows="6" aria-describedby="review-paste-hint"><\/textarea>/);
+  const hint = /<p class="hint" id="review-paste-hint">([^<]*)<\/p>/.exec(row)?.[1] ?? "";
+  for (const heading of ["## Summary", "## Findings", "## Validation Notes", "## Recommendations"]) {
+    assert.ok(hint.includes(heading), heading);
+  }
+  assert.match(hint, /nothing is saved until you press Save Review Result/);
+  assert.match(row, /<p class="error" id="review-paste-error" role="alert" hidden><\/p>/);
+  for (const id of ["parse-review-output", "cancel-review-paste"]) {
+    assert.match(row, new RegExp(`<button type="button" class="result-link" id="${id}"`), `#${id} is not a plain button`);
+  }
+  assert.match(row, /<p class="review-prefill-note" id="review-prefill-note" hidden><\/p>/);
+  assert.equal(/<form\b/.test(row), false, "a nested form would submit the panel — a Run");
 });
 
 test("nothing about verification claims more than recorded evidence", () => {

@@ -46,8 +46,12 @@ import type { FixReportPreview } from "./fixReport.ts";
 import { reviewPackageArgs, reviewPackageFromEnvelope } from "./reviewPackage.ts";
 import { parseReviewReport } from "./reviewReport.ts";
 import type { ReviewReportPreview } from "./reviewReport.ts";
-import { REVIEW_NOT_RECORDED, hasReviewContent, recordReviewArgs, recordingOutcome, reviewPayload } from "./reviewCapture.ts";
+import { REVIEW_NOT_SAVED, hasReviewContent, recordReviewArgs, recordingOutcome, reviewPayload } from "./reviewCapture.ts";
 import type { ReviewCapture, ReviewEntry } from "./reviewCapture.ts";
+import { parseReviewOutput } from "./reviewOutput.ts";
+import type { ReviewPrefill } from "./reviewOutput.ts";
+import { capturedReviewOutcome, fixReportIdentity } from "./reviewRun.ts";
+import type { CapturedRun } from "./reviewRun.ts";
 import { parseVerificationReport } from "./verificationReport.ts";
 import type { VerificationCheckEntry, VerificationReportPreview } from "./verificationReport.ts";
 import {
@@ -62,8 +66,8 @@ import type { PayloadCommandRequest } from "./fixModeTransport.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
-import { resolveAgent } from "./agents.ts";
-import type { AgentPlan } from "./agents.ts";
+import { resolveAgent, resolveReviewer } from "./agents.ts";
+import type { AgentPlan, ReviewerPlan } from "./agents.ts";
 import { buildWorkflow, canOpenFolder, canStartReview, overallStatus } from "./workflow.ts";
 import type { AttemptDraft, AttemptView, FixWithAiOutcome, ReviewHandoff, ValidationView, VerificationEdit } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
@@ -294,6 +298,27 @@ export interface ControllerPorts {
    * `verification_report.md` itself, and never runs a check.
    */
   readonly runVerificationCommand?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  /**
+   * A captured one-shot review (§37.80): the agent's fixed argv, the prompt on
+   * stdin, the repository root as cwd, and the process's own stdout back when it
+   * exits. No shell and no terminal. Absent means Review with AI can only hand
+   * the prompt over in a terminal.
+   */
+  readonly runCapturedReview?: (request: {
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly cwd: string;
+    readonly input: string;
+  }) => Promise<CapturedRun>;
+  /**
+   * Which fix each work item's last review attempt was for — the fix report's
+   * content identity, by work item — kept by the host across reloads (VS Code's
+   * workspace state), never in the repository. Absent keeps it for the session.
+   */
+  readonly reviewedFixes?: {
+    readonly get: (workItemId: string) => string | undefined;
+    readonly set: (workItemId: string, fix: string | undefined) => void;
+  };
 }
 
 /**
@@ -302,7 +327,7 @@ export interface ControllerPorts {
  * preparing a retry package (release stabilization: it writes into the folder too)
  * — which Start New Attempt does too, when it carries feedback.
  */
-type ArtifactMutation = "review" | "verification" | "clean" | "retry" | "attempt";
+type ArtifactMutation = "review" | "verification" | "clean" | "retry" | "attempt" | "aiReview";
 
 /** What a run that has to wait is told, per mutation in flight. */
 const RUN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
@@ -311,6 +336,7 @@ const RUN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   clean: "Wait for the clean to finish before starting a run.",
   retry: "Wait for the retry to finish before starting a run.",
   attempt: "Wait for the new attempt to be prepared before starting a run.",
+  aiReview: "Wait for the AI review to finish before starting a run.",
 };
 
 /** What Retry is told, per artifact write in flight. */
@@ -320,6 +346,7 @@ const RETRY_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   clean: "Wait for the clean to finish before retrying.",
   retry: "Wait for the retry to finish before retrying.",
   attempt: "Wait for the new attempt to be prepared before retrying.",
+  aiReview: "Wait for the AI review to finish before retrying.",
 };
 
 /** What Clean is told while a recording is in flight. */
@@ -332,6 +359,7 @@ const CLEAN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   clean: "Wait for the clean to finish before cleaning this work item.",
   retry: "Wait for the retry to finish before cleaning this work item.",
   attempt: "Wait for the new attempt to be prepared before cleaning this work item.",
+  aiReview: "Wait for the AI review to finish before cleaning this work item.",
 };
 
 /** What a handoff is told, per artifact write in flight: it would read a folder being written. */
@@ -341,6 +369,7 @@ const HANDOFF_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   clean: "Wait for the clean to finish before handing this work item to an agent.",
   retry: "Wait for the retry to finish before handing this work item to an agent.",
   attempt: "Wait for the new attempt to be prepared before handing this work item to an agent.",
+  aiReview: "Wait for the AI review to finish before handing this work item to an agent.",
 };
 
 /** What the primary action is waiting for, per artifact write in flight. */
@@ -350,6 +379,7 @@ const BUSY_WITH: Readonly<Record<ArtifactMutation, string>> = {
   clean: "Wait for the clean to finish.",
   retry: "Wait for the retry to finish.",
   attempt: "Wait for the new attempt to be prepared.",
+  aiReview: "Wait for the AI review to finish.",
 };
 
 /** Why a handoff refuses a context the form no longer describes. */
@@ -517,6 +547,24 @@ export class Controller {
   #reviewReport: ReviewReportPreview | undefined;
   /** A recording in flight, or why the last one did not record. Never persisted. */
   #reviewCapture: ReviewCapture | undefined;
+  /**
+   * The Review Result draft — a paste read, or a captured review's reply — held
+   * for the work item on screen until it is saved, discarded (Cancel) or about
+   * something no longer shown, and sent with every push so a recreated panel
+   * fills its form again. Never persisted and never saved from here: only Save
+   * Review Result records it.
+   */
+  #reviewDraft: Extract<ReviewPrefill, { entry: unknown }> | undefined;
+  /** Why the last paste could not be read, held for exactly one push. */
+  #reviewPasteError: Extract<ReviewPrefill, { error: string }> | undefined;
+  #reviewDraftToken = 0;
+  /**
+   * `fix_report.md`'s content identity (`fixReportIdentity`), while it is listed:
+   * the fix a review attempt is for. Two reads of the same text are the same fix.
+   */
+  #fixReportIdentity: string | undefined;
+  /** The session's copy of which fix each work item's last review attempt was for. */
+  readonly #reviewedFixes = new Map<string, string>();
   /** `verification_report.md`, projected, while the listing names it (Batch 12). */
   #verificationReport: VerificationReportPreview | undefined;
   /** A verification recording in flight, or its outcome. Never persisted. */
@@ -808,6 +856,12 @@ export class Controller {
       case "recordReview":
         await this.recordReview(message.review);
         return;
+      case "parseReviewOutput":
+        this.parseReviewOutput(message.text);
+        return;
+      case "discardReviewDraft":
+        this.discardReviewDraft();
+        return;
       case "recordVerification":
         await this.recordVerification(message.checks, message.replace, message.basis);
         return;
@@ -984,6 +1038,8 @@ export class Controller {
       this.#artifactNames.includes(FIX_REPORT_ARTIFACT)
         ? this.#fixReport
         : undefined;
+    // The kept report is the same fix: its identity is kept with it.
+    const reportIdentity = report === undefined ? undefined : this.#fixReportIdentity;
     // A recorded review and recorded evidence survive exactly when their fix
     // report does (Batches 11–12): Fresh deletes the folder, and nothing else in a
     // run touches any of the three.
@@ -1019,6 +1075,7 @@ export class Controller {
           ];
     this.#forgetSummary();
     if (report !== undefined) this.#fixReport = report;
+    this.#fixReportIdentity = reportIdentity;
     if (review !== undefined) this.#reviewReport = review;
     if (evidence !== undefined) this.#verificationReport = evidence;
     // Before anything is pushed: a stale card beside a Running… button reads as
@@ -2369,6 +2426,7 @@ export class Controller {
   #forgetSummary(): void {
     this.#issue = undefined;
     this.#fixReport = undefined;
+    this.#fixReportIdentity = undefined;
     this.#reviewReport = undefined;
     this.#verificationReport = undefined;
     this.#verificationText = undefined;
@@ -2490,9 +2548,18 @@ export class Controller {
     this.#reviewEpoch += 1;
   }
 
-  /** Whether Review with AI may start now: a report on screen, and none starting or started. */
+  /**
+   * Whether Review with AI may start now: a report on screen, this fix never
+   * had a review attempt started, none is being started, and nothing else is
+   * in flight that a reviewer would read the folder under.
+   */
   #offersReview(): boolean {
-    return this.#offersPostFix() && canStartReview(this.#review);
+    return (
+      this.#offersPostFix() &&
+      !this.#running &&
+      this.#mutation === undefined &&
+      canStartReview(this.#review, this.#reviewedCurrentFix())
+    );
   }
 
   /** Review with AI's card, while it is on screen. */
@@ -2518,6 +2585,8 @@ export class Controller {
       return;
     }
     const epoch = this.#reviewEpoch;
+    // The fix this attempt is for: the report as read when the button was pressed.
+    const fix = this.#fixReportIdentity;
     this.#review = { state: "starting" };
     this.#push();
 
@@ -2527,9 +2596,15 @@ export class Controller {
       this.#reviewFailed(reviewHandoffError("prompt", result));
       return;
     }
-    let plan: AgentPlan;
+    let plan: ReviewerPlan;
     try {
-      plan = await this.#resolveSelectedAgent(result.prompt);
+      plan = await resolveReviewer({
+        choice: this.#form.agent,
+        customCommand: this.#form.agentCommand,
+        prompt: result.prompt,
+        canRun: async (command) => (await this.#ports.canRun?.(command)) ?? false,
+        capture: this.#ports.runCapturedReview !== undefined,
+      });
     } catch (error) {
       // Not expected — `canRun` answers rather than throws — but a probe that
       // failed must not leave the button waiting for ever.
@@ -2550,6 +2625,10 @@ export class Controller {
       return;
     }
     this.#resolvedAgent = { kind: "resolved", label: plan.label };
+    if (plan.kind === "captured") {
+      await this.#runCapturedReview(workItemId, root, epoch, fix, plan, result.prompt);
+      return;
+    }
     this.#ports.log.info(`Handing the review of ${workItemId} to ${plan.label}: ${plan.commandLine}`);
     try {
       this.#ports.ui.runInTerminal(`Review with AI · ${workItemId}`, root, plan.commandLine);
@@ -2557,8 +2636,113 @@ export class Controller {
       this.#reviewFailed(reviewHandoffError("terminal", oneSentence((error as Error).message)));
       return;
     }
+    // Started: this fix has had its attempt, whatever the terminal does next.
+    this.#markReviewed(workItemId, fix);
     this.#review = { state: "started", agent: plan.label };
     this.#push();
+  }
+
+  /**
+   * A captured one-shot review: the agent run once with the prompt on stdin,
+   * in the repository root, its stdout read when it exits (`reviewRun.ts`).
+   *
+   * While it runs it is an operation like a recording — `#mutation` is
+   * `aiReview` — so no run, Rebuild Context, handoff, new attempt, Clean or
+   * recording starts under it. The fix is marked as having had its attempt the
+   * moment the process is launched; a launch that throws (the command vanished)
+   * never started, so the mark is taken back and the button offered again. What
+   * comes back becomes a draft only if the process finished and the parser read
+   * the four sections; nothing is ever saved from here.
+   */
+  async #runCapturedReview(
+    workItemId: string,
+    root: string,
+    epoch: number,
+    fix: string | undefined,
+    plan: Extract<ReviewerPlan, { kind: "captured" }>,
+    prompt: string,
+  ): Promise<void> {
+    const port = this.#ports.runCapturedReview;
+    if (!port || fix === undefined) {
+      this.#reviewFailed(reviewHandoffError("agent", "This host cannot run a captured review."));
+      return;
+    }
+    // Asked again here: a recording may have started while the prompt was prepared.
+    if (this.#running || this.#mutation !== undefined) {
+      this.#reviewFailed(reviewHandoffError("busy", this.#busyReason()));
+      return;
+    }
+    const previous = this.#reviewedFix(workItemId);
+    this.#markReviewed(workItemId, fix);
+    this.#mutation = "aiReview";
+    this.#review = { state: "reviewing", agent: plan.label };
+    this.#push();
+    this.#ports.log.info(`Reviewing ${workItemId} with ${plan.label}, one-shot and captured, in ${root}.`);
+    let run: CapturedRun;
+    try {
+      run = await port({ command: plan.command, args: plan.invocation.args, cwd: root, input: prompt });
+    } catch (error) {
+      // Never started — the spawn itself failed — so this fix had no attempt.
+      if (this.#mutation === "aiReview") this.#mutation = undefined;
+      this.#setReviewed(workItemId, previous);
+      if (!this.#reviewStillWanted(epoch)) {
+        this.#push();
+        return;
+      }
+      this.#reviewFailed(reviewHandoffError("agent", oneSentence((error as Error).message)));
+      return;
+    }
+    if (this.#mutation === "aiReview") this.#mutation = undefined;
+    // Another work item, a reopen or the report gone since: the reply is not
+    // this screen's. The attempt still happened, and stays marked.
+    if (!this.#reviewStillWanted(epoch)) {
+      this.#push();
+      return;
+    }
+    const outcome = capturedReviewOutcome(run, plan.invocation);
+    if (outcome.ok) {
+      this.#reviewDraftToken += 1;
+      this.#reviewDraft = {
+        token: this.#reviewDraftToken,
+        entry: outcome.entry,
+        ...(outcome.leftOut ? { leftOut: true as const } : {}),
+        source: "ai",
+      };
+      this.#review = { state: "captured", agent: plan.label };
+    } else {
+      this.#ports.log.info(`The captured review of ${workItemId} gave no draft: ${outcome.title} ${outcome.detail}`);
+      this.#review = {
+        state: "captureFailed",
+        agent: plan.label,
+        title: outcome.title,
+        detail: outcome.detail,
+        ...(outcome.reply === undefined ? {} : { reply: outcome.reply }),
+      };
+    }
+    this.#push();
+  }
+
+  /** The fix the work item's last review attempt was for, from this session or a persisted one. */
+  #reviewedFix(workItemId: string): string | undefined {
+    return this.#ports.reviewedFixes?.get(workItemId) ?? this.#reviewedFixes.get(workItemId);
+  }
+
+  #markReviewed(workItemId: string, fix: string | undefined): void {
+    if (fix !== undefined) this.#setReviewed(workItemId, fix);
+  }
+
+  #setReviewed(workItemId: string, fix: string | undefined): void {
+    if (fix === undefined) this.#reviewedFixes.delete(workItemId);
+    else this.#reviewedFixes.set(workItemId, fix);
+    this.#ports.reviewedFixes?.set(workItemId, fix);
+  }
+
+  /** Whether the fix report on screen, by content, has already had a review attempt started. */
+  #reviewedCurrentFix(): boolean {
+    const workItemId = this.#workItemId;
+    if (workItemId === undefined || this.#fixReportIdentity === undefined) return false;
+    if (!this.#artifactNames.includes(FIX_REPORT_ARTIFACT)) return false;
+    return this.#reviewedFix(workItemId) === this.#fixReportIdentity;
   }
 
   /**
@@ -2611,6 +2795,8 @@ export class Controller {
    */
   #forgetCapture(): void {
     this.#reviewCapture = undefined;
+    this.#reviewDraft = undefined;
+    this.#reviewPasteError = undefined;
     this.#verificationCapture = undefined;
     this.#verificationEdit = undefined;
     this.#verificationEditBasis = undefined;
@@ -2656,13 +2842,13 @@ export class Controller {
     // A new press is a new attempt: the last failure or success is not about it.
     this.#reviewCapture = undefined;
     if (!hasReviewContent(entry)) {
-      this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_RECORDED}: enter at least one section.` };
+      this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_SAVED}: enter at least one section.` };
       this.#push();
       return;
     }
     const port = this.#ports.runReviewCommand;
     if (!port) {
-      this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_RECORDED}: this host cannot run record-review.` };
+      this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_SAVED}: this host cannot run record-review.` };
       this.#push();
       return;
     }
@@ -2676,7 +2862,7 @@ export class Controller {
         let confirmed = false;
         try {
           confirmed = await this.#ports.ui.confirm(
-            `Replace the review result recorded for ${workItemId}? review_report.md will be overwritten.`,
+            `Replace the review result saved for ${workItemId}? review_report.md will be overwritten.`,
             "Replace",
           );
         } catch {
@@ -2707,7 +2893,7 @@ export class Controller {
       this.#mutation = undefined;
       const outcome = recordingOutcome(envelope);
       if (!outcome.recorded) {
-        this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_RECORDED}: ${oneSentence(outcome.reason)}` };
+        this.#reviewCapture = { state: "failed", message: `${REVIEW_NOT_SAVED}: ${oneSentence(outcome.reason)}` };
         this.#push();
         // Recorded elsewhere meanwhile — a terminal, another window: read the folder
         // again so the row offers that report's Open and Replace instead of a Record
@@ -2721,6 +2907,8 @@ export class Controller {
       // that lets the page close the form. The file is the result — read it back the
       // way a reopen would. The row's status announces it; no second notification.
       this.#reviewCapture = { state: "recorded", replaced: replace };
+      // Saved: the draft is the report now, and the form it filled has closed.
+      this.#reviewDraft = undefined;
       await this.refreshArtifacts();
     } finally {
       // The one place the flag clears. If it was still set, this recording ended
@@ -2731,6 +2919,48 @@ export class Controller {
         this.#push();
       }
     }
+  }
+
+  /**
+   * Read a pasted review into Review Result's four sections, for the form.
+   *
+   * Only what the developer pasted: BugPilot does not read the reviewer's
+   * terminal, and a review having started says nothing about a reply existing.
+   * The parse is the canonical-section one (`reviewOutput.ts`) — no verdict,
+   * no guessing at another shape. The answer goes to the page once; nothing is
+   * written, nothing is recorded, and Start New Attempt's helpers still read
+   * only the saved review_report.md. Offered on the same terms as a recording,
+   * so a form being saved is never refilled underneath it.
+   */
+  parseReviewOutput(text: string): void {
+    if (!this.#workItemId || !this.#offersRecording()) {
+      this.#ports.log.error(
+        "Refusing to read review output: no fix report is on screen, a run is in flight, or an artifact write is.",
+      );
+      return;
+    }
+    const parsed = parseReviewOutput(text);
+    this.#reviewDraftToken += 1;
+    const token = this.#reviewDraftToken;
+    if (parsed.ok) {
+      this.#reviewDraft = { token, entry: parsed.entry, ...(parsed.leftOut ? { leftOut: true as const } : {}) };
+      this.#push();
+      return;
+    }
+    // A refusal rides on one push; a draft already held stays as it was.
+    this.#reviewPasteError = { token, error: parsed.message };
+    this.#push();
+    this.#reviewPasteError = undefined;
+  }
+
+  /**
+   * Cancel on a prefilled form: the draft is gone. Saves nothing and says
+   * nothing — the page has already emptied its form — and does not bring
+   * Review with AI back: this fix still had its attempt.
+   */
+  discardReviewDraft(): void {
+    this.#reviewDraft = undefined;
+    this.#push();
   }
 
   /**
@@ -2958,9 +3188,19 @@ export class Controller {
     this.#issue = parseIssue(issueText);
     // Only when listed: the listing decides whether there is a Fix result row,
     // and a listed report that cannot be read is projected as unreadable.
-    this.#fixReport = names.includes(FIX_REPORT_ARTIFACT)
-      ? parseFixReport(await this.#ports.files.readFile(this.#itemFile(workItemId, FIX_REPORT_ARTIFACT)))
+    const fixText = names.includes(FIX_REPORT_ARTIFACT)
+      ? await this.#ports.files.readFile(this.#itemFile(workItemId, FIX_REPORT_ARTIFACT))
       : undefined;
+    this.#fixReport = names.includes(FIX_REPORT_ARTIFACT) ? parseFixReport(fixText) : undefined;
+    const identity = names.includes(FIX_REPORT_ARTIFACT) ? fixReportIdentity(fixText) : undefined;
+    // A different fix on screen — a new attempt's report — is a fix no attempt
+    // this session saw was for: what the last one did is no longer this row's
+    // to say. One still running keeps going; its reply is still a draft.
+    if (identity !== this.#fixReportIdentity && this.#review !== undefined) {
+      const inFlight = this.#review.state === "starting" || this.#review.state === "reviewing";
+      if (!inFlight) this.#forgetReview();
+    }
+    this.#fixReportIdentity = identity;
     // The same rule for the recorded review: listed, a Review Result; listed but
     // unreadable, one with "Preview unavailable".
     this.#reviewReport = names.includes(REVIEW_REPORT_ARTIFACT)
@@ -3139,6 +3379,12 @@ export class Controller {
       ...(this.#review === undefined ? {} : { review: this.#review }),
       ...(this.#reviewReport === undefined ? {} : { reviewReport: this.#reviewReport }),
       ...(this.#reviewCapture === undefined ? {} : { reviewCapture: this.#reviewCapture }),
+      ...(this.#reviewPasteError !== undefined
+        ? { reviewPrefill: this.#reviewPasteError }
+        : this.#reviewDraft === undefined
+          ? {}
+          : { reviewPrefill: this.#reviewDraft }),
+      reviewedCurrentFix: this.#reviewedCurrentFix(),
       canRecordReview: this.#offersRecording(),
       ...(this.#verificationReport === undefined ? {} : { verificationReport: this.#verificationReport }),
       ...(this.#verificationCapture === undefined ? {} : { verificationCapture: this.#verificationCapture }),

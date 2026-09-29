@@ -10,6 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { parseReviewOutput, REVIEW_OUTPUT_SECTIONS } from "../src/app/reviewOutput.ts";
 import { isPlainPrompt } from "../src/app/agents.ts";
 import { MAX_RISKS, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
 import type { Envelope } from "../src/protocol.ts";
@@ -115,12 +116,75 @@ test("HTML-looking text is returned as text", () => {
 // --- Review with AI's guard (Batch 10) ----------------------------------------
 
 /** `_build_final_review_prompt`'s text, as `review-package` prints it. */
-const canonical = (id: string) => "# Final Review Request\n\nReview the BugPilot result for work item {id}.\n\nUse:\n- .ai/{id}/context.md\n- .ai/{id}/retrieval.json if present\n- .ai/{id}/fix_report.md if present\n- current git diff\n\nReview focus:\n1. Correctness\n2. Regression risk\n3. Whether the result matches the reported issue\n4. Whether any source change is minimal and safe\n5. Whether tests are sufficient\n6. Whether memory entry should be updated\n7. Any follow-up work\n\nExpected output:\nVerdict:\nPASS / PASS WITH MINOR COMMENTS / NEEDS CHANGES\n\nBlocking issues:\nNon-blocking suggestions:\nTest concerns:\nMemory update suggestions:\nRecommended next step:\n".replaceAll("{id}", id);
+const canonical = (id: string) =>
+  [
+    "# Final Review Request",
+    "",
+    "Review the BugPilot result for work item {id}.",
+    "",
+    "Use:",
+    "- .ai/{id}/context.md",
+    "- .ai/{id}/retrieval.json if present",
+    "- .ai/{id}/fix_report.md if present",
+    "- current git diff",
+    "",
+    "Review focus:",
+    "1. Correctness",
+    "2. Regression risk",
+    "3. Whether the result matches the reported issue",
+    "4. Whether any source change is minimal and safe",
+    "5. Whether tests are sufficient",
+    "6. Missing edge cases",
+    "7. Whether the change touches unrelated code",
+    "8. Whether memory entry should be updated",
+    "9. Any follow-up work",
+    "",
+    "Rules:",
+    "- Say which conclusions come from reading the code and which from commands you actually ran.",
+    "- Do not claim that a test or check ran unless you ran it and saw its result.",
+    "- Do not describe the result as verified unless you name the evidence.",
+    "- Do not approve the change or call it safe to merge. Report what you found.",
+    "- If a section has nothing to report, write: Nothing to report.",
+    "",
+    "Return exactly these four sections, in this order:",
+    "",
+    "## Summary",
+    "Your overall review conclusion, in your own words.",
+    "",
+    "## Findings",
+    "Specific problems, risks, omissions or observations.",
+    "",
+    "## Validation Notes",
+    "What you inspected, and anything you actually ran, with what you observed.",
+    "",
+    "## Recommendations",
+    "Suggested next actions.",
+    "",
+  ]
+    .join("\n")
+    .replaceAll("{id}", id);
 
 test("the canonical review prompt is plain enough for a command line, for either kind of work item", () => {
   for (const id of ["JR-12345", "local_20260926010922"]) {
     assert.equal(isPlainPrompt(canonical(id)), true, id);
   }
+});
+
+test("the canonical review prompt asks for exactly the sections Paste Review Output reads, and no verdict", () => {
+  const prompt = canonical("JR-12345");
+  // A reply shaped the way the prompt asks is one the parser reads, section for section.
+  const reply = prompt.slice(prompt.indexOf("## Summary"));
+  const parsed = parseReviewOutput(reply);
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(
+    prompt.split("\n").filter((line) => line.startsWith("## ")),
+    REVIEW_OUTPUT_SECTIONS.map(([, name]) => `## ${name}`),
+  );
+  for (const verdict of ["Verdict", "PASS", "NEEDS CHANGES", "LGTM"]) {
+    assert.equal(prompt.includes(verdict), false, verdict);
+  }
+  assert.match(prompt, /Do not approve the change or call it safe to merge\./);
+  assert.match(prompt, /Do not claim that a test or check ran unless you ran it/);
 });
 
 test("a prompt with anything a shell could act on is not", () => {

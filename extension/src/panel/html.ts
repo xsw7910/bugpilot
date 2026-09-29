@@ -1025,28 +1025,35 @@ function stepContent(id: WorkflowStepId): string {
     // card — Fix result has no other, since a report that cannot be previewed
     // is not a failure.
     //
-    // Then Review Result (Batch 11): what somebody recorded after a review, in
-    // their words, and never more than that — "Review result recorded" is the
-    // whole claim. Record Review Result sits with the row's actions while none
-    // is recorded; once one is, Open and Replace sit with it. The form is four
-    // plain text areas; its status is a live region and its failure an alert,
-    // both about the recording and never about the review. A group, not a
-    // <form>: the rows sit inside the panel's own form, where a nested one is
+    // Then Review Result (Batch 11): what somebody saved after a review, in
+    // their words, and never more than that — "Review result saved" is the
+    // whole claim. Add Review Result sits with the row's actions while none is
+    // saved; once one is, Open and Replace sit with it. Paste Review Output
+    // sits beside either: it reads a reviewer's reply in the canonical four
+    // sections into the same form, which the developer checks and saves —
+    // reading is never saving. The form is four plain text areas, each with a
+    // line on what belongs in it; its status is a live region and its failure
+    // an alert, both about the saving and never about the review. A group, not
+    // a <form>: the rows sit inside the panel's own form, where a nested one is
     // ignored and its submit button would submit the panel — a Run.
     //
     // Then Verification Evidence (Batch 12): the checks the developer recorded
     // and the status they gave each, counted — "Recorded checks: 2 passed,
     // 1 failed" — with the checks by name and one generated, scoped phrase; no
-    // badge, and nothing that says verified. Record Verification Evidence sits
+    // badge, and nothing that says verified. Add Verification Evidence sits
     // with the row's actions while none is recorded; Open and Edit sit with the
-    // evidence once it is. The form holds one group per check, built by the page
-    // (Add Check, Remove Check); a new check starts as Not Run, never Passed.
+    // evidence once it is. The form says first that it is for checks actually
+    // performed — a review's observations belong in Review Result — and holds
+    // one group per check, built by the page (Add Check, Remove Check), each
+    // field with a line on what goes in it; a new check starts as Not Run,
+    // never Passed. The examples are placeholders, never saved.
     return `            <div class="step-actions" id="actions-fixResult" hidden>
               ${actionButton(OPEN_FIX_REPORT)}
               <button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to review this result" hidden><span class="codicon codicon-copy" aria-hidden="true"></span><span id="copy-review-prompt-label">Copy Review Prompt</span></button>
-              <button type="button" class="result-link" id="review-with-ai" title="Start the selected AI agent in a terminal with the review prompt" hidden><span class="codicon codicon-hubot" aria-hidden="true"></span><span id="review-with-ai-label">Review with AI</span></button>
-              <button type="button" class="result-link" id="record-review-result" title="Record what a completed review said, in review_report.md" aria-controls="review-editor" aria-expanded="false" hidden><span class="codicon codicon-edit" aria-hidden="true"></span><span>Record Review Result</span></button>
-              <button type="button" class="result-link" id="record-verification" title="Record the checks you ran and what you recorded for each, in verification_report.md" aria-controls="verification-editor" aria-expanded="false" hidden><span class="codicon codicon-list-ordered" aria-hidden="true"></span><span>Record Verification Evidence</span></button>
+              <button type="button" class="result-link" id="review-with-ai" title="Start the selected AI agent in a terminal with the review prompt. Starting a reviewer is not a review result." hidden><span class="codicon codicon-hubot" aria-hidden="true"></span><span id="review-with-ai-label">Review with AI</span></button>
+              <button type="button" class="result-link" id="paste-review-output" title="Paste a reviewer's reply in the four review sections to fill in the review result before saving it" aria-controls="review-paste" aria-expanded="false" hidden><span class="codicon codicon-comment-discussion" aria-hidden="true"></span><span>Paste Review Output</span></button>
+              <button type="button" class="result-link" id="record-review-result" title="Enter what a review said — by a person, another tool or an AI reviewer — and save it" aria-controls="review-editor" aria-expanded="false" hidden><span class="codicon codicon-edit" aria-hidden="true"></span><span>Add Review Result</span></button>
+              <button type="button" class="result-link" id="record-verification" title="Record the checks you actually performed and what you observed for each" aria-controls="verification-editor" aria-expanded="false" hidden><span class="codicon codicon-list-ordered" aria-hidden="true"></span><span>Add Verification Evidence</span></button>
             </div>
             <div class="review-status" id="review-status" role="status" tabindex="-1"></div>
 ${errorCard("review-error")}
@@ -1061,19 +1068,34 @@ ${errorCard("review-error")}
               <p class="muted review-result-also" id="review-result-also" hidden></p>
               <div class="step-actions" id="actions-reviewResult">
                 <button type="button" class="result-link" id="open-review-report" title="Open review_report.md in the editor" hidden><span class="codicon codicon-go-to-file" aria-hidden="true"></span><span>Open Review Report</span></button>
-                <button type="button" class="result-link" id="replace-review-result" title="Record a new review result in place of this one" aria-controls="review-editor" aria-expanded="false" hidden><span class="codicon codicon-edit" aria-hidden="true"></span><span>Replace Review Result</span></button>
+                <button type="button" class="result-link" id="replace-review-result" title="Save a new review result in place of this one" aria-controls="review-editor" aria-expanded="false" hidden><span class="codicon codicon-edit" aria-hidden="true"></span><span>Replace Review Result</span></button>
               </div>
             </div>
-            <div class="review-editor" id="review-editor" role="group" aria-label="Record review result" hidden>
-              <p class="muted review-editor-note">What the review said, in its words. BugPilot keeps it with this work item's files; it does not check it.</p>
+            <div class="review-paste" id="review-paste" role="group" aria-label="Paste review output" hidden>
+              <label for="review-paste-text">Review output</label>
+              <p class="hint" id="review-paste-hint">Paste the reviewer's reply with its four sections: ## Summary, ## Findings, ## Validation Notes and ## Recommendations. BugPilot fills in the review result from them; nothing is saved until you press Save Review Result.</p>
+              <textarea id="review-paste-text" rows="6" aria-describedby="review-paste-hint"></textarea>
+              <p class="error" id="review-paste-error" role="alert" hidden></p>
+              <div class="review-editor-actions">
+                <button type="button" class="result-link" id="parse-review-output">Parse</button>
+                <button type="button" class="result-link" id="cancel-review-paste">Cancel</button>
+              </div>
+            </div>
+            <div class="review-editor" id="review-editor" role="group" aria-label="Review result" hidden>
+              <p class="muted review-editor-note">What the review said, in the reviewer's words. BugPilot keeps it with this work item's files; it does not check it or read a verdict into it.</p>
+              <p class="review-prefill-note" id="review-prefill-note" hidden></p>
               <label for="review-summary">Summary</label>
-              <textarea id="review-summary" rows="2"></textarea>
+              <p class="hint" id="review-summary-hint">Overall review conclusion in the reviewer's own words.</p>
+              <textarea id="review-summary" rows="2" aria-describedby="review-summary-hint"></textarea>
               <label for="review-findings">Findings</label>
-              <textarea id="review-findings" rows="3"></textarea>
-              <label for="review-validation-notes">Validation notes</label>
-              <textarea id="review-validation-notes" rows="2"></textarea>
+              <p class="hint" id="review-findings-hint">Specific problems, risks, omissions, or observations.</p>
+              <textarea id="review-findings" rows="3" aria-describedby="review-findings-hint"></textarea>
+              <label for="review-validation-notes">Validation Notes</label>
+              <p class="hint" id="review-validation-notes-hint">What the reviewer actually inspected or ran. Do not imply tests ran if they did not.</p>
+              <textarea id="review-validation-notes" rows="2" aria-describedby="review-validation-notes-hint"></textarea>
               <label for="review-recommendations">Recommendations</label>
-              <textarea id="review-recommendations" rows="2"></textarea>
+              <p class="hint" id="review-recommendations-hint">Suggested next actions.</p>
+              <textarea id="review-recommendations" rows="2" aria-describedby="review-recommendations-hint"></textarea>
               <div class="review-editor-actions">
                 <button type="button" class="result-link" id="save-review-result"><span id="save-review-result-label">Save Review Result</span></button>
                 <button type="button" class="result-link" id="cancel-review-result">Cancel</button>
@@ -1093,7 +1115,7 @@ ${errorCard("review-error")}
               </div>
             </div>
             <div class="verification-editor" id="verification-editor" role="group" aria-label="Verification evidence" hidden>
-              <p class="muted verification-editor-note">Each check and the status you recorded for it. BugPilot runs none of them; it keeps what you enter with this work item's files.</p>
+              <p class="muted verification-editor-note" id="verification-editor-note">Record checks you actually performed and what you observed. BugPilot does not run these checks or infer the result. What a reviewer noticed while reading the change belongs in Review Result.</p>
               <p class="muted verification-editor-note" id="verification-editor-replace-note" hidden>This report is not in BugPilot's format, so its checks could not be read into the form. Saving replaces it with the checks below.</p>
               <div class="verification-rows" id="verification-rows"></div>
               <div class="verification-editor-actions">
@@ -1113,7 +1135,7 @@ ${errorCard("review-error")}
     //
     // Then Start New Attempt's form, opened from the ⋯ menu beside the primary
     // action and only once an attempt exists. A group, not a <form>, for the
-    // reason Record Review Result gives: a nested one would submit the panel.
+    // reason Review Result's form gives: a nested one would submit the panel.
     // Its feedback is optional — empty writes nothing — and the two helpers
     // only copy text in when pressed; Start Attempt is the one act.
     return `            <p class="step-strategy" id="strategy-fixWithAI" hidden><span class="result-label">Strategy</span> <span id="strategy-fixWithAI-value"></span></p>

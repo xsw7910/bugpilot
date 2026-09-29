@@ -219,6 +219,26 @@ def test_the_prompt_is_neutral_about_where_the_bug_came_from_and_how_it_ended(tm
         assert f".ai/{work_item}/fix_report.md if present" in prompt
 
 
+def test_the_prompt_asks_for_review_report_sections_and_no_verdict():
+    # The answer comes back in review_report.md's own four sections, in its
+    # order, so Paste Review Output can fill the Review Result form from it. No
+    # verdict, approval or "verified" is asked for: BugPilot records what the
+    # reviewer said, and the reviewer is told to keep inspection apart from
+    # anything actually run.
+    from bugpilot.core.review_report import REVIEW_SECTIONS
+
+    prompt = workflow._build_final_review_prompt("JR-12345")
+    lines = prompt.split("\n")
+    headings = [line for line in lines if line.startswith("## ")]
+    assert headings == [heading for _key, heading in REVIEW_SECTIONS]
+    for claim in ("Verdict", "PASS", "NEEDS CHANGES", "LGTM"):
+        assert claim not in prompt, claim
+    assert "Do not approve the change or call it safe to merge." in prompt
+    assert "Do not claim that a test or check ran unless you ran it and saw its result." in prompt
+    assert "Do not describe the result as verified unless you name the evidence." in prompt
+    assert "If a section has nothing to report, write: Nothing to report." in prompt
+
+
 def test_the_json_prompt_is_the_human_prompt_for_every_kind_of_work_item(tmp_path, monkeypatch, capsys):
     _work_item(tmp_path)
     _work_item(tmp_path, work_item="local_20260926010922", source="manual")

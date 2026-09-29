@@ -1,6 +1,7 @@
 /**
- * Record Review Result (Batch 11): the four sections the developer typed, on
- * their way to `bugpilot record-review`.
+ * Save Review Result (Batch 11): the four sections the developer typed — or
+ * pasted and read by Paste Review Output, then checked — on their way to
+ * `bugpilot record-review`.
  *
  * The extension never writes `review_report.md` itself. The text goes to the CLI
  * as a JSON file (the Fix Mode transport: a temporary file outside the
@@ -33,8 +34,8 @@ export type ReviewCapture =
   | { readonly state: "recorded"; readonly replaced: boolean }
   | { readonly state: "failed"; readonly message: string };
 
-/** How a failure begins: about the recording, never about the review. */
-export const REVIEW_NOT_RECORDED = "Review result was not recorded";
+/** How a failure begins: about the saving, never about the review. */
+export const REVIEW_NOT_SAVED = "Review result was not saved";
 
 /** Per section, far above a real review; the CLI enforces its own cap too. */
 export const MAX_REVIEW_SECTION = 50_000;
@@ -65,7 +66,7 @@ export function recordReviewArgs(workItemId: string, payloadPath: string, replac
 export function recordingOutcome(envelope: Envelope): { readonly recorded: true } | { readonly recorded: false; readonly reason: string } {
   if (envelope.ok) return { recorded: true };
   if (envelope.error.code === "ARTIFACT_EXISTS") {
-    return { recorded: false, reason: "a review result is already recorded for this work item, and it was kept." };
+    return { recorded: false, reason: "a review result is already saved for this work item, and it was kept." };
   }
   const message = envelope.error.message.replace(/\s+/g, " ").trim();
   return { recorded: false, reason: message === "" ? "bugpilot gave no reason." : message };

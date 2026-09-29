@@ -24,11 +24,72 @@ export interface KnownAgent {
   readonly label: string;
   /** Resolved through PATH, like bugpilot itself. */
   readonly command: string;
+  /**
+   * How to run a review whose answer can be read back, when the agent has one:
+   * the fixed arguments of a one-shot, non-interactive run that takes the
+   * prompt on stdin and prints its final answer on stdout. Absent means the
+   * agent has no such mode BugPilot has measured, and Review with AI hands the
+   * prompt to it in a terminal instead — whose output BugPilot never reads.
+   */
+  readonly capturedReview?: CapturedReviewInvocation;
 }
+
+/** A one-shot review run: fixed argv, the prompt on stdin, the answer on stdout. */
+export interface CapturedReviewInvocation {
+  readonly args: readonly string[];
+  /** How stdout is read: `claude-json` is `--output-format json`'s one result object. */
+  readonly output: "claude-json";
+}
+
+/**
+ * Claude Code's one-shot review, measured on 2.1.214 (§37.80).
+ *
+ * `-p --output-format json` prints one JSON object whose `result` is the final
+ * answer only — no tool logs, no progress. The rest keeps an unattended
+ * reviewer read-only, because nobody is there to approve anything:
+ *
+ * - `--tools Read Grep Glob Bash`: nothing that edits is even available;
+ * - `--permission-mode dontAsk` with `--allowedTools`: of the shell, only
+ *   `git diff`, `git status`, `git log` and `git show` run — anything else is
+ *   denied, never asked about. `--allowedTools` alone is not a restriction:
+ *   with the developer's own `auto` mode a probe wrote a file through Bash;
+ * - `--setting-sources ""` and `--strict-mcp-config`: neither the developer's
+ *   nor the repository's settings, allow rules or MCP servers widen that;
+ * - `--no-session-persistence`: the review leaves no session to resume.
+ */
+export const CLAUDE_CAPTURED_REVIEW: CapturedReviewInvocation = {
+  args: [
+    "-p",
+    "--output-format",
+    "json",
+    "--no-session-persistence",
+    "--setting-sources",
+    "",
+    "--strict-mcp-config",
+    "--permission-mode",
+    "dontAsk",
+    "--tools",
+    "Read",
+    "Grep",
+    "Glob",
+    "Bash",
+    "--allowedTools",
+    "Read",
+    "Grep",
+    "Glob",
+    "Bash(git diff)",
+    "Bash(git diff *)",
+    "Bash(git status)",
+    "Bash(git status *)",
+    "Bash(git log *)",
+    "Bash(git show *)",
+  ],
+  output: "claude-json",
+};
 
 /** Tried in this order when the choice is "auto". */
 export const KNOWN_AGENTS: readonly KnownAgent[] = [
-  { id: "claude", label: "Claude Code", command: "claude" },
+  { id: "claude", label: "Claude Code", command: "claude", capturedReview: CLAUDE_CAPTURED_REVIEW },
 ];
 
 /** The placeholder a custom command uses for the handoff prompt. */
@@ -145,6 +206,40 @@ export async function resolveAgent(input: ResolveAgentInput): Promise<AgentPlan>
         ? `${named} is not on PATH.`
         : `No AI coding agent was found on PATH (looked for ${named}).`,
   };
+}
+
+/**
+ * How Review with AI reaches the selected agent: a captured one-shot run, when
+ * the agent has one; otherwise the terminal handoff `resolveAgent` plans.
+ *
+ * A custom command is never captured. It is a shell template written for a
+ * terminal, and running it for its stdout would put the review prompt into
+ * shell text — the thing `isPlainPrompt` exists to keep off command lines. So a
+ * custom agent (Codex included, which BugPilot reaches only that way) gets the
+ * terminal and Paste Review Output.
+ */
+export type ReviewerPlan =
+  | {
+      readonly kind: "captured";
+      readonly label: string;
+      readonly command: string;
+      readonly invocation: CapturedReviewInvocation;
+    }
+  | AgentPlan;
+
+export async function resolveReviewer(input: ResolveAgentInput & { readonly capture: boolean }): Promise<ReviewerPlan> {
+  if (input.capture && input.choice !== "custom" && isPlainPrompt(input.prompt)) {
+    const candidates =
+      input.choice === "auto" ? KNOWN_AGENTS : KNOWN_AGENTS.filter((agent) => agent.id === input.choice);
+    for (const agent of candidates) {
+      if (!(await input.canRun(agent.command))) continue;
+      // The first installed agent is the one Fix with AI would use; only it is
+      // asked, captured if it can be, in a terminal if not.
+      if (agent.capturedReview === undefined) break;
+      return { kind: "captured", label: agent.label, command: agent.command, invocation: agent.capturedReview };
+    }
+  }
+  return resolveAgent(input);
 }
 
 /**

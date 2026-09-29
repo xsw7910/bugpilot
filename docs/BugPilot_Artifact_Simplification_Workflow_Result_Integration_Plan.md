@@ -1888,6 +1888,237 @@ workflow list that did not point at it.
       duration, status and gear move under it at the right, where at 200px after
       a run the label had been squeezed to one letter per line.
 
+### Confirmed decisions (Review / Verification UX Clarification)
+
+The problem: after a fix the row offered Review with AI, Record Review Result
+and Record Verification Evidence side by side with nothing saying how they
+differ, and a reviewer's answer — asked for as `Verdict: PASS / PASS WITH MINOR
+COMMENTS / NEEDS CHANGES` plus five free-form headings — had to be retyped into
+four blank boxes whose names matched none of them.
+
+1. **Three acts, three words.** *Review with AI* starts a reviewer. *Review
+   Result* is the saved record of what a reviewer said. *Verification Evidence*
+   is the checks the developer actually performed and what they observed. They
+   are never merged: a review observation is not verification evidence, and
+   the verification form says so. The normal flow reads Fix with AI → Review
+   with AI → Review Result → Verification Evidence.
+
+2. **User-facing wording; ids and files unchanged.** The buttons read **Paste
+   Review Output**, **Add Review Result** (the empty form, for any review typed
+   by hand), **Save Review Result** (the form's submit), **Replace Review
+   Result**, and **Add Verification Evidence**. "Record Review Result" and
+   "Record Verification Evidence" are no longer on screen. The element ids
+   (`record-review-result`, `record-verification`), the step action ids
+   (`recordReviewResult`, `recordVerification`), the CLI commands
+   (`record-review`, `record-verification`) and the artifacts
+   (`review_report.md`, `verification_report.md`) are unchanged; there are no
+   command-palette entries for either. The saved-review wording follows the
+   button: "Review result saved", "Saving review result…", "Review result was
+   not saved: …". Verification keeps "recorded" — evidence is recorded.
+
+3. **Review with AI semantics are unchanged: "AI review started" means a
+   terminal was opened with the prompt, and nothing more** — not finished,
+   passed, correct, approved, verified or safe to merge. Under it the row now
+   says how the reply gets back: "When the reviewer replies, use Paste Review
+   Output to fill in the review result, then check it and save it."
+   (`REVIEW_NEXT_STEP`).
+
+4. **The canonical review prompt asks for review_report.md's own four
+   sections and no verdict** (`_build_final_review_prompt`, served by
+   `review-package`; a Python change, approved for this batch). It keeps the
+   work item, the files to read and the review focus — adding missing edge
+   cases and unrelated changes — and adds rules: say which conclusions come from
+   reading code and which from commands actually run; do not claim a test ran
+   unless it was run and its result seen; do not call the result verified
+   without naming the evidence; do not approve or call it safe to merge; write
+   "Nothing to report." in an empty section. It asks for exactly `## Summary`,
+   `## Findings`, `## Validation Notes`, `## Recommendations`, in that order.
+   The whole prompt stays inside `isPlainPrompt`'s character class, so the
+   terminal handoff still accepts it; Python, extension and integration tests
+   pin that, and that a reply in the asked-for shape parses.
+
+5. **Capture is an explicit paste, never terminal reading.** BugPilot still
+   does not read, poll or scrape the reviewer's terminal, and a review having
+   started is never taken to mean a reply exists. **Paste Review Output** opens
+   a text box under the row; **Parse** sends the text to the host
+   (`parseReviewOutput { text }`, clamped one past the cap), which parses it and
+   answers once (`reviewPrefill { token, entry | error }`, one push, like
+   Edit Verification's answer). No agent result file exists in the architecture
+   to read instead, and none was added.
+
+6. **One deterministic parser** (`extension/src/app/reviewOutput.ts`). A
+   section starts at a level-two heading whose text, case-insensitive and with
+   runs of whitespace as one, is one of the four names (optional closing
+   hashes, up to three spaces in), and runs to the next of the four. Headings
+   inside a backtick or tilde fence are code. Any other `## ` heading stays as
+   text of its section (the writer demotes it). Text before the first section
+   is left out, and the answer says so. Each line loses trailing whitespace and
+   each section its outer blank lines; nothing else changes. Refused, with the
+   reason: empty input; more than 208,192 characters in all (four capped
+   sections plus 8 KiB); a section over record-review's 50,000; a heading that
+   appears twice; any of the four missing (with a note when an unclosed fence
+   swallowed the rest); all four empty. No fuzzy matching, no `#`, `###`,
+   bold or `Summary:` forms, no provider-specific behaviour, and no verdict or
+   status extraction: "PASS", "Approved" and "Verified" stay as the reviewer's
+   text.
+
+7. **Prefill, then the developer saves.** A successful parse fills the four
+   fields, replacing what they held, opens the form (in Add or Replace mode as
+   the row stands) at Summary, and shows "Prefilled from structured review
+   output — review before saving." — neutral about the source, since BugPilot
+   only knows the text was pasted in the review's shape; with a lead-in, it adds
+   "Text before the first section was left out." The live status says "Review
+   result ready to save." Every field stays editable, a repeated push of the
+   same answer does not refill it, and only **Save Review Result** records,
+   through `record-review` exactly as for typed text — the existing Replace
+   confirmation included. A failed parse is shown under the paste, which keeps
+   its text; the form stays closed. Cancel empties the form and the "ready"
+   status; another work item empties both the form and the paste. Parse waits
+   while a save is in flight, and the host refuses a parse whenever a recording
+   could not start. No auto-save exists; an opt-in setting to save completed
+   structured reviews automatically stays deferred until completion,
+   completeness and "no intermediate reply" could all be proven, which they
+   cannot while the reply comes from a paste.
+
+8. **Transient draft only.** The parsed review lives in the page's form until
+   saved or discarded: no `review.json`, transcript, prompt copy or verdict file,
+   nothing in `run.json`, and the saved `review_report.md` keeps its format
+   (Source line "Recorded from an external review.").
+
+9. **Form help.** Each review field has one line under its label, tied by
+   `aria-describedby`: Summary — overall review conclusion in the reviewer's own
+   words; Findings — specific problems, risks, omissions, or observations;
+   Validation Notes — what the reviewer actually inspected or ran, not implying
+   tests ran if they did not; Recommendations — suggested next actions. The
+   label is "Validation Notes", matching the section.
+
+10. **Verification form help.** Above the checks: "Record checks you actually
+    performed and what you observed. BugPilot does not run these checks or
+    infer the result. What a reviewer noticed while reading the change belongs
+    in Review Result." Each field of each check has a described line — Name:
+    what was checked; Status: the status you are recording for this check;
+    Type: Automated, Manual or Other; Command / Procedure: the command you ran
+    or the manual steps you followed; Evidence: the observed output or result
+    supporting the recorded status; Notes: optional limitations or context.
+    Examples are placeholders only (*Targeted unit tests*, *npm test*, *1285
+    passed, 0 failed*; *Original bug reproduction*, *Repeat the reported
+    workflow manually*, *The issue no longer reproduces*) and are never saved.
+    A new check is still Not Run; statuses and types are unchanged.
+
+11. **No verdict, anywhere.** No PASS / FAIL / Approved / Rejected / Safe to
+    merge / Verified / Correct state for a review result, and every check
+    Passed still reads only "All recorded checks passed." with the row and the
+    header unchanged.
+
+12. **Start New Attempt reads only saved records.** Use Review Findings is
+    offered only while `review_report.md` is listed; a pasted review that was
+    not saved offers nothing and is never used as feedback. Use Verification
+    Evidence is unchanged (a check recorded as Failed or Not Run). Both copy
+    text only when pressed.
+
+### Confirmed decisions (Captured AI Review and Review with AI per fix)
+
+The problem: Review with AI opened an interactive terminal, the reviewer's
+structured answer existed only there, and the developer had to copy it, open
+Paste Review Output and Parse before the form was anything but blank. And
+"hidden after a start" had no answer to "which fix was reviewed?".
+
+1. **A captured one-shot review for agents that have one.** `KnownAgent` in
+   `extension/src/app/agents.ts` gains `capturedReview`, a
+   `CapturedReviewInvocation` (fixed argv, how stdout is read); `resolveReviewer`
+   picks it for the selected agent, otherwise the terminal plan `resolveAgent`
+   made before. Claude Code has one, measured on 2.1.214:
+   `claude -p --output-format json --no-session-persistence --setting-sources ""
+   --strict-mcp-config --permission-mode dontAsk --tools Read Grep Glob Bash
+   --allowedTools Read Grep Glob "Bash(git diff)" "Bash(git diff *)"
+   "Bash(git status)" "Bash(git status *)" "Bash(git log *)" "Bash(git show *)"`.
+   The canonical prompt (`review-package --json`, unchanged, never rebuilt in
+   TypeScript) goes on stdin; cwd is the repository root; no shell, no terminal.
+
+2. **The reviewer is read-only, and that is enforced, not asked.** Measured:
+   `--allowedTools` alone is not a restriction — under the developer's own
+   `auto` permission mode a probe with Write disallowed created a file through
+   Bash. With the flags above the same probe's writes were all denied and
+   `git diff` ran. `--setting-sources ""` and `--strict-mcp-config` keep the
+   developer's and the repository's allow rules and MCP servers out of it.
+
+3. **No terminal scraping, ever.** The reply is the process's own stdout:
+   `--output-format json`'s one `type: "result"` object, whose `result` is the
+   final answer only — tool logs and progress are not in it. Nothing reads a
+   terminal buffer.
+
+4. **Success needs all three** (`extension/src/app/reviewRun.ts`,
+   `capturedReviewOutcome`): the process finished (not cancelled or timed out,
+   exit code 0), the object is a success result (`is_error` false, `subtype`
+   `success`), and the parser read the four sections. Exit code 0 alone is not
+   success; a started process is not a finished review. Two neutral failures:
+   *Review result could not be captured automatically.* (it finished, but the
+   output was empty, not the result object, or did not parse) and *AI review did
+   not produce a usable structured result.* (a non-zero exit, a timeout, an
+   error result). Neither says the review or the fix failed.
+
+5. **One parser for both paths.** The captured reply goes through
+   `parseReviewOutput` exactly as a paste does; a test gives both the same text
+   and compares the drafts. Leading chatter is left out and said. Two complete
+   blocks, or a section repeated (the real transcript's doubled
+   Recommendations), are refused as duplicates — never one picked. Headings in
+   a code fence stay code. A reply that did not parse is kept, transiently, in
+   Paste Review Output's box so a heading can be fixed and parsed.
+
+6. **Prefill, never save.** A parsed reply is the host's draft
+   (`ReviewPrefill` with `source: "ai"`), shown as *Prefilled from AI review —
+   review before saving.* with *Review result ready to save.*; the form opens
+   without taking the keyboard, since the reply arrives on its own. Every
+   field is editable; only **Save Review Result** records, through
+   `record-review`, with the existing Replace confirmation when a review is
+   already saved. No auto-save, no `review_draft.json`.
+
+7. **Draft lifetime.** The draft — captured or pasted — rides on every push
+   until saved, discarded (Cancel sends `discardReviewDraft`) or no longer
+   about the work item on screen (another work item, a run). A recreated
+   webview fills its form again from it; a reload of the window loses it — the
+   reply is not persisted anywhere. This replaces the one-push prefill of the
+   Review / Verification UX Clarification block, decision 5; the paste path is
+   otherwise unchanged.
+
+8. **While it runs it is an operation.** `#mutation` gains `aiReview`: no run,
+   Retry, Rebuild Context, handoff, Start New Attempt, Clean, recording or paste
+   starts until the process exits, each told why; Review with AI cannot be
+   pressed twice. A 15-minute timeout ends a reviewer that never answers.
+
+9. **Custom agents are never captured.** A custom command is a shell template
+   written for a terminal; running it for stdout would put the prompt into
+   shell text. It gets the terminal and *When the reviewer replies, use Paste
+   Review Output…*. Codex is reached only that way today, so it is not
+   captured either; `HINT_PROVIDERS`' `codex exec -` is the hint improver's,
+   not measured as a reviewer.
+
+10. **Review with AI is offered once per fix.** The fix is `fix_report.md` by
+    content (`fixReportIdentity`: SHA-256 of its text, line endings unified; an
+    unreadable listed report is `unreadable`). A review attempt that *started*
+    — a terminal opened, or the captured process launched — marks that identity
+    for the work item. The button shows only while the current identity is
+    unmarked and no attempt is starting or running. So it stays hidden through
+    capture failure, parse failure, Save / Replace Review Result, Open Review
+    Report, Paste Review Output, verification evidence, settings changes,
+    Rebuild Context, and Start New Attempt on its own; it comes back when a new
+    `fix_report.md` with different content is read. The same report written
+    again, even with other line endings, is the same fix. A launch that never
+    started — no agent, a refused prompt, a failed spawn — marks nothing, and
+    the button stays.
+
+11. **Where "reviewed" lives.** The host, never the webview and never the
+    repository: VS Code's workspace state, key `bugpilot.reviewedFixes`, a map
+    of work item → identity, the oldest forgotten after 200
+    (`reviewedFixStore`). A reload, a restart or a reopen keeps the button
+    hidden for a reviewed fix, and the row says *AI review already started for
+    this fix* — the attempt's own progress and reply are session-only. No
+    `review_state.json`.
+
+12. **Review Again is not built.** A second review of the same fix is Paste
+    Review Output (any reviewer) or a new fix. Arbitrary manual source edits are
+    not detected: only a changed `fix_report.md` is a new fix.
+
 ---
 
 # 20. Step Secondary Text 状态原则

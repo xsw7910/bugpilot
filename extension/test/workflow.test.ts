@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildWorkflow, canOpenFolder, overallStatus, stepDescription, WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
+import { buildWorkflow, canOpenFolder, overallStatus, REVIEW_NEXT_STEP, stepDescription, WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
 import type { WorkflowInput, WorkflowStepResult } from "../src/app/workflow.ts";
 import { isPlainPrompt, resolveAgent, KNOWN_AGENTS, PROMPT_PLACEHOLDER } from "../src/app/agents.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
@@ -757,6 +757,7 @@ test("the row carries the review handoff in its own words, and says started — 
     state: "started",
     summary: "AI review started",
     detail: "Handed to Codex in a terminal.",
+    next: REVIEW_NEXT_STEP,
   });
   const error = { kind: "agent" as const, title: "AI review did not start", message: "No agent." };
   const failed = stepIn(reviewed({ state: "failed", error }), "fixResult");
@@ -798,7 +799,7 @@ test("a listed review is exactly one Review Result, in the report's own words", 
   // No row of its own: the workflow is still the six steps and Fix result.
   assert.deepEqual(steps.map((step) => step.id), [...WORKFLOW_STEP_IDS, "fixResult"]);
   assert.deepEqual(stepIn(steps, "fixResult").reviewResult, {
-    status: "Review result recorded",
+    status: "Review result saved",
     artifact: "review_report.md",
     summary: "The change reads correctly.",
     detail: "Findings: One duplicate null check.",
@@ -816,7 +817,7 @@ test("a review with no Summary leads with its findings, and an unreadable one on
   assert.equal(findingsOnly.alsoRecorded, undefined);
   for (const reviewReport of [{ readable: false, validationNotes: false, recommendations: false }, undefined]) {
     const view = stepIn(finished({ artifacts: WITH_REVIEW, ...(reviewReport ? { reviewReport } : {}) }), "fixResult").reviewResult!;
-    assert.equal(view.summary, "Review result recorded");
+    assert.equal(view.summary, "Review result saved");
     assert.equal(view.detail, "Preview unavailable");
   }
 });
@@ -824,10 +825,10 @@ test("a review with no Summary leads with its findings, and an unreadable one on
 test("Record, Open and Replace follow the file and the host's say-so", () => {
   const actions = (overrides: Partial<WorkflowInput>) => [...stepIn(finished(overrides), "fixResult").actions];
   assert.deepEqual(actions({ artifacts: WITH_REPORT, canRecordReview: true }), [
-    "openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult",
+    "openFixReport", "copyReviewPrompt", "reviewWithAI", "pasteReviewOutput", "recordReviewResult",
   ]);
   assert.deepEqual(actions({ artifacts: WITH_REVIEW, reviewReport: REVIEWED, canRecordReview: true }), [
-    "openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport", "replaceReviewResult",
+    "openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport", "pasteReviewOutput", "replaceReviewResult",
   ]);
   // A run or a recording in flight: nothing to record, but the file still opens.
   assert.deepEqual(actions({ artifacts: WITH_REVIEW, reviewReport: REVIEWED, canRecordReview: false }), [
@@ -925,11 +926,11 @@ test("unreadable evidence, or evidence with no recorded status, only says it is 
 test("Record, Open and Edit follow the file and the host's say-so, after Review Result's", () => {
   const actions = (overrides: Partial<WorkflowInput>) => [...stepIn(finished(overrides), "fixResult").actions];
   assert.deepEqual(actions({ artifacts: WITH_REPORT, canRecordReview: true, canRecordVerification: true }), [
-    "openFixReport", "copyReviewPrompt", "reviewWithAI", "recordReviewResult", "recordVerification",
+    "openFixReport", "copyReviewPrompt", "reviewWithAI", "pasteReviewOutput", "recordReviewResult", "recordVerification",
   ]);
   assert.deepEqual(
     actions({ artifacts: [...WITH_EVIDENCE, "review_report.md"], verificationReport: EVIDENCE, canRecordReview: true, canRecordVerification: true }),
-    ["openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport", "replaceReviewResult", "openVerificationReport", "editVerification"],
+    ["openFixReport", "copyReviewPrompt", "reviewWithAI", "openReviewReport", "pasteReviewOutput", "replaceReviewResult", "openVerificationReport", "editVerification"],
   );
   // A run or an artifact write in flight: nothing to record or edit, but the file still opens.
   assert.deepEqual(actions({ artifacts: WITH_EVIDENCE, verificationReport: EVIDENCE, canRecordVerification: false }), [
@@ -948,4 +949,107 @@ test("recorded evidence changes nothing Fix result or the header says about the 
   assert.deepEqual(strip(stepIn(withEvidence, "fixResult")), strip(stepIn(without, "fixResult")));
   assert.deepEqual(overallStatus(withEvidence, progress("done", ALL_DONE)), overallStatus(without, progress("done", ALL_DONE)));
   assert.equal(stepIn(withEvidence, "fixResult").status, "ready");
+  // Every check recorded as Passed is said as exactly that, scoped — never a verdict on the fix.
+  const said = JSON.stringify(withEvidence);
+  assert.ok(said.includes("All recorded checks passed."));
+  for (const verdict of ["verified", "Verified", "safe to merge", "Approved", "Fix is correct"]) {
+    assert.equal(said.includes(verdict), false, verdict);
+  }
+});
+
+test("a pasted review's answer rides on Fix result once, and changes nothing else it says", () => {
+  const fixReport = { readable: true, summary: "Fixed it.", tests: "3 passed." };
+  const entry = { summary: "PASS, approved.", findings: "", validationNotes: "Read the diff.", recommendations: "" };
+  const without = finished({ artifacts: WITH_REPORT, fixReport, canRecordReview: true });
+  const prefilled = finished({ artifacts: WITH_REPORT, fixReport, canRecordReview: true, reviewPrefill: { token: 3, entry } });
+  const row = stepIn(prefilled, "fixResult");
+  assert.deepEqual(row.reviewPrefill, { token: 3, entry });
+  const { reviewPrefill: _prefill, ...rest } = row;
+  assert.deepEqual(rest, stepIn(without, "fixResult"), "a prefill changed the row");
+  assert.equal(row.reviewResult, undefined, "a pasted review is not a saved one");
+  assert.deepEqual(overallStatus(prefilled, progress("done", ALL_DONE)), overallStatus(without, progress("done", ALL_DONE)));
+  // Offered only on the host's say-so, like Add Review Result.
+  const busy = stepIn(finished({ artifacts: WITH_REPORT, fixReport, canRecordReview: false }), "fixResult");
+  assert.equal(busy.actions.includes("pasteReviewOutput"), false);
+});
+
+test("Review with AI is offered once per fix: hidden once an attempt started, whatever became of it", () => {
+  const fixReport = { readable: true, summary: "Fixed it.", tests: "3 passed." };
+  const offers = (overrides: Partial<WorkflowInput>) =>
+    stepIn(finished({ artifacts: WITH_REPORT, fixReport, canRecordReview: true, ...overrides }), "fixResult").actions.includes("reviewWithAI");
+  const error = { kind: "agent" as const, title: "AI review did not start", message: "No agent." };
+  // A new fix, never reviewed: offered; a launch that failed: offered again.
+  assert.equal(offers({}), true);
+  assert.equal(offers({ review: { state: "failed", error } }), true);
+  // Starting, reviewing, handed to a terminal, captured, a capture with no draft: not.
+  for (const review of [
+    { state: "starting" },
+    { state: "reviewing", agent: "Claude Code" },
+    { state: "started", agent: "Claude Code" },
+    { state: "captured", agent: "Claude Code" },
+    { state: "captureFailed", agent: "Claude Code", title: "t", detail: "d" },
+  ] as const) {
+    assert.equal(offers({ review, reviewedCurrentFix: true }), false, review.state);
+  }
+  // An earlier session's attempt for this fix: not, and the row says why.
+  assert.equal(offers({ reviewedCurrentFix: true }), false);
+  const earlier = stepIn(finished({ artifacts: WITH_REPORT, fixReport, reviewedCurrentFix: true }), "fixResult").review;
+  assert.equal(earlier?.state, "earlier");
+  assert.equal((earlier as { summary: string }).summary, "AI review already started for this fix");
+  // Once a review is saved, the earlier-attempt line points at nothing it cannot offer.
+  const saved = stepIn(
+    finished({ artifacts: [...WITH_REPORT, "review_report.md"], fixReport, reviewedCurrentFix: true }),
+    "fixResult",
+  ).review as { state: string; next?: string };
+  assert.equal(saved.state, "earlier");
+  assert.equal(saved.next, undefined);
+  const failedSaved = stepIn(
+    finished({
+      artifacts: [...WITH_REPORT, "review_report.md"],
+      fixReport,
+      reviewedCurrentFix: true,
+      review: { state: "captureFailed", agent: "Claude Code", title: "t", detail: "d" },
+    }),
+    "fixResult",
+  ).review as { next?: string };
+  assert.match(failedSaved.next ?? "", /Replace Review Result/);
+  // No report, no button, however the flag reads.
+  assert.equal(stepIn(finished({ artifacts: PREPARED_FILES }), "fixResult"), undefined);
+});
+
+test("the captured review's words: Reviewing…, finished, or a capture that gave no draft — never a verdict", () => {
+  const fixReport = { readable: true, summary: "Fixed it.", tests: "3 passed." };
+  const view = (review: NonNullable<WorkflowInput["review"]>) =>
+    stepIn(finished({ artifacts: WITH_REPORT, fixReport, review, reviewedCurrentFix: true }), "fixResult").review as {
+      state: string;
+      summary: string;
+      detail: string;
+      next?: string;
+      reply?: string;
+    };
+  assert.equal(view({ state: "reviewing", agent: "Claude Code" }).summary, "Reviewing…");
+  assert.equal(view({ state: "captured", agent: "Claude Code" }).summary, "AI review finished");
+  // "Check it, then save it" only while the reply is still a draft; saved or discarded, just captured.
+  assert.equal(view({ state: "captured", agent: "Claude Code" }).detail, "Claude Code's reply was captured.");
+  const drafted = stepIn(
+    finished({
+      artifacts: WITH_REPORT,
+      fixReport,
+      review: { state: "captured", agent: "Claude Code" },
+      reviewedCurrentFix: true,
+      reviewPrefill: { token: 1, entry: { summary: "A.", findings: "", validationNotes: "", recommendations: "" }, source: "ai" },
+    }),
+    "fixResult",
+  ).review as { detail: string };
+  assert.match(drafted.detail, /Check it, then save it\.$/);
+  const failed = view({ state: "captureFailed", agent: "Claude Code", title: "Review result could not be captured automatically.", detail: "Missing ## Findings." });
+  assert.equal(failed.summary, "Review result could not be captured automatically.");
+  assert.match(failed.next ?? "", /Paste Review Output/);
+  const withReply = view({ state: "captureFailed", agent: "Claude Code", title: "t", detail: "d", reply: "## Summary" });
+  assert.equal(withReply.reply, "## Summary");
+  assert.match(withReply.next ?? "", /The reply is in Paste Review Output/);
+  const said = JSON.stringify([failed, withReply, view({ state: "captured", agent: "Claude Code" })]);
+  for (const verdict of ["Passed", "Approved", "Verified", "safe to merge", "Review failed", "Rejected"]) {
+    assert.equal(said.includes(verdict), false, verdict);
+  }
 });

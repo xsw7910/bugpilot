@@ -37,6 +37,7 @@ import { diagnose, knownCodes } from "../src/errors.ts";
 import { discoverExecutable } from "../src/executable.ts";
 import { isPlainPrompt } from "../src/app/agents.ts";
 import { reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
+import { parseReviewOutput } from "../src/app/reviewOutput.ts";
 import { recordReviewArgs, recordingOutcome, reviewPayload } from "../src/app/reviewCapture.ts";
 import { parseReviewReport } from "../src/app/reviewReport.ts";
 import { recordVerificationArgs, verificationOutcome, verificationPayload } from "../src/app/verificationCapture.ts";
@@ -426,6 +427,10 @@ test("review-package --json gives the review aids and leaves the work item untou
   assert.match(review.prompt, new RegExp(`\\.ai/${workItemId}/fix_report\\.md`));
   // What Review with AI (Batch 10) may put on a command line: the real prompt passes the guard.
   assert.equal(isPlainPrompt(review.prompt), true, "Review with AI would refuse the canonical prompt");
+  // It asks for the four sections Paste Review Output reads, and for no verdict.
+  const reply = review.prompt.slice(review.prompt.indexOf("## Summary"));
+  assert.equal(parseReviewOutput(reply).ok, true, "a reply shaped as the prompt asks would not parse");
+  assert.equal(/Verdict|PASS|NEEDS CHANGES/.test(review.prompt), false, "the prompt asks for a verdict");
   assert.equal(review.validation.steps.length, 5);
   assert.deepEqual([...review.validation.risks], ["The id is still required by callers."]);
   assert.ok(review.validation.files.some((file) => file.endsWith("record.py")), review.validation.files.join(", "));
@@ -438,7 +443,7 @@ test("review-package --json gives the review aids and leaves the work item untou
 });
 
 test("record-review through the extension's own port writes review_report.md, and nothing else", async () => {
-  // Record Review Result (Batch 11) end to end: the payload file, the real CLI,
+  // Save Review Result (Batch 11) end to end: the payload file, the real CLI,
   // the extension's readers — and a work item in which only the one file appears.
   const root = repository();
   const built = buildPrepareArgs(manualForm(), { root });

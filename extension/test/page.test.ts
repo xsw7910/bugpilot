@@ -4381,7 +4381,11 @@ test("once started, the button goes and the row says what happened, in plain wor
   p.send(reported(REPORT, { review: { state: "started", agent: "Claude Code" } }));
 
   assert.equal(p.byId("review-with-ai").hidden, true, "a second reviewer was offered");
-  assert.deepEqual(reviewStatus(p), ["AI review started", "Handed to Claude Code in a terminal."]);
+  assert.deepEqual(reviewStatus(p), [
+    "AI review started",
+    "Handed to Claude Code in a terminal.",
+    "When the reviewer replies, use Paste Review Output to fill in the review result, then check it and save it.",
+  ]);
   assert.equal(p.byId("review-error").hidden, true);
   // The report's own actions stay, and the row is still the report's.
   assert.equal(p.byId("open-fix-report").hidden, false);
@@ -4771,7 +4775,7 @@ test("every row action and Improve, pressed on the page, reach the controller th
   assert.equal(l.hintPrompts.length, 1, "Improve never reached the hint improver");
 });
 
-// --- Record Review Result and Review Result, under Fix result (Batch 11) --------
+// --- Add Review Result and Review Result, under Fix result (Batch 11) -----------
 
 const REVIEW_PREVIEW = {
   readable: true,
@@ -4802,7 +4806,7 @@ const typeReview = (p: Page, fields: Partial<Record<"summary" | "findings" | "va
   for (const [field, value] of Object.entries(fields)) p.byId(`review-${field}`).value = value ?? "";
 };
 
-test("no report, no Record Review Result, no Review Result, no form", () => {
+test("no report, no Add Review Result, no Review Result, no form", () => {
   const p = load();
   p.send(prepared());
   assert.equal(p.byId("record-review-result").hidden, true);
@@ -4810,7 +4814,7 @@ test("no report, no Record Review Result, no Review Result, no form", () => {
   assert.equal(p.byId("review-editor").hidden, true);
 });
 
-test("a report offers Record Review Result, which opens the form at Summary and asks the host nothing", () => {
+test("a report offers Add Review Result, which opens the form at Summary and asks the host nothing", () => {
   const p = load();
   p.send(recordable());
   const record = p.byId("record-review-result");
@@ -4855,8 +4859,8 @@ test("while the host records, Save waits and says so, and the status is announce
   assert.equal(save.getAttribute("aria-disabled"), "true");
   assert.equal(save.getAttribute("aria-busy"), "true");
   assert.equal(save.disabled, false, "disabled would take the focus away");
-  assert.equal(p.byId("save-review-result-label").textContent, "Recording…");
-  assert.equal(p.byId("review-capture-status").textContent, "Recording review result…");
+  assert.equal(p.byId("save-review-result-label").textContent, "Saving…");
+  assert.equal(p.byId("review-capture-status").textContent, "Saving review result…");
   assert.equal(p.byId("review-editor").hidden, false);
   const before = p.posted.length;
   save.dispatch("click");
@@ -4881,9 +4885,9 @@ test("a recording that finished closes and empties the form, shows the result, a
 
   assert.equal(p.byId("review-editor").hidden, true);
   assert.equal(p.byId("review-summary").value, "");
-  assert.equal(p.byId("review-capture-status").textContent, "Review result recorded.");
+  assert.equal(p.byId("review-capture-status").textContent, "Review result saved.");
   assert.equal(p.byId("review-result").hidden, false);
-  assert.equal(p.byId("review-result-status").textContent, "Review result recorded");
+  assert.equal(p.byId("review-result-status").textContent, "Review result saved");
   assert.equal(p.byId("review-result-summary").textContent, "The change reads correctly.");
   assert.equal(p.byId("review-result-detail").textContent, "Findings: One duplicate null check.");
   assert.equal(p.byId("review-result-also").textContent, "Also recorded: validation notes");
@@ -4901,11 +4905,11 @@ test("a recording that failed keeps the form and its text, and says so in the re
   typeReview(p, { summary: "Reads correctly." });
   p.send(recordable({ canRecordReview: false, reviewCapture: { state: "recording" } }));
 
-  p.send(recordable({ reviewCapture: { state: "failed", message: "Review result was not recorded: disk full." } }));
+  p.send(recordable({ reviewCapture: { state: "failed", message: "Review result was not saved: disk full." } }));
 
   const error = p.byId("review-capture-error");
   assert.equal(error.hidden, false);
-  assert.equal(error.textContent, "Review result was not recorded: disk full.");
+  assert.equal(error.textContent, "Review result was not saved: disk full.");
   assert.equal(p.byId("review-editor").hidden, false);
   assert.equal(p.byId("review-summary").value, "Reads correctly.");
   assert.equal(p.byId("review-capture-status").textContent, "");
@@ -5026,14 +5030,14 @@ test("Cancel takes a failure about the discarded text off the screen", () => {
   const p = load();
   p.send(recordable());
   p.byId("record-review-result").dispatch("click");
-  p.send(recordable({ reviewCapture: { state: "failed", message: "Review result was not recorded: x." } }));
+  p.send(recordable({ reviewCapture: { state: "failed", message: "Review result was not saved: x." } }));
   assert.equal(p.byId("review-capture-error").hidden, false);
   p.byId("cancel-review-result").dispatch("click");
   assert.equal(p.byId("review-capture-error").hidden, true);
 });
 
 test("the same failure after Cancel and a new press is said again", () => {
-  const failed = { state: "failed", message: "Review result was not recorded: enter at least one section." } as const;
+  const failed = { state: "failed", message: "Review result was not saved: enter at least one section." } as const;
   const p = load();
   p.send(recordable());
   p.byId("record-review-result").dispatch("click");
@@ -5045,6 +5049,215 @@ test("the same failure after Cancel and a new press is said again", () => {
   p.send(recordable({ reviewCapture: failed }));
   assert.equal(p.byId("review-capture-error").hidden, false);
   assert.equal(p.byId("review-capture-error").textContent, failed.message);
+});
+
+// --- Paste Review Output: a pasted review fills the form, never saves it -------
+
+const PREFILL_ENTRY = {
+  summary: "Main fix addresses the issue.",
+  findings: "Missing null handling in WidgetController.",
+  validationNotes: "Reviewed the diff. No tests were run.",
+  recommendations: "Add a regression test.",
+};
+const PREFILL_NOTE = "Prefilled from structured review output — review before saving.";
+const openPaste = (p: Page) => p.byId("paste-review-output").dispatch("click");
+const reviewValues = (p: Page) => ({
+  summary: p.byId("review-summary").value,
+  findings: p.byId("review-findings").value,
+  validationNotes: p.byId("review-validation-notes").value,
+  recommendations: p.byId("review-recommendations").value,
+});
+
+test("Paste Review Output is offered beside Add Review Result, and only when the host offers it", () => {
+  const p = load();
+  p.send(prepared());
+  assert.equal(p.byId("paste-review-output").hidden, true);
+  p.send(recordable());
+  assert.equal(p.byId("paste-review-output").hidden, false);
+  assert.equal(p.byId("paste-review-output").getAttribute("aria-expanded"), "false");
+  p.send(reviewed());
+  assert.equal(p.byId("paste-review-output").hidden, false, "a saved review can be replaced from a paste too");
+  p.send(recordable({ canRecordReview: false }));
+  assert.equal(p.byId("paste-review-output").hidden, true);
+});
+
+test("the paste box opens at its text area, and Parse sends only the pasted text — never a save", () => {
+  const p = load();
+  p.send(recordable());
+  openPaste(p);
+  assert.equal(p.byId("review-paste").hidden, false);
+  assert.equal(p.byId("paste-review-output").getAttribute("aria-expanded"), "true");
+  assert.equal(p.focused, "review-paste-text");
+  p.byId("review-paste-text").value = "## Summary\nA.\n";
+
+  p.byId("parse-review-output").dispatch("click");
+
+  const message = p.posted.at(-1)!;
+  assert.deepEqual(message, { type: "parseReviewOutput", text: "## Summary\nA.\n" });
+  assert.deepEqual(parsePanelMessage(message), message);
+  assert.equal(p.posted.some((sent) => sent["type"] === "recordReview"), false);
+});
+
+test("the host's reading fills the form, says it was prefilled and is ready to save, and saves nothing", () => {
+  const p = load();
+  p.send(recordable());
+  openPaste(p);
+  p.byId("review-paste-text").value = "pasted";
+  p.byId("parse-review-output").dispatch("click");
+  const before = p.posted.length;
+
+  p.send(recordable({ reviewPrefill: { token: 1, entry: PREFILL_ENTRY } }));
+
+  assert.deepEqual(reviewValues(p), PREFILL_ENTRY);
+  assert.equal(p.byId("review-editor").hidden, false);
+  assert.equal(p.byId("record-review-result").getAttribute("aria-expanded"), "true");
+  assert.equal(p.byId("review-prefill-note").hidden, false);
+  assert.equal(p.byId("review-prefill-note").textContent, PREFILL_NOTE);
+  assert.equal(p.byId("review-capture-status").textContent, "Review result ready to save.");
+  assert.equal(p.focused, "review-summary");
+  // The paste box has done its job and is emptied.
+  assert.equal(p.byId("review-paste").hidden, true);
+  assert.equal(p.byId("review-paste-text").value, "");
+  // Nothing sent: Save is still the developer's.
+  assert.equal(p.posted.length, before);
+  // Never a verdict, and never said as one.
+  for (const word of ["Passed", "Approved", "Verified", "PASS"]) {
+    assert.equal(p.byId("review-capture-status").textContent.includes(word), false, word);
+    assert.equal(p.byId("review-prefill-note").textContent.includes(word), false, word);
+  }
+});
+
+test("a prefilled review stays editable: the next push does not refill it, and Save sends the edits", () => {
+  const p = load();
+  p.send(recordable({ reviewPrefill: { token: 1, entry: PREFILL_ENTRY } }));
+  p.byId("review-findings").value = "Edited findings.";
+  // The same answer again — a push that repeats it — changes nothing.
+  p.send(recordable({ reviewPrefill: { token: 1, entry: PREFILL_ENTRY } }));
+  p.send(recordable({ copyingReviewPrompt: true }));
+  assert.equal(p.byId("review-findings").value, "Edited findings.");
+
+  p.byId("save-review-result").dispatch("click");
+
+  assert.deepEqual(p.posted.at(-1), {
+    type: "recordReview",
+    review: { ...PREFILL_ENTRY, findings: "Edited findings." },
+  });
+});
+
+test("a paste with a lead-in says the lead-in was left out", () => {
+  const p = load();
+  p.send(recordable({ reviewPrefill: { token: 1, entry: PREFILL_ENTRY, leftOut: true } }));
+  assert.equal(p.byId("review-prefill-note").textContent, `${PREFILL_NOTE} Text before the first section was left out.`);
+});
+
+test("a paste that could not be read is said under the paste, which keeps its text, and the form stays shut", () => {
+  const p = load();
+  p.send(recordable());
+  openPaste(p);
+  p.byId("review-paste-text").value = "Verdict: PASS";
+  p.byId("parse-review-output").dispatch("click");
+  const message = "Review output was not read: these sections are missing: ## Summary, ## Findings.";
+
+  p.send(recordable({ reviewPrefill: { token: 1, error: message } }));
+
+  const error = p.byId("review-paste-error");
+  assert.equal(error.hidden, false);
+  assert.equal(error.textContent, message);
+  assert.equal(p.byId("review-paste").hidden, false);
+  assert.equal(p.byId("review-paste-text").value, "Verdict: PASS");
+  assert.equal(p.byId("review-editor").hidden, true);
+  assert.equal(p.byId("review-capture-status").textContent, "");
+  // The saving's alert is not where a parse failure goes.
+  assert.equal(p.byId("review-capture-error").hidden, true);
+});
+
+test("a save of the prefilled form that finished closes it and forgets it was prefilled", () => {
+  const p = load();
+  p.send(recordable({ reviewPrefill: { token: 1, entry: PREFILL_ENTRY } }));
+  p.byId("save-review-result").dispatch("click");
+  p.send(recordable({ canRecordReview: false, reviewCapture: { state: "recording" } }));
+  assert.equal(p.byId("review-capture-status").textContent, "Saving review result…");
+  p.send(reviewed({ reviewCapture: { state: "recorded", replaced: false } }));
+
+  assert.equal(p.byId("review-editor").hidden, true);
+  assert.equal(p.byId("review-prefill-note").hidden, true);
+  assert.equal(p.byId("review-summary").value, "");
+  assert.equal(p.byId("review-capture-status").textContent, "Review result saved.");
+  assert.equal(p.byId("review-result-status").textContent, "Review result saved");
+});
+
+test("Cancel on a prefilled form empties it and takes back ready to save", () => {
+  const p = load();
+  p.send(recordable({ reviewPrefill: { token: 1, entry: PREFILL_ENTRY } }));
+  p.byId("cancel-review-result").dispatch("click");
+  assert.equal(p.byId("review-editor").hidden, true);
+  assert.equal(p.byId("review-prefill-note").hidden, true);
+  assert.equal(p.byId("review-summary").value, "");
+  assert.equal(p.byId("review-capture-status").textContent, "");
+  // Typing a review by hand afterwards is plain manual entry, with no prefill note.
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  assert.equal(p.byId("review-prefill-note").hidden, true);
+  assert.equal(p.byId("review-capture-status").textContent, "");
+});
+
+test("Cancel on the paste box empties it and returns to Paste Review Output", () => {
+  const p = load();
+  p.send(recordable());
+  openPaste(p);
+  p.byId("review-paste-text").value = "draft";
+  p.byId("cancel-review-paste").dispatch("click");
+  assert.equal(p.byId("review-paste").hidden, true);
+  assert.equal(p.byId("review-paste-text").value, "");
+  assert.equal(p.byId("paste-review-output").getAttribute("aria-expanded"), "false");
+  assert.equal(p.focused, "paste-review-output");
+});
+
+test("pasting is not the bug being prepared: Ctrl+Enter there parses, never Runs", () => {
+  const p = load();
+  p.send(recordable());
+  openPaste(p);
+  p.byId("review-paste-text").value = "## Summary\nA.";
+  const before = p.posted.length;
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("review-paste-text") });
+  p.byId("form").dispatch("input", { target: p.byId("review-paste-text") });
+  p.flush();
+  assert.equal(p.posted.slice(before).some((message) => isRunPress(message) || message["type"] === "formChanged"), false);
+
+  p.byId("review-paste").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("review-paste-text") });
+  assert.equal(p.posted.at(-1)!["type"], "parseReviewOutput");
+});
+
+test("while a save is in flight Parse waits, and another work item empties the paste box", () => {
+  const p = load();
+  p.send(recordable());
+  openPaste(p);
+  p.byId("review-paste-text").value = "draft";
+  p.send(recordable({ canRecordReview: false, reviewCapture: { state: "recording" } }));
+  assert.equal(p.byId("parse-review-output").getAttribute("aria-disabled"), "true");
+  const before = p.posted.length;
+  p.byId("parse-review-output").dispatch("click");
+  assert.equal(p.posted.length, before);
+
+  p.send(recordable({ workItemId: "JR-77777" }, { workItemId: "JR-77777" }));
+  assert.equal(p.byId("review-paste").hidden, true);
+  assert.equal(p.byId("review-paste-text").value, "");
+});
+
+test("the form says what belongs in each section, tied to its field", () => {
+  const p = load();
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  const hints: Record<string, string> = {
+    "review-summary": "Overall review conclusion in the reviewer's own words.",
+    "review-findings": "Specific problems, risks, omissions, or observations.",
+    "review-validation-notes": "What the reviewer actually inspected or ran. Do not imply tests ran if they did not.",
+    "review-recommendations": "Suggested next actions.",
+  };
+  for (const [field, text] of Object.entries(hints)) {
+    assert.ok(HTML.includes(`<p class="hint" id="${field}-hint">${text}</p>`), field);
+    assert.ok(HTML.includes(`id="${field}" rows="`) && HTML.includes(`aria-describedby="${field}-hint"`), field);
+  }
 });
 
 // --- Verification Evidence, under Fix result (Batch 12) ------------------------
@@ -5103,7 +5316,7 @@ function checkRows(p: Page) {
 
 const openRecord = (p: Page) => p.byId("record-verification").dispatch("click");
 
-test("no report, no Record Verification Evidence, no evidence, no form", () => {
+test("no report, no Add Verification Evidence, no evidence, no form", () => {
   const p = load();
   p.send(prepared());
   assert.equal(p.byId("record-verification").hidden, true);
@@ -5162,6 +5375,47 @@ test("each row and control is named for its check, and renumbered when one goes"
   checkRows(p)[0]!.remove.dispatch("click");
   assert.equal(checkRows(p).length, 0);
   assert.equal(p.focused, "add-verification-check");
+});
+
+test("the form says it is for checks actually performed, and that BugPilot infers nothing", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  const note = HTML.match(/<p class="muted verification-editor-note" id="verification-editor-note">([^<]*)<\/p>/)?.[1] ?? "";
+  assert.match(note, /^Record checks you actually performed and what you observed\./);
+  assert.match(note, /BugPilot does not run these checks or infer the result\./);
+  assert.match(note, /belongs in Review Result/, "review observations are not verification evidence");
+  assert.equal(/verified/i.test(note), false);
+});
+
+test("each field has one line on what goes in it, and examples only as placeholders", () => {
+  const p = load();
+  p.send(verifiablePage());
+  openRecord(p);
+  const row = checkRows(p)[0]!;
+  const all = flatten(row.group);
+  const hintFor = (control: FakeElement) => all.find((element) => element.id === control.getAttribute("aria-describedby"))?.textContent;
+  assert.equal(hintFor(row.name), "What was checked.");
+  assert.equal(hintFor(row.status), "The status you are recording for this check.");
+  assert.equal(hintFor(row.type), "Automated, Manual or Other.");
+  assert.equal(hintFor(row.procedure), "The command you ran or the manual steps you followed.");
+  assert.equal(hintFor(row.evidence), "The observed output or result supporting the recorded status.");
+  assert.equal(hintFor(row.notes), "Optional limitations or context.");
+  assert.match(row.name.getAttribute("placeholder") ?? "", /Targeted unit tests.*Original bug reproduction/);
+  assert.match(row.procedure.getAttribute("placeholder") ?? "", /npm test.*Repeat the reported workflow manually/);
+  assert.match(row.evidence.getAttribute("placeholder") ?? "", /1285 passed, 0 failed.*The issue no longer reproduces/);
+  // A placeholder is not a value: an untouched check saves nothing of the examples.
+  row.name.value = "Unit tests";
+  p.byId("save-verification").dispatch("click");
+  const sent = p.posted.at(-1)! as { checks: Record<string, string>[] };
+  assert.deepEqual(sent.checks[0], {
+    name: "Unit tests",
+    status: "not_run",
+    type: "automated",
+    procedure: "",
+    evidence: "",
+    notes: "",
+  });
 });
 
 test("Add Check stops at the CLI's 25, and says why", () => {
@@ -5771,4 +6025,109 @@ test("settings 16: a gear works while the row is running, and never ticks its ch
   p.byId("settings-codeSearch").dispatch("click");
   assert.equal(p.byId("plan-codeSearch").checked, checked);
   assert.equal(p.byId("workflow-settings-view").hidden, false);
+});
+
+// --- Review with AI, captured: Reviewing…, the draft, and the fallback --------
+
+const CAPTURED = {
+  summary: "Handles the null input.",
+  findings: "Nothing to report.",
+  validationNotes: "Ran git diff. No tests were run.",
+  recommendations: "Add a regression test.",
+};
+
+test("while the reviewer runs the button is gone and the row says Reviewing…", () => {
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "reviewing", agent: "Claude Code" }, reviewedCurrentFix: true }));
+  assert.equal(p.byId("review-with-ai").hidden, true);
+  assert.deepEqual(reviewStatus(p), ["Reviewing…", "Claude Code is reviewing this fix. Its reply will fill in the review result for you to check."]);
+  assert.equal(p.byId("review-status").getAttribute("aria-busy"), "true");
+  assert.equal(p.byId("review-editor").hidden, true, "a form opened before there was a reply");
+});
+
+test("a captured reply opens the form filled in, marked as from the AI review, ready to save — and leaves the keyboard alone", () => {
+  const p = load();
+  p.send(recordable({ review: { state: "reviewing", agent: "Claude Code" }, reviewedCurrentFix: true }));
+  p.byId("copy-review-prompt").focus();
+  const before = p.posted.length;
+
+  p.send(recordable({ review: { state: "captured", agent: "Claude Code" }, reviewedCurrentFix: true, reviewPrefill: { token: 4, entry: CAPTURED, source: "ai" } }));
+
+  assert.equal(p.byId("review-editor").hidden, false);
+  assert.equal(p.byId("review-summary").value, CAPTURED.summary);
+  assert.equal(p.byId("review-findings").value, CAPTURED.findings);
+  assert.equal(p.byId("review-validation-notes").value, CAPTURED.validationNotes);
+  assert.equal(p.byId("review-recommendations").value, CAPTURED.recommendations);
+  assert.equal(p.byId("review-prefill-note").textContent, "Prefilled from AI review — review before saving.");
+  assert.equal(p.byId("review-capture-status").textContent, "Review result ready to save.");
+  assert.equal(reviewStatus(p)[0], "AI review finished");
+  assert.equal(p.focused, "copy-review-prompt", "a reply that arrived on its own took the focus");
+  assert.equal(p.byId("review-with-ai").hidden, true);
+  assert.equal(p.posted.length, before, "the page saved or asked for something by itself");
+  // Editable, and Save is still the one act.
+  p.byId("review-findings").value = "One nit.";
+  p.byId("save-review-result").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "recordReview", review: { ...CAPTURED, findings: "One nit." } });
+});
+
+test("a recreated panel fills its form again from the host's draft", () => {
+  const state = recordable({ review: { state: "captured", agent: "Claude Code" }, reviewedCurrentFix: true, reviewPrefill: { token: 4, entry: CAPTURED, source: "ai" } });
+  const first = load();
+  first.send(state);
+  const again = load();
+  again.send(state);
+  assert.equal(again.byId("review-editor").hidden, false);
+  assert.equal(again.byId("review-summary").value, CAPTURED.summary);
+});
+
+test("Cancel on a captured draft discards it at the host too", () => {
+  const p = load();
+  p.send(recordable({ reviewedCurrentFix: true, reviewPrefill: { token: 4, entry: CAPTURED, source: "ai" } }));
+  p.byId("cancel-review-result").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "discardReviewDraft" });
+  assert.equal(p.byId("review-editor").hidden, true);
+  // Cancel on a form typed by hand has no draft to discard.
+  p.byId("record-review-result").dispatch("click");
+  const before = p.posted.length;
+  p.byId("cancel-review-result").dispatch("click");
+  assert.equal(p.posted.slice(before).some((message) => message["type"] === "discardReviewDraft"), false);
+});
+
+test("a capture with no draft says so, keeps Review with AI hidden, and puts the reply in Paste Review Output", () => {
+  const p = load();
+  p.send(
+    recordable({
+      reviewedCurrentFix: true,
+      review: {
+        state: "captureFailed",
+        agent: "Claude Code",
+        title: "Review result could not be captured automatically.",
+        detail: "Review output was not read: this section is missing: ## Findings.",
+        reply: "## Summary\nA.\n",
+      },
+    }),
+  );
+  assert.equal(p.byId("review-with-ai").hidden, true);
+  assert.deepEqual(reviewStatus(p), [
+    "Review result could not be captured automatically.",
+    "Review output was not read: this section is missing: ## Findings.",
+    "The reply is in Paste Review Output: fix its sections and Parse, or add the review yourself.",
+  ]);
+  assert.equal(p.byId("review-error").hidden, true, "a capture with no draft is not a launch failure");
+  assert.equal(p.byId("paste-review-output").hidden, false);
+  assert.equal(p.byId("review-paste").hidden, false);
+  assert.equal(p.byId("review-paste-text").value, "## Summary\nA.\n");
+  assert.equal(p.byId("review-editor").hidden, true, "a blank draft was opened");
+});
+
+test("a fix already reviewed in an earlier session: no Review with AI, and the row says why", () => {
+  const p = load();
+  p.send(recordable({ reviewedCurrentFix: true }));
+  assert.equal(p.byId("review-with-ai").hidden, true);
+  assert.equal(reviewStatus(p)[0], "AI review already started for this fix");
+  assert.equal(p.byId("paste-review-output").hidden, false);
+  // A new fix on the same work item offers it again.
+  p.send(recordable({ reviewedCurrentFix: false }));
+  assert.equal(p.byId("review-with-ai").hidden, false);
+  assert.deepEqual(reviewStatus(p), []);
 });

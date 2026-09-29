@@ -1466,6 +1466,45 @@ button.icon .codicon {
   cursor: default;
 }
 
+/* Each field's one line of help sits between its label and its box. */
+.review-editor .hint,
+.verification-check .hint {
+  margin: 0;
+}
+
+/* Paste Review Output: one text area for the reviewer's reply, then Parse and
+   Cancel — laid out like the form it fills. */
+.review-paste {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.review-paste[hidden] {
+  display: none;
+}
+
+.review-paste label {
+  margin-top: 4px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.review-paste textarea {
+  font-family: inherit;
+}
+
+/* A form filled from a paste says so, quietly: a notice to check it, not a
+   success. A rule rather than a colour, so it holds in every theme. */
+.review-prefill-note {
+  margin: 2px 0 0;
+  padding-left: 6px;
+  font-size: 0.9em;
+  border-left: 2px solid var(--vscode-textBlockQuote-border, var(--vscode-focusBorder));
+  overflow-wrap: anywhere;
+}
+
 /* Verification Evidence (Batch 12): counts of recorded statuses and the checks
    by name, in the row's quiet type. No tick, no colour and no badge: each status
    is what the user recorded for one check, not BugPilot's judgement of the fix. */

@@ -1127,8 +1127,10 @@ def test_review_package_prints_the_final_review_prompt(tmp_path, monkeypatch, ca
     assert "# Final Review Request" in prompt
     assert "Review the BugPilot result for work item JR-12345." in prompt
     assert ".ai/JR-12345/fix_report.md if present" in prompt
-    assert "Verdict:" in prompt
-    assert "PASS / PASS WITH MINOR COMMENTS / NEEDS CHANGES" in prompt
+    for heading in ("## Summary", "## Findings", "## Validation Notes", "## Recommendations"):
+        assert f"\n{heading}\n" in prompt, heading
+    assert "Verdict:" not in prompt
+    assert "PASS" not in prompt
     assert not (tmp_path / ".ai" / "JR-12345" / "final_review_prompt.md").exists()
     # A printed prompt is not a review: no step mark, and so no run.json invented
     # for a work item that has none (§37.70).
