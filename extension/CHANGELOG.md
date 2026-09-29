@@ -31,7 +31,10 @@ First release. What it does today:
   `## Validation Notes` and `## Recommendations` and for no verdict. With
   Claude Code it runs one read-only, non-interactive review, shows
   **Reviewing…**, and opens the Review Result form filled in from the reply,
-  marked *Prefilled from AI review*; with a custom command it hands the prompt
+  marked *Prefilled from AI review*. While it runs, the row names the agent,
+  shows a spinner and the elapsed time, and offers Show details and Cancel
+  Review — which asks, ends the reviewer, keeps nothing, and offers Review with
+  AI again; with a custom command it hands the prompt
   over in a terminal. Review with AI is offered once per fix and comes back only
   when the fix report changes. **Paste Review Output** reads a reply in those
   four sections into the same form — the fallback when a reply could not be

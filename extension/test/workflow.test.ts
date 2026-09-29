@@ -984,7 +984,7 @@ test("Review with AI is offered once per fix: hidden once an attempt started, wh
   // Starting, reviewing, handed to a terminal, captured, a capture with no draft: not.
   for (const review of [
     { state: "starting" },
-    { state: "reviewing", agent: "Claude Code" },
+    { state: "reviewing", agent: "Claude Code", startedAt: 1_000 },
     { state: "started", agent: "Claude Code" },
     { state: "captured", agent: "Claude Code" },
     { state: "captureFailed", agent: "Claude Code", title: "t", detail: "d" },
@@ -1027,7 +1027,9 @@ test("the captured review's words: Reviewing…, finished, or a capture that gav
       next?: string;
       reply?: string;
     };
-  assert.equal(view({ state: "reviewing", agent: "Claude Code" }).summary, "Reviewing…");
+  assert.equal(view({ state: "reviewing", agent: "Claude Code", startedAt: 1_000 }).summary, "Reviewing with Claude Code…");
+  // Only a name the host resolved: none, and it is the AI.
+  assert.equal(view({ state: "reviewing", agent: "", startedAt: 1_000 }).summary, "Reviewing with AI…");
   assert.equal(view({ state: "captured", agent: "Claude Code" }).summary, "AI review finished");
   // "Check it, then save it" only while the reply is still a draft; saved or discarded, just captured.
   assert.equal(view({ state: "captured", agent: "Claude Code" }).detail, "Claude Code's reply was captured.");

@@ -300,7 +300,16 @@ not "pass", not "approved", not "safe to merge".
   input and no terminal. The reviewer can read files and run `git diff`,
   `git status`, `git log` and `git show`, and nothing else: it cannot edit
   files or run other commands, and neither your Claude Code settings nor the
-  repository's widen that. The row says **Reviewing…** until it exits. When its
+  repository's widen that. While it runs, the row says **Reviewing with Claude
+  Code…** with a spinner, that the review is read-only and in the background,
+  and how long it has been running (*Elapsed: 00:18*) — no percentage, because
+  the agent reports none, and none of its tool output. **Show details** says
+  which agent, the mode, when it started and the four sections it will return.
+  **Cancel Review** asks first (*Cancel Review* / *Keep Reviewing*; Escape
+  keeps it running), then ends the reviewer and everything it started, keeps
+  nothing it printed, saves nothing, and offers Review with AI again for the
+  same fix. A reviewer that runs past 15 minutes is stopped and said as
+  *AI review did not finish within the allowed time*. When its
   reply has the four sections, the Review Result form opens filled in, marked
   *Prefilled from AI review — review before saving*, and the row says **Review
   result ready to save** — nothing is saved until you check it and press

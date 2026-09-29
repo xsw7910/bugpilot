@@ -103,6 +103,8 @@ export type StepActionId =
   | "openFixReport"
   | "copyReviewPrompt"
   | "reviewWithAI"
+  // While a captured review runs (§37.82): end it, after the host asks.
+  | "cancelReview"
   // Review Result (Batch 11): record one, replace the one recorded, open it —
   // and fill the form from a pasted structured review first, if wanted.
   | "pasteReviewOutput"
@@ -201,7 +203,7 @@ export interface VerificationEdit {
 export type ReviewHandoff =
   | { readonly state: "starting" }
   | { readonly state: "started"; readonly agent: string }
-  | { readonly state: "reviewing"; readonly agent: string }
+  | { readonly state: "reviewing"; readonly agent: string; readonly startedAt: number }
   | { readonly state: "captured"; readonly agent: string }
   | {
       readonly state: "captureFailed";
@@ -211,22 +213,49 @@ export type ReviewHandoff =
       /** The reviewer's reply, when there was one, for Paste Review Output. */
       readonly reply?: string;
     }
+  /** The developer cancelled it: nothing kept, and the fix may be reviewed again. */
+  | { readonly state: "cancelled"; readonly agent: string }
   | { readonly state: "failed"; readonly error: UserFacingError };
 
 /** The same, in the words Fix result shows. `earlier`: an attempt this session did not see. */
 export type ReviewHandoffView =
   | { readonly state: "starting" }
   | {
-      readonly state: "started" | "reviewing" | "captured" | "captureFailed" | "earlier";
+      readonly state: "started" | "captured" | "captureFailed" | "earlier" | "cancelled";
       readonly summary: string;
       readonly detail: string;
       readonly next?: string;
       readonly reply?: string;
     }
+  | {
+      readonly state: "reviewing";
+      /** "Reviewing with Claude Code…" — the agent the host resolved, or "AI". */
+      readonly summary: string;
+      readonly detail: string;
+      /** When the process started (ms since the epoch): the page's elapsed clock, display only. */
+      readonly startedAt: number;
+      /** Show details: what is running, never a prompt, a command or an environment. */
+      readonly details: ReviewDetails;
+    }
   | { readonly state: "failed"; readonly error: UserFacingError };
 
-/** Said while a captured review runs. Never "Review passed", never a percentage. */
-export const REVIEWING_TITLE = "Reviewing…";
+/** Show details while a captured review runs: labels and plain values only. */
+export interface ReviewDetails {
+  readonly agent: string;
+  readonly mode: string;
+  readonly status: string;
+  readonly outputFormat: readonly string[];
+}
+
+/** Said while a captured review runs, with the agent. Never "Review passed", never a percentage. */
+export function reviewingTitle(agent: string): string {
+  return `Reviewing with ${agent.trim() === "" ? "AI" : agent}…`;
+}
+/** Why no terminal opened: the review runs in the background, and only reads. */
+export const REVIEWING_DETAIL =
+  "BugPilot is running a read-only AI review in the background. This may take a minute.";
+/** Said after Cancel Review: neutral, and what it means for the button. */
+export const REVIEW_CANCELLED_TITLE = "Review cancelled";
 /** Said when a captured review's reply filled the draft: finished, not approved. */
 export const REVIEW_CAPTURED_TITLE = "AI review finished";
 /** Said after a reload, when this fix already had an attempt this session did not see. */
@@ -637,6 +666,7 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
 function fixResultActions(input: WorkflowInput, recorded: boolean, evidence: boolean): StepActionId[] {
   const actions: StepActionId[] = ["openFixReport", "copyReviewPrompt"];
   if (canStartReview(input.review, input.reviewedCurrentFix ?? false)) actions.push("reviewWithAI");
+  if (input.review?.state === "reviewing") actions.push("cancelReview");
   if (recorded) actions.push("openReviewReport");
   if (input.canRecordReview) actions.push("pasteReviewOutput", recorded ? "replaceReviewResult" : "recordReviewResult");
   if (evidence) actions.push("openVerificationReport");
@@ -702,7 +732,8 @@ function reviewResultView(report: ReviewReportPreview | undefined): ReviewResult
  * the same condition.
  */
 export function canStartReview(review: ReviewHandoff | undefined, reviewedCurrentFix: boolean): boolean {
-  if (review?.state === "failed") return !reviewedCurrentFix;
+  // A launch that failed, or a review the developer cancelled: offered again.
+  if (review?.state === "failed" || review?.state === "cancelled") return !reviewedCurrentFix;
   return review === undefined && !reviewedCurrentFix;
 }
 
@@ -736,8 +767,22 @@ function reviewView(review: ReviewHandoff, drafted: boolean, saved: boolean): Re
     case "reviewing":
       return {
         state: "reviewing",
-        summary: REVIEWING_TITLE,
-        detail: `${review.agent} is reviewing this fix. Its reply will fill in the review result for you to check.`,
+        summary: reviewingTitle(review.agent),
+        detail: REVIEWING_DETAIL,
+        startedAt: review.startedAt,
+        details: {
+          agent: review.agent.trim() === "" ? "AI" : review.agent,
+          mode: "Read-only background review",
+          status: "Running",
+          outputFormat: ["Summary", "Findings", "Validation Notes", "Recommendations"],
+        },
+      };
+    case "cancelled":
+      return {
+        state: "cancelled",
+        summary: REVIEW_CANCELLED_TITLE,
+        detail: "The review was stopped before it finished. Nothing it printed was kept, and nothing was saved.",
+        next: "Review with AI can review this fix again.",
       };
     case "captured":
       return {

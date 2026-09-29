@@ -41,6 +41,11 @@ const MAX_DETAIL_CHARS = 240;
 export const CAPTURE_FAILED = "Review result could not be captured automatically.";
 /** The process did not finish with a result at all. */
 export const NO_USABLE_RESULT = "AI review did not produce a usable structured result.";
+/** The host's timeout ended it: said as that, never as the review failing. */
+export const TIMED_OUT = "AI review did not finish within the allowed time.";
+
+/** How long a captured review may run before the host ends it. The one timeout. */
+export const CAPTURED_REVIEW_TIMEOUT_MS = 15 * 60_000;
 
 export type CapturedReviewOutcome =
   | { readonly ok: true; readonly entry: ReviewEntry; readonly leftOut: boolean }
@@ -58,7 +63,9 @@ export type CapturedReviewOutcome =
     };
 
 export function capturedReviewOutcome(run: CapturedRun, invocation: CapturedReviewInvocation): CapturedReviewOutcome {
-  if (run.aborted) return failed(NO_USABLE_RESULT, "The reviewer did not finish in time, or was stopped.");
+  // Aborted here means the timeout: a Cancel Review is the controller's to
+  // handle before it asks this, and is not a failure at all.
+  if (run.aborted) return failed(TIMED_OUT, `The reviewer was stopped after ${CAPTURED_REVIEW_TIMEOUT_MS / 60_000} minutes.`);
   const reply = invocation.output === "claude-json" ? claudeResult(run.stdout) : undefined;
   if (run.code !== 0) {
     const said = reply?.kind === "error" ? reply.message : firstLine(run.stderr) || firstLine(run.stdout);

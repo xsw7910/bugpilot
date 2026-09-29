@@ -245,6 +245,9 @@ export const PANEL_ACTIONS = [
   // "run an agent with this prompt". The page names no prompt and no agent; the
   // host builds both, and refuses unless the row is offering it.
   "reviewWithAI",
+  // Cancel Review (§37.82): ends the captured review the host is running, after
+  // the host asks. The page names no process; there is only ever one.
+  "cancelReview",
   // Review Result's file (Batch 11): an action, not a path — the host opens the
   // canonical review_report.md of the work item on screen, and only while listed.
   "openReviewReport",

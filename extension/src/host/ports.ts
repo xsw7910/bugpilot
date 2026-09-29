@@ -26,6 +26,7 @@ import type { IssueDetails } from "../app/hintImprovement.ts";
 import { launcherNames } from "../executable.ts";
 import { pickLatestSession, sessionIdFromFileName } from "../app/session.ts";
 import { Runner } from "../runner.ts";
+import { CAPTURED_REVIEW_TIMEOUT_MS } from "../app/reviewRun.ts";
 import type { SessionCandidate } from "../app/session.ts";
 import type { FilesPort, UiPort } from "../app/controller.ts";
 import type { PanelState } from "../panel/messages.ts";
@@ -80,9 +81,18 @@ export function createUiPort(deps: UiPortDeps): UiPort {
     copyToClipboard: async (text) => {
       await vscode.env.clipboard.writeText(text);
     },
-    confirm: async (message, confirmLabel) => {
+    confirm: async (message, confirmLabel, keepLabel) => {
       // Modal: this is only used for destructive choices, and a toast that can
       // be missed is not consent.
+      if (keepLabel !== undefined) {
+        // Both choices named — "Cancel Review" beside VS Code's own "Cancel"
+        // would say the same word for opposite things. The keep choice is the
+        // close affordance, so Escape and the close button keep, too.
+        const confirm: vscode.MessageItem = { title: confirmLabel };
+        const keep: vscode.MessageItem = { title: keepLabel, isCloseAffordance: true };
+        const picked = await vscode.window.showWarningMessage(message, { modal: true }, confirm, keep);
+        return picked === confirm;
+      }
       const answer = await vscode.window.showWarningMessage(
         message,
         { modal: true },
@@ -482,12 +492,18 @@ export async function runCapturedReview(request: {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly input: string;
+  readonly signal?: AbortSignal;
+  readonly onStarted?: () => void;
 }): Promise<{ code: number | null; stdout: string; stderr: string; aborted: boolean }> {
   return new Runner(request.command).run([...request.args], {
     cwd: request.cwd,
     input: request.input,
     // A review reads a diff and a few files; past this it is not coming back.
-    timeoutMs: 15 * 60_000,
+    timeoutMs: CAPTURED_REVIEW_TIMEOUT_MS,
+    // Cancel Review: `Runner` ends the whole tree it started — `taskkill /T /F`
+    // on its own pid on Windows, the process group elsewhere — and nothing else.
+    ...(request.signal === undefined ? {} : { signal: request.signal }),
+    ...(request.onStarted === undefined ? {} : { onSpawn: request.onStarted }),
   });
 }
 

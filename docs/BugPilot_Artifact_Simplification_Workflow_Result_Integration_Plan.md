@@ -2191,6 +2191,73 @@ never tracks an agent's process or terminal, and knows only what the files say.
     deferred, retried and completed, and when the fix report became a new fix or
     went away. No file content, hint, review text or command is logged.
 
+### Confirmed decisions (AI Review Progress Visibility)
+
+The problem: after Review with AI the row said only "Reviewing…", with no
+terminal, no agent named, no sign it was still alive and no way to stop it.
+
+1. **Starting, then running, from the operating system.** The captured review
+   is `starting` from the press until the child process has actually started
+   (Node's `spawn` event, surfaced as `RunOptions.onSpawn` / the port's
+   `onStarted`), and only then `reviewing`, with `startedAt`. The button reads
+   *Starting AI review…* meanwhile; a command that never starts goes back to
+   the button, and only a started process marks the fix as having had its
+   attempt.
+
+2. **The progress card.** While `reviewing`: *Reviewing with <agent>…* — the
+   label the host resolved (`KNOWN_AGENTS`' `label`), or *Reviewing with AI…*
+   when none is known — with an indeterminate codicon spinner; *BugPilot is
+   running a read-only AI review in the background. This may take a minute.*;
+   *Elapsed: 00:18* (h:mm:ss past an hour); **Show details** and **Cancel
+   Review**. No percentage, no progress bar, no streamed tool output, no
+   terminal: the agent exposes no meaningful progress, and inventing steps
+   would be a claim BugPilot cannot back.
+
+3. **The clock is presentation only.** The page ticks one interval, once a
+   second, from the host's `startedAt` — so a recreated panel resumes rather
+   than restarting at 00:00 — and clears it on any other state. It decides
+   nothing: the host's 15-minute timeout (`CAPTURED_REVIEW_TIMEOUT_MS`) is the
+   only one, and timer ticks cause no push and no artifact refresh.
+
+4. **Details** (in place, not a modal; kept open across ticks and pushes,
+   closed with the card): Agent, Mode (*Read-only background review*), Status
+   (*Running*), Started (local time), Output format (the four sections). Never
+   the prompt, the command line, the environment, credentials or file
+   contents. Viewing the prompt is not added: Copy Review Prompt already gives
+   it.
+
+5. **Cancel Review** is a host action (`cancelReview`), offered only while
+   `reviewing`. The host asks with the existing modal confirmation, both
+   choices named — *Cancel current AI review? The current review result will
+   be discarded.*, **Cancel Review** / **Keep Reviewing**, the latter the close
+   affordance so Escape keeps the review — and on Cancel Review aborts the run:
+   `Runner` ends the tree it started (`taskkill /pid <its pid> /T /F` on
+   Windows, the process group elsewhere), never another Claude process.
+   Output is discarded, no draft is made, nothing is saved; the row says
+   *Review cancelled*, neutrally. A review that finished while the question was
+   open is kept as it finished.
+
+6. **Cancellation gives the button back; nothing else after a start does.**
+   A cancel takes back the "reviewed" mark this attempt set, so Review with AI
+   is offered again for the same fix. A launch that never started keeps it
+   offered; a process failure, a parse failure, an empty result and a timeout
+   — *AI review did not finish within the allowed time.* — keep it hidden, with
+   Paste Review Output as the way on.
+
+7. **Accessibility.** The status is the live region and changes only on a
+   transition — started, result ready, cancelled, could not be captured — so it
+   is announced once. The clock is outside it and never announced. The card
+   carries `aria-busy` while running; the spinner is `aria-hidden`; Show /
+   Hide details is a button with `aria-expanded`; everything is reachable by
+   Tab.
+
+8. **Narrow panels.** Buttons wrap; at 380px and below the details stack each
+   label above its value, so no value is squeezed to a few letters a line.
+
+9. **Diagnostics**: starting, process started, cancelled by the developer,
+   completed with the result parsed, completed without a usable result, timed
+   out — never the prompt or the reply.
+
 ---
 
 # 20. Step Secondary Text 状态原则

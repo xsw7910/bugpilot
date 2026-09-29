@@ -174,7 +174,7 @@ export interface UiPort {
   openFile(file: string): Promise<void>;
   copyToClipboard(text: string): Promise<void>;
   /** A yes/no the developer must answer before something destructive happens. */
-  confirm(message: string, confirmLabel: string): Promise<boolean>;
+  confirm(message: string, confirmLabel: string, keepLabel?: string): Promise<boolean>;
   notify(kind: "info" | "warning" | "error", message: string): void;
   /** Ask the host to re-read the trees, after a run changed `.ai/`. */
   refreshViews(): void;
@@ -309,6 +309,10 @@ export interface ControllerPorts {
     readonly args: readonly string[];
     readonly cwd: string;
     readonly input: string;
+    /** Cancel Review: ends the process tree. */
+    readonly signal?: AbortSignal;
+    /** Called once the process has started — "running", not "starting". */
+    readonly onStarted?: () => void;
   }) => Promise<CapturedRun>;
   /**
    * Which fix each work item's last review attempt was for — the fix report's
@@ -590,6 +594,8 @@ export class Controller {
   /** An artifact changed while something was in flight; refresh when it ends. */
   #artifactRefreshPending = false;
   #disposed = false;
+  /** The captured review process in flight, for Cancel Review. */
+  #reviewRun: { readonly abort: AbortController; cancelled: boolean; started: boolean } | undefined;
   /** Which work item `#artifacts` was last listed for: a listing shown is only "known" for it. */
   #artifactsListedFor: string | undefined;
   /**
@@ -910,6 +916,7 @@ export class Controller {
         else if (message.id === "copyReviewPrompt") await this.copyReviewPrompt();
         else if (message.id === "loadValidation") await this.loadValidation();
         else if (message.id === "reviewWithAI") await this.reviewWithAI();
+        else if (message.id === "cancelReview") await this.cancelReview();
         else if (message.id === "openReviewReport") await this.openReviewReport();
         else if (message.id === "openVerificationReport") await this.openVerificationReport();
         else if (message.id === "editVerification") this.editVerification();
@@ -2087,7 +2094,10 @@ export class Controller {
     // would use. A form about another bug still reads as stale: that is decided
     // by which work item it names, not by this.
     this.#preparedWith = preparationFingerprint(this.#form);
-    await this.refreshArtifacts();
+    // The trees too: the Artifacts view follows the shown work item, and
+    // without this it kept whatever it last read — "Scanning .ai/ …" if that
+    // was mid-load (§37.82, seen in a real window).
+    await this.refreshActiveWorkItem();
     this.#push();
   }
 
@@ -2839,11 +2849,15 @@ export class Controller {
    *
    * While it runs it is an operation like a recording — `#mutation` is
    * `aiReview` — so no run, Rebuild Context, handoff, new attempt, Clean or
-   * recording starts under it. The fix is marked as having had its attempt the
-   * moment the process is launched; a launch that throws (the command vanished)
-   * never started, so the mark is taken back and the button offered again. What
-   * comes back becomes a draft only if the process finished and the parser read
-   * the four sections; nothing is ever saved from here.
+   * recording starts under it. It is `starting` until the operating system has
+   * started the child (the `spawn` event), then `reviewing` with the time it
+   * started, and only then is the fix marked as having had its attempt: a
+   * command that never started is not an attempt, and the button stays.
+   *
+   * What comes back becomes a draft only if the process finished and the
+   * parser read the four sections; nothing is ever saved from here. A Cancel
+   * Review (`cancelReview`) ends the process tree, discards whatever it had
+   * printed, and takes the mark back: the developer abandoned that attempt.
    */
   async #runCapturedReview(
     workItemId: string,
@@ -2864,15 +2878,32 @@ export class Controller {
       return;
     }
     const previous = this.#reviewedFix(workItemId);
-    this.#markReviewed(workItemId, fix);
+    const abort = new AbortController();
+    const attempt = { abort, cancelled: false, started: false };
+    this.#reviewRun = attempt;
     this.#mutation = "aiReview";
-    this.#review = { state: "reviewing", agent: plan.label };
     this.#push();
-    this.#ports.log.info(`Reviewing ${workItemId} with ${plan.label}, one-shot and captured, in ${root}.`);
+    this.#ports.log.info(`Captured review of ${workItemId} starting with ${plan.label}, one-shot, in ${root}.`);
     let run: CapturedRun;
     try {
-      run = await port({ command: plan.command, args: plan.invocation.args, cwd: root, input: prompt });
+      run = await port({
+        command: plan.command,
+        args: plan.invocation.args,
+        cwd: root,
+        input: prompt,
+        signal: abort.signal,
+        onStarted: () => {
+          attempt.started = true;
+          // Started: this fix has had its attempt, whatever it prints next.
+          this.#markReviewed(workItemId, fix);
+          this.#ports.log.info(`Captured review process started for ${workItemId}.`);
+          if (!this.#reviewStillWanted(epoch) || attempt.cancelled) return;
+          this.#review = { state: "reviewing", agent: plan.label, startedAt: this.#ports.now?.() ?? Date.now() };
+          this.#push();
+        },
+      });
     } catch (error) {
+      if (this.#reviewRun === attempt) this.#reviewRun = undefined;
       // Never started — the spawn itself failed — so this fix had no attempt.
       if (this.#mutation === "aiReview") this.#mutation = undefined;
       this.#setReviewed(workItemId, previous);
@@ -2883,7 +2914,17 @@ export class Controller {
       this.#reviewFailed(reviewHandoffError("agent", oneSentence((error as Error).message)));
       return;
     }
+    if (this.#reviewRun === attempt) this.#reviewRun = undefined;
     if (this.#mutation === "aiReview") this.#mutation = undefined;
+    if (attempt.cancelled) {
+      // Abandoned by the developer: nothing it printed is kept, no draft, no
+      // file, and the fix is offered for review again.
+      this.#setReviewed(workItemId, previous);
+      this.#ports.log.info(`Captured review of ${workItemId} cancelled by the developer; its output was discarded.`);
+      if (this.#reviewStillWanted(epoch)) this.#review = { state: "cancelled", agent: plan.label };
+      this.#push();
+      return;
+    }
     // Another work item, a reopen or the report gone since: the reply is not
     // this screen's. The attempt still happened, and stays marked.
     if (!this.#reviewStillWanted(epoch)) {
@@ -2892,6 +2933,7 @@ export class Controller {
     }
     const outcome = capturedReviewOutcome(run, plan.invocation);
     if (outcome.ok) {
+      this.#ports.log.info(`Captured review of ${workItemId} completed; its result parsed into the four sections.`);
       this.#reviewDraftToken += 1;
       this.#reviewDraft = {
         token: this.#reviewDraftToken,
@@ -2901,7 +2943,11 @@ export class Controller {
       };
       this.#review = { state: "captured", agent: plan.label };
     } else {
-      this.#ports.log.info(`The captured review of ${workItemId} gave no draft: ${outcome.title} ${outcome.detail}`);
+      this.#ports.log.info(
+        run.aborted
+          ? `Captured review of ${workItemId} timed out.`
+          : `Captured review of ${workItemId} completed without a usable result: ${outcome.title}`,
+      );
       this.#review = {
         state: "captureFailed",
         agent: plan.label,
@@ -2911,6 +2957,39 @@ export class Controller {
       };
     }
     this.#push();
+  }
+
+  /**
+   * Cancel Review: ask, then end the captured review process — the whole tree
+   * BugPilot started, through `Runner`'s abort — and discard what it printed.
+   * Keep Reviewing, Escape or closing the question leave it running. Only
+   * while a captured review is running; one that finished while the question
+   * was open is kept as it finished.
+   */
+  async cancelReview(): Promise<void> {
+    const attempt = this.#reviewRun;
+    if (attempt === undefined || attempt.cancelled || this.#review?.state !== "reviewing") {
+      this.#ports.log.error("Refusing to cancel a review: no captured review is running.");
+      return;
+    }
+    let confirmed = false;
+    try {
+      confirmed = await this.#ports.ui.confirm(
+        "Cancel current AI review? The current review result will be discarded.",
+        "Cancel Review",
+        "Keep Reviewing",
+      );
+    } catch {
+      confirmed = false;
+    }
+    if (!confirmed) {
+      this.#ports.log.info("Kept reviewing.");
+      return;
+    }
+    if (this.#reviewRun !== attempt || attempt.cancelled) return;
+    attempt.cancelled = true;
+    this.#ports.log.info("Cancelling the captured review.");
+    attempt.abort.abort();
   }
 
   /** The fix the work item's last review attempt was for, from this session or a persisted one. */

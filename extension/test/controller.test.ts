@@ -85,6 +85,8 @@ interface Harness {
   readonly notices: { kind: string; message: string }[];
   readonly logged: string[];
   readonly refreshes: { count: number };
+  /** Every question asked, with its buttons. */
+  readonly confirms: { message: string; confirmLabel: string; keepLabel?: string }[];
   readonly ranCommands: string[];
   readonly terminals: { name: string; cwd: string; commandLine: string }[];
   /** Terminal names still open, newest last: every one the harness opened, less any a test closes. */
@@ -172,6 +174,10 @@ interface HarnessOptions {
   readonly clipboardHold?: () => Promise<void>;
   /** Answer a captured one-shot review; absent means the host has none. */
   readonly runCaptured?: NonNullable<ControllerPorts["runCapturedReview"]>;
+  /** False: the fake captured review never reports that its process started. */
+  readonly capturedStarts?: boolean;
+  /** The host's clock. */
+  readonly now?: () => number;
   /** The persisted reviewed-fix store; absent keeps it for the controller's life. */
   readonly reviewedFixes?: NonNullable<ControllerPorts["reviewedFixes"]>;
   /** The artifact watcher; absent means the host has none. */
@@ -190,6 +196,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const notices: { kind: string; message: string }[] = [];
   const logged: string[] = [];
   const refreshes = { count: 0 };
+  const confirms: { message: string; confirmLabel: string; keepLabel?: string }[] = [];
   const saved: FormState[] = [];
   const savedWorkItems: string[] = [];
   const ranCommands: string[] = [];
@@ -262,7 +269,10 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         if (options.clipboardThrows) throw options.clipboardThrows;
         clipboard.push(text);
       },
-      confirm: async () => (options.confirmAnswer ? options.confirmAnswer() : (options.confirm ?? true)),
+      confirm: async (message, confirmLabel, keepLabel) => {
+        confirms.push({ message, confirmLabel, ...(keepLabel === undefined ? {} : { keepLabel }) });
+        return options.confirmAnswer ? options.confirmAnswer() : (options.confirm ?? true);
+      },
       notify: (kind, message) => notices.push({ kind, message }),
       refreshViews: () => {
         refreshes.count += 1;
@@ -329,9 +339,19 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     ...(options.runFixMode === undefined ? {} : { runFixModeCommand: options.runFixMode }),
     ...(options.runReview === undefined ? {} : { runReviewCommand: options.runReview }),
     ...(options.runVerification === undefined ? {} : { runVerificationCommand: options.runVerification }),
-    ...(options.runCaptured === undefined ? {} : { runCapturedReview: options.runCaptured }),
+    ...(options.runCaptured === undefined
+      ? {}
+      : {
+          // A process that started, as the host's `spawn` event says — unless the
+          // test is about the moment before that.
+          runCapturedReview: async (request: Parameters<NonNullable<ControllerPorts["runCapturedReview"]>>[0]) => {
+            if (options.capturedStarts !== false) request.onStarted?.();
+            return options.runCaptured!(request);
+          },
+        }),
     ...(options.reviewedFixes === undefined ? {} : { reviewedFixes: options.reviewedFixes }),
     ...(options.watchArtifacts === undefined ? {} : { watchArtifacts: options.watchArtifacts }),
+    ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.schedule === undefined ? {} : { schedule: options.schedule }),
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
@@ -362,6 +382,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     notices,
     logged,
     refreshes,
+    confirms,
     ranCommands,
     terminals,
     openTerminals,
@@ -5951,7 +5972,7 @@ test("started is not finished: while the reviewer runs the row says Reviewing…
   await tick();
   const row = fixResultOf(h.last())!;
   assert.equal(reviewOf(h.last())?.state, "reviewing");
-  assert.equal((reviewOf(h.last()) as { summary: string }).summary, "Reviewing…");
+  assert.equal((reviewOf(h.last()) as { summary: string }).summary, "Reviewing with Claude Code…");
   assert.equal(row.reviewPrefill, undefined, "a draft before the reviewer finished");
   assert.equal(row.actions.includes("reviewWithAI"), false);
   // Everything that would touch the folder waits: a second review, recordings, a paste, a run.
@@ -6030,7 +6051,7 @@ test("a finished review with no usable reply gives no draft, keeps Review with A
     { run: { code: 1, stdout: "", stderr: "Not logged in\n", aborted: false }, title: /^AI review did not produce a usable structured result\.$/ },
     { run: { code: 1, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false }, title: /did not produce a usable/ },
     { run: ok(claudeJson("Credit balance too low", { is_error: true, subtype: "error_during_execution" })), title: /did not produce a usable/ },
-    { run: { code: null, stdout: "", stderr: "", aborted: true }, title: /did not produce a usable/ },
+    { run: { code: null, stdout: "", stderr: "", aborted: true }, title: /^AI review did not finish within the allowed time\.$/ },
   ];
   for (const { run, title, reply } of cases) {
     const { options } = capturedReview(() => run);
@@ -8103,4 +8124,222 @@ test("refresh: after a run the watcher is rebuilt on the folder as it is now", a
   assert.equal(before.disposed, true, "a Fresh run kept watching a folder it deleted");
   assert.equal(r.live().length, 1);
   assert.equal(r.live()[0]!.directory, before.directory);
+});
+
+// --- Captured review progress and Cancel Review (§37.82) ---------------------
+
+/**
+ * A captured review held open like a real process: it reports its start when
+ * `start` is called, answers `finish`, and ends on abort — with whatever it
+ * had printed, as `Runner` does, marked aborted.
+ */
+function heldReview(extra: HarnessOptions = {}) {
+  let resolveRun: (run: CapturedRun) => void = () => {};
+  let request: Parameters<NonNullable<ControllerPorts["runCapturedReview"]>>[0] | undefined;
+  const aborts: number[] = [];
+  const store = new Map<string, string>();
+  const options = reviewOptions({
+    capturedStarts: false,
+    runCaptured: (call) =>
+      new Promise<CapturedRun>((resolve) => {
+        request = call;
+        resolveRun = resolve;
+        call.signal?.addEventListener("abort", () => {
+          aborts.push(1);
+          resolve({ code: null, stdout: claudeJson(CAPTURED_REVIEW.slice(0, 40)), stderr: "", aborted: true });
+        });
+      }),
+    reviewedFixes: { get: (id) => store.get(id), set: (id, fix) => (fix === undefined ? store.delete(id) : store.set(id, fix)) },
+    now: () => 1_700_000_000_000,
+    ...extra,
+  });
+  return {
+    options,
+    store,
+    aborts,
+    start: () => request?.onStarted?.(),
+    finish: (run: CapturedRun) => resolveRun(run),
+    request: () => request,
+  };
+}
+
+test("progress 1–3: starting until the process has started, then reviewing with the agent and the start time", async () => {
+  const r = heldReview();
+  const h = await openedForReview(r.options);
+  const reviewing = h.controller.handle(REVIEW);
+  await tick();
+  // Launched, not yet started: starting, no mark, no clock, no Cancel.
+  assert.equal(reviewOf(h.last())?.state, "starting");
+  assert.equal(r.store.size, 0, "a process not yet started counted as an attempt");
+  assert.equal(fixResultOf(h.last())!.actions.includes("cancelReview"), false);
+
+  r.start();
+  const view = reviewOf(h.last()) as { state: string; summary: string; detail: string; startedAt: number; details: Record<string, unknown> };
+  assert.equal(view.state, "reviewing");
+  assert.equal(view.summary, "Reviewing with Claude Code…");
+  assert.equal(view.detail, "BugPilot is running a read-only AI review in the background. This may take a minute.");
+  assert.equal(view.startedAt, 1_700_000_000_000);
+  assert.deepEqual(view.details, {
+    agent: "Claude Code",
+    mode: "Read-only background review",
+    status: "Running",
+    outputFormat: ["Summary", "Findings", "Validation Notes", "Recommendations"],
+  });
+  assert.equal(r.store.size, 1);
+  assert.equal(offersReview(h.last()), false);
+  assert.ok(fixResultOf(h.last())!.actions.includes("cancelReview"));
+  // The signal is the one Cancel Review aborts.
+  assert.ok(r.request()?.signal instanceof AbortSignal);
+
+  r.finish({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false });
+  await reviewing;
+  assert.equal(reviewOf(h.last())?.state, "captured");
+  assert.equal(fixResultOf(h.last())!.actions.includes("cancelReview"), false);
+});
+
+test("cancel: the developer is asked with named buttons; Keep Reviewing leaves the process alone", async () => {
+  const r = heldReview({ confirm: false });
+  const h = await openedForReview(r.options);
+  const reviewing = h.controller.handle(REVIEW);
+  await tick();
+  r.start();
+
+  await h.controller.handle({ type: "action", id: "cancelReview" });
+
+  assert.deepEqual(h.confirms.at(-1), {
+    message: "Cancel current AI review? The current review result will be discarded.",
+    confirmLabel: "Cancel Review",
+    keepLabel: "Keep Reviewing",
+  });
+  assert.deepEqual(r.aborts, [], "Keep Reviewing ended the process");
+  assert.equal(reviewOf(h.last())?.state, "reviewing");
+  r.finish({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false });
+  await reviewing;
+  assert.equal(reviewOf(h.last())?.state, "captured", "the review kept was not the one kept running");
+});
+
+test("cancel: confirmed, the process is ended once, its output discarded, nothing saved — and Review with AI is back", async () => {
+  const r = heldReview();
+  const saves: unknown[] = [];
+  r.options.runReview = async (request) => {
+    saves.push(request.payload);
+    return RECORDED;
+  };
+  const h = await openedForReview(r.options);
+  const reviewing = h.controller.handle(REVIEW);
+  await tick();
+  r.start();
+  assert.equal(r.store.size, 1);
+
+  await h.controller.handle({ type: "action", id: "cancelReview" });
+  await h.controller.handle({ type: "action", id: "cancelReview" });
+  await reviewing;
+
+  assert.equal(r.aborts.length, 1, "the process was not ended exactly once");
+  assert.equal(h.confirms.length, 1, "a second press asked again after the cancel");
+  const row = fixResultOf(h.last())!;
+  const view = reviewOf(h.last()) as { state: string; summary: string };
+  assert.equal(view.state, "cancelled");
+  assert.equal(view.summary, "Review cancelled");
+  assert.equal(row.reviewPrefill, undefined, "a draft from a cancelled review");
+  assert.deepEqual(saves, []);
+  assert.deepEqual(h.written, []);
+  assert.equal(r.store.size, 0, "the cancelled attempt still marks the fix");
+  assert.equal(offersReview(h.last()), true);
+  assert.equal(row.actions.includes("pasteReviewOutput"), true);
+  assert.ok(h.logged.some((line) => /cancelled by the developer/.test(line)));
+
+  // And a new review of the same fix can start.
+  const again = h.controller.handle(REVIEW);
+  await tick();
+  assert.equal(reviewOf(h.last())?.state, "starting");
+  r.start();
+  r.finish({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false });
+  await again;
+  assert.equal(reviewOf(h.last())?.state, "captured");
+});
+
+test("cancel: a review that finished while the question was open is kept as it finished", async () => {
+  let answer: (yes: boolean) => void = () => {};
+  const r = heldReview({ confirmAnswer: () => new Promise<boolean>((resolve) => (answer = resolve)) });
+  const h = await openedForReview(r.options);
+  const reviewing = h.controller.handle(REVIEW);
+  await tick();
+  r.start();
+  const asking = h.controller.handle({ type: "action", id: "cancelReview" });
+  await tick();
+  r.finish({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false });
+  await reviewing;
+  answer(true);
+  await asking;
+  assert.deepEqual(r.aborts, []);
+  assert.equal(reviewOf(h.last())?.state, "captured");
+  assert.ok(fixResultOf(h.last())!.reviewPrefill);
+});
+
+test("cancel: nothing to cancel — no question, nothing ended", async () => {
+  const r = heldReview();
+  const h = await openedForReview(r.options);
+  await h.controller.handle({ type: "action", id: "cancelReview" });
+  assert.deepEqual(h.confirms, []);
+  assert.ok(h.logged.some((line) => /Refusing to cancel a review/.test(line)));
+});
+
+test("failure semantics: a launch that failed, a cancel, a process failure, a parse failure and a timeout stay apart", async () => {
+  // A. The spawn itself failed: never started, offered again.
+  const spawnFailed = heldReview({
+    runCaptured: () => Promise.reject(Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" })),
+  });
+  const a = await openedForReview(spawnFailed.options);
+  await a.controller.handle(REVIEW);
+  assert.equal(reviewOf(a.last())?.state, "failed");
+  assert.equal(offersReview(a.last()), true);
+  assert.equal(spawnFailed.store.size, 0);
+
+  // C, D, E. Started, then no usable result: hidden, the paste offered, each said as what it was.
+  const cases: [string, CapturedRun, RegExp][] = [
+    ["process", { code: 1, stdout: "", stderr: "boom", aborted: false }, /^AI review did not produce a usable structured result\.$/],
+    ["parse", { code: 0, stdout: claudeJson("## Summary\nOnly one."), stderr: "", aborted: false }, /^Review result could not be captured automatically\.$/],
+    ["timeout", { code: null, stdout: "", stderr: "", aborted: true }, /^AI review did not finish within the allowed time\.$/],
+  ];
+  for (const [kind, run, title] of cases) {
+    const r = heldReview();
+    const h = await openedForReview(r.options);
+    const reviewing = h.controller.handle(REVIEW);
+    await tick();
+    r.start();
+    r.finish(run);
+    await reviewing;
+    const view = reviewOf(h.last()) as { state: string; summary: string };
+    assert.equal(view.state, "captureFailed", kind);
+    assert.match(view.summary, title, kind);
+    assert.equal(offersReview(h.last()), false, `${kind}: Review with AI came back`);
+    assert.equal(r.store.size, 1, `${kind}: the attempt was forgotten`);
+    assert.ok(fixResultOf(h.last())!.actions.includes("pasteReviewOutput"), kind);
+    if (kind === "timeout") assert.ok(h.logged.some((line) => /timed out/.test(line)));
+  }
+});
+
+test("progress diagnostics say what happened, and never the prompt or the reply", async () => {
+  const r = heldReview();
+  const h = await openedForReview(r.options);
+  const reviewing = h.controller.handle(REVIEW);
+  await tick();
+  r.start();
+  r.finish({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false });
+  await reviewing;
+  const log = h.logged.join("\n");
+  for (const said of [/starting with Claude Code/, /process started/, /completed; its result parsed/]) assert.match(log, said);
+  for (const secret of ["Final Review Request", "The change handles the null input", "## Summary"]) {
+    assert.equal(log.includes(secret), false, secret);
+  }
+});
+
+test("opening a work item tells the trees once its folder is read, so the Artifacts view never stays on Scanning", async () => {
+  const h = harness({ directory: [...PREPARED_FILES, "fix_report.md"], files: { "run.json": PREPARED_RUN_JSON, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") } });
+  await h.controller.refreshEnvironment();
+  const before = h.refreshes.count;
+  await h.controller.showWorkItem("JR-12345");
+  assert.ok(h.refreshes.count > before, "the trees were not told about the work item just opened");
+  assert.equal(h.controller.artifacts.kind, "ready");
 });

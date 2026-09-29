@@ -9857,3 +9857,71 @@ No Python or integration test affected.
 **Deferred.** Events missed while the panel stays open and the watcher is
 silent (a network drive, a folder recreated outside BugPilot while it is shown)
 are caught only by showing the panel again or by Refresh; no polling was added.
+
+### 37.82 AI review progress visibility and Cancel Review (after `b7385c2`)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, not published, no version change. Extension
+only — no Python change. Decisions in
+`BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (AI Review Progress Visibility)" at the end of §19.
+
+**What changed.**
+
+- `runner.ts`: `RunOptions.onSpawn`, called on the child's `spawn` event.
+  `host/ports.ts`: `runCapturedReview` takes `signal` and `onStarted`; the
+  timeout is `CAPTURED_REVIEW_TIMEOUT_MS`; `confirm` takes an optional keep
+  label and names both buttons (the keep one the close affordance).
+- `controller.ts`: `#runCapturedReview` stays `starting` until the process has
+  started, then `reviewing` with `startedAt` and the fix marked; `cancelReview`
+  asks, then aborts the `Runner` run, and the attempt ends as `cancelled` with
+  the mark taken back and nothing kept; a timeout is logged and said as one.
+  `showWorkItem` now goes through `refreshActiveWorkItem`, so the trees follow a
+  reopened work item (see below).
+- `workflow.ts`: `reviewing { agent, startedAt }`, `cancelled`, the
+  `cancelReview` action, `reviewingTitle`, `REVIEWING_DETAIL`, `ReviewDetails`;
+  a cancelled review offers Review with AI again. `reviewRun.ts`: `TIMED_OUT`.
+- `html.ts`, `panel.js`, `panel.css`: the progress card — spinner in the status
+  title, the elapsed clock (one interval, from `startedAt`), Show / Hide
+  details, Cancel Review — and the narrow-width details layout.
+
+**Found in the real window, and fixed.** At 200px the details grid squeezed
+values to a few letters a line; they now stack. And the Artifacts view stayed on
+"Scanning .ai/ …" after a work item was opened from History: `showWorkItem`
+re-read the folder but never told the trees, which had read the listing
+mid-load — older than this batch, hidden until now by other refreshes.
+
+**Real VS Code pass.** The disposable profile and synthetic repository of
+§37.80–§37.81 with the packaged VSIX; real Claude Code for the captured review;
+`claude.exe` processes counted by their review flags, beside the developer's own
+five, which were never touched.
+
+- PASS A: *Starting AI review…*, then *Reviewing with Claude Code…* with the
+  spinner, the read-only line, `aria-busy`, the clock and Cancel Review; one
+  review process, no terminal from BugPilot.
+- PASS B: a real review finished in about a minute: the card and the clock
+  gone (the clock frozen), the form prefilled, `review_report.md` not written,
+  the process gone.
+- PASS C: details open while the clock went from 00:02 to 00:06; the card's size
+  unchanged.
+- PASS D: keyboard only — focus on the status after the start, Tab to Show
+  details and Enter, Tab to Cancel Review and Enter; Escape closed the question
+  and the same process kept running; Keep Reviewing likewise.
+- PASS E: Cancel Review confirmed: the review process gone, the other Claude
+  processes untouched, *Review cancelled*, no draft, nothing saved, Review with
+  AI back — and a cancel pressed as a review finished kept the finished review.
+- PASS F: a reviewer that exits with code 2 (a copy of `where.exe` as
+  `claude.exe`): the card and spinner stopped, the neutral failure and Paste
+  Review Output shown, Review with AI hidden.
+- PASS G: 200px with no horizontal overflow and the details stacked; Dark,
+  Light, High Contrast Dark and High Contrast Light.
+
+**Regression.** Extension 1396 tests pass (1377 before: 10 page tests — card, clock,
+details, cancel, starting — replacing one, 7 controller — start, cancel, race, refusal,
+failure semantics, diagnostics — 2 runner and 1 for the trees on reopen; the
+captured-review tests now report their process start); typecheck, smoke and
+`git diff --check` clean. No Python or integration test affected.
+
+**Deferred.** Streamed tool progress from the agent; percentage progress, which
+the agent does not report; a View review prompt inside the details (Copy Review
+Prompt gives the prompt already).

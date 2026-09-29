@@ -1472,6 +1472,69 @@ button.icon .codicon {
   margin: 0;
 }
 
+/* The captured review's progress card (§37.82): a spinner in the status title,
+   the elapsed time, Show details and Cancel Review, wrapping at narrow widths. */
+.review-spinner {
+  margin-right: 4px;
+  vertical-align: text-bottom;
+}
+
+.review-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.review-progress[hidden] {
+  display: none;
+}
+
+.review-details[hidden] {
+  display: none;
+}
+
+.review-progress-elapsed {
+  margin: 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-progress-actions {
+  flex-wrap: wrap;
+}
+
+.review-details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 8px;
+  margin: 4px 0 0;
+  font-size: 0.9em;
+}
+
+.review-details dt {
+  color: var(--vscode-descriptionForeground);
+}
+
+.review-details dd {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+/* A narrow panel: each label above its value, so a value is never squeezed to
+   a letter or two per line. */
+@media (max-width: 380px) {
+  .review-details {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .review-details dd {
+    margin-bottom: 4px;
+  }
+}
+
 /* Paste Review Output: one text area for the reviewer's reply, then Parse and
    Cancel — laid out like the form it fills. */
 .review-paste {

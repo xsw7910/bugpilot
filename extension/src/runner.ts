@@ -46,6 +46,12 @@ export interface RunOptions {
    * means stdin stays closed, which is what every bugpilot call wants.
    */
   readonly input?: string;
+  /**
+   * Called once the operating system has started the child — Node's `spawn`
+   * event. A command that cannot be started never calls it; it fails with
+   * `error` instead. Review with AI uses it to tell "starting" from "running".
+   */
+  readonly onSpawn?: () => void;
 }
 
 export interface RunResult {
@@ -183,6 +189,7 @@ export class Runner {
     // the child's own 'error'/'close' handlers.
     child.stdout?.on("error", () => {});
     child.stderr?.on("error", () => {});
+    if (options.onSpawn) child.once("spawn", options.onSpawn);
     if (options.input !== undefined) {
       // Errors here are the ordinary ones — a tool that exits before reading,
       // a closed pipe — and they are the child's outcome to report, not a

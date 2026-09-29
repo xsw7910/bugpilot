@@ -1023,7 +1023,9 @@ function stepContent(id: WorkflowStepId): string {
     // Under them, what Review with AI did: a status that is always in the
     // document, so a screen reader hears it fill, and the row's own failure
     // card — Fix result has no other, since a report that cannot be previewed
-    // is not a failure.
+    // is not a failure. While a captured review runs, a progress card sits
+    // under the status (§37.82): the elapsed time — outside the live region,
+    // so it is not read out every second — Show details, and Cancel Review.
     //
     // Then Review Result (Batch 11): what somebody saved after a review, in
     // their words, and never more than that — "Review result saved" is the
@@ -1056,6 +1058,14 @@ function stepContent(id: WorkflowStepId): string {
               <button type="button" class="result-link" id="record-verification" title="Record the checks you actually performed and what you observed for each" aria-controls="verification-editor" aria-expanded="false" hidden><span class="codicon codicon-list-ordered" aria-hidden="true"></span><span>Add Verification Evidence</span></button>
             </div>
             <div class="review-status" id="review-status" role="status" tabindex="-1"></div>
+            <div class="review-progress" id="review-progress" aria-busy="false" hidden>
+              <p class="review-progress-elapsed" id="review-elapsed-line">Elapsed: <span id="review-elapsed">00:00</span></p>
+              <div class="step-actions review-progress-actions">
+                <button type="button" class="result-link" id="review-details-toggle" aria-controls="review-details" aria-expanded="false"><span id="review-details-toggle-label">Show details</span></button>
+                <button type="button" class="result-link" id="cancel-review" title="Stop the AI review; nothing it printed is kept" hidden><span class="codicon codicon-close" aria-hidden="true"></span><span>Cancel Review</span></button>
+              </div>
+              <dl class="review-details" id="review-details" aria-label="AI review details" hidden></dl>
+            </div>
 ${errorCard("review-error")}
             <details class="validation" id="validation-checklist" hidden>
               <summary id="validation-summary">Validation checklist</summary>

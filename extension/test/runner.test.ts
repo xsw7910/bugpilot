@@ -416,3 +416,35 @@ test("a run with no input leaves stdin closed", async () => {
   assert.equal(harness.calls[0]!.options.stdio?.[0], "ignore");
   assert.deepEqual(child.stdin.written, []);
 });
+
+test("onSpawn says when the child has started, once, and never for one that could not start", async () => {
+  const harness = fakeSpawn("win32");
+  let spawned = 0;
+  const running = harness.runner("claude").run(["-p"], { cwd: "/repo", input: "prompt", onSpawn: () => (spawned += 1) });
+  assert.equal(spawned, 0, "started before the operating system said so");
+  harness.child().emit("spawn");
+  harness.child().emit("spawn");
+  assert.equal(spawned, 1);
+  harness.child().close(0);
+  await running;
+
+  let never = 0;
+  const failing = harness.runner("claude").run(["-p"], { cwd: "/repo", onSpawn: () => (never += 1) });
+  harness.child().emit("error", Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" }));
+  await assert.rejects(failing);
+  assert.equal(never, 0);
+});
+
+test("a cancelled captured review ends its own process tree on Windows, and nothing else", async () => {
+  const harness = fakeSpawn("win32");
+  const abort = new AbortController();
+  const running = harness.runner("claude").run(["-p"], { cwd: "/repo", input: "prompt", signal: abort.signal });
+  harness.child().out('{"type":"result","result":"partial');
+  abort.abort();
+  harness.child().close(null);
+  const result = await running;
+  assert.equal(result.aborted, true);
+  const kills = harness.calls.filter((call) => call.command === "taskkill");
+  assert.equal(kills.length, 1);
+  assert.deepEqual(kills[0]!.args, ["/pid", "4242", "/T", "/F"], "taskkill named anything but the review's own pid");
+});

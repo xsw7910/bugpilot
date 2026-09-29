@@ -11,6 +11,7 @@ import {
   CAPTURE_FAILED,
   MAX_REMEMBERED_FIXES,
   NO_USABLE_RESULT,
+  TIMED_OUT,
   capturedReviewOutcome,
   fixReportIdentity,
   reviewedFixStore,
@@ -143,7 +144,6 @@ test("a run that did not finish with a result is a process failure, whatever it 
   const cases: CapturedRun[] = [
     run("", { code: 1, stderr: "Error: not logged in\nmore" }),
     run(json(REPLY), { code: 2 }),
-    run("", { code: null, aborted: true }),
     run(json("Prompt is too long", { is_error: true })),
     run(json("", { subtype: "error_max_turns" })),
   ];
@@ -153,6 +153,10 @@ test("a run that did not finish with a result is a process failure, whatever it 
     assert.equal(!outcome.ok && outcome.title, NO_USABLE_RESULT, JSON.stringify(captured));
     assert.equal(!outcome.ok && outcome.reply, undefined);
   }
+  // The host's timeout is said as that — not as a failure of the review.
+  const timedOut = read(run("", { code: null, aborted: true }));
+  assert.equal(!timedOut.ok && timedOut.title, TIMED_OUT);
+  assert.match(!timedOut.ok ? timedOut.detail : "", /stopped after 15 minutes/);
   const said = read(run("", { code: 1, stderr: "Error: not logged in\nmore" }));
   assert.match(!said.ok ? said.detail : "", /exited with code 1: Error: not logged in$/);
 });
@@ -162,7 +166,7 @@ test("nothing is inferred: a reply saying PASS is the reviewer's words, and the 
   assert.ok(outcome.ok);
   assert.deepEqual(Object.keys(outcome).sort(), ["entry", "leftOut", "ok"]);
   assert.equal(outcome.entry.summary, "PASS — approved, safe to merge.");
-  for (const title of [CAPTURE_FAILED, NO_USABLE_RESULT]) assert.equal(/fail(ed)?\b|reject|pass/i.test(title), false, title);
+  for (const title of [CAPTURE_FAILED, NO_USABLE_RESULT, TIMED_OUT]) assert.equal(/fail(ed)?\b|reject|pass/i.test(title), false, title);
 });
 
 test("an oversized output is refused before it is parsed", () => {

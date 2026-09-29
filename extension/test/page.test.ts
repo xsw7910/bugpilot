@@ -177,6 +177,10 @@ class FakeElement {
 }
 
 interface Page {
+  /** The page's clock and its intervals: `advance` moves both. */
+  readonly clock: { now: number };
+  readonly intervals: Map<number, { callback: () => void; every: number; due: number }>;
+  readonly advance: (ms: number) => void;
   readonly elements: Map<string, FakeElement>;
   readonly posted: Record<string, unknown>[];
   readonly stored: unknown[];
@@ -234,8 +238,38 @@ function load(savedState?: unknown): Page {
   const clearTimeout = (handle: number) => {
     if (typeof handle === "number" && handle > 0) timers[handle - 1] = () => {};
   };
+  // The elapsed clock's interval and the time it reads, both the test's.
+  const clock = { now: 1_000_000 };
+  const intervals = new Map<number, { callback: () => void; every: number; due: number }>();
+  let nextInterval = 0;
+  const setInterval = (callback: () => void, every: number) => {
+    nextInterval += 1;
+    intervals.set(nextInterval, { callback, every, due: clock.now + every });
+    return nextInterval;
+  };
+  const clearInterval = (handle: number) => {
+    intervals.delete(handle);
+  };
+  const FakeDate = class extends Date {
+    static override now() {
+      return clock.now;
+    }
+  };
 
   const current: Page = {
+    clock,
+    intervals,
+    advance: (ms: number) => {
+      const end = clock.now + ms;
+      for (;;) {
+        const next = [...intervals.values()].filter((entry) => entry.due <= end).sort((a, b) => a.due - b.due)[0];
+        if (next === undefined) break;
+        clock.now = next.due;
+        next.due += next.every;
+        next.callback();
+      }
+      clock.now = end;
+    },
     elements,
     posted,
     stored,
@@ -257,13 +291,17 @@ function load(savedState?: unknown): Page {
   page = current;
 
   // eslint-disable-next-line no-new-func -- loading the real page script is the point
-  new Function("document", "window", "acquireVsCodeApi", "setTimeout", "clearTimeout", PAGE_SOURCE)(
-    document,
-    window,
-    acquireVsCodeApi,
-    setTimeout,
-    clearTimeout,
-  );
+  new Function(
+    "document",
+    "window",
+    "acquireVsCodeApi",
+    "setTimeout",
+    "clearTimeout",
+    "setInterval",
+    "clearInterval",
+    "Date",
+    PAGE_SOURCE,
+  )(document, window, acquireVsCodeApi, setTimeout, clearTimeout, setInterval, clearInterval, FakeDate);
   return current;
 }
 
@@ -4338,7 +4376,9 @@ const REVIEW_FAILED = {
 };
 
 /** The status's lines, as text. */
-const reviewStatus = (p: Page) => p.byId("review-status").children.map((child) => child.textContent);
+/** An element's text as a browser reads it: its own, then its children's. */
+const textOf = (element: FakeElement): string => element.textContent + element.children.map(textOf).join("");
+const reviewStatus = (p: Page) => p.byId("review-status").children.map(textOf);
 
 test("a report offers Review with AI after Copy Review Prompt; no report, no button", () => {
   const without = load();
@@ -6036,18 +6076,171 @@ const CAPTURED = {
   recommendations: "Add a regression test.",
 };
 
-test("while the reviewer runs the button is gone and the row says Reviewing…", () => {
+// --- The captured review's progress card (§37.82) -----------------------------
+
+/** A report on screen with a captured review running, started `ago` ms before the page's clock. */
+const running = (p: Page, ago = 0, extra: Partial<WorkflowInput> = {}) =>
+  reported(REPORT, {
+    review: { state: "reviewing", agent: "Claude Code", startedAt: p.clock.now - ago },
+    reviewedCurrentFix: true,
+    ...extra,
+  });
+
+test("while the reviewer runs: the button is gone, the agent is named, a spinner, the read-only line, the clock", () => {
   const p = load();
-  p.send(reported(REPORT, { review: { state: "reviewing", agent: "Claude Code" }, reviewedCurrentFix: true }));
+  p.send(running(p));
   assert.equal(p.byId("review-with-ai").hidden, true);
-  assert.deepEqual(reviewStatus(p), ["Reviewing…", "Claude Code is reviewing this fix. Its reply will fill in the review result for you to check."]);
-  assert.equal(p.byId("review-status").getAttribute("aria-busy"), "true");
+  assert.deepEqual(reviewStatus(p), [
+    "Reviewing with Claude Code…",
+    "BugPilot is running a read-only AI review in the background. This may take a minute.",
+  ]);
+  const title = p.byId("review-status").children[0]!;
+  assert.ok(title.children[0]!.classes.has("codicon-spin"), "no spinner");
+  assert.equal(title.children[0]!.getAttribute("aria-hidden"), "true");
+  assert.equal(p.byId("review-progress").hidden, false);
+  assert.equal(p.byId("review-progress").getAttribute("aria-busy"), "true");
+  assert.equal(p.byId("review-elapsed").textContent, "00:00");
   assert.equal(p.byId("review-editor").hidden, true, "a form opened before there was a reply");
+  // No percentage anywhere.
+  assert.equal(/\d+%/.test(JSON.stringify(reviewStatus(p))), false);
+});
+
+test("the agent's name is the host's: none given, and it reads Reviewing with AI…", () => {
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "reviewing", agent: "", startedAt: p.clock.now }, reviewedCurrentFix: true }));
+  assert.equal(reviewStatus(p)[0], "Reviewing with AI…");
+});
+
+test("the elapsed clock ticks once a second from the host's start, and one interval however many pushes", () => {
+  const p = load();
+  p.send(running(p, 18_000));
+  assert.equal(p.byId("review-elapsed").textContent, "00:18");
+  for (let i = 0; i < 5; i += 1) p.send(running(p, 18_000));
+  assert.equal(p.intervals.size, 1, "a push started a second interval");
+  p.advance(1_000);
+  assert.equal(p.byId("review-elapsed").textContent, "00:19");
+  p.advance(42_000);
+  assert.equal(p.byId("review-elapsed").textContent, "01:01");
+  p.advance(3_600_000);
+  assert.equal(p.byId("review-elapsed").textContent, "1:01:01");
+});
+
+test("a recreated panel resumes the clock from the host's start time, not from 00:00", () => {
+  const first = load();
+  const startedAt = first.clock.now - 75_000;
+  const state = reported(REPORT, { review: { state: "reviewing", agent: "Claude Code", startedAt }, reviewedCurrentFix: true });
+  first.send(state);
+  const again = load();
+  again.clock.now = startedAt + 75_000;
+  again.send(state);
+  assert.equal(again.byId("review-elapsed").textContent, "01:15");
+});
+
+test("the clock is not read out: it ticks outside the status live region, which stays as it was", () => {
+  const p = load();
+  p.send(running(p));
+  const before = JSON.stringify(reviewStatus(p));
+  const statusNodes = p.byId("review-status").children.length;
+  p.advance(5_000);
+  assert.equal(JSON.stringify(reviewStatus(p)), before);
+  assert.equal(p.byId("review-status").children.length, statusNodes);
+  assert.equal(p.byId("review-elapsed").textContent, "00:05");
+  assert.equal(p.byId("review-progress").getAttribute("role"), undefined, "the clock's container is a live region");
+  assert.equal(p.byId("review-progress").getAttribute("aria-live"), undefined);
+});
+
+test("the clock stops when the review finishes, fails or is cancelled", () => {
+  for (const next of [
+    { state: "captured", agent: "Claude Code" },
+    { state: "captureFailed", agent: "Claude Code", title: "AI review did not finish within the allowed time.", detail: "d" },
+    { state: "cancelled", agent: "Claude Code" },
+  ] as const) {
+    const p = load();
+    p.send(running(p));
+    assert.equal(p.intervals.size, 1);
+    p.send(reported(REPORT, { review: next, reviewedCurrentFix: next.state !== "cancelled" }));
+    assert.equal(p.intervals.size, 0, `the clock kept running after ${next.state}`);
+    assert.equal(p.byId("review-progress").hidden, true);
+    assert.equal(p.byId("review-progress").getAttribute("aria-busy"), "false");
+  }
+});
+
+test("Show details opens the details in place, a tick keeps them open, Hide details closes them", () => {
+  const p = load();
+  p.send(running(p));
+  const toggle = p.byId("review-details-toggle");
+  assert.equal(p.byId("review-details").hidden, true);
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(p.byId("review-details-toggle-label").textContent, "Show details");
+
+  toggle.dispatch("click");
+
+  assert.equal(p.byId("review-details").hidden, false);
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(p.byId("review-details-toggle-label").textContent, "Hide details");
+  const terms = p.byId("review-details").children.map((child) => child.textContent);
+  assert.deepEqual(terms.filter((_, index) => index % 2 === 0), ["Agent", "Mode", "Status", "Started", "Output format"]);
+  assert.equal(terms[1], "Claude Code");
+  assert.equal(terms[3], "Read-only background review");
+  assert.equal(terms[5], "Running");
+  assert.equal(terms[9], "Summary, Findings, Validation Notes, Recommendations");
+  // Nothing about the prompt, a command or the environment.
+  assert.equal(/prompt|--|PATH|claude -p|token/i.test(terms.join(" ")), false, terms.join(" | "));
+  p.advance(3_000);
+  p.send(running(p, 3_000));
+  assert.equal(p.byId("review-details").hidden, false, "a tick or a push closed the details");
+
+  toggle.dispatch("click");
+  assert.equal(p.byId("review-details").hidden, true);
+  // A finished review takes the card and its details with it; the next one starts closed.
+  toggle.dispatch("click");
+  p.send(reported(REPORT, { review: { state: "captured", agent: "Claude Code" }, reviewedCurrentFix: true }));
+  p.send(running(p));
+  assert.equal(p.byId("review-details").hidden, true);
+});
+
+test("Cancel Review is offered only while the host offers it, and asks the host — which asks the developer", () => {
+  const p = load();
+  p.send(reported(REPORT));
+  assert.equal(p.byId("cancel-review").hidden, true);
+  p.send(running(p));
+  assert.equal(p.byId("cancel-review").hidden, false);
+  const before = p.posted.length;
+  p.byId("cancel-review").dispatch("click");
+  assert.deepEqual(p.posted.slice(before), [{ type: "action", id: "cancelReview" }]);
+  // Nothing changes on the page until the host answers.
+  assert.equal(p.byId("review-progress").hidden, false);
+  p.send(reported(REPORT, { review: { state: "captured", agent: "Claude Code" }, reviewedCurrentFix: true }));
+  assert.equal(p.byId("cancel-review").hidden, true);
+});
+
+test("cancelled: said neutrally, and Review with AI is back for the same fix", () => {
+  const p = load();
+  p.send(running(p));
+  p.send(reported(REPORT, { review: { state: "cancelled", agent: "Claude Code" }, reviewedCurrentFix: false }));
+  assert.deepEqual(reviewStatus(p), [
+    "Review cancelled",
+    "The review was stopped before it finished. Nothing it printed was kept, and nothing was saved.",
+    "Review with AI can review this fix again.",
+  ]);
+  assert.equal(p.byId("review-with-ai").hidden, false);
+  assert.equal(p.byId("review-error").hidden, true, "a cancellation shown as a failure");
+  assert.equal(p.byId("review-editor").hidden, true);
+});
+
+test("starting: the button says so and waits; no clock, no Cancel yet", () => {
+  const p = load();
+  p.send(reported(REPORT, { review: { state: "starting" } }));
+  assert.equal(p.byId("review-with-ai").hidden, false);
+  assert.equal(p.byId("review-with-ai-label").textContent, "Starting AI review…");
+  assert.equal(p.byId("review-with-ai").getAttribute("aria-disabled"), "true");
+  assert.equal(p.byId("review-progress").hidden, true);
+  assert.equal(p.intervals.size, 0);
 });
 
 test("a captured reply opens the form filled in, marked as from the AI review, ready to save — and leaves the keyboard alone", () => {
   const p = load();
-  p.send(recordable({ review: { state: "reviewing", agent: "Claude Code" }, reviewedCurrentFix: true }));
+  p.send(recordable({ review: { state: "reviewing", agent: "Claude Code", startedAt: 1_000 }, reviewedCurrentFix: true }));
   p.byId("copy-review-prompt").focus();
   const before = p.posted.length;
 

@@ -256,6 +256,14 @@
   let validationSignature = "";
   /** What Review with AI's status and card last showed, for the same reason. */
   let reviewSignature = "";
+  // The captured review's progress card (§37.82). The clock is presentation
+  // only — the host says whether a review is running — and there is only ever
+  // one interval, started when the host says "reviewing" and cleared when it
+  // says anything else.
+  let reviewClock;
+  let reviewStartedAt = 0;
+  let reviewDetailsOpen = false;
+  let reviewDetailsSignature = "";
   // Record Review Result (Batch 11): which work item the form was opened for,
   // whether the host was recording at the last push, and what the Review Result
   // lines and the recording's status last said — so a push that changes nothing
@@ -1111,6 +1119,7 @@
     reviewButton.setAttribute("aria-busy", reviewing ? "true" : "false");
     byId("review-with-ai-label").textContent = reviewing ? "Starting AI review…" : "Review with AI";
     renderReview(step);
+    renderReviewProgress(step);
     // The button a keyboard user just pressed has gone, because the reviewer
     // started: the status saying so is the natural next place, rather than the
     // top of the document. Only then — never on an ordinary push.
@@ -1210,9 +1219,18 @@
     // terminal), reviewing, captured, a capture that gave no draft, or an
     // attempt an earlier session made. Text only — never a tick or a verdict.
     const said = review && review.state !== "starting" && review.state !== "failed";
-    status.setAttribute("aria-busy", review && review.state === "reviewing" ? "true" : "false");
     if (said) {
-      status.append(line("p", "review-status-title", review.summary || ""));
+      const title = line("p", "review-status-title", "");
+      // An indeterminate spinner while it runs: no percentage, because the
+      // agent reports none.
+      if (review.state === "reviewing") {
+        const spinner = document.createElement("span");
+        spinner.className = "codicon codicon-loading codicon-spin review-spinner";
+        spinner.setAttribute("aria-hidden", "true");
+        title.append(spinner);
+      }
+      title.append(line("span", "", review.summary || ""));
+      status.append(title);
       if (review.detail) status.append(line("p", "muted review-status-detail", review.detail));
       if (review.next) status.append(line("p", "muted review-status-detail", review.next));
     }
@@ -1227,6 +1245,75 @@
         byId("paste-review-output").setAttribute("aria-expanded", "true");
       }
     }
+  }
+
+  /**
+   * The captured review's progress card: elapsed time from the host's start
+   * time — so a recreated panel resumes rather than restarting at 00:00 — Show
+   * details, and Cancel Review while the host offers it. Only the "reviewing"
+   * state shows it; any other stops the clock and closes the details.
+   */
+  function renderReviewProgress(step) {
+    const review = step ? step.review : undefined;
+    const running = Boolean(review && review.state === "reviewing" && typeof review.startedAt === "number");
+    const card = byId("review-progress");
+    card.hidden = !running;
+    card.setAttribute("aria-busy", running ? "true" : "false");
+    const actions = (step && step.actions) || [];
+    byId("cancel-review").hidden = !(running && actions.includes("cancelReview"));
+    if (!running) {
+      stopReviewClock();
+      reviewDetailsOpen = false;
+      reviewDetailsSignature = "";
+      byId("review-details").replaceChildren();
+      renderReviewDetailsToggle();
+      return;
+    }
+    reviewStartedAt = review.startedAt;
+    const signature = JSON.stringify([review.startedAt, review.details || null]);
+    if (signature !== reviewDetailsSignature) {
+      reviewDetailsSignature = signature;
+      const details = review.details || {};
+      const rows = [
+        ["Agent", details.agent || "AI"],
+        ["Mode", details.mode || ""],
+        ["Status", details.status || ""],
+        ["Started", new Date(review.startedAt).toLocaleTimeString()],
+        ["Output format", (details.outputFormat || []).join(", ")],
+      ];
+      const list = byId("review-details");
+      list.replaceChildren();
+      for (const [term, value] of rows) list.append(line("dt", "", term), line("dd", "", value));
+    }
+    renderReviewDetailsToggle();
+    updateReviewElapsed();
+    if (reviewClock === undefined) reviewClock = setInterval(updateReviewElapsed, 1000);
+  }
+
+  function renderReviewDetailsToggle() {
+    byId("review-details").hidden = !reviewDetailsOpen;
+    byId("review-details-toggle").setAttribute("aria-expanded", reviewDetailsOpen ? "true" : "false");
+    byId("review-details-toggle-label").textContent = reviewDetailsOpen ? "Hide details" : "Show details";
+  }
+
+  function stopReviewClock() {
+    if (reviewClock === undefined) return;
+    clearInterval(reviewClock);
+    reviewClock = undefined;
+  }
+
+  function updateReviewElapsed() {
+    byId("review-elapsed").textContent = formatElapsed(Date.now() - reviewStartedAt);
+  }
+
+  /** 00:18, then 1:02:14 past an hour. */
+  function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    const pad = (value) => String(value).padStart(2, "0");
+    return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`;
   }
 
   /**
@@ -3103,6 +3190,16 @@
     if (!button.hidden && button.getAttribute("aria-disabled") !== "true") {
       vscode.postMessage({ type: "action", id: "reviewWithAI" });
     }
+  });
+  // The progress card: details open and close in place; Cancel Review asks the
+  // host, which asks the developer before it ends anything.
+  byId("review-details-toggle").addEventListener("click", () => {
+    if (byId("review-progress").hidden) return;
+    reviewDetailsOpen = !reviewDetailsOpen;
+    renderReviewDetailsToggle();
+  });
+  byId("cancel-review").addEventListener("click", () => {
+    if (!byId("cancel-review").hidden) vscode.postMessage({ type: "action", id: "cancelReview" });
   });
   // Paste Review Output opens the paste box; Parse asks the host to read it, and
   // its answer fills the form (renderReviewResult). Nothing is saved from here.
