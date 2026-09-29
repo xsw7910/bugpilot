@@ -125,6 +125,11 @@ export interface PanelState {
    * facts a developer would rather know now than after committing them.
    */
   readonly warnings: readonly Notice[];
+  /**
+   * A notice's quick fix worked and the notice is gone: this says what it did,
+   * where the card was (§37.85). Until the next environment check.
+   */
+  readonly noticeStatus?: string;
   /** Whether a Jira credential is stored. Never the credential itself. */
   readonly jiraConfigured: boolean;
   /**
@@ -197,6 +202,24 @@ export interface PanelState {
 export interface Notice {
   readonly title: string;
   readonly message: string;
+  /**
+   * A one-click fix the host offers for this notice, drawn as a secondary
+   * button on the card. The page sends `{ type: "action", id }` and nothing
+   * else; the host decides whether it still offers it.
+   */
+  readonly action?: NoticeAction;
+  /** What the last press came to, when it did not make the notice go away. */
+  readonly status?: string;
+}
+
+export interface NoticeAction {
+  readonly id: Extract<PanelAction, "addArtifactsToGitignore">;
+  /** The button's text. */
+  readonly label: string;
+  /** Its accessible name, which says what the short label leaves out. */
+  readonly accessibleName: string;
+  /** Pressed, and not finished: the button is shown, and does nothing. */
+  readonly busy?: boolean;
 }
 
 export type Readiness =
@@ -261,6 +284,10 @@ export const PANEL_ACTIONS = [
   // form. Nothing is written, and nothing reaches an agent until Start Attempt.
   "useReviewFindings",
   "useVerificationEvidence",
+  // Repository Files' quick fix (§37.85): add the rules git says are missing
+  // for .ai/ and .ai_memory/ to the active repository's .gitignore. The page
+  // names no file and no rule; the host reads both from its own diagnostics.
+  "addArtifactsToGitignore",
 ] as const;
 export type PanelAction = (typeof PANEL_ACTIONS)[number];
 
@@ -348,6 +375,18 @@ export type PanelMessage =
   /** Cancel on a prefilled Review Result form: the host drops its draft. Bare. */
   | { readonly type: "discardReviewDraft" }
   /**
+   * Verification Evidence auto-save (§37.83): the form's rows after an edit,
+   * bounded like `recordVerification`'s. The host debounces, validates and saves;
+   * the page writes nothing.
+   */
+  | { readonly type: "verificationDraft"; readonly checks: readonly VerificationCheckEntry[] }
+  /** Save the verification draft now: Retry Save, Done, Ctrl+Enter. Bare. */
+  | { readonly type: "flushVerification" }
+  /** After a conflict: save the form's checks over the report on disk. Bare. */
+  | { readonly type: "overwriteVerification" }
+  /** A verification form closed with nothing worth keeping in it. Bare. */
+  | { readonly type: "discardVerificationDraft" }
+  /**
    * "Record these checks as verification evidence" (Batch 12): the rows of the
    * form, bounded, each with the status the developer chose. No work item and no
    * path. `replace` says the form was opened by Edit; the host passes
@@ -395,6 +434,10 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   recordReview: true,
   parseReviewOutput: true,
   discardReviewDraft: true,
+  verificationDraft: true,
+  flushVerification: true,
+  overwriteVerification: true,
+  discardVerificationDraft: true,
   recordVerification: true,
 };
 export const PANEL_MESSAGE_TYPES = Object.keys(MESSAGE_TYPES) as readonly PanelMessage["type"][];
@@ -425,6 +468,9 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       return form ? { type: "improveHint", form } : undefined;
     }
     case "discardReviewDraft":
+    case "flushVerification":
+    case "overwriteVerification":
+    case "discardVerificationDraft":
     case "useImprovedHint":
     case "dismissImprovedHint":
     case "manageFixModes":
@@ -465,6 +511,19 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       // parser with a reason, never cut short and read as if that were all.
       const text = asString(message?.["text"], MAX_REVIEW_OUTPUT + 1);
       return text === undefined ? undefined : { type, text };
+    }
+    case "verificationDraft": {
+      const rows = message?.["checks"];
+      if (!Array.isArray(rows)) return undefined;
+      // One row past the cap is kept, so too many is said by the host rather
+      // than cut short and saved as if that were all.
+      const checks: VerificationCheckEntry[] = [];
+      for (const row of rows.slice(0, MAX_CHECKS + 1)) {
+        const check = asCheck(row);
+        if (!check) return undefined;
+        checks.push(check);
+      }
+      return { type, checks };
     }
     case "recordVerification": {
       const rows = message?.["checks"];

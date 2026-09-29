@@ -45,14 +45,24 @@ def working_tree_status(repo_root: Path) -> str | None:
     return output or "clean"
 
 
-def artifacts_ignored(repo_root: Path) -> bool | None:
-    """Whether git ignores the directories bugpilot writes into this repository.
+#: The directories bugpilot writes into a repository, as ``.gitignore`` names them.
+ARTIFACT_DIRECTORIES = (".ai", ".ai_memory")
 
-    ``docs/safety.md`` forbids an agent from committing ``.ai/`` or
-    ``.ai_memory/`` — those hold fetched Jira content and per-run logs — but
-    nothing stopped a *developer* from doing it, and after one run their
-    `git status` is full of files they did not create. This only reports;
-    editing someone's `.gitignore` is not bugpilot's decision to make.
+
+def artifact_directories_ignored(repo_root: Path) -> dict[str, bool] | None:
+    """Whether git ignores each directory bugpilot writes into this repository.
+
+    ``{".ai": bool, ".ai_memory": bool}``. ``docs/safety.md`` forbids an agent
+    from committing ``.ai/`` or ``.ai_memory/`` — those hold fetched Jira
+    content and per-run logs — but nothing stopped a *developer* from doing it,
+    and after one run their `git status` is full of files they did not create.
+    This only reports; bugpilot never edits someone's `.gitignore` on its own.
+    (The extension offers a button that does, which the developer presses.)
+
+    Git's own answer, so a rule written as ``.ai``, ``/.ai/`` or in
+    ``.git/info/exclude`` counts exactly as it does for git. `doctor` reports
+    it per directory, which is what lets that button add only the missing rule,
+    and as one ``ai_artifacts_ignored`` flag for the warning.
 
     ``None`` when the question cannot be answered (no git, or not a checkout).
     """
@@ -67,10 +77,10 @@ def artifacts_ignored(repo_root: Path) -> bool | None:
     #    a path git knows is a directory, so asking about `.ai` answered "not
     #    ignored" until the directory existed — a false alarm at exactly the
     #    moment the advice is worth giving, before the first run.
-    return all(
-        run_command(["git", "check-ignore", "-q", f"{directory}/probe"], repo_root)[0] == 0
-        for directory in (".ai", ".ai_memory")
-    )
+    return {
+        directory: run_command(["git", "check-ignore", "-q", f"{directory}/probe"], repo_root)[0] == 0
+        for directory in ARTIFACT_DIRECTORIES
+    }
 
 
 def generate_git_context(repo_root: Path, issue_key: str, related_files: list[str] | None = None) -> str:

@@ -9,7 +9,7 @@ from pathlib import Path
 from .. import __version__
 from .config import load_config, load_email_config, load_graph_config
 from .git_ops import (
-    artifacts_ignored,
+    artifact_directories_ignored,
     command_available,
     current_branch,
     inside_git_repo,
@@ -17,11 +17,13 @@ from .git_ops import (
 )
 
 
-def collect_doctor_report(repo_root: Path) -> dict[str, str | bool | None]:
+def collect_doctor_report(repo_root: Path) -> dict[str, str | bool | dict[str, bool] | None]:
     config = load_config(repo_root)
     email_config = load_email_config()
     graph_config = load_graph_config()
     in_git = command_available("git") and inside_git_repo(repo_root)
+    # Asked once; the summary and the per-directory answer are the same probe.
+    ignored = artifact_directories_ignored(repo_root)
     return {
         # First, and reported by every consumer of this dict, because "which
         # bugpilot am I actually running?" is a real question: a machine can
@@ -37,8 +39,11 @@ def collect_doctor_report(repo_root: Path) -> dict[str, str | bool | None]:
         "working_tree_status": working_tree_status(repo_root) if in_git else None,
         # False means one run will fill this repository's `git status` with
         # artifacts, and someone will commit fetched Jira content. Reported
-        # rather than fixed: bugpilot does not edit a developer's .gitignore.
-        "ai_artifacts_ignored": artifacts_ignored(repo_root),
+        # rather than fixed: bugpilot does not edit a developer's .gitignore on
+        # its own. The per-directory answer is what lets the extension's quick
+        # fix add only the rule that is missing.
+        "ai_artifacts_ignored": None if ignored is None else all(ignored.values()),
+        "ai_artifacts_ignored_paths": ignored,
         "rg_available": command_available("rg"),
         "jira_base_url_present": bool(config.jira_base_url),
         "jira_email_present": bool(config.jira_email),

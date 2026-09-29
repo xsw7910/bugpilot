@@ -212,12 +212,20 @@ function load(savedState?: unknown): Page {
   const messageListeners: Listener[] = [];
   const timers: (() => void)[] = [];
 
+  // What the page builds at runtime (a notice's button), so focus on one of
+  // them is reported like focus on anything in the markup.
+  const created: FakeElement[] = [];
   const document = {
     getElementById: (id: string) => elements.get(id) ?? null,
-    createElement: (_tag: string) => new FakeElement(""),
+    createElement: (_tag: string) => {
+      const element = new FakeElement("");
+      created.push(element);
+      return element;
+    },
     /** The element the page last focused, as the real document would report it. */
     get activeElement() {
-      return current.focused === undefined ? null : (elements.get(current.focused) ?? null);
+      if (current.focused === undefined) return null;
+      return elements.get(current.focused) ?? created.find((element) => element.id === current.focused) ?? null;
     },
   };
   const window = {
@@ -1495,14 +1503,14 @@ test("a second press refused for the same settings problem opens the page there 
   assert.equal(p.byId("workflow-settings-view").hidden, false, "the second refusal showed nothing");
   assert.equal(p.focused, "maxFiles");
 
-  // The same for the Fix Mode selector's problem.
+  // The Fix Mode selector's problem, on the form: a second refusal lands on it again.
   const badMode = () => state({ fixModes: MODES, problems: [{ field: "fixModeId", message: '"x" is not a Fix Mode id.' }] });
   const q = load();
   q.send(badMode());
-  q.byId("settings-cancel").dispatch("click");
+  q.byId("issue").focus();
   q.byId("form").dispatch("submit");
   q.send(badMode());
-  assert.equal(q.byId("workflow-settings-view").hidden, false);
+  assert.equal(q.byId("workflow-settings-view").hidden, true);
   assert.equal(q.focused, "fixModeId");
 });
 
@@ -1795,29 +1803,23 @@ test("a restored custom mode is what the closed section holds, and what Run send
   assert.equal(lastRun(page)?.fixModeId, "team-safe");
 });
 
-test("a problem with the chosen mode opens Workflow Settings once, at the selector", () => {
-  // The rule every settings field follows: a message on a page nobody opened is
-  // a message nobody sees.
+test("a problem with the chosen mode lands on the selector on the form, once", () => {
   const problem = { field: "fixModeId" as const, message: '"bad id" is not a Fix Mode id. Pick one from the list.' };
   const withProblem = () =>
     state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" }, problems: [problem] });
   const page = load();
   page.send(withProblem());
 
-  assert.equal(page.byId("workflow-settings-view").hidden, false);
-  assert.ok(page.byId("settings-section-fix-with-ai").classes.has("settings-section-target"));
-  // And lands on the selector.
+  // On the form, where the selector is: the settings page stays shut.
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
   assert.equal(page.focused, "fixModeId");
   assert.equal(page.byId("fixModeId-description").textContent, problem.message);
   assert.ok(page.byId("field-fixModeId").classes.has("field-invalid"));
   assert.equal(page.byId("fixModeId").getAttribute("aria-invalid"), "true");
 
-  // Once: closing it again is not overruled by the same problem pushed again,
-  // and focus is not pulled back to the selector either.
-  page.byId("settings-cancel").dispatch("click");
+  // Once: the same problem pushed again does not pull the focus back.
   page.byId("issue").focus();
   page.send(withProblem());
-  assert.equal(page.byId("workflow-settings-view").hidden, true);
   assert.equal(page.focused, "issue");
 });
 
@@ -1832,28 +1834,27 @@ test("an unavailable catalog is explained on the settings page, and does not for
   assert.equal(page.byId("run").disabled, false);
 });
 
-test("coming back from Manage Fix Modes returns to Workflow Settings, on the gear, with the draft kept", () => {
-  // The gear is beside the selector on the settings page, so that is where the
-  // way back goes — and what was typed there before leaving is still there.
+test("coming back from Manage Fix Modes returns to the form, on the gear, with the Hint as it was", () => {
+  // The gear is beside the selector on the form, so that is where the way back goes.
   const page = load();
   page.send(state({ fixModes: MODES }));
-  page.byId("settings-fixWithAI").dispatch("click");
-  page.byId("hint").value = "a draft, not yet applied";
+  page.byId("hint").value = "typed before managing modes";
   page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
-  assert.equal(page.byId("workflow-settings-view").hidden, true);
+  assert.equal(page.byId("main-view").hidden, true);
 
   page.send(state({ fixModes: MODES }));
-  assert.equal(page.byId("workflow-settings-view").hidden, false);
+  assert.equal(page.byId("main-view").hidden, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
   assert.equal(page.focused, "manage-fix-modes");
-  assert.equal(page.byId("hint").value, "a draft, not yet applied");
+  assert.equal(page.byId("hint").value, "typed before managing modes");
 });
 
-test("a manager a reloaded panel restored goes back to the form, on the way into Workflow Settings", () => {
+test("a manager a reloaded panel restored goes back to the form, on the Fix Mode gear", () => {
   const page = load();
   page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
   page.send(state({ fixModes: MODES }));
   assert.equal(page.byId("main-view").hidden, false);
-  assert.equal(page.focused, "open-settings");
+  assert.equal(page.focused, "manage-fix-modes");
 });
 
 test("opening the panel on the form does not open Workflow Settings", () => {
@@ -1868,121 +1869,95 @@ test("opening the panel on the form does not open Workflow Settings", () => {
   assert.equal(page.byId("main-view").hidden, false);
 });
 
-/** What the line beside Workflow Settings says about the Fix Mode. */
-const strategyLabel = (page: Page) => ({
-  shown: !page.byId("settings-strategy").hidden,
-  name: page.byId("settings-strategy-name").textContent,
-  description: page.byId("settings-strategy-description").textContent,
-});
+/** What Run would send, pressed now. */
+const runMode = (page: Page) => {
+  page.byId("form").dispatch("submit");
+  return lastRun(page)?.fixModeId;
+};
 
-const NO_LABEL = { shown: false, name: "", description: "" };
-
-test("Standard Fix adds nothing beside Workflow Settings", () => {
-  // The ordinary case stays exactly as quiet as it was: no label, no text.
+test("Fix Mode on the form: a restored mode shows in the selector, and Run sends it", () => {
+  // The host restores the mode a work item was prepared with — a new form
+  // revision, no click. The selector on the form is where it shows (§37.84).
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
-  assert.deepEqual(strategyLabel(page), NO_LABEL);
-
-  // Nor does the default reached with nothing chosen.
-  const fresh = load();
-  fresh.send(state({ fixModes: MODES }));
-  assert.deepEqual(strategyLabel(fresh), NO_LABEL);
-});
-
-test("a non-default built-in mode is named beside Workflow Settings", () => {
-  const page = load();
-  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
-
-  assert.deepEqual(strategyLabel(page), {
-    shown: true,
-    name: "Investigate First",
-    description: "Fix Mode: Investigate First",
-  });
-  // The full name on hover, for when a narrow sidebar cuts it short.
-  assert.equal(page.byId("settings-strategy").getAttribute("title"), "Fix Mode: Investigate First");
-  // Said, not opened.
-  assert.equal(page.byId("workflow-settings-view").hidden, true);
-});
-
-test("a custom mode is named by its display name", () => {
-  const page = load();
-  page.send(state({ fixModes: WITH_CUSTOM, form: { ...DEFAULT_FORM, fixModeId: "team-safe" } }));
-
-  assert.equal(strategyLabel(page).name, "Team Safe Fix");
-  assert.equal(strategyLabel(page).shown, true);
-});
-
-test("the label follows the applied mode, never the draft", () => {
-  const page = load();
-  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
-
-  // A draft is not what Run will use, so it is not named.
-  page.byId("open-settings").dispatch("click");
-  page.byId("fixModeId").value = "investigate-first";
-  page.byId("workflow-settings-view").dispatch("change", { target: page.byId("fixModeId") });
-  assert.deepEqual(strategyLabel(page), NO_LABEL, "a draft was named as what Run will use");
-  page.byId("settings-apply").dispatch("click");
-  assert.equal(strategyLabel(page).name, "Investigate First");
-
-  // And back to the default: the label goes, rather than lingering.
-  applyOnPage(page, () => {
-    page.byId("fixModeId").value = "standard";
-  });
-  assert.deepEqual(strategyLabel(page), NO_LABEL);
-});
-
-test("a reopened work item's restored mode is named before Run", () => {
-  // The case the label exists for: the host restores the mode a work item was
-  // prepared with — a new form revision, no click — while the page is closed.
-  const page = load();
-  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
-  assert.deepEqual(strategyLabel(page), NO_LABEL);
+  assert.equal(page.byId("fixModeId").value, "standard");
 
   page.send(state({ revision: 2, fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
-  assert.equal(strategyLabel(page).name, "Investigate First");
+  assert.equal(page.byId("fixModeId").value, "investigate-first");
   assert.equal(page.byId("workflow-settings-view").hidden, true);
+  assert.equal(runMode(page), "investigate-first");
+
+  // Another work item that resets to the default: the selector follows.
+  page.send(state({ revision: 3, fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  assert.equal(page.byId("fixModeId").value, "standard");
 });
 
-test("switching to a new work item that resets to the default clears a stale label", () => {
-  const page = load();
-  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
-  assert.equal(strategyLabel(page).shown, true);
-
-  page.send(state({ revision: 2, fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
-  assert.deepEqual(strategyLabel(page), NO_LABEL);
-});
-
-test("a deleted custom mode falls back to the default, and takes its label with it", () => {
-  // The page's own fallback when the catalog stops offering the chosen mode;
-  // the host makes the same choice and pushes it as a new form.
+test("Fix Mode on the form: a custom mode is chosen by its display name; a deleted one falls back to the default", () => {
   const page = load();
   page.send(state({ fixModes: WITH_CUSTOM, form: { ...DEFAULT_FORM, fixModeId: "team-safe" } }));
-  assert.equal(strategyLabel(page).name, "Team Safe Fix");
-
+  assert.equal(page.byId("fixModeId").value, "team-safe");
+  assert.equal(runMode(page), "team-safe");
   page.send(state({ fixModes: MODES }));
   assert.equal(page.byId("fixModeId").value, "standard");
-  assert.deepEqual(strategyLabel(page), NO_LABEL);
+  assert.equal(runMode(page), "standard");
 });
 
-test("no catalog, no label: Run would send no mode at all", () => {
+test("Fix Mode on the form: no catalog, no mode — the selector waits, and Run sends none", () => {
   for (const fixModes of [
     { kind: "loading" as const },
     { kind: "unavailable" as const, detail: "AI Fix Modes could not be read." },
   ]) {
     const page = load();
     page.send(state({ fixModes, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
-    assert.deepEqual(strategyLabel(page), NO_LABEL, fixModes.kind);
+    assert.equal(page.byId("fixModeId").disabled, true, fixModes.kind);
+    assert.equal(runMode(page), "", fixModes.kind);
   }
 });
 
-test("with the label showing, Run from the closed section is unchanged", () => {
+test("Fix Mode and Hint are form fields: an edit reaches the host as a form change — no Apply, no run", () => {
   const page = load();
-  page.send(state({ fixModes: WITH_CUSTOM, form: { ...DEFAULT_FORM, fixModeId: "team-safe" } }));
-  assert.equal(strategyLabel(page).shown, true);
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, issueKey: "JR-12345", fixModeId: "standard" } }));
+  const before = page.posted.length;
 
-  page.byId("form").dispatch("submit");
-  assert.equal(lastRun(page)?.fixModeId, "team-safe");
+  page.byId("fixModeId").value = "investigate-first";
+  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
+  page.byId("hint").value = "look at the reader";
+  page.byId("form").dispatch("input", { target: page.byId("hint") });
+  page.byId("useIssueDetails").checked = false;
+  page.byId("form").dispatch("change", { target: page.byId("useIssueDetails") });
+  page.flush();
+
+  const changes = page.posted.slice(before).filter((message) => message["type"] === "formChanged");
+  const form = changes.at(-1)!["form"] as { fixModeId: string; hint: string; useIssueDetails: boolean };
+  assert.equal(form.fixModeId, "investigate-first");
+  assert.equal(form.hint, "look at the reader");
+  assert.equal(form.useIssueDetails, false);
+  // The mode's description follows the selector at once.
+  assert.match(page.byId("fixModeId-description").textContent, /Investigation only/);
+  // Nothing started, and the settings page never opened.
+  assert.equal(page.posted.slice(before).some((message) => isRunPress(message) || message["type"] === "applySettings"), false);
   assert.equal(page.byId("workflow-settings-view").hidden, true);
+});
+
+test("an applied settings change keeps the Fix Mode and Hint as they are on the form", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  page.byId("fixModeId").value = "investigate-first";
+  page.byId("hint").value = "typed on the form";
+  applyOnPage(page, () => {
+    page.byId("keywords").value = "cache";
+  });
+  const applied = page.posted.filter((message) => message["type"] === "applySettings").at(-1)!["form"] as {
+    fixModeId: string;
+    hint: string;
+    keywords: string;
+  };
+  assert.deepEqual([applied.fixModeId, applied.hint, applied.keywords], ["investigate-first", "typed on the form", "cache"]);
+  // Cancel on the settings page does not touch them either.
+  page.byId("open-settings").dispatch("click");
+  page.byId("settings-cancel").dispatch("click");
+  assert.equal(page.byId("fixModeId").value, "investigate-first");
+  assert.equal(page.byId("hint").value, "typed on the form");
 });
 
 test("the Strategy line reports the package, not the selector", () => {
@@ -2399,10 +2374,7 @@ test("each view takes focus as it opens, and the gear gets it back", () => {
   page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
   assert.equal(page.focused, "editor-title");
 
-  // From the settings page, where the gear is, and back to it.
-  page.send(state({ fixModes: MODES }));
-  page.byId("open-settings").dispatch("click");
-  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+  // From the form, where the gear is, and back to it.
   page.send(state({ fixModes: MODES }));
   assert.equal(page.focused, "manage-fix-modes");
 });
@@ -2908,20 +2880,20 @@ test("the two answers to a suggestion are the two messages", () => {
   );
 });
 
-test("an accepted suggestion goes into the draft hint, and reaches the form only on Apply", () => {
-  // Which is what keeps it editable — it lands in the field being edited — and
-  // what keeps Cancel meaningful: nothing on the settings page is the form yet.
+test("an accepted suggestion goes into the Hint on the form, and reaches the host as an edit would", () => {
+  // It lands in the field, so it stays editable; and it is a change like typing
+  // it — the host decides whether the prepared context is now stale.
   const page = load();
   page.send(state({ revision: 2, form: { ...DEFAULT_FORM, hint: "maybe cache" } }));
-  page.byId("settings-fixWithAI").dispatch("click");
   page.send(state({ hintImprovement: { busy: false, suggestion: "Investigate cache invalidation." } }));
+  const before = page.posted.length;
   page.byId("hint-use").dispatch("click");
   assert.equal(page.byId("hint").value, "Investigate cache invalidation.");
-  assert.equal(page.posted.at(-1)!["type"], "useImprovedHint");
-
+  assert.equal(page.posted[before]!["type"], "useImprovedHint");
+  page.flush();
+  const change = page.posted.slice(before).find((message) => message["type"] === "formChanged");
+  assert.equal((change!["form"] as { hint: string }).hint, "Investigate cache invalidation.");
   page.byId("form").dispatch("submit");
-  assert.equal((page.posted.at(-1)!["form"] as { hint: string }).hint, "maybe cache", "a suggestion was used before Apply");
-  page.byId("settings-apply").dispatch("click");
   assert.equal((page.posted.at(-1)!["form"] as { hint: string }).hint, "Investigate cache invalidation.");
 });
 
@@ -4992,17 +4964,6 @@ test("another work item closes the form and forgets what was typed for the last 
   assert.equal(p.byId("record-review-result").getAttribute("aria-expanded"), "false");
 });
 
-test("Cancel closes and empties the form, and returns to the button that opened it", () => {
-  const p = load();
-  p.send(recordable());
-  p.byId("record-review-result").dispatch("click");
-  typeReview(p, { summary: "Draft." });
-  p.byId("cancel-review-result").dispatch("click");
-  assert.equal(p.byId("review-editor").hidden, true);
-  assert.equal(p.byId("review-summary").value, "");
-  assert.equal(p.focused, "record-review-result");
-});
-
 test("typing a review is not the bug being prepared: Ctrl+Enter there saves the review, never Runs", () => {
   const p = load();
   p.send(recordable());
@@ -5446,7 +5407,7 @@ test("each field has one line on what goes in it, and examples only as placehold
   assert.match(row.evidence.getAttribute("placeholder") ?? "", /1285 passed, 0 failed.*The issue no longer reproduces/);
   // A placeholder is not a value: an untouched check saves nothing of the examples.
   row.name.value = "Unit tests";
-  p.byId("save-verification").dispatch("click");
+  row.name.dispatch("input");
   const sent = p.posted.at(-1)! as { checks: Record<string, string>[] };
   assert.deepEqual(sent.checks[0], {
     name: "Unit tests",
@@ -5468,118 +5429,6 @@ test("Add Check stops at the CLI's 25, and says why", () => {
   assert.match(p.byId("add-verification-check").getAttribute("title") ?? "", /At most 25/);
 });
 
-test("Save sends every row as entered, shell-looking text included, in a message the host parses", () => {
-  const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  p.byId("add-verification-check").dispatch("click");
-  const [first, second] = checkRows(p);
-  first!.name.value = "Unit tests";
-  first!.status.value = "passed";
-  first!.procedure.value = "npm test -- --grep \"save\" && rm -rf / ; $(whoami) `id` | tee %TEMP%\\x";
-  first!.evidence.value = "## Overall Recorded Status\nAll recorded checks passed.\n> quoted";
-  second!.name.value = "Open the dialog";
-  second!.status.value = "failed";
-  second!.type.value = "manual";
-  second!.notes.value = "<img src=x onerror=alert(1)>";
-
-  p.byId("save-verification").dispatch("click");
-
-  const message = p.posted.at(-1)!;
-  assert.deepEqual(message, {
-    type: "recordVerification",
-    replace: false,
-    checks: [
-      {
-        name: "Unit tests",
-        status: "passed",
-        type: "automated",
-        procedure: first!.procedure.value,
-        evidence: first!.evidence.value,
-        notes: "",
-      },
-      { name: "Open the dialog", status: "failed", type: "manual", procedure: "", evidence: "", notes: "<img src=x onerror=alert(1)>" },
-    ],
-  });
-  assert.deepEqual(parsePanelMessage(message), message);
-});
-
-test("typing a check is not the bug being prepared: Ctrl+Enter there saves the evidence, never Runs", () => {
-  const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  const [row] = checkRows(p);
-  row!.name.value = "Unit tests";
-  const before = p.posted.length;
-
-  for (const target of [row!.name, row!.status, row!.evidence, p.byId("add-verification-check"), p.byId("save-verification")]) {
-    p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true, target });
-    p.byId("form").dispatch("input", { target });
-    p.byId("form").dispatch("change", { target });
-  }
-  p.flush();
-  assert.equal(p.posted.slice(before).some((message) => isRunPress(message) || message["type"] === "formChanged"), false);
-
-  p.byId("verification-editor").dispatch("keydown", { key: "Enter", ctrlKey: true, target: row!.name });
-  assert.equal(p.posted.at(-1)!["type"], "recordVerification");
-});
-
-test("while the host records, Save, Cancel, Add and Remove wait and say so, and the status is announced once", () => {
-  const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  checkRows(p)[0]!.name.value = "Unit tests";
-  p.byId("save-verification").dispatch("click");
-  p.send(verifiablePage({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
-
-  const save = p.byId("save-verification");
-  assert.equal(save.getAttribute("aria-disabled"), "true");
-  assert.equal(save.getAttribute("aria-busy"), "true");
-  assert.equal(save.disabled, false, "disabled would take the focus away");
-  assert.equal(p.byId("save-verification-label").textContent, "Recording…");
-  assert.equal(p.byId("cancel-verification").getAttribute("aria-disabled"), "true");
-  assert.equal(p.byId("add-verification-check").getAttribute("aria-disabled"), "true");
-  assert.equal(checkRows(p)[0]!.remove.getAttribute("aria-disabled"), "true");
-  assert.equal(p.byId("verification-capture-status").textContent, "Recording verification evidence…");
-  const before = p.posted.length;
-  save.dispatch("click");
-  p.byId("add-verification-check").dispatch("click");
-  checkRows(p)[0]!.remove.dispatch("click");
-  p.byId("cancel-verification").dispatch("click");
-  assert.equal(p.posted.length, before, "a second recording was asked for");
-  assert.equal(checkRows(p).length, 1);
-  assert.equal(p.byId("verification-editor").hidden, false);
-});
-
-test("a recording that finished closes and empties the form, shows the evidence, and moves focus to it", () => {
-  const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  checkRows(p)[0]!.name.value = "Unit tests";
-  p.byId("save-verification").dispatch("click");
-  p.byId("save-verification").focus();
-  p.send(verifiablePage({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
-
-  p.send(verifiablePage({ verificationCapture: { state: "recorded", replaced: false } }));
-  assert.equal(p.byId("verification-editor").hidden, true);
-  assert.equal(p.focused, "verification-capture-status");
-  p.send(evidenced({ verificationCapture: { state: "recorded", replaced: false } }));
-
-  assert.equal(checkRows(p).length, 0);
-  assert.equal(p.byId("verification-capture-status").textContent, "Verification evidence recorded.");
-  assert.equal(p.byId("verification-result").hidden, false);
-  assert.equal(p.byId("verification-result-counts").textContent, "Recorded checks: 1 passed, 1 failed");
-  assert.equal(p.byId("verification-result-overall").textContent, "Recorded checks include failures.");
-  assert.deepEqual(
-    p.byId("verification-result-checks").children.map((item) => item.textContent),
-    ["Unit tests · Passed · Automated", "Open the dialog · Failed · Manual"],
-  );
-  assert.equal(p.byId("verification-result-more").hidden, true);
-  assert.equal(p.byId("record-verification").hidden, true);
-  assert.equal(p.byId("open-verification-report").hidden, false);
-  assert.equal(p.byId("edit-verification").hidden, false);
-});
-
 test("the preview is bounded: five checks, then how many more are in the file", () => {
   const p = load();
   const preview = Array.from({ length: 5 }, (_, index) => ({ name: `Check ${index + 1}`, status: "not_run", type: "other" }) as const);
@@ -5588,61 +5437,6 @@ test("the preview is bounded: five checks, then how many more are in the file", 
   assert.equal(p.byId("verification-result-more").hidden, false);
   assert.equal(p.byId("verification-result-more").textContent, "+4 more in verification_report.md");
   assert.equal(p.byId("verification-result-overall").textContent, "No recorded check has been run.");
-});
-
-test("a recording that failed keeps the form and its rows, and says so in the recording's own words", () => {
-  const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  checkRows(p)[0]!.name.value = "Unit tests";
-  p.send(verifiablePage({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
-
-  p.send(verifiablePage({ verificationCapture: { state: "failed", message: "Verification evidence was not recorded: disk full." } }));
-
-  const error = p.byId("verification-capture-error");
-  assert.equal(error.hidden, false);
-  assert.equal(error.textContent, "Verification evidence was not recorded: disk full.");
-  assert.equal(p.byId("verification-editor").hidden, false);
-  assert.equal(checkRows(p)[0]!.name.value, "Unit tests");
-  assert.equal(p.byId("verification-capture-status").textContent, "");
-  assert.equal(p.byId("save-verification").getAttribute("aria-disabled"), "false");
-  assert.equal(p.byId("review-capture-error").hidden, true);
-  assert.equal(p.byId("failure").hidden, true);
-});
-
-test("Edit asks the host for the checks, fills the form from its one answer, and saves as a replace", () => {
-  const p = load();
-  p.send(evidenced());
-  const edit = p.byId("edit-verification");
-  edit.dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "action", id: "editVerification" });
-  assert.equal(p.byId("verification-editor").hidden, true, "the form opened before the checks arrived");
-
-  const checks = [
-    { name: "Unit tests", status: "passed", type: "automated", procedure: "npm test", evidence: "1111 passed", notes: "" },
-    { name: "Open the dialog", status: "failed", type: "manual", procedure: "", evidence: "Crashed.", notes: "n" },
-  ] as const;
-  p.send(evidenced({ verificationEdit: { token: 1, checks, structured: true, unreadable: false } }));
-
-  assert.equal(p.byId("verification-editor").hidden, false);
-  assert.equal(edit.getAttribute("aria-expanded"), "true");
-  assert.equal(p.byId("verification-editor-replace-note").hidden, true);
-  const rows = checkRows(p);
-  assert.deepEqual(rows.map((row) => [row.name.value, row.status.value, row.type.value, row.evidence.value, row.notes.value]), [
-    ["Unit tests", "passed", "automated", "1111 passed", ""],
-    ["Open the dialog", "failed", "manual", "Crashed.", "n"],
-  ]);
-  assert.equal(p.focused, rows[0]!.name.id);
-  // The next push does not carry the answer, and the form keeps what is typed.
-  rows[1]!.status.value = "passed";
-  p.send(evidenced());
-  assert.equal(checkRows(p)[1]!.status.value, "passed");
-  // Nor does the same answer twice refill it.
-  p.send(evidenced({ verificationEdit: { token: 1, checks, structured: true, unreadable: false } }));
-  assert.equal(checkRows(p)[1]!.status.value, "passed");
-
-  p.byId("save-verification").dispatch("click");
-  assert.equal(p.posted.at(-1)!["replace"], true);
 });
 
 test("Edit of a report BugPilot could not read into checks starts with one new row and says saving replaces it", () => {
@@ -5674,40 +5468,13 @@ test("another work item closes the form and forgets the rows typed for the last 
 
 test("Cancel closes and empties the form, and returns to the button that opened it", () => {
   const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  checkRows(p)[0]!.name.value = "Draft.";
-  p.send(verifiablePage({ verificationCapture: { state: "failed", message: "Verification evidence was not recorded: no." } }));
-  p.byId("cancel-verification").dispatch("click");
-  assert.equal(p.byId("verification-editor").hidden, true);
-  assert.equal(checkRows(p).length, 0);
-  assert.equal(p.byId("verification-capture-error").hidden, true);
-  assert.equal(p.focused, "record-verification");
-
-  const q = load();
-  q.send(evidenced({ verificationEdit: { token: 1, checks: [], structured: false, unreadable: false } }));
-  q.byId("cancel-verification").dispatch("click");
-  assert.equal(q.focused, "edit-verification");
-});
-
-test("with no recording allowed — a run, or another write in flight — nothing is offered and Save does nothing", () => {
-  const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  checkRows(p)[0]!.name.value = "Unit tests";
-  p.send(verifiablePage({ canRecordVerification: false, reviewCapture: { state: "recording" } }));
-  assert.equal(p.byId("save-verification").getAttribute("aria-disabled"), "true");
-  const before = p.posted.length;
-  p.byId("save-verification").dispatch("click");
-  assert.equal(p.posted.length, before);
-
-  const q = load();
-  q.send(evidenced({ canRecordVerification: false }));
-  assert.equal(q.byId("edit-verification").hidden, true);
-  assert.equal(q.byId("open-verification-report").hidden, false);
-  const r = load();
-  r.send(verifiablePage({ canRecordVerification: false }));
-  assert.equal(r.byId("record-verification").hidden, true);
+  p.send(recordable());
+  p.byId("record-review-result").dispatch("click");
+  typeReview(p, { summary: "Draft." });
+  p.byId("cancel-review-result").dispatch("click");
+  assert.equal(p.byId("review-editor").hidden, true);
+  assert.equal(p.byId("review-summary").value, "");
+  assert.equal(p.focused, "record-review-result");
 });
 
 test("recorded lines render as text, and the page adds no verdict of its own", () => {
@@ -5727,15 +5494,6 @@ test("recorded lines render as text, and the page adds no verdict of its own", (
     item.textContent,
   ].join(" ");
   assert.doesNotMatch(shown, /Verified|Approved|Correct|Safe to merge|Fix verified/);
-});
-
-test("a push that changes nothing about the evidence leaves its lines and status alone", () => {
-  const p = load();
-  p.send(evidenced({ verificationCapture: { state: "recorded", replaced: true } }));
-  const first = p.byId("verification-result-checks").children[0];
-  assert.equal(p.byId("verification-capture-status").textContent, "Verification evidence replaced.");
-  p.send(evidenced({ verificationCapture: { state: "recorded", replaced: true }, copyingReviewPrompt: true }));
-  assert.equal(p.byId("verification-result-checks").children[0], first, "the list was rebuilt by an unrelated push");
 });
 
 test("plain Enter in a check's name never runs the panel: the implicit submit is ignored, the key is held", () => {
@@ -5781,55 +5539,6 @@ test("closing and reopening the form keeps what was typed; only Cancel, a save o
   openRecord(p);
   assert.equal(p.byId("verification-editor").hidden, false);
   assert.deepEqual(checkRows(p).map((row) => row.name.value), ["Unit tests", "Open the dialog"]);
-});
-
-test("while the host records, Record and Edit do nothing: the form and its rows stay as they are", () => {
-  const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  checkRows(p)[0]!.name.value = "Unit tests";
-  p.byId("save-verification").dispatch("click");
-  p.send(verifiablePage({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
-  assert.equal(p.byId("record-verification").getAttribute("aria-disabled"), "true");
-  openRecord(p);
-  openRecord(p);
-  assert.equal(p.byId("verification-editor").hidden, false);
-  assert.equal(checkRows(p)[0]!.name.value, "Unit tests");
-
-  const q = load();
-  q.send(evidenced({ verificationEdit: { token: 3, checks: [], structured: false, unreadable: false } }));
-  checkRows(q)[0]!.name.value = "Edited";
-  q.send(evidenced({ canRecordVerification: false, verificationCapture: { state: "recording" } }));
-  const before = q.posted.length;
-  q.byId("edit-verification").dispatch("click");
-  assert.equal(q.byId("verification-editor").hidden, false);
-  assert.equal(checkRows(q)[0]!.name.value, "Edited");
-  assert.equal(q.posted.length, before);
-});
-
-test("a Record form that met a report recorded meanwhile keeps its checks when Edit loads the report", () => {
-  const p = load();
-  p.send(verifiablePage());
-  openRecord(p);
-  checkRows(p)[0]!.name.value = "Typed here";
-  checkRows(p)[0]!.status.value = "failed";
-  // The CLI kept the other report; the row read it and offers Edit.
-  p.send(evidenced({ verificationCapture: { state: "failed", message: "Verification evidence was not recorded: kept." } }));
-  assert.equal(p.byId("verification-editor").hidden, false);
-  p.byId("edit-verification").dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "action", id: "editVerification" });
-
-  const recorded = [{ name: "From a terminal", status: "not_run", type: "other", procedure: "", evidence: "", notes: "" }] as const;
-  p.send(evidenced({ verificationEdit: { token: 9, checks: recorded, structured: true, unreadable: false } }));
-
-  assert.deepEqual(checkRows(p).map((row) => [row.name.value, row.status.value]), [
-    ["From a terminal", "not_run"],
-    ["Typed here", "failed"],
-  ]);
-  p.byId("save-verification").dispatch("click");
-  assert.equal(p.posted.at(-1)!["replace"], true);
-  assert.equal(p.posted.at(-1)!["basis"], 9);
-  assert.deepEqual(parsePanelMessage(p.posted.at(-1)!), p.posted.at(-1));
 });
 
 test("Edit of a listed report that could not be read says so, not that it is in another format", () => {
@@ -6386,4 +6095,321 @@ test("a refresh push keeps an unapplied Workflow Settings draft", () => {
   p.byId("keywords").dispatch("input");
   p.send(reported(REPORT, { artifacts: [...PREPARED_FILES, "fix_report.md", "review_report.md"], reviewReport: REVIEW_PREVIEW }));
   assert.equal(p.byId("keywords").value, "cache, loader", "a refresh overwrote the settings draft");
+});
+
+// --- Verification Evidence auto-save (§37.83) ---------------------------------
+
+/** The form open with one row, on a report with no evidence yet. */
+function openedEvidence(extra: Partial<WorkflowInput> = {}) {
+  const p = load();
+  p.send(verifiablePage(extra));
+  openRecord(p);
+  return p;
+}
+const saveState = (p: Page) => ({
+  status: p.byId("verification-save-status").textContent,
+  live: p.byId("verification-capture-status").textContent,
+  alert: p.byId("verification-capture-error").hidden ? "" : p.byId("verification-capture-error").textContent,
+});
+const drafts = (p: Page) => p.posted.filter((message) => message["type"] === "verificationDraft");
+
+test("auto-save: there is no Save button; the form says it saves itself, and has Done", () => {
+  assert.equal(HTML.includes('id="save-verification"'), false);
+  assert.equal(HTML.includes(">Save Verification Evidence<"), false);
+  assert.match(HTML, /<p class="muted verification-editor-note" id="verification-autosave-note">Changes are saved automatically\.<\/p>/);
+  const p = openedEvidence();
+  assert.equal(p.byId("done-verification").hidden, false);
+  assert.match(HTML, /id="done-verification"[^>]*>Done<\/button>/);
+  // Opening the form writes nothing and asks for nothing.
+  assert.equal(drafts(p).length, 0);
+});
+
+test("auto-save: every edit sends the rows as they stand — shell-looking text included — and nothing else", () => {
+  const p = openedEvidence();
+  const [row] = checkRows(p);
+  const hostile = 'npm test -- --grep "a|b" && echo $(whoami) `id` %PATH% > out.txt';
+  row!.name.value = "Unit tests";
+  row!.name.dispatch("input");
+  row!.procedure.value = hostile;
+  row!.procedure.dispatch("input");
+  row!.status.value = "passed";
+  row!.status.dispatch("change");
+  const last = drafts(p).at(-1)!;
+  assert.equal(drafts(p).length, 3, "an edit did not reach the host");
+  assert.deepEqual(last, {
+    type: "verificationDraft",
+    checks: [{ name: "Unit tests", status: "passed", type: "automated", procedure: hostile, evidence: "", notes: "" }],
+  });
+  assert.deepEqual(parsePanelMessage(last), last);
+  // No replace flag, no basis, no work item: the host decides.
+  assert.deepEqual(Object.keys(last).sort(), ["checks", "type"]);
+});
+
+test("auto-save: removing a check sends the rows that are left", () => {
+  const p = openedEvidence();
+  p.byId("add-verification-check").dispatch("click");
+  const rows = checkRows(p);
+  rows[0]!.name.value = "Keep";
+  rows[1]!.name.value = "Drop";
+  rows[1]!.remove.dispatch("click");
+  assert.deepEqual((drafts(p).at(-1) as { checks: { name: string }[] }).checks.map((check) => check.name), ["Keep"]);
+});
+
+test("auto-save: Unsaved changes, Saving…, Saved — the live region says only saved, and the form and focus stay", () => {
+  const p = openedEvidence();
+  const [row] = checkRows(p);
+  row!.name.value = "Unit tests";
+  row!.name.dispatch("input");
+  row!.name.focus();
+  const at = (autosave: NonNullable<WorkflowInput["verificationAutosave"]>) => p.send(verifiablePage({ verificationAutosave: autosave }));
+
+  at({ state: "dirty" });
+  assert.deepEqual(saveState(p), { status: "Unsaved changes", live: "", alert: "" });
+  at({ state: "saving" });
+  assert.deepEqual(saveState(p), { status: "Saving…", live: "", alert: "" });
+  // Saved: the report is listed now.
+  p.send(evidenced({ verificationAutosave: { state: "saved" } }));
+  assert.deepEqual(saveState(p), { status: "Saved", live: "Verification evidence saved.", alert: "" });
+  assert.equal(p.byId("verification-editor").hidden, false, "a save closed the form");
+  assert.equal(checkRows(p)[0]!.name.value, "Unit tests", "a save reset the rows");
+  assert.equal(p.focused, row!.name.id, "a save moved the keyboard");
+  // The saved report is what the form edits now.
+  assert.equal(p.byId("edit-verification").hidden, false);
+  assert.equal(p.byId("edit-verification").getAttribute("aria-expanded"), "true");
+});
+
+test("auto-save: an incomplete form is said, not saved, and keeps every row", () => {
+  const p = openedEvidence();
+  const [row] = checkRows(p);
+  row!.evidence.value = "It passed";
+  row!.evidence.dispatch("input");
+  p.send(verifiablePage({ verificationAutosave: { state: "incomplete", message: "Not saved yet: check 1 needs a name." } }));
+  assert.equal(saveState(p).status, "Not saved yet: check 1 needs a name.");
+  assert.equal(saveState(p).alert, "", "an incomplete form was shown as a failure");
+  assert.equal(checkRows(p)[0]!.evidence.value, "It passed");
+});
+
+test("auto-save: a failed save says so, keeps the rows, and Retry Save asks again; a later save clears it", () => {
+  const p = openedEvidence();
+  const [row] = checkRows(p);
+  row!.name.value = "Unit tests";
+  row!.name.dispatch("input");
+  p.send(verifiablePage({ verificationAutosave: { state: "error", message: "Verification evidence was not recorded: disk full." } }));
+  assert.deepEqual(saveState(p), {
+    status: "Could not save verification evidence",
+    live: "Verification evidence could not be saved.",
+    alert: "Verification evidence was not recorded: disk full.",
+  });
+  assert.equal(p.byId("retry-verification-save").hidden, false);
+  assert.equal(checkRows(p)[0]!.name.value, "Unit tests");
+  assert.equal(p.byId("verification-save-status").textContent.includes("Saved"), false, "a false Saved");
+  p.byId("retry-verification-save").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "flushVerification" });
+  p.send(evidenced({ verificationAutosave: { state: "saved" } }));
+  assert.deepEqual(saveState(p), { status: "Saved", live: "Verification evidence saved.", alert: "" });
+  assert.equal(p.byId("retry-verification-save").hidden, true);
+});
+
+test("auto-save: a conflict stops and asks — Reload Saved Version or Overwrite Saved Version — with the rows kept", () => {
+  const p = load();
+  p.send(evidenced());
+  p.byId("edit-verification").dispatch("click");
+  p.send(evidenced({ verificationEdit: { token: 3, checks: [{ name: "Unit tests", status: "passed", type: "automated", procedure: "", evidence: "", notes: "" }], structured: true, unreadable: false } }));
+  checkRows(p)[0]!.notes.value = "mine";
+  checkRows(p)[0]!.notes.dispatch("input");
+  p.send(evidenced({ verificationAutosave: { state: "conflict", message: "verification_report.md changed outside this form, so your changes were not saved over it." } }));
+  assert.equal(saveState(p).status, "Not saved: the report changed outside this form");
+  assert.match(saveState(p).alert, /changed outside this form/);
+  assert.equal(p.byId("retry-verification-save").hidden, true);
+  assert.equal(checkRows(p)[0]!.notes.value, "mine");
+  p.byId("reload-verification").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "editVerification" });
+  p.byId("overwrite-verification").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "overwriteVerification" });
+});
+
+test("auto-save: Done saves what is waiting and closes once saved; after a failure it stays open", () => {
+  const p = openedEvidence();
+  const [row] = checkRows(p);
+  row!.name.value = "Unit tests";
+  row!.name.dispatch("input");
+  const dirty: Partial<WorkflowInput> = { verificationAutosave: { state: "dirty" } };
+  p.send(verifiablePage(dirty));
+  p.byId("done-verification").focus();
+  p.byId("done-verification").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "flushVerification" });
+  assert.equal(p.byId("verification-editor").hidden, false, "Done closed before the save");
+  p.send(evidenced({ verificationAutosave: { state: "saved" } }));
+  assert.equal(p.byId("verification-editor").hidden, true);
+  assert.equal(p.focused, "edit-verification", "the keyboard was not given back to the form's button");
+
+  // A save that fails keeps the form open.
+  const q = openedEvidence();
+  checkRows(q)[0]!.name.value = "Unit tests";
+  checkRows(q)[0]!.name.dispatch("input");
+  q.send(verifiablePage(dirty));
+  q.byId("done-verification").dispatch("click");
+  q.send(verifiablePage({ verificationAutosave: { state: "error", message: "x" } }));
+  assert.equal(q.byId("verification-editor").hidden, false);
+
+  // Nothing typed: Done closes, and the host drops the empty draft.
+  const r = openedEvidence();
+  r.byId("done-verification").dispatch("click");
+  assert.equal(r.byId("verification-editor").hidden, true);
+  assert.deepEqual(r.posted.at(-1), { type: "discardVerificationDraft" });
+});
+
+test("auto-save: Ctrl+Enter in the form saves now, never Runs; plain Enter in a name is held", () => {
+  const p = openedEvidence();
+  const [row] = checkRows(p);
+  row!.name.value = "Unit tests";
+  const before = p.posted.length;
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true, target: row!.name });
+  p.byId("verification-editor").dispatch("keydown", { key: "Enter", ctrlKey: true, target: row!.name });
+  const sent = p.posted.slice(before);
+  assert.equal(sent.some((message) => isRunPress(message)), false);
+  assert.deepEqual(sent.at(-1), { type: "flushVerification" });
+});
+
+test("auto-save: Edit fills the form from the host's answer, and the next edit is a draft of that report", () => {
+  const p = load();
+  p.send(evidenced());
+  p.byId("edit-verification").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "editVerification" });
+  const checks = [{ name: "Unit tests", status: "passed", type: "automated", procedure: "npm test", evidence: "12 passed", notes: "" }] as const;
+  p.send(evidenced({ verificationEdit: { token: 5, checks, structured: true, unreadable: false } }));
+  assert.equal(checkRows(p)[0]!.name.value, "Unit tests");
+  assert.equal(drafts(p).length, 0, "loading the report sent it back as a change");
+  checkRows(p)[0]!.evidence.value = "13 passed";
+  checkRows(p)[0]!.evidence.dispatch("input");
+  assert.deepEqual((drafts(p).at(-1) as { checks: object[] }).checks, [{ ...checks[0], evidence: "13 passed" }]);
+});
+
+test("auto-save: a Record form that met a report written meanwhile keeps its checks when Edit loads the report", () => {
+  const p = openedEvidence();
+  checkRows(p)[0]!.name.value = "Typed here";
+  checkRows(p)[0]!.name.dispatch("input");
+  p.send(evidenced());
+  p.byId("edit-verification").dispatch("click");
+  p.send(evidenced({ verificationEdit: { token: 9, checks: [{ name: "Recorded there", status: "failed", type: "manual", procedure: "", evidence: "", notes: "" }], structured: true, unreadable: false } }));
+  assert.deepEqual(checkRows(p).map((row) => row.name.value), ["Recorded there", "Typed here"]);
+  // Both are the draft now, so neither is lost.
+  assert.deepEqual((drafts(p).at(-1) as { checks: { name: string }[] }).checks.map((check) => check.name), ["Recorded there", "Typed here"]);
+});
+
+test("auto-save: another work item closes the form; its host flushed or asked first", () => {
+  const p = openedEvidence();
+  checkRows(p)[0]!.name.value = "For JR-12345";
+  p.send(verifiablePage({ workItemId: "JR-77777" }, { workItemId: "JR-77777" }));
+  assert.equal(p.byId("verification-editor").hidden, true);
+  assert.equal(p.byId("verification-rows").children.length, 0);
+});
+
+// --- Repository Files' quick fix (§37.85) -----------------------------------
+
+const REPOSITORY_FILES = {
+  title: "Repository Files",
+  message:
+    "This repository does not ignore .ai/ and .ai_memory/. Add both to .gitignore, or generated artifacts — including fetched Jira content — may appear in your commits.",
+};
+const GITIGNORE_ACTION = {
+  id: "addArtifactsToGitignore" as const,
+  label: "Add to .gitignore",
+  accessibleName: "Add .ai and .ai_memory to .gitignore",
+};
+
+/** Every element under this one, depth first. */
+function descendants(element: FakeElement): FakeElement[] {
+  return element.children.flatMap((child) => [child, ...descendants(child)]);
+}
+const noticeButton = (page: Page) =>
+  descendants(page.byId("notices")).find((element) => element.getAttribute("data-notice-action") === "addArtifactsToGitignore");
+
+test("the Repository Files card draws its quick fix as a button, with its accessible name", () => {
+  const page = load();
+  page.send(state({ warnings: [{ ...REPOSITORY_FILES, action: GITIGNORE_ACTION }] }));
+  assert.equal(page.byId("notices").hidden, false);
+  const button = noticeButton(page);
+  assert.ok(button, "no Add to .gitignore button");
+  assert.equal(button.textContent, "Add to .gitignore");
+  assert.equal(button.getAttribute("aria-label"), "Add .ai and .ai_memory to .gitignore");
+  assert.equal(button.type, "button", "a submit button would run the form");
+  // The default (secondary) button style, not the primary one.
+  assert.equal(button.classes.has("primary"), false);
+  assert.ok(button.classes.has("notice-action"));
+  // The warning's own text is on the card as before.
+  const texts = descendants(page.byId("notices")).map((element) => element.textContent);
+  assert.ok(texts.includes(REPOSITORY_FILES.message));
+});
+
+test("no quick fix offered, no button — and a card without one is drawn as before", () => {
+  const page = load();
+  page.send(state({ warnings: [REPOSITORY_FILES] }));
+  assert.equal(noticeButton(page), undefined);
+  page.send(state({ warnings: [] }));
+  assert.equal(page.byId("notices").hidden, true);
+});
+
+test("pressing it sends the intent, and nothing about which file or which rules", () => {
+  const page = load();
+  page.send(state({ warnings: [{ ...REPOSITORY_FILES, action: GITIGNORE_ACTION }] }));
+  const before = page.posted.length;
+  noticeButton(page)!.dispatch("click");
+  assert.deepEqual(page.posted.slice(before), [{ type: "action", id: "addArtifactsToGitignore" }]);
+});
+
+test("busy, the button stays focusable and does nothing; the focus survives the redraw", () => {
+  const page = load();
+  page.send(state({ warnings: [{ ...REPOSITORY_FILES, action: GITIGNORE_ACTION }] }));
+  noticeButton(page)!.focus();
+  page.send(state({ warnings: [{ ...REPOSITORY_FILES, action: { ...GITIGNORE_ACTION, label: "Adding to .gitignore…", busy: true } }] }));
+  const busy = noticeButton(page)!;
+  assert.equal(busy.getAttribute("aria-disabled"), "true");
+  assert.equal(busy.disabled, false, "a disabled button would drop the focus");
+  assert.equal(page.focused, busy.id, "the focus was dropped by the redraw");
+  const before = page.posted.length;
+  busy.dispatch("click");
+  assert.equal(page.posted.length, before);
+});
+
+test("a render that changes nothing keeps the card's DOM, so a focused button stays focused", () => {
+  const page = load();
+  const warnings = [{ ...REPOSITORY_FILES, action: GITIGNORE_ACTION }];
+  page.send(state({ warnings }));
+  const button = noticeButton(page)!;
+  button.focus();
+  page.send(state({ warnings, revision: 5 }));
+  assert.equal(noticeButton(page), button);
+  assert.equal(page.focused, button.id);
+});
+
+test("the fix worked: the card goes, the line that says so appears, and the focus lands on it — not on a card that is gone", () => {
+  const page = load();
+  page.send(state({ warnings: [{ ...REPOSITORY_FILES, action: GITIGNORE_ACTION }] }));
+  noticeButton(page)!.focus();
+  page.send(state({ warnings: [], noticeStatus: "Added .ai/ and .ai_memory/ to .gitignore. Git now ignores .ai/ and .ai_memory/." }));
+  assert.equal(page.byId("notices").hidden, true);
+  assert.equal(page.byId("notice-status").hidden, false);
+  assert.match(page.byId("notice-status").textContent, /Git now ignores/);
+  assert.equal(page.focused, "notice-status");
+  // Next check of the environment: the line goes.
+  page.send(state({ warnings: [] }));
+  assert.equal(page.byId("notice-status").hidden, true);
+});
+
+test("the focus is only moved for someone who was on the button", () => {
+  const page = load();
+  page.send(state({ warnings: [{ ...REPOSITORY_FILES, action: GITIGNORE_ACTION }] }));
+  page.byId("issue").focus();
+  page.send(state({ warnings: [], noticeStatus: "Git now ignores .ai/ and .ai_memory/." }));
+  assert.equal(page.focused, "issue");
+});
+
+test("what the last press came to is on the card, under the warning", () => {
+  const page = load();
+  page.send(state({ warnings: [{ ...REPOSITORY_FILES, action: GITIGNORE_ACTION, status: "Could not update .gitignore. The BugPilot output has the details." }] }));
+  const status = descendants(page.byId("notices")).find((element) => element.classes.has("notice-status"));
+  assert.equal(status?.textContent, "Could not update .gitignore. The BugPilot output has the details.");
+  // A retry is still offered.
+  assert.ok(noticeButton(page));
 });

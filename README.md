@@ -285,8 +285,10 @@ They hold per-run artifacts and fetched Jira content, and `docs/safety.md`
 already forbids the agent from committing them — but without these two lines
 your own `git status` fills with files you did not write, and Jira issue text
 ends up in a shared repository. `bugpilot doctor` reports
-`ai_artifacts_ignored`, so this is something you can check rather than
-remember. bugpilot does not edit your `.gitignore` itself.
+`ai_artifacts_ignored` (and, per folder, `ai_artifacts_ignored_paths`), so this
+is something you can check rather than remember. The CLI does not edit your
+`.gitignore`; the VS Code extension's warning has an **Add to .gitignore**
+button that adds the missing lines when you press it.
 
 ## Quick Demo
 ```powershell

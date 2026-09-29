@@ -16,7 +16,7 @@ import subprocess
 import pytest
 
 from bugpilot.core import search, workflow
-from bugpilot.core.git_ops import artifacts_ignored
+from bugpilot.core.git_ops import artifact_directories_ignored
 from bugpilot.core.issue import IssueArtifact
 from bugpilot.core import artifact_io
 from bugpilot.core.artifact_io import atomic_write_text
@@ -183,19 +183,42 @@ def test_artifacts_ignored_answers_before_the_directories_exist(tmp_path):
     directory, so asking about `.ai` answered "not ignored" until `.ai` existed.
     """
     _git(tmp_path, "init", "-q")
-    assert artifacts_ignored(tmp_path) is False
+    assert artifact_directories_ignored(tmp_path) == {".ai": False, ".ai_memory": False}
 
     (tmp_path / ".gitignore").write_text(".ai/\n.ai_memory/\n", encoding="utf-8")
-    assert artifacts_ignored(tmp_path) is True, "neither directory exists yet, and that is the point"
-
-    # Half-configured is not configured: .ai_memory would still be committed.
-    (tmp_path / ".gitignore").write_text(".ai/\n", encoding="utf-8")
-    assert artifacts_ignored(tmp_path) is False
+    assert artifact_directories_ignored(tmp_path) == {".ai": True, ".ai_memory": True}, (
+        "neither directory exists yet, and that is the point"
+    )
 
 
 def test_artifacts_ignored_is_unknown_outside_a_checkout(tmp_path):
     """None, not False: there is nothing to advise about without git."""
-    assert artifacts_ignored(tmp_path) is None
+    assert artifact_directories_ignored(tmp_path) is None
+
+
+def test_artifact_directories_ignored_answers_per_directory_with_gits_own_semantics(tmp_path):
+    """What the extension's quick fix reads to add only the missing rule.
+
+    Git decides, so the spellings a person actually writes all count: without
+    a trailing slash, anchored at the root, or kept out of `.gitignore` in
+    `.git/info/exclude`.
+    """
+    _git(tmp_path, "init", "-q")
+    assert artifact_directories_ignored(tmp_path) == {".ai": False, ".ai_memory": False}
+
+    (tmp_path / ".gitignore").write_text(".ai/\n", encoding="utf-8")
+    assert artifact_directories_ignored(tmp_path) == {".ai": True, ".ai_memory": False}
+
+    (tmp_path / ".gitignore").write_text("/.ai_memory/\n", encoding="utf-8")
+    assert artifact_directories_ignored(tmp_path) == {".ai": False, ".ai_memory": True}
+
+    (tmp_path / ".gitignore").write_bytes(b"# ours\r\n.ai\r\n/.ai_memory\r\n")
+    assert artifact_directories_ignored(tmp_path) == {".ai": True, ".ai_memory": True}
+
+    (tmp_path / ".gitignore").unlink()
+    (tmp_path / ".git" / "info").mkdir(exist_ok=True)
+    (tmp_path / ".git" / "info" / "exclude").write_text(".ai/\n.ai_memory/\n", encoding="utf-8")
+    assert artifact_directories_ignored(tmp_path) == {".ai": True, ".ai_memory": True}
 
 
 def test_doctor_reports_it(tmp_path, monkeypatch):
@@ -204,7 +227,20 @@ def test_doctor_reports_it(tmp_path, monkeypatch):
 
     _git(tmp_path, "init", "-q")
     monkeypatch.chdir(tmp_path)
-    assert collect_doctor_report(tmp_path)["ai_artifacts_ignored"] is False
+    report = collect_doctor_report(tmp_path)
+    assert report["ai_artifacts_ignored"] is False
+    assert report["ai_artifacts_ignored_paths"] == {".ai": False, ".ai_memory": False}
+
+    # Half-configured is not configured: .ai_memory would still be committed.
+    (tmp_path / ".gitignore").write_text(".ai/\n", encoding="utf-8")
+    report = collect_doctor_report(tmp_path)
+    assert report["ai_artifacts_ignored"] is False
+    assert report["ai_artifacts_ignored_paths"] == {".ai": True, ".ai_memory": False}
+
+    (tmp_path / ".gitignore").write_text(".ai/\n.ai_memory/\n", encoding="utf-8")
+    report = collect_doctor_report(tmp_path)
+    assert report["ai_artifacts_ignored"] is True
+    assert report["ai_artifacts_ignored_paths"] == {".ai": True, ".ai_memory": True}
 
 
 # --- a test file is a lead, not an implementation ---------------------------

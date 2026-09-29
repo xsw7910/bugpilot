@@ -2258,6 +2258,157 @@ terminal, no agent named, no sign it was still alive and no way to stop it.
    completed with the result parsed, completed without a usable result, timed
    out — never the prompt or the reply.
 
+### Confirmed decisions (Verification Evidence Auto-Save)
+
+1. **Review Result keeps its Save; Verification Evidence saves itself.** A
+   review result is a reviewer's conclusion, recorded when the developer says
+   so. Verification evidence is structured data the developer is entering — the
+   checks actually performed — and is written as it is entered.
+   `verification_report.md` remains the one persisted record, written only by
+   `bugpilot record-verification`; the Save Verification Evidence button is
+   gone, and Cancel became **Done**.
+
+2. **The host owns the draft and the save.** Every edit in the form — a field,
+   a status, a type, Remove Check — sends the rows to the host
+   (`verificationDraft { checks }`, bounded and validated like
+   `recordVerification`). The host holds the latest draft for the work item it
+   was typed for and saves it `VERIFICATION_AUTOSAVE_MS` (750 ms) after the last
+   edit — one debounce, so a burst of typing is one write. Because the draft is
+   the host's, a panel hidden mid-edit (its webview destroyed) still saves it.
+   The page writes nothing and decides nothing.
+
+3. **Only a valid draft is written.** Blank rows — an Add Check not yet used —
+   are left out. No check at all writes nothing: no empty report is ever
+   created, and a saved report is kept, never deleted, when every check is
+   removed (the status says so). A check that cannot be recorded as it stands
+   (no name; past the CLI's caps) is said — *Not saved yet: check 2 needs a
+   name.* — and the draft stays, saved as soon as it is complete. A draft equal
+   to what was last saved writes nothing.
+
+4. **Save states** (`VerificationAutosave`, host-authoritative): absent
+   (clean), `dirty` (*Unsaved changes*), `saving` (*Saving…*), `saved`
+   (*Saved*), `incomplete` (why not, not an error), `error` (*Could not save
+   verification evidence*, the reason, **Retry Save**), `conflict` (auto-save
+   stopped). Edits made while a save is written are saved after it. The live
+   region says only *Verification evidence saved.* and *…could not be saved.*;
+   the reason is an alert; Saving… is never announced. A save neither closes
+   nor resets the form, nor moves the keyboard.
+
+5. **Replace only over the version the form last read or wrote.** The first
+   save of a new form is a plain record (the CLI refuses if a report appeared
+   meanwhile); after it, and after Edit loads a report, each save replaces the
+   report only if its text is still the one the form last read or wrote — the
+   existing Edit basis check. A report changed outside the form, or written
+   meanwhile, is a `conflict`: nothing is written, the draft and the file on
+   disk are both kept, and the developer chooses **Reload Saved Version** (Edit
+   again) or **Overwrite Saved Version** (the form's checks, over the version
+   there now).
+
+6. **The watcher only confirms.** BugPilot's own write is seen by the artifact
+   watcher and read back — a read-only refresh that changes no draft, no dirty
+   state and no focus — and that text becomes the version the next save
+   replaces. No save follows a refresh, so there is no loop.
+
+7. **Nothing typed is dropped silently.** Opening another work item and
+   starting a run save the draft first; if it cannot be saved, the developer is
+   asked (*… could not be saved. Open the other work item anyway? They will be
+   lost.* — the action / **Keep Editing**). A save held back by another write in
+   flight is tried when that ends. A save still waiting when the extension
+   itself shuts down is not started (a CLI spawned then may be cut off half-way).
+
+8. **Done** saves anything still waiting and closes the form once it is saved;
+   after a failure, a conflict or an incomplete check it stays open with the
+   reason. A form nothing was typed into closes and the host drops its draft.
+
+9. **Unchanged:** Not Run is the default status; statuses and types; the
+   artifact format; no verdict — every check Passed is still only *All recorded
+   checks passed.*; Use Verification Evidence reads only the saved
+   `verification_report.md`, never the unsaved form.
+
+10. **No Review Validation prefill exists** in this codebase; auto-save is
+    draft-first (nothing is written until the debounce), so a future prefill
+    would appear as unsaved changes the developer can edit before the first
+    save.
+
+### Confirmed decisions (Issue, Fix Mode and Hint as the problem's definition)
+
+This revises the Workflow Settings Navigation decisions (§37.77), which had
+moved Fix Mode and Hint onto the settings page.
+
+1. **Issue, Fix Mode and Hint are the primary problem-definition controls on
+   the main page**, together above the primary action, in reading and tab order:
+   Issue (placeholder *Enter a Jira ticket (e.g. JR-12345) or describe the
+   bug*, helper *Use a Jira issue ID, or describe the problem directly.*, tied by
+   `aria-describedby`), Fix Mode (with its Manage Fix Modes gear and the mode's
+   description), Hint (with Use issue details, Improve and the suggestion). Then
+   Run, then the workflow rows.
+
+2. **One place for each setting.** Fix Mode, Hint and Use issue details left
+   the settings page; `SettingsField` excludes them, and Fix with AI's section
+   is the AI agent and the custom agent command only. Its note is now *Changes
+   here apply to the next run and do not require rebuilding context.* — no
+   section is mixed, so no setting carries its own "Requires context rebuild"
+   label. The Fix with AI row's summary is the agent alone ("Claude Code"); the
+   line beside the Workflow Settings entry that named a non-default Fix Mode is
+   gone, since the selector is in plain view.
+
+3. **Form fields, not a draft.** They are read from their controls like the
+   Issue and sent with every form change (`formChanged`); the settings page's
+   Apply / Cancel draft no longer covers them, and an Apply sends them as they
+   stand on the form. Use Improved puts the suggestion into the Hint and sends
+   the form, as typing would. Nothing starts a run.
+
+4. **Staleness is unchanged.** `preparationFingerprint` still includes the Fix
+   Mode and the Hint and not Use issue details, so an edit of either makes a
+   prepared context stale — the button becomes Rebuild Context — exactly as
+   before, and reverting it makes the context current again.
+
+5. **Where focus goes.** A problem with the chosen mode lands on the selector
+   on the form (once per problem, again after a refused press); returning from
+   Manage Fix Modes lands on its gear beside the selector.
+
+### Confirmed decisions (Repository Files quick fix)
+
+1. **Repository Files diagnostics provides a one-click quick fix to add `.ai/`
+   and `.ai_memory/` to the repository `.gitignore`.** A secondary button, *Add
+   to .gitignore* (accessible name *Add .ai and .ai_memory to .gitignore*), on
+   the existing card; the warning's text is unchanged.
+
+2. **One answer about what is ignored: git's.** `doctor` reports, beside
+   `ai_artifacts_ignored`, `ai_artifacts_ignored_paths` — `{".ai": bool,
+   ".ai_memory": bool}` from the same `git check-ignore` probe — and the fix
+   adds a rule only for a directory it says is not ignored. `.ai`, `/.ai/`, a
+   rule in `.git/info/exclude` or a global excludes file count as they do for
+   git. A CLI without the per-directory field gets the warning and no button:
+   the extension does not guess from the file's text.
+
+3. **Only `<repository root>/.gitignore`, only appended.** The root the
+   diagnostics ran in; never a global, parent or nested ignore file, and never
+   through a symbolic link. A missing file is created with exactly `.ai/` and
+   `.ai_memory/`. An existing one keeps every byte; the new lines start on a line
+   of their own, in the file's line ending (its first), with no comment — BugPilot
+   has no convention of generated comments. A rule already a line of the file is
+   not written again, so the fix is idempotent. No shell: VS Code's file system
+   and editor APIs.
+
+4. **Never behind unsaved edits.** An open `.gitignore` is edited through a
+   `WorkspaceEdit`. A clean one is then saved (the save writes the disk's text
+   plus the lines); a dirty one keeps the developer's edits in its buffer with
+   the lines after them, is not saved, and the card says to save it. Saving the
+   root `.gitignore` re-checks the diagnostics.
+
+5. **The warning goes when git says so.** After a write the host runs `doctor`
+   again — a probe that starts after the write — and the card disappears only if
+   git now ignores both. Otherwise it stays, with *The rules are in .gitignore,
+   but Git still does not ignore …* and no button. A failed write keeps the card
+   with *Could not update .gitignore.* and the button, and logs the reason and the
+   path to the BugPilot output — never the file's contents.
+
+6. **Host authoritative.** The page sends `{ type: "action", id:
+   "addArtifactsToGitignore" }` and renders what comes back: the card's action
+   (busy while it runs, `aria-disabled` so the focus stays) and status, and on
+   success a line under the notices that takes the focus if the button had it.
+
 ---
 
 # 20. Step Secondary Text 状态原则

@@ -15,8 +15,43 @@ import type { Envelope } from "../protocol.ts";
 import type { ReviewCapture } from "./reviewCapture.ts";
 import type { VerificationCheckEntry } from "./verificationReport.ts";
 
-/** The recording's own state, shaped like Review Result's: recording, recorded, or why not. */
-export type VerificationCapture = ReviewCapture;
+/**
+ * The recording's own state, shaped like Review Result's: recording, recorded,
+ * or why not — `conflict` when the report on disk is not the one the form was
+ * editing (changed since, or written meanwhile), which is never overwritten.
+ */
+export type VerificationCapture =
+  | Exclude<ReviewCapture, { state: "failed" }>
+  | { readonly state: "failed"; readonly message: string; readonly conflict?: true };
+
+/**
+ * Verification Evidence auto-save (§37.83), as the host holds it. Absent:
+ * clean — nothing typed since the form was opened or last saved.
+ *
+ * - `dirty`: changes the host has not saved yet (the debounce is waiting).
+ * - `saving`: record-verification is writing them.
+ * - `saved`: the report on disk is the form's content.
+ * - `incomplete`: not saved, and not an error: nothing to save yet, or a check
+ *   that cannot be recorded as it stands (no name, too long). The draft stays.
+ * - `error`: the save failed; the draft stays, and Retry Save tries again.
+ * - `conflict`: the report changed outside the form; auto-save has stopped
+ *   until the developer reloads it or overwrites it.
+ */
+export type VerificationAutosave =
+  | { readonly state: "dirty" }
+  | { readonly state: "saving" }
+  | { readonly state: "saved" }
+  | { readonly state: "incomplete"; readonly message: string }
+  | { readonly state: "error"; readonly message: string }
+  | { readonly state: "conflict"; readonly message: string };
+
+/** How long after the last edit auto-save writes. */
+export const VERIFICATION_AUTOSAVE_MS = 750;
+
+/** A row nothing was typed into: an Add Check not yet used. Never saved, never an error. */
+export function isBlankCheck(check: VerificationCheckEntry): boolean {
+  return [check.name, check.procedure, check.evidence, check.notes].every((field) => field.trim() === "");
+}
 
 /** How a failure begins: about the recording, never about the fix. */
 export const VERIFICATION_NOT_RECORDED = "Verification evidence was not recorded";

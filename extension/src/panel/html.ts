@@ -57,6 +57,7 @@ import {
   WORKFLOW_SETTINGS_SECTIONS,
   sectionRebuildNote,
   showsRebuildLabel,
+  isSettingsField,
 } from "../app/workflowSettings.ts";
 import type { SettingsField, WorkflowSettingsSection } from "../app/workflowSettings.ts";
 
@@ -120,7 +121,8 @@ export type IconTone = "primary" | "hint" | "danger" | "muted" | "success" | "wa
  */
 const ISSUE_FIELD = `      <div class="field" id="field-issue">
 ${settingHeader({ forId: "issue", label: "Issue" })}
-        <textarea id="issue" name="issue" rows="2" placeholder="Jira ticket or bug description" aria-describedby="issue-note issue-error"></textarea>
+        <textarea id="issue" name="issue" rows="2" placeholder="Enter a Jira ticket (e.g. JR-12345) or describe the bug" aria-describedby="issue-hint issue-note issue-error"></textarea>
+        <p class="hint" id="issue-hint">Use a Jira issue ID, or describe the problem directly.</p>
         <p class="muted issue-note" id="issue-note" hidden></p>
         <p class="error" id="issue-error" hidden></p>
       </div>`;
@@ -161,21 +163,16 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
 /**
  * Strategy: how the agent approaches the bug — the one Fix Mode selector.
  *
- * On the Workflow Settings page, in Fix with AI's section (off the main form
- * since Batch 7). It is an input to the run like everything else there, and
- * Standard Fix is what almost every run uses. The selection is
- * `FormState.fixModeId` whether the page is open or closed, the host still
- * restores and normalizes it, and the selected mode's description — including
- * "Investigation only" — stays directly under the selector it describes. It
- * changes the prepared task, so it says it requires a context rebuild.
+ * On the main page, directly under the Issue (§37.84): what the bug is, how the
+ * AI should approach it and any guidance for it are defined together, before
+ * Run. It is a form field like the Issue — every change goes to the host, which
+ * alone decides that a prepared context is now stale — and it has no second
+ * copy on the settings page. The host still restores and normalizes the
+ * selection, and the selected mode's description — including "Investigation
+ * only" — stays directly under the selector it describes.
  *
  * The gear opens Manage Fix Modes (view, duplicate, create, edit, delete),
  * which is why it sits beside the selector rather than anywhere else.
- *
- * While the page is closed, the line beside the Workflow Settings entry names a
- * non-default applied mode (`#settings-strategy`): the host can change the
- * selection without a click — reopening a work item restores the mode it was
- * prepared with — so the form still says when Run will not use the default.
  */
 const FIX_MODE_FIELD = `        <div class="field" id="field-fixModeId">
 ${settingHeader({
@@ -184,7 +181,6 @@ ${settingHeader({
   icon: "lightbulb",
   tone: "primary",
   hint: "How the AI works on this bug.",
-  rebuild: showsRebuildLabel("fixModeId"),
 })}
           <div class="fix-mode-row">
             <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-hint fixModeId-description">
@@ -198,7 +194,8 @@ ${settingHeader({
         </div>`;
 
 /**
- * Guidance: what the AI is told, beyond the bug report itself.
+ * Guidance: what the AI is told, beyond the bug report itself — on the main
+ * page under Fix Mode (§37.84), with its Improve and Use issue details.
  *
  * One field, and that is the point of giving it a heading of its own. UI-A2's
  * question was which of these settings talk to the agent and which decide what
@@ -510,7 +507,15 @@ export function panelHtml(options: PanelHtmlOptions): string {
 ${ISSUE_FIELD}
 
       <!--
-        The one primary action, directly under the issue: Run, Fix with AI,
+        How the AI should approach the issue, and any guidance for it: with the
+        issue itself, the problem as the developer defines it — above Run, in
+        the order they are read and tabbed through (§37.84).
+      -->
+${FIX_MODE_FIELD}
+${GUIDANCE_FIELDS.map(field).join("\n")}
+
+      <!--
+        The one primary action, under the problem's definition: Run, Fix with AI,
         Open AI Session or Rebuild Context — whichever is next for the work item
         and the form, as the host says (app/nextAction.ts) — or Running…. Its id
         stays "run" because it is still the form's submit, and Ctrl+Enter still
@@ -577,15 +582,10 @@ ${FIX_RESULT_ROW}
         it was prepared with — and Run would not use the default then.
       -->
       <div class="settings-entry">
-        <button type="button" id="open-settings" class="settings-open" aria-describedby="settings-strategy-description">
+        <button type="button" id="open-settings" class="settings-open">
           <span class="codicon codicon-settings-gear icon-primary" aria-hidden="true"></span>
           <span class="settings-open-label">Workflow Settings</span>
         </button>
-        <span class="settings-strategy" id="settings-strategy" aria-hidden="true" hidden>
-          <span class="codicon codicon-lightbulb icon-primary" aria-hidden="true"></span>
-          <span class="settings-strategy-name" id="settings-strategy-name"></span>
-        </span>
-        <span id="settings-strategy-description" hidden></span>
       </div>
 
       <!--
@@ -608,6 +608,9 @@ ${FIX_RESULT_ROW}
     </form>
 
     <section id="notices" class="notices" role="status" hidden></section>
+    <!-- What a notice's quick fix did, once the notice is gone (§37.85): focus
+         lands here rather than on a card that no longer exists. -->
+    <p id="notice-status" class="notice-done" role="status" tabindex="-1" hidden></p>
 
   </section>
 
@@ -790,7 +793,7 @@ function sectionBody(section: WorkflowSettingsSection): string {
     case "build-context":
       return FRESH_FIELD;
     case "fix-with-ai":
-      return `${AGENT_FIELD}\n${field(AGENT_COMMAND_FIELD)}\n${FIX_MODE_FIELD}\n${GUIDANCE_FIELDS.map(field).join("\n")}`;
+      return `${AGENT_FIELD}\n${field(AGENT_COMMAND_FIELD)}`;
   }
 }
 
@@ -905,7 +908,7 @@ ${settingHeader({
     ...(entry.icon === undefined ? {} : { icon: entry.icon }),
     ...(entry.tone === undefined ? {} : { tone: entry.tone }),
     ...(entry.hint === undefined ? {} : { hint: entry.hint }),
-    rebuild: showsRebuildLabel(entry.id as SettingsField),
+    rebuild: isSettingsField(entry.id) && showsRebuildLabel(entry.id),
   })}
       ${control}
       <p class="error" id="${entry.id}-error" hidden></p>
@@ -1042,7 +1045,10 @@ function stepContent(id: WorkflowStepId): string {
     // Then Verification Evidence (Batch 12): the checks the developer recorded
     // and the status they gave each, counted — "Recorded checks: 2 passed,
     // 1 failed" — with the checks by name and one generated, scoped phrase; no
-    // badge, and nothing that says verified. Add Verification Evidence sits
+    // badge, and nothing that says verified. The form saves itself (§37.83): a
+    // compact status says Unsaved changes, Saving…, Saved, or why not, with Retry
+    // Save after a failure and Reload / Overwrite after a conflict; Done closes it
+    // once saved. Add Verification Evidence sits
     // with the row's actions while none is recorded; Open and Edit sit with the
     // evidence once it is. The form says first that it is for checks actually
     // performed — a review's observations belong in Review Result — and holds
@@ -1126,12 +1132,20 @@ ${errorCard("review-error")}
             </div>
             <div class="verification-editor" id="verification-editor" role="group" aria-label="Verification evidence" hidden>
               <p class="muted verification-editor-note" id="verification-editor-note">Record checks you actually performed and what you observed. BugPilot does not run these checks or infer the result. What a reviewer noticed while reading the change belongs in Review Result.</p>
-              <p class="muted verification-editor-note" id="verification-editor-replace-note" hidden>This report is not in BugPilot's format, so its checks could not be read into the form. Saving replaces it with the checks below.</p>
+              <p class="muted verification-editor-note" id="verification-editor-replace-note" hidden>This report is not in BugPilot's format, so its checks could not be read into the form. Your first change replaces it with the checks below.</p>
+              <p class="muted verification-editor-note" id="verification-autosave-note">Changes are saved automatically.</p>
               <div class="verification-rows" id="verification-rows"></div>
               <div class="verification-editor-actions">
                 <button type="button" class="result-link" id="add-verification-check"><span class="codicon codicon-add" aria-hidden="true"></span><span>Add Check</span></button>
-                <button type="button" class="result-link" id="save-verification"><span id="save-verification-label">Save Verification Evidence</span></button>
-                <button type="button" class="result-link" id="cancel-verification">Cancel</button>
+                <button type="button" class="result-link" id="done-verification" title="Close the form; any change not yet saved is saved first">Done</button>
+              </div>
+              <p class="muted verification-save-status" id="verification-save-status"></p>
+              <div class="verification-save-problem" id="verification-save-problem" hidden>
+                <div class="verification-editor-actions">
+                  <button type="button" class="result-link" id="retry-verification-save" hidden>Retry Save</button>
+                  <button type="button" class="result-link" id="reload-verification" hidden>Reload Saved Version</button>
+                  <button type="button" class="result-link" id="overwrite-verification" hidden>Overwrite Saved Version</button>
+                </div>
               </div>
             </div>
             <div class="review-status" id="verification-capture-status" role="status" tabindex="-1"></div>
@@ -1194,7 +1208,6 @@ function section(entry: { readonly id: string; readonly label: string }): string
 
 /** The ids of the text fields the Workflow Settings page holds, so a test can check it holds them. */
 export const SETTINGS_FIELD_IDS: readonly string[] = [
-  ...GUIDANCE_FIELDS,
   ...RETRIEVAL_FIELDS,
   ...LIMIT_FIELDS,
   ...RUN_OPTION_FIELDS,
@@ -1209,7 +1222,8 @@ export const SETTINGS_FIELD_IDS: readonly string[] = [
  * and `description`, and which of the two it fills is derived from what is in
  * it. `test/panel.test.ts` states that mapping rather than exempting it.
  *
- * Everything else is what the Workflow Settings page holds — one list, so a
- * field cannot be added to a section and forgotten here.
+ * The Hint is the form's, under Fix Mode (§37.84). Everything else is what
+ * the Workflow Settings page holds — one list, so a field cannot be added to a
+ * section and forgotten here.
  */
-export const TEXT_FIELD_IDS: readonly string[] = ["issue", ...SETTINGS_FIELD_IDS];
+export const TEXT_FIELD_IDS: readonly string[] = ["issue", ...GUIDANCE_FIELDS.map((entry) => entry.id), ...SETTINGS_FIELD_IDS];

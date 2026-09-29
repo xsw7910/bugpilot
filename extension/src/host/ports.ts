@@ -29,6 +29,7 @@ import { Runner } from "../runner.ts";
 import { CAPTURED_REVIEW_TIMEOUT_MS } from "../app/reviewRun.ts";
 import type { SessionCandidate } from "../app/session.ts";
 import type { FilesPort, UiPort } from "../app/controller.ts";
+import type { GitignoreEntry, GitignoreIo } from "../app/gitignore.ts";
 import type { PanelState } from "../panel/messages.ts";
 
 export function createFilesPort(): FilesPort {
@@ -457,6 +458,50 @@ export async function improveHintWithProvider(request: {
   } finally {
     await rm(scratch, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/**
+ * `.gitignore` as Repository Files' quick fix sees it (§37.85): the editor's
+ * open document when there is one, VS Code's file system otherwise. No shell.
+ *
+ * The document is found by path, so an open `.gitignore` — dirty or not — is
+ * edited through a `WorkspaceEdit` and the developer's unsaved text stays in
+ * the buffer. What to write is decided in `src/app/gitignore.ts`.
+ */
+export function createGitignoreIo(): GitignoreIo {
+  const sameFile = (a: string, b: string) =>
+    process.platform === "win32" ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b);
+  return {
+    document: (file) => {
+      const document = vscode.workspace.textDocuments.find(
+        (candidate) => candidate.uri.scheme === "file" && !candidate.isClosed && sameFile(candidate.uri.fsPath, file),
+      );
+      if (!document) return undefined;
+      return {
+        text: document.getText(),
+        eol: document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n",
+        dirty: document.isDirty,
+        append: async (text) => {
+          const edit = new vscode.WorkspaceEdit();
+          edit.insert(document.uri, document.positionAt(document.getText().length), text);
+          return vscode.workspace.applyEdit(edit);
+        },
+        save: () => Promise.resolve(document.save()),
+      };
+    },
+    stat: async (file): Promise<GitignoreEntry> => {
+      try {
+        const found = await vscode.workspace.fs.stat(vscode.Uri.file(file));
+        if (found.type & vscode.FileType.SymbolicLink) return "symlink";
+        return found.type & vscode.FileType.File ? "file" : "other";
+      } catch (error) {
+        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") return "missing";
+        throw error;
+      }
+    },
+    read: async (file) => vscode.workspace.fs.readFile(vscode.Uri.file(file)),
+    write: async (file, bytes) => vscode.workspace.fs.writeFile(vscode.Uri.file(file), bytes),
+  };
 }
 
 /**

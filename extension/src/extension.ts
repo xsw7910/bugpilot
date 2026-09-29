@@ -33,6 +33,7 @@ import {
   improveHintWithProvider,
   runCapturedReview,
   watchArtifactDirectory,
+  createGitignoreIo,
   loadIssueDetails,
   canRun,
   createFilesPort,
@@ -212,6 +213,9 @@ export function activate(context: vscode.ExtensionContext): void {
       // The shown work item's `.ai/<id>/`, and nothing wider: an agent's
       // fix_report.md shows up without a reload (§37.81).
       watchArtifacts: watchArtifactDirectory,
+      // Repository Files' quick fix: the open .gitignore through the editor,
+      // the file through VS Code's file system (§37.85).
+      gitignore: createGitignoreIo(),
       reviewedFixes: reviewedFixStore(
         () => context.workspaceState.get(REVIEWED_FIXES_STATE_KEY),
         (value) => void context.workspaceState.update(REVIEWED_FIXES_STATE_KEY, value),
@@ -257,6 +261,17 @@ export function activate(context: vscode.ExtensionContext): void {
       if (event.affectsConfiguration(`${SETTINGS.section}.${SETTINGS.executablePath}`)) {
         void controller.refreshEnvironment();
       }
+    }),
+    // The repository's own .gitignore saved: what git ignores may have changed,
+    // and a quick fix left in an unsaved buffer lands now (§37.85).
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      const root = controller.root;
+      if (root === undefined || document.uri.scheme !== "file") return;
+      const relative = path.relative(root, document.uri.fsPath);
+      if ((process.platform === "win32" ? relative.toLowerCase() : relative) !== ".gitignore") return;
+      void controller.gitignoreSaved().catch((error: unknown) => {
+        log.error(`Re-checking .gitignore failed: ${(error as Error).message}`);
+      });
     }),
   );
 

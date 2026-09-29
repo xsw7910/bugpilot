@@ -69,6 +69,15 @@ BugPilot writes its artifacts there, including the fetched Jira content. The
 panel warns when they are not ignored, and **BugPilot: Doctor** reports it as
 `ai_artifacts_ignored`.
 
+The warning's **Add to .gitignore** button does it for you. It adds only the
+rule git says is missing — a `.ai` or `/.ai/` you already have counts, as it
+does for git — to the `.gitignore` at the repository root, creating the file if
+there is none. Your existing lines, comments and line endings stay as they are;
+the new lines go at the end. Pressing it twice adds nothing the second time.
+BugPilot then asks git again, and the warning goes only once git ignores both
+folders. If `.gitignore` is open with unsaved changes, the lines go into the
+editor and you save them; nothing is written behind your edits.
+
 ## First run, in about five minutes
 
 1. Open the repository you are fixing bugs in. One folder, and ideally a git
@@ -80,15 +89,25 @@ panel warns when they are not ignored, and **BugPilot: Doctor** reports it as
    command line, never in the panel.
 4. In the **Issue** field, type an issue key such as `JR-12345`, or describe the
    problem in your own words. The line under the field says which it read —
-   "Jira issue JR-12345" or "Bug description".
+   "Jira issue JR-12345" or "Bug description". Under it, **Fix Mode** says how
+   the AI should approach the bug (Standard Fix unless you change it) and
+   **Hint** takes any guidance you want it to have; both are optional.
 5. Press **Run** (or `Ctrl+Enter`).
 
-That is the whole panel: one input, one button, and one list of steps.
+That is the whole panel: the problem — issue, Fix Mode, hint — one button, and
+one list of steps.
 
 ```
 Issue
-[ JR-12345                                  ]
+[ Enter a Jira ticket (e.g. JR-12345) or describe the bug ]
+Use a Jira issue ID, or describe the problem directly.
 Jira issue JR-12345
+
+Fix Mode
+[ Standard Fix                            ▾ ] ⚙
+Hint
+[ e.g. Check initialization logic…          ]
+☑ Use issue details   Improve
 
 [        ▶ Run        ] [ Stop ]
          Ctrl+Enter
@@ -108,7 +127,7 @@ Investigation & AI Fix           Running 3/6…
   Prepare structured context for AI
 ☐ Fix with AI                          ⚙
   Run the prepared context with your AI coding agent
-  Claude Code · Standard Fix
+  Claude Code
 ──────────────────────────────────────────────
 [ ⚙ Workflow Settings ]
 ```
@@ -143,26 +162,31 @@ their checkbox, so they have no gear.
 | Issue details | Title (a bug you describe), Attachments |
 | Code search | Keywords, Focus files, Ignore paths, Max files, Max search lines |
 | Build context | Delete previous artifacts first |
-| Fix with AI | AI agent, custom agent command, Fix Mode, Hint |
+| Fix with AI | AI agent, custom agent command |
 
 The page edits a copy: nothing you change there is used until you press
 **Apply** (or Ctrl+Enter). **Cancel**, **Back** and Escape discard the changes,
-and the issue, the checkboxes and everything else on the main page stay as you
-left them. Each section says whether its changes **require rebuilding
-context** — after applying one that does, the button at the top becomes
-**Rebuild Context**. Changing the AI agent or *Delete previous artifacts first*
-does not. While BugPilot is running something, Apply waits until it finishes.
+and the issue, Fix Mode, Hint, the checkboxes and everything else on the main
+page stay as you left them. Fix Mode and Hint are not on this page: they are on
+the main page under the issue, where you define the problem, and each setting
+has exactly one place. Each section says whether its changes **require
+rebuilding context** — after applying one that does, the button at the top
+becomes **Rebuild Context**. Changing the AI agent or *Delete previous artifacts
+first* does not. While BugPilot is running something, Apply waits until it
+finishes.
 
 A row with settings shows a short summary of them under its description — "4
-keywords · 2 focus paths · max 10 files", "Claude Code · Standard Fix" — as
-counts and names only, never what you typed or a path.
+keywords · 2 focus paths · max 10 files", "Claude Code" — as counts and names
+only, never what you typed or a path.
 
 ## Fix Mode
 
-**Workflow Settings → Fix with AI → Fix Mode** decides how the agent should
-approach this bug. Standard Fix is the default, so most runs never need to open
-the page; the choice holds while it is closed. The list comes from your
-`bugpilot` install, so it shows exactly what that version can run:
+**Fix Mode**, on the main page under the issue, decides how the agent should
+approach this bug. Standard Fix is the default, so most runs leave it alone.
+Changing it is a change to what is prepared: once a context exists, the button
+becomes **Rebuild Context**, as it does for the issue or the hint. The list
+comes from your `bugpilot` install, so it shows exactly what that version can
+run:
 
 | Mode | What the agent does |
 | --- | --- |
@@ -174,9 +198,8 @@ the page; the choice holds while it is closed. The list comes from your
 
 The choice travels with the work item: reopening one from **History**, or
 typing its key, selects the mode it was prepared with — so a package prepared
-as investigation only is prepared that way again unless you change it. Beside
-**Workflow Settings** the panel names any mode other than Standard Fix, so a
-restored choice is visible before you press **Run**. An
+as investigation only is prepared that way again unless you change it — and
+the dropdown shows the restored choice before you press **Run**. An
 investigate-only mode says so beneath the dropdown, and after a run the **Fix
 with AI** row's **Strategy** line names the mode the package was actually
 prepared with, before you hand it over.
@@ -372,14 +395,26 @@ command you ran or the steps you followed, the evidence you observed and notes.
 The fields show examples such as *Targeted unit tests · npm test · 1285 passed,
 0 failed* as placeholders; they are never saved. **Add Check** and **Remove
 Check** change the rows. BugPilot does not run any of them, read a terminal or
-watch CI: on Save the CLI writes `verification_report.md` with exactly what you
-entered, and **Verification Evidence** appears under Fix result — "Recorded
-checks: 2 passed, 1 failed", one line summarizing the recorded statuses, up to
-five checks by name, and **Open Verification Report**. A recorded status is
-about that one check; all of them passing does not mean the fix is correct.
-**Edit Verification Evidence** fills the form from the report and saving
-replaces it — unless the report changed since Edit was opened, which is kept
-and said. While a review result or verification evidence is being recorded, no
+watch CI. There is no Save button: the form saves itself about three quarters
+of a second after you stop typing — the CLI writes `verification_report.md`
+with exactly what you entered — and a small line under the form says
+**Unsaved changes**, **Saving…** or **Saved**. Nothing is written while the
+form is empty or a check has no name yet (the line says which), and a blank
+row from Add Check is left out; removing every check keeps the report already
+saved. **Done** closes the form, saving anything still waiting first. If a save
+fails, the line says *Could not save verification evidence* with the reason,
+the form keeps what you typed, and **Retry Save** tries again. If
+`verification_report.md` was changed outside the form, nothing is written over
+it: auto-save stops, and you choose **Reload Saved Version** or **Overwrite
+Saved Version**. Opening another work item or starting a run saves the form
+first, and asks before losing changes that could not be saved. Review Result is
+different on purpose: it is a reviewer's conclusion, and it is saved only when
+you press Save Review Result. Saved evidence appears under Fix result —
+"Recorded checks: 2 passed, 1 failed", one line summarizing the recorded
+statuses, up to five checks by name, and **Open Verification Report**. A
+recorded status is about that one check; all of them passing does not mean the
+fix is correct. **Edit Verification Evidence** fills the form from the report,
+and your changes replace it as they are saved. While a review result or verification evidence is being recorded, no
 run starts and **Clean** is refused until it ends; while Clean runs, neither
 recording starts. Plain Enter in a check's name never runs the panel.
 A **Fresh** run removes the report with the fix report; **Rebuild Context** and

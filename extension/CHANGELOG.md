@@ -42,7 +42,9 @@ First release. What it does today:
   **Save Review Result**. **Add Review Result** is the same form for a review
   typed by hand. **Add Verification Evidence** records the checks you actually
   performed — each with the status you chose, Not Run by default — and what you
-  observed. BugPilot runs none of them and reads no pass, approval or
+  observed; the form saves itself shortly after you stop typing, shows
+  Unsaved changes / Saving… / Saved, writes nothing while it is empty or a
+  check has no name, and never writes over a report changed outside it. BugPilot runs none of them and reads no pass, approval or
   "verified" out of either record.
 - **The panel follows the work item's folder.** A `fix_report.md`, a review or
   verification report, or any other file written, changed or deleted in
@@ -52,13 +54,17 @@ First release. What it does today:
   watched; the refresh only reads, and keeps whatever is being typed.
 - Jira credentials live in VS Code's SecretStorage and reach the CLI as
   environment variables — never on a command line, never in the panel.
+- **The problem at the top.** Issue, **Fix Mode** and **Hint** (with Improve
+  and Use issue details) sit together above the button: what the bug is, how
+  the AI should approach it, and any guidance. The Issue field says it takes a
+  Jira ticket (e.g. JR-12345) or a description.
 - **Workflow Settings.** A ⚙ on each step that has settings — Issue details,
   Code search, Build context, Fix with AI — opens one settings page at that
   step's section. Changes apply with **Apply** and are discarded by Cancel or
   Back; each section says whether its changes require rebuilding context, and
   the rows show a short summary of their settings. It replaces the Advanced
-  Settings disclosure.
-- **Fix Mode.** Under **Workflow Settings → Fix with AI**, a dropdown chooses how
+  Settings disclosure. Fix Mode and Hint are on the main page, not here.
+- **Fix Mode.** On the main page under the issue, a dropdown chooses how
   the agent approaches the bug: Standard Fix (the default), Conservative Fix,
   Investigate First, Test-Driven Fix or Deep Analysis, plus any custom mode you
   or the project define. Investigate First prepares an investigation-only pass —
@@ -69,6 +75,11 @@ First release. What it does today:
   instructions, at user scope (`~/.bugpilot/fix_modes/`) or project scope
   (`.bugpilot/fix_modes/`, shared through source control). The list of modes
   comes from the `bugpilot` CLI; the extension defines none of its own.
+- **Add to .gitignore.** The Repository Files warning — `.ai/` and `.ai_memory/`
+  are not ignored — has a button that adds the missing rules to the repository's
+  `.gitignore`: only what git says is missing, appended in the file's own line
+  ending, and never behind unsaved edits in an open editor. The warning goes
+  once git confirms both folders are ignored, without a reload.
 
 Requires the `bugpilot` CLI on the machine; the extension drives it and does not
 bundle it.

@@ -64,8 +64,12 @@
    */
   const PROBLEM_CONTROLS = { issueKey: "issue", description: "issue" };
 
-  /** The text fields on the Workflow Settings page; the Issue field is the form's own. */
-  const SETTINGS_TEXT_FIELDS = TEXT_FIELDS.filter((field) => field !== "issue");
+  /**
+   * The text fields on the Workflow Settings page. The Issue and the Hint are
+   * the form's own, above Run with Fix Mode (§37.84): read from their controls
+   * like the plan's checkboxes, never through the settings page's draft.
+   */
+  const SETTINGS_TEXT_FIELDS = TEXT_FIELDS.filter((field) => field !== "issue" && field !== "hint");
 
   /**
    * The Workflow Settings page's sections: the `FormState` fields each one
@@ -83,10 +87,7 @@
       focus: ["keywords"],
     },
     "build-context": { fields: ["fresh"], focus: ["fresh"] },
-    "fix-with-ai": {
-      fields: ["agent", "agentCommand", "fixModeId", "hint", "useIssueDetails"],
-      focus: ["agent"],
-    },
+    "fix-with-ai": { fields: ["agent", "agentCommand"], focus: ["agent"] },
   };
 
   /** Which workflow row's gear opens which section; a row absent here has none. */
@@ -175,7 +176,6 @@
    */
   let committed = {
     title: "",
-    hint: "",
     keywords: "",
     focusFiles: "",
     ignorePaths: "",
@@ -183,10 +183,8 @@
     maxSearchLines: "",
     agentCommand: "",
     agent: "auto",
-    fixModeId: "",
     attachments: [],
     fresh: false,
-    useIssueDetails: true,
   };
   /** Whether the Workflow Settings page is the view on screen (or under a Fix Mode view). */
   let settingsOpen = false;
@@ -336,7 +334,19 @@
     evidence: "e.g. 1285 passed, 0 failed, or The issue no longer reproduces",
   };
   /** The form's own buttons, which the panel's form handlers leave alone. */
-  const VERIFICATION_CONTROLS = ["add-verification-check", "save-verification", "cancel-verification"];
+  const VERIFICATION_CONTROLS = [
+    "add-verification-check",
+    "done-verification",
+    "retry-verification-save",
+    "reload-verification",
+    "overwrite-verification",
+  ];
+  // Auto-save (§37.83): Done waits for the host's word that the form is saved,
+  // and the live region says only the transitions that matter.
+  let verificationClosing = false;
+  let verificationAnnounced = "";
+  /** The Fix result step as last rendered, for Done to read the save state from. */
+  let lastFixResult;
 
   /**
    * The primary action as the host last described it (`app/nextAction.ts`).
@@ -419,14 +429,6 @@
     return formWith(committed);
   }
 
-  /**
-   * The form with the settings page's draft instead — what the page shows, for
-   * the one question asked about a draft: improving the hint on screen.
-   */
-  function draftForm() {
-    return formWith(readSettings());
-  }
-
   function formWith(settings) {
     const issue = byId("issue").value;
     const source = issueSource();
@@ -440,6 +442,12 @@
     form.plan.issueDetails = true;
     // Not part of the plan: it is what happens after the run, not a flag on it.
     form.fixWithAI = byId("plan-fixWithAI").checked;
+    // The problem's definition beside the issue: how the AI approaches it and
+    // the hint it carries, straight from the controls on the form.
+    form.fixModeId = byId("fixModeId").value || "";
+    form.hint = byId("hint").value;
+    // Gates what the hint improver may read. Not a run flag.
+    form.useIssueDetails = byId("useIssueDetails").checked;
     return form;
   }
 
@@ -448,11 +456,8 @@
     const settings = {};
     for (const field of SETTINGS_TEXT_FIELDS) settings[field] = byId(field).value;
     settings.agent = byId("agent").value || "auto";
-    settings.fixModeId = byId("fixModeId").value || "";
     settings.attachments = [...attachments];
     settings.fresh = byId("fresh").checked;
-    // Gates what the hint improver may read. Not a run flag.
-    settings.useIssueDetails = byId("useIssueDetails").checked;
     return settings;
   }
 
@@ -461,10 +466,8 @@
     const settings = {};
     for (const field of SETTINGS_TEXT_FIELDS) settings[field] = form[field] ?? "";
     settings.agent = form.agent ?? "auto";
-    settings.fixModeId = form.fixModeId ?? "";
     settings.attachments = Array.isArray(form.attachments) ? [...form.attachments] : [];
     settings.fresh = form.fresh === true;
-    settings.useIssueDetails = form.useIssueDetails !== false;
     return settings;
   }
 
@@ -472,15 +475,10 @@
   function writeSettings(settings) {
     for (const field of SETTINGS_TEXT_FIELDS) byId(field).value = settings[field] ?? "";
     byId("agent").value = settings.agent ?? "auto";
-    // After renderFixModes has put the options there — a value that is not one
-    // of them is dropped by the element, which is why the order matters.
-    byId("fixModeId").value = settings.fixModeId ?? "";
     attachments = [...settings.attachments];
     renderAttachments();
     byId("fresh").checked = settings.fresh === true;
-    byId("useIssueDetails").checked = settings.useIssueDetails !== false;
     applyAgentVisibility();
-    renderFixModeNote();
   }
 
   function writeForm(form) {
@@ -499,10 +497,18 @@
     // mode it restored) supersedes a draft of the one before.
     committed = settingsOf(form);
     writeSettings(committed);
-    // As the selector took it: a mode with no option yet (a catalog still
-    // loading) is no mode, as it always was for a run.
-    committed.fixModeId = byId("fixModeId").value || "";
-    renderStrategySummary();
+    // The problem's own fields, on the form. The mode after renderFixModes has
+    // put the options there — a value that is not one of them is dropped by the
+    // element, which is why the order matters; a mode with no option yet (a
+    // catalog still loading) is no mode, as it always was for a run.
+    const mode = form.fixModeId ?? "";
+    const select = byId("fixModeId");
+    // Said outright rather than left to the element: no option, no mode.
+    select.value = [...select.children].some((option) => option.value === mode) ? mode : "";
+    byId("hint").value = form.hint ?? "";
+    grow(byId("hint"));
+    byId("useIssueDetails").checked = form.useIssueDetails !== false;
+    renderFixModeNote();
     // The stored form is the new truth; forget any coupling snapshot from
     // before it was loaded.
     planBeforeCoupling = undefined;
@@ -658,7 +664,6 @@
     renderProblems(state.problems || []);
     // After the form: the note describes whichever mode the select ended on.
     renderFixModes(state);
-    renderStrategySummary();
     renderWorkflow(state);
     renderRun(state);
     renderRunHint(state);
@@ -714,11 +719,8 @@
         select.append(option);
         select.value = "";
       }
-      // The selector fell back to what the catalog allows. While the settings
-      // page is closed its controls are the applied settings, so the applied
-      // mode follows — Run sends what the closed page would show. An open page's
-      // draft is only a draft.
-      if (!settingsOpen) committed.fixModeId = select.value || "";
+      // The selector fell back to what the catalog allows; Run reads the
+      // selector, so it sends what is shown.
     }
     fixModesReady = catalog.kind === "ready";
     fixModeCatalog = catalog;
@@ -728,11 +730,13 @@
   function renderFixModes(state) {
     const problem = (state.problems || []).find((entry) => entry.field === "fixModeId");
     renderFixModeNote(problem);
-    // The selector is on the Workflow Settings page, which may be closed: a
-    // problem with the chosen mode opens it once and lands on the selector, like
-    // a problem in any field there.
+    // On the form, under the Issue: a problem with the chosen mode brings the
+    // selector into view and lands on it, once per problem.
     const signature = problem ? problem.message : "";
-    if (signature && signature !== shownFixModeProblem) openSettings("fix-with-ai", undefined, "fixModeId");
+    if (signature && signature !== shownFixModeProblem && activeView === "main") {
+      scrollIntoView(byId("field-fixModeId"), "nearest");
+      byId("fixModeId").focus({ preventScroll: true });
+    }
     shownFixModeProblem = signature;
   }
 
@@ -769,28 +773,6 @@
       Boolean(problem) || catalog.kind === "unavailable",
     );
     select.setAttribute("aria-invalid", problem ? "true" : "false");
-  }
-
-  /**
-   * The line beside Workflow Settings that names a non-default Fix Mode.
-   *
-   * The applied mode, never the selector's draft: it says what Run will use.
-   * Nothing for the default the CLI declared — the ordinary case adds no text —
-   * and nothing when there is no catalog, because then Run sends no mode at all.
-   */
-  function renderStrategySummary() {
-    const catalog = fixModeCatalog || { kind: "loading" };
-    const selected =
-      catalog.kind === "ready" ? catalog.modes.find((mode) => mode.id === committed.fixModeId) : undefined;
-    const name =
-      catalog.kind === "ready" && selected && selected.id !== catalog.defaultModeId
-        ? selected.name || selected.id
-        : "";
-    const label = byId("settings-strategy");
-    byId("settings-strategy-name").textContent = name;
-    label.setAttribute("title", name ? `Fix Mode: ${name}` : "");
-    label.hidden = name === "";
-    byId("settings-strategy-description").textContent = name ? `Fix Mode: ${name}` : "";
   }
 
   function renderReadiness(readiness) {
@@ -1531,29 +1513,27 @@
    * recording may start and runs record-verification.
    */
   function renderVerification(step, workItemId) {
+    lastFixResult = step;
     const actions = (step && step.actions) || [];
     const result = step ? step.verificationResult : undefined;
     const capture = step ? step.verificationCapture : undefined;
     const edit = step ? step.verificationEdit : undefined;
+    const autosave = step ? step.verificationAutosave : undefined;
     const recording = Boolean(capture && capture.state === "recording");
-    const failed = Boolean(capture && capture.state === "failed");
-    const recorded = Boolean(capture && capture.state === "recorded");
     const offered = actions.includes("recordVerification") || actions.includes("editVerification");
     const editor = byId("verification-editor");
-    const hadFocus = verificationFocused();
 
     const anotherItem = !step || workItemId !== verificationEditorWorkItem;
     if (anotherItem) {
+      // The host saved the last work item's form, or asked, before switching.
       closeVerificationEditor(true);
       verificationStatus = "";
       verificationError = "";
+      verificationAnnounced = "";
+      verificationClosing = false;
       byId("verification-capture-status").textContent = "";
     }
     verificationEditorWorkItem = step ? workItemId : undefined;
-    // Only the host's own word that it recorded closes and empties the form.
-    const finished = !anotherItem && recorded && !wasVerificationRecorded;
-    wasVerificationRecorded = recorded;
-    if (finished) closeVerificationEditor(true);
 
     // The recorded checks, sent once for Edit: fill the form and open it.
     if (step && edit && edit.token !== verificationEditToken) {
@@ -1564,11 +1544,14 @@
         verificationMode === "record" ? verificationRows.map(readVerificationRow).filter((check) => check.name.trim() !== "") : [];
       const checks = [...(edit.checks || []), ...typed].slice(0, MAX_VERIFICATION_CHECKS);
       openVerificationEditor("edit", checks, edit.structured ? "" : edit.unreadable ? "unreadable" : "format");
+      if (typed.length > 0) sendVerificationDraft();
     }
 
     const open = !editor.hidden;
-    // While the host records, neither toggle does anything — the form and what
-    // was typed stay exactly as they are until the recording has answered.
+    // Saved for the first time — by this form, as the host says: the open form
+    // now edits that report. A report written elsewhere meanwhile is not the
+    // form's, and Edit keeps what was typed beside it.
+    if (open && result && verificationMode === "record" && autosave && autosave.state === "saved") verificationMode = "edit";
     const record = byId("record-verification");
     record.hidden = !(step && !result && (actions.includes("recordVerification") || open || recording));
     record.setAttribute("aria-expanded", open ? "true" : "false");
@@ -1578,16 +1561,7 @@
     editButton.setAttribute("aria-expanded", open ? "true" : "false");
     const closesEdit = open && verificationMode === "edit";
     editButton.setAttribute("aria-disabled", recording || (!offered && !closesEdit) ? "true" : "false");
-
-    // `aria-disabled`, as on Save Review Result: a keyboard user who pressed a
-    // button keeps the focus while the host records; the handlers and host refuse.
-    const busy = recording || !offered;
-    const save = byId("save-verification");
-    save.setAttribute("aria-disabled", busy ? "true" : "false");
-    save.setAttribute("aria-busy", recording ? "true" : "false");
-    byId("save-verification-label").textContent = recording ? "Recording…" : "Save Verification Evidence";
-    byId("cancel-verification").setAttribute("aria-disabled", recording ? "true" : "false");
-    renderVerificationRowState(recording);
+    renderVerificationRowState();
 
     byId("verification-result").hidden = !result;
     byId("open-verification-report").hidden = !(result && actions.includes("openVerificationReport"));
@@ -1608,15 +1582,36 @@
       more.textContent = result && result.more ? result.more : "";
       more.hidden = !(result && result.more);
     }
+    renderVerificationSave(autosave, step);
+  }
 
-    let status = "";
-    if (recording) status = "Recording verification evidence…";
-    else if (recorded) status = capture.replaced ? "Verification evidence replaced." : "Verification evidence recorded.";
-    if (status !== verificationStatus) {
-      verificationStatus = status;
-      byId("verification-capture-status").textContent = status;
-    }
-    const message = failed ? capture.message || "" : "";
+  /**
+   * The form's save status, from the host's auto-save state: a compact line —
+   * Unsaved changes, Saving…, Saved, or why nothing was saved — and after a
+   * failure or a conflict the choices that resolve it. The live region says
+   * only "saved" and "could not be saved", once each; the alert carries the
+   * reason. Done closes the form once the host says it is saved.
+   */
+  function renderVerificationSave(autosave, step) {
+    const state = autosave ? autosave.state : "";
+    const labels = {
+      dirty: "Unsaved changes",
+      saving: "Saving…",
+      saved: "Saved",
+      incomplete: autosave && autosave.message ? autosave.message : "",
+      error: "Could not save verification evidence",
+      conflict: "Not saved: the report changed outside this form",
+    };
+    const status = byId("verification-save-status");
+    status.textContent = labels[state] || "";
+    status.hidden = status.textContent === "";
+    const problem = state === "error" || state === "conflict";
+    byId("verification-save-problem").hidden = !problem;
+    byId("retry-verification-save").hidden = state !== "error";
+    byId("reload-verification").hidden = state !== "conflict";
+    byId("overwrite-verification").hidden = state !== "conflict";
+
+    const message = problem && autosave.message ? autosave.message : "";
     if (message !== verificationError) {
       verificationError = message;
       const error = byId("verification-capture-error");
@@ -1624,7 +1619,33 @@
       error.hidden = message === "";
       error.textContent = message;
     }
-    if (finished && hadFocus) byId("verification-capture-status").focus({ preventScroll: true });
+    const announce = state === "saved" ? "Verification evidence saved." : problem ? "Verification evidence could not be saved." : "";
+    if (announce !== verificationAnnounced) {
+      // "Saving…" and "Unsaved changes" are never read out; a new edit clears
+      // the last announcement so the next save is said again.
+      if (announce !== "" || state === "dirty") {
+        verificationAnnounced = announce;
+        byId("verification-capture-status").textContent = announce;
+      }
+    }
+    if (verificationClosing) {
+      if (state === "saved" || state === "") {
+        verificationClosing = false;
+        finishVerificationEditing(step);
+      } else if (state !== "dirty" && state !== "saving") {
+        // Could not save: the form stays open, with the reason.
+        verificationClosing = false;
+      }
+    }
+  }
+
+  /** Done, once nothing is unsaved: close the form and give the keyboard its button back. */
+  function finishVerificationEditing() {
+    const hadFocus = verificationFocused();
+    closeVerificationEditor(true);
+    const toggle = byId("record-verification").hidden ? byId("edit-verification") : byId("record-verification");
+    toggle.setAttribute("aria-expanded", "false");
+    if (hadFocus && !toggle.hidden) toggle.focus({ preventScroll: true });
   }
 
   /** Whether the keyboard is somewhere in the verification form. */
@@ -1726,7 +1747,12 @@
     const row = { group, heading, name, status, kind, texts, remove, controls: [] };
     row.controls = [name, status, kind, ...texts.map((text) => text.area), remove];
     for (const control of row.controls) control.setAttribute("data-editor", "verification");
-    name.addEventListener("input", () => labelVerificationRows());
+    name.addEventListener("input", () => {
+      labelVerificationRows();
+      sendVerificationDraft();
+    });
+    for (const control of [status, kind]) control.addEventListener("change", sendVerificationDraft);
+    for (const text of texts) text.area.addEventListener("input", sendVerificationDraft);
     remove.addEventListener("click", () => removeVerificationRow(row));
 
     const choices = document.createElement("div");
@@ -1798,12 +1824,22 @@
   }
 
   function verificationBusy() {
-    return byId("save-verification").getAttribute("aria-busy") === "true";
+    return false;
   }
 
-  /** While recording, nothing in the form changes: its buttons wait. */
-  function renderVerificationRowState(recording) {
-    for (const row of verificationRows) row.remove.setAttribute("aria-disabled", recording ? "true" : "false");
+  /**
+   * Every edit goes to the host as the rows now stand; the host debounces,
+   * validates and saves. The page writes nothing and decides nothing about
+   * whether the rows can be saved.
+   */
+  function sendVerificationDraft() {
+    if (byId("verification-editor").hidden) return;
+    vscode.postMessage({ type: "verificationDraft", checks: verificationRows.map(readVerificationRow) });
+  }
+
+  /** Rows stay editable while a save is written: the host saves the newer ones after. */
+  function renderVerificationRowState() {
+    for (const row of verificationRows) row.remove.setAttribute("aria-disabled", "false");
     labelVerificationRows();
   }
 
@@ -1814,6 +1850,7 @@
     verificationRows.splice(index, 1);
     byId("verification-rows").replaceChildren(...verificationRows.map((entry) => entry.group));
     labelVerificationRows();
+    sendVerificationDraft();
     // The keyboard goes to the row that took this one's place, or to Add Check.
     const next = verificationRows[index] || verificationRows[index - 1];
     if (next) next.remove.focus({ preventScroll: true });
@@ -2215,10 +2252,31 @@
    * misconfiguration and an unignored artifact directory — and joining them
    * into one line put the first under a heading about the second.
    */
+  /** The notices last drawn, so a render that changes nothing keeps their DOM — and the focus in it. */
+  let noticesDrawn = "";
+  /** The quick-fix buttons on the cards now, by action id. */
+  let noticeButtons = new Map();
+
   function renderNotices(state) {
     const warnings = state.warnings || [];
     const container = byId("notices");
+    // What a quick fix did, once its card is gone: set first, so focus can land on it.
+    const done = byId("notice-status");
+    const doneText = state.noticeStatus || "";
+    done.textContent = doneText;
+    done.hidden = doneText === "";
+
+    const drawn = JSON.stringify(warnings);
+    if (drawn === noticesDrawn) return;
+    noticesDrawn = drawn;
+    // A quick fix's button that had the focus: back on it after the redraw, or —
+    // its card gone — on the line that says what it did, never on nothing.
+    const active = document.activeElement;
+    const focusedAction =
+      active && typeof active.getAttribute === "function" ? active.getAttribute("data-notice-action") : null;
+
     container.replaceChildren();
+    noticeButtons = new Map();
     for (const warning of warnings) {
       const card = document.createElement("section");
       card.className = "notice";
@@ -2229,6 +2287,7 @@
       icon.setAttribute("aria-hidden", "true");
 
       const body = document.createElement("div");
+      body.className = "notice-body";
       const title = document.createElement("p");
       title.className = "notice-title";
       title.textContent = warning.title || "";
@@ -2237,10 +2296,47 @@
       message.textContent = warning.message || "";
       body.append(title, message);
 
+      if (warning.status) {
+        const status = document.createElement("p");
+        status.className = "notice-status";
+        status.textContent = warning.status;
+        body.append(status);
+      }
+      const action = warning.action;
+      if (action && action.id) {
+        // Intent only: the host knows which file, which rules, and whether the
+        // offer still stands.
+        const row = document.createElement("div");
+        row.className = "notice-actions";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "notice-action";
+        button.id = `notice-action-${action.id}`;
+        button.setAttribute("data-notice-action", action.id);
+        button.setAttribute("aria-label", action.accessibleName || action.label || "");
+        button.textContent = action.label || "";
+        // aria-disabled, not disabled: a disabled button drops the focus.
+        if (action.busy) button.setAttribute("aria-disabled", "true");
+        button.addEventListener("click", () => {
+          if (button.getAttribute("aria-disabled") === "true") return;
+          vscode.postMessage({ type: "action", id: action.id });
+        });
+        row.append(button);
+        body.append(row);
+        noticeButtons.set(action.id, button);
+      }
+
       card.append(icon, body);
       container.append(card);
     }
     container.hidden = warnings.length === 0;
+
+    if (focusedAction) {
+      const again = noticeButtons.get(focusedAction);
+      if (again) again.focus({ preventScroll: true });
+      else if (doneText !== "") done.focus({ preventScroll: true });
+      else byId("issue").focus({ preventScroll: true });
+    }
   }
 
   function renderFooter(state) {
@@ -2345,18 +2441,19 @@
   }
 
   byId("improve-hint").addEventListener("click", () =>
-    // The hint being improved is the one on screen: the settings page's draft,
-    // which the host does not hold until Apply — so it travels with the press.
-    vscode.postMessage({ type: "improveHint", form: draftForm() }),
+    // The hint being improved is the one on screen, which may be a keystroke
+    // ahead of the host's copy — so it travels with the press.
+    vscode.postMessage({ type: "improveHint", form: readForm() }),
   );
   byId("hint-use").addEventListener("click", () => {
-    // Into the draft, like typing it: the hint reaches the host, and can make a
-    // context stale, only when the page is applied.
+    // Into the Hint, like typing it: the host gets the form, and decides —
+    // as for any edit of the Hint — whether the prepared context is now stale.
     if (hintSuggestion !== "") {
       byId("hint").value = hintSuggestion;
       grow(byId("hint"));
     }
     vscode.postMessage({ type: "useImprovedHint" });
+    formChanged();
   });
   byId("hint-keep").addEventListener("click", () =>
     vscode.postMessage({ type: "dismissImprovedHint" }),
@@ -2410,7 +2507,6 @@
       byId(`settings-section-${section}`).classList.toggle("settings-section-target", false);
     }
     showView("main", { focus: false });
-    renderStrategySummary();
     const origin = (settingsOrigin && document.getElementById(settingsOrigin)) || byId("open-settings");
     settingsOrigin = undefined;
     origin.focus({ preventScroll: true });
@@ -2492,11 +2588,11 @@
    * developer left from.
    */
   const VIEW_FOCUS = {
-    // Back on the form without the settings page — a reloaded panel that
-    // restored the manager: the way into the settings the gear was part of.
-    main: "open-settings",
-    // Back from Manage Fix Modes: its gear, beside the selector.
-    settings: "manage-fix-modes",
+    // Back on the form from Manage Fix Modes: its gear, beside the selector
+    // under the Issue.
+    main: "manage-fix-modes",
+    // Back on the settings page, which no longer holds the Fix Mode gear: its heading.
+    settings: "settings-heading",
     "fix-mode-manager": "manage-heading",
     "fix-mode-preview": "preview-heading",
     "fix-mode-new": "editor-title",
@@ -3078,7 +3174,6 @@
   byId("workflow-settings-view").addEventListener("change", (event) => {
     const target = event.target;
     if (target && target.id === "agent") applyAgentVisibility();
-    if (target && target.id === "fixModeId") renderFixModeNote();
   });
   byId("workflow-settings-view").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -3284,36 +3379,46 @@
     const row = addVerificationRow(undefined);
     row.name.focus({ preventScroll: true });
   });
-  byId("cancel-verification").addEventListener("click", () => {
-    if (byId("cancel-verification").getAttribute("aria-disabled") === "true") return;
-    const editing = verificationMode === "edit";
-    closeVerificationEditor(true);
-    byId("verification-capture-error").hidden = true;
-    verificationError = "";
-    const toggle = editing || byId("record-verification").hidden ? byId("edit-verification") : byId("record-verification");
-    if (!toggle.hidden) toggle.focus({ preventScroll: true });
-  });
-  // Save sends the rows and whether the form was opened by Edit — no work item,
-  // no path. Every status is the one chosen in the row; nothing is inferred.
-  function saveVerification() {
-    const save = byId("save-verification");
-    if (byId("verification-editor").hidden || save.getAttribute("aria-disabled") === "true") return;
-    const editing = verificationMode === "edit";
-    vscode.postMessage({
-      type: "recordVerification",
-      replace: editing,
-      // Which Edit answer the rows came from: the host replaces only the report
-      // that answer was read from, never one that changed since.
-      ...(editing && verificationEditToken !== undefined ? { basis: verificationEditToken } : {}),
-      checks: verificationRows.map(readVerificationRow),
+  // Done closes the form. Nothing is saved by it that auto-save would not
+  // save: a change still waiting is saved now, and the form closes once the
+  // host says it is saved — or stays open, with the reason, if it could not be.
+  byId("done-verification").addEventListener("click", () => {
+    if (byId("verification-editor").hidden) return;
+    const step = lastFixResult;
+    const state = step && step.verificationAutosave ? step.verificationAutosave.state : "";
+    const typed = verificationRows.some((row) => {
+      const check = readVerificationRow(row);
+      return [check.name, check.procedure, check.evidence, check.notes].some((field) => field.trim() !== "");
     });
-  }
-  byId("save-verification").addEventListener("click", saveVerification);
+    if (!typed) {
+      // Nothing was entered: nothing to keep, no report to write.
+      vscode.postMessage({ type: "discardVerificationDraft" });
+      finishVerificationEditing(step);
+      return;
+    }
+    if (state === "dirty" || state === "saving") {
+      verificationClosing = true;
+      if (state === "dirty") vscode.postMessage({ type: "flushVerification" });
+      return;
+    }
+    if (state === "" || state === "saved") finishVerificationEditing(step);
+    // Incomplete, failed or in conflict: the form stays, and the status says why.
+  });
+  byId("retry-verification-save").addEventListener("click", () => {
+    if (!byId("retry-verification-save").hidden) vscode.postMessage({ type: "flushVerification" });
+  });
+  byId("reload-verification").addEventListener("click", () => {
+    if (!byId("reload-verification").hidden) vscode.postMessage({ type: "action", id: "editVerification" });
+  });
+  byId("overwrite-verification").addEventListener("click", () => {
+    if (!byId("overwrite-verification").hidden) vscode.postMessage({ type: "overwriteVerification" });
+  });
   byId("verification-editor").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     if (event.ctrlKey || event.metaKey) {
+      // Save now, rather than after the pause.
       event.preventDefault();
-      saveVerification();
+      vscode.postMessage({ type: "flushVerification" });
       return;
     }
     // Plain Enter in a check's one-line name would submit the panel's form

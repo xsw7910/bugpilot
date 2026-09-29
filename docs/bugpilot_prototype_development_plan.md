@@ -9925,3 +9925,187 @@ captured-review tests now report their process start); typecheck, smoke and
 **Deferred.** Streamed tool progress from the agent; percentage progress, which
 the agent does not report; a View review prompt inside the details (Copy Review
 Prompt gives the prompt already).
+
+### 37.83 Verification Evidence auto-save (after `e8850a1`)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, not published, no version change. Extension
+only — no Python change. Decisions in
+`BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Verification Evidence Auto-Save)" at the end of §19.
+
+**What changed.**
+
+- `verificationCapture.ts`: `VerificationAutosave`, `VERIFICATION_AUTOSAVE_MS`
+  (750), `isBlankCheck`; `VerificationCapture`'s failure carries `conflict`.
+- `controller.ts`: `verificationDraftChanged` (the host's draft, dirty, the
+  debounce), `saveVerificationDraft` (blank rows left out, empty and incomplete
+  forms not written, unchanged forms not rewritten, the write through
+  `recordVerification` with the Edit basis, the new version kept after each
+  save, edits during a save saved after it), `overwriteVerification`,
+  `#settleVerificationDraft` before `showWorkItem` and `run` (awaited only when
+  something is unsaved, so a run still starts in the turn it is asked for), a
+  held save retried when a write in flight ends, the timer cancelled on dispose.
+- `messages.ts`: `verificationDraft`, `flushVerification`,
+  `overwriteVerification`, `discardVerificationDraft`.
+- `html.ts`, `panel.js`, `panel.css`: no Save button; *Changes are saved
+  automatically.*; Done; the save status line; Retry Save, Reload Saved Version
+  and Overwrite Saved Version; every edit sent to the host; the form no longer
+  closed or emptied by a save.
+
+**Not built: Prefill from Review Validation.** The request's §17–18 and §30
+describe a prefill that does not exist in the codebase; nothing was invented.
+
+**Real VS Code pass.** The disposable profile and synthetic repository of
+§37.80–§37.82 with the packaged VSIX, on a work item with no verification
+report.
+
+- PASS A: Add Verification Evidence — no Save button, Done present, no file;
+  a check typed: *Unsaved changes*, then *Saved*, `verification_report.md`
+  written, the live region *Verification evidence saved.*, the focus kept.
+- PASS B: 17 characters typed one by one: one save; the focus kept.
+- PASS C: a second check with evidence and no name: *Not saved yet: check 2
+  needs a name.*, nothing written; the name typed: saved.
+- DEFERRED D: Prefill from Review Validation — not in the codebase.
+- PASS E: the report made read-only: *Could not save verification evidence*
+  with the CLI's reason, Retry Save, the draft kept and not in the file; made
+  writable, Retry Save saved it.
+- PASS F: `issue.json` rewritten by another process while dirty: the draft, the
+  status and the focus kept. The report changed outside the form, then an edit:
+  the conflict, both choices, the file kept; Overwrite Saved Version wrote
+  exactly the form's checks.
+- PASS G: keyboard only — Tab to Add Check, a name typed, Status changed with
+  the arrow key, Tab to Done, Enter: saved, closed, focus on Edit Verification
+  Evidence; 200px without horizontal overflow; Dark, Light, High Contrast Dark,
+  High Contrast Light.
+- Recorded, not changed: the status and its problems sit under the form's
+  actions, so with several checks open they are below the fold while editing
+  the first; the failure is an alert, so it is announced wherever the reader is.
+
+**Regression.** Extension 1413 tests pass (1396 before: 16 controller for the
+save model, conflict, watcher, flushes and the held save; 13 page tests
+replacing 12 that pressed Save or Cancel, one Review Result test briefly
+removed by mistake and restored; markup updated); typecheck, smoke and
+`git diff --check` clean. No Python or integration test affected.
+
+**Deferred.** Saving a draft still waiting when the extension host shuts down;
+Prefill from Review Validation (not in the codebase).
+
+### 37.84 Issue, Fix Mode and Hint together on the main page (after §37.83, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Issue, Fix Mode and Hint as the problem's definition)" at
+the end of §19; it revises §37.77, which had put Fix Mode and Hint on the
+Workflow Settings page. The Issue field's new placeholder and helper line were
+made just before, as their own change.
+
+**What changed.**
+
+- `workflowSettings.ts`: `SettingsField` without `fixModeId`, `hint` and
+  `useIssueDetails`; Fix with AI's section is `agent`, `agentCommand`;
+  `isSettingsField`; `settingsSummaries(form)` gives Fix with AI its agent only.
+- `html.ts`: Fix Mode and Hint (with Use issue details, Improve and the
+  suggestion) moved into the form between the Issue and Run, without the
+  "Requires context rebuild" labels; the Workflow Settings entry lost the
+  non-default-mode line; `SETTINGS_FIELD_IDS` no longer lists the Hint.
+- `panel.js`: the three fields read from and written to their controls like the
+  Issue, not the settings draft; Use Improved sends a form change; a Fix Mode
+  problem focuses the selector on the form; back from Manage Fix Modes lands on
+  its gear; the strategy line's code and CSS removed.
+
+**Real VS Code pass** (the disposable profile and synthetic repository).
+
+- PASS A: Issue, Fix Mode, Hint, then Run, then the workflow, top to bottom.
+- PASS B: the placeholder, the helper line, `aria-describedby`, the Issue label.
+- PASS C: Fix with AI's settings section is the AI agent and the custom command,
+  with the no-rebuild note; no Fix Mode or Hint control on the settings page; the
+  row's summary "Auto-detected agent".
+- PASS D: a real Improve (the hint improver's `claude -p` in an empty folder)
+  returned a suggestion; Use Improved put it in the Hint; Use issue details
+  toggled without making the context stale.
+- PASS E: Fix Mode changed from the keyboard; its description followed.
+- PASS F: Fix Mode to Conservative Fix, and a hint typed, each turned Open AI
+  Session into Rebuild Context; reverting either turned it back.
+- PASS G: about 200px with no horizontal overflow.
+- PASS H: Tab from the Issue: Fix Mode, its gear, Hint, Use issue details,
+  Improve, then the primary action.
+- PASS I: Dark, Light, High Contrast Dark, High Contrast Light.
+
+**Regression.** Extension 1411 tests pass (1413 before: nine page tests about
+the removed strategy line replaced by five about the selector on the form,
+placement and summary tests rewritten, one controller and one model test added
+for staleness from the main page); typecheck, smoke and `git diff --check`
+clean.
+
+### 37.85 Repository Files quick fix: Add to .gitignore (after §37.84, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension and a small CLI
+change. Decisions in
+`BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Repository Files quick fix)" at the end of §19.
+
+**What changed.**
+
+- CLI: `git_ops.artifact_directories_ignored` — the existing `git check-ignore`
+  probe, answered per directory — replaces `artifacts_ignored`. `doctor` reports
+  `ai_artifacts_ignored` as before and `ai_artifacts_ignored_paths`
+  (`{".ai": bool, ".ai_memory": bool}`), from one probe.
+- `src/app/gitignore.ts`: which directories git says are missing (no answer, no
+  guess), the lines to append (the file's first line ending, a newline first when
+  the file has no final one, no duplicate of an existing line, no comment), and
+  `addGitignoreRules` over an injected file/editor interface: an open document
+  through the editor (dirty: into the buffer, not saved; clean: appended and
+  saved), otherwise the bytes kept and the lines appended; a symbolic link or
+  non-file refused.
+- `src/host/ports.ts`: `createGitignoreIo` — `workspace.textDocuments`,
+  `WorkspaceEdit`, `workspace.fs`. No shell.
+- Controller: `Notice.action` / `Notice.status`, the `addArtifactsToGitignore`
+  action and `addBugPilotPathsToGitignore()`: write, then a `doctor` probe that
+  starts after the write; the card goes only when it says both are ignored,
+  otherwise a neutral status and no button; a failed write keeps the card and
+  button with *Could not update .gitignore.* and logs the reason and path, never
+  the contents. While it runs, the card is drawn from the report at the press.
+  `gitignoreSaved()` on a save of the root `.gitignore` (`onDidSaveTextDocument`)
+  re-checks. `PanelState.noticeStatus` says what a fix did once its card is gone.
+- Page: the button (secondary, `aria-label` *Add .ai and .ai_memory to
+  .gitignore*, `aria-disabled` while busy), the card's status line, notices
+  redrawn only when they change, and focus kept on the button or moved to
+  `#notice-status` when the card goes.
+
+**Found in the real window and fixed.** The re-check's own push removed the card
+before the result line existed, so focus fell back to the Issue field; the card
+now stays as it was at the press until the re-check ends, and focus lands on the
+result line. The result line got a small top margin.
+
+**Real VS Code pass** (the disposable profile, a throwaway git repository, the
+rebuilt wheel reinstalled with pipx).
+
+- PASS A: no `.gitignore` — card and button; pressed: file created as exactly
+  `.ai/` and `.ai_memory/` (LF), card gone with no reload, result line focused.
+- PASS B: CRLF file with comments, a blank line, a `!` rule and no final
+  newline — every existing byte unchanged, `\r\n.ai/\r\n.ai_memory/\r\n`
+  appended; `git check-ignore -v` names lines 8 and 9.
+- PASS C: `/.ai_memory` present — only `.ai/` added; `.ai` present — only
+  `.ai_memory/` added.
+- PASS D: `/.ai` + `.ai_memory`, and `.git/info/exclude` alone — no card, no
+  button, nothing written (no `.gitignore` created).
+- PASS E: `.gitignore` open with an unsaved typed line — the rules went into the
+  buffer after it, the tab stayed dirty, the disk unchanged, the card said to
+  save; Ctrl+S — re-checked, card gone. Open and clean — appended through the
+  editor and saved.
+- PASS F: 200px (button inside the card, no horizontal overflow); keyboard — Tab
+  from the Issue reaches the button after Diagnostics, Enter runs it, focus on the
+  result line; Dark, Light, High Contrast Dark, High Contrast Light.
+- PASS (extra): a read-only `.gitignore` — *Could not update .gitignore.*, button
+  kept, EPERM and the path in the output, the file's contents not.
+- Not exercised in the real window: a write that succeeds while git still does
+  not ignore the directories (covered by controller tests).
+
+**Regression.** Extension 1458 tests pass (1411 before: 20 in the new
+`gitignore.test.ts`, 17 controller, 8 page and 2 panel tests); typecheck, smoke
+(which now expects the save listener) and `git diff --check` clean. Python 1260
+pass (the per-directory test added, the old function's tests moved to the new
+one).

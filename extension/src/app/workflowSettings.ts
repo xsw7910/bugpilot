@@ -21,7 +21,6 @@
 
 import { parseKeywords, parsePaths } from "./form.ts";
 import type { FormState } from "./form.ts";
-import type { FixModeCatalog } from "./fixModes.ts";
 import type { WorkflowStepId } from "./workflow.ts";
 
 /** The settings page's sections, top to bottom — the workflow's own order. */
@@ -48,10 +47,21 @@ export const SETTINGS_SECTION_TITLES: Readonly<Record<WorkflowSettingsSection, s
 
 /**
  * The form fields the settings page edits: everything in `FormState` except
- * what the main workflow page owns — the issue itself, the plan's checkboxes
- * and the Fix with AI box, which stay where a run is composed.
+ * what the main workflow page owns — the issue itself, how the AI is to
+ * approach it (Fix Mode) and the guidance it carries (Hint, with the hint
+ * improver's Use issue details), the plan's checkboxes and the Fix with AI box,
+ * which stay where a run is composed (§37.84: Issue, Fix Mode and Hint are the
+ * primary problem-definition controls, together at the top).
  */
-export type SettingsField = Exclude<keyof FormState, "source" | "issueKey" | "description" | "plan" | "fixWithAI">;
+export type SettingsField = Exclude<
+  keyof FormState,
+  "source" | "issueKey" | "description" | "plan" | "fixWithAI" | "fixModeId" | "hint" | "useIssueDetails"
+>;
+
+/** Whether a field is edited on the settings page at all. */
+export function isSettingsField(field: string): field is SettingsField {
+  return WORKFLOW_SETTINGS_SECTIONS.some((section) => (SETTINGS_SECTION_FIELDS[section] as readonly string[]).includes(field));
+}
 
 /**
  * Each section's fields, in the order the page shows them. Every settings field
@@ -64,8 +74,9 @@ export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, r
   "code-search": ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"],
   // How a preparation treats the work item's previous folder.
   "build-context": ["fresh"],
-  // Who the task goes to, how it is to be approached, and the hint it carries.
-  "fix-with-ai": ["agent", "agentCommand", "fixModeId", "hint", "useIssueDetails"],
+  // Who the task goes to. How it is approached, and the hint it carries, are
+  // on the main page, under the issue.
+  "fix-with-ai": ["agent", "agentCommand"],
 };
 
 /**
@@ -88,10 +99,6 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
   fresh: false,
   agent: false,
   agentCommand: false,
-  fixModeId: true,
-  hint: true,
-  // It gates what the hint improver may read, not what a run prepares.
-  useIssueDetails: false,
 };
 
 /**
@@ -145,13 +152,14 @@ const AGENT_SUMMARY: Readonly<Record<FormState["agent"], string>> = {
  * One short line per row with settings, from the form as the host holds it —
  * the applied settings, never a draft.
  *
- * Counts and names only: how many keywords, not which; a Fix Mode's name, not
- * its instructions; that there is a hint, not what it says; "Custom agent
+ * Counts and names only: how many keywords, not which; "Custom agent
  * command", never the command. Nothing typed by the developer, read from Jira
  * or found on disk reaches a summary. A row whose settings are all at their
- * defaults has none, and keeps saying what it does.
+ * defaults has none, and keeps saying what it does. Fix with AI's is its agent
+ * only: Fix Mode and Hint are on the main page, in plain view, and a summary of
+ * settings the row's gear does not open would point at the wrong place.
  */
-export function settingsSummaries(form: FormState, catalog: FixModeCatalog): Partial<Record<WorkflowStepId, string>> {
+export function settingsSummaries(form: FormState): Partial<Record<WorkflowStepId, string>> {
   const summaries: Partial<Record<WorkflowStepId, string>> = {};
 
   const attached = form.attachments.filter((entry) => entry.trim() !== "").length;
@@ -168,8 +176,7 @@ export function settingsSummaries(form: FormState, catalog: FixModeCatalog): Par
 
   if (form.fresh) summaries.buildContext = "Deletes previous artifacts first";
 
-  const mode = catalog.kind === "ready" ? catalog.modes.find((entry) => entry.id === form.fixModeId)?.name : undefined;
-  summaries.fixWithAI = [AGENT_SUMMARY[form.agent], ...(mode ? [mode] : []), ...(form.hint.trim() !== "" ? ["hint added"] : [])].join(" · ");
+  summaries.fixWithAI = AGENT_SUMMARY[form.agent];
 
   return summaries;
 }

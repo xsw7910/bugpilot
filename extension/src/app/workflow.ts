@@ -43,7 +43,7 @@ import type { ValidationChecklist } from "./reviewPackage.ts";
 import type { ReviewCapture } from "./reviewCapture.ts";
 import type { ReviewPrefill } from "./reviewOutput.ts";
 import type { ReviewReportPreview } from "./reviewReport.ts";
-import type { VerificationCapture } from "./verificationCapture.ts";
+import type { VerificationAutosave, VerificationCapture } from "./verificationCapture.ts";
 import { STATUS_LABELS, TYPE_LABELS, overallPhrase } from "./verificationReport.ts";
 import type { VerificationCheckEntry, VerificationReportPreview } from "./verificationReport.ts";
 import type { PlanState, Source } from "./form.ts";
@@ -394,6 +394,8 @@ export interface WorkflowStepResult {
   readonly verificationCapture?: VerificationCapture;
   /** Fix result only: the recorded checks for Edit, in the one push that answers it. */
   readonly verificationEdit?: VerificationEdit;
+  /** Fix result only: the verification form's auto-save state (§37.83); absent while clean. */
+  readonly verificationAutosave?: VerificationAutosave;
   /** Fix with AI only: a new attempt being prepared, or why the last press did not start one. */
   readonly attempt?: AttemptView;
   /** Fix with AI only: text for the feedback form, in the one push that answers a helper. */
@@ -528,6 +530,8 @@ export interface WorkflowInput {
   readonly canRecordVerification?: boolean;
   /** The recorded checks for Edit, only in the push that answers the request. */
   readonly verificationEdit?: VerificationEdit;
+  /** The verification form's auto-save state; absent while clean. */
+  readonly verificationAutosave?: VerificationAutosave;
   /** The session this panel started for the work item on screen, if any. */
   readonly session?: SessionSummary;
   /** Start New Attempt's state, for the form under Fix with AI. */
@@ -652,6 +656,7 @@ function fixResultRow(input: WorkflowInput): WorkflowStepResult {
     ...(evidence ? { verificationResult: verificationResultView(input.verificationReport) } : {}),
     ...(input.verificationCapture === undefined ? {} : { verificationCapture: input.verificationCapture }),
     ...(input.verificationEdit === undefined ? {} : { verificationEdit: input.verificationEdit }),
+    ...(input.verificationAutosave === undefined ? {} : { verificationAutosave: input.verificationAutosave }),
   };
 }
 

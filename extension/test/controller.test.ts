@@ -23,8 +23,13 @@ import { MAX_REVIEW_OUTPUT } from "../src/app/reviewOutput.ts";
 import { CLAUDE_CAPTURED_REVIEW } from "../src/app/agents.ts";
 import type { CapturedRun } from "../src/app/reviewRun.ts";
 import { ARTIFACT_REFRESH_DEBOUNCE_MS, ARTIFACT_REFRESH_RETRY_MS } from "../src/app/controller.ts";
+import { VERIFICATION_AUTOSAVE_MS } from "../src/app/verificationCapture.ts";
+import { feedbackFromVerification } from "../src/app/nextAction.ts";
+import { parseVerificationReport } from "../src/app/verificationReport.ts";
 import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
+import { GITIGNORE_ACTION_NAME, GITIGNORE_FAILED } from "../src/app/controller.ts";
+import type { GitignoreDocument, GitignoreIo } from "../src/app/gitignore.ts";
 
 /**
  * One workflow row of a pushed state.
@@ -119,7 +124,8 @@ interface HarnessOptions {
   /** A function may answer later, which is how a test holds a request open. */
   readonly json?: Envelope | (() => Envelope | Promise<Envelope>);
   readonly jsonThrows?: Error;
-  readonly environment?: Environment;
+  /** A function is asked on every environment check, so a test can change the answer. */
+  readonly environment?: Environment | (() => Environment);
   readonly files?: Record<string, string>;
   readonly directory?: readonly string[];
   /** Make the artifact directory unreadable rather than absent. */
@@ -184,6 +190,8 @@ interface HarnessOptions {
   readonly watchArtifacts?: NonNullable<ControllerPorts["watchArtifacts"]>;
   /** A hand-run timer for the refresh debounce. */
   readonly schedule?: NonNullable<ControllerPorts["schedule"]>;
+  /** The repository's .gitignore, for Repository Files' quick fix; absent means the host has none. */
+  readonly gitignore?: GitignoreIo;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -304,7 +312,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       info: (message) => logged.push(message),
       error: (message) => logged.push(`ERROR ${message}`),
     },
-    environment: async () => options.environment ?? READY,
+    environment: async () =>
+      (typeof options.environment === "function" ? options.environment() : options.environment) ?? READY,
     credentials: async () => {
       const broken = options.credentialsThrow?.();
       if (broken) throw broken;
@@ -323,6 +332,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       return options.agentOnPath ?? false;
     },
     now: () => 1_000,
+    ...(options.gitignore === undefined ? {} : { gitignore: options.gitignore }),
     saveForm: (form) => saved.push(form),
     saveWorkItem: (workItemId) => savedWorkItems.push(workItemId),
     ...(options.fixModes === undefined
@@ -7718,7 +7728,27 @@ test("settings 10: an applied agent, Fresh or hint-reading choice leaves the con
   // But a Fix Mode or a hint does make it stale, as the page says.
   await h.controller.handle(applySettings(jiraForm({ agent: "claude", hint: "look at the controller" })));
   assert.equal(h.last().primary.action, "rebuildContext");
-  assert.equal(fixRow(h.last()).settingsSummary, "Claude Code · hint added");
+  // The summary is the agent's alone: the hint is on the main page, in view.
+  assert.equal(fixRow(h.last()).settingsSummary, "Claude Code");
+});
+
+test("Fix Mode and Hint on the main page: an edit is a form change, and makes the context stale exactly as before", async () => {
+  for (const change of [{ fixModeId: "investigate-first" }, { hint: "look at the controller" }]) {
+    const h = await preparedHarness();
+    assert.equal(h.last().primary.action, "fixWithAI");
+    await h.controller.handle({ type: "formChanged", form: jiraForm(change) });
+    assert.equal(h.last().primary.action, "rebuildContext", JSON.stringify(change));
+    // Nothing ran, and nothing was handed over.
+    assert.equal(h.streamRuns.length, 1, "a form change started a run");
+    assert.equal(h.terminals.length, 0);
+    // And back: the same form as prepared is current again.
+    await h.controller.handle({ type: "formChanged", form: jiraForm() });
+    assert.equal(h.last().primary.action, "fixWithAI");
+  }
+  // What the hint improver may read is not a preparation input.
+  const h = await preparedHarness();
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ useIssueDetails: false }) });
+  assert.equal(h.last().primary.action, "fixWithAI");
 });
 
 test("settings 14: no summary carries a value the developer typed, a path or a command", async () => {
@@ -7739,7 +7769,7 @@ test("settings 14: no summary carries a value the developer typed, a path or a c
     ),
   );
   const summaries = h.last().workflow.flatMap((step) => (step.settingsSummary ? [step.settingsSummary] : [])).join(" | ");
-  assert.equal(summaries, "1 attachment | 1 keyword · 1 focus path · 1 ignored path | Custom agent command · hint added");
+  assert.equal(summaries, "1 attachment | 1 keyword · 1 focus path · 1 ignored path | Custom agent command");
   for (const leak of ["PrivateToken", "secret", "hunter2", "abc", "Secret title", "crash.log", "someone"]) {
     assert.equal(summaries.includes(leak), false, `a summary carries "${leak}"`);
   }
@@ -8342,4 +8372,574 @@ test("opening a work item tells the trees once its folder is read, so the Artifa
   await h.controller.showWorkItem("JR-12345");
   assert.ok(h.refreshes.count > before, "the trees were not told about the work item just opened");
   assert.equal(h.controller.artifacts.kind, "ready");
+});
+
+// --- Verification Evidence auto-save (§37.83) ---------------------------------
+
+type Check = { name: string; status: "passed" | "failed" | "not_run"; type: "automated" | "manual" | "other"; procedure: string; evidence: string; notes: string };
+const check = (name: string, extra: Partial<Check> = {}): Check => ({ name, status: "passed", type: "automated", procedure: "npm test", evidence: "", notes: "", ...extra });
+const blank = (): Check => ({ name: "", status: "not_run", type: "automated", procedure: "", evidence: "", notes: "" });
+
+/**
+ * A report on screen, a hand-run timer, and a record-verification fake that
+ * writes a new file each time — so the version the form last wrote is known,
+ * and a test can change the file behind it.
+ */
+async function autosaving(setup: {
+  evidence?: boolean;
+  answer?: (request: PayloadCommandRequest) => Promise<Envelope>;
+  confirm?: boolean;
+  runReview?: (request: PayloadCommandRequest) => Promise<Envelope>;
+} = {}) {
+  const timers: { callback: () => void; delay: number; cancelled: boolean; ran: boolean }[] = [];
+  const calls: { args: readonly string[]; payload: { checks: Check[] } }[] = [];
+  const options = reviewOptions({
+    directory: [...PREPARED_FILES, "fix_report.md", ...(setup.evidence ? ["verification_report.md"] : [])],
+    files: {
+      "run.json": PREPARED_RUN_JSON,
+      "fix_report.md": fixReportMd("Fixed it.", "3 passed."),
+      ...(setup.evidence ? { "verification_report.md": ONE_PASSED_MD } : {}),
+    },
+    schedule: (callback, delay) => {
+      const timer = { callback, delay, cancelled: false, ran: false };
+      timers.push(timer);
+      return { cancel: () => { timer.cancelled = true; } };
+    },
+    ...(setup.confirm === undefined ? {} : { confirm: setup.confirm }),
+    ...(setup.runReview === undefined ? {} : { runReview: setup.runReview }),
+  });
+  let h: Harness;
+  options.runVerification = async (request) => {
+    calls.push({ args: request.args("/tmp/bugpilot-verification-payload.json"), payload: request.payload as { checks: Check[] } });
+    const envelope = setup.answer ? await setup.answer(request) : VERIFICATION_RECORDED;
+    if (envelope.ok) {
+      if (!options.directory!.includes("verification_report.md")) options.directory = [...options.directory!, "verification_report.md"];
+      h.files["verification_report.md"] = `# Verification Report: JR-12345\n\n<!-- write ${calls.length} -->\n${JSON.stringify(request.payload)}\n`;
+    }
+    return envelope;
+  };
+  h = await openedForReview(options);
+  const pending = () => timers.filter((timer) => !timer.cancelled && !timer.ran);
+  const flush = async () => {
+    for (let round = 0; round < 10; round += 1) {
+      const next = pending().find((timer) => timer.delay === VERIFICATION_AUTOSAVE_MS);
+      if (next === undefined) return;
+      next.ran = true;
+      next.callback();
+      for (let i = 0; i < 8; i += 1) await tick();
+    }
+  };
+  const draft = (checks: Check[]) => h.controller.handle({ type: "verificationDraft", checks });
+  const saveState = () => fixResultOf(h.last())?.verificationAutosave;
+  return { h, options, calls, timers, pending, flush, draft, saveState };
+}
+
+test("auto-save 1–6: an edit marks the form dirty, a burst of edits is one save after the pause, and the form is saved", async () => {
+  const a = await autosaving();
+  assert.equal(a.saveState(), undefined, "a form nobody typed in is not dirty");
+  assert.equal(a.calls.length, 0);
+
+  await a.draft([check("U")]);
+  await a.draft([check("Un")]);
+  await a.draft([check("Unit tests"), blank()]);
+  assert.deepEqual(a.saveState(), { state: "dirty" });
+  assert.equal(a.pending().filter((timer) => timer.delay === VERIFICATION_AUTOSAVE_MS).length, 1, "edits were not coalesced");
+  assert.equal(VERIFICATION_AUTOSAVE_MS, 750);
+  assert.equal(a.calls.length, 0, "an edit wrote before the pause");
+
+  const states: string[] = [];
+  const before = a.h.states.length;
+  await a.flush();
+  for (const state of a.h.states.slice(before)) {
+    const s = fixResultOf(state)?.verificationAutosave?.state;
+    if (s !== undefined && states.at(-1) !== s) states.push(s);
+  }
+  assert.deepEqual(states, ["saving", "saved"]);
+  assert.equal(a.calls.length, 1);
+  // The blank row an Add Check left is not saved; nothing is inferred from the rest.
+  assert.deepEqual(a.calls[0]!.payload.checks, [check("Unit tests")]);
+  assert.equal(a.calls[0]!.args.includes("--replace"), false, "a first save replaced something");
+  assert.ok(fixResultOf(a.h.last())!.verificationResult, "the saved evidence did not show");
+});
+
+test("auto-save 7–9: a later edit — an added check, a changed one, a removed one — replaces the report it wrote", async () => {
+  const a = await autosaving();
+  await a.draft([check("Unit tests")]);
+  await a.flush();
+  await a.draft([check("Unit tests"), check("Manual repro", { type: "manual", procedure: "Open the dialog" })]);
+  await a.flush();
+  await a.draft([check("Unit tests", { status: "failed" })]);
+  await a.flush();
+  assert.equal(a.calls.length, 3);
+  for (const call of a.calls.slice(1)) assert.ok(call.args.includes("--replace"), "a later save did not replace");
+  assert.deepEqual(a.calls[2]!.payload.checks, [check("Unit tests", { status: "failed" })]);
+  assert.deepEqual(a.saveState(), { state: "saved" });
+});
+
+test("auto-save: an unchanged form writes nothing, and says it is saved", async () => {
+  const a = await autosaving();
+  await a.draft([check("Unit tests")]);
+  await a.flush();
+  await a.draft([check("Unit tests"), blank()]);
+  await a.flush();
+  assert.equal(a.calls.length, 1, "the same checks were written again");
+  assert.deepEqual(a.saveState(), { state: "saved" });
+});
+
+test("auto-save: an empty form writes no report; an incomplete check is said, not saved, until it is complete", async () => {
+  const a = await autosaving();
+  await a.draft([blank()]);
+  await a.flush();
+  assert.deepEqual(a.saveState(), { state: "incomplete", message: "Nothing to save yet: enter a check." });
+  assert.equal(a.calls.length, 0);
+  assert.equal(a.options.directory!.includes("verification_report.md"), false, "an empty form made a report");
+
+  await a.draft([blank(), { ...blank(), evidence: "It passed" }]);
+  await a.flush();
+  assert.deepEqual(a.saveState(), { state: "incomplete", message: "Not saved yet: check 1 needs a name." });
+  assert.equal(a.calls.length, 0);
+
+  await a.draft([blank(), { ...blank(), name: "Unit tests", evidence: "It passed" }]);
+  await a.flush();
+  assert.equal(a.calls.length, 1);
+  assert.deepEqual(a.saveState(), { state: "saved" });
+});
+
+test("auto-save: removing every check keeps the saved report, and says so", async () => {
+  const a = await autosaving({ evidence: true });
+  await a.h.controller.handle({ type: "action", id: "editVerification" });
+  const before = a.h.files["verification_report.md"];
+  await a.draft([]);
+  await a.flush();
+  assert.equal(a.calls.length, 0);
+  assert.equal(a.h.files["verification_report.md"], before);
+  assert.match((a.saveState() as { message: string }).message, /the saved evidence is kept/);
+});
+
+test("auto-save: a failed save keeps the draft and says so; Retry Save and a later edit save it", async () => {
+  let fail = true;
+  const a = await autosaving({
+    answer: async () =>
+      fail
+        ? { ok: false, command: "record-verification", error: { code: "INTERNAL_ERROR", message: "disk full" } }
+        : VERIFICATION_RECORDED,
+  });
+  await a.draft([check("Unit tests")]);
+  await a.flush();
+  const failed = a.saveState() as { state: string; message: string };
+  assert.equal(failed.state, "error");
+  assert.match(failed.message, /disk full/);
+  assert.equal(a.options.directory!.includes("verification_report.md"), false, "a failed save listed a report");
+  fail = false;
+  await a.h.controller.handle({ type: "flushVerification" });
+  assert.deepEqual(a.saveState(), { state: "saved" });
+  assert.deepEqual(a.calls.at(-1)!.payload.checks, [check("Unit tests")], "the draft was not the one retried");
+});
+
+test("auto-save conflict: a report changed outside the form is never overwritten; the developer chooses", async () => {
+  const a = await autosaving();
+  await a.draft([check("Unit tests")]);
+  await a.flush();
+  // Someone else writes the report.
+  a.h.files["verification_report.md"] = "# Verification Report: JR-12345\n\nWritten by hand.\n";
+  await a.draft([check("Unit tests", { notes: "mine" })]);
+  await a.flush();
+  const conflict = a.saveState() as { state: string; message: string };
+  assert.equal(conflict.state, "conflict");
+  assert.match(conflict.message, /changed outside this form/);
+  assert.equal(a.calls.length, 1, "the changed report was overwritten");
+  assert.equal(a.h.files["verification_report.md"], "# Verification Report: JR-12345\n\nWritten by hand.\n");
+  // More edits wait for the choice.
+  await a.draft([check("Unit tests", { notes: "mine, again" })]);
+  await a.flush();
+  assert.equal(a.calls.length, 1);
+  assert.equal(a.saveState()?.state, "conflict");
+  // Overwrite Saved Version: the form's latest checks, over the version there now.
+  await a.h.controller.handle({ type: "overwriteVerification" });
+  assert.equal(a.calls.length, 2);
+  assert.ok(a.calls[1]!.args.includes("--replace"));
+  assert.deepEqual(a.calls[1]!.payload.checks, [check("Unit tests", { notes: "mine, again" })]);
+  assert.deepEqual(a.saveState(), { state: "saved" });
+});
+
+test("auto-save conflict: Reload Saved Version loads the report and clears the conflict", async () => {
+  const a = await autosaving({ evidence: true });
+  await a.h.controller.handle({ type: "action", id: "editVerification" });
+  a.h.files["verification_report.md"] = ONE_PASSED_MD.replace("Unit tests", "Changed elsewhere");
+  await a.h.controller.refreshArtifacts();
+  await a.draft([check("Unit tests", { notes: "mine" })]);
+  await a.flush();
+  assert.equal(a.saveState()?.state, "conflict");
+  await a.h.controller.handle({ type: "action", id: "editVerification" });
+  const edit = fixResultOf(a.h.states.at(-1)!)!.verificationEdit;
+  assert.equal(edit?.checks[0]?.name, "Changed elsewhere");
+  assert.equal(a.saveState(), undefined);
+});
+
+test("auto-save and the watcher: its own write is a read-only refresh — no second save, no loop, the draft intact", async () => {
+  const a = await autosaving();
+  await a.draft([check("Unit tests")]);
+  await a.flush();
+  // The file watcher sees BugPilot's own write and the folder is read again.
+  await a.h.controller.refreshArtifacts();
+  await a.h.controller.refreshArtifacts();
+  await a.flush();
+  assert.equal(a.calls.length, 1, "a refresh started a save");
+  assert.deepEqual(a.saveState(), { state: "saved" });
+  // The version just written is the one the form edits: the next edit replaces it without a conflict.
+  await a.draft([check("Unit tests", { evidence: "12 passed" })]);
+  await a.flush();
+  assert.equal(a.calls.length, 2);
+  assert.deepEqual(a.saveState(), { state: "saved" });
+});
+
+test("auto-save: edits made while a save is being written are saved after it", async () => {
+  let release: () => void = () => {};
+  const a = await autosaving({
+    answer: () => new Promise<Envelope>((resolve) => { release = () => resolve(VERIFICATION_RECORDED); }),
+  });
+  await a.draft([check("Unit tests")]);
+  const first = a.pending().find((timer) => timer.delay === VERIFICATION_AUTOSAVE_MS)!;
+  first.ran = true;
+  first.callback();
+  await tick();
+  assert.equal(a.saveState()?.state, "saving");
+  await a.draft([check("Unit tests", { evidence: "later" })]);
+  release();
+  for (let i = 0; i < 8; i += 1) await tick();
+  assert.equal(a.saveState()?.state, "dirty", "a newer edit was reported as saved");
+  await a.flush();
+  release();
+  for (let i = 0; i < 8; i += 1) await tick();
+  assert.deepEqual(a.calls.at(-1)!.payload.checks, [check("Unit tests", { evidence: "later" })]);
+});
+
+test("auto-save: opening another work item saves the form first; if it cannot be saved, the developer is asked", async () => {
+  const a = await autosaving({});
+  await a.draft([check("Unit tests")]);
+  await a.h.controller.showWorkItem("JR-12345");
+  assert.equal(a.calls.length, 1, "switching dropped an unsaved form");
+
+  const b = await autosaving({
+    confirm: false,
+    answer: async () => ({ ok: false, command: "record-verification", error: { code: "INTERNAL_ERROR", message: "locked" } }),
+  });
+  await b.draft([check("Unit tests")]);
+  const statesBefore = b.h.states.length;
+  await b.h.controller.showWorkItem("JR-77777");
+  assert.match(b.h.confirms.at(-1)?.message ?? "", /could not be saved\. Open the other work item anyway\? They will be lost\./);
+  assert.equal(b.h.confirms.at(-1)?.keepLabel, "Keep Editing");
+  assert.equal(b.h.controller.workItemId, "JR-12345", "Keep Editing still switched");
+  assert.ok(b.h.states.length > statesBefore);
+});
+
+test("auto-save: a run saves the form first", async () => {
+  const a = await autosaving();
+  await a.draft([check("Unit tests")]);
+  await a.h.controller.run(jiraForm());
+  assert.equal(a.calls.length, 1);
+});
+
+test("auto-save: a save waiting behind another write goes once it ends", async () => {
+  let release: () => void = () => {};
+  const a = await autosaving({
+    runReview: () => new Promise<Envelope>((resolve) => { release = () => resolve(RECORDED); }),
+  });
+  const recording = a.h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+  await a.draft([check("Unit tests")]);
+  await a.flush();
+  assert.equal(a.calls.length, 0, "the evidence was written under another write");
+  release();
+  await recording;
+  await a.flush();
+  assert.equal(a.calls.length, 1);
+});
+
+test("auto-save and Start New Attempt: only the saved report is feedback, never the unsaved form", async () => {
+  const a = await autosaving({ evidence: true });
+  await a.h.controller.handle({ type: "action", id: "editVerification" });
+  await a.draft([check("Not saved yet", { status: "failed" })]);
+  // The helper reads the file on disk: the saved check, not the typed one.
+  const text = feedbackFromVerification(parseVerificationReport(a.h.files["verification_report.md"]));
+  assert.doesNotMatch(text ?? "", /Not saved yet/);
+});
+
+test("auto-save: a draft with a status or type that is not one is refused before it reaches the host", () => {
+  for (const bad of [{ status: "verified" }, { type: "automatic" }]) {
+    assert.equal(parsePanelMessage({ type: "verificationDraft", checks: [{ ...check("x"), ...bad }] }), undefined, JSON.stringify(bad));
+  }
+  assert.equal(parsePanelMessage({ type: "verificationDraft" }), undefined);
+});
+
+test("auto-save: all checks saved as Passed is only that — no verdict appears", async () => {
+  const a = await autosaving();
+  await a.draft([check("Unit tests"), check("Repro", { type: "manual" })]);
+  await a.flush();
+  const said = JSON.stringify(fixResultOf(a.h.last()));
+  for (const verdict of ["Verified", "verified", "Approved", "Safe to merge"]) assert.equal(said.includes(verdict), false, verdict);
+});
+
+// --- Repository Files' quick fix: .ai/ and .ai_memory/ in .gitignore (§37.85)
+
+/**
+ * A repository's .gitignore and the git that reads it: `doctor` is asked on
+ * every environment check and answers from the file on disk, the way `git
+ * check-ignore` would for these spellings. `stuck` is a git that goes on saying
+ * "not ignored" whatever the file says — a later `!` rule somewhere.
+ */
+function gitRepo(initial: string | undefined, options: { stuck?: boolean; document?: GitignoreDocument; writeThrows?: Error } = {}) {
+  const repo = {
+    disk: initial,
+    writes: [] as string[],
+    checks: 0,
+    stuck: options.stuck ?? false,
+    document: options.document,
+  };
+  const ignores = (directory: string) =>
+    !repo.stuck &&
+    (repo.disk ?? "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .some((line) => [directory, `${directory}/`, `/${directory}`, `/${directory}/`].includes(line));
+  const environment = (): Environment => {
+    repo.checks += 1;
+    const paths = { ".ai": ignores(".ai"), ".ai_memory": ignores(".ai_memory") };
+    return {
+      kind: "ready",
+      root: ROOT,
+      executable: "bugpilot",
+      report: { python_ok: true, ai_artifacts_ignored: paths[".ai"] && paths[".ai_memory"], ai_artifacts_ignored_paths: paths },
+    };
+  };
+  const io: GitignoreIo = {
+    document: (file) => {
+      assert.equal(file, nodePath.join(ROOT, ".gitignore"), "a .gitignore other than the repository root's");
+      return repo.document;
+    },
+    stat: async () => (repo.disk === undefined ? "missing" : "file"),
+    read: async () => new TextEncoder().encode(repo.disk ?? ""),
+    write: async (file, bytes) => {
+      assert.equal(file, nodePath.join(ROOT, ".gitignore"), "a .gitignore other than the repository root's");
+      if (options.writeThrows) throw options.writeThrows;
+      repo.disk = new TextDecoder().decode(bytes);
+      repo.writes.push(repo.disk);
+    },
+  };
+  return { repo, environment, io };
+}
+
+async function withGitignore(initial: string | undefined, options: Parameters<typeof gitRepo>[1] = {}) {
+  const git = gitRepo(initial, options);
+  const h = harness({ environment: git.environment, gitignore: git.io });
+  await h.controller.refreshEnvironment();
+  return { ...git, h };
+}
+
+const repositoryFiles = (state: PanelState) => state.warnings.find((warning) => warning.title === "Repository Files");
+const press = (h: Harness) => h.controller.handle({ type: "action", id: "addArtifactsToGitignore" });
+
+test("gitignore fix: both missing — the card offers Add to .gitignore, named for what it does", async () => {
+  const { h } = await withGitignore(undefined);
+  const card = repositoryFiles(h.last());
+  assert.ok(card, "no Repository Files card");
+  // The warning's own words are unchanged.
+  assert.match(card.message, /does not ignore \.ai\/ and \.ai_memory\//);
+  assert.deepEqual(card.action, { id: "addArtifactsToGitignore", label: "Add to .gitignore", accessibleName: GITIGNORE_ACTION_NAME });
+  assert.equal(GITIGNORE_ACTION_NAME, "Add .ai and .ai_memory to .gitignore");
+  assert.equal(card.status, undefined);
+});
+
+test("gitignore fix: no .gitignore — created with the two rules, doctor asked again, and the card is gone", async () => {
+  const { h, repo } = await withGitignore(undefined);
+  const checksBefore = repo.checks;
+  await press(h);
+  assert.equal(repo.disk, ".ai/\n.ai_memory/\n");
+  // Gone because git said so: doctor ran again after the write, by itself.
+  assert.equal(repo.checks, checksBefore + 1, "the warning went without a re-check");
+  assert.equal(repositoryFiles(h.last()), undefined);
+  assert.equal(h.last().noticeStatus, "Added .ai/ and .ai_memory/ to .gitignore. Git now ignores .ai/ and .ai_memory/.");
+  assert.ok(h.logged.some((line) => /Created .*\.gitignore: added \.ai\/, \.ai_memory\//.test(line)));
+});
+
+test("gitignore fix: only .ai/ missing — only .ai/ is appended; unrelated rules are untouched", async () => {
+  const before = "# build\nnode_modules/\n\n.ai_memory/\n";
+  const { h, repo } = await withGitignore(before);
+  await press(h);
+  assert.equal(repo.disk, `${before}.ai/\n`);
+  assert.equal(repositoryFiles(h.last()), undefined);
+  assert.equal(h.last().noticeStatus, "Added .ai/ to .gitignore. Git now ignores .ai/ and .ai_memory/.");
+});
+
+test("gitignore fix: only .ai_memory/ missing — only .ai_memory/ is appended", async () => {
+  const { h, repo } = await withGitignore("dist/\n.ai/\n");
+  await press(h);
+  assert.equal(repo.disk, "dist/\n.ai/\n.ai_memory/\n");
+});
+
+test("gitignore fix: an equivalent spelling git already honours gets no duplicate", async () => {
+  // `.ai` and `/.ai_memory` cover the directories; git says so, and only
+  // git's answer decides — not whether the exact string `.ai/` is in the file.
+  for (const before of [".ai\n", "/.ai/\n", "/.ai\n"]) {
+    const { h, repo } = await withGitignore(before);
+    assert.deepEqual(repositoryFiles(h.last())?.action?.id, "addArtifactsToGitignore", before);
+    await press(h);
+    assert.equal(repo.disk, `${before}.ai_memory/\n`, before);
+  }
+});
+
+test("gitignore fix: both already ignored — no card, no button, and a press writes nothing", async () => {
+  const { h, repo } = await withGitignore("/.ai\n.ai_memory\n");
+  assert.equal(repositoryFiles(h.last()), undefined);
+  await press(h);
+  assert.equal(repo.writes.length, 0);
+  assert.ok(h.logged.some((line) => /not on offer/.test(line)));
+});
+
+test("gitignore fix: a file without a final newline gets the rules on lines of their own", async () => {
+  const { h, repo } = await withGitignore("node_modules/");
+  await press(h);
+  assert.equal(repo.disk, "node_modules/\n.ai/\n.ai_memory/\n");
+});
+
+test("gitignore fix: CRLF stays CRLF, LF stays LF", async () => {
+  const crlf = await withGitignore("node_modules/\r\ndist/\r\n");
+  await press(crlf.h);
+  assert.equal(crlf.repo.disk, "node_modules/\r\ndist/\r\n.ai/\r\n.ai_memory/\r\n");
+  const lf = await withGitignore("node_modules/\ndist/\n");
+  await press(lf.h);
+  assert.equal(lf.repo.disk, "node_modules/\ndist/\n.ai/\n.ai_memory/\n");
+});
+
+test("gitignore fix: pressed twice, the second press has nothing to do", async () => {
+  const { h, repo } = await withGitignore("dist/\n");
+  await press(h);
+  await press(h);
+  assert.equal(repo.writes.length, 1);
+  assert.equal(repo.disk, "dist/\n.ai/\n.ai_memory/\n");
+});
+
+test("gitignore fix: a write that fails keeps the card, says so, and logs why — not what the file holds", async () => {
+  const secret = "internal.example/private-path";
+  const { h, repo } = await withGitignore(`${secret}\n`, { writeThrows: new Error("EPERM: operation not permitted") });
+  await press(h);
+  const card = repositoryFiles(h.last());
+  assert.ok(card, "the warning went on a failed write");
+  assert.equal(card.status, GITIGNORE_FAILED);
+  assert.match(GITIGNORE_FAILED, /^Could not update \.gitignore\./);
+  // Still offered: a retry may work once whatever blocked it is gone.
+  assert.equal(card.action?.busy, undefined);
+  assert.equal(card.action?.id, "addArtifactsToGitignore");
+  const error = h.logged.find((line) => line.startsWith("ERROR Could not update"));
+  assert.match(error ?? "", /EPERM/);
+  assert.equal(h.logged.some((line) => line.includes(secret)), false, "the file's contents reached the log");
+  assert.equal(repo.disk, `${secret}\n`);
+});
+
+test("gitignore fix: written, and git still does not ignore them — the card stays and says so, neutrally", async () => {
+  const { h, repo } = await withGitignore("dist/\n", { stuck: true });
+  await press(h);
+  assert.equal(repo.disk, "dist/\n.ai/\n.ai_memory/\n");
+  const card = repositoryFiles(h.last());
+  assert.ok(card, "the warning went because the write succeeded, not because git agreed");
+  assert.match(card.status ?? "", /The rules are in \.gitignore, but Git still does not ignore \.ai\/ and \.ai_memory\//);
+  // Pressing again could not change git's answer.
+  assert.equal(card.action, undefined);
+  assert.equal(h.last().noticeStatus, undefined);
+});
+
+test("gitignore fix: the button is busy while the write and the re-check run, and a second press is not a second write", async () => {
+  const git = gitRepo("dist/\n");
+  let release = () => {};
+  const held: GitignoreIo = {
+    ...git.io,
+    write: async (file, bytes) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      await git.io.write(file, bytes);
+    },
+  };
+  const h = harness({ environment: git.environment, gitignore: held });
+  await h.controller.refreshEnvironment();
+  const first = press(h);
+  await tick();
+  assert.deepEqual(repositoryFiles(h.last())?.action?.busy, true);
+  assert.equal(repositoryFiles(h.last())?.action?.label, "Adding to .gitignore…");
+  await press(h);
+  release();
+  await first;
+  assert.equal(git.repo.writes.length, 1);
+});
+
+test("gitignore fix: an open .gitignore with unsaved edits gets the rules in its buffer — the edits stay, nothing is written", async () => {
+  const buffer = { text: "dist/\ncoverage/\n", dirty: true, saves: 0 };
+  const document: GitignoreDocument = {
+    get text() { return buffer.text; },
+    eol: "\n",
+    get dirty() { return buffer.dirty; },
+    append: async (more) => { buffer.text += more; return true; },
+    save: async () => { buffer.saves += 1; return true; },
+  };
+  const { h, repo } = await withGitignore("dist/\n", { document });
+  const checks = repo.checks;
+  await press(h);
+  assert.equal(buffer.text, "dist/\ncoverage/\n.ai/\n.ai_memory/\n", "the developer's typing was lost");
+  assert.equal(buffer.saves, 0, "their unsaved edits were saved for them");
+  assert.equal(repo.writes.length, 0, "the disk was written behind a dirty editor");
+  const card = repositoryFiles(h.last());
+  assert.ok(card);
+  assert.match(card.status ?? "", /Added \.ai\/ and \.ai_memory\/ to your open \.gitignore, which has unsaved changes\. Save it to apply them\./);
+  assert.equal(card.action, undefined);
+  // Git has not seen it: no re-check yet.
+  assert.equal(repo.checks, checks);
+
+  // The developer saves; the host re-checks, and the card goes.
+  repo.disk = buffer.text;
+  buffer.dirty = false;
+  await h.controller.gitignoreSaved();
+  assert.equal(repo.checks, checks + 1);
+  assert.equal(repositoryFiles(h.last()), undefined);
+  assert.match(h.last().noticeStatus ?? "", /Git now ignores \.ai\/ and \.ai_memory\//);
+});
+
+test("gitignore fix: a .gitignore saved by hand is re-checked by itself — no reload, no refresh button", async () => {
+  const { h, repo } = await withGitignore("dist/\n");
+  assert.ok(repositoryFiles(h.last()));
+  repo.disk = "dist/\n.ai/\n.ai_memory/\n";
+  await h.controller.gitignoreSaved();
+  assert.equal(repositoryFiles(h.last()), undefined);
+  // And the other way: a rule removed by hand brings the card back.
+  repo.disk = "dist/\n.ai/\n";
+  await h.controller.gitignoreSaved();
+  assert.equal(repositoryFiles(h.last())?.action?.id, "addArtifactsToGitignore");
+});
+
+test("gitignore fix: a CLI without the per-directory answer shows the warning and no button", async () => {
+  const h = harness({
+    environment: { kind: "ready", root: ROOT, executable: "bugpilot", report: { ai_artifacts_ignored: false } },
+    gitignore: gitRepo(undefined).io,
+  });
+  await h.controller.refreshEnvironment();
+  const card = repositoryFiles(h.last());
+  assert.ok(card);
+  assert.equal(card.action, undefined);
+});
+
+test("gitignore fix: the page may ask for it by name, and for nothing like a path or a rule", () => {
+  assert.deepEqual(parsePanelMessage({ type: "action", id: "addArtifactsToGitignore" }), { type: "action", id: "addArtifactsToGitignore" });
+  assert.equal(parsePanelMessage({ type: "action", id: "addToGitignore" }), undefined);
+});
+
+test("gitignore fix: while the re-check runs the card stays as it was at the press, so the page never loses the button before the result", async () => {
+  const git = gitRepo(undefined);
+  const h = harness({ environment: git.environment, gitignore: git.io });
+  await h.controller.refreshEnvironment();
+  const from = h.states.length;
+  await press(h);
+  const during = h.states.slice(from, -1);
+  assert.ok(during.length >= 2, "no intermediate states to look at");
+  for (const state of during) {
+    assert.equal(repositoryFiles(state)?.action?.busy, true, "an intermediate render dropped or changed the card");
+  }
+  assert.equal(repositoryFiles(h.last()), undefined);
+  assert.match(h.last().noticeStatus ?? "", /Git now ignores/);
 });

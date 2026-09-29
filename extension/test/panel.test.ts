@@ -232,6 +232,13 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   fixModeAction: { type: "fixModeAction", action: "view", id: "standard", scope: "builtin" },
   parseReviewOutput: { type: "parseReviewOutput", text: "## Summary\nReads correctly.\n" },
   discardReviewDraft: { type: "discardReviewDraft" },
+  verificationDraft: {
+    type: "verificationDraft",
+    checks: [{ name: "Unit tests", status: "not_run", type: "automated", procedure: "", evidence: "", notes: "" }],
+  },
+  flushVerification: { type: "flushVerification" },
+  overwriteVerification: { type: "overwriteVerification" },
+  discardVerificationDraft: { type: "discardVerificationDraft" },
   saveFixMode: {
     type: "saveFixMode",
     draft: {
@@ -670,9 +677,10 @@ test("every setting has a header row with a real label in it", () => {
   const rows = [...SETTINGS_VIEW.matchAll(/<div class="setting-header">([\s\S]*?)<\/div>/g)].map(
     (match) => match[1]!,
   );
-  // The text fields, plus the four rows that are not text fields: the Fix
-  // Mode selector, the agent picker, the attachment list and the checkbox.
-  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 4, "a row is missing the pattern");
+  // The text fields, plus the three rows that are not text fields: the agent
+  // picker, the attachment list and the checkbox. (Fix Mode and Hint are the
+  // main page's now, §37.84.)
+  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3, "a row is missing the pattern");
 
   for (const row of rows) {
     const label = /<label[^>]*for="([^"]+)"/.exec(row);
@@ -707,11 +715,9 @@ test("helper text survives only where a placeholder could not carry it", () => {
     [...withHelper].sort(),
     [
       // A rule or a consequence.
-      "add-attachment", "agentCommand", "fresh", "useIssueDetails",
-      // A select, which has no placeholder to say what it is for.
-      "fixModeId",
+      "add-attachment", "agentCommand", "fresh",
       // What the setting is for, which is what UI-A2's grouping asserts.
-      "focusFiles", "hint", "keywords",
+      "focusFiles", "keywords",
     ].sort(),
     "helper text should remain only where a placeholder could not carry it",
   );
@@ -723,12 +729,15 @@ test("helper text survives only where a placeholder could not carry it", () => {
   assert.match(advanced, /\{prompt\} is replaced with the handoff prompt, already quoted\./);
   assert.match(advanced, /Off by default to avoid accidental data loss/);
   // And the three group-purpose lines, which are the reason the list grew.
-  assert.match(advanced, /Add technical guidance, constraints, or suspected areas\./);
+  assert.match(HTML, /Add technical guidance, constraints, or suspected areas\./);
   assert.match(advanced, /Boost retrieval with known identifiers or technical terms\./);
   assert.match(advanced, /Prioritize files you already suspect are relevant\./);
   // A checkbox with no input to hang a placeholder on, saying what it lets the
   // improver read — and, just as importantly, what it does not.
-  assert.match(advanced, /No repository, history or files are read\./);
+  assert.match(HTML, /No repository, history or files are read\./);
+  // Fix Mode, Hint and Use issue details keep their helper lines, on the form.
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  for (const id of ["fixModeId", "hint", "useIssueDetails"]) assert.ok(form.includes(`id="${id}-hint"`), id);
 });
 
 test("a field with nothing to explain says nothing, and points at nothing", () => {
@@ -852,7 +861,7 @@ test("only the icon is tinted, never the label or the helper text", () => {
 test("every field on the settings page carries an icon, so it can be scanned", () => {
   // A gap in that column is more distracting than an icon, which is why this
   // checks all of them rather than the ones the design named.
-  for (const id of [...SETTINGS_FIELD_IDS, "fixModeId", "agent", "add-attachment"]) {
+  for (const id of [...SETTINGS_FIELD_IDS, "agent", "add-attachment"]) {
     const label = new RegExp(`<label[^>]*for="${id}"[^>]*>(.*?)</label>`, "s").exec(SETTINGS_VIEW)?.[1];
     assert.ok(label, `no label for ${id}`);
     assert.match(label, /codicon-[a-z-]+/, `${id} has no icon`);
@@ -992,15 +1001,22 @@ test("the footer is secondary to everything above it", () => {
 
 test("every optional field is on the Workflow Settings page, and none is on the form", () => {
   assert.notEqual(SETTINGS_VIEW, "", "could not find the settings page");
-  for (const id of [...SETTINGS_FIELD_IDS, "fixModeId", "agent", "attachments"]) {
+  for (const id of [...SETTINGS_FIELD_IDS, "agent", "attachments"]) {
     assert.ok(SETTINGS_VIEW.includes(`id="field-${id}"`), `${id} is not on the settings page`);
     assert.equal(HTML.split(`id="field-${id}"`).length - 1, 1, `${id} has a second copy`);
   }
   assert.ok(SETTINGS_VIEW.includes('id="fresh"'));
-  // The form keeps the issue, the run, the workflow's checkboxes — nothing else.
+  // The form keeps the issue, Fix Mode, Hint, the run, the workflow's
+  // checkboxes — nothing else.
   const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
-  for (const id of [...SETTINGS_FIELD_IDS, "fixModeId", "agent", "fresh", "add-attachment"]) {
+  for (const id of [...SETTINGS_FIELD_IDS, "agent", "fresh", "add-attachment"]) {
     assert.equal(form.includes(`id="${id}"`), false, `${id} is still on the form`);
+  }
+  // And Fix Mode and Hint the other way round: on the form, once, never on the settings page.
+  for (const id of ["fixModeId", "hint", "useIssueDetails", "improve-hint", "manage-fix-modes"]) {
+    assert.ok(form.includes(`id="${id}"`), `${id} is not on the form`);
+    assert.equal(SETTINGS_VIEW.includes(`id="${id}"`), false, `${id} is still on the settings page`);
+    assert.equal(HTML.split(`id="${id}"`).length - 1, 1, `${id} has a second copy`);
   }
 });
 
@@ -1008,7 +1024,8 @@ test("the primary action, Stop and the ⋯ menu are one row, in that order", () 
   // Their first home was the bottom of the form, below Advanced settings — far
   // from the button whose run they act on. Retry used to be the third; it is
   // Start New Attempt now, inside the menu, and only once an attempt exists.
-  const row = /<div class="run-buttons">[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
+  // The Run row's own buttons — not the Hint suggestion's, which sits above it now.
+  const row = /<div class="run">\s*<div class="run-buttons">[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(row, "", "could not find the button row");
   const buttons = [...row.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]);
   assert.deepEqual(buttons, ["run", "stop", "more-actions"]);
@@ -1219,45 +1236,38 @@ test("the attachment ceiling is the one the CLI enforces", () => {
 
 // --- fix mode --------------------------------------------------------------
 
-test("the one Fix Mode selector lives on Workflow Settings, in Fix with AI's section", () => {
+test("the one Fix Mode selector is on the form, under the Issue, with its gear and description", () => {
   assert.equal((HTML.match(/<select[^>]*id="fixModeId"/g) ?? []).length, 1, "not exactly one Fix Mode selector");
   assert.equal(HTML.split('id="field-fixModeId"').length - 1, 1);
   assert.equal(HTML.split('id="manage-fix-modes"').length - 1, 1);
 
-  const fix = settingsSection("fix-with-ai");
-  const field = /<div class="field" id="field-fixModeId">[\s\S]*?id="fixModeId-description"[^>]*><\/p>\s*<\/div>/.exec(fix)?.[0] ?? "";
-  assert.notEqual(field, "", "the Fix Mode field is not in Fix with AI's section");
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  const field = /<div class="field" id="field-fixModeId">[\s\S]*?id="fixModeId-description"[^>]*><\/p>\s*<\/div>/.exec(form)?.[0] ?? "";
+  assert.notEqual(field, "", "the Fix Mode field is not on the form");
   // Its description and its gear are with it: the gear still sits beside the
   // selector it manages.
   assert.ok(field.includes('<select id="fixModeId"'));
   assert.ok(field.includes('id="manage-fix-modes"'), "the gear did not move with the selector");
   assert.ok(field.includes('id="fixModeId-description"'), "the mode's description stayed behind");
-  // And none of it on the form.
-  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  // On the form, a field like the Issue: no "Requires context rebuild" label —
+  // the host says a context is stale, from the fingerprint, as for the Issue.
+  assert.equal(field.includes("rebuild-label"), false);
+  // And none of it on the settings page.
   for (const id of ["fixModeId", "field-fixModeId", "manage-fix-modes", "fixModeId-description"]) {
-    assert.equal(form.includes(`id="${id}"`), false, `#${id} is still on the main form`);
+    assert.equal(SETTINGS_VIEW.includes(`id="${id}"`), false, `#${id} is still on the settings page`);
   }
 });
 
-test("the Workflow Settings entry can name the Fix Mode without renaming the button", () => {
-  const entry = /<div class="settings-entry">[\s\S]*?<span id="settings-strategy-description" hidden><\/span>\s*<\/div>/.exec(HTML)?.[0] ?? "";
+test("the Workflow Settings entry is the button alone: the Fix Mode is on the form, in plain view", () => {
+  const entry = /<div class="settings-entry">[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(entry, "", "no settings entry");
   const button = /<button type="button" id="open-settings"[\s\S]*?<\/button>/.exec(entry)?.[0] ?? "";
-  assert.match(button, /aria-describedby="settings-strategy-description"/);
   assert.match(button, /codicon-settings-gear/);
   assert.match(button, /Workflow Settings/);
-  const label = /<span class="settings-strategy" id="settings-strategy"[^>]*>/.exec(entry)?.[0] ?? "";
-  // Hidden until the page has a non-default mode to name, and out of the
-  // button's name, which stays "Workflow Settings"; the same fact is its description.
-  assert.match(label, /\shidden(\s|>)/);
-  assert.match(label, /aria-hidden="true"/);
-  assert.equal(button.includes("settings-strategy-name"), false);
-  // A label, not a second selector.
-  assert.equal(/<(select|input)\b/.test(entry), false);
-  assert.equal((HTML.match(/<select[^>]*id="fixModeId"/g) ?? []).length, 1);
-  // Cut short rather than widening the panel.
-  assert.match(CSS, /\.settings-strategy-name \{[^}]*text-overflow: ellipsis/s);
-  assert.match(CSS, /\.settings-strategy-name \{[^}]*white-space: nowrap/s);
+  // The line that named a non-default mode beside it was for a selector hidden
+  // on the settings page; it is gone with that.
+  for (const gone of ["settings-strategy", "aria-describedby"]) assert.equal(entry.includes(gone), false, gone);
+  assert.equal(CSS.includes(".settings-strategy"), false);
 });
 
 test("the Fix Mode selector is labelled and described for assistive tech", () => {
@@ -1501,8 +1511,8 @@ test("the default view is the Issue field, Run, two disclosures and the way into
   // Everything the form shows before the first disclosure, in reading order.
   const visible = form.slice(0, form.indexOf("<details"));
   const open = [...visible.matchAll(/id="(field-[A-Za-z]+|run)"/g)].map((match) => match[1]);
-  // Batch 7 took Fix Mode out of it: Issue, then Run.
-  assert.deepEqual(open, ["field-issue", "run"]);
+  // The problem's definition, then Run (§37.84): Issue, Fix Mode, Hint.
+  assert.deepEqual(open, ["field-issue", "field-fixModeId", "field-hint", "run"]);
 
   // And everything after it is behind one of exactly two closed disclosures,
   // or on the settings page, so no optional control is on screen until it is
@@ -1534,14 +1544,22 @@ test("the Issue field is one box that says it takes either kind of input", () =>
   assert.match(HTML, /<label[^>]*for="issue">Issue<\/label>/, "the label is not 'Issue'");
   // Multi-line, because the same box holds a six-character key and a pasted
   // bug report.
-  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*placeholder="Jira ticket or bug description"/);
-  // Exactly one control above Run — the thing UI-A1 is for, and since Batch 7
-  // not even a select beside it.
+  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*placeholder="Enter a Jira ticket \(e\.g\. JR-12345\) or describe the bug"/);
+  assert.equal(HTML.includes("Jira ticket or bug description"), false, "the old placeholder is still there");
+  // One quiet line under the box says the same in words, and the box is described by it.
+  assert.match(HTML, /<p class="hint" id="issue-hint">Use a Jira issue ID, or describe the problem directly\.<\/p>/);
+  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*aria-describedby="issue-hint issue-note issue-error"/);
+  // Above Run, the problem's definition and nothing else, in tab order: the
+  // Issue, how the AI approaches it, and the guidance it carries (§37.84).
   const beforeRun = HTML.slice(0, HTML.indexOf('id="run"'));
-  const controls = [...beforeRun.matchAll(/<(?:input|textarea|select)[^>]*id="([A-Za-z]+)"/g)].map(
+  const controls = [...beforeRun.matchAll(/<(?:input|textarea|select|button)[^>]*id="([A-Za-z-]+)"/g)].map(
     (match) => match[1],
   );
-  assert.deepEqual(controls, ["issue"], "something else is competing with the Issue field");
+  assert.deepEqual(
+    controls,
+    ["issue", "fixModeId", "manage-fix-modes", "hint", "useIssueDetails", "improve-hint", "hint-use", "hint-keep"],
+    "the order above Run is not Issue, Fix Mode, Hint",
+  );
 });
 
 test("the input source is no longer a question the panel asks", () => {
@@ -1614,21 +1632,16 @@ test("Issue details' section is the title and attachments; Build context's is Fr
   }
 });
 
-test("Fix with AI's section is the agent, its command, the Fix Mode, and the Hint with what acts on it", () => {
+test("Fix with AI's section is the agent and its command — Fix Mode and Hint are on the form", () => {
   const fix = settingsSection("fix-with-ai");
   const fields = [...fix.matchAll(/id="field-([A-Za-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(fields, ["agent", "agentCommand", "fixModeId", "hint"]);
-  assert.match(fix, /Add technical guidance, constraints, or suspected areas\./);
-  // Use issue details belongs to Hint improvement, and stays in the row with
-  // the button it qualifies.
-  assert.match(fix, /id="useIssueDetails"/);
-  assert.match(fix, /id="improve-hint"/);
-  assert.match(fix, /id="hint-suggestion"/);
-  // A mixed section: the settings that change the prepared context say so
-  // beside their label, and the agent does not.
-  assert.match(fix, /<span class="rebuild-label" id="fixModeId-rebuild">Requires context rebuild<\/span>/);
-  assert.match(fix, /<span class="rebuild-label" id="hint-rebuild">Requires context rebuild<\/span>/);
-  for (const id of ["agent", "agentCommand"]) assert.equal(fix.includes(`id="${id}-rebuild"`), false, `${id} claims a rebuild`);
+  assert.deepEqual(fields, ["agent", "agentCommand"]);
+  for (const id of ["fixModeId", "hint", "useIssueDetails", "improve-hint", "hint-suggestion", "manage-fix-modes"]) {
+    assert.equal(fix.includes(`id="${id}"`), false, `${id} is still under Fix with AI`);
+  }
+  // No mixed section any more: nothing here changes the prepared context.
+  assert.equal(fix.includes("rebuild-label"), false);
+  assert.match(fix, /Changes here apply to the next run and do not require rebuilding context\./);
   // And nothing that steers the search: a retrieval field here would defeat the section.
   for (const id of ["keywords", "focusFiles", "ignorePaths", "title", "maxFiles"]) {
     assert.equal(fix.includes(`id="field-${id}"`), false, `${id} is under Fix with AI`);
@@ -1704,12 +1717,16 @@ test("every advanced field is still there, with the id its state is stored under
   // The regrouping moved markup. A field that lost its id would silently stop
   // restoring, and its validation message would have nowhere to land.
   for (const id of [
-    "hint", "keywords", "focusFiles", "title", "ignorePaths",
+    "keywords", "focusFiles", "title", "ignorePaths",
     "maxFiles", "maxSearchLines", "agentCommand",
   ]) {
     assert.ok(SETTINGS_FIELD_IDS.includes(id), `${id} left SETTINGS_FIELD_IDS`);
     assert.match(HTML, new RegExp(`id="field-${id}"`), `${id} has no row`);
   }
+  // The Hint moved to the form (§37.84), keeping its id and its row.
+  assert.equal(SETTINGS_FIELD_IDS.includes("hint"), false);
+  assert.ok(TEXT_FIELD_IDS.includes("hint"));
+  assert.match(HTML, /id="field-hint"/);
   // And the three that are not text fields.
   for (const id of ["agent", "add-attachment", "fresh"]) {
     assert.match(HTML, new RegExp(`id="${id}"`), `${id} is gone`);
@@ -2317,7 +2334,16 @@ test("Verification Evidence sits in Fix result after Review Result, as buttons i
   assert.ok(order.every((at) => at !== -1), "a Verification Evidence slot is not on the Fix result row");
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.equal(/<form\b/.test(row), false, "a nested form would submit the panel — a Run");
-  for (const id of ["record-verification", "open-verification-report", "edit-verification", "add-verification-check", "save-verification", "cancel-verification"]) {
+  for (const id of [
+    "record-verification",
+    "open-verification-report",
+    "edit-verification",
+    "add-verification-check",
+    "done-verification",
+    "retry-verification-save",
+    "reload-verification",
+    "overwrite-verification",
+  ]) {
     assert.match(row, new RegExp(`<button type="button" class="result-link" id="${id}"`), `#${id} is not a plain button`);
   }
   assert.match(row, /<div class="verification-editor" id="verification-editor" role="group" aria-label="Verification evidence" hidden>/);
@@ -2325,9 +2351,15 @@ test("Verification Evidence sits in Fix result after Review Result, as buttons i
   assert.match(row, /<div class="review-status" id="verification-capture-status" role="status" tabindex="-1"><\/div>/);
   assert.match(row, /<p class="error" id="verification-capture-error" role="alert" hidden><\/p>/);
   assert.match(row, /aria-controls="verification-editor" aria-expanded="false"/);
-  for (const label of ["Add Verification Evidence", "Edit Verification Evidence", "Open Verification Report", "Add Check", "Save Verification Evidence"]) {
+  for (const label of ["Add Verification Evidence", "Edit Verification Evidence", "Open Verification Report", "Add Check"]) {
     assert.ok(row.includes(`>${label}</span>`), `"${label}" is not a button label`);
   }
+  // Auto-save (§37.83): no Save button; Done closes, and the problems have their own actions.
+  for (const label of ["Done", "Retry Save", "Reload Saved Version", "Overwrite Saved Version"]) {
+    assert.ok(row.includes(`>${label}</button>`), `"${label}" is not a button label`);
+  }
+  assert.equal(row.includes("Save Verification Evidence"), false, "the Save button is still there");
+  assert.match(row, /<p class="muted verification-save-status" id="verification-save-status"><\/p>/);
   // Remove Check is per row, built by the page.
   assert.ok(PAGE_JS.includes('"Remove Check"'));
 });
@@ -2394,4 +2426,24 @@ test("nothing about verification claims more than recorded evidence", () => {
   const statuses = /const CHECK_STATUSES = \[([\s\S]*?)\];/.exec(PAGE_JS)?.[1] ?? "";
   assert.match(statuses.trim(), /^\["not_run", "Not Run"\]/);
   assert.equal(statuses.includes("skipped"), false);
+});
+
+// --- Repository Files' quick fix (§37.85) -----------------------------------
+
+test("the notice's quick fix wraps inside a 200px sidebar rather than widening it", () => {
+  // The text column may shrink below its content, and the button may wrap its label.
+  assert.match(CSS, /\.notice-body \{[^}]*min-width: 0;/);
+  assert.match(CSS, /\.notice-actions \{[^}]*flex-wrap: wrap;/);
+  assert.match(CSS, /\.notice-action \{[^}]*max-width: 100%;[^}]*white-space: normal;/);
+  // A busy button is shown as such without losing its focus.
+  assert.match(CSS, /\.notice-action\[aria-disabled="true"\]/);
+});
+
+test("the line that says what the quick fix did is a live region the page can focus, after the notices", () => {
+  const line = /<p id="notice-status"[^>]*>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(line, "", "no notice status line");
+  assert.match(line, /role="status"/);
+  assert.match(line, /tabindex="-1"/);
+  assert.match(line, / hidden/);
+  assert.ok(HTML.indexOf('id="notices"') < HTML.indexOf('id="notice-status"'));
 });

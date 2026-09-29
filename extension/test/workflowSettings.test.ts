@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 
 import { DEFAULT_FORM, preparationFingerprint } from "../src/app/form.ts";
 import type { FormState } from "../src/app/form.ts";
-import type { FixModeCatalog } from "../src/app/fixModes.ts";
 import { STEP_LABELS, WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
 import {
   REQUIRES_REBUILD_LABEL,
@@ -21,11 +20,15 @@ import {
   sectionRebuildNote,
   settingsSummaries,
   showsRebuildLabel,
+  isSettingsField,
 } from "../src/app/workflowSettings.ts";
 import type { SettingsField } from "../src/app/workflowSettings.ts";
 
-/** What the main page owns: the issue, the plan's checkboxes, the Fix with AI box. */
-const MAIN_PAGE_FIELDS = ["source", "issueKey", "description", "plan", "fixWithAI"];
+/**
+ * What the main page owns: the issue, Fix Mode and Hint with its Use issue
+ * details (§37.84), the plan's checkboxes, the Fix with AI box.
+ */
+const MAIN_PAGE_FIELDS = ["source", "issueKey", "description", "fixModeId", "hint", "useIssueDetails", "plan", "fixWithAI"];
 
 test("every settings field has exactly one home, and the form's own fields have none", () => {
   const placed = WORKFLOW_SETTINGS_SECTIONS.flatMap((section) => [...SETTINGS_SECTION_FIELDS[section]]);
@@ -59,9 +62,6 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   fresh: { fresh: true },
   agent: { agent: "claude" },
   agentCommand: { agentCommand: "my-agent {prompt}" },
-  fixModeId: { fixModeId: "conservative" },
-  hint: { hint: "look at the controller" },
-  useIssueDetails: { useIssueDetails: false },
 };
 
 test("the page's 'requires rebuild' words are the host's staleness rule, field by field", () => {
@@ -77,30 +77,33 @@ test("the page's 'requires rebuild' words are the host's staleness rule, field b
   }
 });
 
-test("a section says once whether its changes need a rebuild; a mixed one marks each setting that does", () => {
+test("a section says once whether its changes need a rebuild; no section is mixed any more", () => {
   assert.equal(sectionRebuildNote("issue-details"), "Changes here require rebuilding context.");
   assert.equal(sectionRebuildNote("code-search"), "Changes here require rebuilding context.");
   assert.equal(sectionRebuildNote("build-context"), "Changes here apply to the next run and do not require rebuilding context.");
-  assert.equal(sectionRebuildNote("fix-with-ai"), `Settings marked “${REQUIRES_REBUILD_LABEL}” change the prepared context; the others do not.`);
+  // The agent and its command: which agent, never what it is given.
+  assert.equal(sectionRebuildNote("fix-with-ai"), "Changes here apply to the next run and do not require rebuilding context.");
   const labelled = (Object.keys(CHANGED) as SettingsField[]).filter(showsRebuildLabel);
-  assert.deepEqual(labelled.sort(), ["fixModeId", "hint"]);
+  assert.deepEqual(labelled, [], `a setting carries its own ${REQUIRES_REBUILD_LABEL} label`);
 });
 
-const CATALOG: FixModeCatalog = {
-  kind: "ready",
-  defaultModeId: "standard",
-  modes: [
-    { id: "standard", name: "Standard Fix", description: "", version: 1, source: "builtin", executionKind: "fix" },
-    { id: "conservative", name: "Conservative Fix", description: "", version: 1, source: "builtin", executionKind: "fix" },
-  ],
-};
+test("Fix Mode and Hint left the settings page, and still make a prepared context stale exactly as before", () => {
+  for (const field of ["fixModeId", "hint", "useIssueDetails"]) {
+    assert.equal(isSettingsField(field), false, `${field} is still a settings field`);
+    assert.equal(WORKFLOW_SETTINGS_SECTIONS.some((section) => (SETTINGS_SECTION_FIELDS[section] as readonly string[]).includes(field)), false);
+  }
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS["fix-with-ai"]], ["agent", "agentCommand"]);
+  // The rule is the fingerprint's, unchanged: a mode or a hint changes what is
+  // prepared; what the hint improver may read does not.
+  const base = { ...DEFAULT_FORM, issueKey: "JR-1" };
+  assert.notEqual(preparationFingerprint({ ...base, fixModeId: "conservative" }), preparationFingerprint(base));
+  assert.notEqual(preparationFingerprint({ ...base, hint: "look at the controller" }), preparationFingerprint(base));
+  assert.equal(preparationFingerprint({ ...base, useIssueDetails: false }), preparationFingerprint(base));
+});
 
-test("defaults summarize to nothing but Fix with AI's agent and mode", () => {
-  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, fixModeId: "standard" }, CATALOG), {
-    fixWithAI: "Auto-detected agent · Standard Fix",
-  });
-  // No catalog, no mode name: nothing is guessed.
-  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, fixModeId: "standard" }, { kind: "loading" }), {
+test("defaults summarize to nothing but Fix with AI's agent — not the mode or the hint, which are on the main page", () => {
+  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, fixModeId: "standard" }), { fixWithAI: "Auto-detected agent" });
+  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, fixModeId: "conservative", hint: "check the reader" }), {
     fixWithAI: "Auto-detected agent",
   });
 });
@@ -120,20 +123,19 @@ test("summaries are counts and names, singular or plural, and only for what is s
       fixModeId: "conservative",
       hint: "check the reader",
     },
-    CATALOG,
   );
   assert.deepEqual(summaries, {
     issueDetails: "2 attachments",
     codeSearch: "3 keywords · 1 focus path · 2 ignored paths · max 10 files · max 1 search line",
     buildContext: "Deletes previous artifacts first",
-    fixWithAI: "Claude Code · Conservative Fix · hint added",
+    fixWithAI: "Claude Code",
   });
   // A limit the run would reject is not reported as one.
-  assert.equal(settingsSummaries({ ...DEFAULT_FORM, maxFiles: "abc", maxSearchLines: "0" }, CATALOG).codeSearch, undefined);
+  assert.equal(settingsSummaries({ ...DEFAULT_FORM, maxFiles: "abc", maxSearchLines: "0" }).codeSearch, undefined);
 });
 
 test("a custom agent is summarized by kind, never by its command", () => {
-  const summary = settingsSummaries({ ...DEFAULT_FORM, agent: "custom", agentCommand: "C:/tools/agent.exe --key s3cret {prompt}" }, CATALOG);
+  const summary = settingsSummaries({ ...DEFAULT_FORM, agent: "custom", agentCommand: "C:/tools/agent.exe --key s3cret {prompt}" });
   assert.equal(summary.fixWithAI, "Custom agent command");
   assert.doesNotMatch(JSON.stringify(summary), /tools|s3cret|agent\.exe/);
 });

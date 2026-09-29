@@ -90,6 +90,10 @@ const vscodeStub = {
       listeners.push("configuration");
       return disposable;
     },
+    onDidSaveTextDocument: () => {
+      listeners.push("saveTextDocument");
+      return disposable;
+    },
   },
   env: { clipboard: { writeText: async () => {} } },
   EventEmitter: class {
@@ -160,12 +164,13 @@ assert.deepEqual(
 );
 
 // Stale answers are a real failure mode: without these the panel keeps saying
-// "no folder is open" after one is opened, and keeps running the old binary
-// after `bugpilot.executablePath` changes.
+// "no folder is open" after one is opened, keeps running the old binary after
+// `bugpilot.executablePath` changes, and keeps the Repository Files warning
+// after the repository's .gitignore is saved with the rules in it.
 assert.deepEqual(
   [...listeners].sort(),
-  ["configuration", "workspaceFolders"],
-  "activation must react to folder and configuration changes",
+  ["configuration", "saveTextDocument", "workspaceFolders"],
+  "activation must react to folder, configuration and .gitignore changes",
 );
 
 // Handlers that touch no child process are invoked for real: a null deref in

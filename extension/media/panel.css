@@ -360,32 +360,6 @@ details[open] > summary {
   font-size: 14px;
 }
 
-.settings-strategy {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  min-width: 0;
-  font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
-}
-
-.settings-strategy[hidden] {
-  display: none;
-}
-
-.settings-strategy .codicon {
-  flex: none;
-  font-size: 12px;
-}
-
-.settings-strategy-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* One section per step that has settings. A heading and a hairline, not a
    card: the page is already a view of its own, and the question it answers —
    "what does this step use?" — is answered by the step's name. */
@@ -1678,6 +1652,13 @@ button.icon .codicon {
   margin-top: 6px;
 }
 
+/* Auto-save (§37.83): one quiet line under the form's actions. */
+.verification-save-status {
+  margin: 4px 0 0;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
 .verification-editor [aria-disabled="true"] {
   opacity: 0.6;
   cursor: default;
@@ -1967,6 +1948,57 @@ button.icon .codicon {
   font-size: 0.9em;
   color: var(--vscode-descriptionForeground);
   overflow-wrap: anywhere;
+}
+
+/* The card's text column: allowed to shrink, so a long word or the button
+   wraps inside a 200px sidebar instead of widening it. */
+.notice-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* What the last press of the card's quick fix came to. */
+.notice-status {
+  margin: 6px 0 0;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* A secondary button (the default button style), which may wrap its label. */
+.notice-action {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.notice-action[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The quick fix worked and its card is gone: one quiet line where it was. */
+.notice-done {
+  margin: 6px 0 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+
+.notice-done[hidden] {
+  display: none;
+}
+
+.notice-done:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
 }
 
 /* --- footer --------------------------------------------------------------- */

@@ -61,7 +61,8 @@ import {
   verificationPayload,
   verificationProblem,
 } from "./verificationCapture.ts";
-import type { VerificationCapture } from "./verificationCapture.ts";
+import { VERIFICATION_AUTOSAVE_MS, isBlankCheck } from "./verificationCapture.ts";
+import type { VerificationAutosave, VerificationCapture } from "./verificationCapture.ts";
 import type { PayloadCommandRequest } from "./fixModeTransport.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
@@ -71,6 +72,8 @@ import type { AgentPlan, ReviewerPlan } from "./agents.ts";
 import { buildWorkflow, canOpenFolder, canStartReview, overallStatus } from "./workflow.ts";
 import type { AttemptDraft, AttemptView, FixWithAiOutcome, ReviewHandoff, ValidationView, VerificationEdit } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
+import { GITIGNORE_NAME, addGitignoreRules, rulesFor, unignoredArtifactDirectories } from "./gitignore.ts";
+import type { GitignoreIo } from "./gitignore.ts";
 import { handoffError, reviewHandoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
 import { diagnostics } from "./diagnostics.ts";
@@ -332,6 +335,12 @@ export interface ControllerPorts {
   readonly watchArtifacts?: (directory: string, onEvent: (name: string) => void) => { dispose(): void };
   /** A timer, so a test can run the debounce by hand. Absent: `setTimeout`. */
   readonly schedule?: (callback: () => void, delayMs: number) => { cancel(): void };
+  /**
+   * The repository's `.gitignore`, through the editor and VS Code's file
+   * system (§37.85): Repository Files' quick fix. Absent, the warning is shown
+   * without it.
+   */
+  readonly gitignore?: GitignoreIo;
 }
 
 /** Artifact events closer together than this are one refresh. */
@@ -444,7 +453,7 @@ const RUN_TIMEOUT_MS = 15 * 60 * 1000;
  * Only things that are true, actionable, and cheaper to hear now than later.
  * A missing ripgrep is not here: the run reports that itself, per step.
  */
-export function warningsFromReport(report: Record<string, unknown>): Notice[] {
+export function warningsFromReport(report: Record<string, unknown>, fix: GitignoreFix = { kind: "idle" }): Notice[] {
   const warnings: Notice[] = [];
   // There is no built-in Jira site any more — a package anyone can install must
   // not ship one company's tenant as everyone's default. The consequence lands
@@ -465,9 +474,70 @@ export function warningsFromReport(report: Record<string, unknown>): Notice[] {
       title: "Repository Files",
       message:
         "This repository does not ignore .ai/ and .ai_memory/. Add both to .gitignore, or generated artifacts — including fetched Jira content — may appear in your commits.",
+      ...repositoryFilesFix(report, fix),
     });
   }
   return warnings;
+}
+
+/**
+ * Where Repository Files' quick fix stands (§37.85).
+ *
+ * `unsaved`: the rules went into an open `.gitignore` with unsaved changes,
+ * which only the developer saves. `notIgnored`: they are on disk, and git still
+ * does not ignore the directories — a later `!` rule, say. Neither offers the
+ * button again: pressing it could not change the answer.
+ */
+export type GitignoreFix =
+  | { readonly kind: "idle" }
+  | { readonly kind: "busy" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "unsaved"; readonly added: readonly string[] }
+  | { readonly kind: "notIgnored" };
+
+export const GITIGNORE_ACTION_LABEL = "Add to .gitignore";
+export const GITIGNORE_ACTION_NAME = "Add .ai and .ai_memory to .gitignore";
+export const GITIGNORE_FAILED = "Could not update .gitignore. The BugPilot output has the details.";
+
+/** The rules the quick fix would write now: git's per-directory answer, nothing else. */
+export function gitignoreRulesFromReport(report: Record<string, unknown> | undefined): readonly string[] {
+  if (report === undefined || report["ai_artifacts_ignored"] !== false) return [];
+  return rulesFor(unignoredArtifactDirectories(report) ?? []);
+}
+
+function repositoryFilesFix(report: Record<string, unknown>, fix: GitignoreFix): Pick<Notice, "action" | "status"> {
+  const rules = gitignoreRulesFromReport(report);
+  const action = {
+    id: "addArtifactsToGitignore",
+    label: GITIGNORE_ACTION_LABEL,
+    accessibleName: GITIGNORE_ACTION_NAME,
+  } as const;
+  switch (fix.kind) {
+    case "unsaved":
+      return {
+        status:
+          fix.added.length === 0
+            ? "Your open .gitignore already has the rules, but it has unsaved changes. Save it to apply them."
+            : `Added ${fix.added.join(" and ")} to your open .gitignore, which has unsaved changes. Save it to apply them.`,
+      };
+    case "notIgnored":
+      return {
+        status: `The rules are in .gitignore, but Git still does not ignore ${missingNames(report)}. Another ignore rule may be excluding them again.`,
+      };
+    case "failed":
+      return rules.length === 0 ? { status: GITIGNORE_FAILED } : { action, status: GITIGNORE_FAILED };
+    case "busy":
+      return { action: { ...action, label: "Adding to .gitignore…", busy: true } };
+    case "idle":
+      // No per-directory answer (an older bugpilot): the warning, and no guess.
+      return rules.length === 0 ? {} : { action };
+  }
+}
+
+function missingNames(report: Record<string, unknown>): string {
+  const missing = unignoredArtifactDirectories(report);
+  const names = (missing === undefined || missing.length === 0 ? [".ai", ".ai_memory"] : missing).map((name) => `${name}/`);
+  return names.join(" and ");
 }
 
 export class Controller {
@@ -610,6 +680,24 @@ export class Controller {
   #verificationCapture: VerificationCapture | undefined;
   /** The recorded checks for Edit, held for exactly one push. */
   #verificationEdit: VerificationEdit | undefined;
+  /**
+   * Verification Evidence auto-save (§37.83): the form's latest content, as
+   * the page sent it with each edit, for the work item it was typed for; the
+   * revision last saved, and what was saved (so an unchanged form writes
+   * nothing); the debounce; and the state the page shows. Held here, not in the
+   * page, so a panel hidden mid-edit — its webview destroyed — still saves, and
+   * a switch to another work item can save first.
+   */
+  #verificationDraft:
+    | { readonly workItemId: string; readonly checks: readonly VerificationCheckEntry[]; readonly revision: number }
+    | undefined;
+  #verificationDraftRevision = 0;
+  #verificationSavedRevision = 0;
+  #verificationSavedContent: string | undefined;
+  #verificationSaveTimer: { cancel(): void } | undefined;
+  #verificationAutosave: VerificationAutosave | undefined;
+  /** A save held back because something else was writing; tried when it ends. */
+  #verificationSavePending = false;
   #verificationEditToken = 0;
   /** The report text as last read, so an Edit's save can tell whether it changed. */
   #verificationText: string | undefined;
@@ -672,7 +760,19 @@ export class Controller {
    * pressed a button about.
    */
   #resolvedAgent: ResolvedAgent | undefined;
-  #warnings: readonly Notice[] = [];
+  /** `doctor`'s last report, when the environment was ready. The notices come from it. */
+  #report: Record<string, unknown> | undefined;
+  /** Repository Files' quick fix (§37.85). */
+  #gitignoreFix: GitignoreFix = { kind: "idle" };
+  /**
+   * The report the notices showed when the fix started. While it runs they are
+   * drawn from this, so the re-check's own push does not take the card away
+   * before the fix can say what happened — the page would have nowhere to put
+   * the focus that was on its button.
+   */
+  #gitignoreFixReport: Record<string, unknown> | undefined;
+  /** What a quick fix that made its notice go away did. Cleared by the next environment check. */
+  #noticeStatus: string | undefined;
   /**
    * The Fix Mode catalog, read once per environment resolution.
    *
@@ -773,6 +873,110 @@ export class Controller {
     return this.#artifacts;
   }
 
+  /**
+   * Repository Files' quick fix (§37.85): add the rules git says are missing to
+   * `<root>/.gitignore`, then ask `doctor` again.
+   *
+   * The rules are the report's, per directory, so a directory git already
+   * ignores — by whatever spelling, in whatever file — gets nothing. Only that
+   * one file, at the repository root the diagnostics ran in. The notice goes
+   * away only when the re-check says git ignores both; a write that succeeded
+   * is not the same thing.
+   */
+  async addBugPilotPathsToGitignore(): Promise<void> {
+    const root = this.#root;
+    const rules = gitignoreRulesFromReport(this.#report);
+    const io = this.#ports.gitignore;
+    const offered = this.#gitignoreFix.kind === "idle" || this.#gitignoreFix.kind === "failed";
+    if (root === undefined || io === undefined || rules.length === 0 || !offered) {
+      this.#ports.log.info("Add to .gitignore is not on offer; nothing was written.");
+      return;
+    }
+    this.#gitignoreFix = { kind: "busy" };
+    this.#gitignoreFixReport = this.#report;
+    this.#noticeStatus = undefined;
+    this.#push();
+
+    const file = path.join(root, GITIGNORE_NAME);
+    const outcome = await addGitignoreRules(io, file, rules);
+    if (outcome.kind === "failed") {
+      // The reason and the path; never the file's contents.
+      this.#ports.log.error(`Could not update ${file}: ${outcome.detail}`);
+      this.#gitignoreFix = { kind: "failed" };
+      this.#gitignoreFixReport = undefined;
+      this.#push();
+      return;
+    }
+    if (outcome.kind === "unsaved" || (outcome.kind === "unchanged" && outcome.unsaved)) {
+      // The disk has not changed, so neither has git's answer: nothing to re-check
+      // until the developer saves.
+      this.#ports.log.info(`${file} has unsaved changes; the rules were added to the editor, not saved.`);
+      this.#gitignoreFix = { kind: "unsaved", added: outcome.kind === "unsaved" ? outcome.added : [] };
+      this.#gitignoreFixReport = undefined;
+      this.#push();
+      return;
+    }
+    if (outcome.kind === "written") {
+      this.#ports.log.info(`${outcome.created ? "Created" : "Updated"} ${file}: added ${outcome.added.join(", ")}.`);
+    } else {
+      this.#ports.log.info(`${file} already lists the rules; nothing was written.`);
+    }
+    await this.#recheckGitignore(outcome.kind === "written" ? outcome.added : []);
+  }
+
+  /**
+   * The root `.gitignore` was saved in the editor: what git ignores may have
+   * changed, so ask again — and, for a save of rules the quick fix put in the
+   * buffer, say how it came out.
+   */
+  async gitignoreSaved(): Promise<void> {
+    // The quick fix's own save of a clean buffer; it re-checks when it is done.
+    if (this.#gitignoreFix.kind === "busy") return;
+    const pending = this.#gitignoreFix.kind === "unsaved" ? this.#gitignoreFix.added : undefined;
+    this.#gitignoreFix = { kind: "idle" };
+    if (pending === undefined) {
+      await this.#freshEnvironment();
+      return;
+    }
+    this.#gitignoreFix = { kind: "busy" };
+    this.#gitignoreFixReport = this.#report;
+    await this.#recheckGitignore(pending);
+  }
+
+  /** The notice cards, from `doctor`'s report — the one at the press while a quick fix runs. */
+  #notices(): readonly Notice[] {
+    const report = this.#gitignoreFix.kind === "busy" ? (this.#gitignoreFixReport ?? this.#report) : this.#report;
+    return report === undefined ? [] : warningsFromReport(report, this.#gitignoreFix);
+  }
+
+  /** `doctor` again, after a write: git's answer, not the write's. */
+  async #recheckGitignore(added: readonly string[]): Promise<void> {
+    try {
+      await this.#freshEnvironment();
+    } finally {
+      const ignored = this.#report?.["ai_artifacts_ignored"] !== false;
+      this.#gitignoreFix = ignored ? { kind: "idle" } : { kind: "notIgnored" };
+      this.#gitignoreFixReport = undefined;
+      if (ignored && this.#report !== undefined) {
+        this.#noticeStatus =
+          added.length === 0
+            ? "Git now ignores .ai/ and .ai_memory/."
+            : `Added ${added.join(" and ")} to .gitignore. Git now ignores .ai/ and .ai_memory/.`;
+      }
+      this.#push();
+    }
+  }
+
+  /**
+   * An environment check that starts after this call: one already in flight
+   * began before a write, so its answer could predate it.
+   */
+  async #freshEnvironment(): Promise<void> {
+    const inFlight = this.#probe;
+    if (inFlight) await inFlight.catch(() => {});
+    await this.refreshEnvironment();
+  }
+
   /** Resolve the environment and push a first state. Safe to call repeatedly. */
   refreshEnvironment(): Promise<void> {
     if (this.#probe) return this.#probe;
@@ -788,7 +992,17 @@ export class Controller {
     const environment = await this.#ports.environment();
     const credentials = await this.#ports.credentials();
     this.#jiraConfigured = credentials.configured;
-    this.#warnings = environment.kind === "ready" ? warningsFromReport(environment.report) : [];
+    this.#report = environment.kind === "ready" ? environment.report : undefined;
+    this.#noticeStatus = undefined;
+    // Another repository, or git ignores both now: whatever the quick fix said
+    // is about something that is no longer on screen.
+    const nextRoot = environment.kind === "ready" || environment.kind === "unusable-cli" ? environment.root : undefined;
+    if (
+      this.#gitignoreFix.kind !== "busy" &&
+      (nextRoot !== previousRoot || this.#report?.["ai_artifacts_ignored"] !== false)
+    ) {
+      this.#gitignoreFix = { kind: "idle" };
+    }
     if (environment.kind === "ready") {
       this.#root = environment.root;
       this.#readiness = {
@@ -908,8 +1122,22 @@ export class Controller {
       case "recordVerification":
         await this.recordVerification(message.checks, message.replace, message.basis);
         return;
+      case "verificationDraft":
+        this.verificationDraftChanged(message.checks);
+        return;
+      case "flushVerification":
+        await this.saveVerificationDraft();
+        return;
+      case "overwriteVerification":
+        await this.overwriteVerification();
+        return;
+      case "discardVerificationDraft":
+        this.#dropVerificationDraft();
+        this.#push();
+        return;
       case "action":
-        if (message.id === "openContext") await this.openArtifact(CONTEXT_ARTIFACT);
+        if (message.id === "addArtifactsToGitignore") await this.addBugPilotPathsToGitignore();
+        else if (message.id === "openContext") await this.openArtifact(CONTEXT_ARTIFACT);
         else if (message.id === "copyContext") await this.copyContext();
         else if (message.id === "openFolder") await this.openArtifactsFolder();
         else if (message.id === "fixWithAI") await this.fixWithAI();
@@ -1009,6 +1237,11 @@ export class Controller {
     // Refused here, the one door every run goes through — not by a page button.
     // Nothing is marked: the run simply has not begun.
     if (this.#refuseRunForMutation()) return;
+    // A run can delete the folder the verification form is saving into: save
+    // it first, or go on only if the developer says so (§37.83).
+    // Awaited only when there is something to save, so a run with nothing
+    // unsaved begins in the same turn it was asked for, as before.
+    if (this.#hasUnsavedVerification() && !(await this.#settleVerificationDraft("Run"))) return;
     this.#runPending = true;
     const before = this.#runsStarted;
     try {
@@ -1953,6 +2186,10 @@ export class Controller {
   /** Stop watching and forget any scheduled refresh: the extension is going away. */
   dispose(): void {
     this.#disposed = true;
+    // A save not yet started is not started now: a CLI spawned while the
+    // extension host is going away may be killed half-way.
+    this.#verificationSaveTimer?.cancel();
+    this.#verificationSaveTimer = undefined;
     this.#artifactRefreshTimer?.cancel();
     this.#artifactRefreshTimer = undefined;
     this.#artifactWatch?.handle.dispose();
@@ -2053,6 +2290,9 @@ export class Controller {
       );
       return;
     }
+    // Unsaved verification changes are saved first — or, if they cannot be,
+    // lost only after the developer says so (§37.83).
+    if (this.#hasUnsavedVerification() && !(await this.#settleVerificationDraft("Open the other work item"))) return;
     this.#setWorkItem(workItemId);
     // Another bug entirely: nothing of the previous one's handoff belongs to
     // it — not the error, not the outcome, and not one still being worked out.
@@ -3070,6 +3310,8 @@ export class Controller {
     this.#verificationCapture = undefined;
     this.#verificationEdit = undefined;
     this.#verificationEditBasis = undefined;
+    this.#dropVerificationDraft();
+    this.#verificationSavedContent = undefined;
     // Not `#mutation`: a process in flight is still in flight.
     this.#captureEpoch += 1;
   }
@@ -3292,6 +3534,7 @@ export class Controller {
           this.#mutation = undefined;
           this.#verificationCapture = {
             state: "failed",
+            conflict: true,
             message:
               `${VERIFICATION_NOT_RECORDED}: verification_report.md changed since Edit was opened, and it was kept. ` +
               "Press Edit Verification Evidence again to load it.",
@@ -3324,6 +3567,7 @@ export class Controller {
         this.#verificationCapture = {
           state: "failed",
           message: `${VERIFICATION_NOT_RECORDED}: ${oneSentence(outcome.reason)}`,
+          ...(!envelope.ok && envelope.error.code === "ARTIFACT_EXISTS" ? { conflict: true as const } : {}),
         };
         this.#push();
         // Recorded elsewhere meanwhile: read the folder again so the row offers
@@ -3372,10 +3616,197 @@ export class Controller {
     };
     this.#verificationEditBasis = { token: this.#verificationEditToken, text: this.#verificationText };
     this.#verificationCapture = undefined;
+    // The form is the saved report now: nothing unsaved, and saving it
+    // unchanged would write nothing.
+    this.#dropVerificationDraft();
+    this.#verificationSavedContent = checks === undefined ? undefined : JSON.stringify(checks);
     this.#push();
     // One push carries it: the page keeps the form from here, and the next push
     // must not open it again or ship every check with each progress event.
     this.#verificationEdit = undefined;
+  }
+
+  /**
+   * An edit in the verification form (§37.83): the rows as they now stand.
+   * Nothing is written here — the host marks the form dirty and saves after
+   * `VERIFICATION_AUTOSAVE_MS` without another edit. While a conflict is shown
+   * the draft is kept, but not saved until the developer chooses.
+   */
+  verificationDraftChanged(checks: readonly VerificationCheckEntry[]): void {
+    const workItemId = this.#workItemId;
+    if (!workItemId || !this.#offersPostFix()) {
+      this.#ports.log.error("Refusing a verification draft: no fix report is on screen.");
+      return;
+    }
+    this.#verificationDraftRevision += 1;
+    this.#verificationDraft = { workItemId, checks: [...checks], revision: this.#verificationDraftRevision };
+    if (this.#verificationAutosave?.state === "conflict") {
+      this.#push();
+      return;
+    }
+    this.#verificationAutosave = { state: "dirty" };
+    this.#verificationSaveTimer?.cancel();
+    this.#verificationSaveTimer = this.#schedule(() => {
+      this.#verificationSaveTimer = undefined;
+      void this.saveVerificationDraft();
+    }, VERIFICATION_AUTOSAVE_MS);
+    this.#push();
+  }
+
+  /**
+   * Save the verification draft now, if there is anything to save: the
+   * debounce firing, Retry Save, Done, or a flush before the work item goes.
+   * Returns whether nothing unsaved is left.
+   *
+   * Only a structurally valid draft is written: blank rows (an Add Check not
+   * yet used) are left out; no check at all writes nothing — no empty report,
+   * and a saved one is kept rather than deleted; a check that cannot be
+   * recorded as it stands (no name, too long) is said, not written, and the
+   * draft stays. A draft identical to what was last saved writes nothing. The
+   * write is `recordVerification`'s — the one path — replacing the report only
+   * over the version the form last read or wrote; one changed outside the form
+   * is a conflict, never overwritten.
+   */
+  async saveVerificationDraft(): Promise<boolean> {
+    this.#verificationSaveTimer?.cancel();
+    this.#verificationSaveTimer = undefined;
+    const draft = this.#verificationDraft;
+    if (draft === undefined || draft.revision === this.#verificationSavedRevision) return true;
+    if (draft.workItemId !== this.#workItemId) return false;
+    if (this.#verificationAutosave?.state === "conflict") return false;
+    if (!this.#offersRecording()) {
+      // A run or another write in flight: tried again once it ends.
+      this.#verificationSavePending = true;
+      return false;
+    }
+    const listed = this.#artifactNames.includes(VERIFICATION_REPORT_ARTIFACT);
+    const checks = draft.checks.filter((check) => !isBlankCheck(check));
+    if (checks.length === 0) {
+      this.#verificationAutosave = {
+        state: "incomplete",
+        message: listed
+          ? "No checks in the form: the saved evidence is kept until at least one check is entered."
+          : "Nothing to save yet: enter a check.",
+      };
+      this.#push();
+      return false;
+    }
+    const problem = verificationProblem(checks);
+    if (problem !== undefined) {
+      this.#verificationAutosave = { state: "incomplete", message: `Not saved yet: ${problem}` };
+      this.#push();
+      return false;
+    }
+    const content = JSON.stringify(checks);
+    if (content === this.#verificationSavedContent && listed) {
+      this.#verificationSavedRevision = draft.revision;
+      this.#verificationAutosave = { state: "saved" };
+      this.#push();
+      return true;
+    }
+    // Replace only over a version this form read or wrote; with none, a first
+    // save that the CLI refuses if a report appeared meanwhile.
+    const basis = listed ? this.#verificationEditBasis : undefined;
+    this.#verificationAutosave = { state: "saving" };
+    this.#push();
+    await this.recordVerification(checks, basis !== undefined, basis?.token);
+    if (this.#workItemId !== draft.workItemId) return false;
+    const capture = this.#verificationCapture;
+    if (capture?.state === "recorded") {
+      this.#verificationSavedRevision = draft.revision;
+      this.#verificationSavedContent = content;
+      // The next save replaces what was just written: its text is the version.
+      this.#verificationEditToken += 1;
+      this.#verificationEditBasis = { token: this.#verificationEditToken, text: this.#verificationText };
+      this.#ports.log.info(`Verification evidence for ${draft.workItemId} auto-saved.`);
+      // Edited again while it was being written: those changes are still unsaved.
+      if (this.#verificationDraft !== undefined && this.#verificationDraft.revision !== draft.revision) {
+        this.verificationDraftChanged(this.#verificationDraft.checks);
+        return false;
+      }
+      this.#verificationAutosave = { state: "saved" };
+      this.#push();
+      return true;
+    }
+    if (capture?.state === "failed" && capture.conflict) {
+      this.#verificationAutosave = {
+        state: "conflict",
+        message:
+          "verification_report.md changed outside this form, so your changes were not saved over it. " +
+          "Reload Saved Version to see it, or Overwrite Saved Version to keep yours.",
+      };
+      this.#ports.log.info(`Verification auto-save for ${draft.workItemId} stopped: the report changed outside the form.`);
+    } else {
+      this.#verificationAutosave = {
+        state: "error",
+        message: capture?.state === "failed" ? capture.message : `${VERIFICATION_NOT_RECORDED}.`,
+      };
+    }
+    this.#push();
+    return false;
+  }
+
+  /**
+   * Overwrite Saved Version, after a conflict: the developer chose the form's
+   * checks over the report on disk. The version to replace is the one there
+   * now, read at the press; then the draft is saved as usual.
+   */
+  async overwriteVerification(): Promise<void> {
+    const workItemId = this.#workItemId;
+    if (!workItemId || this.#verificationAutosave?.state !== "conflict" || this.#verificationDraft === undefined) {
+      this.#ports.log.error("Refusing to overwrite verification evidence: there is no conflict to resolve.");
+      return;
+    }
+    const current = await this.#ports.files.readFile(this.#itemFile(workItemId, VERIFICATION_REPORT_ARTIFACT));
+    if (this.#workItemId !== workItemId) return;
+    this.#verificationEditToken += 1;
+    this.#verificationEditBasis = { token: this.#verificationEditToken, text: current };
+    this.#verificationSavedContent = undefined;
+    this.#verificationAutosave = { state: "dirty" };
+    this.#ports.log.info(`Overwriting verification evidence for ${workItemId} at the developer's choice.`);
+    await this.saveVerificationDraft();
+  }
+
+  /**
+   * Before the work item on screen goes — another opened, a run — save the
+   * verification draft if it has unsaved changes; if they cannot be saved, ask
+   * before they are lost. Returns whether to go on.
+   */
+  async #settleVerificationDraft(goingTo: string): Promise<boolean> {
+    const draft = this.#verificationDraft;
+    if (draft === undefined || !this.#hasUnsavedVerification()) return true;
+    if (await this.saveVerificationDraft()) return true;
+    let proceed = false;
+    try {
+      proceed = await this.#ports.ui.confirm(
+        `Verification evidence for ${draft.workItemId} has changes that could not be saved. ${goingTo} anyway? They will be lost.`,
+        goingTo,
+        "Keep Editing",
+      );
+    } catch {
+      proceed = false;
+    }
+    if (proceed) this.#ports.log.info(`Unsaved verification changes for ${draft.workItemId} were discarded.`);
+    return proceed;
+  }
+
+  /** Whether the verification form holds typed changes that are not saved. */
+  #hasUnsavedVerification(): boolean {
+    const draft = this.#verificationDraft;
+    return (
+      draft !== undefined &&
+      draft.revision !== this.#verificationSavedRevision &&
+      !draft.checks.every(isBlankCheck)
+    );
+  }
+
+  #dropVerificationDraft(): void {
+    this.#verificationSaveTimer?.cancel();
+    this.#verificationSaveTimer = undefined;
+    this.#verificationDraft = undefined;
+    this.#verificationSavedRevision = this.#verificationDraftRevision;
+    this.#verificationAutosave = undefined;
+    this.#verificationSavePending = false;
   }
 
   /** Open the recorded evidence — the canonical file, and only while it is listed. */
@@ -3660,6 +4091,14 @@ export class Controller {
       this.#artifactRefreshPending = false;
       this.requestArtifactRefresh("an operation ended");
     }
+    // A verification save held back by a write in flight: now that none is, try it.
+    if (this.#verificationSavePending && !this.#running && this.#mutation === undefined) {
+      this.#verificationSavePending = false;
+      this.#verificationSaveTimer ??= this.#schedule(() => {
+        this.#verificationSaveTimer = undefined;
+        void this.saveVerificationDraft();
+      }, VERIFICATION_AUTOSAVE_MS);
+    }
     // Computed here rather than in the page: the page cannot import the model,
     // and a status the page derived for itself would be a second opinion about
     // what the run did.
@@ -3705,11 +4144,12 @@ export class Controller {
       ...(this.#verificationCapture === undefined ? {} : { verificationCapture: this.#verificationCapture }),
       canRecordVerification: this.#offersRecording(),
       ...(this.#verificationEdit === undefined ? {} : { verificationEdit: this.#verificationEdit }),
+      ...(this.#verificationAutosave === undefined ? {} : { verificationAutosave: this.#verificationAutosave }),
       ...(session === undefined ? {} : { session: { agent: session.agent, attempts: session.attempts } }),
       ...(this.#attempt === undefined ? {} : { attempt: this.#attempt }),
       ...(this.#attemptDraft === undefined ? {} : { attemptDraft: this.#attemptDraft }),
       feedbackHelpers: this.#feedbackHelpers(primary),
-      settingsSummaries: settingsSummaries(this.#form, this.#fixModes),
+      settingsSummaries: settingsSummaries(this.#form),
     });
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.
@@ -3747,7 +4187,8 @@ export class Controller {
       // both known. The page receives a rendered card and decides nothing.
       ...(failed === undefined || owned ? {} : { runError: failed }),
       diagnostics: this.#diagnostics(),
-      warnings: this.#warnings,
+      warnings: this.#notices(),
+      ...(this.#noticeStatus === undefined ? {} : { noticeStatus: this.#noticeStatus }),
       jiraConfigured: this.#jiraConfigured,
       primary,
       ...(this.#attachmentPick === undefined ? {} : { attachmentPick: this.#attachmentPick }),
