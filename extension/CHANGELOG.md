@@ -65,12 +65,13 @@ First release. What it does today:
   and Use issue details) sit together above the button: what the bug is, how
   the AI should approach it, and any guidance. The Issue field says it takes a
   Jira ticket (e.g. JR-12345) or a description.
-- **Workflow Settings.** A ⚙ on each step that has settings — Issue details,
+- **Advanced Settings.** A ⚙ on each step that has settings — Issue details,
   Code search, Build context, Fix with AI — opens one settings page at that
-  step's section. Changes apply with **Apply** and are discarded by Cancel or
-  Back; each section says whether its changes require rebuilding context, and
-  the rows show a short summary of their settings. It replaces the Advanced
-  Settings disclosure. Fix Mode and Hint are on the main page, not here.
+  step's section, and **⚙ Advanced Settings** under Run opens it at the top.
+  Changes apply with **Apply** and are discarded by Cancel or Back; each section
+  says whether its changes require rebuilding context, and the rows show a
+  short summary of their settings. It replaces the old settings disclosure. Fix
+  Mode and Hint are on the main page, not here.
 - **Fix Mode.** On the main page under the issue, a dropdown chooses how
   the agent approaches the bug: Standard Fix (the default), Conservative Fix,
   Investigate First, Test-Driven Fix or Deep Analysis, plus any custom mode you

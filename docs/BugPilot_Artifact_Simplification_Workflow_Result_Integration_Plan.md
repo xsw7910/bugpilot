@@ -2587,6 +2587,28 @@ This revises decision 5 of "Confirmed decisions (Flat Artifacts list)".
    Hint, Use issue details, Workflow Settings, Save / Cancel / Apply, Run, Fix
    with AI — get none.
 
+### Confirmed decisions (Advanced Settings)
+
+This renames and moves the entry of "Confirmed decisions (Workflow Settings
+Navigation)" (§37.77); the page and what it edits are unchanged.
+
+1. **Workflow Settings is now Advanced Settings** — the entry's label, the
+   page's heading, and every message that sends the developer there ("…in
+   Advanced Settings → Fix with AI"). Most settings are reached from the step
+   gears; what the entry opens is the rest. Ids (`open-settings`,
+   `workflow-settings-view`) and the module name stay.
+
+2. **With the inputs, not the results.** The entry sits under Run and its hint,
+   above the Investigation & AI Fix disclosure — after Issue, Fix Mode and Hint,
+   before the workflow — and no longer between Open Folder / Fix result and
+   Diagnostics, where it read as part of the review. Not beside Run: at 200px
+   the button row has no room for it.
+
+3. **Quiet.** A link-style gear and label in the description colour, underlined
+   on hover — no border, no fill, never primary. Its accessible name is its
+   visible text, *Advanced Settings*; its tooltip *Open advanced workflow
+   settings*. It wraps between words at 200px, never inside one.
+
 ---
 
 # 20. Step Secondary Text 状态原则

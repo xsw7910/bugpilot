@@ -728,7 +728,7 @@ test("an empty custom command says what to do about it", async () => {
   });
   assert.match(
     plan.kind === "unavailable" ? plan.reason : "",
-    /Workflow Settings → Fix with AI/,
+    /Advanced Settings → Fix with AI/,
     "the reason has to name where the setting lives",
   );
 });

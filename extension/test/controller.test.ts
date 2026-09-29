@@ -7797,7 +7797,7 @@ test("settings 18: Apply is refused while anything is in flight, and the page is
   await h.controller.handle(applySettings(jiraForm({ keywords: "mid-run" })));
   assert.equal(h.last().form?.keywords, "", "the host took settings over a run in flight");
   assert.ok(h.last().revision > revision, "the page was left showing settings the host does not hold");
-  assert.match(h.notices.at(-1)!.message, /^Workflow Settings were not applied\. A BugPilot run is in progress/);
+  assert.match(h.notices.at(-1)!.message, /^Advanced Settings were not applied\. A BugPilot run is in progress/);
   h.release();
   await running;
 });

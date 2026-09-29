@@ -112,6 +112,7 @@ Hint
 [        ▶ Run        ] [ Stop ]
          Ctrl+Enter
 Run prepares the issue context for AI-assisted fixing.
+⚙ Advanced Settings
 ──────────────────────────────────────────────
 Investigation & AI Fix                Running 3/6…
 ☑ Issue details         <0.1s  ● Completed  ⚙
@@ -131,7 +132,6 @@ Investigation & AI Fix                Running 3/6…
   Run the prepared context with your AI coding agent
   Claude Code
 ──────────────────────────────────────────────
-[ ⚙ Workflow Settings ]
 ```
 
 The button under the issue is always the next step, and changes with the work
@@ -150,12 +150,12 @@ button beside it holds what is not the next step: **Rebuild Context**, and —
 once an attempt exists — **Start New Attempt**. Nothing is ever shown greyed
 out beside it.
 
-## Workflow Settings
+## Advanced Settings
 
 Every step that has settings has a **⚙** at the end of its row — **Configure
 Issue Details**, **Configure Code Search**, **Configure Build Context**,
-**Configure Fix with AI**. Each opens the same **Workflow Settings** page and
-scrolls straight to that step's section; **Workflow Settings** under the list
+**Configure AI Agent**. Each opens the same **Advanced Settings** page and
+scrolls straight to that step's section; **⚙ Advanced Settings** under Run
 opens it at the top. Git history and Similar fixes have nothing to set beyond
 their checkbox, so they have no gear.
 
@@ -228,7 +228,7 @@ not editable here.
 
 ## Attachments
 
-**Workflow Settings → Issue details → Add files…** attaches anything that is not
+**Advanced Settings → Issue details → Add files…** attaches anything that is not
 in the repository and not in the Jira ticket: a crash log, a screenshot of the
 broken dialog, a config that reproduces it.
 
@@ -324,7 +324,7 @@ review is what a reviewer said about the change; verification evidence is what
 you actually ran or tried, and what you saw.
 
 **Review with AI** starts a reviewer instead, with the same prompt and the
-agent **Workflow Settings → Fix with AI → AI agent** selects — the one Fix with
+agent **Advanced Settings → Fix with AI → AI agent** selects — the one Fix with
 AI uses — at the repository root, where the reviewer can read those files and
 the diff. The prompt asks for four sections — `## Summary`, `## Findings`,
 `## Validation Notes` and `## Recommendations` — tells the reviewer to keep
@@ -510,7 +510,7 @@ to fill in first.
 
 ## The AI agent
 
-Nothing on the Workflow Settings page is needed for a normal run.
+Nothing on the Advanced Settings page is needed for a normal run.
 
 **AI agent** decides what **Fix with AI** and **Review with AI** run — one
 setting for both:
@@ -578,7 +578,7 @@ worth knowing:
 | "did not answer `doctor --json` in time" | Usually a frozen executable starting cold under antivirus. Try again |
 | "runs, but its environment check failed" | The CLI is fine; something it needs is not. The message names which |
 | A run stops with "ran longer than BugPilot waits" | Narrow the search: ignore vendored or generated directories, or lower Max files |
-| "not on PATH" after Fix with AI | The prompt is on your clipboard instead. Install an agent CLI, or set **Workflow Settings → Fix with AI → AI agent** to a custom command |
+| "not on PATH" after Fix with AI | The prompt is on your clipboard instead. Install an agent CLI, or set **Advanced Settings → Fix with AI → AI agent** to a custom command |
 | The icons on Build context never appear | They follow the file: they arrive when `context.md` does |
 
 The **BugPilot** output channel (**BugPilot: Show Log**) records every command

@@ -9,7 +9,7 @@
  * The shape is one column, read top to bottom, because that is the order the
  * work happens in:
  *
- *     Issue → Run → the six workflow steps → Workflow Settings
+ *     Issue, Fix Mode, Hint → Run → Advanced Settings → the workflow steps
  *
  * Only the first two of those are open on an untouched panel. §34's UI-A1
  * made the workflow a disclosure beside Advanced settings, so what greets a
@@ -547,6 +547,21 @@ ${MORE_ACTIONS.map(menuItem).join("\n")}
       <p class="hint" id="run-hint">${RUN_HINT}</p>
 
       <!--
+        Advanced Settings (§37.91): the one page where every step's settings live
+        (app/workflowSettings.ts), also reached from each row's gear. Under Run
+        and its hint and above the workflow — with the inputs, not after the
+        results, where it read as part of the review above Diagnostics. A quiet
+        link: never a button beside Run, Fix with AI or Review with AI. Its name
+        is its visible text; the tooltip says where it goes.
+      -->
+      <div class="settings-entry">
+        <button type="button" id="open-settings" class="settings-open" title="Open advanced workflow settings">
+          <span class="codicon codicon-settings-gear" aria-hidden="true"></span>
+          <span class="settings-open-label">Advanced Settings</span>
+        </button>
+      </div>
+
+      <!--
         A disclosure rather than a section, since UI-A1: the six rows were the
         largest thing on an untouched panel and said nothing a developer who has
         not typed an issue yet needs. They carry two different things — the
@@ -576,22 +591,6 @@ ${FIX_RESULT_ROW}
           ${actionButton(OPEN_FOLDER)}
         </div>
       </details>
-
-      <!--
-        The way into Workflow Settings from the form, beside the per-row gears:
-        the page where every step's settings live (app/workflowSettings.ts). It
-        replaced the "Advanced Settings (Optional)" disclosure, which held the
-        same controls grouped by kind rather than by the step they change. The
-        line under it names a non-default Fix Mode, because the host can change
-        the selection without a click — reopening a work item restores the mode
-        it was prepared with — and Run would not use the default then.
-      -->
-      <div class="settings-entry">
-        <button type="button" id="open-settings" class="settings-open">
-          <span class="codicon codicon-settings-gear icon-primary" aria-hidden="true"></span>
-          <span class="settings-open-label">Workflow Settings</span>
-        </button>
-      </div>
 
       <!--
         What BugPilot is configured with, for the developer who is not sure
@@ -828,7 +827,7 @@ ${sectionBody(section)}
         <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
         Back
       </button>
-      <h2 id="settings-heading" class="view-title" tabindex="-1">Workflow Settings</h2>
+      <h2 id="settings-heading" class="view-title" tabindex="-1">Advanced Settings</h2>
       <p class="muted view-lede">What each workflow step uses. Changes take effect when you press Apply; Back and Cancel discard them.</p>
     </div>
 

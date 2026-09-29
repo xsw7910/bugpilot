@@ -10347,3 +10347,40 @@ in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
 **Regression.** Extension 1513 tests pass (1501 before: 3 artifact, 6 panel and
 3 page tests added; the artifact, gear and Improve tests updated); typecheck,
 smoke and `git diff --check` clean.
+
+### 37.91 Workflow Settings renamed Advanced Settings, and moved under Run (after `85125c4`, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Advanced Settings)" at the end of §19.
+
+**What changed.**
+
+- `html.ts`: the entry moved from between the workflow and Diagnostics to under
+  Run's hint, above the Investigation & AI Fix disclosure; label and the settings
+  page's heading *Advanced Settings*; `title="Open advanced workflow settings"`,
+  no `aria-label` (the visible text is the name).
+- `panel.css`: the entry is a quiet link — no border or fill, description
+  colour, underlined on hover, wraps between words.
+- Messages that named the page: `agents.ts`, `failures.ts` (two),
+  `hintImprovement.ts`, and the controller's "…were not applied" notice.
+- README and CHANGELOG: the new name and place; the Fix with AI gear's name
+  corrected to *Configure AI Agent* there (missed in §37.90).
+
+**Real VS Code pass** (the disposable profile, the throwaway work item).
+
+- PASS normal width (360px): Run, its hint, then *⚙ Advanced Settings*, then the
+  workflow; Diagnostics far below; no "Workflow Settings" text on the page;
+  transparent, borderless, description-coloured, one line.
+- PASS 200px: the same order, the label on one line, no horizontal overflow.
+- PASS keyboard: Tab from the Issue — Fix Mode, its gear, Hint, Use issue
+  details, Improve, the primary button, ⋯, Advanced Settings; Enter opens the page
+  on its *Advanced Settings* heading; Back returns the focus to the entry.
+- PASS Dark, Light, High Contrast Dark, High Contrast Light: the entry quiet
+  beside the primary button; the focus ring visible.
+
+**Regression.** Extension 1517 tests pass (1513 before: 4 panel tests added;
+tests that anchored on the entry after the workflow, the old label, the gear's
+tone and three messages updated); typecheck, smoke and `git diff --check`
+clean.

@@ -2068,7 +2068,7 @@ export class Controller {
   async applySettings(form: FormState): Promise<void> {
     if (this.#busy()) {
       this.#ports.log.error("Refusing to apply Workflow Settings while an operation is in flight.");
-      this.#ports.ui.notify("info", `Workflow Settings were not applied. ${this.#busyReason()}`);
+      this.#ports.ui.notify("info", `Advanced Settings were not applied. ${this.#busyReason()}`);
       this.#revision += 1;
       this.#push();
       return;

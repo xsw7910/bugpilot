@@ -535,7 +535,7 @@ test("the workflow has no primary button: the one primary action is at the top",
   // Fix with AI used to be a second primary button inside its row, a competing
   // answer to "what next?" under a disclosure that starts collapsed. Handing the
   // task over is the top button's job now, in every state that offers it.
-  const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n[\s\S]*?<div class="settings-entry">/.exec(HTML)?.[0] ?? "";
+  const workflow = HTML.slice(HTML.indexOf('<details class="group" id="workflow"'), HTML.indexOf('<details class="diagnostics"'));
   assert.notEqual(workflow, "", "no workflow disclosure");
   assert.deepEqual([...workflow.matchAll(/<button[^>]*class="primary"/g)].length, 0);
   // In the whole main view, exactly one: Run's. (Apply is the settings page's.)
@@ -654,9 +654,9 @@ test("a row with nothing but its summary is exactly as tall as before", () => {
   assert.match(CSS, /\.attempt-editor\[hidden\] \{\s*display: none;/);
 });
 
-test("Workflow Settings has a heading, a lede that says Apply is the act, and a way back", () => {
+test("Advanced Settings has a heading, a lede that says Apply is the act, and a way back", () => {
   assert.notEqual(SETTINGS_VIEW, "", "no settings view");
-  assert.match(SETTINGS_VIEW, /<h2 id="settings-heading" class="view-title" tabindex="-1">Workflow Settings<\/h2>/);
+  assert.match(SETTINGS_VIEW, /<h2 id="settings-heading" class="view-title" tabindex="-1">Advanced Settings<\/h2>/);
   assert.match(SETTINGS_VIEW, /Changes take effect when you press Apply; Back and Cancel discard them\./);
   assert.match(SETTINGS_VIEW, /<button type="button" id="settings-back" class="link view-back">[\s\S]*?Back\s*<\/button>/);
   // Cancel, then Apply — the page's one primary button, at its foot.
@@ -807,8 +807,9 @@ test("each icon carries the tone its kind of setting means", () => {
     assert.ok(label, `no label for ${id}`);
     assert.match(label, new RegExp(`\\b${tone}\\b`), `${id} should be ${tone}`);
   }
-  // The gear, and the two icons the page script creates.
-  assert.match(HTML, /codicon-settings-gear[^"]*icon-primary/);
+  // Advanced Settings' gear takes the entry's quiet colour (§37.91); the two
+  // icons the page script creates keep theirs.
+  assert.match(HTML, /<button type="button" id="open-settings"[^>]*>\s*<span class="codicon codicon-settings-gear" aria-hidden="true"><\/span>/);
   assert.match(HTML, /codicon-check icon-success/);
   assert.match(PAGE_JS, /codicon-warning icon-warning/);
 });
@@ -1261,12 +1262,12 @@ test("the one Fix Mode selector is on the form, under the Issue, with its gear a
   }
 });
 
-test("the Workflow Settings entry is the button alone: the Fix Mode is on the form, in plain view", () => {
+test("the Advanced Settings entry is the button alone: the Fix Mode is on the form, in plain view", () => {
   const entry = /<div class="settings-entry">[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(entry, "", "no settings entry");
   const button = /<button type="button" id="open-settings"[\s\S]*?<\/button>/.exec(entry)?.[0] ?? "";
   assert.match(button, /codicon-settings-gear/);
-  assert.match(button, /Workflow Settings/);
+  assert.match(button, /Advanced Settings/);
   // The line that named a non-default mode beside it was for a selector hidden
   // on the settings page; it is gone with that.
   for (const gone of ["settings-strategy", "aria-describedby"]) assert.equal(entry.includes(gone), false, gone);
@@ -1538,8 +1539,9 @@ test("the default view is the Issue field, Run, two disclosures and the way into
   // nothing has run or a run has just failed. Advanced settings was the third;
   // it is a page now, reached from the entry between the two.
   assert.deepEqual(disclosures, ["workflow", "diagnostics"]);
-  assert.ok(form.indexOf('id="workflow"') < form.indexOf('id="open-settings"'));
-  assert.ok(form.indexOf('id="open-settings"') < form.indexOf('id="diagnostics"'));
+  // The way into Advanced Settings is with the inputs: under Run, above the workflow (§37.91).
+  assert.ok(form.indexOf('id="run-hint"') < form.indexOf('id="open-settings"'));
+  assert.ok(form.indexOf('id="open-settings"') < form.indexOf('id="workflow"'));
   assert.equal(/<details[^>]*\bopen\b/.test(form), false, "a disclosure starts open");
 });
 
@@ -2236,15 +2238,15 @@ test("Diagnostics is last, and outside the workflow rather than inside it", () =
   // Last in the details hierarchy, as §36 asks — and outside the workflow,
   // because a panel that can only answer "is this configured correctly" after a
   // successful run cannot answer it when the run failed.
-  const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n[\s\S]*?<div class="settings-entry">/.exec(HTML)?.[0] ?? "";
+  const workflow = HTML.slice(HTML.indexOf('<details class="group" id="workflow"'), HTML.indexOf('<details class="diagnostics"'));
   assert.notEqual(workflow, "");
   assert.equal(workflow.includes('id="diagnostics"'), false, "Diagnostics is inside the workflow");
 
   assert.ok(HTML.indexOf('id="relevant-files"') < HTML.indexOf('id="search-details"'));
   assert.ok(HTML.indexOf('id="search-details"') < HTML.indexOf('id="diagnostics"'));
-  // Last in the form, after the way into Workflow Settings: never above
-  // something it should sit under, and reachable whether or not a run has happened.
-  assert.ok(HTML.indexOf('id="open-settings"') < HTML.indexOf('id="diagnostics"'));
+  // Last in the form: never above something it should sit under, and reachable
+  // whether or not a run has happened. Advanced Settings is far above it now.
+  assert.ok(HTML.indexOf('id="open-settings"') < HTML.indexOf('id="workflow"'));
   assert.match(HTML.slice(HTML.indexOf('id="diagnostics"')), /^[\s\S]*?<\/details>\s*<\/form>/);
 });
 
@@ -2615,4 +2617,51 @@ test("no tooltip names a credential, a token or a command line", () => {
   for (const title of titles) {
     assert.doesNotMatch(title, /token|password|secret|credential|agentCommand|JIRA_/i, title);
   }
+});
+
+// --- Advanced Settings (§37.91) ----------------------------------------------
+
+/** The main view's visible text, comments and attributes aside. */
+const visibleText = (markup: string) =>
+  markup.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+test("the way into the settings page is Advanced Settings; Workflow Settings is no visible label anywhere", () => {
+  const button = /<button type="button" id="open-settings"[\s\S]*?<\/button>/.exec(HTML)?.[0] ?? "";
+  assert.match(button, /<span class="settings-open-label">Advanced Settings<\/span>/);
+  assert.match(SETTINGS_VIEW, /<h2 id="settings-heading"[^>]*>Advanced Settings<\/h2>/);
+  assert.equal(visibleText(HTML).includes("Workflow Settings"), false, "the old name is still on screen");
+});
+
+test("Advanced Settings sits with the inputs — after Issue, Fix Mode and Hint, under Run, above the workflow", () => {
+  const at = (id: string) => HTML.indexOf(`id="${id}"`);
+  for (const earlier of ["issue", "fixModeId", "hint", "run", "run-hint"]) {
+    assert.ok(at(earlier) < at("open-settings"), `${earlier} is not above Advanced Settings`);
+  }
+  // Not in the result area, and not over Diagnostics.
+  for (const later of ["workflow", "step-fixResult", "open-folder", "review-result", "diagnostics"]) {
+    assert.ok(at("open-settings") < at(later), `Advanced Settings is below ${later}`);
+  }
+  const between = HTML.slice(at("open-folder"), at("diagnostics"));
+  assert.equal(between.includes("settings-entry"), false, "a settings entry is left between the results and Diagnostics");
+  assert.equal(HTML.split('class="settings-entry"').length - 1, 1, "more than one way in from the form");
+});
+
+test("Advanced Settings is a quiet link: never a primary button, and its name is what it says", () => {
+  const button = /<button type="button" id="open-settings"[^>]*>/.exec(HTML)?.[0] ?? "";
+  assert.equal(button.includes("primary"), false);
+  // The accessible name is the visible text; the tooltip says where it goes.
+  assert.equal(button.includes("aria-label"), false);
+  assert.match(button, /title="Open advanced workflow settings"/);
+  const rule = /\.settings-open \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /border: none;/);
+  assert.match(rule, /background: none;/);
+  assert.match(rule, /color: var\(--vscode-descriptionForeground\)/);
+});
+
+test("Advanced Settings wraps between words at 200px, never inside one", () => {
+  const rule = /\.settings-open \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /max-width: 100%;/);
+  assert.match(rule, /overflow-wrap: normal;/);
+  assert.equal(/(?<![a-z-])width:|white-space: nowrap|word-break: break-all/.test(rule), false);
+  assert.match(CSS, /\.settings-entry \{[^}]*flex-wrap: wrap;/s);
 });

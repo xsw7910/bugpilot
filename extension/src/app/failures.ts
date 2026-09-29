@@ -143,7 +143,7 @@ export function handoffError(reason: string): UserFacingError {
     kind: "agent",
     title: "AI agent unavailable",
     message:
-      "BugPilot couldn't start the selected AI agent. Check that it is installed and available from your terminal, or choose another in Workflow Settings → Fix with AI.",
+      "BugPilot couldn't start the selected AI agent. Check that it is installed and available from your terminal, or choose another in Advanced Settings → Fix with AI.",
     ...(detail === "" ? {} : { detail }),
     action: OPEN_SETTINGS,
   };
@@ -171,7 +171,7 @@ export function reviewHandoffError(cause: ReviewHandoffCause, reason: string): U
     return {
       ...base,
       message:
-        "BugPilot couldn't start the selected AI agent. Check that it is installed and available from your terminal, or choose another in Workflow Settings → Fix with AI. Copy Review Prompt still gives you the prompt.",
+        "BugPilot couldn't start the selected AI agent. Check that it is installed and available from your terminal, or choose another in Advanced Settings → Fix with AI. Copy Review Prompt still gives you the prompt.",
       action: OPEN_SETTINGS,
     };
   }

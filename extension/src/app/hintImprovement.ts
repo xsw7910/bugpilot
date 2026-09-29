@@ -205,7 +205,7 @@ export async function resolveHintProvider(
       kind: "unavailable",
       reason:
         "Improving a hint needs an AI CLI it can talk to directly. Choose Claude Code " +
-        "or auto-detect in Workflow Settings → Fix with AI; a custom command is used for Fix with AI only.",
+        "or auto-detect in Advanced Settings → Fix with AI; a custom command is used for Fix with AI only.",
     };
   }
   const candidates =

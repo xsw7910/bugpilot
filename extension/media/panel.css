@@ -338,26 +338,40 @@ details[open] > summary {
 /* The way in from the form: a quiet full-width row under the workflow, with the
    gear every row's own entry uses. The Fix Mode line beside it names a
    non-default mode and wraps under it rather than squeezing it at 200px. */
+/* Advanced Settings, under Run and above the workflow (§37.91): a quiet link
+   with a gear — secondary to every button near it. Its label wraps between
+   words at the narrowest widths, never inside one. */
 .settings-entry {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 8px;
-  margin-top: 8px;
+  margin: 2px 0 6px;
 }
 
 .settings-open {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border: 1px solid var(--vscode-panel-border);
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  text-align: left;
+  overflow-wrap: normal;
+}
+
+.settings-open:hover:not(:disabled) {
   background: none;
   color: var(--vscode-foreground);
+  text-decoration: underline;
 }
 
 .settings-open .codicon {
-  font-size: 14px;
+  flex: none;
+  font-size: 13px;
 }
 
 /* One section per step that has settings. A heading and a hairline, not a
