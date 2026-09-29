@@ -76,7 +76,7 @@ export const ARTIFACTS: Readonly<Record<string, ArtifactInfo>> = {
   },
   "context.md": {
     order: 20,
-    description: "Prepared issue and code context used by the AI",
+    description: "Prepared context used by the AI",
     canonical: true,
     writtenWhen: "Written when Build context finishes.",
   },
@@ -88,31 +88,31 @@ export const ARTIFACTS: Readonly<Record<string, ArtifactInfo>> = {
   },
   "fix_report.md": {
     order: 40,
-    description: "Summary of the AI fix and changes made",
+    description: "Summary of the AI fix and changes",
     canonical: true,
     writtenWhen: "Written by the AI agent when it finishes an attempt.",
   },
   "review_report.md": {
     order: 50,
-    description: "Saved AI or human review findings",
+    description: "Saved review findings",
     canonical: true,
     writtenWhen: "Written when a review result is saved.",
   },
   "verification_report.md": {
     order: 60,
-    description: "Recorded verification checks and evidence",
+    description: "Recorded verification checks",
     canonical: true,
     writtenWhen: "Written when verification evidence is recorded.",
   },
   "retrieval.json": {
     order: 70,
-    description: "Code search and retrieval results used to build context",
+    description: "Investigation and retrieval details",
     canonical: true,
     writtenWhen: "Written when Code search finishes.",
   },
   "run.json": {
     order: 80,
-    description: "Workflow execution state and metadata",
+    description: "Workflow execution metadata",
     canonical: true,
     writtenWhen: "Written when a run starts.",
   },
@@ -203,11 +203,12 @@ export function buildArtifactList(input: ArtifactInput): ArtifactList {
 }
 
 /**
- * One tree row, as the Artifacts view draws it: the file name, then one line —
- * the status first, so a narrow sidebar that cuts the line still says whether
- * the file is there — the fuller tooltip, and the accessible name. Only a
- * written file opens; the file's own type is its icon, and no status glyph
- * repeats what the words say.
+ * One tree row, as the Artifacts view draws it (§37.90): the file name and its
+ * availability — nothing else on the line, so a narrow sidebar stays readable.
+ * What the file is for is in the tooltip, with the full name (which a narrow
+ * sidebar may cut) and the status, and in the accessible name, so a screen
+ * reader loses nothing. Only a written file opens; the file's own type is its
+ * icon, and no status glyph repeats what the word says.
  */
 export interface ArtifactRow {
   readonly label: string;
@@ -222,7 +223,7 @@ export function artifactRow(entry: ArtifactEntry): ArtifactRow {
   const status = artifactStatus(entry);
   return {
     label: entry.name,
-    description: `${status} · ${entry.description}`,
+    description: status,
     // Names and fixed sentences only: never the file's contents.
     tooltip: [entry.name, entry.description, `Status: ${status}`, ...(entry.writtenWhen ? [entry.writtenWhen] : [])].join("\n"),
     accessibleName: `${entry.name} — ${entry.description} — ${status}`,

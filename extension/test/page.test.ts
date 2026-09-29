@@ -148,6 +148,10 @@ class FakeElement {
     return this.attributes.get(name);
   }
 
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+
   append(...nodes: FakeElement[]): void {
     this.children.push(...nodes);
   }
@@ -6782,4 +6786,42 @@ test("the expansion is the page's alone: never sent, never saved", () => {
   toggleOf(p).dispatch("click");
   assert.equal(p.posted.length, posted);
   assert.equal(JSON.stringify(p.stored.slice(stored)).includes("fixSummary"), false);
+});
+
+// --- Tooltip audit (§37.90) --------------------------------------------------
+
+test("the primary button's tooltip follows its action: only where the label hides what it means", () => {
+  const p = load();
+  p.send(prepared());
+  assert.equal(p.byId("run-label").textContent, "Fix with AI");
+  assert.equal(p.byId("run").getAttribute("title"), undefined, "Fix with AI already says it");
+  p.send(prepared({ fix: { status: "success", detail: "Handed to Claude Code in a terminal." } }));
+  assert.equal(p.byId("run-label").textContent, "Open AI Session");
+  assert.equal(p.byId("run").getAttribute("title"), "Focus the existing BugPilot AI terminal");
+  p.send(state());
+  assert.equal(p.byId("run-label").textContent, "Run");
+  assert.equal(p.byId("run").getAttribute("title"), undefined, "a stale tooltip outlived its action");
+});
+
+test("the compact controls the page builds get specific tooltips that match their names", () => {
+  const p = load();
+  // The attachment's remove icon names the file, as its accessible name does.
+  p.send(state({ form: { ...DEFAULT_FORM, attachments: ["C:/work/logs/crash.log"] }, revision: 2 }));
+  const remove = descendants(p.byId("attachment-list")).find((element) => element.classes.has("icon"));
+  assert.ok(remove, "no remove icon for the attachment");
+  assert.equal(remove.getAttribute("title"), "Remove crash.log");
+  assert.equal(remove.getAttribute("aria-label"), "Remove crash.log");
+
+  // Show more / Show less: the tooltip is the accessible name.
+  layOut(p, 6);
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }));
+  assert.equal(toggleOf(p).getAttribute("title"), "Show full Fix result");
+  toggleOf(p).dispatch("click");
+  assert.equal(toggleOf(p).getAttribute("title"), "Collapse Fix result");
+});
+
+test("a settings summary, which is cut with an ellipsis, is whole on hover", () => {
+  const p = load();
+  p.send(prepared({ settingsSummaries: { codeSearch: "4 keywords · 2 focus paths · max 10 files" } }));
+  assert.equal(p.byId("settings-summary-codeSearch").getAttribute("title"), "4 keywords · 2 focus paths · max 10 files");
 });

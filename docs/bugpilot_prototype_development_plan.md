@@ -10298,3 +10298,52 @@ written from outside).
 **Regression.** Extension 1501 tests pass (1492 before: 8 page and 1 panel test
 added, the clamp CSS test rewritten); typecheck, smoke and `git diff --check`
 clean.
+
+### 37.90 Artifacts tooltips and the extension tooltip audit (after `3e8982f`, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Artifacts tooltips and the tooltip audit)" at the end of
+§19.
+
+**What changed.**
+
+- `artifacts.ts`: `artifactRow().description` is the status alone; six purposes
+  shortened; tooltip and accessible name unchanged in shape.
+- `workflowSettings.ts`: the Fix with AI gear is *Configure AI Agent*.
+- `html.ts`: the ⋯ menu, Open Context, Copy, Improve and Cancel Review
+  tooltips reworded; Show more gets a `title`.
+- `panel.js`: `PRIMARY_TITLES` for the primary button (set and removed with the
+  action); tooltips on Show more / less, Show / Hide details, an attachment's
+  remove icon (its file), Remove Check, the quick fix, a settings summary, the
+  Fix Mode and agent selects.
+- Page test harness: `removeAttribute` on the fake element.
+
+**Real VS Code pass** (the disposable profile, the throwaway work item).
+
+- PASS A: at 200px each Artifacts row is the name and Written / Not written
+  yet; hovering `issue.json` showed *issue.json / Issue details or manual bug
+  description / Status: Written*; `verification_report.md` (its name cut at that
+  width) showed its full name, *Recorded verification checks*, the status and
+  what writes it; accessible names carry the purpose.
+- PASS B: the four gears' live `title` and `aria-label` — *Configure Issue
+  Details*, *…Code Search*, *…Build Context*, *…AI Agent*; none on Git history or
+  Similar fixes.
+- PASS C: the primary button, reading Open AI Session, has *Focus the existing
+  BugPilot AI terminal*.
+- PASS D: More actions, Open context, Copy context, the three menu items,
+  Improve, Manage Fix Modes, Show more, Remove Check — the expected live
+  `title`s.
+- PASS E: Tab from the Issue through the workflow: every stop has an accessible
+  name that says the action without the tooltip.
+- PASS F: 200px and Dark, Light, High Contrast Dark, High Contrast Light for the
+  Artifacts view.
+- Not captured: the webview's own tooltip pop-ups, which Chromium draws outside
+  the page; their text is the live `title` checked above. The view title's
+  work-item id is cut at 200px with no tooltip — VS Code gives a view's
+  description none; the id is in History.
+
+**Regression.** Extension 1513 tests pass (1501 before: 3 artifact, 6 panel and
+3 page tests added; the artifact, gear and Improve tests updated); typecheck,
+smoke and `git diff --check` clean.

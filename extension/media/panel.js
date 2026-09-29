@@ -567,7 +567,7 @@
       remove.type = "button";
       remove.className = "icon";
       remove.setAttribute("aria-label", `Remove ${name.textContent}`);
-      remove.setAttribute("title", "Remove");
+      remove.setAttribute("title", `Remove ${name.textContent}`);
       const glyph = document.createElement("span");
       glyph.className = "codicon codicon-close";
       glyph.setAttribute("aria-hidden", "true");
@@ -592,7 +592,11 @@
    * thing left to decide.
    */
   function applyAgentVisibility() {
-    byId("field-agentCommand").hidden = byId("agent").value !== "custom";
+    const agent = byId("agent");
+    byId("field-agentCommand").hidden = agent.value !== "custom";
+    // The agent's name, never its custom command line.
+    const option = agent.options ? agent.options[agent.selectedIndex] : undefined;
+    agent.setAttribute("title", option ? option.text : "");
   }
 
   /**
@@ -760,6 +764,8 @@
       selected && selected.executionKind === "investigate"
         ? "Investigation only — no source changes in this pass. "
         : "";
+    // A narrow panel cuts the selector: the mode's name on hover.
+    select.setAttribute("title", selected ? selected.name || selected.id : "");
     note.textContent = problem
       ? problem.message
       : catalog.kind === "unavailable"
@@ -891,6 +897,7 @@
       if (settingsSummary) {
         settingsSummary.textContent = step.settingsSummary || "";
         settingsSummary.hidden = settingsSummary.textContent === "";
+        settingsSummary.setAttribute("title", settingsSummary.textContent);
       }
 
       // Fix result has no card: a report that cannot be previewed is not a failure.
@@ -1161,6 +1168,7 @@
     toggle.hidden = fixSummaryKey === "" || !(fixSummaryExpanded || cut);
     toggle.textContent = fixSummaryExpanded ? "Show less" : "Show more";
     toggle.setAttribute("aria-label", fixSummaryExpanded ? "Collapse Fix result" : "Show full Fix result");
+    toggle.setAttribute("title", fixSummaryExpanded ? "Collapse Fix result" : "Show full Fix result");
     toggle.setAttribute("aria-expanded", fixSummaryExpanded ? "true" : "false");
   }
 
@@ -1338,6 +1346,7 @@
     byId("review-details").hidden = !reviewDetailsOpen;
     byId("review-details-toggle").setAttribute("aria-expanded", reviewDetailsOpen ? "true" : "false");
     byId("review-details-toggle-label").textContent = reviewDetailsOpen ? "Hide details" : "Show details";
+    byId("review-details-toggle").setAttribute("title", reviewDetailsOpen ? "Hide AI review details" : "Show AI review details");
   }
 
   function stopReviewClock() {
@@ -1806,6 +1815,7 @@
     remove.id = `${key}-remove`;
     remove.className = "result-link";
     remove.textContent = "Remove Check";
+    remove.setAttribute("title", "Remove this verification check");
     const row = { group, heading, name, status, kind, texts, remove, controls: [] };
     row.controls = [name, status, kind, ...texts.map((text) => text.area), remove];
     for (const control of row.controls) control.setAttribute("data-editor", "verification");
@@ -2292,6 +2302,11 @@
     // something is happening.
     const button = byId("run");
     byId("run-label").textContent = primary.label;
+    // Run and Fix with AI say what they do; Open AI Session and Rebuild
+    // Context are shorter than what they mean (§37.90).
+    const title = PRIMARY_TITLES[primary.action] || "";
+    if (title) button.setAttribute("title", title);
+    else button.removeAttribute("title");
     byId("run-icon").className = primary.busy
       ? "codicon codicon-loading codicon-spin"
       : `codicon codicon-${PRIMARY_ICONS[primary.action] || "play"}`;
@@ -2305,6 +2320,12 @@
     byId("more-actions").hidden = more.length === 0;
     if (more.length === 0) closeMoreMenu(false);
   }
+
+  /** The same words as the ⋯ menu's items, for the button when it is one of them. */
+  const PRIMARY_TITLES = {
+    openSession: "Focus the existing BugPilot AI terminal",
+    rebuildContext: "Rebuild prepared context from the current settings",
+  };
 
   function openMoreMenu() {
     byId("more-menu").hidden = false;
@@ -2394,6 +2415,7 @@
         button.id = `notice-action-${action.id}`;
         button.setAttribute("data-notice-action", action.id);
         button.setAttribute("aria-label", action.accessibleName || action.label || "");
+        button.setAttribute("title", action.accessibleName || action.label || "");
         button.textContent = action.label || "";
         // aria-disabled, not disabled: a disabled button drops the focus.
         if (action.busy) button.setAttribute("aria-disabled", "true");

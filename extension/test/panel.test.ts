@@ -568,7 +568,8 @@ test("a gear on exactly the rows that have settings, named for its step", () => 
     "Configure Issue Details",
     "Configure Code Search",
     "Configure Build Context",
-    "Configure Fix with AI",
+    // Fix Mode and Hint moved to the main page: this gear is the agent's (§37.90).
+    "Configure AI Agent",
   ]);
 });
 
@@ -1690,7 +1691,7 @@ test("Improve is one word, with a tooltip that says what it will do", () => {
   const button = /<button type="button" id="improve-hint"[\s\S]*?<\/button>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(button, "", "the Improve button is gone");
   assert.match(button, /<span id="improve-hint-label">Improve<\/span>/);
-  assert.match(button, /title="Improve clarity and technical precision using the configured AI provider\."/);
+  assert.match(button, /title="Improve this hint with AI"/);
   // The vendored font has no spark glyph; hubot is its AI icon and is already
   // what the AI agent setting uses. A name not in the subset renders as a box.
   assert.match(button, /codicon-hubot/);
@@ -2550,4 +2551,68 @@ test("the acknowledgement wraps in a narrow sidebar and is never styled as an er
   assert.match(rule, /overflow-wrap: anywhere/);
   assert.equal(/(?<![a-z-])width:|white-space: nowrap/.test(rule), false);
   assert.equal(/\.session-feedback[^{]*\{[^}]*errorForeground/s.test(CSS), false, "a closed terminal is not a failure");
+});
+
+// --- Tooltip audit (§37.90) --------------------------------------------------
+
+/** The opening tag of the button with this id. */
+const buttonTag = (id: string) => new RegExp(`<button[^>]*id="${id}"[^>]*>`).exec(HTML)?.[0] ?? "";
+const attr = (tag: string, name: string) => new RegExp(`${name}="([^"]*)"`).exec(tag)?.[1];
+
+test("every icon-only control has a tooltip and an accessible name, and they agree", () => {
+  const iconOnly = [
+    ["settings-issueDetails", "Configure Issue Details"],
+    ["settings-codeSearch", "Configure Code Search"],
+    ["settings-buildContext", "Configure Build Context"],
+    ["settings-fixWithAI", "Configure AI Agent"],
+    ["more-actions", "More actions"],
+    ["manage-fix-modes", "Manage Fix Modes"],
+  ] as const;
+  for (const [id, name] of iconOnly) {
+    const tag = buttonTag(id);
+    assert.notEqual(tag, "", id);
+    assert.equal(attr(tag, "title"), name, `${id} tooltip`);
+    assert.equal(attr(tag, "aria-label"), name, `${id} accessible name`);
+  }
+  // No gear anywhere says Fix with AI: that row's settings are the agent's now.
+  assert.equal(HTML.includes("Configure Fix with AI"), false);
+});
+
+test("Open Context and Copy say what they act on, in sentence case", () => {
+  assert.equal(attr(buttonTag("open-context"), "title"), "Open context");
+  assert.equal(attr(buttonTag("copy-context"), "title"), "Copy context");
+});
+
+test("the compact next actions say what they really do: Open AI Session focuses, and never starts", () => {
+  const session = attr(buttonTag("menu-openSession"), "title") ?? "";
+  assert.equal(session, "Focus the existing BugPilot AI terminal");
+  assert.doesNotMatch(session, /start|relaunch|restart|new/i);
+  assert.equal(attr(buttonTag("menu-startNewAttempt"), "title"), "Start a new AI session using the current prepared context");
+  assert.equal(attr(buttonTag("menu-rebuildContext"), "title"), "Rebuild prepared context from the current settings");
+  // The primary button uses the same words when it is one of them.
+  const titles = /const PRIMARY_TITLES = \{([\s\S]*?)\};/.exec(PAGE_JS)?.[1] ?? "";
+  assert.match(titles, /openSession: "Focus the existing BugPilot AI terminal"/);
+  assert.match(titles, /rebuildContext: "Rebuild prepared context from the current settings"/);
+  assert.equal(/\brun:|fixWithAI:/.test(titles), false, "Run and Fix with AI gained a tooltip their labels already say");
+});
+
+test("Cancel Review stops the review, and says nothing about the fix", () => {
+  const title = attr(buttonTag("cancel-review"), "title") ?? "";
+  assert.equal(title, "Stop the current background AI review");
+  assert.doesNotMatch(title, /fix/i);
+});
+
+test("clear text buttons carry no tooltip that only repeats their label", () => {
+  for (const id of ["run", "stop", "hint-use", "hint-keep", "settings-apply", "settings-cancel", "start-attempt", "cancel-attempt", "save-review-result"]) {
+    const tag = buttonTag(id);
+    assert.notEqual(tag, "", id);
+    assert.equal(attr(tag, "title"), undefined, `${id} has a redundant tooltip`);
+  }
+});
+
+test("no tooltip names a credential, a token or a command line", () => {
+  const titles = [...HTML.matchAll(/title="([^"]*)"/g), ...PAGE_JS.matchAll(/setAttribute\("title", ([^)]*)\)/g)].map((match) => match[1]!);
+  for (const title of titles) {
+    assert.doesNotMatch(title, /token|password|secret|credential|agentCommand|JIRA_/i, title);
+  }
 });

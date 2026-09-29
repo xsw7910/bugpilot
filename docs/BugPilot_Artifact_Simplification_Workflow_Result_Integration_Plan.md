@@ -2549,6 +2549,44 @@ workflow state is shown, not the state.
    accessible names *Show full Fix result* / *Collapse Fix result*. The clamp is
    visual: the full text is the elements' text (and title) either way.
 
+### Confirmed decisions (Artifacts tooltips and the tooltip audit)
+
+This revises decision 5 of "Confirmed decisions (Flat Artifacts list)".
+
+1. **Artifacts shows only filename + availability inline.** A row's
+   description is *Written* or *Not written yet* and nothing else.
+
+2. **Artifact purpose moves to tooltip/accessibility metadata.** The tooltip is
+   the full file name (which a narrow sidebar may cut), the purpose,
+   `Status: …`, and for a file not written yet what writes it; the accessible
+   name stays `<name> — <purpose> — <status>`. The purposes are shorter now:
+   *Prepared context used by the AI*, *Summary of the AI fix and changes*,
+   *Saved review findings*, *Recorded verification checks*, *Investigation and
+   retrieval details*, *Workflow execution metadata* (the rest unchanged).
+
+3. **Tooltips are added selectively to compact/ambiguous controls across the
+   extension**, as `title` on the page and `TreeItem.tooltip` in the trees —
+   never a custom framework, never the only accessible name, sentence case, one
+   line:
+   - icon-only controls keep a tooltip equal to their `aria-label`; the Fix with
+     AI gear is *Configure AI Agent* (its section is the agent's alone since
+     §37.84);
+   - the primary button has one only when its label is shorter than its
+     meaning — *Focus the existing BugPilot AI terminal* for Open AI Session,
+     *Rebuild prepared context from the current settings* for Rebuild Context —
+     and the ⋯ menu items use the same words, Start New Attempt *Start a new AI
+     session using the current prepared context*; Run and Fix with AI have none;
+   - *Open context*, *Copy context*, *Improve this hint with AI*, *Stop the
+     current background AI review*, *Show / Hide AI review details*, *Show full
+     / Collapse Fix result*, *Remove this verification check*, *Remove
+     <file>* for an attachment, and the quick fix's accessible name;
+   - values an ellipsis can cut carry their whole text: a row's settings
+     summary, the chosen Fix Mode's name, the chosen agent's name (never a
+     custom command line).
+   Controls whose label or helper text already says it — Issue, Fix Mode,
+   Hint, Use issue details, Workflow Settings, Save / Cancel / Apply, Run, Fix
+   with AI — get none.
+
 ---
 
 # 20. Step Secondary Text 状态原则

@@ -75,23 +75,22 @@ test("one flat list: every file directly in it, in the workflow's order — no g
     assert.deepEqual(Object.keys(entry).filter((key) => key === "entries" || key === "group"), [], entry.name);
   }
   assert.deepEqual(namesOf(list), CANONICAL_ORDER);
-  // The old category names are nowhere in it.
-  const said = JSON.stringify(list);
+  // The old category names are no row of it.
   for (const group of ["Hand off to an agent", "Agent results", "Investigation", "Run state"]) {
-    assert.equal(said.includes(group), false, group);
+    assert.equal(entries.some((entry) => entry.name === group), false, group);
   }
 });
 
 test("every known artifact says what it is for, in plain words", () => {
   const expected: Record<string, string> = {
     "issue.json": "Issue details or manual bug description",
-    "context.md": "Prepared issue and code context used by the AI",
+    "context.md": "Prepared context used by the AI",
     "task.md": "AI task and fix instructions",
-    "fix_report.md": "Summary of the AI fix and changes made",
-    "review_report.md": "Saved AI or human review findings",
-    "verification_report.md": "Recorded verification checks and evidence",
-    "retrieval.json": "Code search and retrieval results used to build context",
-    "run.json": "Workflow execution state and metadata",
+    "fix_report.md": "Summary of the AI fix and changes",
+    "review_report.md": "Saved review findings",
+    "verification_report.md": "Recorded verification checks",
+    "retrieval.json": "Investigation and retrieval details",
+    "run.json": "Workflow execution metadata",
     "user_feedback.md": "Feedback provided for a new AI attempt",
     "agent_retry_prompt.md": "Instructions prepared for the next AI attempt",
     "jira_comment_draft.md": "Draft Jira comment prepared by BugPilot",
@@ -116,7 +115,9 @@ test("a canonical file not written yet is listed as Not written yet — never Mi
   const report = entryOf(list, "fix_report.md")!;
   assert.equal(report.written, false);
   const row = artifactRow(report);
-  assert.equal(row.description, "Not written yet · Summary of the AI fix and changes made");
+  // The status alone on the line; the purpose is the tooltip's (§37.90).
+  assert.equal(row.description, "Not written yet");
+  assert.match(row.tooltip, /^fix_report\.md\nSummary of the AI fix and changes\n/);
   assert.equal(row.opens, false, "a file not written yet would open as an empty file");
   assert.match(row.tooltip, /Status: Not written yet/);
   assert.match(row.tooltip, /Written by the AI agent when it finishes an attempt\./);
@@ -124,7 +125,7 @@ test("a canonical file not written yet is listed as Not written yet — never Mi
   assert.doesNotMatch(said, /Missing|Failed/);
   // The review and the verification too — they are part of the workflow to come.
   for (const name of ["review_report.md", "verification_report.md"]) {
-    assert.equal(artifactRow(entryOf(list, name)!).description.startsWith("Not written yet · "), true, name);
+    assert.equal(artifactRow(entryOf(list, name)!).description, "Not written yet", name);
   }
 });
 
@@ -132,13 +133,12 @@ test("a written file is Written, once, and opens", () => {
   const list = buildArtifactList({ names: [...REAL_RUN, "fix_report.md"] });
   const row = artifactRow(entryOf(list, "fix_report.md")!);
   assert.equal(row.label, "fix_report.md");
-  assert.equal(row.description, "Written · Summary of the AI fix and changes made");
+  assert.equal(row.description, "Written");
   assert.equal(row.opens, true);
   assert.equal(row.icon, "markdown");
-  assert.equal(row.tooltip, "fix_report.md\nSummary of the AI fix and changes made\nStatus: Written");
-  assert.equal(row.accessibleName, "fix_report.md — Summary of the AI fix and changes made — Written");
-  // The status is said once in the line, and once in each of the tooltip and the name.
-  assert.equal(row.description.split("Written").length - 1, 1);
+  assert.equal(row.tooltip, "fix_report.md\nSummary of the AI fix and changes\nStatus: Written");
+  // The purpose is not on the line any more, and a screen reader still hears it.
+  assert.equal(row.accessibleName, "fix_report.md — Summary of the AI fix and changes — Written");
 });
 
 test("a file created or deleted changes its row: the list is rebuilt from what is on disk", () => {
@@ -603,7 +603,8 @@ test("a recorded review follows the fix report; before it is saved it is Not wri
   assert.equal(entryOf(list, "review_report.md")!.written, true);
   const withoutReview = buildArtifactList({ names: ["task.md", "fix_report.md"] });
   const row = artifactRow(entryOf(withoutReview, "review_report.md")!);
-  assert.equal(row.description, "Not written yet · Saved AI or human review findings");
+  assert.equal(row.description, "Not written yet");
+  assert.match(row.tooltip, /Saved review findings/);
   assert.doesNotMatch(JSON.stringify(row), /missing/i);
 });
 
@@ -632,7 +633,8 @@ test("recorded evidence follows the review; before it is recorded it is Not writ
   assert.deepEqual(names.slice(names.indexOf("fix_report.md"), names.indexOf("fix_report.md") + 3), ["fix_report.md", "review_report.md", "verification_report.md"]);
   const without = buildArtifactList({ names: ["task.md", "fix_report.md"] });
   const row = artifactRow(entryOf(without, "verification_report.md")!);
-  assert.equal(row.description, "Not written yet · Recorded verification checks and evidence");
+  assert.equal(row.description, "Not written yet");
+  assert.match(row.tooltip, /Recorded verification checks/);
   assert.doesNotMatch(JSON.stringify(row), /missing/i);
 });
 
@@ -660,4 +662,44 @@ test("no History icon claims a fix was verified or passed", () => {
     assert.deepEqual(claims, [], `${outcome} uses ${icon}`);
   }
   assert.equal(OUTCOME_ICONS.fixed, "file-text");
+});
+
+// --- Artifacts rows: file name and status only (§37.90) ---------------------
+
+test("every row's line is its status and nothing else; the purpose is in the tooltip and the name", () => {
+  const list = buildArtifactList({ names: [...REAL_RUN, "user_feedback.md", "zz_custom_output.json"] });
+  for (const entry of entriesOf(list)) {
+    const row = artifactRow(entry);
+    assert.ok(row.description === "Written" || row.description === "Not written yet", `${entry.name}: "${row.description}"`);
+    assert.equal(row.description.includes(entry.description), false, `${entry.name}: the purpose is back on the line`);
+    const lines = row.tooltip.split("\n");
+    assert.equal(lines[0], entry.name, "the full file name, which a narrow sidebar cuts");
+    assert.equal(lines[1], entry.description);
+    assert.equal(lines[2], `Status: ${row.description}`);
+    assert.equal(row.accessibleName, `${entry.name} — ${entry.description} — ${row.description}`);
+  }
+});
+
+test("the tooltips say, briefly, what each standard file is for", () => {
+  const list = buildArtifactList({ names: REAL_RUN });
+  const purposes = Object.fromEntries(entriesOf(list).map((entry) => [entry.name, artifactRow(entry).tooltip.split("\n")[1]]));
+  assert.deepEqual(purposes, {
+    "issue.json": "Issue details or manual bug description",
+    "context.md": "Prepared context used by the AI",
+    "task.md": "AI task and fix instructions",
+    "fix_report.md": "Summary of the AI fix and changes",
+    "review_report.md": "Saved review findings",
+    "verification_report.md": "Recorded verification checks",
+    "retrieval.json": "Investigation and retrieval details",
+    "run.json": "Workflow execution metadata",
+  });
+});
+
+test("the longest name, and an unknown file, are whole in the tooltip", () => {
+  const list = buildArtifactList({ names: [...REAL_RUN, "verification_report.md", "a_rather_long_generated_output_name.json"] });
+  assert.equal(artifactRow(entryOf(list, "verification_report.md")!).tooltip, "verification_report.md\nRecorded verification checks\nStatus: Written");
+  assert.equal(
+    artifactRow(entryOf(list, "a_rather_long_generated_output_name.json")!).tooltip,
+    "a_rather_long_generated_output_name.json\nAdditional BugPilot artifact\nStatus: Written",
+  );
 });

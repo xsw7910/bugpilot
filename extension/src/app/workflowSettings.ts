@@ -109,7 +109,8 @@ export const SETTINGS_ACTION_LABELS: Readonly<Record<WorkflowSettingsSection, st
   "issue-details": "Configure Issue Details",
   "code-search": "Configure Code Search",
   "build-context": "Configure Build Context",
-  "fix-with-ai": "Configure Fix with AI",
+  // Fix Mode and Hint are on the main page (§37.84): this gear is the agent's.
+  "fix-with-ai": "Configure AI Agent",
 };
 
 /** The label beside a setting that changes the prepared context, in a mixed section. */

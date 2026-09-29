@@ -438,21 +438,21 @@ BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.
 
 The **Artifacts** view is one flat list of the work item's files, in the order
-the workflow produces them. Each row is the file name, whether it is
-**Written** or **Not written yet**, and what the file is for; click a written
-file to open it. The eight standard files are always listed, so you can see
-what is still to come:
+the workflow produces them. Each row is the file name and whether it is
+**Written** or **Not written yet**; hover a row for what the file is for (a
+screen reader hears it with the row). Click a written file to open it. The
+eight standard files are always listed, so you can see what is still to come:
 
 | File | What it is for |
 | --- | --- |
 | `issue.json` | Issue details or manual bug description |
-| `context.md` | Prepared issue and code context used by the AI |
+| `context.md` | Prepared context used by the AI |
 | `task.md` | AI task and fix instructions |
-| `fix_report.md` | Summary of the AI fix and changes made |
-| `review_report.md` | Saved AI or human review findings |
-| `verification_report.md` | Recorded verification checks and evidence |
-| `retrieval.json` | Code search and retrieval results used to build context |
-| `run.json` | Workflow execution state and metadata |
+| `fix_report.md` | Summary of the AI fix and changes |
+| `review_report.md` | Saved review findings |
+| `verification_report.md` | Recorded verification checks |
+| `retrieval.json` | Investigation and retrieval details |
+| `run.json` | Workflow execution metadata |
 
 Files a run writes only sometimes — `user_feedback.md`, `agent_retry_prompt.md`,
 Jira and email drafts — appear after them once they exist, and any other file

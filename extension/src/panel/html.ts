@@ -142,7 +142,7 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
           Use issue details
         </label>
         <button type="button" id="improve-hint" class="link"
-                title="Improve clarity and technical precision using the configured AI provider.">
+                title="Improve this hint with AI">
           <span class="codicon codicon-hubot" id="improve-hint-icon" aria-hidden="true"></span>
           <span id="improve-hint-label">Improve</span>
         </button>
@@ -365,14 +365,14 @@ const BUILD_CONTEXT_ACTIONS: readonly ActionButton[] = [
     action: "openContext",
     icon: "go-to-file",
     label: "Open Context",
-    title: "Open the generated context.md",
+    title: "Open context",
   },
   {
     id: "copy-context",
     action: "copyContext",
     icon: "copy",
     label: "Copy",
-    title: "Copy context.md to the clipboard",
+    title: "Copy context",
   },
 ];
 
@@ -413,17 +413,18 @@ const MORE_ACTIONS: readonly { readonly id: NextActionId; readonly icon: string;
   {
     id: "startNewAttempt",
     icon: "debug-restart",
-    title: "Start a new AI session with the prepared context, and optional feedback",
+    title: "Start a new AI session using the current prepared context",
   },
   {
     id: "rebuildContext",
     icon: "refresh",
-    title: "Prepare the context again from the form, keeping what the agent wrote",
+    title: "Rebuild prepared context from the current settings",
   },
   {
     id: "openSession",
     icon: "terminal",
-    title: "Go back to the terminal the AI session is running in",
+    // Focus only: Open AI Session never starts or restarts a session (§37.87).
+    title: "Focus the existing BugPilot AI terminal",
   },
 ];
 
@@ -1002,7 +1003,7 @@ const FIX_RESULT_ROW = `        <li class="step" id="step-fixResult" hidden>
             <p class="step-detail" id="detail-fixResult" hidden></p>
             <!-- Show more / Show less (§37.89): only while the report's lines are
                  actually cut short; the whole text is in the lines above either way. -->
-            <button type="button" class="link fix-summary-toggle" id="fix-summary-toggle" aria-controls="description-fixResult detail-fixResult" aria-expanded="false" aria-label="Show full Fix result" hidden>Show more</button>
+            <button type="button" class="link fix-summary-toggle" id="fix-summary-toggle" aria-controls="description-fixResult detail-fixResult" aria-expanded="false" aria-label="Show full Fix result" title="Show full Fix result" hidden>Show more</button>
             ${stepArtifact("fixResult")}
 ${stepContent("fixResult")}
           </div>
@@ -1096,7 +1097,7 @@ function stepContent(id: WorkflowStepId): string {
               <p class="review-progress-elapsed" id="review-elapsed-line">Elapsed: <span id="review-elapsed">00:00</span></p>
               <div class="step-actions review-progress-actions">
                 <button type="button" class="result-link" id="review-details-toggle" aria-controls="review-details" aria-expanded="false"><span id="review-details-toggle-label">Show details</span></button>
-                <button type="button" class="result-link" id="cancel-review" title="Stop the AI review; nothing it printed is kept" hidden><span class="codicon codicon-close" aria-hidden="true"></span><span>Cancel Review</span></button>
+                <button type="button" class="result-link" id="cancel-review" title="Stop the current background AI review" hidden><span class="codicon codicon-close" aria-hidden="true"></span><span>Cancel Review</span></button>
               </div>
               <dl class="review-details" id="review-details" aria-label="AI review details" hidden></dl>
             </div>
