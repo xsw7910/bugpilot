@@ -450,6 +450,24 @@ export async function improveHintWithProvider(request: {
 }
 
 /**
+ * Watch one work item's artifact directory (§37.81): the files directly in
+ * `.ai/<id>/`, created, changed or deleted — not the repository, not
+ * recursively, nothing under `.git` or `node_modules`. The callback gets the
+ * file name only; the controller debounces and re-reads.
+ */
+export function watchArtifactDirectory(directory: string, onEvent: (name: string) => void): vscode.Disposable {
+  const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(directory), "*"));
+  const fire = (uri: vscode.Uri) => onEvent(path.basename(uri.fsPath));
+  const listeners = [watcher.onDidCreate(fire), watcher.onDidChange(fire), watcher.onDidDelete(fire)];
+  return {
+    dispose: () => {
+      for (const listener of listeners) listener.dispose();
+      watcher.dispose();
+    },
+  };
+}
+
+/**
  * Run a captured one-shot review (§37.80) and hand back what it printed.
  *
  * The agent's fixed argv (`CapturedReviewInvocation`), no shell, the review

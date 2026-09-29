@@ -319,7 +319,21 @@ export interface ControllerPorts {
     readonly get: (workItemId: string) => string | undefined;
     readonly set: (workItemId: string, fix: string | undefined) => void;
   };
+  /**
+   * Watch one work item's artifact directory — `.ai/<id>/`, its files only, not
+   * recursive — and call back with the file name on every create, change or
+   * delete (§37.81). The host's file watcher; absent, only the other refresh
+   * triggers apply.
+   */
+  readonly watchArtifacts?: (directory: string, onEvent: (name: string) => void) => { dispose(): void };
+  /** A timer, so a test can run the debounce by hand. Absent: `setTimeout`. */
+  readonly schedule?: (callback: () => void, delayMs: number) => { cancel(): void };
 }
+
+/** Artifact events closer together than this are one refresh. */
+export const ARTIFACT_REFRESH_DEBOUNCE_MS = 250;
+/** A read that failed mid-write is tried once more, this much later. */
+export const ARTIFACT_REFRESH_RETRY_MS = 750;
 
 /**
  * The artifact writes the host performs itself, one at a time (Batch 12): recording
@@ -565,6 +579,25 @@ export class Controller {
   #fixReportIdentity: string | undefined;
   /** The session's copy of which fix each work item's last review attempt was for. */
   readonly #reviewedFixes = new Map<string, string>();
+  /**
+   * The watcher on the shown work item's artifact directory, and which
+   * directory it is for — replaced whenever the work item or the repository
+   * changes, disposed with the controller (§37.81).
+   */
+  #artifactWatch: { readonly directory: string; readonly handle: { dispose(): void } } | undefined;
+  /** The debounced refresh waiting to run, if any. */
+  #artifactRefreshTimer: { cancel(): void } | undefined;
+  /** An artifact changed while something was in flight; refresh when it ends. */
+  #artifactRefreshPending = false;
+  #disposed = false;
+  /** Which work item `#artifacts` was last listed for: a listing shown is only "known" for it. */
+  #artifactsListedFor: string | undefined;
+  /**
+   * A run or a clean may delete and recreate `.ai/<id>/`, and a watcher on a
+   * deleted directory can go quiet. Set when one starts; the first push after
+   * it ends builds the watcher again, on the directory as it is now.
+   */
+  #artifactWatchStale = false;
   /** `verification_report.md`, projected, while the listing names it (Batch 12). */
   #verificationReport: VerificationReportPreview | undefined;
   /** A verification recording in flight, or its outcome. Never persisted. */
@@ -798,6 +831,10 @@ export class Controller {
       case "ready":
         this.#revision += 1;
         this.#push();
+        // The page loads whenever the panel is shown again — a hidden webview is
+        // destroyed — so this is the "visible again" safety net for an artifact
+        // event the watcher missed. Debounced like any other trigger.
+        this.requestArtifactRefresh("panel shown");
         return;
       case "formChanged":
         await this.#formChanged(message.form);
@@ -1027,6 +1064,8 @@ export class Controller {
     // this run was given — set now, so no push after the run can compare against
     // the one before it and flicker Rebuild Context.
     this.#preparedWith = preparationFingerprint(form);
+    // Fresh deletes the folder being watched: watch it again once the run ends.
+    this.#artifactWatchStale = true;
     // A re-prepare of the same Jira work item keeps fix_report.md — only Fresh
     // deletes it, and the retry flow reads it — so the Fix result row stays
     // through the run. Nothing else is known to survive: Fresh may delete it,
@@ -1790,17 +1829,156 @@ export class Controller {
 
   /** Re-read the artifact directory of the current work item. */
   async refreshArtifacts(): Promise<void> {
+    await this.#readArtifacts(false);
+  }
+
+  /**
+   * Re-read the shown work item from disk and re-render: the listing, the
+   * small files the rows are built from, and so Review with AI's eligibility
+   * (the fix report's content identity). Read-only — nothing is written,
+   * prepared, searched or run — so a write it notices cannot start another.
+   *
+   * The one path every refresh takes: the Refresh command (`tolerant` false),
+   * and — through `requestArtifactRefresh`, debounced — the artifact watcher,
+   * the panel being shown again, and an operation ending with an event still
+   * pending (`tolerant` true, so a file caught mid-write keeps the last known
+   * state and is read again once rather than shown as missing or unreadable).
+   */
+  async refreshActiveWorkItem(options: { readonly tolerant?: boolean } = {}): Promise<boolean> {
+    const complete = await this.#readArtifacts(options.tolerant ?? false);
+    this.#ports.ui.refreshViews();
+    return complete;
+  }
+
+  /**
+   * Ask for a refresh of the shown work item, soon: events closer together
+   * than `ARTIFACT_REFRESH_DEBOUNCE_MS` are one refresh. Nothing to refresh,
+   * or disposed: nothing is scheduled.
+   */
+  requestArtifactRefresh(reason: string): void {
+    if (this.#disposed || !this.#workItemId || !this.#root) return;
+    if (this.#artifactRefreshTimer !== undefined) return;
+    this.#ports.log.info(`Artifact refresh scheduled (${reason}).`);
+    this.#artifactRefreshTimer = this.#schedule(() => {
+      this.#artifactRefreshTimer = undefined;
+      void this.#runScheduledRefresh(false);
+    }, ARTIFACT_REFRESH_DEBOUNCE_MS);
+  }
+
+  /**
+   * The scheduled refresh. Held back — and remembered — while a run, a
+   * handoff, a new attempt or an artifact write is in flight: each of those
+   * reads the folder itself when it ends, and a listing read under a run would
+   * offer files the run is replacing. A read that was incomplete is tried once
+   * more, then shown as it is.
+   */
+  async #runScheduledRefresh(retry: boolean): Promise<void> {
+    if (this.#disposed) return;
+    if (this.#running || this.#runPending || this.#handoffBusy || this.#mutation !== undefined) {
+      this.#artifactRefreshPending = true;
+      this.#ports.log.info("Artifact refresh deferred until the operation in flight ends.");
+      return;
+    }
     const workItemId = this.#workItemId;
-    if (!workItemId || !this.#root) return;
+    let complete: boolean;
+    try {
+      complete = await this.refreshActiveWorkItem({ tolerant: !retry });
+    } catch (error) {
+      // A refresh is a safety net: a failure is logged, never shown as fatal.
+      this.#ports.log.error(`Artifact refresh failed: ${(error as Error).message}`);
+      complete = false;
+    }
+    if (!complete && !retry && !this.#disposed && workItemId === this.#workItemId) {
+      this.#ports.log.info("Artifact refresh was incomplete (a file may be mid-write); trying once more.");
+      this.#artifactRefreshTimer ??= this.#schedule(() => {
+        this.#artifactRefreshTimer = undefined;
+        void this.#runScheduledRefresh(true);
+      }, ARTIFACT_REFRESH_RETRY_MS);
+      return;
+    }
+    this.#ports.log.info(`Artifact refresh completed for ${workItemId ?? "no work item"}.`);
+  }
+
+  #schedule(callback: () => void, delayMs: number): { cancel(): void } {
+    if (this.#ports.schedule) return this.#ports.schedule(callback, delayMs);
+    const timer = setTimeout(callback, delayMs);
+    // Never what keeps the extension host — or a test run — alive.
+    (timer as { unref?: () => void }).unref?.();
+    return { cancel: () => clearTimeout(timer) };
+  }
+
+  /**
+   * Keep the watcher on the shown work item's directory: a new one when the
+   * work item or the repository changed, none when nothing is shown. Called
+   * with every push, so every path that changes the work item is covered; a
+   * push that changes neither costs one comparison.
+   */
+  #syncArtifactWatch(): void {
+    if (this.#disposed) return;
+    const workItemId = this.#workItemId;
+    const directory = workItemId && this.#root ? path.join(this.#root, ".ai", workItemId) : undefined;
+    const same = directory === this.#artifactWatch?.directory;
+    if (same && !this.#artifactWatchStale) return;
+    // The same directory, possibly being deleted and written again: rebuilt
+    // once the run or the clean has ended, not while it is under way.
+    if (same && (this.#running || this.#runPending || this.#mutation === "clean")) return;
+    this.#artifactWatchStale = false;
+    if (this.#artifactWatch !== undefined) {
+      this.#artifactWatch.handle.dispose();
+      this.#ports.log.info("Artifact watcher disposed.");
+    }
+    this.#artifactWatch = undefined;
+    // A refresh scheduled for the last work item is not this one's.
+    this.#artifactRefreshTimer?.cancel();
+    this.#artifactRefreshTimer = undefined;
+    this.#artifactRefreshPending = false;
+    const watch = this.#ports.watchArtifacts;
+    if (directory === undefined || workItemId === undefined || !watch) return;
+    const handle = watch(directory, (name) => {
+      // An event from a watcher already replaced is about another work item.
+      if (this.#artifactWatch?.handle !== handle || this.#workItemId !== workItemId) return;
+      this.requestArtifactRefresh(`${name} changed`);
+    });
+    this.#artifactWatch = { directory, handle };
+    this.#ports.log.info(`Artifact watcher started for .ai/${workItemId}/.`);
+  }
+
+  /** Stop watching and forget any scheduled refresh: the extension is going away. */
+  dispose(): void {
+    this.#disposed = true;
+    this.#artifactRefreshTimer?.cancel();
+    this.#artifactRefreshTimer = undefined;
+    this.#artifactWatch?.handle.dispose();
+    this.#artifactWatch = undefined;
+  }
+
+  /**
+   * The read itself. `tolerant`: a failure to read something that was known a
+   * moment ago keeps what was known, and says so by returning false. Without
+   * it, a failure is shown as it is.
+   */
+  async #readArtifacts(tolerant: boolean): Promise<boolean> {
+    const workItemId = this.#workItemId;
+    if (!workItemId || !this.#root) return true;
+    const known = this.#artifacts.kind === "ready" && this.#artifactsListedFor === workItemId;
     // Shown while the directory is being read: on a large repository over a
     // network share this is not instant, and an empty list in the meantime
-    // reads as "this run produced nothing".
-    this.#artifacts = { kind: "loading" };
-    this.#push();
+    // reads as "this run produced nothing". Not over a listing already shown,
+    // which a background refresh would only make flicker.
+    if (!known) {
+      this.#artifacts = { kind: "loading" };
+      this.#push();
+    }
     const listing = await this.#ports.files.listDirectory(
       path.join(this.#root, ".ai", workItemId),
     );
+    // Another work item was shown while the directory was read.
+    if (this.#workItemId !== workItemId) return true;
     if (listing.kind === "unreadable") {
+      if (tolerant && known) {
+        this.#ports.log.info(`.ai/${workItemId}/ could not be read just now (${listing.detail}); kept what was shown.`);
+        return false;
+      }
       this.#artifactNames = [];
       this.#forgetSummary();
       this.#artifacts = {
@@ -1808,14 +1986,12 @@ export class Controller {
         detail: `.ai/${workItemId}/ could not be read: ${listing.detail}`,
       };
       this.#push();
-      return;
+      return true;
     }
     const names = listing.kind === "ok" ? listing.names : [];
     this.#artifactNames = names;
     this.#artifacts = buildArtifactList({ names });
-    // The report may have been rewritten since the checklist was read. A copy
-    // in flight is not affected: the prompt depends on the work item alone.
-    this.#forgetValidation();
+    this.#artifactsListedFor = workItemId;
     // Nor is a review handoff, while the report is still there. Without one,
     // a handoff in flight is about a report that is gone — and so is an
     // outcome, which must not reappear with the next report.
@@ -1824,10 +2000,25 @@ export class Controller {
       // A recording is about the report on screen; without one it is stale.
       this.#forgetCapture();
     }
-    await this.#readSummary(workItemId, names);
+    const fixBefore = this.#fixReportIdentity;
+    const complete = await this.#readSummary(workItemId, names, tolerant);
+    // The report may have been rewritten since the checklist was read — a new
+    // fix, by content. The same report read again keeps it. A copy in flight is
+    // not affected: the prompt depends on the work item alone.
+    if (this.#fixReportIdentity !== fixBefore) {
+      this.#forgetValidation();
+      // Said only for a change seen after a listing was shown — not for the
+      // first read of a work item just opened.
+      if (known) this.#ports.log.info(
+        this.#fixReportIdentity === undefined
+          ? `fix_report.md for ${workItemId} is gone.`
+          : `fix_report.md for ${workItemId} is a new fix, by content.`,
+      );
+    }
     // Pushed here rather than only by the callers: `refreshArtifacts` is also a
     // command of its own, and without this the panel keeps showing "loading".
     this.#push();
+    return complete;
   }
 
   /**
@@ -3149,6 +3340,7 @@ export class Controller {
       return false;
     }
     this.#mutation = "clean";
+    this.#artifactWatchStale = true;
     this.#push();
     try {
       await perform();
@@ -3181,7 +3373,8 @@ export class Controller {
    * past the parse is the projections' business, which omit a number and drop
    * an entry rather than guess at either.
    */
-  async #readSummary(workItemId: string, names: readonly string[]): Promise<void> {
+  async #readSummary(workItemId: string, names: readonly string[], tolerant = false): Promise<boolean> {
+    let complete = true;
     const issueText = names.includes(ISSUE_ARTIFACT)
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, ISSUE_ARTIFACT))
       : undefined;
@@ -3191,8 +3384,22 @@ export class Controller {
     const fixText = names.includes(FIX_REPORT_ARTIFACT)
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, FIX_REPORT_ARTIFACT))
       : undefined;
-    this.#fixReport = names.includes(FIX_REPORT_ARTIFACT) ? parseFixReport(fixText) : undefined;
-    const identity = names.includes(FIX_REPORT_ARTIFACT) ? fixReportIdentity(fixText) : undefined;
+    // Listed but not read, while a readable report was known: in a tolerant
+    // read that is a file caught mid-write, not an unreadable one — and above
+    // all not a new fix. Keep the last reading; the caller reads once more.
+    const keepFix =
+      tolerant &&
+      names.includes(FIX_REPORT_ARTIFACT) &&
+      fixText === undefined &&
+      this.#fixReport?.readable === true &&
+      this.#fixReportIdentity !== undefined;
+    if (keepFix) complete = false;
+    this.#fixReport = keepFix ? this.#fixReport : names.includes(FIX_REPORT_ARTIFACT) ? parseFixReport(fixText) : undefined;
+    const identity = keepFix
+      ? this.#fixReportIdentity
+      : names.includes(FIX_REPORT_ARTIFACT)
+        ? fixReportIdentity(fixText)
+        : undefined;
     // A different fix on screen — a new attempt's report — is a fix no attempt
     // this session saw was for: what the last one did is no longer this row's
     // to say. One still running keeps going; its reply is still a draft.
@@ -3203,16 +3410,31 @@ export class Controller {
     this.#fixReportIdentity = identity;
     // The same rule for the recorded review: listed, a Review Result; listed but
     // unreadable, one with "Preview unavailable".
-    this.#reviewReport = names.includes(REVIEW_REPORT_ARTIFACT)
-      ? parseReviewReport(await this.#ports.files.readFile(this.#itemFile(workItemId, REVIEW_REPORT_ARTIFACT)))
+    const reviewText = names.includes(REVIEW_REPORT_ARTIFACT)
+      ? await this.#ports.files.readFile(this.#itemFile(workItemId, REVIEW_REPORT_ARTIFACT))
       : undefined;
+    const keepReview =
+      tolerant && names.includes(REVIEW_REPORT_ARTIFACT) && reviewText === undefined && this.#reviewReport?.readable === true;
+    if (keepReview) complete = false;
+    else {
+      this.#reviewReport = names.includes(REVIEW_REPORT_ARTIFACT) ? parseReviewReport(reviewText) : undefined;
+    }
     // And for recorded evidence: listed, a Verification Evidence section.
-    this.#verificationText = names.includes(VERIFICATION_REPORT_ARTIFACT)
+    const verificationText = names.includes(VERIFICATION_REPORT_ARTIFACT)
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, VERIFICATION_REPORT_ARTIFACT))
       : undefined;
-    this.#verificationReport = names.includes(VERIFICATION_REPORT_ARTIFACT)
-      ? parseVerificationReport(this.#verificationText)
-      : undefined;
+    const keepVerification =
+      tolerant &&
+      names.includes(VERIFICATION_REPORT_ARTIFACT) &&
+      verificationText === undefined &&
+      this.#verificationReport?.readable === true;
+    if (keepVerification) complete = false;
+    else {
+      this.#verificationText = verificationText;
+      this.#verificationReport = names.includes(VERIFICATION_REPORT_ARTIFACT)
+        ? parseVerificationReport(this.#verificationText)
+        : undefined;
+    }
     const text = names.includes(RETRIEVAL_ARTIFACT)
       ? await this.#ports.files.readFile(this.#itemFile(workItemId, RETRIEVAL_ARTIFACT))
       : undefined;
@@ -3222,6 +3444,7 @@ export class Controller {
     const found = relevantFiles(retrieval);
     this.#files = found.slice(0, MAX_LISTED_FILES);
     this.#moreFiles = Math.max(0, found.length - this.#files.length);
+    return complete;
   }
 
   /**
@@ -3345,6 +3568,19 @@ export class Controller {
   }
 
   #push(): void {
+    this.#syncArtifactWatch();
+    // An artifact changed while something was in flight: now that nothing is,
+    // read the folder once more.
+    if (
+      this.#artifactRefreshPending &&
+      !this.#running &&
+      !this.#runPending &&
+      !this.#handoffBusy &&
+      this.#mutation === undefined
+    ) {
+      this.#artifactRefreshPending = false;
+      this.requestArtifactRefresh("an operation ended");
+    }
     // Computed here rather than in the page: the page cannot import the model,
     // and a status the page derived for itself would be a second opinion about
     // what the run did.

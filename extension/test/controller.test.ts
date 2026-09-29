@@ -22,6 +22,7 @@ import { REVIEW_NEXT_STEP } from "../src/app/workflow.ts";
 import { MAX_REVIEW_OUTPUT } from "../src/app/reviewOutput.ts";
 import { CLAUDE_CAPTURED_REVIEW } from "../src/app/agents.ts";
 import type { CapturedRun } from "../src/app/reviewRun.ts";
+import { ARTIFACT_REFRESH_DEBOUNCE_MS, ARTIFACT_REFRESH_RETRY_MS } from "../src/app/controller.ts";
 import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
 
@@ -173,6 +174,10 @@ interface HarnessOptions {
   readonly runCaptured?: NonNullable<ControllerPorts["runCapturedReview"]>;
   /** The persisted reviewed-fix store; absent keeps it for the controller's life. */
   readonly reviewedFixes?: NonNullable<ControllerPorts["reviewedFixes"]>;
+  /** The artifact watcher; absent means the host has none. */
+  readonly watchArtifacts?: NonNullable<ControllerPorts["watchArtifacts"]>;
+  /** A hand-run timer for the refresh debounce. */
+  readonly schedule?: NonNullable<ControllerPorts["schedule"]>;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -326,6 +331,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     ...(options.runVerification === undefined ? {} : { runVerificationCommand: options.runVerification }),
     ...(options.runCaptured === undefined ? {} : { runCapturedReview: options.runCaptured }),
     ...(options.reviewedFixes === undefined ? {} : { reviewedFixes: options.reviewedFixes }),
+    ...(options.watchArtifacts === undefined ? {} : { watchArtifacts: options.watchArtifacts }),
+    ...(options.schedule === undefined ? {} : { schedule: options.schedule }),
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return options.improveHint
@@ -4463,13 +4470,18 @@ test("a checklist for a work item that is no longer shown never lands on the new
   assert.equal(fixResultOf(h.last())?.validation, undefined, "A's checklist landed on B");
 });
 
-test("reading the folder again forgets a checklist the report may no longer match", async () => {
+test("reading the folder again forgets a checklist only when the report changed", async () => {
   const h = reviewable();
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
   await h.controller.handle({ type: "action", id: "loadValidation" });
   assert.equal(fixResultOf(h.last())?.validation?.state, "ready");
 
+  // The same report, read again — a refresh for an unrelated artifact: kept.
+  await h.controller.refreshArtifacts();
+  assert.equal(fixResultOf(h.last())?.validation?.state, "ready", "an unchanged report closed the checklist");
+  // A rewritten report may no longer match it.
+  h.files["fix_report.md"] = fixReportMd("Fixed it another way.", "5 passed.");
   await h.controller.refreshArtifacts();
   assert.equal(fixResultOf(h.last())?.validation, undefined);
 });
@@ -4554,11 +4566,12 @@ test("a checklist in flight when the folder is read again is dropped, not shown"
 
   const loading = h.controller.handle({ type: "action", id: "loadValidation" });
   await Promise.resolve();
+  h.files["fix_report.md"] = fixReportMd("Fixed it another way.", "5 passed.");
   await h.controller.refreshArtifacts();
   answer(REVIEW_PACKAGE);
   await loading;
 
-  // The report may have changed: the list built before the re-read is not shown.
+  // The report changed: the list built before the re-read is not shown.
   assert.equal(fixResultOf(h.last())?.validation, undefined);
 });
 
@@ -7774,4 +7787,320 @@ test("settings 19: the next-action states are unchanged by applying settings tha
   assert.ok(h.streamRuns[1]!.args.includes("--max-files=5"), "Rebuild Context did not use the applied settings");
   assert.equal(h.last().primary.action, "openSession");
   assert.deepEqual(h.last().primary.more, ["startNewAttempt", "rebuildContext"]);
+});
+
+// --- Automatic artifact refresh (§37.81): the folder is the truth ------------
+
+interface FakeWatcher {
+  readonly directory: string;
+  readonly fire: (name: string) => void;
+  disposed: boolean;
+}
+
+/**
+ * A work item with a watcher and a hand-run timer: `fire` is what the host's
+ * file watcher would call, `flush` runs whatever the debounce scheduled.
+ */
+function refreshing(extra: HarnessOptions = {}) {
+  const watchers: FakeWatcher[] = [];
+  const timers: { callback: () => void; delay: number; cancelled: boolean; ran: boolean }[] = [];
+  const store = new Map<string, string>();
+  const options = reviewOptions({
+    watchArtifacts: (directory, onEvent) => {
+      const watcher: FakeWatcher = { directory, fire: onEvent, disposed: false };
+      watchers.push(watcher);
+      return { dispose: () => { watcher.disposed = true; } };
+    },
+    schedule: (callback, delay) => {
+      const timer = { callback, delay, cancelled: false, ran: false };
+      timers.push(timer);
+      return { cancel: () => { timer.cancelled = true; } };
+    },
+    reviewedFixes: { get: (id) => store.get(id), set: (id, fix) => (fix === undefined ? store.delete(id) : store.set(id, fix)) },
+    ...extra,
+  });
+  const pending = () => timers.filter((timer) => !timer.cancelled && !timer.ran);
+  const flush = async () => {
+    for (let round = 0; round < 10; round += 1) {
+      const next = pending()[0];
+      if (next === undefined) return;
+      next.ran = true;
+      next.callback();
+      for (let i = 0; i < 6; i += 1) await tick();
+    }
+  };
+  const live = () => watchers.filter((watcher) => !watcher.disposed);
+  return { options, watchers, timers, pending, flush, live, store };
+}
+
+const fixEntry = (h: Harness) => {
+  const list = h.controller.artifacts;
+  if (list.kind !== "ready") return undefined;
+  return list.sections.flatMap((section) => section.entries).find((entry) => entry.name === "fix_report.md");
+};
+
+test("refresh 1–2: a fix_report.md written by another process shows up, with Review with AI, without a reload", async () => {
+  const r = refreshing({ directory: PREPARED_FILES });
+  const h = await openedForReview(r.options);
+  assert.equal(fixResultOf(h.last()), undefined);
+  assert.equal(fixEntry(h)?.missing, true, "fix_report.md was not listed as not written yet");
+  assert.equal(r.live().length, 1);
+  assert.equal(r.live()[0]!.directory, nodePath.join(ROOT, ".ai", "JR-12345"));
+  const refreshesBefore = h.refreshes.count;
+
+  // The agent writes it; the watcher says so.
+  r.options.directory = [...PREPARED_FILES, "fix_report.md"];
+  r.live()[0]!.fire("fix_report.md");
+  assert.equal(r.pending().length, 1);
+  assert.equal(r.pending()[0]!.delay, ARTIFACT_REFRESH_DEBOUNCE_MS);
+  await r.flush();
+
+  assert.equal(fixEntry(h)?.missing, undefined, "fix_report.md still read as not written");
+  assert.ok(fixResultOf(h.last()));
+  assert.equal(offersReview(h.last()), true);
+  assert.ok(h.refreshes.count > refreshesBefore, "the Artifacts and History trees were not told");
+  assert.deepEqual(h.written, [], "a refresh wrote something");
+});
+
+test("refresh 3–4: a changed report is a new fix; the same report written again is not", async () => {
+  const r = refreshing();
+  const h = await openedForReview(r.options);
+  await h.controller.handle(REVIEW);
+  assert.equal(offersReview(h.last()), false);
+
+  // Byte-identical content, and CRLF line endings: the same fix.
+  h.files["fix_report.md"] = fixReportMd("Fixed it.", "3 passed.").replace(/\n/g, "\r\n");
+  r.live()[0]!.fire("fix_report.md");
+  await r.flush();
+  assert.equal(offersReview(h.last()), false, "rewriting the same report counted as a new fix");
+
+  // Different content: a new fix to review.
+  h.files["fix_report.md"] = fixReportMd("Fixed it in the caller.", "4 passed.");
+  r.live()[0]!.fire("fix_report.md");
+  await r.flush();
+  assert.equal(offersReview(h.last()), true);
+});
+
+test("refresh 5: a deleted fix_report.md is gone from the row and the tree, and so is Review with AI", async () => {
+  const r = refreshing();
+  const h = await openedForReview(r.options);
+  assert.equal(offersReview(h.last()), true);
+  r.options.directory = PREPARED_FILES;
+  r.live()[0]!.fire("fix_report.md");
+  await r.flush();
+  assert.equal(fixResultOf(h.last()), undefined);
+  assert.equal(fixEntry(h)?.missing, true);
+});
+
+test("refresh 6–7: a review or verification report written outside the panel shows up", async () => {
+  const r = refreshing();
+  const h = await openedForReview(r.options);
+  h.files["review_report.md"] = REVIEW_REPORT_MD("Recorded in a terminal.");
+  h.files["verification_report.md"] = VERIFICATION_MD;
+  r.options.directory = [...PREPARED_FILES, "fix_report.md", "review_report.md", "verification_report.md"];
+  r.live()[0]!.fire("review_report.md");
+  r.live()[0]!.fire("verification_report.md");
+  await r.flush();
+  const row = fixResultOf(h.last())!;
+  assert.equal(row.reviewResult?.summary, "Recorded in a terminal.");
+  assert.ok(row.verificationResult);
+});
+
+test("refresh 8–9: switching work items replaces the watcher, and the old one's events touch nothing", async () => {
+  const r = refreshing(twoReports(REVIEW_PACKAGE));
+  const h = await openedForReview(r.options, "JR-1");
+  const first = r.live()[0]!;
+  assert.match(first.directory, /JR-1$/);
+
+  await h.controller.showWorkItem("JR-2");
+  assert.equal(first.disposed, true, "JR-1's watcher outlived the switch");
+  assert.equal(r.live().length, 1);
+  assert.match(r.live()[0]!.directory, /JR-2$/);
+
+  const statesBefore = h.states.length;
+  first.fire("fix_report.md");
+  assert.equal(r.pending().length, 0, "an event for JR-1 scheduled a refresh of JR-2");
+  assert.equal(h.states.length, statesBefore);
+});
+
+test("refresh 10: a burst of events is one refresh", async () => {
+  const r = refreshing();
+  const h = await openedForReview(r.options);
+  let listings = 0;
+  const readsBefore = h.states.length;
+  for (let i = 0; i < 12; i += 1) r.live()[0]!.fire(i % 2 === 0 ? "fix_report.md" : "run.json");
+  assert.equal(r.pending().length, 1, "events were not coalesced");
+  const wrapped = h.controller as unknown as { refreshActiveWorkItem: (o?: object) => Promise<boolean> };
+  const original = wrapped.refreshActiveWorkItem.bind(h.controller);
+  wrapped.refreshActiveWorkItem = async (o) => {
+    listings += 1;
+    return original(o);
+  };
+  await r.flush();
+  assert.equal(listings, 1);
+  assert.ok(h.states.length > readsBefore);
+});
+
+test("refresh: repeated page loads never stack watchers, and each load asks for one read", async () => {
+  const r = refreshing();
+  const h = await openedForReview(r.options);
+  for (let i = 0; i < 5; i += 1) await h.controller.handle({ type: "ready" });
+  assert.equal(r.watchers.length, 1, "a watcher was created per page load");
+  assert.equal(r.pending().length, 1, "page loads were not coalesced into one refresh");
+});
+
+test("refresh: the panel shown again re-reads the folder — the safety net for a missed event", async () => {
+  const r = refreshing({ directory: PREPARED_FILES });
+  const h = await openedForReview(r.options);
+  r.options.directory = [...PREPARED_FILES, "fix_report.md"];
+  // No watcher event at all: the page reloading is the only signal.
+  await h.controller.handle({ type: "ready" });
+  await r.flush();
+  assert.ok(fixResultOf(h.last()));
+  assert.equal(offersReview(h.last()), true);
+});
+
+test("refresh: the manual Refresh reads the same way, now", async () => {
+  const r = refreshing({ directory: PREPARED_FILES });
+  const h = await openedForReview(r.options);
+  r.options.directory = [...PREPARED_FILES, "fix_report.md"];
+  const refreshesBefore = h.refreshes.count;
+  await h.controller.refreshActiveWorkItem();
+  assert.ok(fixResultOf(h.last()));
+  assert.equal(offersReview(h.last()), true);
+  assert.equal(h.refreshes.count, refreshesBefore + 1);
+  assert.equal(r.pending().length, 0, "the manual refresh went through the timer");
+});
+
+test("refresh: an event during an operation waits for it, then reads once — never under it", async () => {
+  let finish: (run: CapturedRun) => void = () => {};
+  const r = refreshing({
+    runCaptured: () => new Promise<CapturedRun>((resolve) => (finish = resolve)),
+  });
+  const h = await openedForReview(r.options);
+  const reviewing = h.controller.handle(REVIEW);
+  await tick();
+  assert.equal(reviewOf(h.last())?.state, "reviewing");
+
+  r.options.directory = [...PREPARED_FILES, "fix_report.md", "review_report.md"];
+  h.files["review_report.md"] = REVIEW_REPORT_MD("Written meanwhile.");
+  r.live()[0]!.fire("review_report.md");
+  await r.flush();
+  assert.equal(fixResultOf(h.last())!.reviewResult, undefined, "the folder was read under the reviewer");
+  assert.equal(reviewOf(h.last())?.state, "reviewing", "the refresh disturbed the reviewer");
+
+  finish({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false });
+  await reviewing;
+  assert.equal(r.pending().length, 1, "the deferred refresh was dropped");
+  await r.flush();
+  const row = fixResultOf(h.last())!;
+  assert.equal(row.reviewResult?.summary, "Written meanwhile.");
+  // And the captured draft is still the draft.
+  assert.ok(row.reviewPrefill && "entry" in row.reviewPrefill, "a refresh wiped the unsaved review draft");
+});
+
+test("refresh: an unrelated artifact event keeps the unsaved review draft and the reviewed fix", async () => {
+  const r = refreshing({ runCaptured: async () => ({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false }) });
+  const h = await openedForReview(r.options);
+  await h.controller.handle(REVIEW);
+  const draft = fixResultOf(h.last())!.reviewPrefill;
+  assert.ok(draft && "entry" in draft);
+
+  h.files["verification_report.md"] = VERIFICATION_MD;
+  r.options.directory = [...PREPARED_FILES, "fix_report.md", "verification_report.md"];
+  r.live()[0]!.fire("verification_report.md");
+  r.live()[0]!.fire("run.json");
+  await r.flush();
+
+  const row = fixResultOf(h.last())!;
+  assert.deepEqual(row.reviewPrefill, draft, "the draft changed on a refresh");
+  assert.ok(row.verificationResult);
+  assert.equal(offersReview(h.last()), false);
+  assert.equal(reviewOf(h.last())?.state, "captured");
+});
+
+test("refresh: a failed capture, or a saved review, on the same fix stays hidden through a refresh", async () => {
+  const failed = refreshing({ runCaptured: async () => ({ code: 0, stdout: "", stderr: "", aborted: false }) });
+  const a = await openedForReview(failed.options);
+  await a.controller.handle(REVIEW);
+  assert.equal(reviewOf(a.last())?.state, "captureFailed");
+  failed.live()[0]!.fire("fix_report.md");
+  await failed.flush();
+  assert.equal(offersReview(a.last()), false);
+  assert.equal(reviewOf(a.last())?.state, "captureFailed", "the refresh dropped what the attempt said");
+
+  const saved = refreshing({ runCaptured: async () => ({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false }) });
+  saved.options.runReview = async () => RECORDED;
+  const b = await openedForReview(saved.options);
+  await b.controller.handle(REVIEW);
+  b.files["review_report.md"] = REVIEW_REPORT_MD("Saved.");
+  saved.options.directory = [...PREPARED_FILES, "fix_report.md", "review_report.md"];
+  saved.live()[0]!.fire("review_report.md");
+  await saved.flush();
+  assert.equal(offersReview(b.last()), false);
+});
+
+test("refresh: a report caught mid-write keeps the last reading, is read once more, and is never a new fix", async () => {
+  const r = refreshing();
+  const h = await openedForReview(r.options);
+  await h.controller.handle(REVIEW);
+  assert.equal(offersReview(h.last()), false);
+
+  // Listed, but the read fails: a writer holds it.
+  const text = h.files["fix_report.md"]!;
+  delete h.files["fix_report.md"];
+  r.live()[0]!.fire("fix_report.md");
+  const first = r.pending()[0]!;
+  first.ran = true;
+  first.callback();
+  for (let i = 0; i < 6; i += 1) await tick();
+  assert.equal(fixResultOf(h.last())?.summary, "Fixed it.", "the last reading was dropped");
+  assert.equal(offersReview(h.last()), false, "a failed read counted as a new fix");
+  assert.equal(r.pending().length, 1, "no second read was scheduled");
+  assert.equal(r.pending()[0]!.delay, ARTIFACT_REFRESH_RETRY_MS);
+
+  // The writer is done by the retry.
+  h.files["fix_report.md"] = text;
+  await r.flush();
+  assert.equal(offersReview(h.last()), false);
+  assert.equal(r.pending().length, 0, "it kept retrying");
+});
+
+test("refresh: an unreadable folder, known a moment ago, keeps what was shown for one retry", async () => {
+  const r = refreshing();
+  const h = await openedForReview(r.options);
+  r.options.directoryError = "EBUSY: resource busy or locked";
+  r.live()[0]!.fire("fix_report.md");
+  const first = r.pending()[0]!;
+  first.ran = true;
+  first.callback();
+  for (let i = 0; i < 6; i += 1) await tick();
+  assert.ok(fixResultOf(h.last()), "a transient error wiped the row");
+  assert.equal(h.controller.artifacts.kind, "ready");
+  // Still unreadable on the retry: now it is said.
+  await r.flush();
+  assert.equal(h.controller.artifacts.kind, "error");
+});
+
+test("refresh: dispose stops the watcher and anything scheduled", async () => {
+  const r = refreshing();
+  const h = await openedForReview(r.options);
+  const watcher = r.live()[0]!;
+  watcher.fire("fix_report.md");
+  const timer = r.pending()[0]!;
+  h.controller.dispose();
+  assert.equal(watcher.disposed, true);
+  assert.equal(timer.cancelled, true);
+  watcher.fire("fix_report.md");
+  assert.equal(r.pending().length, 0);
+});
+
+test("refresh: after a run the watcher is rebuilt on the folder as it is now", async () => {
+  const r = refreshing({ events: successfulRun });
+  const h = await openedForReview(r.options);
+  const before = r.live()[0]!;
+  await h.controller.run(jiraForm({ fresh: true }));
+  assert.equal(before.disposed, true, "a Fresh run kept watching a folder it deleted");
+  assert.equal(r.live().length, 1);
+  assert.equal(r.live()[0]!.directory, before.directory);
 });

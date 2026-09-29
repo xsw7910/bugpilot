@@ -32,6 +32,7 @@ import { ArtifactsTree, HistoryTree } from "./views/trees.ts";
 import {
   improveHintWithProvider,
   runCapturedReview,
+  watchArtifactDirectory,
   loadIssueDetails,
   canRun,
   createFilesPort,
@@ -208,6 +209,9 @@ export function activate(context: vscode.ExtensionContext): void {
       // Review with AI's captured one-shot run: the agent's own argv, the prompt
       // on stdin, the repository as cwd, stdout read at exit. No terminal.
       runCapturedReview,
+      // The shown work item's `.ai/<id>/`, and nothing wider: an agent's
+      // fix_report.md shows up without a reload (§37.81).
+      watchArtifacts: watchArtifactDirectory,
       reviewedFixes: reviewedFixStore(
         () => context.workspaceState.get(REVIEWED_FIXES_STATE_KEY),
         (value) => void context.workspaceState.update(REVIEWED_FIXES_STATE_KEY, value),
@@ -240,6 +244,8 @@ export function activate(context: vscode.ExtensionContext): void {
     // The tree views own their own disposal, but not the emitters we handed them.
     artifactsView,
     historyView,
+    // The artifact watcher and any refresh still scheduled (§37.81).
+    { dispose: () => controller.dispose() },
     // A folder opened or removed changes the answer to "which repository", and
     // a changed executable path changes which binary runs. Without these the
     // panel keeps showing a stale answer until Check Environment is run by
@@ -373,10 +379,10 @@ export function activate(context: vscode.ExtensionContext): void {
   register(COMMANDS.showWorkItem, async (workItemId: never) => {
     if (typeof workItemId === "string") await controller.showWorkItem(workItemId);
   });
+  // The manual fallback: the same read every automatic refresh makes, and the
+  // trees with it.
   register(COMMANDS.refreshViews, async () => {
-    await controller.refreshArtifacts();
-    artifactsView?.refresh();
-    historyView?.refresh();
+    await controller.refreshActiveWorkItem();
   });
 
   // --- diagnostics ---

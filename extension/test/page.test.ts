@@ -6131,3 +6131,66 @@ test("a fix already reviewed in an earlier session: no Review with AI, and the r
   assert.equal(p.byId("review-with-ai").hidden, false);
   assert.deepEqual(reviewStatus(p), []);
 });
+
+// --- Automatic refresh keeps what is being typed (§37.81) --------------------
+
+test("a refresh push — even one that lists a newly written report — keeps every draft on the page", () => {
+  const entry = { summary: "Captured summary.", findings: "F.", validationNotes: "V.", recommendations: "R." };
+  const base = {
+    canRecordReview: true,
+    canRecordVerification: true,
+    ...STARTED,
+    reviewedCurrentFix: true,
+    review: { state: "captured", agent: "Claude Code" },
+    reviewPrefill: { token: 7, entry, source: "ai" },
+  } as const;
+  const p = load();
+  p.send(reported(REPORT, base));
+
+  // A prefilled Review Result, edited and not saved.
+  p.byId("review-summary").value = "Captured summary, edited.";
+  // Paste Review Output, half typed.
+  p.byId("paste-review-output").dispatch("click");
+  p.byId("review-paste-text").value = "## Summary\nHalf";
+  // A verification check being entered.
+  p.byId("record-verification").dispatch("click");
+  const row = p.byId("verification-rows").children[0]!;
+  const name = flatten(row).find((element) => element.id.endsWith("-name"))!;
+  name.value = "Targeted unit tests";
+  // Start New Attempt's feedback.
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-startNewAttempt").dispatch("click");
+  p.byId("attempt-feedback").value = "Try the caller instead.";
+
+  // The watcher saw review_report.md appear: the host re-read and pushed.
+  p.send(
+    reported(REPORT, {
+      ...base,
+      artifacts: [...PREPARED_FILES, "fix_report.md", "review_report.md"],
+      reviewReport: REVIEW_PREVIEW,
+    }),
+  );
+  p.send(reported(REPORT, { ...base, artifacts: [...PREPARED_FILES, "fix_report.md", "review_report.md"], reviewReport: REVIEW_PREVIEW }));
+
+  assert.equal(p.byId("review-editor").hidden, false);
+  assert.equal(p.byId("review-summary").value, "Captured summary, edited.", "the edited draft was refilled");
+  assert.equal(p.byId("review-paste").hidden, false);
+  assert.equal(p.byId("review-paste-text").value, "## Summary\nHalf");
+  assert.equal(p.byId("verification-editor").hidden, false);
+  assert.equal(name.value, "Targeted unit tests");
+  assert.equal(p.byId("verification-rows").children.length, 1);
+  assert.equal(p.byId("attempt-editor").hidden, false);
+  assert.equal(p.byId("attempt-feedback").value, "Try the caller instead.");
+  // And the new report is shown.
+  assert.equal(p.byId("review-result").hidden, false);
+});
+
+test("a refresh push keeps an unapplied Workflow Settings draft", () => {
+  const p = load();
+  p.send(reported(REPORT));
+  p.byId("settings-codeSearch").dispatch("click");
+  p.byId("keywords").value = "cache, loader";
+  p.byId("keywords").dispatch("input");
+  p.send(reported(REPORT, { artifacts: [...PREPARED_FILES, "fix_report.md", "review_report.md"], reviewReport: REVIEW_PREVIEW }));
+  assert.equal(p.byId("keywords").value, "cache, loader", "a refresh overwrote the settings draft");
+});

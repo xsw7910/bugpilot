@@ -9791,3 +9791,69 @@ across a window reload. Captured review for agents other than Claude Code
 (Codex's non-interactive mode is not measured as a reviewer; custom commands
 are shell templates). Detecting manual source edits after a review — only a
 changed `fix_report.md` is a new fix.
+
+### 37.81 Automatic artifact refresh after external changes (after `5a80e95`)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, not published, no version change. Extension
+only — no Python change. Decisions in
+`BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Automatic Artifact Refresh)" at the end of §19; they
+replace Batch 8's decisions 5–6 for the artifact folder.
+
+**Root cause.** Nothing re-read `.ai/<id>/` when another process wrote into it.
+The listing was read at the end of a run, on opening a work item, on the Refresh
+command and after a recording — the Batch 8 rule, "no file watcher; the
+existing reads decide when a report becomes visible". A Fix with AI session
+writing `fix_report.md` is none of those, so the Fix result row, the Artifacts
+view ("not written yet") and Review with AI waited for a reopen or a reload.
+
+**What changed.**
+
+- `controller.ts`: `refreshActiveWorkItem` — the one read path (listing, the
+  small files, the workflow, the trees); `requestArtifactRefresh`, debounced at
+  250 ms; the scheduled refresh held while anything is in flight and run once
+  after; `#syncArtifactWatch` on every push (one watcher, for the shown work
+  item, rebuilt after a run or a clean); `dispose`. The read is tolerant for the
+  automatic path: a listed file that cannot be read, or a folder that cannot be
+  listed, keeps the last known state and is read once more at 750 ms. The
+  "loading" push only when nothing was listed for this work item; the
+  Validation checklist dropped only when the fix report changed; the page's
+  `ready` schedules a refresh.
+- `host/ports.ts`: `watchArtifactDirectory`, a `FileSystemWatcher` on
+  `.ai/<id>/*`. `extension.ts`: that port, the controller disposed with the
+  extension, and the Refresh command through `refreshActiveWorkItem`.
+
+**Real VS Code pass.** The disposable profile and synthetic repository of
+§37.80 (the packaged VSIX, the pipx CLI), a second hand-described work item with
+no fix report, files written and deleted by a separate Node process; the
+developer's VS Code left running.
+
+- PASS A: `fix_report.md` created → the Fix result row and Review with AI in
+  452 ms, the Artifacts view from "not written yet" to written; again from the
+  deleted state in about a second.
+- PASS B: after a review started (a harmless `cmd /c echo` agent), a changed
+  report brought Review with AI back in 435 ms.
+- PASS C: the identical bytes written again: still hidden after 3 s (the log
+  shows the refresh ran and no new fix).
+- PASS D: deleted → the row gone, Review with AI gone, the tree "not written
+  yet", History's icon updated.
+- PASS E: a prefilled Review Result with an edited Summary and a half-typed
+  verification check, then `issue.json` rewritten by another process: the
+  refresh ran (logged) and the edits, the prefill note and the focus stayed.
+- PASS F: 200px with no horizontal overflow; the manual Refresh from the
+  Command Palette by keyboard; Dark, Light, High Contrast Dark and High Contrast
+  Light.
+- Seen in the log and fixed: the first read of a work item just opened was
+  logged as "a new fix"; it is now logged only for a change after a listing was
+  shown.
+
+**Regression.** Extension 1377 tests pass (1359 before: 16 controller —
+watcher, debounce, deferral, retry, lifecycle, review eligibility, drafts — and
+2 page tests for drafts; two checklist tests now change the report before
+expecting the checklist dropped); typecheck, smoke and `git diff --check` clean.
+No Python or integration test affected.
+
+**Deferred.** Events missed while the panel stays open and the watcher is
+silent (a network drive, a folder recreated outside BugPilot while it is shown)
+are caught only by showing the panel again or by Refresh; no polling was added.

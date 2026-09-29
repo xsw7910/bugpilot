@@ -2119,6 +2119,78 @@ Paste Review Output and Parse before the form was anything but blank. And
     Review Output (any reviewer) or a new fix. Arbitrary manual source edits are
     not detected: only a changed `fix_report.md` is a new fix.
 
+### Confirmed decisions (Automatic Artifact Refresh)
+
+The problem: an agent's `fix_report.md` was on disk while the Artifacts view
+still said "not written yet" and Review with AI stayed hidden, until the window
+was reloaded. Batch 8's decisions 5 and 6 (no file watcher; the existing reads
+decide when a report becomes visible) are what caused it, and are replaced by
+these for the artifact folder. Decision 5's other half stands: BugPilot still
+never tracks an agent's process or terminal, and knows only what the files say.
+
+1. **The artifact folder is the truth, and the panel follows it.** A change on
+   disk in the shown work item's `.ai/<id>/` is re-read and re-rendered without
+   a reload.
+
+2. **One read path.** `Controller.refreshActiveWorkItem` re-reads the listing
+   and the small files the rows use (`issue.json`, `retrieval.json`,
+   `fix_report.md`, `review_report.md`, `verification_report.md`), recomputes the
+   workflow — the fix report's content identity and so Review with AI — pushes
+   the panel and refreshes the Artifacts and History trees. Every trigger goes
+   through it: the watcher, the panel being shown again, an operation ending with
+   an event pending, and the Refresh command.
+
+3. **A scoped watcher.** The host's `watchArtifactDirectory` is a VS Code
+   `FileSystemWatcher` on `RelativePattern(.ai/<id>/, "*")`: that directory's
+   files, create, change and delete; not recursive, not the repository, nothing
+   under `.git` or `node_modules`. The controller keeps exactly one: replaced
+   when the shown work item or the repository changes (checked on every push),
+   rebuilt after a run or a clean (which may delete and recreate the folder),
+   disposed with the extension. An event from a replaced watcher, or about a
+   work item no longer shown, changes nothing.
+
+4. **Debounced.** Events closer than 250 ms (`ARTIFACT_REFRESH_DEBOUNCE_MS`)
+   are one refresh.
+
+5. **Never under an operation.** While a run, a handoff, a new attempt, an
+   artifact write or a captured review is in flight, a scheduled refresh is held
+   and remembered; the first push after it ends reads once. Nothing is started,
+   cancelled or reset by a refresh, and a refresh writes nothing — so the files
+   BugPilot writes itself (`record-review`, `record-verification`) cause one
+   more read and no loop. `bugpilot list`, which the History tree runs, only
+   reads.
+
+6. **Missing is not unreadable.** A file the listing names that cannot be read
+   while a reading of it was known (mid-write, locked), or a folder that cannot
+   be listed while a listing was shown, keeps the last known state and is read
+   once more 750 ms later (`ARTIFACT_REFRESH_RETRY_MS`); only a second failure
+   is shown as one. A failed read is never a new fix.
+
+7. **Review with AI follows content, not events.** A refresh recomputes the
+   SHA-256 identity of `fix_report.md`: a changed report is a new fix and offers
+   Review with AI again; the same report written again — any number of events,
+   any mtime — keeps its reviewed state; a deleted one takes the row away. The
+   Validation checklist, too, is dropped only when the report changed.
+
+8. **Drafts survive.** A refresh pushes state; it does not rebuild the page. The
+   page keeps what is being typed — the Review Result form and its host-held
+   draft, Paste Review Output's text, verification rows, Start New Attempt's
+   feedback, an unapplied Workflow Settings draft — and the focus. The host drops
+   a review draft only when its fix report is gone.
+
+9. **The safety net.** The webview is destroyed when hidden, and sends `ready`
+   when shown again; that schedules a refresh, for an event the watcher missed.
+   Nothing refreshes while the panel is hidden.
+
+10. **No terminal lifecycle.** There is no hook for "the agent finished": the
+    files changing are the signal. No new persisted file — no
+    `artifact_state.json` or `watcher_state.json`.
+
+11. **Diagnostics without content.** The output channel says when a watcher
+    starts and is disposed, a refresh is scheduled (with the file name),
+    deferred, retried and completed, and when the fix report became a new fix or
+    went away. No file content, hint, review text or command is logged.
+
 ---
 
 # 20. Step Secondary Text 状态原则

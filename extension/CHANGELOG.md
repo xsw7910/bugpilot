@@ -41,6 +41,12 @@ First release. What it does today:
   performed — each with the status you chose, Not Run by default — and what you
   observed. BugPilot runs none of them and reads no pass, approval or
   "verified" out of either record.
+- **The panel follows the work item's folder.** A `fix_report.md`, a review or
+  verification report, or any other file written, changed or deleted in
+  `.ai/<work item>/` by an agent or another process shows up in the panel and
+  the Artifacts view within about a second — no reload. A new fix report offers
+  Review with AI; the same report written again does not. Only that folder is
+  watched; the refresh only reads, and keeps whatever is being typed.
 - Jira credentials live in VS Code's SecretStorage and reach the CLI as
   environment variables — never on a command line, never in the panel.
 - **Workflow Settings.** A ⚙ on each step that has settings — Issue details,
