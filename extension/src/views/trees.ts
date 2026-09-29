@@ -12,18 +12,15 @@
 
 import * as vscode from "vscode";
 
-import { GROUP_LABELS, historyRow } from "../app/artifacts.ts";
-import type {
-  ArtifactEntry,
-  ArtifactList,
-  ArtifactSection,
-  HistoryList,
-  HistoryRow,
-} from "../app/artifacts.ts";
+import { artifactRow, historyRow } from "../app/artifacts.ts";
+import type { ArtifactEntry, ArtifactList, HistoryList, HistoryRow } from "../app/artifacts.ts";
 import { COMMANDS, HISTORY_ITEM_CONTEXT } from "../commands.ts";
 
+/**
+ * A file, directly under the view (§37.88) — there are no category nodes to
+ * expand — or the one placeholder row a loading, empty or unreadable list shows.
+ */
 type ArtifactNode =
-  | { readonly kind: "section"; readonly section: ArtifactSection }
   | { readonly kind: "entry"; readonly entry: ArtifactEntry }
   | { readonly kind: "message"; readonly text: string };
 
@@ -52,10 +49,7 @@ export class ArtifactsTree implements vscode.TreeDataProvider<ArtifactNode>, vsc
       if (list.kind === "empty" || list.kind === "error") {
         return [{ kind: "message", text: list.detail }];
       }
-      return list.sections.map((section) => ({ kind: "section", section }));
-    }
-    if (node.kind === "section") {
-      return node.section.entries.map((entry) => ({ kind: "entry", entry }));
+      return list.entries.map((entry) => ({ kind: "entry", entry }));
     }
     return [];
   }
@@ -66,33 +60,20 @@ export class ArtifactsTree implements vscode.TreeDataProvider<ArtifactNode>, vsc
       item.iconPath = new vscode.ThemeIcon("info");
       return item;
     }
-    if (node.kind === "section") {
-      const item = new vscode.TreeItem(
-        GROUP_LABELS[node.section.group],
-        vscode.TreeItemCollapsibleState.Expanded,
-      );
-      item.contextValue = "bugpilot.section";
-      return item;
+    const row = artifactRow(node.entry);
+    const item = new vscode.TreeItem(row.label, vscode.TreeItemCollapsibleState.None);
+    item.description = row.description;
+    item.tooltip = row.tooltip;
+    item.accessibilityInformation = { label: row.accessibleName };
+    item.iconPath = new vscode.ThemeIcon(row.icon);
+    // A file not written yet opens nothing: there is no empty file to make.
+    if (row.opens) {
+      item.command = {
+        command: COMMANDS.openArtifact,
+        title: "Open",
+        arguments: [row.label],
+      };
     }
-
-    const { entry } = node;
-    const item = new vscode.TreeItem(entry.name);
-    if (entry.missing) {
-      // A result file the agent has not written yet. Shown, because "what is
-      // still missing" is the question `check-results` answers.
-      item.description = "not written yet";
-      item.iconPath = new vscode.ThemeIcon("circle-outline");
-      item.tooltip = `${entry.name} has not been written yet.`;
-      return item;
-    }
-    item.iconPath = new vscode.ThemeIcon(
-      entry.kind === "markdown" ? "markdown" : entry.kind === "json" ? "json" : "output",
-    );
-    item.command = {
-      command: COMMANDS.openArtifact,
-      title: "Open",
-      arguments: [entry.name],
-    };
     return item;
   }
 }

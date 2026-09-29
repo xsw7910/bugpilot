@@ -161,13 +161,12 @@ test("a hand-written bug runs end to end, and the models describe it correctly",
   const artifacts = buildArtifactList({ names: listing });
   assert.equal(artifacts.kind, "ready");
   if (artifacts.kind !== "ready") return;
-  const handoff = artifacts.sections.find((section) => section.group === "handoff");
-  assert.ok(handoff, "no handoff section, so the panel would offer nothing to hand over");
-  assert.equal(handoff.entries[0]?.name, "task.md");
-  // Every result file is still missing, which is exactly what the tree shows
-  // before an agent has run.
-  const results = artifacts.sections.find((section) => section.group === "results");
-  assert.ok(results?.entries.every((entry) => entry.missing));
+  // One flat list (§37.88): task.md is there to hand over, and the report the
+  // agent has not written yet is listed as not written.
+  const task = artifacts.entries.find((entry) => entry.name === "task.md");
+  assert.equal(task?.written, true, "no task.md, so the panel would offer nothing to hand over");
+  const report = artifacts.entries.find((entry) => entry.name === "fix_report.md");
+  assert.equal(report?.written, false);
 
   // And the restore path: the run state the run left behind must rebuild the
   // same checklist, because that is all a reopened window has.

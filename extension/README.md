@@ -291,7 +291,9 @@ is no longer available** and points to ⋯ → Start New Attempt.
 
 When the agent writes its report, `fix_report.md`, a **Fix result** row appears
 under Fix with AI: the report's first **Summary** line and its **Tests** line,
-in the agent's own words, and **Open Fix Report** for the rest. It says a report
+in the agent's own words, and **Open Fix Report** for the rest. A long summary
+shows its first three lines with **Show more** under it, and **Show less** to
+fold it again; a new report starts folded. It says a report
 is there to read — not that the bug is fixed: an investigation-only pass, a
 no-op and an attempt whose tests still fail all write the same file. BugPilot
 does not watch the agent, but it does watch the work item's folder: when the
@@ -435,8 +437,26 @@ History is not changed by it.
 BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.
 
-The **Artifacts** view lists everything the run produced, grouped by what it is
-for.
+The **Artifacts** view is one flat list of the work item's files, in the order
+the workflow produces them. Each row is the file name, whether it is
+**Written** or **Not written yet**, and what the file is for; click a written
+file to open it. The eight standard files are always listed, so you can see
+what is still to come:
+
+| File | What it is for |
+| --- | --- |
+| `issue.json` | Issue details or manual bug description |
+| `context.md` | Prepared issue and code context used by the AI |
+| `task.md` | AI task and fix instructions |
+| `fix_report.md` | Summary of the AI fix and changes made |
+| `review_report.md` | Saved AI or human review findings |
+| `verification_report.md` | Recorded verification checks and evidence |
+| `retrieval.json` | Code search and retrieval results used to build context |
+| `run.json` | Workflow execution state and metadata |
+
+Files a run writes only sometimes — `user_feedback.md`, `agent_retry_prompt.md`,
+Jira and email drafts — appear after them once they exist, and any other file
+in the folder is listed last as an additional BugPilot artifact.
 
 ## History
 

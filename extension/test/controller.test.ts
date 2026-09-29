@@ -7899,14 +7899,14 @@ function refreshing(extra: HarnessOptions = {}) {
 const fixEntry = (h: Harness) => {
   const list = h.controller.artifacts;
   if (list.kind !== "ready") return undefined;
-  return list.sections.flatMap((section) => section.entries).find((entry) => entry.name === "fix_report.md");
+  return list.entries.find((entry) => entry.name === "fix_report.md");
 };
 
 test("refresh 1–2: a fix_report.md written by another process shows up, with Review with AI, without a reload", async () => {
   const r = refreshing({ directory: PREPARED_FILES });
   const h = await openedForReview(r.options);
   assert.equal(fixResultOf(h.last()), undefined);
-  assert.equal(fixEntry(h)?.missing, true, "fix_report.md was not listed as not written yet");
+  assert.equal(fixEntry(h)?.written, false, "fix_report.md was not listed as not written yet");
   assert.equal(r.live().length, 1);
   assert.equal(r.live()[0]!.directory, nodePath.join(ROOT, ".ai", "JR-12345"));
   const refreshesBefore = h.refreshes.count;
@@ -7918,7 +7918,7 @@ test("refresh 1–2: a fix_report.md written by another process shows up, with R
   assert.equal(r.pending()[0]!.delay, ARTIFACT_REFRESH_DEBOUNCE_MS);
   await r.flush();
 
-  assert.equal(fixEntry(h)?.missing, undefined, "fix_report.md still read as not written");
+  assert.equal(fixEntry(h)?.written, true, "fix_report.md still read as not written");
   assert.ok(fixResultOf(h.last()));
   assert.equal(offersReview(h.last()), true);
   assert.ok(h.refreshes.count > refreshesBefore, "the Artifacts and History trees were not told");
@@ -7952,7 +7952,7 @@ test("refresh 5: a deleted fix_report.md is gone from the row and the tree, and 
   r.live()[0]!.fire("fix_report.md");
   await r.flush();
   assert.equal(fixResultOf(h.last()), undefined);
-  assert.equal(fixEntry(h)?.missing, true);
+  assert.equal(fixEntry(h)?.written, false);
 });
 
 test("refresh 6–7: a review or verification report written outside the panel shows up", async () => {
@@ -9079,4 +9079,53 @@ test("Open AI Session's acknowledgement is never persisted", async () => {
   assert.equal(JSON.stringify(h.saved.at(-1) ?? {}).includes("session"), false);
   assert.equal(h.savedWorkItems.length, savedItems);
   assert.deepEqual(h.written, []);
+});
+
+// --- Flat Artifacts list (§37.88) ---------------------------------------------
+
+const artifactNames = (h: Harness) => {
+  const list = h.controller.artifacts;
+  return list.kind === "ready" ? list.entries.map((entry) => `${entry.name}:${entry.written ? "written" : "not written"}`) : [list.kind];
+};
+
+test("flat artifacts: a watcher create and delete turn a row Written and back, without a reload", async () => {
+  const r = refreshing({ directory: PREPARED_FILES });
+  const h = await openedForReview(r.options);
+  assert.ok(artifactNames(h).includes("review_report.md:not written"));
+
+  r.options.directory = [...PREPARED_FILES, "review_report.md"];
+  r.live()[0]!.fire("review_report.md");
+  await r.flush();
+  assert.ok(artifactNames(h).includes("review_report.md:written"), "a created file was not listed as written");
+
+  r.options.directory = PREPARED_FILES.filter((name) => name !== "context.md");
+  r.live()[0]!.fire("context.md");
+  await r.flush();
+  assert.ok(artifactNames(h).includes("context.md:not written"), "a deleted file still read as written");
+  // One row per file, whatever happened to it.
+  assert.equal(artifactNames(h).filter((row) => row.startsWith("context.md:")).length, 1);
+});
+
+test("flat artifacts: switching work items lists the new item's files, never the last one's", async () => {
+  const { h, options } = twoWorkItems();
+  await h.controller.refreshEnvironment();
+  options.directory = ["issue.json", "run.json", "fix_report.md", "user_feedback.md"];
+  await h.controller.showWorkItem("JR-1");
+  assert.ok(artifactNames(h).includes("fix_report.md:written"));
+  assert.ok(artifactNames(h).includes("user_feedback.md:written"));
+
+  options.directory = ["issue.json", "run.json"];
+  const refreshes = h.refreshes.count;
+  await h.controller.showWorkItem("JR-2");
+  assert.ok(artifactNames(h).includes("fix_report.md:not written"), "JR-1's report was shown for JR-2");
+  assert.equal(artifactNames(h).some((row) => row.startsWith("user_feedback.md")), false, "JR-1's side-band file was shown for JR-2");
+  assert.ok(h.refreshes.count > refreshes, "the Artifacts tree was not told");
+});
+
+test("flat artifacts: a work item reopened from History ends on its list, never on Scanning", async () => {
+  const { h } = twoWorkItems();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem("JR-1");
+  assert.equal(h.controller.artifacts.kind, "ready", "left on loading — the tree would say Scanning .ai/ …");
+  assert.deepEqual(artifactNames(h).slice(0, 3), ["issue.json:written", "context.md:written", "task.md:written"]);
 });

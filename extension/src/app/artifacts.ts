@@ -2,9 +2,11 @@
  * What the two TreeViews show: a work item's artifacts, and the history list.
  *
  * bugpilot produces a handful of files per work item and they are not equally
- * interesting: `task.md` is the one a developer opens, `run.json`
- * is bookkeeping. A flat alphabetical listing buries the first under the second,
- * so files are grouped and ordered by what they are for.
+ * interesting: `task.md` is the one a developer opens, `run.json` is
+ * bookkeeping. So the list is one flat list (§37.88) in the order the workflow
+ * produces them — the issue, the context, the task, the fix, its review and its
+ * verification, then the technical files, then side-band outputs — each with a
+ * plain sentence saying what it is for, and whether it has been written.
  *
  * The file names here were taken from a real run, not from the design doc, and
  * follow the artifact contract in `bugpilot/core/artifacts.py`.
@@ -45,127 +47,105 @@ export const REVIEW_REPORT_ARTIFACT = "review_report.md";
  */
 export const VERIFICATION_REPORT_ARTIFACT = "verification_report.md";
 
-export type ArtifactKind = "markdown" | "json" | "log" | "other";
+export type ArtifactKind = "markdown" | "json" | "mail" | "log" | "other";
 
 /**
- * Why a file exists, which decides where it sorts.
+ * Every artifact BugPilot knows, in the one place that says what each is for.
  *
- * `handoff` first because that is what the Run button was for; `state` last
- * because it is bookkeeping the developer rarely opens on purpose.
+ * `order` is the workflow's, not the alphabet's: input and context, the AI's
+ * task, its result, the review, the verification, the technical files, then
+ * side-band outputs. `canonical` files — the artifact contract in
+ * `bugpilot/core/artifacts.py`, which `test/artifacts.test.ts` compares this
+ * against — are always listed, written or not, so a developer can see what is
+ * still to come; the others only once they exist. `writtenWhen` is for the
+ * tooltip of a file not written yet.
  */
-export type ArtifactGroup = "handoff" | "retry" | "results" | "context" | "copilot" | "state";
+export interface ArtifactInfo {
+  readonly order: number;
+  readonly description: string;
+  readonly canonical: boolean;
+  readonly writtenWhen?: string;
+}
 
-export const GROUP_ORDER: readonly ArtifactGroup[] = [
-  "handoff",
-  "retry",
-  "results",
-  "context",
-  // Near the end on purpose: a developer using Claude never opens these. No
-  // current run writes them; phase-5-era work items still hold them.
-  "copilot",
-  "state",
-];
-
-export const GROUP_LABELS: Readonly<Record<ArtifactGroup, string>> = {
-  handoff: "Hand off to an agent",
-  retry: "Second attempt",
-  results: "Agent results",
-  context: "Investigation",
-  copilot: "Copilot handoff",
-  state: "Run state",
+export const ARTIFACTS: Readonly<Record<string, ArtifactInfo>> = {
+  "issue.json": {
+    order: 10,
+    description: "Issue details or manual bug description",
+    canonical: true,
+    writtenWhen: "Written when a run reads the Jira issue or your description.",
+  },
+  "context.md": {
+    order: 20,
+    description: "Prepared issue and code context used by the AI",
+    canonical: true,
+    writtenWhen: "Written when Build context finishes.",
+  },
+  "task.md": {
+    order: 30,
+    description: "AI task and fix instructions",
+    canonical: true,
+    writtenWhen: "Written with the context, for Fix with AI to hand over.",
+  },
+  "fix_report.md": {
+    order: 40,
+    description: "Summary of the AI fix and changes made",
+    canonical: true,
+    writtenWhen: "Written by the AI agent when it finishes an attempt.",
+  },
+  "review_report.md": {
+    order: 50,
+    description: "Saved AI or human review findings",
+    canonical: true,
+    writtenWhen: "Written when a review result is saved.",
+  },
+  "verification_report.md": {
+    order: 60,
+    description: "Recorded verification checks and evidence",
+    canonical: true,
+    writtenWhen: "Written when verification evidence is recorded.",
+  },
+  "retrieval.json": {
+    order: 70,
+    description: "Code search and retrieval results used to build context",
+    canonical: true,
+    writtenWhen: "Written when Code search finishes.",
+  },
+  "run.json": {
+    order: 80,
+    description: "Workflow execution state and metadata",
+    canonical: true,
+    writtenWhen: "Written when a run starts.",
+  },
+  "user_feedback.md": { order: 110, description: "Feedback provided for a new AI attempt", canonical: false },
+  "agent_retry_prompt.md": { order: 120, description: "Instructions prepared for the next AI attempt", canonical: false },
+  "jira_comment_draft.md": { order: 130, description: "Draft Jira comment prepared by BugPilot", canonical: false },
+  "jira_comment_post_result.json": { order: 140, description: "Result of the Jira comment posting action", canonical: false },
+  "email_draft.md": { order: 150, description: "Draft email prepared by BugPilot", canonical: false },
+  "notification.eml": { order: 160, description: "Generated email notification", canonical: false },
+  "jira_field_report.md": { order: 170, description: "Jira field inspection report", canonical: false },
 };
 
-/**
- * The files an agent is expected to write back.
- *
- * Mirrors `REQUIRED_COPILOT_RESULT_FILES` in `bugpilot/core/workflow.py`, and
- * `test/artifacts.test.ts` reads that list to keep the two in step: a result
- * file added there but not here would silently stop being reported as missing.
- */
-export const RESULT_FILES: readonly string[] = [FIX_REPORT_ARTIFACT];
+/** What a file BugPilot does not know is said to be — never a guessed purpose. */
+export const UNKNOWN_ARTIFACT_DESCRIPTION = "Additional BugPilot artifact";
 
-/**
- * Where each artifact belongs.
- *
- * Built from a *manual* run's twelve files in phase 5, which turned out to be
- * the smaller half of the story: a Jira run then wrote twenty-two, and nine of them
- * — the five copilot prompts, the raw payload, the memory entry, the test plan
- * and the review prompt — had no entry here and fell into Investigation
- * alongside the context, which is the one file that matters there.
- * `test/artifacts.test.ts` now holds a real Jira listing so the gap cannot
- * reopen quietly.
- */
-const GROUPS: Readonly<Record<string, ArtifactGroup>> = {
-  // What BugPilot hands the coding agent, team instructions included.
-  "task.md": "handoff",
-  "test_plan.md": "handoff",
-  "review_prompt.md": "handoff",
-  "agent_retry_prompt.md": "retry",
-  "user_feedback.md": "retry",
-  "context.md": "context",
-  // The normalized issue: what the investigation starts from.
-  "issue.json": "context",
-  // What the search found: terms, ranked files and their matched lines.
-  "retrieval.json": "context",
-  "run.json": "state",
-  // Recorded after a review, beside the report it was about.
-  "review_report.md": "results",
-  // Recorded verification evidence, beside the report and the review it follows.
-  "verification_report.md": "results",
-  "copilot_task.md": "copilot",
-  "copilot_handoff.md": "copilot",
-  "copilot_analysis_prompt.md": "copilot",
-  "copilot_fix_prompt.md": "copilot",
-  "copilot_team_instructions.md": "copilot",
-  // Phase-era files: no current run or agent writes them, but directories
-  // from before the consolidations still hold them.
-  "workflow_status.json": "state",
-  "execution.log": "state",
-  "bug_analysis.md": "results",
-  "fix_summary.md": "results",
-  "test_result.md": "results",
-  "diff_summary.md": "results",
-  "review_notes.md": "results",
-  "result_summary.md": "results",
-  "manual_validation.md": "results",
-  "final_review_prompt.md": "handoff",
-  "commit_plan.md": "state",
-  "push_plan.md": "state",
-  "jira_comment_post_summary.md": "state",
-  // Current, not phase-era: the audit record of a performed Jira POST.
-  "jira_comment_post_result.json": "state",
-  "memory_entry.md": "state",
-};
-
-/** Ordering inside a group: the file a developer reaches for comes first. */
-const WITHIN_GROUP: readonly string[] = [
-  "task.md",
-  "agent_retry_prompt.md",
-  "user_feedback.md",
-  "fix_report.md",
-  "review_report.md",
-  "verification_report.md",
-  "context.md",
-  "retrieval.json",
-];
+export const ARTIFACT_WRITTEN = "Written";
+export const ARTIFACT_NOT_WRITTEN = "Not written yet";
 
 export interface ArtifactEntry {
   readonly name: string;
-  readonly group: ArtifactGroup;
   readonly kind: ArtifactKind;
-  /** True for a result file the agent has not written yet. */
-  readonly missing?: true;
-}
-
-export interface ArtifactSection {
-  readonly group: ArtifactGroup;
-  readonly label: string;
-  readonly entries: readonly ArtifactEntry[];
+  /** What the file is for, in plain words. */
+  readonly description: string;
+  /** On disk now. A canonical file not written yet is listed, and opens nothing. */
+  readonly written: boolean;
+  /** For a file not written yet: what writes it. */
+  readonly writtenWhen?: string;
 }
 
 export type ArtifactList =
   | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly sections: readonly ArtifactSection[] }
+  /** One flat list, in workflow order: no groups between Artifacts and the files. */
+  | { readonly kind: "ready"; readonly entries: readonly ArtifactEntry[] }
   /** The directory exists but holds nothing worth showing. */
   | { readonly kind: "empty"; readonly detail: string }
   | { readonly kind: "error"; readonly detail: string };
@@ -173,76 +153,98 @@ export type ArtifactList =
 export function artifactKind(name: string): ArtifactKind {
   if (name.endsWith(".md")) return "markdown";
   if (name.endsWith(".json")) return "json";
+  if (name.endsWith(".eml")) return "mail";
   if (name.endsWith(".log")) return "log";
   return "other";
 }
 
-export function artifactGroup(name: string): ArtifactGroup {
-  const known = GROUPS[name];
-  if (known) return known;
-  if (RESULT_FILES.includes(name)) return "results";
-  // An unrecognized file is more likely a new context artifact than run state,
-  // and grouping it as context keeps it visible instead of hiding it at the end.
-  return "context";
+/** Written, or not yet — the one availability word a row carries. */
+export function artifactStatus(entry: Pick<ArtifactEntry, "written">): string {
+  return entry.written ? ARTIFACT_WRITTEN : ARTIFACT_NOT_WRITTEN;
 }
 
 export interface ArtifactInput {
   /** File names directly inside `.ai/<work_item>/`. */
   readonly names: readonly string[];
-  /**
-   * Whether the run got far enough to expect agent results.
-   *
-   * Without `task.md` there was nothing to hand over, so listing five
-   * missing result files would be noise rather than information.
-   */
-  readonly expectResults?: boolean;
 }
 
+/**
+ * The flat list for a work item's directory.
+ *
+ * Every canonical artifact, written or not; every other file that is there —
+ * side-band outputs in their place, then files BugPilot does not know, by
+ * name, after all of them. Nothing at all on disk is the empty state: there is
+ * no run yet to list the files of.
+ */
 export function buildArtifactList(input: ArtifactInput): ArtifactList {
-  const names = [...new Set(input.names.filter((name) => name.trim() !== ""))];
-  const present = new Set(names);
-  const expectResults = input.expectResults ?? present.has(TASK_ARTIFACT);
-
-  const entries: ArtifactEntry[] = names.map((name) => ({
-    name,
-    group: artifactGroup(name),
-    kind: artifactKind(name),
-  }));
-  if (expectResults) {
-    for (const name of RESULT_FILES) {
-      if (!present.has(name)) {
-        // Shown rather than omitted: "what is still missing" is the question
-        // `check-results` answers, and the tree is where it is visible.
-        entries.push({ name, group: "results", kind: "markdown", missing: true });
-      }
-    }
-  }
-
-  if (entries.length === 0) {
+  const present = new Set(input.names.filter((name) => name.trim() !== ""));
+  if (present.size === 0) {
     return {
       kind: "empty",
       detail: "No artifacts yet. Run BugPilot on this work item to produce them.",
     };
   }
-
-  const sections = GROUP_ORDER.map((group) => ({
-    group,
-    label: GROUP_LABELS[group],
-    entries: entries.filter((entry) => entry.group === group).sort(compareEntries),
-  })).filter((section) => section.entries.length > 0);
-
-  return { kind: "ready", sections };
+  const names = new Set([
+    ...Object.keys(ARTIFACTS).filter((name) => ARTIFACTS[name]!.canonical),
+    ...present,
+  ]);
+  const entries = [...names].map((name): ArtifactEntry => {
+    const info = ARTIFACTS[name];
+    const written = present.has(name);
+    return {
+      name,
+      kind: artifactKind(name),
+      description: info?.description ?? UNKNOWN_ARTIFACT_DESCRIPTION,
+      written,
+      ...(!written && info?.writtenWhen !== undefined ? { writtenWhen: info.writtenWhen } : {}),
+    };
+  });
+  return { kind: "ready", entries: entries.sort(compareEntries) };
 }
 
-function compareEntries(left: ArtifactEntry, right: ArtifactEntry): number {
-  const rank = (entry: ArtifactEntry) => {
-    const index = WITHIN_GROUP.indexOf(entry.name);
-    return index === -1 ? WITHIN_GROUP.length : index;
+/**
+ * One tree row, as the Artifacts view draws it: the file name, then one line —
+ * the status first, so a narrow sidebar that cuts the line still says whether
+ * the file is there — the fuller tooltip, and the accessible name. Only a
+ * written file opens; the file's own type is its icon, and no status glyph
+ * repeats what the words say.
+ */
+export interface ArtifactRow {
+  readonly label: string;
+  readonly description: string;
+  readonly tooltip: string;
+  readonly accessibleName: string;
+  readonly icon: "markdown" | "json" | "mail" | "output" | "file";
+  readonly opens: boolean;
+}
+
+export function artifactRow(entry: ArtifactEntry): ArtifactRow {
+  const status = artifactStatus(entry);
+  return {
+    label: entry.name,
+    description: `${status} · ${entry.description}`,
+    // Names and fixed sentences only: never the file's contents.
+    tooltip: [entry.name, entry.description, `Status: ${status}`, ...(entry.writtenWhen ? [entry.writtenWhen] : [])].join("\n"),
+    accessibleName: `${entry.name} — ${entry.description} — ${status}`,
+    icon:
+      entry.kind === "markdown"
+        ? "markdown"
+        : entry.kind === "json"
+          ? "json"
+          : entry.kind === "mail"
+            ? "mail"
+            : entry.kind === "log"
+              ? "output"
+              : "file",
+    opens: entry.written,
   };
-  // Present files before missing ones, then by curated rank, then by name.
-  if ((left.missing ?? false) !== (right.missing ?? false)) return left.missing ? 1 : -1;
+}
+
+/** Known files by workflow order; unknown ones after them all, by name. */
+function compareEntries(left: ArtifactEntry, right: ArtifactEntry): number {
+  const rank = (entry: ArtifactEntry) => ARTIFACTS[entry.name]?.order ?? Number.MAX_SAFE_INTEGER;
   const byRank = rank(left) - rank(right);
-  return byRank !== 0 ? byRank : left.name.localeCompare(right.name);
+  return byRank !== 0 ? byRank : left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
 // --- history ---------------------------------------------------------------

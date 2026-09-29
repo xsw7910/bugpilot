@@ -188,6 +188,8 @@ interface Page {
   readonly send: (state: PanelState) => void;
   readonly byId: (id: string) => FakeElement;
   readonly flush: () => void;
+  /** Fire every ResizeObserver the page made: its boxes changed size. */
+  readonly resize: () => void;
 }
 
 let page: Page | undefined;
@@ -264,7 +266,21 @@ function load(savedState?: unknown): Page {
     }
   };
 
+  const observers: (() => void)[] = [];
+  const FakeResizeObserver = class {
+    readonly #callback: () => void;
+    constructor(callback: () => void) {
+      this.#callback = callback;
+      observers.push(() => this.#callback());
+    }
+    observe() {}
+    disconnect() {}
+  };
+
   const current: Page = {
+    resize: () => {
+      for (const fire of observers) fire();
+    },
     clock,
     intervals,
     advance: (ms: number) => {
@@ -308,8 +324,9 @@ function load(savedState?: unknown): Page {
     "setInterval",
     "clearInterval",
     "Date",
+    "ResizeObserver",
     PAGE_SOURCE,
-  )(document, window, acquireVsCodeApi, setTimeout, clearTimeout, setInterval, clearInterval, FakeDate);
+  )(document, window, acquireVsCodeApi, setTimeout, clearTimeout, setInterval, clearInterval, FakeDate, FakeResizeObserver);
   return current;
 }
 
@@ -6643,4 +6660,126 @@ test("the page sends only the intent: which terminal, and whether it is there, a
   assert.equal(sent[0]!["action"], "openSession");
   // No feedback until the host answers.
   assert.equal(p.byId("session-feedback").textContent, "");
+});
+
+// --- Fix result: Show more / Show less (§37.89) ------------------------------
+
+const LONG_SUMMARY =
+  "No-op: no code change was applied. The task carries no usable bug information — the issue text is a placeholder, so there was nothing to reproduce, and changing code on a guess would do more harm than leaving it.";
+
+/** Lay the summary out as a narrow or a wide panel would: how tall it wants to be, against the clamp's three lines. */
+const layOut = (p: Page, lines: number, detailLines = 1) => {
+  const line = 16;
+  p.byId("description-fixResult").scrollHeight = lines * line;
+  p.byId("description-fixResult").clientHeight = Math.min(lines, 3) * line;
+  p.byId("detail-fixResult").scrollHeight = detailLines * line;
+  p.byId("detail-fixResult").clientHeight = Math.min(detailLines, 2) * line;
+};
+const toggleOf = (p: Page) => p.byId("fix-summary-toggle");
+const clamped = (p: Page) => p.byId("description-fixResult").classes.has("is-clamped");
+
+test("a short Fix result is shown whole, with no Show more", () => {
+  const p = load();
+  layOut(p, 1);
+  p.send(reported({ readable: true, summary: "Fixed it.", tests: "3 passed." }));
+  assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
+  assert.equal(toggleOf(p).hidden, true);
+});
+
+test("a long Fix result is collapsed to three lines with Show more — the whole text still in the element", () => {
+  const p = load();
+  layOut(p, 6);
+  p.send(reported({ readable: true, summary: LONG_SUMMARY, tests: "Not run." }));
+  assert.ok(clamped(p));
+  assert.equal(toggleOf(p).hidden, false, "text cut short with no way to read the rest");
+  assert.equal(toggleOf(p).textContent, "Show more");
+  assert.equal(toggleOf(p).getAttribute("aria-label"), "Show full Fix result");
+  assert.equal(toggleOf(p).getAttribute("aria-expanded"), "false");
+  // A screen reader reads the element's text, which is all of it; the clamp is visual.
+  assert.equal(p.byId("description-fixResult").textContent, LONG_SUMMARY);
+  assert.equal(p.byId("description-fixResult").getAttribute("title"), LONG_SUMMARY);
+});
+
+test("Show more expands it, Show less collapses it again — with the keyboard's Enter as with a click", () => {
+  const p = load();
+  layOut(p, 6);
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }));
+  const before = p.posted.length;
+  toggleOf(p).focus();
+  toggleOf(p).dispatch("click"); // a button's Enter and Space are its click
+  assert.equal(clamped(p), false);
+  assert.equal(p.byId("detail-fixResult").classes.has("is-clamped"), false);
+  assert.equal(toggleOf(p).hidden, false);
+  assert.equal(toggleOf(p).textContent, "Show less");
+  assert.equal(toggleOf(p).getAttribute("aria-label"), "Collapse Fix result");
+  assert.equal(toggleOf(p).getAttribute("aria-expanded"), "true");
+  assert.equal(p.focused, "fix-summary-toggle", "the focus left the control it pressed");
+
+  toggleOf(p).dispatch("click");
+  assert.ok(clamped(p));
+  assert.equal(toggleOf(p).textContent, "Show more");
+  assert.ok(toggleOf(p).scrolledIntoView, "collapsing left the button out of view");
+  // Nothing reached the host, and no file was opened.
+  assert.equal(p.posted.length, before);
+});
+
+test("the Tests line counts too: cut short, it brings Show more even under a short summary", () => {
+  const p = load();
+  layOut(p, 1, 4);
+  p.send(reported({ readable: true, summary: "Fixed it.", tests: "pytest: 2 failed, 18 passed — a very long list of failures follows here" }));
+  assert.equal(toggleOf(p).hidden, false);
+});
+
+test("an unrelated update keeps it expanded; a new result collapses it", () => {
+  const p = load();
+  layOut(p, 6);
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }));
+  toggleOf(p).dispatch("click");
+  // A push about something else — a review being prepared, a redraw.
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }, { copyingReviewPrompt: true }));
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }));
+  assert.equal(clamped(p), false, "an unrelated update collapsed the result");
+  assert.equal(toggleOf(p).textContent, "Show less");
+  // The agent wrote a new report: a new result, shown collapsed.
+  p.send(reported({ readable: true, summary: `${LONG_SUMMARY} Second attempt.` }));
+  assert.ok(clamped(p));
+  assert.equal(toggleOf(p).textContent, "Show more");
+});
+
+test("the width decides: Show more appears when the text no longer fits, and an expanded result stays expanded", () => {
+  const p = load();
+  layOut(p, 3);
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }));
+  assert.equal(toggleOf(p).hidden, true, "wide enough: nothing is cut");
+  layOut(p, 7);
+  p.resize();
+  assert.equal(toggleOf(p).hidden, false, "narrower: cut short with no Show more");
+  toggleOf(p).dispatch("click");
+  layOut(p, 2);
+  p.resize();
+  assert.equal(clamped(p), false, "a width change collapsed it");
+  assert.equal(toggleOf(p).textContent, "Show less");
+});
+
+test("no report, no toggle — and another work item starts collapsed", () => {
+  const p = load();
+  layOut(p, 6);
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }));
+  toggleOf(p).dispatch("click");
+  p.send(prepared());
+  assert.equal(toggleOf(p).hidden, true);
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }, {}, { workItemId: "JR-2" }));
+  assert.ok(clamped(p));
+});
+
+test("the expansion is the page's alone: never sent, never saved", () => {
+  const p = load();
+  layOut(p, 6);
+  p.send(reported({ readable: true, summary: LONG_SUMMARY }));
+  const stored = p.stored.length;
+  const posted = p.posted.length;
+  toggleOf(p).dispatch("click");
+  toggleOf(p).dispatch("click");
+  assert.equal(p.posted.length, posted);
+  assert.equal(JSON.stringify(p.stored.slice(stored)).includes("fixSummary"), false);
 });

@@ -2139,10 +2139,28 @@ test("the Fix result label lines up with the other rows' text, and is not clicka
   assert.match(CSS, /#step-fixResult \.step-label \{[^}]*cursor: default/s);
 });
 
-test("a long report line is clamped on screen, and still hidden when there is none", () => {
-  assert.match(CSS, /#description-fixResult,\s*#detail-fixResult \{[^}]*-webkit-line-clamp: 3/s);
-  assert.match(CSS, /#detail-fixResult \{\s*-webkit-line-clamp: 2/);
+test("a long report line is clamped only while collapsed, and still hidden when there is none", () => {
+  // The clamp is a class the page sets while collapsed — and whenever it cuts
+  // a line short, Show more is there (§37.89). No clamp without the class.
+  assert.match(CSS, /#description-fixResult\.is-clamped,\s*#detail-fixResult\.is-clamped \{[^}]*-webkit-line-clamp: 3;[^}]*overflow: hidden;/s);
+  assert.match(CSS, /#detail-fixResult\.is-clamped \{\s*-webkit-line-clamp: 2/);
+  assert.equal(/#(description|detail)-fixResult(,\s*#detail-fixResult)? \{[^}]*(overflow: hidden|line-clamp|max-height|height:)/s.test(CSS), false, "a clip with no Show more");
   assert.match(CSS, /#detail-fixResult\[hidden\] \{\s*display: none/);
+});
+
+test("Show more is a quiet link on its own line: after the report's lines, before fix_report.md", () => {
+  const row = rowMarkup("fixResult");
+  const toggle = /<button type="button" class="link fix-summary-toggle" id="fix-summary-toggle"[^>]*>Show more<\/button>/.exec(row)?.[0] ?? "";
+  assert.notEqual(toggle, "", "no Show more button");
+  assert.match(toggle, /aria-controls="description-fixResult detail-fixResult"/);
+  assert.match(toggle, /aria-expanded="false"/);
+  assert.match(toggle, /aria-label="Show full Fix result"/);
+  assert.match(toggle, / hidden/);
+  const order = ["description-fixResult", "detail-fixResult", "fix-summary-toggle", "artifact-fixResult", "open-fix-report"].map((id) => row.indexOf(`id="${id}"`));
+  assert.ok(order.every((at) => at !== -1));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.match(CSS, /\.fix-summary-toggle \{[^}]*align-self: flex-start;/s);
+  assert.equal(toggle.includes("primary"), false);
 });
 
 test("each row reads top to bottom: its line, its detail, what it owns, its card", () => {

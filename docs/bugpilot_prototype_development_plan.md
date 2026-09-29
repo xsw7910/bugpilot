@@ -10215,3 +10215,86 @@ opens a real terminal and starts no agent).
 **Regression.** Extension 1485 tests pass (1473 before: 7 controller, 3 page and
 2 panel tests added; the two that read the toasts now read the inline message);
 typecheck, smoke and `git diff --check` clean.
+
+### 37.88 Flat Artifacts list with plain descriptions (after `5cd31ae`, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Flat Artifacts list)" at the end of §19.
+
+**What changed.**
+
+- `src/app/artifacts.ts`: `ARTIFACTS` (order, description, canonical,
+  writtenWhen) replaces the groups (`ArtifactGroup`, `GROUP_ORDER`,
+  `GROUP_LABELS`, `GROUPS`, `WITHIN_GROUP`, `artifactGroup`) and `RESULT_FILES`;
+  `ArtifactList.ready` holds `entries` rather than `sections`; each entry has
+  `description` and `written`; `artifactRow()` shapes the tree row — label,
+  `<status> · <purpose>`, tooltip, accessible name, icon, whether it opens. `.eml`
+  is a `mail` file.
+- `src/views/trees.ts`: the files are the root's children; a row not written yet
+  has no command.
+- No change to the controller, the watcher, the writers or the parsers.
+
+**Real VS Code pass** (the disposable profile, the throwaway repository's work
+item from §37.87).
+
+- PASS A: a prepared work item — eight rows at level 1, none expandable,
+  in workflow order; three *Not written yet* (the fix, review and verification
+  reports), five *Written*; accessible names `<name> — <purpose> — <status>`.
+- PASS B: `fix_report.md` written from outside — *Written* in about 0.5s; deleted
+  — *Not written yet* again. No reload.
+- PASS C: `review_report.md` and `verification_report.md` written — both
+  *Written*, in place.
+- PASS D: an unknown `notes_extra.txt` — last, *Additional BugPilot artifact*,
+  opens.
+- PASS E: clicking `issue.json`, `context.md`, `fix_report.md` opened each; a
+  row not written yet opened nothing.
+- PASS F: 200px — no horizontal scroll, names on one line, descriptions cut with
+  an ellipsis; keyboard — arrows walk the nine rows, each announced with its
+  purpose and status, Enter opens; Dark, Light, High Contrast Dark, High
+  Contrast Light. Hover tooltips were not opened in the window (unit tests).
+
+**Regression.** Extension 1492 tests pass (1485 before: the grouping tests
+replaced by flat-list ones in `artifacts.test.ts`, 3 controller tests added);
+typecheck, smoke and `git diff --check` clean.
+
+### 37.89 Fix result Show more / Show less (after §37.88, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only, page-side.
+Decisions in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Fix result Show more / Show less)" at the end of §19.
+
+**What changed.**
+
+- `html.ts`: `#fix-summary-toggle` (a `button.link`) between the Tests line and
+  `fix_report.md`.
+- `panel.js`: `renderFixSummary` / `applyFixSummary` — the `is-clamped` class
+  while collapsed, the toggle only when a line is cut short or while expanded,
+  state keyed by work item + summary + Tests line; a `ResizeObserver`
+  re-measures while collapsed.
+- `panel.css`: the clamp moved from `#description-fixResult, #detail-fixResult`
+  to their `.is-clamped` state; the toggle's style.
+- Page test harness: a fake `ResizeObserver` (`page.resize()`).
+
+**Real VS Code pass** (the disposable profile, the throwaway work item, reports
+written from outside).
+
+- PASS A: a one-line summary — shown whole, no toggle.
+- PASS B: a 221-character summary — three lines with an ellipsis, Show more
+  under the Tests line, `fix_report.md` below it.
+- PASS C: Show more — five lines, Show less, focus on the button.
+- PASS D: Show less — three lines again, Show more.
+- PASS E: expanded, then `notes_extra.txt` created and `run.json` rewritten —
+  two artifact refreshes in the log, still expanded.
+- PASS F: expanded, then a new report — collapsed, Show more.
+- PASS G: 200px (fourteen lines of full text, three shown, no overflow);
+  keyboard (Tab reaches the toggle, Enter expands, Space collapses, focus stays);
+  Dark, Light, High Contrast Dark, High Contrast Light.
+- Screen reader not run: the full text is the element's text, which a clamp
+  does not remove from the accessibility tree.
+
+**Regression.** Extension 1501 tests pass (1492 before: 8 page and 1 panel test
+added, the clamp CSS test rewritten); typecheck, smoke and `git diff --check`
+clean.

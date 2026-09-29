@@ -1345,22 +1345,36 @@ body.vscode-high-contrast-light .step-dot {
   cursor: default;
 }
 
-/* A report's lines are the agent's and can run long: three lines of summary,
-   two of tests, and the rest in the editor. Clamped, not cut — the whole
-   bounded line is still the element's text and its title. */
-#description-fixResult,
-#detail-fixResult {
+/* A report's lines are the agent's and can run long: three lines of summary
+   and two of tests while collapsed, with Show more whenever that cuts them
+   short (§37.89); the whole text in full once expanded. Clamped, not cut: the
+   text is all in the element — for a screen reader too — and in its title.
+   Prose wraps between words (the row's own `overflow-wrap: anywhere` breaks
+   only a path or identifier too long for the line). */
+#description-fixResult.is-clamped,
+#detail-fixResult.is-clamped {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
 }
 
-#detail-fixResult {
+#detail-fixResult.is-clamped {
   -webkit-line-clamp: 2;
 }
 
 #detail-fixResult[hidden] {
+  display: none;
+}
+
+/* Show more / Show less: a quiet link on its own line, under the report's
+   lines and above fix_report.md — never a button competing with the actions. */
+.fix-summary-toggle {
+  align-self: flex-start;
+  font-size: 0.9em;
+}
+
+.fix-summary-toggle[hidden] {
   display: none;
 }
 

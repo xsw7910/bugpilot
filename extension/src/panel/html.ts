@@ -1000,6 +1000,9 @@ const FIX_RESULT_ROW = `        <li class="step" id="step-fixResult" hidden>
           </div>
           <div class="step-body">
             <p class="step-detail" id="detail-fixResult" hidden></p>
+            <!-- Show more / Show less (§37.89): only while the report's lines are
+                 actually cut short; the whole text is in the lines above either way. -->
+            <button type="button" class="link fix-summary-toggle" id="fix-summary-toggle" aria-controls="description-fixResult detail-fixResult" aria-expanded="false" aria-label="Show full Fix result" hidden>Show more</button>
             ${stepArtifact("fixResult")}
 ${stepContent("fixResult")}
           </div>

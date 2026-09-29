@@ -1113,6 +1113,7 @@
     // The lines are clamped on screen; the whole bounded line is the hover.
     byId("description-fixResult").setAttribute("title", step ? step.summary || "" : "");
     byId("detail-fixResult").setAttribute("title", step ? step.detail || "" : "");
+    renderFixSummary(step, workItemId);
     renderValidation(step, workItemId);
     if (step) return;
     rowArtifacts.fixResult = "";
@@ -1121,6 +1122,65 @@
     byId("description-fixResult").textContent = "";
     byId("detail-fixResult").textContent = "";
     byId("detail-fixResult").hidden = true;
+  }
+
+  /**
+   * Fix result's Show more / Show less (§37.89).
+   *
+   * Presentation only, and the page's: which result is expanded is never sent
+   * to the host or saved. It is keyed by the work item and the report's own
+   * lines, so a push that changes neither — any other workflow update, an
+   * artifact refresh — keeps it, and a new result starts collapsed.
+   */
+  let fixSummaryKey = "";
+  let fixSummaryExpanded = false;
+  const FIX_SUMMARY_LINES = ["description-fixResult", "detail-fixResult"];
+
+  function renderFixSummary(step, workItemId) {
+    const key = step ? `${workItemId || ""}\n${step.summary || ""}\n${step.detail || ""}` : "";
+    if (key !== fixSummaryKey) {
+      fixSummaryKey = key;
+      fixSummaryExpanded = false;
+    }
+    applyFixSummary();
+  }
+
+  /**
+   * Clamp or not, then decide whether the toggle is needed.
+   *
+   * Collapsed, the lines are clamped and measured: the toggle shows only when
+   * one of them is actually cut short, so a clamp never cuts text without it.
+   * Expanded, it stays (as Show less) until pressed — a width change does not
+   * collapse what the developer opened.
+   */
+  function applyFixSummary() {
+    const toggle = byId("fix-summary-toggle");
+    const lines = FIX_SUMMARY_LINES.map(byId);
+    for (const line of lines) line.classList.toggle("is-clamped", !fixSummaryExpanded);
+    const cut = !fixSummaryExpanded && lines.some((line) => !line.hidden && line.scrollHeight > line.clientHeight + 1);
+    toggle.hidden = fixSummaryKey === "" || !(fixSummaryExpanded || cut);
+    toggle.textContent = fixSummaryExpanded ? "Show less" : "Show more";
+    toggle.setAttribute("aria-label", fixSummaryExpanded ? "Collapse Fix result" : "Show full Fix result");
+    toggle.setAttribute("aria-expanded", fixSummaryExpanded ? "true" : "false");
+  }
+
+  byId("fix-summary-toggle").addEventListener("click", () => {
+    fixSummaryExpanded = !fixSummaryExpanded;
+    applyFixSummary();
+    // Collapsing shortens the row above the button: keep the button — which
+    // keeps the focus — in view rather than leaving the reader somewhere below.
+    if (!fixSummaryExpanded) scrollIntoView(byId("fix-summary-toggle"), "nearest");
+  });
+
+  // A row that was hidden when it rendered measures nothing, and the same text
+  // can fit at one width and not another: re-check when the lines' boxes change
+  // size. Only while collapsed does it matter, and only the toggle changes — so
+  // the observed boxes do not, and there is no loop.
+  if (typeof ResizeObserver === "function") {
+    const observer = new ResizeObserver(() => {
+      if (!fixSummaryExpanded) applyFixSummary();
+    });
+    for (const id of FIX_SUMMARY_LINES) observer.observe(byId(id));
   }
 
   /**

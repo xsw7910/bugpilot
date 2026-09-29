@@ -22,7 +22,9 @@ First release. What it does today:
   Auto-detect, Claude Code, or a custom command of your own with a `{prompt}`
   placeholder. Off by default: preparing context and involving a model stay two
   separate decisions.
-- **Artifacts and History views.** Artifacts groups what a run produced; History
+- **Artifacts and History views.** Artifacts is one flat list of the work
+  item's files in workflow order — each Written or Not written yet, with what it
+  is for; History
   says what became of each work item — ready, fixed, retry waiting, retry
   prepared, failed, unfinished — and reopens any of them in the panel.
 - **Start New Attempt.** A new agent session on the prepared context, with

@@ -2485,6 +2485,70 @@ workflow state is shown, not the state.
    does not announce it again. The page never moves the keyboard focus; the
    terminal takes it because focusing it is the action.
 
+### Confirmed decisions (Flat Artifacts list)
+
+1. **Artifacts uses one flat user-facing list.** The files are the view's
+   direct children, under the view's own title and the work item beside it.
+
+2. **Internal generation categories are not exposed as second-level tree
+   nodes.** "Hand off to an agent", "Agent results", "Investigation", "Run
+   state" (and the phase-era "Second attempt", "Copilot handoff") are gone; the
+   canonical / side-band distinction stays in the model, never in the tree.
+
+3. **Each artifact has a clear plain-language purpose description**, from one
+   map, `ARTIFACTS` in `src/app/artifacts.ts` — order, description, whether it
+   is canonical, and what writes it (for the tooltip of a file not written
+   yet). A file it does not know is an *Additional BugPilot artifact*.
+
+4. **Known artifacts use workflow-oriented ordering:** `issue.json`,
+   `context.md`, `task.md`, `fix_report.md`, `review_report.md`,
+   `verification_report.md`, `retrieval.json`, `run.json`; then side-band
+   files once present (`user_feedback.md`, `agent_retry_prompt.md`,
+   `jira_comment_draft.md`, `jira_comment_post_result.json`, `email_draft.md`,
+   `notification.eml`, `jira_field_report.md`); then unknown files by name.
+
+5. **Availability once per row.** The eight canonical files are always listed,
+   *Written* or *Not written yet* — never "missing"; the review and the
+   verification reports included, which the grouped tree left out until saved.
+   A row's description is `<status> · <purpose>` (status first, so a narrow
+   sidebar keeps it), its tooltip the name, the purpose, `Status: …` and what
+   writes it; its accessible name `<name> — <purpose> — <status>`. Only a
+   written file has a click command; the file type is the icon.
+
+6. **The contract is checked, not copied.** The canonical set is compared with
+   every `*_ARTIFACT` constant in `bugpilot/core/artifacts.py`; the Copilot-era
+   `RESULT_FILES` list is gone, and Python's required result files are checked
+   to be canonical instead.
+
+### Confirmed decisions (Fix result Show more / Show less)
+
+1. **Fix result summaries use a bounded collapsed preview with explicit Show
+   more / Show less for long content.** Collapsed, the summary is clamped to
+   three lines and the Tests line to two; **Show more** — a link-style button
+   on its own line under them, above `fix_report.md` — appears only when one of
+   them is actually cut short (measured: `scrollHeight > clientHeight`). Short
+   results show whole, with no control. The clamp is a class set only while
+   collapsed; no rule clips the lines otherwise.
+
+2. **Expanded shows everything and says Show less**; collapsing keeps the button
+   in view and the focus on it. Nothing opens and nothing is sent to the host.
+
+3. **Presentation only, keyed by the result.** The page holds it, keyed by the
+   work item and the report's summary and Tests lines: any other update and any
+   artifact refresh keep it; a new result, another work item or a recreated
+   panel start collapsed. Never persisted.
+
+4. **Width.** A `ResizeObserver` on the two lines re-checks only while
+   collapsed — so the control appears when a narrower panel starts cutting the
+   text, a row first shown hidden is measured when it appears, an expanded
+   result stays expanded across a resize, and the toggle's own change cannot
+   loop. Prose wraps between words; `overflow-wrap: anywhere` breaks only a
+   token too long for the line.
+
+5. **Accessible.** A real button, `aria-expanded`, `aria-controls` both lines,
+   accessible names *Show full Fix result* / *Collapse Fix result*. The clamp is
+   visual: the full text is the elements' text (and title) either way.
+
 ---
 
 # 20. Step Secondary Text 状态原则

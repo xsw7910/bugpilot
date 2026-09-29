@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  GROUP_ORDER,
-  RESULT_FILES,
-  artifactGroup,
+  ARTIFACTS,
+  UNKNOWN_ARTIFACT_DESCRIPTION,
   artifactKind,
+  artifactRow,
   buildArtifactList,
   describeAge,
   historyFromPayload,
@@ -25,71 +25,160 @@ const REAL_RUN = [
   "run.json",
 ];
 
-function sectionsOf(list: ArtifactList) {
+/** The flat list's rows, in order. */
+function entriesOf(list: ArtifactList) {
   assert.equal(list.kind, "ready");
-  return list.kind === "ready" ? list.sections : [];
+  return list.kind === "ready" ? list.entries : [];
 }
+const namesOf = (list: ArtifactList) => entriesOf(list).map((entry) => entry.name);
+const entryOf = (list: ArtifactList, name: string) => entriesOf(list).find((entry) => entry.name === name);
 
-test("the result files match the ones bugpilot requires", () => {
-  // A result file added in Python but not here would stop being reported as
-  // missing, which is the one thing this list is for.
+/** The workflow's order for the eight canonical files (§37.88). */
+const CANONICAL_ORDER = [
+  "issue.json",
+  "context.md",
+  "task.md",
+  "fix_report.md",
+  "review_report.md",
+  "verification_report.md",
+  "retrieval.json",
+  "run.json",
+];
+
+test("the canonical artifacts are exactly bugpilot's artifact contract", () => {
+  // Every `*_ARTIFACT` name in bugpilot/core/artifacts.py is canonical here, and
+  // nothing else is: a file added to the contract but not here would not be
+  // listed before it is written.
+  const source = readFileSync(new URL("../../bugpilot/core/artifacts.py", import.meta.url), "utf8");
+  const python = [...source.matchAll(/^[A-Z_]+_ARTIFACT = "([^"]+)"/gm)].map((match) => match[1]!);
+  assert.ok(python.length >= 8, "could not read the artifact constants from artifacts.py");
+  const canonical = Object.keys(ARTIFACTS).filter((name) => ARTIFACTS[name]!.canonical);
+  assert.deepEqual([...canonical].sort(), [...python].sort());
+});
+
+test("the result files bugpilot requires are canonical, so they are listed before they exist", () => {
   const source = readFileSync(new URL("../../bugpilot/core/workflow.py", import.meta.url), "utf8");
   const block = /REQUIRED_COPILOT_RESULT_FILES = \[([\s\S]*?)\]/.exec(source);
   assert.ok(block, "could not find REQUIRED_COPILOT_RESULT_FILES in workflow.py");
-  // The Python list names artifact constants; resolve them from artifacts.py.
   const artifacts = readFileSync(new URL("../../bugpilot/core/artifacts.py", import.meta.url), "utf8");
   const fixReport = /^FIX_REPORT_ARTIFACT = "([^"]+)"/m.exec(artifacts);
   assert.ok(fixReport, "could not find FIX_REPORT_ARTIFACT in artifacts.py");
-  const python = [...block[1]!.matchAll(/"([^"]+)"|FIX_REPORT_ARTIFACT/g)].map(
-    (match) => match[1] ?? fixReport[1]!,
-  );
-  assert.deepEqual([...RESULT_FILES].sort(), python.sort());
+  const required = [...block[1]!.matchAll(/"([^"]+)"|FIX_REPORT_ARTIFACT/g)].map((match) => match[1] ?? fixReport[1]!);
+  for (const name of required) assert.equal(ARTIFACTS[name]?.canonical, true, name);
 });
 
-test("the handoff file comes first, and run state comes last", () => {
-  // task.md is what the Run button was for; an alphabetical listing puts
-  // three files nobody opens above it.
-  const sections = sectionsOf(buildArtifactList({ names: REAL_RUN }));
-  assert.equal(sections[0]?.group, "handoff");
-  assert.equal(sections[0]?.entries[0]?.name, "task.md");
-  assert.equal(sections.at(-1)?.group, "state");
-  // Sections keep the declared order regardless of what the run produced.
-  const order = sections.map((section) => section.group);
-  assert.deepEqual(
-    order,
-    GROUP_ORDER.filter((group) => order.includes(group)),
-  );
+test("one flat list: every file directly in it, in the workflow's order — no groups", () => {
+  const list = buildArtifactList({ names: REAL_RUN });
+  const entries = entriesOf(list);
+  // Direct children: an entry is a file, never a category with entries of its own.
+  for (const entry of entries) {
+    assert.deepEqual(Object.keys(entry).filter((key) => key === "entries" || key === "group"), [], entry.name);
+  }
+  assert.deepEqual(namesOf(list), CANONICAL_ORDER);
+  // The old category names are nowhere in it.
+  const said = JSON.stringify(list);
+  for (const group of ["Hand off to an agent", "Agent results", "Investigation", "Run state"]) {
+    assert.equal(said.includes(group), false, group);
+  }
 });
 
-test("missing result files are listed as missing once a handoff exists", () => {
-  const sections = sectionsOf(buildArtifactList({ names: REAL_RUN }));
-  const results = sections.find((section) => section.group === "results");
-  assert.ok(results, "expected a results section");
-  assert.deepEqual(
-    results.entries.map((entry) => entry.name).sort(),
-    [...RESULT_FILES].sort(),
-  );
-  assert.equal(
-    results.entries.every((entry) => entry.missing === true),
-    true,
-  );
+test("every known artifact says what it is for, in plain words", () => {
+  const expected: Record<string, string> = {
+    "issue.json": "Issue details or manual bug description",
+    "context.md": "Prepared issue and code context used by the AI",
+    "task.md": "AI task and fix instructions",
+    "fix_report.md": "Summary of the AI fix and changes made",
+    "review_report.md": "Saved AI or human review findings",
+    "verification_report.md": "Recorded verification checks and evidence",
+    "retrieval.json": "Code search and retrieval results used to build context",
+    "run.json": "Workflow execution state and metadata",
+    "user_feedback.md": "Feedback provided for a new AI attempt",
+    "agent_retry_prompt.md": "Instructions prepared for the next AI attempt",
+    "jira_comment_draft.md": "Draft Jira comment prepared by BugPilot",
+    "jira_comment_post_result.json": "Result of the Jira comment posting action",
+    "email_draft.md": "Draft email prepared by BugPilot",
+    "notification.eml": "Generated email notification",
+    "jira_field_report.md": "Jira field inspection report",
+  };
+  assert.deepEqual(Object.keys(ARTIFACTS).sort(), Object.keys(expected).sort());
+  for (const [name, description] of Object.entries(expected)) {
+    assert.equal(ARTIFACTS[name]!.description, description, name);
+    assert.notEqual(description.trim(), "");
+  }
+  // No internal words for a developer to decode.
+  for (const info of Object.values(ARTIFACTS)) {
+    assert.doesNotMatch(info.description, /canonical|payload|serializ|schema|artifact contract/i);
+  }
 });
 
-test("a run with no handoff does not invent five missing results", () => {
-  // --only-issue-details produces no task.md, so there was never anything
-  // to hand over; five red rows would be noise.
-  const list = buildArtifactList({ names: ["issue.json", "run.json"] });
-  assert.equal(
-    sectionsOf(list).some((section) => section.group === "results"),
-    false,
-  );
+test("a canonical file not written yet is listed as Not written yet — never Missing — and opens nothing", () => {
+  const list = buildArtifactList({ names: REAL_RUN });
+  const report = entryOf(list, "fix_report.md")!;
+  assert.equal(report.written, false);
+  const row = artifactRow(report);
+  assert.equal(row.description, "Not written yet · Summary of the AI fix and changes made");
+  assert.equal(row.opens, false, "a file not written yet would open as an empty file");
+  assert.match(row.tooltip, /Status: Not written yet/);
+  assert.match(row.tooltip, /Written by the AI agent when it finishes an attempt\./);
+  const said = JSON.stringify(row);
+  assert.doesNotMatch(said, /Missing|Failed/);
+  // The review and the verification too — they are part of the workflow to come.
+  for (const name of ["review_report.md", "verification_report.md"]) {
+    assert.equal(artifactRow(entryOf(list, name)!).description.startsWith("Not written yet · "), true, name);
+  }
 });
 
-test("a written report is shown as present instead of missing", () => {
-  const sections = sectionsOf(buildArtifactList({ names: [...REAL_RUN, "fix_report.md"] }));
-  const results = sections.find((section) => section.group === "results");
-  assert.equal(results?.entries[0]?.name, "fix_report.md");
-  assert.equal(results?.entries[0]?.missing, undefined);
+test("a written file is Written, once, and opens", () => {
+  const list = buildArtifactList({ names: [...REAL_RUN, "fix_report.md"] });
+  const row = artifactRow(entryOf(list, "fix_report.md")!);
+  assert.equal(row.label, "fix_report.md");
+  assert.equal(row.description, "Written · Summary of the AI fix and changes made");
+  assert.equal(row.opens, true);
+  assert.equal(row.icon, "markdown");
+  assert.equal(row.tooltip, "fix_report.md\nSummary of the AI fix and changes made\nStatus: Written");
+  assert.equal(row.accessibleName, "fix_report.md — Summary of the AI fix and changes made — Written");
+  // The status is said once in the line, and once in each of the tooltip and the name.
+  assert.equal(row.description.split("Written").length - 1, 1);
+});
+
+test("a file created or deleted changes its row: the list is rebuilt from what is on disk", () => {
+  const before = buildArtifactList({ names: REAL_RUN });
+  const created = buildArtifactList({ names: [...REAL_RUN, "review_report.md"] });
+  const deleted = buildArtifactList({ names: REAL_RUN.filter((name) => name !== "context.md") });
+  assert.equal(entryOf(before, "review_report.md")!.written, false);
+  assert.equal(entryOf(created, "review_report.md")!.written, true);
+  assert.equal(entryOf(deleted, "context.md")!.written, false);
+  // And the order does not move when a file arrives.
+  assert.deepEqual(namesOf(created), CANONICAL_ORDER);
+});
+
+test("side-band files appear when they exist, in their place after the canonical ones", () => {
+  const list = buildArtifactList({
+    names: [...REAL_RUN, "notification.eml", "user_feedback.md", "jira_comment_draft.md", "agent_retry_prompt.md"],
+  });
+  assert.deepEqual(namesOf(list), [
+    ...CANONICAL_ORDER,
+    "user_feedback.md",
+    "agent_retry_prompt.md",
+    "jira_comment_draft.md",
+    "notification.eml",
+  ]);
+  assert.equal(artifactRow(entryOf(list, "notification.eml")!).icon, "mail");
+  // Not listed before they exist.
+  assert.equal(namesOf(buildArtifactList({ names: REAL_RUN })).includes("user_feedback.md"), false);
+});
+
+test("an unknown file is listed, after every known one, with a neutral description — sorted by name", () => {
+  const list = buildArtifactList({ names: ["zeta_notes.md", ...REAL_RUN, "alpha.log", "copilot_task.md", "email_draft.md"] });
+  const names = namesOf(list);
+  assert.deepEqual(names.slice(-3), ["alpha.log", "copilot_task.md", "zeta_notes.md"]);
+  assert.ok(names.indexOf("email_draft.md") < names.indexOf("alpha.log"), "an unknown file interrupted the known ones");
+  const unknown = entryOf(list, "zeta_notes.md")!;
+  assert.equal(unknown.description, UNKNOWN_ARTIFACT_DESCRIPTION);
+  assert.equal(UNKNOWN_ARTIFACT_DESCRIPTION, "Additional BugPilot artifact");
+  const row = artifactRow(unknown);
+  assert.equal(row.opens, true, "a written unknown file did not open");
+  assert.equal(artifactRow(entryOf(list, "alpha.log")!).icon, "output");
 });
 
 test("an empty directory is an empty state, not an error", () => {
@@ -98,31 +187,26 @@ test("an empty directory is an empty state, not an error", () => {
   assert.match(list.kind === "empty" ? list.detail : "", /Run BugPilot/);
 });
 
-test("an unknown file is grouped where it stays visible", () => {
-  // Hiding a file bugpilot started writing is worse than putting it in the
-  // wrong section; the section it lands in is the one people read.
-  assert.equal(artifactGroup("something_new.md"), "context");
-  assert.equal(artifactGroup("run.json"), "state");
-  // Phase-era runtime files from a directory prepared before run.json.
-  assert.equal(artifactGroup("workflow_status.json"), "state");
-  assert.equal(artifactGroup("execution.log"), "state");
-  assert.equal(artifactGroup("user_feedback.md"), "retry");
-  assert.equal(artifactGroup("fix_report.md"), "results");
-  // Agent results from a pre-Batch-5 directory still land in Results.
-  assert.equal(artifactGroup("fix_summary.md"), "results");
-  assert.equal(artifactGroup("result_summary.md"), "results");
-});
-
 test("file kinds drive the icon and the open action", () => {
   assert.equal(artifactKind("context.md"), "markdown");
   assert.equal(artifactKind("retrieval.json"), "json");
+  assert.equal(artifactKind("notification.eml"), "mail");
   assert.equal(artifactKind("execution.log"), "log");
   assert.equal(artifactKind("noext"), "other");
+  assert.equal(artifactRow({ name: "noext", kind: "other", description: "x", written: true }).icon, "file");
 });
 
 test("duplicate names collapse", () => {
-  const sections = sectionsOf(buildArtifactList({ names: ["context.md", "context.md"] }));
-  assert.equal(sections[0]?.entries.length, 1);
+  const list = buildArtifactList({ names: ["context.md", "context.md", "notes.txt", "notes.txt"] });
+  assert.equal(namesOf(list).filter((name) => name === "context.md").length, 1);
+  assert.equal(namesOf(list).filter((name) => name === "notes.txt").length, 1);
+});
+
+test("a tooltip holds names and fixed sentences only, never a path or contents", () => {
+  for (const entry of entriesOf(buildArtifactList({ names: [...REAL_RUN, "fix_report.md", "odd.md"] }))) {
+    const row = artifactRow(entry);
+    assert.doesNotMatch(row.tooltip, /[\\/]/, entry.name);
+  }
 });
 
 // --- history ---------------------------------------------------------------
@@ -441,37 +525,30 @@ const REAL_JIRA_RUN = [
   "test_plan.md",
 ];
 
-test("every file a real Jira run writes has a group of its own", () => {
-  // Nine of these had none and fell into Investigation next to context.md,
-  // which is the one file that section exists for. The fallback is deliberate
-  // — a new artifact stays visible — but it is not a place for nine known files
-  // to live.
-  const ungrouped = REAL_JIRA_RUN.filter((name) => artifactGroup(name) === "context");
-  assert.deepEqual(
-    ungrouped.sort(),
-    ["context.md", "issue.json", "retrieval.json"],
-    "only the investigation artifacts belong in Investigation",
-  );
+test("a phase-era Jira directory lists its old files after every known one, and never ahead of task.md", () => {
+  // Nine files a current run no longer writes: shown, since they are there, but
+  // as additional artifacts at the end rather than dressed up with a purpose.
+  const names = namesOf(buildArtifactList({ names: REAL_JIRA_RUN }));
+  assert.deepEqual(names.slice(0, CANONICAL_ORDER.length), CANONICAL_ORDER);
+  const extra = names.slice(CANONICAL_ORDER.length);
+  assert.deepEqual(extra, [...extra].sort(), "the old files are not in name order");
+  assert.equal(extra.length, REAL_JIRA_RUN.length - 5);
+  for (const name of extra) {
+    assert.equal(entryOf(buildArtifactList({ names: REAL_JIRA_RUN }), name)!.description, UNKNOWN_ARTIFACT_DESCRIPTION, name);
+  }
 });
 
 test("the copilot prompts do not crowd the file a developer opens", () => {
-  const sections = sectionsOf(buildArtifactList({ names: REAL_JIRA_RUN }));
-  const order = sections.map((section) => section.group);
-
-  assert.equal(sections[0]?.group, "handoff");
-  assert.equal(sections[0]?.entries[0]?.name, "task.md");
-  // Five files a Claude user never opens, kept out of the first section and out
-  // of Investigation.
-  const copilot = sections.find((section) => section.group === "copilot");
-  assert.equal(copilot?.entries.length, 5);
-  assert.ok(order.indexOf("copilot") > order.indexOf("context"));
+  const names = namesOf(buildArtifactList({ names: REAL_JIRA_RUN }));
+  // task.md where the workflow puts it; the five prompts after run.json.
+  assert.equal(names.indexOf("task.md"), 2);
+  for (const name of names.filter((each) => each.startsWith("copilot_"))) {
+    assert.ok(names.indexOf(name) > names.indexOf("run.json"), name);
+  }
 });
 
-test("the normalized issue is investigation input, not bookkeeping", () => {
-  // It is what every later step reads the bug from, so it sits with the
-  // investigation rather than with run state.
-  assert.equal(artifactGroup("issue.json"), "context");
-  assert.equal(artifactGroup("memory_entry.md"), "state");
+test("the normalized issue comes first: it is what every later step reads the bug from", () => {
+  assert.equal(namesOf(buildArtifactList({ names: ["run.json", "memory_entry.md", "issue.json"] }))[0], "issue.json");
 });
 
 // --- History takes only work item ids (§37.70) -------------------------------
@@ -519,14 +596,15 @@ test("a summarized package keeps its History outcome: the marks that stopped do 
 
 // --- Batch 11: review_report.md ------------------------------------------------
 
-test("a recorded review is listed with the agent's results, after the fix report, and is never 'missing'", () => {
+test("a recorded review follows the fix report; before it is saved it is Not written yet, never missing", () => {
   const list = buildArtifactList({ names: ["task.md", "fix_report.md", "review_report.md", "context.md"] });
-  assert.equal(list.kind, "ready");
-  const results = list.kind === "ready" ? list.sections.find((section) => section.group === "results") : undefined;
-  assert.deepEqual(results?.entries.map((entry) => entry.name), ["fix_report.md", "review_report.md"]);
+  const names = namesOf(list);
+  assert.equal(names.indexOf("review_report.md"), names.indexOf("fix_report.md") + 1);
+  assert.equal(entryOf(list, "review_report.md")!.written, true);
   const withoutReview = buildArtifactList({ names: ["task.md", "fix_report.md"] });
-  const names = withoutReview.kind === "ready" ? withoutReview.sections.flatMap((section) => section.entries.map((entry) => entry.name)) : [];
-  assert.equal(names.includes("review_report.md"), false, "a review nobody recorded was listed as missing");
+  const row = artifactRow(entryOf(withoutReview, "review_report.md")!);
+  assert.equal(row.description, "Not written yet · Saved AI or human review findings");
+  assert.doesNotMatch(JSON.stringify(row), /missing/i);
 });
 
 test("History's outcome ignores a recorded review", () => {
@@ -546,15 +624,16 @@ test("History's outcome ignores a recorded review", () => {
 
 // --- Batch 12: verification_report.md -----------------------------------------
 
-test("recorded evidence is listed with the results, after the review, and is never 'missing'", () => {
+test("recorded evidence follows the review; before it is recorded it is Not written yet, never missing", () => {
   const list = buildArtifactList({
     names: ["task.md", "verification_report.md", "fix_report.md", "review_report.md", "context.md"],
   });
-  const results = list.kind === "ready" ? list.sections.find((section) => section.group === "results") : undefined;
-  assert.deepEqual(results?.entries.map((entry) => entry.name), ["fix_report.md", "review_report.md", "verification_report.md"]);
+  const names = namesOf(list);
+  assert.deepEqual(names.slice(names.indexOf("fix_report.md"), names.indexOf("fix_report.md") + 3), ["fix_report.md", "review_report.md", "verification_report.md"]);
   const without = buildArtifactList({ names: ["task.md", "fix_report.md"] });
-  const names = without.kind === "ready" ? without.sections.flatMap((section) => section.entries.map((entry) => entry.name)) : [];
-  assert.equal(names.includes("verification_report.md"), false, "evidence nobody recorded was listed as missing");
+  const row = artifactRow(entryOf(without, "verification_report.md")!);
+  assert.equal(row.description, "Not written yet · Recorded verification checks and evidence");
+  assert.doesNotMatch(JSON.stringify(row), /missing/i);
 });
 
 test("History's outcome ignores recorded evidence, with or without a review", () => {
