@@ -31,6 +31,7 @@ import {
   userFeedbackMarkdown,
 } from "./nextAction.ts";
 import type { FeedbackHelperId, NextActionId, PrimaryView } from "./nextAction.ts";
+import { settingsSummaries } from "./workflowSettings.ts";
 import {
   MAX_LISTED_FILES,
   contextCounts,
@@ -468,6 +469,9 @@ export class Controller {
   /** A feedback helper's text, held for exactly one push. */
   #attemptDraft: AttemptDraft | undefined;
   #attemptDraftToken = 0;
+  /** The settings page's attachment list after the file dialog, held for exactly one push. */
+  #attachmentPick: { readonly token: number; readonly attachments: readonly string[] } | undefined;
+  #attachmentPickToken = 0;
   /**
    * Code search's two numbers, as the last artifact refresh read them.
    *
@@ -752,6 +756,12 @@ export class Controller {
         return;
       case "addAttachments":
         await this.addAttachments(message.form);
+        return;
+      case "applySettings":
+        await this.applySettings(message.form);
+        return;
+      case "pickAttachments":
+        await this.pickAttachments(message.attachments);
         return;
       case "run":
         await this.run(message.form);
@@ -1649,6 +1659,57 @@ export class Controller {
     this.#push();
   }
 
+  /**
+   * Take what the Workflow Settings page applied.
+   *
+   * The page edits a draft and sends nothing until Apply, so this is the one
+   * moment its settings reach the host — and, through `#formChanged`, the one
+   * moment they can make a prepared context stale. The rules are the ones any
+   * form change goes through; nothing here decides staleness itself.
+   *
+   * Refused while a run, a handoff or an artifact write is in flight — the page
+   * disables Apply then, and a press that raced it is answered by putting the
+   * host's form back on the page, so the page never shows settings the host
+   * does not hold.
+   */
+  async applySettings(form: FormState): Promise<void> {
+    if (this.#busy()) {
+      this.#ports.log.error("Refusing to apply Workflow Settings while an operation is in flight.");
+      this.#ports.ui.notify("info", `Workflow Settings were not applied. ${this.#busyReason()}`);
+      this.#revision += 1;
+      this.#push();
+      return;
+    }
+    const before = JSON.stringify(this.#primaryView());
+    await this.#formChanged(form);
+    // Pushed whether or not the primary action moved: the rows' summaries are
+    // the settings just applied, and they are on screen now.
+    if (JSON.stringify(this.#primaryView()) === before) this.#push();
+  }
+
+  /**
+   * The file dialog, for the settings page's draft list.
+   *
+   * Like `addAttachments`, the dialog is the host's and every path in the list
+   * traces back to it; unlike it, the form is not touched — the merged list goes
+   * back to the page, once, and becomes the form's only if the page is applied.
+   */
+  async pickAttachments(current: readonly string[]): Promise<void> {
+    const picked = await this.#ports.ui.pickFiles();
+    if (picked.length === 0) return;
+    const merged = [...current];
+    for (const path of picked) {
+      if (!merged.includes(path)) merged.push(path);
+    }
+    if (merged.length > MAX_ATTACHMENTS) {
+      this.#ports.ui.notify("warning", `BugPilot attaches at most ${MAX_ATTACHMENTS} files; the rest were not added.`);
+    }
+    this.#attachmentPickToken += 1;
+    this.#attachmentPick = { token: this.#attachmentPickToken, attachments: merged.slice(0, MAX_ATTACHMENTS) };
+    this.#push();
+    this.#attachmentPick = undefined;
+  }
+
   /** Reveal `.ai/<work_item>/` in the explorer. */
   async openArtifactsFolder(): Promise<void> {
     const workItemId = this.#workItemId;
@@ -1826,7 +1887,8 @@ export class Controller {
     // A second press while the first is still out would spend another model
     // call on the same question.
     if (this.#hintBusy) return;
-    this.#form = form;
+    // Read, never kept: the hint being improved is the settings page's draft,
+    // which is the host's form only once it is applied.
     this.#hintError = undefined;
     this.#hintNotice = undefined;
 
@@ -1932,9 +1994,9 @@ export class Controller {
     this.#hintSuggestion = undefined;
     this.#hintNotice = undefined;
     this.#hintError = undefined;
-    // The revision bump is what makes the page write the new hint into the
-    // field; without the push it would never see it.
-    this.#replaceForm({ ...this.#form, hint: improved });
+    // The page has already put the suggestion into the settings page's Hint —
+    // a draft, like every field there — so the form is not replaced here. The
+    // hint reaches the host, and can make a context stale, only on Apply.
     this.#push();
   }
 
@@ -3086,6 +3148,7 @@ export class Controller {
       ...(this.#attempt === undefined ? {} : { attempt: this.#attempt }),
       ...(this.#attemptDraft === undefined ? {} : { attemptDraft: this.#attemptDraft }),
       feedbackHelpers: this.#feedbackHelpers(primary),
+      settingsSummaries: settingsSummaries(this.#form, this.#fixModes),
     });
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.
@@ -3126,6 +3189,7 @@ export class Controller {
       warnings: this.#warnings,
       jiraConfigured: this.#jiraConfigured,
       primary,
+      ...(this.#attachmentPick === undefined ? {} : { attachmentPick: this.#attachmentPick }),
       ...(this.#workItemId === undefined ? {} : { workItemId: this.#workItemId }),
     });
   }

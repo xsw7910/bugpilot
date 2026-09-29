@@ -1185,6 +1185,12 @@ Investigation & AI Fix    Context ready
 
 ### Confirmed decisions (Batch 7): Fix Mode placement
 
+> **Superseded in part (Workflow Settings Navigation):** Advanced settings is
+> now the Workflow Settings page, and the Fix Mode selector sits in its Fix with
+> AI section; the collapsed-summary label (decision 6) is now the line beside
+> the Workflow Settings entry. See "Confirmed decisions (Workflow Settings
+> Navigation)" at the end of §19.
+
 1. **Fix Mode is an Advanced settings → Strategy input.** The primary form is
    the Issue field and Run; Strategy is the first group inside Advanced
    settings, and it holds the one Fix Mode selector, the selected mode's
@@ -1769,6 +1775,118 @@ button inside the Fix with AI row, under a disclosure that starts collapsed.
    `useReviewFindings` and `useVerificationEvidence`. `run`, `retry` and the
    `fixWithAI` action are still accepted, for the CLI-facing commands and older
    callers. `UiPort.revealTerminal` is the one new port. No Python change.
+
+
+### Confirmed decisions (Workflow Settings Navigation)
+
+The problem: "Advanced Settings (Optional)" grouped its controls by kind —
+Strategy, Guidance, Retrieval Overrides, Run Options — so "what does Code
+search use?" had no single place to look, and the disclosure sat below a
+workflow list that did not point at it.
+
+1. **A gear on each workflow row that has settings, and only there.** Issue
+   details, Code search, Build context and Fix with AI each end with a codicon
+   gear named for the step — "Configure Code Search", as tooltip and accessible
+   name, never "Settings". Git history and Similar fixes have nothing beyond
+   their checkbox and get no gear. The gear is a real button outside the row's
+   label (it never ticks the checkbox), visible at rest at reduced opacity, full
+   strength on hover or focus, with a focus ring, and `flex: none` so it never
+   squeezes the label at 200px.
+
+2. **One shared Workflow Settings page**, a panel view like the Fix Mode views
+   (a sibling of the main view, outside the form, never a modal): Back, the
+   title, a lede, one section per step that has settings in the workflow's
+   order, and Cancel / Apply kept on screen at its foot. The model is
+   `extension/src/app/workflowSettings.ts`: `WorkflowSettingsSection` is
+   `issue-details | code-search | build-context | fix-with-ai`, and
+   `SETTINGS_SECTION_OF_STEP` maps rows to sections. The page script carries a
+   copy of the section list, compared with the model by a test.
+
+3. **The settings moved; none was added, renamed or copied.** Advanced settings
+   is gone; a "Workflow Settings" entry under the workflow opens the page at
+   its top, with the non-default-Fix-Mode line beside it.
+
+   | Section | Settings |
+   | --- | --- |
+   | Issue details | Title (manual bugs only, as before), Attachments |
+   | Code search | Keywords, Focus files, Ignore paths, Max files, Max search lines |
+   | Build context | Delete previous artifacts first (Fresh) |
+   | Fix with AI | AI agent, custom agent command, Fix Mode (+ Manage Fix Modes), Hint (+ Improve, Use issue details) |
+
+   The Issue field, the plan checkboxes and the Fix with AI box stay on the main
+   form. Every settings field has exactly one home (tested).
+
+4. **Navigation.** A gear shows the page, scrolls its section into view
+   (`scrollIntoView({ block: "start" })`, in the same turn as un-hiding the
+   view, so the section has a position), outlines it briefly
+   (`settings-section-target`, an outline so high-contrast themes keep it, no
+   transition under reduced motion), and focuses the section's first control on
+   screen — Title for a hand-written bug, otherwise Attachments; Keywords; the
+   Fresh box; the AI agent. During a run the fields are disabled, so the
+   section heading takes focus. A validation problem in a settings field opens
+   the page at its section and lands on the field, once per problem. Back
+   returns to the form with its scroll position and focus on the control that
+   opened the page. Manage Fix Modes returns to the page, draft intact.
+
+5. **Apply / Cancel is an explicit draft.** While the page is open its controls
+   are a draft; the page reads the form from the *applied* settings, so nothing
+   typed there reaches a run, a form change or a primary-action press. Apply
+   (or Ctrl+Enter) copies the draft into the applied settings and sends
+   `applySettings { form }` with the whole form, then returns to the form.
+   Cancel, Back and Escape write the applied settings back over the draft. Two
+   host paths that used to write the form behind the page were changed to fit:
+   the attachment dialog now answers the draft (`pickAttachments` →
+   `PanelState.attachmentPick`, merged, de-duplicated and capped by the host,
+   sent once) instead of replacing the host's form, and the hint improver reads
+   the draft without keeping it — Use Improved puts the suggestion into the
+   draft Hint, and the host only clears its suggestion. A form the host itself
+   replaces while the page is open (another work item, a restored mode)
+   supersedes the draft. `addAttachments` stays in the protocol, unused by the
+   page.
+
+6. **Stale context only after Apply, by the host's rules.** `applySettings`
+   goes through `#formChanged`, the path every form change takes, so
+   `preparationFingerprint` alone decides staleness: applied Title (manual),
+   Attachments, Keywords, Focus files, Ignore paths, both limits, Fix Mode or
+   Hint make the primary action Rebuild Context; the AI agent, its command,
+   Fresh and Use issue details do not. The page states this per section from
+   `SETTING_REQUIRES_REBUILD` — "Changes here require rebuilding context.", or,
+   in Fix with AI's mixed section, "Requires context rebuild" beside Fix Mode
+   and Hint — and a test changes each field and checks the fingerprint moves
+   exactly when the table says so.
+
+7. **Summaries on the rows** (`settingsSummaries`, host-computed from the
+   applied form): "2 attachments"; "4 keywords · 2 focus paths · 1 ignored
+   path · max 10 files · max 300 search lines"; "Deletes previous artifacts
+   first"; "Claude Code · Standard Fix · hint added". Counts and names only —
+   never a keyword, a path, the hint's text, a title or a custom command
+   (tested with planted values). A row whose settings are at their defaults has
+   none and keeps its description; Fix with AI always names its agent.
+
+8. **Host authority and concurrency.** Opening the page asks the host nothing
+   and starts nothing. Apply is `aria-disabled`, with a line saying why, while
+   the primary action is busy (a run, a handoff, a new attempt, an artifact
+   write); the host refuses an `applySettings` that races it, says so, and bumps
+   the revision so the page shows the host's form again. Applying settings
+   never starts Run, Rebuild Context, a handoff or an attempt, and the
+   next-action states are unchanged.
+
+9. **Use Improved is no longer a primary button**: on the settings page, Apply
+   is the page's one primary action.
+
+10. **Found in the real VS Code window, and corrected** (§37.78):
+    - the arrival highlight is an outline only — a fill with the find-match
+      colour painted the whole section, inputs included, in a loud orange;
+    - while the settings page is shown, `scroll-padding-bottom` keeps anything
+      scrolled into view or focused above the sticky Cancel / Apply footer — a
+      hint suggestion's Use Improved and Keep Original had arrived under it;
+    - every press of the primary action resets the "open once per problem"
+      guard, so a second press refused for the same settings problem opens the
+      page at the field again instead of looking ignored;
+    - disabled fields on the settings page dim like the selects already did;
+    - a workflow row's head may wrap: the label keeps a 5em floor and the
+      duration, status and gear move under it at the right, where at 200px after
+      a run the label had been squeezed to one letter per line.
 
 ---
 

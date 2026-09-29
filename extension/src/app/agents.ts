@@ -101,7 +101,7 @@ export async function resolveAgent(input: ResolveAgentInput): Promise<AgentPlan>
     if (template === "") {
       return {
         kind: "unavailable",
-        reason: `No custom agent command is set. Put one in Advanced settings, using ${PROMPT_PLACEHOLDER} where the handoff prompt goes.`,
+        reason: `No custom agent command is set. Put one in Workflow Settings → Fix with AI, using ${PROMPT_PLACEHOLDER} where the handoff prompt goes.`,
       };
     }
     if (!template.includes(PROMPT_PLACEHOLDER)) {

@@ -52,7 +52,7 @@ export interface DiagnosticsInput {
   readonly extensionVersion?: string | undefined;
   /** Whether a Jira credential is stored. Not whether Jira works. */
   readonly jiraConfigured: boolean;
-  /** What the developer chose in Advanced settings. */
+  /** What the developer chose in Workflow Settings. */
   readonly agent: string;
   /** What a handoff actually resolved, if one has run. */
   readonly resolvedAgent?: ResolvedAgent | undefined;

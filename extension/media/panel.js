@@ -64,24 +64,43 @@
    */
   const PROBLEM_CONTROLS = { issueKey: "issue", description: "issue" };
 
+  /** The text fields on the Workflow Settings page; the Issue field is the form's own. */
+  const SETTINGS_TEXT_FIELDS = TEXT_FIELDS.filter((field) => field !== "issue");
+
   /**
-   * Fields that live inside Advanced settings, which starts collapsed.
+   * The Workflow Settings page's sections: the `FormState` fields each one
+   * holds, and the controls a gear's arrival may focus, first visible one wins.
    *
-   * A validation message in a collapsed section is a message nobody can see,
-   * so a problem in one of these opens it. The Fix Mode selector lives there
-   * too (Batch 7) and follows the same rule, but its problem is shown in the
-   * note under it rather than in an error line, so `renderFixModes` handles it.
+   * Duplicated from `app/workflowSettings.ts` because a webview cannot import
+   * it, and guarded like the other copies: `test/panel.test.ts` compares both.
+   * A validation message about a field in a section opens the page there — a
+   * message on a page nobody opened is a message nobody sees.
    */
-  const ADVANCED_FIELDS = [
-    "title",
-    "hint",
-    "keywords",
-    "focusFiles",
-    "ignorePaths",
-    "maxFiles",
-    "maxSearchLines",
-    "agentCommand",
-  ];
+  const SETTINGS_SECTIONS = {
+    "issue-details": { fields: ["title", "attachments"], focus: ["title", "add-attachment"] },
+    "code-search": {
+      fields: ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"],
+      focus: ["keywords"],
+    },
+    "build-context": { fields: ["fresh"], focus: ["fresh"] },
+    "fix-with-ai": {
+      fields: ["agent", "agentCommand", "fixModeId", "hint", "useIssueDetails"],
+      focus: ["agent"],
+    },
+  };
+
+  /** Which workflow row's gear opens which section; a row absent here has none. */
+  const STEP_SETTINGS = {
+    issueDetails: "issue-details",
+    codeSearch: "code-search",
+    buildContext: "build-context",
+    fixWithAI: "fix-with-ai",
+  };
+
+  /** The section a form field is edited in, if it is a settings field at all. */
+  function sectionOfField(field) {
+    return Object.keys(SETTINGS_SECTIONS).find((section) => SETTINGS_SECTIONS[section].fields.includes(field));
+  }
 
   /**
    * The multi-line fields, which grow to fit what has been typed into them.
@@ -146,10 +165,42 @@
   let appliedRevision = -1;
   let running = false;
   /**
-   * The attached paths, as the page holds them.
+   * The settings as last applied — what the form means, whatever the Workflow
+   * Settings page shows.
    *
-   * Part of the form, so the page owns it like every other field — but it is a
-   * list rather than an input, so it lives here and is rendered rather than
+   * The page's controls are a draft while it is open: nothing typed there is
+   * read into a run, a form change or a press until Apply copies it here and
+   * sends the whole form to the host. Cancel and Back write this back over the
+   * draft. While the page is closed its controls hold exactly this.
+   */
+  let committed = {
+    title: "",
+    hint: "",
+    keywords: "",
+    focusFiles: "",
+    ignorePaths: "",
+    maxFiles: "",
+    maxSearchLines: "",
+    agentCommand: "",
+    agent: "auto",
+    fixModeId: "",
+    attachments: [],
+    fresh: false,
+    useIssueDetails: true,
+  };
+  /** Whether the Workflow Settings page is the view on screen (or under a Fix Mode view). */
+  let settingsOpen = false;
+  /** The control that opened the page, where focus goes back to. */
+  let settingsOrigin;
+  let highlightTimer;
+  /** The last attachment-dialog answer taken, so it is taken once. */
+  let attachmentPickToken;
+  /** The hint suggestion on screen, for Use Improved to put into the draft. */
+  let hintSuggestion = "";
+  /**
+   * The attached paths the settings page shows — the draft's list.
+   *
+   * A list rather than an input, so it lives here and is rendered rather than
    * read out of the DOM. Paths only ever *enter* it from the host, which got
    * them from the editor's file dialog; the page can remove one, never invent
    * one.
@@ -296,10 +347,10 @@
    * content on its own, so that measurement is `rows` and nothing else.
    *
    * Measuring the floor here rather than once at load is what makes it right
-   * for Hint and Keywords, which live inside Advanced settings: a field in a
-   * closed `<details>` has no layout, and every height read from it is zero.
-   * That case leaves `height: auto` in place — the right height for when the
-   * section is opened — and waits to be called again.
+   * for Hint and Keywords, which live on the Workflow Settings page: a field in
+   * a hidden view has no layout, and every height read from it is zero. That
+   * case leaves `height: auto` in place — the right height for when the page is
+   * opened — and waits to be called again.
    */
   function grow(element) {
     if (!element || !GROWING_FIELDS.includes(element.id)) return;
@@ -329,32 +380,76 @@
     return JIRA_ISSUE_KEY_RE.test(typed.toUpperCase()) ? "jira" : "manual";
   }
 
+  /** The form as it means now: the form's own controls, and the applied settings. */
   function readForm() {
+    return formWith(committed);
+  }
+
+  /**
+   * The form with the settings page's draft instead — what the page shows, for
+   * the one question asked about a draft: improving the hint on screen.
+   */
+  function draftForm() {
+    return formWith(readSettings());
+  }
+
+  function formWith(settings) {
     const issue = byId("issue").value;
     const source = issueSource();
-    const form = { source, plan: {} };
-    for (const field of TEXT_FIELDS) form[field] = byId(field).value;
+    const form = { source, plan: {}, ...settings, attachments: [...settings.attachments] };
     // The one box, split into the two fields the host and the CLI expect. The
     // unused one is cleared rather than left behind: a stale description under
     // a Jira key would reach `--description` the moment the key was deleted.
-    delete form.issue;
     form.issueKey = source === "jira" ? issue.trim() : "";
     form.description = source === "manual" ? issue : "";
     for (const field of PLAN_FIELDS) form.plan[field] = byId(`plan-${field}`).checked;
     form.plan.issueDetails = true;
     // Not part of the plan: it is what happens after the run, not a flag on it.
     form.fixWithAI = byId("plan-fixWithAI").checked;
-    form.agent = byId("agent").value || "auto";
-    form.fixModeId = byId("fixModeId").value || "";
-    form.attachments = [...attachments];
-    form.fresh = byId("fresh").checked;
-    // Gates what the hint improver may read. Not a run flag.
-    form.useIssueDetails = byId("useIssueDetails").checked;
     return form;
   }
 
+  /** The settings page's controls, as they stand. */
+  function readSettings() {
+    const settings = {};
+    for (const field of SETTINGS_TEXT_FIELDS) settings[field] = byId(field).value;
+    settings.agent = byId("agent").value || "auto";
+    settings.fixModeId = byId("fixModeId").value || "";
+    settings.attachments = [...attachments];
+    settings.fresh = byId("fresh").checked;
+    // Gates what the hint improver may read. Not a run flag.
+    settings.useIssueDetails = byId("useIssueDetails").checked;
+    return settings;
+  }
+
+  /** The applied settings, out of a whole form. */
+  function settingsOf(form) {
+    const settings = {};
+    for (const field of SETTINGS_TEXT_FIELDS) settings[field] = form[field] ?? "";
+    settings.agent = form.agent ?? "auto";
+    settings.fixModeId = form.fixModeId ?? "";
+    settings.attachments = Array.isArray(form.attachments) ? [...form.attachments] : [];
+    settings.fresh = form.fresh === true;
+    settings.useIssueDetails = form.useIssueDetails !== false;
+    return settings;
+  }
+
+  /** Put settings into the page's controls: the applied ones, or back over a draft. */
+  function writeSettings(settings) {
+    for (const field of SETTINGS_TEXT_FIELDS) byId(field).value = settings[field] ?? "";
+    byId("agent").value = settings.agent ?? "auto";
+    // After renderFixModes has put the options there — a value that is not one
+    // of them is dropped by the element, which is why the order matters.
+    byId("fixModeId").value = settings.fixModeId ?? "";
+    attachments = [...settings.attachments];
+    renderAttachments();
+    byId("fresh").checked = settings.fresh === true;
+    byId("useIssueDetails").checked = settings.useIssueDetails !== false;
+    applyAgentVisibility();
+    renderFixModeNote();
+  }
+
   function writeForm(form) {
-    for (const field of TEXT_FIELDS) byId(field).value = form[field] ?? "";
     // Whichever of the two the stored form actually used, which is also what
     // makes a form saved before the switch was removed restore correctly.
     byId("issue").value = (form.source === "manual" ? form.description : form.issueKey) ?? "";
@@ -365,14 +460,15 @@
     // Opt-in, so an absent field means off — unlike the plan, where absent
     // means the default of on.
     byId("plan-fixWithAI").checked = form.fixWithAI === true;
-    byId("agent").value = form.agent ?? "auto";
-    // After renderFixModes has put the options there — a value that is not one
-    // of them is dropped by the element, which is why the order matters.
-    byId("fixModeId").value = form.fixModeId ?? "";
-    attachments = Array.isArray(form.attachments) ? [...form.attachments] : [];
-    renderAttachments();
-    byId("fresh").checked = form.fresh === true;
-    byId("useIssueDetails").checked = form.useIssueDetails !== false;
+    // The host's form is the applied settings now — and, if the settings page
+    // is open, what it shows: a form the host replaced (another work item, a
+    // mode it restored) supersedes a draft of the one before.
+    committed = settingsOf(form);
+    writeSettings(committed);
+    // As the selector took it: a mode with no option yet (a catalog still
+    // loading) is no mode, as it always was for a run.
+    committed.fixModeId = byId("fixModeId").value || "";
+    renderStrategySummary();
     // The stored form is the new truth; forget any coupling snapshot from
     // before it was loaded.
     planBeforeCoupling = undefined;
@@ -390,8 +486,8 @@
    *
    * Title is for a hand-written bug only — a Jira issue brings its own, and
    * `buildPrepareArgs` sends `--title` on the manual path alone — so a Title box
-   * beside a ticket number is a field that does nothing. It lives inside
-   * Advanced settings, which is why this can follow what is typed without
+   * beside a ticket number is a field that does nothing. It lives on the
+   * Workflow Settings page, which is why this can follow what is typed without
    * anything moving under the developer's hands.
    *
    * The note is what the radio pair used to say. It appears only once there is
@@ -439,9 +535,9 @@
       glyph.setAttribute("aria-hidden", "true");
       remove.append(glyph);
       remove.addEventListener("click", () => {
+        // The draft's list: the form changes on Apply, not here.
         attachments = attachments.filter((entry) => entry !== path);
         renderAttachments();
-        formChanged();
       });
 
       item.append(name, remove);
@@ -528,6 +624,7 @@
     renderProblems(state.problems || []);
     // After the form: the note describes whichever mode the select ended on.
     renderFixModes(state);
+    renderStrategySummary();
     renderWorkflow(state);
     renderRun(state);
     renderRunHint(state);
@@ -536,6 +633,7 @@
     renderDiagnostics(state);
     renderNotices(state);
     renderManage(state);
+    renderSettings(state);
     renderHintImprovement(state);
     renderFooter(state);
   }
@@ -582,6 +680,11 @@
         select.append(option);
         select.value = "";
       }
+      // The selector fell back to what the catalog allows. While the settings
+      // page is closed its controls are the applied settings, so the applied
+      // mode follows — Run sends what the closed page would show. An open page's
+      // draft is only a draft.
+      if (!settingsOpen) committed.fixModeId = select.value || "";
     }
     fixModesReady = catalog.kind === "ready";
     fixModeCatalog = catalog;
@@ -591,14 +694,11 @@
   function renderFixModes(state) {
     const problem = (state.problems || []).find((entry) => entry.field === "fixModeId");
     renderFixModeNote(problem);
-    // The selector is inside Advanced settings, which may be closed: a problem
-    // with the chosen mode opens it once and lands on the selector, like a
-    // problem in any field there.
+    // The selector is on the Workflow Settings page, which may be closed: a
+    // problem with the chosen mode opens it once and lands on the selector, like
+    // a problem in any field there.
     const signature = problem ? problem.message : "";
-    if (signature && signature !== shownFixModeProblem) {
-      byId("advanced").open = true;
-      byId("fixModeId").focus();
-    }
+    if (signature && signature !== shownFixModeProblem) openSettings("fix-with-ai", undefined, "fixModeId");
     shownFixModeProblem = signature;
   }
 
@@ -635,27 +735,28 @@
       Boolean(problem) || catalog.kind === "unavailable",
     );
     select.setAttribute("aria-invalid", problem ? "true" : "false");
-    renderStrategySummary(catalog, selected);
   }
 
   /**
-   * The Advanced settings summary's Fix Mode label, for a non-default mode.
+   * The line beside Workflow Settings that names a non-default Fix Mode.
    *
-   * Presentation only: it reads the selector the note above just described,
-   * so it follows a click, a restored work item and a fallback alike. Nothing
-   * for the default the CLI declared — the ordinary case adds no text — and
-   * nothing when there is no catalog, because then Run sends no mode at all.
+   * The applied mode, never the selector's draft: it says what Run will use.
+   * Nothing for the default the CLI declared — the ordinary case adds no text —
+   * and nothing when there is no catalog, because then Run sends no mode at all.
    */
-  function renderStrategySummary(catalog, selected) {
+  function renderStrategySummary() {
+    const catalog = fixModeCatalog || { kind: "loading" };
+    const selected =
+      catalog.kind === "ready" ? catalog.modes.find((mode) => mode.id === committed.fixModeId) : undefined;
     const name =
       catalog.kind === "ready" && selected && selected.id !== catalog.defaultModeId
         ? selected.name || selected.id
         : "";
-    const label = byId("advanced-strategy");
-    byId("advanced-strategy-name").textContent = name;
+    const label = byId("settings-strategy");
+    byId("settings-strategy-name").textContent = name;
     label.setAttribute("title", name ? `Fix Mode: ${name}` : "");
     label.hidden = name === "";
-    byId("advanced-strategy-description").textContent = name ? `Fix Mode: ${name}` : "";
+    byId("settings-strategy-description").textContent = name ? `Fix Mode: ${name}` : "";
   }
 
   function renderReadiness(readiness) {
@@ -708,9 +809,11 @@
     const signature = problems.map((entry) => `${entry.field}:${entry.message}`).join("|");
     const first = problems.find((entry) => TEXT_FIELDS.includes(controlFor(entry.field)));
     if (first && signature !== shownProblems) {
-      // A problem in a collapsed section is a problem nobody can see.
-      if (ADVANCED_FIELDS.includes(first.field)) byId("advanced").open = true;
-      byId(controlFor(first.field)).focus();
+      // A problem in a settings field is shown where that field is, so the page
+      // opens there; one on the Issue field is on the form.
+      const section = sectionOfField(first.field);
+      if (section) openSettings(section, undefined, controlFor(first.field));
+      else byId(controlFor(first.field)).focus();
     }
     shownProblems = signature;
   }
@@ -763,6 +866,14 @@
       const artifact = byId(`artifact-${step.id}`);
       artifact.hidden = rowArtifacts[step.id] === "";
       artifact.setAttribute("title", rowArtifacts[step.id] ? `Open ${rowArtifacts[step.id]}` : "");
+
+      // What the step's applied settings are, where it has settings: the host's
+      // line, counts and names only.
+      const settingsSummary = document.getElementById(`settings-summary-${step.id}`);
+      if (settingsSummary) {
+        settingsSummary.textContent = step.settingsSummary || "";
+        settingsSummary.hidden = settingsSummary.textContent === "";
+      }
 
       // Fix result has no card: a report that cannot be previewed is not a failure.
       if (document.getElementById(`error-${step.id}`)) renderError(`error-${step.id}`, step.error);
@@ -1993,6 +2104,7 @@
     error.hidden = error.textContent === "";
 
     const suggestion = typeof view.suggestion === "string" ? view.suggestion : "";
+    hintSuggestion = suggestion;
     byId("hint-suggestion-text").textContent = suggestion;
     const panel = byId("hint-suggestion");
     const appearing = suggestion !== "" && panel.hidden;
@@ -2005,17 +2117,119 @@
   }
 
   byId("improve-hint").addEventListener("click", () =>
-    // The form travels with it for the same reason a run carries one: the
-    // host's copy can be a debounce interval stale, and the hint being improved
-    // is whatever is on screen now.
-    vscode.postMessage({ type: "improveHint", form: readForm() }),
+    // The hint being improved is the one on screen: the settings page's draft,
+    // which the host does not hold until Apply — so it travels with the press.
+    vscode.postMessage({ type: "improveHint", form: draftForm() }),
   );
-  byId("hint-use").addEventListener("click", () =>
-    vscode.postMessage({ type: "useImprovedHint" }),
-  );
+  byId("hint-use").addEventListener("click", () => {
+    // Into the draft, like typing it: the hint reaches the host, and can make a
+    // context stale, only when the page is applied.
+    if (hintSuggestion !== "") {
+      byId("hint").value = hintSuggestion;
+      grow(byId("hint"));
+    }
+    vscode.postMessage({ type: "useImprovedHint" });
+  });
   byId("hint-keep").addEventListener("click", () =>
     vscode.postMessage({ type: "dismissImprovedHint" }),
   );
+
+  // --- Workflow Settings ------------------------------------------------------
+
+  /**
+   * Open the settings page — at a section, when a row's gear asked for one.
+   *
+   * The view is shown first and the section scrolled to after, in the same
+   * turn: un-hiding it lays it out, so the scroll lands on a section that has a
+   * position rather than racing the render that gives it one. The section is
+   * highlighted for a moment, and focus goes to its first control on screen — a
+   * hand-written bug's Title, otherwise Attachments; Keywords; the Fresh box;
+   * the AI agent — or to `focusId` when a problem names the field.
+   */
+  function openSettings(section, origin, focusId) {
+    settingsOpen = true;
+    if (origin !== undefined) settingsOrigin = origin;
+    showView("settings", { focus: false });
+    const target = section && SETTINGS_SECTIONS[section] ? byId(`settings-section-${section}`) : undefined;
+    if (!target) {
+      scrollIntoView(byId("settings-heading"), "start");
+      byId("settings-heading").focus({ preventScroll: true });
+      return;
+    }
+    scrollIntoView(target, "start");
+    for (const other of Object.keys(SETTINGS_SECTIONS)) {
+      byId(`settings-section-${other}`).classList.toggle("settings-section-target", other === section);
+    }
+    clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(() => target.classList.toggle("settings-section-target", false), 1600);
+    const candidates = focusId ? [focusId] : SETTINGS_SECTIONS[section].focus;
+    const control = candidates
+      .map((id) => byId(id))
+      .find((element) => {
+        const container = document.getElementById(`field-${element.id}`);
+        return !element.hidden && !element.disabled && !(container && container.hidden);
+      });
+    // A disabled control — a run in flight — cannot take focus; the section's
+    // heading can, and says where the developer landed.
+    (control || byId(`settings-title-${section}`)).focus({ preventScroll: true });
+  }
+
+  /** Leave the settings page for the form, where it was, focus back on what opened it. */
+  function closeSettings() {
+    settingsOpen = false;
+    clearTimeout(highlightTimer);
+    for (const section of Object.keys(SETTINGS_SECTIONS)) {
+      byId(`settings-section-${section}`).classList.toggle("settings-section-target", false);
+    }
+    showView("main", { focus: false });
+    renderStrategySummary();
+    const origin = (settingsOrigin && document.getElementById(settingsOrigin)) || byId("open-settings");
+    settingsOrigin = undefined;
+    origin.focus({ preventScroll: true });
+  }
+
+  /** Cancel, or Back: the draft is discarded and the applied settings are put back. */
+  function cancelSettings() {
+    writeSettings(committed);
+    closeSettings();
+  }
+
+  /**
+   * Apply: the draft becomes the applied settings, and the host gets the whole
+   * form — the one moment settings reach it, and so the one moment they can
+   * make a prepared context stale, by the host's rules.
+   */
+  function applySettings() {
+    if (byId("settings-apply").getAttribute("aria-disabled") === "true") return;
+    committed = readSettings();
+    // The press carries the whole form, so a change still waiting on the
+    // debounce — an older snapshot, with the settings before this Apply — is
+    // dropped rather than sent after it.
+    clearTimeout(changeTimer);
+    const form = readForm();
+    persist(form);
+    vscode.postMessage({ type: "applySettings", form });
+    closeSettings();
+  }
+
+  /**
+   * Apply waits while the host is busy — a run, a handoff, an artifact write —
+   * and says why; the host refuses an Apply then too. The dialog's answer for
+   * the draft's attachments is taken once, and only by an open page.
+   */
+  function renderSettings(state) {
+    const busy = Boolean(primary.busy);
+    byId("settings-apply").setAttribute("aria-disabled", busy ? "true" : "false");
+    byId("settings-busy").hidden = !busy;
+    const pick = state.attachmentPick;
+    if (pick && pick.token !== attachmentPickToken) {
+      attachmentPickToken = pick.token;
+      if (settingsOpen && Array.isArray(pick.attachments)) {
+        attachments = [...pick.attachments];
+        renderAttachments();
+      }
+    }
+  }
 
   // --- panel views ---------------------------------------------------------
 
@@ -2029,6 +2243,7 @@
    */
   const PANEL_VIEWS = {
     main: "main-view",
+    settings: "workflow-settings-view",
     "fix-mode-manager": "fix-mode-manager-view",
     "fix-mode-preview": "fix-mode-preview-view",
     // New and Edit share one form — eleven fields with one set of ids, rather
@@ -2049,7 +2264,11 @@
    * developer left from.
    */
   const VIEW_FOCUS = {
-    main: "manage-fix-modes",
+    // Back on the form without the settings page — a reloaded panel that
+    // restored the manager: the way into the settings the gear was part of.
+    main: "open-settings",
+    // Back from Manage Fix Modes: its gear, beside the selector.
+    settings: "manage-fix-modes",
     "fix-mode-manager": "manage-heading",
     "fix-mode-preview": "preview-heading",
     "fix-mode-new": "editor-title",
@@ -2098,7 +2317,7 @@
    * one more thing that can disagree. This is the only place that decides.
    */
   function viewFor(state, editor) {
-    if (!state.manage) return "main";
+    if (!state.manage) return settingsOpen ? "settings" : "main";
     if (editor) {
       if (editor.intent === "view") return "fix-mode-preview";
       return editor.intent === "create" ? "fix-mode-new" : "fix-mode-edit";
@@ -2109,8 +2328,8 @@
     return "fix-mode-manager";
   }
 
-  /** Show exactly one view, and move the developer with it. */
-  function showView(view) {
+  /** Show exactly one view, and move the developer with it — unless the caller will. */
+  function showView(view, options) {
     // `hidden`, not a class: it takes the whole section out of the tab order,
     // so Tab inside the manager cannot walk into the form behind it.
     const shown = PANEL_VIEWS[view];
@@ -2121,10 +2340,11 @@
     activeView = view;
     // A view opens at its own top; coming back restores where the form was.
     scrollPanelTo(view === "main" ? mainScroll : 0);
-    // The growing fields had no layout while the form was hidden, and every
-    // height read from a hidden box is zero — the same case Advanced settings
-    // has while it is closed. Returning is their first measurable moment.
-    if (view === "main") growAll();
+    // The growing fields had no layout while their view was hidden, and every
+    // height read from a hidden box is zero. Arriving is their first
+    // measurable moment.
+    if (view === "main" || view === "settings") growAll();
+    if (options && options.focus === false) return;
     // Coming back to a mode the developer was reading, put them back on the
     // button they left from rather than at the top of it again.
     const fromEditor = previous === "fix-mode-new" || previous === "fix-mode-edit";
@@ -2132,10 +2352,6 @@
       focusElement(previewDuplicate);
       return;
     }
-    // The gear lives in Advanced settings. It was open when the gear was
-    // pressed, but a reloaded panel restores the manager with the section
-    // closed — and focus cannot land on a button inside a closed disclosure.
-    if (view === "main") byId("advanced").open = true;
     focusView(VIEW_FOCUS[view]);
   }
 
@@ -2559,6 +2775,12 @@
     clearTimeout(changeTimer);
     const form = readForm();
     persist(form);
+    // A new press is a new attempt: if the host refuses it for the same field
+    // problem as the last one, that is news again, and the settings page opens
+    // at the field again. Without this a second press looked ignored — the
+    // problem is shown on the settings page, which the developer had left.
+    shownProblems = "";
+    shownFixModeProblem = "";
     vscode.postMessage({ type: "nextAction", action, form });
   }
 
@@ -2610,10 +2832,33 @@
     formChanged();
   });
 
-  // Advanced settings holds three of the five growing fields, and none of them
-  // could be measured while it was closed. Opening it is the first moment they
-  // have a height, so it is where restored text gets sized.
-  byId("advanced").addEventListener("toggle", growAll);
+  // Workflow Settings: a gear on each row that has settings, the entry under
+  // the workflow, and the page's own Back, Cancel and Apply. Opening it asks
+  // the host nothing and starts nothing.
+  for (const [step, section] of Object.entries(STEP_SETTINGS)) {
+    byId(`settings-${step}`).addEventListener("click", () => openSettings(section, `settings-${step}`));
+  }
+  byId("open-settings").addEventListener("click", () => openSettings(undefined, "open-settings"));
+  byId("settings-back").addEventListener("click", cancelSettings);
+  byId("settings-cancel").addEventListener("click", cancelSettings);
+  byId("settings-apply").addEventListener("click", applySettings);
+  // Its fields are not the form's: typing there grows the box and updates what
+  // depends on it on the page, and sends nothing until Apply.
+  byId("workflow-settings-view").addEventListener("input", (event) => grow(event.target));
+  byId("workflow-settings-view").addEventListener("change", (event) => {
+    const target = event.target;
+    if (target && target.id === "agent") applyAgentVisibility();
+    if (target && target.id === "fixModeId") renderFixModeNote();
+  });
+  byId("workflow-settings-view").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      applySettings();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      cancelSettings();
+    }
+  });
   byId("form").addEventListener("change", (event) => {
     if (fromReviewEditor(event)) return;
     const target = event.target;
@@ -2818,10 +3063,10 @@
       vscode.postMessage({ type: "action", id: "loadValidation" });
     }
   });
-  // The dialog can only be opened by the host, so this asks — and carries the
-  // form, because the host's copy can be a debounce interval stale.
+  // The dialog can only be opened by the host, so this asks — with the draft's
+  // list, for the host to add to. The answer comes back to the draft.
   byId("add-attachment").addEventListener("click", () =>
-    vscode.postMessage({ type: "addAttachments", form: readForm() }),
+    vscode.postMessage({ type: "pickAttachments", attachments: [...attachments] }),
   );
   byId("set-credentials").addEventListener("click", () =>
     vscode.postMessage({ type: "action", id: "setCredentials" }),
@@ -2838,6 +3083,7 @@
   const saved = vscode.getState();
   if (saved && saved.form) writeForm(saved.form);
   else {
+    committed = readSettings();
     renderAttachments();
     applySourceVisibility();
     applyAgentVisibility();

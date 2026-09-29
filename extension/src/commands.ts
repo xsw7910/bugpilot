@@ -51,7 +51,7 @@ export const COMMANDS = {
    * Hand the prepared package to a coding agent and let it start working.
    *
    * Named for what it does rather than for who does it: the agent is chosen in
-   * Advanced settings, and the panel never puts one vendor's name in front of
+   * Workflow Settings, and the panel never puts one vendor's name in front of
    * the developer.
    */
   fixWithAI: "bugpilot.fixWithAI",

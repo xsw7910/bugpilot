@@ -134,6 +134,13 @@ export interface PanelState {
    * the action back with its form, and the host acts only if it still agrees.
    */
   readonly primary: PrimaryView;
+  /**
+   * The Workflow Settings page's attachment list after the file dialog, sent in
+   * the one push that answers `pickAttachments`: `token` changes per answer, so
+   * the page takes it once. The host merged, de-duplicated and capped it; the
+   * form is not touched until Apply.
+   */
+  readonly attachmentPick?: { readonly token: number; readonly attachments: readonly string[] };
   readonly workItemId?: string;
   /**
    * The AI Fix Modes bugpilot offers, and whether they could be read at all.
@@ -276,6 +283,19 @@ export type PanelMessage =
   | { readonly type: "startAttempt"; readonly feedback: string; readonly form: FormState }
   | { readonly type: "formChanged"; readonly form: FormState }
   /**
+   * "Apply the Workflow Settings page": the whole form, with the settings the
+   * developer edited on that page. Until this arrives, nothing typed there has
+   * reached the host — so no draft makes a context stale, and Cancel has
+   * nothing to undo. The host refuses it while anything is in flight.
+   */
+  | { readonly type: "applySettings"; readonly form: FormState }
+  /**
+   * "Open the file dialog for the settings page's draft": the attachments the
+   * page shows now, for the host to add the picked files to. The answer is
+   * `PanelState.attachmentPick`; the form itself changes only on Apply.
+   */
+  | { readonly type: "pickAttachments"; readonly attachments: readonly string[] }
+  /**
    * "Open the file dialog and add what I choose."
    *
    * Carries the form for the same reason `run` does: the host's copy can be up
@@ -346,6 +366,8 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   nextAction: true,
   startAttempt: true,
   formChanged: true,
+  applySettings: true,
+  pickAttachments: true,
   addAttachments: true,
   action: true,
   command: true,
@@ -453,8 +475,11 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       const feedback = asString(message?.["feedback"], MAX_ATTEMPT_FEEDBACK + 1) ?? "";
       return form ? { type, feedback, form } : undefined;
     }
+    case "pickAttachments":
+      return { type, attachments: parseAttachments(message?.["attachments"]) };
     case "run":
     case "formChanged":
+    case "applySettings":
     case "addAttachments": {
       const form = parseForm(message?.["form"]);
       return form ? { type, form } : undefined;

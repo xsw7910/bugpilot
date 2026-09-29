@@ -333,60 +333,34 @@ details[open] > summary {
   margin-bottom: 10px;
 }
 
-/* --- advanced settings ---------------------------------------------------- */
+/* --- Workflow Settings --------------------------------------------------- */
 
-/* Separated from the Run workflow above it, because everything in here is
-   optional: a slightly recessed panel rather than another bordered box in a
-   column of bordered boxes. */
-.advanced {
-  background: var(--vscode-sideBar-background, transparent);
-}
-
-.advanced > summary {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  /* The marker triangle would compete with the gear; the "Hide Advanced"
-     control on the right says the same thing in words. */
-  list-style: none;
-}
-
-.advanced > summary::-webkit-details-marker,
-.advanced > summary::marker {
-  display: none;
-}
-
-.adv-gear {
-  font-size: 16px;
-  flex: none;
-  margin-top: 1px;
-}
-
-.adv-heading {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-/* The title, and beside it a non-default Fix Mode while the section is closed.
-   It wraps under the title rather than squeezing it: the section must stay
-   recognisable as Advanced Settings at sidebar width. `space-between` puts it
-   at the far end while it shares the title's line, and at the start of its
-   own line once it wraps, where it reads as a second line of the heading. */
-.adv-title-row {
+/* The way in from the form: a quiet full-width row under the workflow, with the
+   gear every row's own entry uses. The Fix Mode line beside it names a
+   non-default mode and wraps under it rather than squeezing it at 200px. */
+.settings-entry {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0 8px;
-  min-width: 0;
+  align-items: center;
+  gap: 2px 8px;
+  margin-top: 8px;
 }
 
-/* Secondary, like the subtitle, with the Fix Mode label's own lightbulb so it
-   reads as the strategy rather than as another heading. A long custom name is
-   cut with an ellipsis; the title attribute carries it in full. */
-.adv-strategy {
+.settings-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-panel-border);
+  background: none;
+  color: var(--vscode-foreground);
+}
+
+.settings-open .codicon {
+  font-size: 14px;
+}
+
+.settings-strategy {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -396,78 +370,51 @@ details[open] > summary {
   color: var(--vscode-descriptionForeground);
 }
 
-.adv-strategy[hidden] {
+.settings-strategy[hidden] {
   display: none;
 }
 
-/* Open, the selector itself is on screen and the label would say it twice. */
-.advanced[open] .adv-strategy {
-  display: none;
-}
-
-.adv-strategy .codicon {
+.settings-strategy .codicon {
   flex: none;
   font-size: 12px;
 }
 
-.adv-strategy-name {
+.settings-strategy-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.adv-title {
-  color: var(--vscode-foreground);
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: normal;
+/* One section per step that has settings. A heading and a hairline, not a
+   card: the page is already a view of its own, and the question it answers —
+   "what does this step use?" — is answered by the step's name. */
+.settings-section {
+  margin: 0 0 18px;
+  padding: 4px 6px 6px;
+  border-radius: 2px;
+  /* Outlined, never filled, while a gear's arrival points at it: an outline
+     survives a high-contrast theme, and transparent at rest keeps the layout
+     from moving when it goes. A fill was tried and dropped after the real
+     window: the find-match colour painted the whole section, inputs and all,
+     in a strong orange that read as an error rather than "you are here". */
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  transition: outline-color 0.6s ease-out;
 }
 
-.adv-subtitle {
-  font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
-  overflow-wrap: anywhere;
+.settings-section-target {
+  outline-color: var(--vscode-focusBorder);
 }
 
-/* Only meaningful while the section is open, and only when there is room for
-   it: at sidebar width the two-line heading needs the whole row. */
-.adv-toggle {
-  display: none;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  padding-left: 8px;
-  font-size: 0.9em;
-  white-space: nowrap;
-  color: var(--vscode-textLink-foreground);
-}
-
-.adv-toggle .codicon {
-  font-size: 14px;
-}
-
-.advanced[open] > summary > .adv-toggle {
-  display: flex;
-}
-
-@media (max-width: 380px) {
-  .advanced[open] > summary > .adv-toggle {
-    display: none;
+@media (prefers-reduced-motion: reduce) {
+  .settings-section {
+    transition: none;
   }
 }
 
-/* A group inside Advanced settings: Strategy, Guidance, Retrieval Overrides,
-   Run Options.
-
-   A heading and a hairline, not a card. The section is already a <details>
-   inside a bordered panel, so a box around each group would be three borders
-   deep before the first label — and the question UI-A2 answers ("does this
-   talk to the AI, or does it steer the search?") is answered by a word, not by
-   a container. The rule is one pixel of the same panel border everything else
-   uses; no tint, no weight, nothing that reads as a state. */
-.setting-group {
-  margin: 0 0 8px;
+.settings-section-title {
+  margin: 0 0 2px;
   padding-bottom: 3px;
   border-bottom: 1px solid var(--vscode-panel-border);
   font-size: var(--vscode-font-size);
@@ -476,10 +423,102 @@ details[open] > summary {
   overflow-wrap: anywhere;
 }
 
-/* The first group sits right under the summary, which has its own gap. The
-   others need air above them or they read as part of the field before. */
-.setting-group ~ .setting-group {
-  margin-top: 16px;
+.settings-section-title:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.settings-section-title:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Whether the section's changes make a prepared context stale: said once, in
+   the quiet helper style, never as a warning. */
+.settings-rebuild {
+  margin: 2px 0 8px;
+}
+
+/* The same fact for one setting, in a section where it is not true of all of
+   them: a word beside the label, not a badge. */
+.rebuild-label {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.settings-busy[hidden] {
+  display: none;
+}
+
+/* Cancel and Apply at the foot of the page, kept on screen while it scrolls so
+   Apply is never a long scroll away from the field just changed. */
+.settings-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+/* What the footer covers, the browser must not scroll to: while the settings
+   page is on screen, scrolling a control or a suggestion into view — and a Tab
+   that moves focus — stops above the footer rather than behind it. Found in
+   the real window, where a hint suggestion scrolled into view with its Use
+   Improved and Keep Original hidden under Cancel and Apply. */
+html:has(#workflow-settings-view:not([hidden])) {
+  scroll-padding-bottom: 3.5rem;
+}
+
+/* While a run holds the fields, they look it. The selects dimmed on their own
+   and the text boxes did not — in the real window a disabled Hint or command
+   read as editable, and typing into it simply did nothing. */
+#workflow-settings-view :is(input, textarea, select):disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-actions [aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A row's gear: the editor's own toolbar button, quieter than the row until it
+   is hovered or focused — and never hidden, so it is there for a keyboard and
+   a touch screen alike. `flex: none` so it never squeezes the label. */
+.step-settings {
+  flex: none;
+  /* At the right end, also when the head wraps and it is alone on a line. */
+  margin-left: auto;
+  opacity: 0.6;
+}
+
+.step:hover .step-settings,
+.step-settings:hover,
+.step-settings:focus-visible {
+  opacity: 1;
+}
+
+.step-settings:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+/* What a row's settings are, in one line: counts and names, quieter than the
+   row's own line and cut short rather than wrapped into a paragraph. */
+.step-settings-summary {
+  margin: 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-settings-summary[hidden] {
+  display: none;
 }
 
 /* The two search limits, side by side while they fit. `flex-wrap` with a floor
@@ -1200,10 +1239,17 @@ button.icon .codicon {
   border-top: none;
 }
 
+/* One line while there is room for it. At sidebar width, after a run, a row's
+   head holds a duration, a status and a gear beside the label, and with the
+   label taking all of the shrinking it was squeezed to a few pixels and broke
+   between every letter — "C o d e s e a r c h", seen in the real window at
+   200px. So the head may wrap: the label keeps a floor of 5em, and below it
+   the duration, status and gear move under it, still at the right. */
 .step-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
 }
 
 /* The right end of the row, in order: what it produced, how long it took, how
@@ -1213,7 +1259,7 @@ button.icon .codicon {
   align-items: center;
   gap: 6px;
   margin: 0;
-  flex: 1;
+  flex: 1 1 5em;
   min-width: 0;
   overflow-wrap: anywhere;
   cursor: pointer;
@@ -1221,6 +1267,8 @@ button.icon .codicon {
 
 .step-duration {
   flex: none;
+  /* Keeps the right end of the row at the right when the head wraps. */
+  margin-left: auto;
   padding-left: 6px;
   color: var(--vscode-descriptionForeground);
   font-variant-numeric: tabular-nums;

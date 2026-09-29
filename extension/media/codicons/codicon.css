@@ -51,11 +51,10 @@
 .codicon-folder-opened:before { content: "\eaf7"; }
 
 /*
- * Advanced settings: one icon per field, so the section can be scanned down its
+ * Workflow Settings: one icon per field, so the section can be scanned down its
  * left edge instead of read line by line.
  */
 .codicon-settings-gear:before { content: "\eb51"; }
-.codicon-chevron-up:before { content: "\eab7"; }
 .codicon-edit:before { content: "\ea73"; }
 .codicon-lightbulb:before { content: "\ea61"; }
 .codicon-search:before { content: "\ea6d"; }

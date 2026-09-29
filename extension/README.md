@@ -95,20 +95,22 @@ Jira issue JR-12345
 Run prepares the issue context for AI-assisted fixing.
 ──────────────────────────────────────────────
 Investigation & AI Fix           Running 3/6…
-☑ Issue details                        ●
+☑ Issue details                     ●  ⚙
   Fetch Jira issue information     Always runs
-☑ Code search                   32.5s  ●
+☑ Code search                32.5s  ●  ⚙
   Search relevant code in the repository
-☑ Git history                          ◌
+  4 keywords · 2 focus paths · max 10 files
+☑ Git history                       ◌
   Find recent related changes
 ☑ Similar fixes
   Search for similar issues and solutions
-☑ Build context
+☑ Build context                        ⚙
   Prepare structured context for AI
-☐ Fix with AI
+☐ Fix with AI                          ⚙
   Run the prepared context with your AI coding agent
+  Claude Code · Standard Fix
 ──────────────────────────────────────────────
-▸ Advanced settings (optional)
+[ ⚙ Workflow Settings ]
 ```
 
 The button under the issue is always the next step, and changes with the work
@@ -127,11 +129,39 @@ button beside it holds what is not the next step: **Rebuild Context**, and —
 once an attempt exists — **Start New Attempt**. Nothing is ever shown greyed
 out beside it.
 
+## Workflow Settings
+
+Every step that has settings has a **⚙** at the end of its row — **Configure
+Issue Details**, **Configure Code Search**, **Configure Build Context**,
+**Configure Fix with AI**. Each opens the same **Workflow Settings** page and
+scrolls straight to that step's section; **Workflow Settings** under the list
+opens it at the top. Git history and Similar fixes have nothing to set beyond
+their checkbox, so they have no gear.
+
+| Section | Settings |
+| --- | --- |
+| Issue details | Title (a bug you describe), Attachments |
+| Code search | Keywords, Focus files, Ignore paths, Max files, Max search lines |
+| Build context | Delete previous artifacts first |
+| Fix with AI | AI agent, custom agent command, Fix Mode, Hint |
+
+The page edits a copy: nothing you change there is used until you press
+**Apply** (or Ctrl+Enter). **Cancel**, **Back** and Escape discard the changes,
+and the issue, the checkboxes and everything else on the main page stay as you
+left them. Each section says whether its changes **require rebuilding
+context** — after applying one that does, the button at the top becomes
+**Rebuild Context**. Changing the AI agent or *Delete previous artifacts first*
+does not. While BugPilot is running something, Apply waits until it finishes.
+
+A row with settings shows a short summary of them under its description — "4
+keywords · 2 focus paths · max 10 files", "Claude Code · Standard Fix" — as
+counts and names only, never what you typed or a path.
+
 ## Fix Mode
 
-**Advanced settings → Strategy → Fix Mode** decides how the agent should
+**Workflow Settings → Fix with AI → Fix Mode** decides how the agent should
 approach this bug. Standard Fix is the default, so most runs never need to open
-the section; the choice holds while it is collapsed. The list comes from your
+the page; the choice holds while it is closed. The list comes from your
 `bugpilot` install, so it shows exactly what that version can run:
 
 | Mode | What the agent does |
@@ -144,9 +174,9 @@ the section; the choice holds while it is collapsed. The list comes from your
 
 The choice travels with the work item: reopening one from **History**, or
 typing its key, selects the mode it was prepared with — so a package prepared
-as investigation only is prepared that way again unless you change it. While
-Advanced settings is collapsed, its heading names any mode other than Standard
-Fix, so a restored choice is visible before you press **Run**. An
+as investigation only is prepared that way again unless you change it. Beside
+**Workflow Settings** the panel names any mode other than Standard Fix, so a
+restored choice is visible before you press **Run**. An
 investigate-only mode says so beneath the dropdown, and after a run the **Fix
 with AI** row's **Strategy** line names the mode the package was actually
 prepared with, before you hand it over.
@@ -173,7 +203,7 @@ not editable here.
 
 ## Attachments
 
-**Advanced settings → Attachments → Add files…** attaches anything that is not
+**Workflow Settings → Issue details → Add files…** attaches anything that is not
 in the repository and not in the Jira ticket: a crash log, a screenshot of the
 broken dialog, a config that reproduces it.
 
@@ -217,9 +247,9 @@ a terminal; leave it alone and BugPilot stops once the context is ready, and the
 button at the top becomes **Fix with AI** for when you want it. Either way the
 row says what happened — Ready, AI fix started, Did not start — and "started"
 means only that: BugPilot does not watch the agent, so it never says the fix
-worked, tests passed or files changed. Which agent it hands to is **Advanced
-settings → AI agent**: auto-detect, Claude Code, or a custom command of your own
-(see below).
+worked, tests passed or files changed. Which agent it hands to is **Workflow
+Settings → Fix with AI → AI agent**: auto-detect, Claude Code, or a custom
+command of your own (see below).
 
 After the handoff the button is **Open AI Session**: keep talking to the agent
 in its terminal. If that terminal has been closed, BugPilot says so rather than
@@ -248,7 +278,7 @@ recorded or written, and neither aid changes the run, the report or History.
 Posting to Jira, committing and pushing stay separate and manual.
 
 **Review with AI** starts a reviewer instead: the same prompt, handed to the
-agent **Advanced settings → AI agent** selects — the one Fix with AI uses — in a
+agent **Workflow Settings → Fix with AI → AI agent** selects — the one Fix with AI uses — in a
 terminal at the repository root, where the reviewer can read those files and
 the diff. The row then says **AI review started** and which agent it went to,
 and that is all it knows: BugPilot does not read the reviewer's output or wait
@@ -349,12 +379,9 @@ The command palette's **BugPilot: Retry After a Failed Fix** is still there: the
 CLI's own two-step loop, which creates the `user_feedback.md` template for you
 to fill in first.
 
-## Advanced settings
+## The AI agent
 
-Collapsed, and nothing in it is needed for a normal run: the Fix Mode
-(**Strategy**), Hint, Keywords, Focus files, Ignore paths, Max files, Max search
-lines, Title, the AI agent, attachments, and whether to delete previous
-artifacts first.
+Nothing on the Workflow Settings page is needed for a normal run.
 
 **AI agent** decides what **Fix with AI** and **Review with AI** run — one
 setting for both:
@@ -422,7 +449,7 @@ worth knowing:
 | "did not answer `doctor --json` in time" | Usually a frozen executable starting cold under antivirus. Try again |
 | "runs, but its environment check failed" | The CLI is fine; something it needs is not. The message names which |
 | A run stops with "ran longer than BugPilot waits" | Narrow the search: ignore vendored or generated directories, or lower Max files |
-| "not on PATH" after Fix with AI | The prompt is on your clipboard instead. Install an agent CLI, or set **Advanced settings → AI agent** to a custom command |
+| "not on PATH" after Fix with AI | The prompt is on your clipboard instead. Install an agent CLI, or set **Workflow Settings → Fix with AI → AI agent** to a custom command |
 | The icons on Build context never appear | They follow the file: they arrive when `context.md` does |
 
 The **BugPilot** output channel (**BugPilot: Show Log**) records every command

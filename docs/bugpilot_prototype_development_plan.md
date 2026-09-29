@@ -9484,3 +9484,119 @@ themes at 200px, Open AI Session against terminals VS Code revives after a
 reload, and the Fresh question while the button is pending), in the disposable
 profile used for §37.75. Open AI Session can only find a terminal; an agent
 started any other way is reported as not found.
+
+### 37.77 Workflow Settings Navigation (after `c6e9bba`)
+
+**Status:** implemented and verified in the test suites, not committed, not
+pushed, not published; on top of `c6e9bba`, which committed §37.76.
+Extension only — no Python, CLI or artifact change, no version change. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Workflow Settings Navigation)" at the end of §19.
+
+**What changed.** A gear on the four rows that have settings (Issue details,
+Code search, Build context, Fix with AI; none on Git history or Similar fixes)
+opens one shared Workflow Settings view at that step's section — scrolled,
+briefly outlined, first control focused. Advanced Settings is gone; its
+controls moved into the page's sections unchanged, and a Workflow Settings
+entry under the workflow replaces the disclosure. The page is an explicit
+draft: the form reads the applied settings, Apply sends `applySettings {form}`,
+Cancel / Back / Escape restore the applied values. The host's
+`applySettings` goes through `#formChanged`, so staleness is still
+`preparationFingerprint`'s alone, and is refused while the primary action is
+busy. Two host paths that wrote the form behind the page now answer the draft:
+the attachment dialog (`pickAttachments` → one-shot `attachmentPick`) and the
+hint improver (reads the draft, Use Improved fills the draft). Rows show a
+host-computed settings summary (counts and names only). New model
+`src/app/workflowSettings.ts`; the page's copy of its section list is
+test-guarded. User-visible messages that said "Advanced settings" now say
+"Workflow Settings → Fix with AI". Use Improved is no longer a primary button.
+
+**Found while doing it.** With no Fix Mode chosen, the page's own fallback to
+the catalog default moved the selector but — once the form read applied
+settings rather than the DOM — not what Run sent; the applied mode now follows
+the selector's normalization while the page is closed (covered by the existing
+"closed selector holds the default … and Run sends it" test).
+
+**Tests.** New `test/workflowSettings.test.ts` (one home per field, row ↔
+section mapping, the rebuild table against the fingerprint field by field,
+section notes, summaries, no command or path in a summary). Controller:
+applied preparation input → Rebuild Context and summaries; agent / Fresh /
+Use issue details → still current; planted secrets never reach a summary;
+Apply refused mid-run with the form given back; the attachment dialog answers
+the draft (merged, capped, once, cancelled = silent); improving a draft hint
+does not stale; next-action flow unchanged across applied settings. Page:
+each gear's target section, highlight, scroll and focus (and heading focus
+during a run); Back and form-state preservation; Cancel, Escape and Ctrl+Enter;
+Apply sends once and a later press carries it; a pending debounce cannot
+overwrite applied settings; Apply waits while busy; a host-replaced form
+supersedes the draft; summaries render and clear; the gear during a run never
+ticks its checkbox. Markup: gears exactly on configured rows with their names,
+no gear or summary elsewhere, CSS never hover-only, focus ring, no squeeze,
+outline highlight, reduced motion, the page's section copy equals the model.
+Tests that pinned Advanced settings were rewritten to the same guarantees on
+the settings page.
+
+**Regression.** Extension 1284 tests, all pass (1251 at `c6e9bba`); typecheck
+clean; smoke passes (22 commands, 3 views, panel HTML built); `git diff --check`
+clean. Python not
+run: no Python file changed.
+
+**Deferred.** A real-VS-Code pass: gear placement on every row, 200px width,
+Dark / Light / High Contrast Dark / High Contrast Light, section-jump accuracy,
+Apply / Cancel, form-state preservation, the stale transition after Apply,
+keyboard navigation and focus visibility. The main form's scroll restore on
+Back uses the view mechanism the Fix Mode views already had; the DOM stub has
+no scrolling, so it is not covered by a test.
+
+### 37.78 Workflow Settings Navigation — real VS Code pass (after §37.77, uncommitted)
+
+**Status:** validated in a real VS Code window, five observed defects fixed, not
+committed. No Python change; no version change.
+
+**How.** The packaged VSIX in a disposable VS Code 1.139.1 profile
+(`--user-data-dir`/`--extensions-dir`, the verified `bugpilot` CLI, custom
+dialogs, the simple file dialog), opened on the real target workspace
+`C:\path\to\sample-repo` and driven over its DevTools port with real
+mouse and key input; screenshots read back for every visual judgment. The
+developer's own VS Code was not closed or reconfigured. Real preparations of a
+hand-described bug ran against the monorepo (≈2.5 min each); the AI agent was a
+harmless `cmd /c echo {prompt}`, so no agent ran in that repository; the hint
+improver ran `claude -p` in its own empty temporary folder. Every `.ai/` and
+`.ai_memory/bugs/` entry the pass created was removed afterwards; the
+repository's own changes were not touched.
+
+**Checked, passing.** Gears on exactly Issue details, Code search, Build
+context, Fix with AI, with their names as tooltip and accessible name, quiet at
+rest, full on hover, a focus ring from the keyboard; each gear's jump (section at
+the top, a brief outline, first sensible control focused — Attachments or Title,
+Keywords, the Fresh box, the AI agent), Back restoring the form's scroll and
+focus; Cancel, Back and Escape each discarding a draft with the host's summaries
+and primary action unchanged; Apply updating the summary and staleness; every
+preparation field → Rebuild Context and back when reverted, the palette's Fix
+with AI refused on a stale context (host), the four non-preparation settings
+leaving Fix with AI, and the handoff then starting (host); summaries free of
+typed text, paths and commands; the Manage Fix Modes round trip keeping an
+unapplied draft; the attachment dialog answering only the draft; Improve / Use
+Improved filling only the draft; settings during a run read-only with Apply
+disabled and explained, the heading focused, and a forced Apply refused by the
+host with the page given its form back; the validation error opening the page at
+the field; keyboard-only use (Tab to every gear, Enter / Space, Ctrl+Enter,
+Escape, a logical order, the footer reachable, nothing started by a key); Dark,
+Light, High Contrast Dark and High Contrast Light; 200px and ~300px; the
+next-action states (Run → Fix with AI → Open AI Session, Start New Attempt only
+after the first handoff, Rebuild Context after a preparation setting).
+
+**Found and fixed** (each pinned by a test): the arrival highlight's fill; the
+sticky footer covering scrolled-to controls; a repeated refused press showing
+nothing; disabled text fields looking editable; at 200px after a run, row labels
+broken one letter per line by the added gear. See decision 10 of the Workflow
+Settings Navigation block.
+
+**Recorded, not fixed.** At 200px after a run, when only the status tick wraps
+it starts at the left of the second line while the gear sits right — readable,
+and aligning the two would need the row head's markup. After a jump, Back is
+scrolled out of view; Cancel, always visible in the footer, does the same.
+
+**Regression.** Extension 1285 tests pass (1284 before: one page test for the
+repeated refusal; the CSS fixes extend existing tests); typecheck, smoke and
+`git diff --check` clean.

@@ -274,6 +274,12 @@ export interface WorkflowStepResult {
   readonly summary: string;
   /** A quieter second line, when the result has one: the issue's title, which agent. */
   readonly detail?: string;
+  /**
+   * What this step's applied settings are, in one short line — "4 keywords ·
+   * max 10 files", "Claude Code · Standard Fix" — for a row whose settings say
+   * something (`workflowSettings.ts`). Absent when they are all at defaults.
+   */
+  readonly settingsSummary?: string;
   /** The mode the task was prepared with. Fix with AI only: `task.md` carries it. */
   readonly strategy?: string;
   /**
@@ -440,6 +446,8 @@ export interface WorkflowInput {
   readonly attemptDraft?: AttemptDraft;
   /** The feedback helpers the form may offer now: the host's call. */
   readonly feedbackHelpers?: readonly FeedbackHelperId[];
+  /** Each row's settings summary, from the applied form. */
+  readonly settingsSummaries?: Readonly<Partial<Record<WorkflowStepId, string>>>;
 }
 
 /** The five capability rows, in `progress.ts` terms. */
@@ -497,9 +505,11 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
     capabilityRows.set(id, { ...base, ...resultOf(id, status, input, present) });
   }
 
-  const steps = WORKFLOW_STEP_IDS.map((id) =>
-    id === "fixWithAI" ? fixWithAiRow(input, present, running, capabilityRows) : capabilityRows.get(id)!,
-  );
+  const steps = WORKFLOW_STEP_IDS.map((id) => {
+    const step = id === "fixWithAI" ? fixWithAiRow(input, present, running, capabilityRows) : capabilityRows.get(id)!;
+    const summary = input.settingsSummaries?.[id];
+    return summary === undefined || summary === "" ? step : { ...step, settingsSummary: summary };
+  });
   // Exactly while the report is on disk: listed, a row; not listed, none —
   // a run in flight included. Which listing a run keeps is the controller's.
   if (present.has(FIX_REPORT_ARTIFACT)) steps.push(fixResultRow(input));

@@ -10,9 +10,17 @@ import {
   parsePanelMessage,
 } from "../src/panel/messages.ts";
 import type { PanelMessage } from "../src/panel/messages.ts";
-import { ADVANCED_FIELD_IDS, TEXT_FIELD_IDS, panelHtml } from "../src/panel/html.ts";
+import { SETTINGS_FIELD_IDS, TEXT_FIELD_IDS, panelHtml } from "../src/panel/html.ts";
 import { DEFAULT_FORM, JIRA_ISSUE_KEY_RE } from "../src/app/form.ts";
 import { WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
+import {
+  SETTINGS_ACTION_LABELS,
+  SETTINGS_SECTION_FIELDS,
+  SETTINGS_SECTION_OF_STEP,
+  SETTINGS_SECTION_TITLES,
+  WORKFLOW_SETTINGS_SECTIONS,
+  sectionRebuildNote,
+} from "../src/app/workflowSettings.ts";
 
 const HTML = panelHtml({
   nonce: "N0NCE",
@@ -209,6 +217,8 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   nextAction: { type: "nextAction", action: "fixWithAI", form: DEFAULT_FORM },
   startAttempt: { type: "startAttempt", feedback: "Focus on WidgetController.cpp.", form: DEFAULT_FORM },
   formChanged: { type: "formChanged", form: DEFAULT_FORM },
+  applySettings: { type: "applySettings", form: DEFAULT_FORM },
+  pickAttachments: { type: "pickAttachments", attachments: ["C:/logs/crash.txt"] },
   addAttachments: { type: "addAttachments", form: DEFAULT_FORM },
   action: { type: "action", id: "fixWithAI" },
   command: { type: "command", id: "bugpilot.openSettings" },
@@ -408,6 +418,16 @@ test("no Claude-specific wording reaches the panel", () => {
 });
 
 /** One workflow row's markup, from its `<li>` to its close. */
+/** The Workflow Settings view, whole. */
+const SETTINGS_VIEW = /<section id="workflow-settings-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
+
+/** One section of it, heading to closing tag. */
+function settingsSection(section: string): string {
+  const found = new RegExp(`<section class="settings-section" id="settings-section-${section}"[\\s\\S]*?\\n {4}</section>`).exec(SETTINGS_VIEW)?.[0] ?? "";
+  assert.notEqual(found, "", `no settings section ${section}`);
+  return found;
+}
+
 function rowMarkup(id: string): string {
   const row = new RegExp(`<li[^>]*id="step-${id}"[\\s\\S]*?</li>`).exec(HTML)?.[0] ?? "";
   assert.notEqual(row, "", `no ${id} row`);
@@ -467,7 +487,8 @@ test("each action lives on the row that owns it (Batch 6)", () => {
   // item, not to one row.
   const built = rowMarkup("buildContext");
   const buildButtons = [...built.matchAll(/<button[^>]*id="([A-Za-z-]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(buildButtons, ["artifact-buildContext", "open-context", "copy-context"]);
+  // Its gear, in the row's head, then what it produced.
+  assert.deepEqual(buildButtons, ["settings-buildContext", "artifact-buildContext", "open-context", "copy-context"]);
   for (const id of ["open-context", "copy-context"]) {
     const tag = new RegExp(`<button[^>]*id="${id}"[^>]*>`).exec(built)?.[0] ?? "";
     assert.match(tag, /title="[^"]+"/, `${id} has no tooltip`);
@@ -504,15 +525,98 @@ test("the workflow has no primary button: the one primary action is at the top",
   // Fix with AI used to be a second primary button inside its row, a competing
   // answer to "what next?" under a disclosure that starts collapsed. Handing the
   // task over is the top button's job now, in every state that offers it.
-  const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n\s*<details class="group advanced"/.exec(HTML)?.[0] ?? "";
+  const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n[\s\S]*?<div class="settings-entry">/.exec(HTML)?.[0] ?? "";
   assert.notEqual(workflow, "", "no workflow disclosure");
   assert.deepEqual([...workflow.matchAll(/<button[^>]*class="primary"/g)].length, 0);
-  // From the issue down through the workflow — the path every run reads —
-  // exactly one: Run's. (Advanced settings' hint suggestion keeps its own Use
-  // Improved, a choice about that suggestion rather than a next step.)
-  const path = /<section id="main-view">[\s\S]*?<details class="group advanced"/.exec(HTML)?.[0] ?? "";
-  const primary = [...path.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)].map((match) => match[1]);
+  // In the whole main view, exactly one: Run's. (Apply is the settings page's.)
+  const main = /<section id="main-view">[\s\S]*?<section id="workflow-settings-view"/.exec(HTML)?.[0] ?? "";
+  const primary = [...main.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)].map((match) => match[1]);
   assert.deepEqual(primary, ["run"]);
+});
+
+// --- Workflow Settings: the row gears ------------------------------------------
+
+test("a gear on exactly the rows that have settings, named for its step", () => {
+  const withGear = WORKFLOW_STEP_IDS.filter((id) => SETTINGS_SECTION_OF_STEP[id] !== undefined);
+  assert.deepEqual(withGear, ["issueDetails", "codeSearch", "buildContext", "fixWithAI"]);
+  for (const id of withGear) {
+    const section = SETTINGS_SECTION_OF_STEP[id]!;
+    const head = /<div class="step-head">[\s\S]*?<\/div>/.exec(rowMarkup(id))?.[0] ?? "";
+    const gear = new RegExp(`<button type="button" class="icon step-settings" id="settings-${id}"[^>]*>`).exec(head)?.[0] ?? "";
+    assert.notEqual(gear, "", `${id} has no gear in its head`);
+    // Named for its step, in the tooltip and for a screen reader alike.
+    assert.match(gear, new RegExp(`title="${SETTINGS_ACTION_LABELS[section]}"`));
+    assert.match(gear, new RegExp(`aria-label="${SETTINGS_ACTION_LABELS[section]}"`));
+    // A real button, outside the label — pressing it never ticks the checkbox.
+    const label = /<label class="step-label"[\s\S]*?<\/label>/.exec(head)?.[0] ?? "";
+    assert.equal(label.includes("step-settings"), false, `${id}'s gear is inside its label`);
+    assert.match(head, new RegExp(`id="settings-${id}"[^>]*><span class="codicon codicon-settings-gear" aria-hidden="true"></span></button>`));
+    // And a line for its summary, empty until the host says something.
+    assert.match(rowMarkup(id), new RegExp(`<p class="step-settings-summary" id="settings-summary-${id}" hidden></p>`));
+  }
+  assert.deepEqual(Object.values(SETTINGS_ACTION_LABELS), [
+    "Configure Issue Details",
+    "Configure Code Search",
+    "Configure Build Context",
+    "Configure Fix with AI",
+  ]);
+});
+
+test("rows with nothing to configure have no gear, and no summary line", () => {
+  for (const id of ["gitHistory", "similarFixes", "fixResult"]) {
+    const row = rowMarkup(id);
+    assert.equal(row.includes("step-settings"), false, `${id} has a gear`);
+    assert.equal(row.includes(`settings-summary-${id}`), false, `${id} has a summary line`);
+  }
+  // Six rows, four gears, one Workflow Settings entry: no gear called Settings.
+  assert.equal([...HTML.matchAll(/class="icon step-settings"/g)].length, 4);
+  assert.equal(/aria-label="Settings"|title="Settings"/.test(HTML), false);
+});
+
+test("the gear is quieter, never hidden, has a focus ring, and never squeezes its label", () => {
+  // Visible at rest — a keyboard or a touch screen has no hover — and full
+  // strength on hover or focus.
+  const rule = /\.step-settings \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /flex: none/);
+  assert.match(rule, /opacity: 0\.6/);
+  assert.equal(/display: none|visibility: hidden|opacity: 0;/.test(rule), false);
+  assert.match(CSS, /\.step:hover \.step-settings,\s*\.step-settings:hover,\s*\.step-settings:focus-visible \{\s*opacity: 1;/);
+  assert.match(CSS, /\.step-settings:focus-visible \{[^}]*outline: 1px solid var\(--vscode-focusBorder\)/s);
+  // The label takes the space and may shrink; the summary is cut, not wrapped.
+  assert.match(CSS, /\.step-label \{[^}]*flex: 1 1 5em;[^}]*min-width: 0;/s);
+  // Found at 200px in the real window: with a duration, a status and the gear,
+  // a label that took all the shrinking broke between every letter. The head
+  // wraps instead, keeping the label a floor, and the rest stays at the right.
+  assert.match(CSS, /\.step-head \{[^}]*flex-wrap: wrap;/s);
+  assert.match(CSS, /\.step-duration \{[^}]*margin-left: auto;/s);
+  assert.match(CSS, /\.step-settings \{[^}]*margin-left: auto;/s);
+  assert.match(CSS, /\.step-settings-summary \{[^}]*text-overflow: ellipsis/s);
+  // The arrival highlight is an outline, which a high-contrast theme keeps —
+  // and only an outline: a fill behind the section's inputs was loud enough in
+  // a real window to read as an error.
+  assert.match(CSS, /\.settings-section-target \{[^}]*outline-color: var\(--vscode-focusBorder\)/s);
+  assert.equal(/\.settings-section-target \{[^}]*background/s.test(CSS), false, "the arrival highlight fills the section");
+  assert.match(CSS, /@media \(prefers-reduced-motion: reduce\) \{\s*\.settings-section \{\s*transition: none;/);
+});
+
+test("the page's copy of the settings sections is the model's", () => {
+  // The webview cannot import app/workflowSettings.ts, so it carries a copy;
+  // this is what keeps the two from drifting.
+  const read = (name: string) => {
+    const literal = new RegExp(`const ${name} = (\\{[\\s\\S]*?\\n {2}\\});`).exec(PAGE_JS)?.[1];
+    assert.ok(literal, `panel.js has no ${name}`);
+    return new Function(`return ${literal};`)() as Record<string, unknown>;
+  };
+  const sections = read("SETTINGS_SECTIONS") as Record<string, { fields: string[]; focus: string[] }>;
+  assert.deepEqual(Object.keys(sections), [...WORKFLOW_SETTINGS_SECTIONS]);
+  for (const section of WORKFLOW_SETTINGS_SECTIONS) {
+    assert.deepEqual(sections[section]!.fields, [...SETTINGS_SECTION_FIELDS[section]], section);
+    // Everything a gear may focus is in that section.
+    for (const id of sections[section]!.focus) {
+      assert.ok(settingsSection(section).includes(`id="${id}"`), `${id} is not in ${section}`);
+    }
+  }
+  assert.deepEqual(read("STEP_SETTINGS"), { ...SETTINGS_SECTION_OF_STEP });
 });
 
 test("a row's result survives a narrow sidebar", () => {
@@ -538,30 +642,35 @@ test("a row with nothing but its summary is exactly as tall as before", () => {
   assert.match(CSS, /\.attempt-editor\[hidden\] \{\s*display: none;/);
 });
 
-test("Advanced settings has a heading that says what it is for", () => {
-  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  const summary = /<summary[^>]*>[\s\S]*?<\/summary>/.exec(advanced)?.[0] ?? "";
-  assert.notEqual(summary, "", "no summary");
-  assert.match(summary, /codicon-settings-gear/);
-  assert.match(summary, /Advanced Settings \(Optional\)/);
-  assert.match(summary, /Fine-tune the investigation/);
-  // The way back out, offered only once the section is open — and inside the
-  // summary, so the element's own toggle closes it and no script is needed.
-  assert.match(summary, /Hide Advanced/);
-  assert.match(CSS, /\.advanced\[open\] > summary > \.adv-toggle \{\s*display: flex/);
+test("Workflow Settings has a heading, a lede that says Apply is the act, and a way back", () => {
+  assert.notEqual(SETTINGS_VIEW, "", "no settings view");
+  assert.match(SETTINGS_VIEW, /<h2 id="settings-heading" class="view-title" tabindex="-1">Workflow Settings<\/h2>/);
+  assert.match(SETTINGS_VIEW, /Changes take effect when you press Apply; Back and Cancel discard them\./);
+  assert.match(SETTINGS_VIEW, /<button type="button" id="settings-back" class="link view-back">[\s\S]*?Back\s*<\/button>/);
+  // Cancel, then Apply — the page's one primary button, at its foot.
+  const actions = /<div class="settings-actions">[\s\S]*?<\/div>/.exec(SETTINGS_VIEW)?.[0] ?? "";
+  assert.deepEqual([...actions.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]), ["settings-cancel", "settings-apply"]);
+  assert.deepEqual([...SETTINGS_VIEW.matchAll(/<button[^>]*id="([a-z-]+)"[^>]*class="primary"/g)].map((match) => match[1]), ["settings-apply"]);
+  // Kept on screen while the page scrolls, so Apply is never a long way off —
+  // and nothing the page scrolls into view, or focuses, ends up behind it.
+  assert.match(CSS, /\.settings-actions \{[^}]*position: sticky/s);
+  assert.match(CSS, /html:has\(#workflow-settings-view:not\(\[hidden\]\)\) \{\s*scroll-padding-bottom: 3\.5rem;/);
+  // A field a run holds looks held, text boxes as well as selects.
+  assert.match(CSS, /#workflow-settings-view :is\(input, textarea, select\):disabled \{\s*opacity: 0\.6;\s*cursor: default;/);
+  // Said while Apply waits on the host, in words.
+  assert.match(SETTINGS_VIEW, /<p class="muted settings-busy" id="settings-busy" role="status" hidden>/);
 });
 
 test("every setting has a header row with a real label in it", () => {
   // One layout for every row, including the agent picker and the checkbox.
   // Two layouts for the same kind of thing is what made the section look
   // assembled rather than designed.
-  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  const rows = [...advanced.matchAll(/<div class="setting-header">([\s\S]*?)<\/div>/g)].map(
+  const rows = [...SETTINGS_VIEW.matchAll(/<div class="setting-header">([\s\S]*?)<\/div>/g)].map(
     (match) => match[1]!,
   );
   // The text fields, plus the four rows that are not text fields: the Fix
   // Mode selector, the agent picker, the attachment list and the checkbox.
-  assert.equal(rows.length, ADVANCED_FIELD_IDS.length + 4, "a row is missing the pattern");
+  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 4, "a row is missing the pattern");
 
   for (const row of rows) {
     const label = /<label[^>]*for="([^"]+)"/.exec(row);
@@ -585,7 +694,7 @@ test("helper text survives only where a placeholder could not carry it", () => {
   // cannot tell an expert boost from a required field fills it in every time.
   // The ones that are still bare are the ones whose label and example say
   // everything: Ignore paths, Max files, Max search lines, Title.
-  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
+  const advanced = SETTINGS_VIEW;
   // `[a-zA-Z-]+`, with the hyphen: the first version of this pattern could not
   // match `add-attachment-hint`, so a whole row's helper text slipped past the
   // guard unnoticed. A character class is a claim about what ids look like.
@@ -738,12 +847,11 @@ test("only the icon is tinted, never the label or the helper text", () => {
   );
 });
 
-test("every field in the section carries an icon, so it can be scanned", () => {
+test("every field on the settings page carries an icon, so it can be scanned", () => {
   // A gap in that column is more distracting than an icon, which is why this
   // checks all of them rather than the ones the design named.
-  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  for (const id of [...ADVANCED_FIELD_IDS, "fixModeId", "agent", "add-attachment"]) {
-    const label = new RegExp(`<label[^>]*for="${id}"[^>]*>(.*?)</label>`, "s").exec(advanced)?.[1];
+  for (const id of [...SETTINGS_FIELD_IDS, "fixModeId", "agent", "add-attachment"]) {
+    const label = new RegExp(`<label[^>]*for="${id}"[^>]*>(.*?)</label>`, "s").exec(SETTINGS_VIEW)?.[1];
     assert.ok(label, `no label for ${id}`);
     assert.match(label, /codicon-[a-z-]+/, `${id} has no icon`);
   }
@@ -880,23 +988,17 @@ test("the footer is secondary to everything above it", () => {
   assert.match(CSS, /\.footer \{[^}]*var\(--vscode-descriptionForeground\)/s);
 });
 
-test("every optional field is inside the collapsed Advanced settings", () => {
-  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  assert.notEqual(advanced, "", "could not find the advanced section");
-  // Collapsed: no `open` attribute. The whole point is that a normal run needs
-  // nothing in here.
-  assert.equal(/<details[^>]*\bopen\b/.test(HTML), false, "Advanced settings starts open");
-  for (const id of ADVANCED_FIELD_IDS) {
-    assert.ok(advanced.includes(`id="field-${id}"`), `${id} is not inside Advanced settings`);
+test("every optional field is on the Workflow Settings page, and none is on the form", () => {
+  assert.notEqual(SETTINGS_VIEW, "", "could not find the settings page");
+  for (const id of [...SETTINGS_FIELD_IDS, "fixModeId", "agent", "attachments"]) {
+    assert.ok(SETTINGS_VIEW.includes(`id="field-${id}"`), `${id} is not on the settings page`);
+    assert.equal(HTML.split(`id="field-${id}"`).length - 1, 1, `${id} has a second copy`);
   }
-  // And the input area is only the source switch plus the field it needs.
-  const beforeRun = HTML.slice(0, HTML.indexOf('id="run"'));
-  for (const id of ADVANCED_FIELD_IDS) {
-    assert.equal(
-      beforeRun.includes(`id="field-${id}"`),
-      false,
-      `${id} is still above the Run button`,
-    );
+  assert.ok(SETTINGS_VIEW.includes('id="fresh"'));
+  // The form keeps the issue, the run, the workflow's checkboxes — nothing else.
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  for (const id of [...SETTINGS_FIELD_IDS, "fixModeId", "agent", "fresh", "add-attachment"]) {
+    assert.equal(form.includes(`id="${id}"`), false, `${id} is still on the form`);
   }
 });
 
@@ -1091,7 +1193,8 @@ test("attachments are a list the page renders, not a text field", () => {
 test("the page can remove an attachment but never invent one", () => {
   // The only way a path enters the page is a state push from the host; the
   // only message the page sends about them asks the host to open the dialog.
-  assert.match(PAGE_JS, /type: "addAttachments"/);
+  assert.match(PAGE_JS, /type: "pickAttachments"/);
+  assert.equal(/type: "addAttachments"/.test(PAGE_JS), false, "the page still merges into the host's form directly");
   assert.equal(
     /attachments\.push\(|attachments = \[\.\.\.attachments, /.test(PAGE_JS),
     false,
@@ -1114,58 +1217,45 @@ test("the attachment ceiling is the one the CLI enforces", () => {
 
 // --- fix mode --------------------------------------------------------------
 
-test("the one Fix Mode selector lives in Advanced settings, under Strategy", () => {
-  // Batch 7. Standard Fix is what almost every run uses, so choosing another is
-  // a setting rather than a question on the main form. It was outside Advanced
-  // settings from phase 7 until then; this pins the new home and that there is
-  // still exactly one of it.
+test("the one Fix Mode selector lives on Workflow Settings, in Fix with AI's section", () => {
   assert.equal((HTML.match(/<select[^>]*id="fixModeId"/g) ?? []).length, 1, "not exactly one Fix Mode selector");
   assert.equal(HTML.split('id="field-fixModeId"').length - 1, 1);
   assert.equal(HTML.split('id="manage-fix-modes"').length - 1, 1);
 
-  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  const field = /<div class="field" id="field-fixModeId">[\s\S]*?id="fixModeId-description"[^>]*><\/p>\s*<\/div>/.exec(advanced)?.[0] ?? "";
-  assert.notEqual(field, "", "the Fix Mode field is not inside Advanced settings");
-  // Under the Strategy heading and before the next group, so it reads as that
-  // group's one setting.
-  const at = advanced.indexOf('id="field-fixModeId"');
-  assert.ok(advanced.indexOf('id="group-strategy"') < at, "Fix Mode is above its heading");
-  assert.ok(at < advanced.indexOf('id="group-guidance"'), "Fix Mode is not in Strategy");
-  // Its description and its gear moved with it: nothing about the mode is left
-  // on the main form, and the gear still sits beside the selector it manages.
+  const fix = settingsSection("fix-with-ai");
+  const field = /<div class="field" id="field-fixModeId">[\s\S]*?id="fixModeId-description"[^>]*><\/p>\s*<\/div>/.exec(fix)?.[0] ?? "";
+  assert.notEqual(field, "", "the Fix Mode field is not in Fix with AI's section");
+  // Its description and its gear are with it: the gear still sits beside the
+  // selector it manages.
   assert.ok(field.includes('<select id="fixModeId"'));
   assert.ok(field.includes('id="manage-fix-modes"'), "the gear did not move with the selector");
   assert.ok(field.includes('id="fixModeId-description"'), "the mode's description stayed behind");
-  // And none of it above Run.
-  const beforeRun = HTML.slice(0, HTML.indexOf('id="run"'));
+  // And none of it on the form.
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
   for (const id of ["fixModeId", "field-fixModeId", "manage-fix-modes", "fixModeId-description"]) {
-    assert.equal(beforeRun.includes(`id="${id}"`), false, `#${id} is still on the main form`);
+    assert.equal(form.includes(`id="${id}"`), false, `#${id} is still on the main form`);
   }
 });
 
-test("the collapsed summary can name the Fix Mode without renaming the disclosure", () => {
-  // The label is on the title line of Advanced settings' own summary — not a
-  // new line on the main form, and not a second selector.
-  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  const summary = /<summary[^>]*>[\s\S]*?<\/summary>/.exec(advanced)?.[0] ?? "";
-  const label = /<span class="adv-strategy" id="advanced-strategy"[^>]*>/.exec(summary)?.[0] ?? "";
-  assert.notEqual(label, "", "no strategy label in the summary");
-  // Hidden until the page has a non-default mode to name.
+test("the Workflow Settings entry can name the Fix Mode without renaming the button", () => {
+  const entry = /<div class="settings-entry">[\s\S]*?<span id="settings-strategy-description" hidden><\/span>\s*<\/div>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(entry, "", "no settings entry");
+  const button = /<button type="button" id="open-settings"[\s\S]*?<\/button>/.exec(entry)?.[0] ?? "";
+  assert.match(button, /aria-describedby="settings-strategy-description"/);
+  assert.match(button, /codicon-settings-gear/);
+  assert.match(button, /Workflow Settings/);
+  const label = /<span class="settings-strategy" id="settings-strategy"[^>]*>/.exec(entry)?.[0] ?? "";
+  // Hidden until the page has a non-default mode to name, and out of the
+  // button's name, which stays "Workflow Settings"; the same fact is its description.
   assert.match(label, /\shidden(\s|>)/);
-  // Out of the accessible name, which stays "Advanced Settings (Optional)…";
-  // the same fact is the summary's description instead.
   assert.match(label, /aria-hidden="true"/);
-  assert.match(summary, /^<summary aria-describedby="advanced-strategy-description">/);
-  assert.match(summary, /<span id="advanced-strategy-description" hidden><\/span>/);
-  assert.ok(summary.indexOf("adv-title") < summary.indexOf('id="advanced-strategy"'), "the label is not on the title line");
-  // No control of any kind in the summary: it is a label, not a selector.
-  assert.equal(/<(select|input|button)\b/.test(summary), false);
+  assert.equal(button.includes("settings-strategy-name"), false);
+  // A label, not a second selector.
+  assert.equal(/<(select|input)\b/.test(entry), false);
   assert.equal((HTML.match(/<select[^>]*id="fixModeId"/g) ?? []).length, 1);
-  // Shown only while the section is closed, and cut short rather than
-  // widening the panel.
-  assert.match(CSS, /\.advanced\[open\] \.adv-strategy \{\s*display: none/);
-  assert.match(CSS, /\.adv-strategy-name \{[^}]*text-overflow: ellipsis/s);
-  assert.match(CSS, /\.adv-strategy-name \{[^}]*white-space: nowrap/s);
+  // Cut short rather than widening the panel.
+  assert.match(CSS, /\.settings-strategy-name \{[^}]*text-overflow: ellipsis/s);
+  assert.match(CSS, /\.settings-strategy-name \{[^}]*white-space: nowrap/s);
 });
 
 test("the Fix Mode selector is labelled and described for assistive tech", () => {
@@ -1344,6 +1434,7 @@ function ancestorsById(html: string): Map<string, string[]> {
 }
 
 const FIX_MODE_VIEWS = [
+  "workflow-settings-view",
   "fix-mode-manager-view",
   "fix-mode-preview-view",
   "fix-mode-editor-view",
@@ -1361,13 +1452,13 @@ test("the Fix Mode views are siblings of the main view, not part of it", () => {
   }
   for (const view of FIX_MODE_VIEWS) {
     const above = tree.get(view)!;
-    for (const forbidden of ["main-view", "advanced", "form"]) {
+    for (const forbidden of ["main-view", "form"]) {
       assert.ok(!above.includes(forbidden), `#${view} is inside #${forbidden}: ${above}`);
     }
     assert.deepEqual(above, tree.get("main-view"), `#${view} is not a sibling of #main-view`);
   }
-  // And the other way round: the form's own things stayed where they were.
-  assert.deepEqual(tree.get("advanced"), ["main-view", "form"]);
+  // And the other way round: the way into the settings page stays on the form.
+  assert.deepEqual(tree.get("open-settings"), ["main-view", "form"]);
 });
 
 test("the management and editor controls live in their own views", () => {
@@ -1398,7 +1489,7 @@ test("the markup alone hides everything but the form", () => {
 
 // --- UI-A1: what an untouched panel shows ----------------------------------
 
-test("the default view is the Issue field, Run, and three disclosures", () => {
+test("the default view is the Issue field, Run, two disclosures and the way into settings", () => {
   // The whole of UI-A1 in one assertion. What a developer sees before typing
   // anything should be the sentence the tool is about — enter the issue, press
   // Run — and not every control the panel owns at equal weight.
@@ -1411,8 +1502,9 @@ test("the default view is the Issue field, Run, and three disclosures", () => {
   // Batch 7 took Fix Mode out of it: Issue, then Run.
   assert.deepEqual(open, ["field-issue", "run"]);
 
-  // And everything after it is behind one of exactly three closed disclosures,
-  // so no optional control is on screen until it is asked for.
+  // And everything after it is behind one of exactly two closed disclosures,
+  // or on the settings page, so no optional control is on screen until it is
+  // asked for.
   //
   // The disclosures *inside* the workflow — Code search's two, and the failure
   // cards' Details — are not among them: they are inside a closed disclosure,
@@ -1426,10 +1518,13 @@ test("the default view is the Issue field, Run, and three disclosures", () => {
   const disclosures = [...topLevel.matchAll(/<details[^>]*id="([a-z-]+)"/g)].map(
     (match) => match[1],
   );
-  // Three since UI-C2. Diagnostics is last and always reachable rather than
-  // inside the result, because "is this the environment I think it is" is asked
-  // most urgently when nothing has run or a run has just failed.
-  assert.deepEqual(disclosures, ["workflow", "advanced", "diagnostics"]);
+  // Diagnostics is last and always reachable rather than inside the result,
+  // because "is this the environment I think it is" is asked most urgently when
+  // nothing has run or a run has just failed. Advanced settings was the third;
+  // it is a page now, reached from the entry between the two.
+  assert.deepEqual(disclosures, ["workflow", "diagnostics"]);
+  assert.ok(form.indexOf('id="workflow"') < form.indexOf('id="open-settings"'));
+  assert.ok(form.indexOf('id="open-settings"') < form.indexOf('id="diagnostics"'));
   assert.equal(/<details[^>]*\bopen\b/.test(form), false, "a disclosure starts open");
 });
 
@@ -1485,83 +1580,73 @@ function advancedGroup(id: string): string {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-test("Advanced settings is four named groups, in reading order", () => {
-  // The question UI-A2 answers: does this setting talk to the AI, or does it
-  // steer what BugPilot searches? A flat list of nine could not say. Batch 7
-  // added Strategy first: how the agent approaches the bug, which is the one
-  // setting here that shapes the task rather than the context.
-  const advanced = /<details[^>]*id="advanced"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  const headings = [...advanced.matchAll(/<h3 class="setting-group" id="group-([a-z-]+)">([^<]+)</g)];
+test("Workflow Settings is one section per step that has settings, in the workflow's order", () => {
+  const sections = [...SETTINGS_VIEW.matchAll(/<h3 class="settings-section-title" id="settings-title-([a-z-]+)" tabindex="-1">([^<]+)</g)];
   assert.deepEqual(
-    headings.map((match) => [match[1], match[2]]),
-    [
-      ["strategy", "Strategy"],
-      ["guidance", "Guidance"],
-      ["retrieval", "Retrieval Overrides"],
-      ["run-options", "Run Options"],
-    ],
+    sections.map((match) => [match[1], match[2]]),
+    WORKFLOW_SETTINGS_SECTIONS.map((section) => [section, SETTINGS_SECTION_TITLES[section]]),
   );
-  // Still one disclosure, still closed. No tabs, no group that opens on its own.
+  assert.deepEqual(WORKFLOW_SETTINGS_SECTIONS, ["issue-details", "code-search", "build-context", "fix-with-ai"]);
+  // Git history and Similar fixes have nothing to configure beyond their
+  // checkbox: no section pretends otherwise.
+  assert.equal(/settings-section-(git-history|similar-fixes)/.test(HTML), false);
+  // Each says whether its changes need a rebuild — the model's sentence.
+  for (const section of WORKFLOW_SETTINGS_SECTIONS) {
+    assert.match(settingsSection(section), new RegExp(`id="settings-note-${section}">${sectionRebuildNote(section).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</p>`));
+  }
+  // No disclosures and no nested forms: one page, read top to bottom.
+  assert.equal(/<details|<form/.test(SETTINGS_VIEW), false);
   assert.equal(/<details[^>]*\bopen\b/.test(HTML), false);
-  // One `<details>` in the slice, which is the section's own opening tag.
-  assert.equal(
-    (advanced.match(/<details/g) ?? []).length,
-    1,
-    "a group became a nested disclosure",
-  );
 });
 
-test("Run Options is what is left, and none of it steers the search", () => {
-  const runOptions = advancedGroup("run-options");
-  const fields = [...runOptions.matchAll(/id="field-([A-Za-z-]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(fields, ["title", "agent", "agentCommand", "attachments"]);
-  // The destructive checkbox has no `field-` id of its own; it is the last row.
-  assert.match(runOptions, /id="fresh"/);
-  for (const id of ["ignorePaths", "maxFiles", "maxSearchLines", "keywords", "focusFiles"]) {
-    assert.equal(
-      runOptions.includes(`id="field-${id}"`),
-      false,
-      `${id} steers retrieval and should not be a Run Option`,
-    );
+test("Issue details' section is the title and attachments; Build context's is Fresh", () => {
+  const issue = settingsSection("issue-details");
+  assert.deepEqual([...issue.matchAll(/id="field-([A-Za-z-]+)"/g)].map((match) => match[1]), ["title", "attachments"]);
+  // The issue itself stays on the form, where a run is composed.
+  assert.equal(SETTINGS_VIEW.includes('id="issue"'), false, "the Issue field moved off the form");
+  const build = settingsSection("build-context");
+  assert.match(build, /id="fresh"/);
+  assert.match(build, /Changes here apply to the next run and do not require rebuilding context\./);
+  for (const id of ["ignorePaths", "maxFiles", "maxSearchLines", "keywords", "focusFiles", "agent", "hint"]) {
+    assert.equal(issue.includes(`id="field-${id}"`) || build.includes(`id="field-${id}"`), false, `${id} is in the wrong section`);
   }
 });
 
-test("Guidance is the Hint and the things that act on it", () => {
-  const guidance = advancedGroup("guidance");
-  assert.match(guidance, /id="field-hint"/);
-  assert.match(guidance, /Add technical guidance, constraints, or suspected areas\./);
-  // Use issue details belongs to Hint improvement, not to retrieval, and stays
-  // in the row with the button it qualifies.
-  assert.match(guidance, /id="useIssueDetails"/);
-  assert.match(guidance, /id="improve-hint"/);
-  assert.match(guidance, /id="hint-suggestion"/);
-  // And nothing else: a retrieval field here would defeat the heading.
+test("Fix with AI's section is the agent, its command, the Fix Mode, and the Hint with what acts on it", () => {
+  const fix = settingsSection("fix-with-ai");
+  const fields = [...fix.matchAll(/id="field-([A-Za-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(fields, ["agent", "agentCommand", "fixModeId", "hint"]);
+  assert.match(fix, /Add technical guidance, constraints, or suspected areas\./);
+  // Use issue details belongs to Hint improvement, and stays in the row with
+  // the button it qualifies.
+  assert.match(fix, /id="useIssueDetails"/);
+  assert.match(fix, /id="improve-hint"/);
+  assert.match(fix, /id="hint-suggestion"/);
+  // A mixed section: the settings that change the prepared context say so
+  // beside their label, and the agent does not.
+  assert.match(fix, /<span class="rebuild-label" id="fixModeId-rebuild">Requires context rebuild<\/span>/);
+  assert.match(fix, /<span class="rebuild-label" id="hint-rebuild">Requires context rebuild<\/span>/);
+  for (const id of ["agent", "agentCommand"]) assert.equal(fix.includes(`id="${id}-rebuild"`), false, `${id} claims a rebuild`);
+  // And nothing that steers the search: a retrieval field here would defeat the section.
   for (const id of ["keywords", "focusFiles", "ignorePaths", "title", "maxFiles"]) {
-    assert.equal(guidance.includes(`id="field-${id}"`), false, `${id} is under Guidance`);
+    assert.equal(fix.includes(`id="field-${id}"`), false, `${id} is under Fix with AI`);
   }
 });
 
-test("Retrieval Overrides is everything that steers the search", () => {
-  // UI-A2 fixed this group at Keywords and Focus Files and recorded the
-  // question; UI-A2c answered it. Ignore paths and the two limits decide what
-  // the search walks and how much of it reaches the context, which is the same
-  // kind of thing the first two do.
-  const retrieval = advancedGroup("retrieval");
-  const fields = [...retrieval.matchAll(/id="field-([A-Za-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(fields, [
-    "keywords",
-    "focusFiles",
-    "ignorePaths",
-    "maxFiles",
-    "maxSearchLines",
-  ]);
+test("Code search's section is everything that steers the search", () => {
+  // Ignore paths and the two limits decide what the search walks and how much
+  // of it reaches the context, which is the same kind of thing the first two do.
+  const search = settingsSection("code-search");
+  const fields = [...search.matchAll(/id="field-([A-Za-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(fields, ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"]);
 
   // "(optional)" in the label, not in a helper line: it is the first thing read,
   // and the point is that a blank box is not a job half done.
-  assert.match(retrieval, /<label[^>]*for="keywords">[\s\S]*?Keywords \(optional\)<\/label>/);
-  assert.match(retrieval, /<label[^>]*for="focusFiles">[\s\S]*?Focus Files \(optional\)<\/label>/);
-  assert.match(retrieval, /Boost retrieval with known identifiers or technical terms\./);
-  assert.match(retrieval, /Prioritize files you already suspect are relevant\./);
+  assert.match(search, /<label[^>]*for="keywords">[\s\S]*?Keywords \(optional\)<\/label>/);
+  assert.match(search, /<label[^>]*for="focusFiles">[\s\S]*?Focus Files \(optional\)<\/label>/);
+  assert.match(search, /Boost retrieval with known identifiers or technical terms\./);
+  assert.match(search, /Prioritize files you already suspect are relevant\./);
+  assert.match(search, /Changes here require rebuilding context\./);
 });
 
 test("the panel never teaches the retrieval pipeline's own vocabulary", () => {
@@ -1594,14 +1679,14 @@ test("Improve is one word, with a tooltip that says what it will do", () => {
   assert.match(button, /codicon-hubot/);
 });
 
-test("the group headings are a rule, not a card", () => {
+test("the section headings are a rule, not a card", () => {
   // §12: whitespace and typography, not containers. A border on three sides
-  // would be the third box deep before the first label.
-  assert.match(CSS, /\.setting-group \{[^}]*border-bottom: 1px solid var\(--vscode-panel-border\)/s);
-  assert.equal(/\.setting-group \{[^}]*border-radius/s.test(CSS), false);
-  assert.equal(/\.setting-group \{[^}]*background/s.test(CSS), false);
-  // Air above every group but the first, which already has the summary's gap.
-  assert.match(CSS, /\.setting-group ~ \.setting-group \{[^}]*margin-top/s);
+  // would be a box inside a page inside a panel.
+  assert.match(CSS, /\.settings-section-title \{[^}]*border-bottom: 1px solid var\(--vscode-panel-border\)/s);
+  assert.equal(/\.settings-section-title \{[^}]*border-radius/s.test(CSS), false);
+  assert.equal(/\.settings-section-title \{[^}]*background/s.test(CSS), false);
+  // Air between sections.
+  assert.match(CSS, /\.settings-section \{[^}]*margin: 0 0 18px/s);
 });
 
 test("the hint row puts its two controls at opposite ends and lets them stack", () => {
@@ -1620,7 +1705,7 @@ test("every advanced field is still there, with the id its state is stored under
     "hint", "keywords", "focusFiles", "title", "ignorePaths",
     "maxFiles", "maxSearchLines", "agentCommand",
   ]) {
-    assert.ok(ADVANCED_FIELD_IDS.includes(id), `${id} left ADVANCED_FIELD_IDS`);
+    assert.ok(SETTINGS_FIELD_IDS.includes(id), `${id} left SETTINGS_FIELD_IDS`);
     assert.match(HTML, new RegExp(`id="field-${id}"`), `${id} has no row`);
   }
   // And the three that are not text fields.
@@ -2109,15 +2194,15 @@ test("Diagnostics is last, and outside the workflow rather than inside it", () =
   // Last in the details hierarchy, as §36 asks — and outside the workflow,
   // because a panel that can only answer "is this configured correctly" after a
   // successful run cannot answer it when the run failed.
-  const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n\s*<details class="group advanced"/.exec(HTML)?.[0] ?? "";
+  const workflow = /<details class="group" id="workflow"[\s\S]*?<\/details>\s*\n[\s\S]*?<div class="settings-entry">/.exec(HTML)?.[0] ?? "";
   assert.notEqual(workflow, "");
   assert.equal(workflow.includes('id="diagnostics"'), false, "Diagnostics is inside the workflow");
 
   assert.ok(HTML.indexOf('id="relevant-files"') < HTML.indexOf('id="search-details"'));
   assert.ok(HTML.indexOf('id="search-details"') < HTML.indexOf('id="diagnostics"'));
-  // Last in the form, after Advanced settings: never above something it should
-  // sit under, and reachable whether or not a run has happened.
-  assert.ok(HTML.indexOf('id="advanced"') < HTML.indexOf('id="diagnostics"'));
+  // Last in the form, after the way into Workflow Settings: never above
+  // something it should sit under, and reachable whether or not a run has happened.
+  assert.ok(HTML.indexOf('id="open-settings"') < HTML.indexOf('id="diagnostics"'));
   assert.match(HTML.slice(HTML.indexOf('id="diagnostics"')), /^[\s\S]*?<\/details>\s*<\/form>/);
 });
 

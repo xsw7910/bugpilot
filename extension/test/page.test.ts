@@ -24,6 +24,7 @@ import { Controller } from "../src/app/controller.ts";
 import type { ControllerPorts } from "../src/app/controller.ts";
 import type { FixModeDraft } from "../src/app/fixModes.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
+import type { FormState } from "../src/app/form.ts";
 import { buildWorkflow, overallStatus } from "../src/app/workflow.ts";
 import { primaryView } from "../src/app/nextAction.ts";
 import type { NextActionInput } from "../src/app/nextAction.ts";
@@ -328,6 +329,16 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
     fixModes: { kind: "loading" },
     ...overrides,
   };
+};
+
+/**
+ * Open Workflow Settings from its entry, change the draft, and press Apply —
+ * the one way a setting reaches the form the page sends.
+ */
+const applyOnPage = (p: Page, edit: () => void) => {
+  p.byId("open-settings").dispatch("click");
+  edit();
+  p.byId("settings-apply").dispatch("click");
 };
 
 /** The page pressing Run: the primary action, sent back with the form. */
@@ -713,11 +724,13 @@ test("Ctrl+Enter is ignored while Run is disabled", () => {
 
 // --- running ---------------------------------------------------------------
 
-test("submitting sends the typed form", () => {
+test("submitting sends the typed form, with the applied settings", () => {
   const p = load();
   p.send(state());
   p.byId("issue").value = "jr-1";
-  p.byId("keywords").value = "save, crash";
+  applyOnPage(p, () => {
+    p.byId("keywords").value = "save, crash";
+  });
   p.byId("form").dispatch("submit");
 
   const message = p.posted.at(-1) as { type: string; action?: string; form: Record<string, unknown> };
@@ -998,12 +1011,12 @@ test("pressing the primary action drops the form change still waiting on the deb
   // put the button back to what it said before the press.
   const p = load();
   p.send(prepared());
-  p.byId("hint").value = "look at the controller";
-  p.byId("form").dispatch("input", { target: p.byId("hint") });
+  p.byId("issue").value = "JR-12345";
+  p.byId("form").dispatch("input", { target: p.byId("issue") });
   p.byId("form").dispatch("submit");
   const press = p.posted.at(-1) as { type: string; form: Record<string, unknown> };
   assert.equal(press.type, "nextAction");
-  assert.equal(press.form["hint"], "look at the controller");
+  assert.equal(press.form["issueKey"], "JR-12345");
 
   p.flush();
   assert.equal(p.posted.at(-1), press, "a form change was sent after the press that already carried it");
@@ -1273,14 +1286,14 @@ test("a field with no layout is left at auto rather than sized to zero", () => {
   assert.equal(hint.style["height"], "auto");
 });
 
-test("opening Advanced settings sizes the text already restored into it", () => {
+test("opening Workflow Settings sizes the text already restored into it", () => {
   // The path a hidden webview takes: state is restored into fields that cannot
-  // be measured, and the toggle is the first moment they can be.
+  // be measured, and opening the page is the first moment they can be.
   const p = load({ form: { ...DEFAULT_FORM, hint: "a paragraph that wrapped" } });
   assert.equal(p.byId("hint").style["height"], "auto", "nothing was measurable yet");
 
   sized(p, "hint", 48, 210);
-  p.byId("advanced").dispatch("toggle");
+  p.byId("open-settings").dispatch("click");
   assert.equal(p.byId("hint").style["height"], "210px");
 });
 
@@ -1425,12 +1438,42 @@ test("the command box belongs to the custom choice alone", () => {
   assert.equal(p.byId("field-agentCommand").hidden, true);
 });
 
-test("a validation problem inside Advanced settings opens it", () => {
-  // The fields moved into a collapsed section; a message nobody can see is the
-  // same as no message.
+test("a second press refused for the same settings problem opens the page there again", () => {
+  // Found in the real window: the problem lives on the settings page, so once
+  // the developer had gone back, a second Rebuild Context refused for the same
+  // field showed nothing at all — the press looked ignored.
+  const refused = () => state({ problems: [{ field: "maxFiles", message: "Enter a whole number." }] });
+  const p = load();
+  p.send(refused());
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  p.byId("settings-cancel").dispatch("click");
+
+  // An unrelated push with the same problem does not reopen it…
+  p.send(refused());
+  assert.equal(p.byId("workflow-settings-view").hidden, true, "a push without a press reopened the page");
+  // …but a new press that the host refuses again does, at the field.
+  p.byId("form").dispatch("submit");
+  p.send(refused());
+  assert.equal(p.byId("workflow-settings-view").hidden, false, "the second refusal showed nothing");
+  assert.equal(p.focused, "maxFiles");
+
+  // The same for the Fix Mode selector's problem.
+  const badMode = () => state({ fixModes: MODES, problems: [{ field: "fixModeId", message: '"x" is not a Fix Mode id.' }] });
+  const q = load();
+  q.send(badMode());
+  q.byId("settings-cancel").dispatch("click");
+  q.byId("form").dispatch("submit");
+  q.send(badMode());
+  assert.equal(q.byId("workflow-settings-view").hidden, false);
+  assert.equal(q.focused, "fixModeId");
+});
+
+test("a validation problem in a settings field opens Workflow Settings there", () => {
+  // A message nobody can see is the same as no message.
   const p = load();
   p.send(state({ problems: [{ field: "maxFiles", message: "Enter a whole number." }] }));
-  assert.equal(p.byId("advanced").open, true);
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  assert.ok(p.byId("settings-section-code-search").classes.has("settings-section-target"));
   assert.equal(p.focused, "maxFiles");
 });
 
@@ -1453,11 +1496,12 @@ test("attached files are listed by name, with the full path on hover", () => {
   assert.equal(rows[0]!.children[0]!.getAttribute("title"), "C:\\logs\\crash.log");
 });
 
-test("removing one takes it out of the next form the page sends", () => {
+test("removing one takes it out of the draft, and out of the form once applied", () => {
   const p = load();
   p.send(
     state({ revision: 2, form: { ...DEFAULT_FORM, attachments: ["/a/one.log", "/b/two.log"] } }),
   );
+  p.byId("open-settings").dispatch("click");
   // The × on the first row.
   p.byId("attachment-list").children[0]!.children[1]!.dispatch("click");
 
@@ -1465,9 +1509,12 @@ test("removing one takes it out of the next form the page sends", () => {
     p.byId("attachment-list").children.map((row) => row.children[0]!.textContent),
     ["two.log"],
   );
+  // A draft: nothing goes to the host until Apply.
   p.flush();
+  assert.equal(p.posted.some((message) => message["type"] === "formChanged"), false);
+  p.byId("settings-apply").dispatch("click");
   const sent = p.posted.at(-1) as { type: string; form: { attachments: string[] } };
-  assert.equal(sent.type, "formChanged");
+  assert.equal(sent.type, "applySettings");
   assert.deepEqual(sent.form.attachments, ["/b/two.log"]);
 });
 
@@ -1477,17 +1524,37 @@ test("the list is hidden while there is nothing attached", () => {
   assert.equal(p.byId("attachment-list").hidden, true);
 });
 
-test("Add files asks the host, because only the host can open a dialog", () => {
+test("Add files asks the host for the dialog with the draft's list, and takes the answer once", () => {
   const p = load();
-  p.send(state());
-  p.byId("issue").value = "JR-9";
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, attachments: ["/a/one.log"] } }));
+  p.byId("open-settings").dispatch("click");
   p.byId("add-attachment").dispatch("click");
+  // Only the host can open a dialog; it gets the list on screen to add to.
+  assert.deepEqual(p.posted.at(-1), { type: "pickAttachments", attachments: ["/a/one.log"] });
 
-  const sent = p.posted.at(-1) as { type: string; form: { issueKey: string } };
-  assert.equal(sent.type, "addAttachments");
-  // Carrying the form, so the host merges onto what is on screen rather than
-  // onto its own copy from up to a debounce ago.
-  assert.equal(sent.form.issueKey, "JR-9");
+  const names = () => p.byId("attachment-list").children.map((row) => row.children[0]!.textContent);
+  p.send(state({ attachmentPick: { token: 1, attachments: ["/a/one.log", "/b/two.log"] } }));
+  assert.deepEqual(names(), ["one.log", "two.log"]);
+  // The draft's, not the form's: a press now still sends the applied list.
+  p.byId("form").dispatch("submit");
+  assert.deepEqual((p.posted.at(-1)!["form"] as { attachments: string[] }).attachments, ["/a/one.log"]);
+  // Taken once: the same answer pushed again adds nothing back.
+  p.byId("attachment-list").children[1]!.children[1]!.dispatch("click");
+  p.send(state({ attachmentPick: { token: 1, attachments: ["/a/one.log", "/b/two.log"] } }));
+  assert.deepEqual(names(), ["one.log"]);
+});
+
+test("an attachment answer that arrives after the page closed changes nothing", () => {
+  const p = load();
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, attachments: ["/a/one.log"] } }));
+  p.byId("open-settings").dispatch("click");
+  p.byId("add-attachment").dispatch("click");
+  p.byId("settings-cancel").dispatch("click");
+  p.send(state({ attachmentPick: { token: 1, attachments: ["/a/one.log", "/b/two.log"] } }));
+  p.byId("form").dispatch("submit");
+  assert.deepEqual((p.posted.at(-1)!["form"] as { attachments: string[] }).attachments, ["/a/one.log"]);
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("attachment-list").children.length, 1);
 });
 
 // --- fix mode --------------------------------------------------------------
@@ -1587,17 +1654,19 @@ test("a bugpilot without Fix Modes explains itself instead of offering a list", 
   assert.equal(page.byId("run").disabled, false);
 });
 
-test("the run message carries the selected Fix Mode", () => {
+test("the run message carries the applied Fix Mode", () => {
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
-  page.byId("fixModeId").value = "investigate-first";
+  applyOnPage(page, () => {
+    page.byId("fixModeId").value = "investigate-first";
+  });
   page.byId("form").dispatch("submit");
 
   const run = page.posted.find((message) => isRunPress(message));
   assert.equal((run?.["form"] as { fixModeId?: string } | undefined)?.fixModeId, "investigate-first");
 });
 
-// --- Batch 7: the selector lives in Advanced settings → Strategy ------------
+// --- Batch 7, and Workflow Settings: where the Fix Mode selector lives -----
 
 /** The same catalog with a project custom mode in it, as `fix-mode list --json` reports one. */
 const WITH_CUSTOM = {
@@ -1621,13 +1690,13 @@ const lastRun = (page: Page) =>
     | { fixModeId?: string }
     | undefined;
 
-test("Advanced settings starts closed, and the selector inside it is already filled in", () => {
-  // Placement is visual. A closed section still holds the real selection and
-  // its description, so opening it shows what Run will use.
+test("Workflow Settings starts closed, and the selector on it is already filled in", () => {
+  // Placement is visual. A closed page still holds the real selection and its
+  // description, so opening it shows what Run will use.
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
 
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
   assert.equal(page.byId("fixModeId").value, "investigate-first");
   assert.match(page.byId("fixModeId-description").textContent, /Investigation only/);
 });
@@ -1636,26 +1705,23 @@ test("with nothing chosen, the closed selector holds the default the CLI declare
   const page = load();
   page.send(state({ fixModes: MODES }));
 
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
   assert.equal(page.byId("fixModeId").value, "standard");
   page.byId("form").dispatch("submit");
   assert.equal(lastRun(page)?.fixModeId, "standard");
 });
 
-test("a mode chosen and then folded away is still the one Run sends", () => {
-  // The regression Batch 7 must not introduce: a section being closed says
-  // nothing about the setting inside it.
+test("a mode applied on the settings page is the one Run sends, whatever pushes arrive after", () => {
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
-  page.byId("advanced").open = true;
-  page.byId("fixModeId").value = "investigate-first";
-  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
-  page.byId("advanced").open = false;
-  page.byId("advanced").dispatch("toggle");
+  applyOnPage(page, () => {
+    page.byId("fixModeId").value = "investigate-first";
+    page.byId("workflow-settings-view").dispatch("change", { target: page.byId("fixModeId") });
+  });
 
-  // Pushes keep arriving while it is closed — every stream event is one — and
-  // none of them may reset the choice: not a plain push, and not one that
-  // carries the host's older copy of the form under the same revision.
+  // Pushes keep arriving — every stream event is one — and none of them may
+  // reset the choice: not a plain push, and not one that carries the host's
+  // older copy of the form under the same revision.
   page.send(state({ fixModes: MODES }));
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
   assert.equal(page.byId("fixModeId").value, "investigate-first", "a same-revision push reset the choice");
@@ -1667,13 +1733,13 @@ test("a mode chosen and then folded away is still the one Run sends", () => {
   assert.equal(stored?.form?.fixModeId, "investigate-first");
 });
 
-test("Ctrl+Enter from the Issue field uses the folded-away mode too", () => {
+test("Ctrl+Enter from the Issue field uses the applied mode too", () => {
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
   page.byId("issue").value = "JR-12345";
   page.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
 
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
   assert.equal(lastRun(page)?.fixModeId, "investigate-first");
 });
 
@@ -1691,17 +1757,18 @@ test("a restored custom mode is what the closed section holds, and what Run send
   assert.equal(lastRun(page)?.fixModeId, "team-safe");
 });
 
-test("a problem with the chosen mode opens Advanced settings once, to show it", () => {
-  // The rule every field in the section already follows: a message in a
-  // closed section is a message nobody sees.
+test("a problem with the chosen mode opens Workflow Settings once, at the selector", () => {
+  // The rule every settings field follows: a message on a page nobody opened is
+  // a message nobody sees.
   const problem = { field: "fixModeId" as const, message: '"bad id" is not a Fix Mode id. Pick one from the list.' };
   const withProblem = () =>
     state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" }, problems: [problem] });
   const page = load();
   page.send(withProblem());
 
-  assert.equal(page.byId("advanced").open, true);
-  // And lands on the selector, which also brings it into view.
+  assert.equal(page.byId("workflow-settings-view").hidden, false);
+  assert.ok(page.byId("settings-section-fix-with-ai").classes.has("settings-section-target"));
+  // And lands on the selector.
   assert.equal(page.focused, "fixModeId");
   assert.equal(page.byId("fixModeId-description").textContent, problem.message);
   assert.ok(page.byId("field-fixModeId").classes.has("field-invalid"));
@@ -1709,59 +1776,70 @@ test("a problem with the chosen mode opens Advanced settings once, to show it", 
 
   // Once: closing it again is not overruled by the same problem pushed again,
   // and focus is not pulled back to the selector either.
-  page.byId("advanced").open = false;
-  page.byId("hint").focus();
+  page.byId("settings-cancel").dispatch("click");
+  page.byId("issue").focus();
   page.send(withProblem());
-  assert.equal(page.byId("advanced").open, false);
-  assert.equal(page.focused, "hint");
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
+  assert.equal(page.focused, "issue");
 });
 
-test("an unavailable catalog is explained inside the section, and does not force it open", () => {
+test("an unavailable catalog is explained on the settings page, and does not force it open", () => {
   // Not a problem with anything the developer chose — Run still works on the
   // CLI's default — so it is said where Fix Mode lives, not pushed in their face.
   const page = load();
   page.send(state({ fixModes: { kind: "unavailable", detail: "AI Fix Modes could not be read." } }));
 
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
   assert.equal(page.byId("fixModeId-description").textContent, "AI Fix Modes could not be read.");
   assert.equal(page.byId("run").disabled, false);
 });
 
-test("coming back from Manage Fix Modes lands on the gear, with its section open", () => {
-  // The gear is inside Advanced settings. A reloaded panel can restore the
-  // manager with the section closed, and focus cannot land inside a closed
-  // disclosure — so the way back opens it.
+test("coming back from Manage Fix Modes returns to Workflow Settings, on the gear, with the draft kept", () => {
+  // The gear is beside the selector on the settings page, so that is where the
+  // way back goes — and what was typed there before leaving is still there.
   const page = load();
+  page.send(state({ fixModes: MODES }));
+  page.byId("settings-fixWithAI").dispatch("click");
+  page.byId("hint").value = "a draft, not yet applied";
   page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
 
   page.send(state({ fixModes: MODES }));
-
-  assert.equal(page.byId("advanced").open, true);
+  assert.equal(page.byId("workflow-settings-view").hidden, false);
   assert.equal(page.focused, "manage-fix-modes");
+  assert.equal(page.byId("hint").value, "a draft, not yet applied");
 });
 
-test("opening the panel on the form does not open Advanced settings", () => {
-  // Only the way back from Fix Mode management does; a panel that loads, or a
-  // run that starts, leaves the section as it was.
+test("a manager a reloaded panel restored goes back to the form, on the way into Workflow Settings", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
+  page.send(state({ fixModes: MODES }));
+  assert.equal(page.byId("main-view").hidden, false);
+  assert.equal(page.focused, "open-settings");
+});
+
+test("opening the panel on the form does not open Workflow Settings", () => {
+  // Only a gear, the entry or a problem in a settings field does; a panel that
+  // loads, or a run that starts, leaves the form on screen.
   const page = load();
   page.send(state({ fixModes: MODES }));
   page.send(state({ fixModes: MODES, progress: { state: "running", rows: [], artifacts: [] } }));
   page.send(prepared({}, { fixModes: MODES }));
 
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
+  assert.equal(page.byId("main-view").hidden, false);
 });
 
-/** What the collapsed Advanced settings summary says about the Fix Mode. */
+/** What the line beside Workflow Settings says about the Fix Mode. */
 const strategyLabel = (page: Page) => ({
-  shown: !page.byId("advanced-strategy").hidden,
-  name: page.byId("advanced-strategy-name").textContent,
-  description: page.byId("advanced-strategy-description").textContent,
+  shown: !page.byId("settings-strategy").hidden,
+  name: page.byId("settings-strategy-name").textContent,
+  description: page.byId("settings-strategy-description").textContent,
 });
 
 const NO_LABEL = { shown: false, name: "", description: "" };
 
-test("Standard Fix adds nothing to the collapsed summary", () => {
+test("Standard Fix adds nothing beside Workflow Settings", () => {
   // The ordinary case stays exactly as quiet as it was: no label, no text.
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
@@ -1773,7 +1851,7 @@ test("Standard Fix adds nothing to the collapsed summary", () => {
   assert.deepEqual(strategyLabel(fresh), NO_LABEL);
 });
 
-test("a non-default built-in mode is named in the collapsed summary", () => {
+test("a non-default built-in mode is named beside Workflow Settings", () => {
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
 
@@ -1783,9 +1861,9 @@ test("a non-default built-in mode is named in the collapsed summary", () => {
     description: "Fix Mode: Investigate First",
   });
   // The full name on hover, for when a narrow sidebar cuts it short.
-  assert.equal(page.byId("advanced-strategy").getAttribute("title"), "Fix Mode: Investigate First");
-  // Said, not opened: the section stays as the developer left it.
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("settings-strategy").getAttribute("title"), "Fix Mode: Investigate First");
+  // Said, not opened.
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
 });
 
 test("a custom mode is named by its display name", () => {
@@ -1796,30 +1874,35 @@ test("a custom mode is named by its display name", () => {
   assert.equal(strategyLabel(page).shown, true);
 });
 
-test("the label follows the selector the moment the developer changes it", () => {
+test("the label follows the applied mode, never the draft", () => {
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
 
+  // A draft is not what Run will use, so it is not named.
+  page.byId("open-settings").dispatch("click");
   page.byId("fixModeId").value = "investigate-first";
-  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
+  page.byId("workflow-settings-view").dispatch("change", { target: page.byId("fixModeId") });
+  assert.deepEqual(strategyLabel(page), NO_LABEL, "a draft was named as what Run will use");
+  page.byId("settings-apply").dispatch("click");
   assert.equal(strategyLabel(page).name, "Investigate First");
 
   // And back to the default: the label goes, rather than lingering.
-  page.byId("fixModeId").value = "standard";
-  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
+  applyOnPage(page, () => {
+    page.byId("fixModeId").value = "standard";
+  });
   assert.deepEqual(strategyLabel(page), NO_LABEL);
 });
 
 test("a reopened work item's restored mode is named before Run", () => {
   // The case the label exists for: the host restores the mode a work item was
-  // prepared with — a new form revision, no click — while the section is closed.
+  // prepared with — a new form revision, no click — while the page is closed.
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
   assert.deepEqual(strategyLabel(page), NO_LABEL);
 
   page.send(state({ revision: 2, fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
   assert.equal(strategyLabel(page).name, "Investigate First");
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
 });
 
 test("switching to a new work item that resets to the default clears a stale label", () => {
@@ -1861,7 +1944,7 @@ test("with the label showing, Run from the closed section is unchanged", () => {
 
   page.byId("form").dispatch("submit");
   assert.equal(lastRun(page)?.fixModeId, "team-safe");
-  assert.equal(page.byId("advanced").open, false);
+  assert.equal(page.byId("workflow-settings-view").hidden, true);
 });
 
 test("the Strategy line reports the package, not the selector", () => {
@@ -2278,6 +2361,10 @@ test("each view takes focus as it opens, and the gear gets it back", () => {
   page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, editor: DRAFT } }));
   assert.equal(page.focused, "editor-title");
 
+  // From the settings page, where the gear is, and back to it.
+  page.send(state({ fixModes: MODES }));
+  page.byId("open-settings").dispatch("click");
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
   page.send(state({ fixModes: MODES }));
   assert.equal(page.focused, "manage-fix-modes");
 });
@@ -2783,16 +2870,21 @@ test("the two answers to a suggestion are the two messages", () => {
   );
 });
 
-test("an accepted suggestion arrives as an ordinary form update", () => {
-  // Which is what keeps it editable: it lands in the field the developer was
-  // already typing in, not in a mode of its own.
+test("an accepted suggestion goes into the draft hint, and reaches the form only on Apply", () => {
+  // Which is what keeps it editable — it lands in the field being edited — and
+  // what keeps Cancel meaningful: nothing on the settings page is the form yet.
   const page = load();
-  page.send(state({ revision: 1, form: { ...DEFAULT_FORM, hint: "maybe cache" } }));
-
-  page.send(state({ revision: 2, form: { ...DEFAULT_FORM, hint: "Investigate cache invalidation." } }));
-
+  page.send(state({ revision: 2, form: { ...DEFAULT_FORM, hint: "maybe cache" } }));
+  page.byId("settings-fixWithAI").dispatch("click");
+  page.send(state({ hintImprovement: { busy: false, suggestion: "Investigate cache invalidation." } }));
+  page.byId("hint-use").dispatch("click");
   assert.equal(page.byId("hint").value, "Investigate cache invalidation.");
-  assert.equal(page.byId("hint-suggestion").hidden, true);
+  assert.equal(page.posted.at(-1)!["type"], "useImprovedHint");
+
+  page.byId("form").dispatch("submit");
+  assert.equal((page.posted.at(-1)!["form"] as { hint: string }).hint, "maybe cache", "a suggestion was used before Apply");
+  page.byId("settings-apply").dispatch("click");
+  assert.equal((page.posted.at(-1)!["form"] as { hint: string }).hint, "Investigate cache invalidation.");
 });
 
 test("a fallback is said quietly and a failure is said loudly", () => {
@@ -2978,16 +3070,18 @@ test("the post-run actions are on the rows a finished run leaves open", () => {
 // --- UI-A2: the regrouped fields still carry their state -------------------
 
 test("the regrouped fields round-trip through the form unchanged", () => {
-  // UI-A2 moved markup, renamed two labels and added helper text. None of that
-  // may reach the message: a keyword list and a focus path are parsed by the
-  // host, and a field that arrived under a new name would simply stop working.
+  // The fields moved onto the settings page. None of that may reach the
+  // message: a keyword list and a focus path are parsed by the host, and a
+  // field that arrived under a new name would simply stop working.
   const p = load();
   p.send(state());
 
-  p.byId("keywords").value = "VolumeDescriptor, OpenVDS\noutputType";
-  p.byId("focusFiles").value = "src/core/\nsrc/services/example.cpp";
-  p.byId("hint").value = "check the output validation";
-  p.byId("ignorePaths").value = "build/";
+  applyOnPage(p, () => {
+    p.byId("keywords").value = "VolumeDescriptor, OpenVDS\noutputType";
+    p.byId("focusFiles").value = "src/core/\nsrc/services/example.cpp";
+    p.byId("hint").value = "check the output validation";
+    p.byId("ignorePaths").value = "build/";
+  });
   p.byId("form").dispatch("submit");
 
   const message = p.posted.at(-1) as { type: string; action?: string; form: Record<string, unknown> };
@@ -3019,13 +3113,12 @@ test("a restored form still fills every regrouped field", () => {
   assert.equal(p.byId("maxFiles").value, "5");
 });
 
-test("a problem in a regrouped field still opens Advanced settings and lands", () => {
-  // The messages are attached by field id, and the section they live in is now
-  // one of three groups. A message in a closed section is a message nobody sees.
+test("a problem in a regrouped field still opens Workflow Settings and lands", () => {
+  // The messages are attached by field id, whichever section the field is in.
   const p = load();
   p.send(state({ problems: [{ field: "focusFiles", message: "outside the repository" }] }));
 
-  assert.equal(p.byId("advanced").open, true);
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
   assert.equal(p.byId("focusFiles-error").textContent, "outside the repository");
   assert.equal(p.byId("focusFiles-error").hidden, false);
   assert.equal(p.focused, "focusFiles");
@@ -5452,4 +5545,230 @@ test("Edit of a listed report that could not be read says so, not that it is in 
   const q = load();
   q.send(evidenced({ verificationEdit: { token: 2, checks: [], structured: false, unreadable: false } }));
   assert.match(q.byId("verification-editor-replace-note").textContent, /not in BugPilot's format/);
+});
+
+// --- Workflow Settings: navigation, draft, Apply --------------------------------
+
+/** A panel with a prepared work item and an applied set of search settings. */
+const settingsPage = (overrides: Partial<PanelState> = {}) => {
+  const p = load();
+  p.send({ ...prepared(), revision: 2, form: { ...DEFAULT_FORM, issueKey: "JR-12345", keywords: "applied" }, ...overrides });
+  return p;
+};
+
+test("settings 3: Code search's gear opens Workflow Settings at Code search, highlighted, on Keywords", () => {
+  const p = settingsPage();
+  const before = p.posted.length;
+  p.byId("settings-codeSearch").dispatch("click");
+
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  assert.equal(p.byId("main-view").hidden, true);
+  const section = p.byId("settings-section-code-search");
+  assert.deepEqual(section.scrolledIntoView, { behavior: "smooth", block: "start" });
+  assert.ok(section.classes.has("settings-section-target"));
+  assert.equal(p.byId("settings-section-fix-with-ai").classes.has("settings-section-target"), false);
+  assert.equal(p.focused, "keywords");
+  // Opening the page asks the host nothing, and starts nothing.
+  assert.deepEqual(p.posted.slice(before), []);
+  // The emphasis is brief.
+  p.flush();
+  assert.equal(section.classes.has("settings-section-target"), false);
+});
+
+test("settings 4: Fix with AI's gear lands on Fix with AI, at the AI agent", () => {
+  const p = settingsPage();
+  p.byId("settings-fixWithAI").dispatch("click");
+  assert.ok(p.byId("settings-section-fix-with-ai").classes.has("settings-section-target"));
+  assert.deepEqual(p.byId("settings-section-fix-with-ai").scrolledIntoView, { behavior: "smooth", block: "start" });
+  assert.equal(p.focused, "agent");
+});
+
+test("settings 12: each gear focuses its section's first control on screen", () => {
+  const p = settingsPage();
+  // A Jira issue: Title is for a hand-written bug and is hidden, so Attachments.
+  p.byId("settings-issueDetails").dispatch("click");
+  assert.equal(p.focused, "add-attachment");
+  p.byId("settings-back").dispatch("click");
+  p.byId("issue").value = "The dialog crashes on save.";
+  p.byId("form").dispatch("input", { target: p.byId("issue") });
+  p.byId("settings-issueDetails").dispatch("click");
+  assert.equal(p.focused, "title");
+  p.byId("settings-back").dispatch("click");
+  p.byId("settings-buildContext").dispatch("click");
+  assert.equal(p.focused, "fresh");
+  p.byId("settings-back").dispatch("click");
+  // The entry opens the page at its top.
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.focused, "settings-heading");
+  assert.deepEqual(p.byId("settings-heading").scrolledIntoView, { behavior: "smooth", block: "start" });
+});
+
+test("settings 12: during a run the fields are read-only, so the section's heading takes focus", () => {
+  const p = load();
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  p.byId("settings-codeSearch").dispatch("click");
+  assert.equal(p.byId("keywords").disabled, true);
+  assert.equal(p.focused, "settings-title-code-search");
+});
+
+test("settings 5 and 6: Back returns to the form, on the gear, with everything on the form as it was", () => {
+  const p = settingsPage();
+  p.byId("issue").value = "JR-777";
+  p.byId("plan-gitHistory").checked = false;
+  p.byId("plan-fixWithAI").checked = true;
+  p.byId("settings-codeSearch").dispatch("click");
+  p.byId("keywords").value = "a draft";
+  p.byId("settings-back").dispatch("click");
+
+  assert.equal(p.byId("main-view").hidden, false);
+  assert.equal(p.byId("workflow-settings-view").hidden, true);
+  assert.equal(p.focused, "settings-codeSearch");
+  assert.equal(p.byId("issue").value, "JR-777");
+  assert.equal(p.byId("plan-gitHistory").checked, false);
+  assert.equal(p.byId("plan-fixWithAI").checked, true);
+  // Back discards, like Cancel.
+  assert.equal(p.byId("keywords").value, "applied");
+});
+
+test("settings 7: Cancel discards the draft, and a press after it sends the applied settings", () => {
+  const p = settingsPage();
+  p.byId("settings-fixWithAI").dispatch("click");
+  p.byId("agent").value = "custom";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("agent") });
+  assert.equal(p.byId("field-agentCommand").hidden, false);
+  p.byId("keywords").value = "draft";
+  p.byId("fresh").checked = true;
+  const before = p.posted.length;
+  p.byId("settings-cancel").dispatch("click");
+
+  assert.deepEqual(p.posted.slice(before), [], "Cancel told the host something");
+  assert.equal(p.byId("agent").value, "auto");
+  assert.equal(p.byId("field-agentCommand").hidden, true);
+  assert.equal(p.byId("keywords").value, "applied");
+  assert.equal(p.byId("fresh").checked, false);
+  p.byId("form").dispatch("submit");
+  const form = p.posted.at(-1)!["form"] as FormState;
+  assert.equal(form.agent, "auto");
+  assert.equal(form.keywords, "applied");
+  assert.equal(form.fresh, false);
+});
+
+test("settings 7: Escape cancels and Ctrl+Enter applies, from anywhere on the page", () => {
+  const p = settingsPage();
+  p.byId("settings-codeSearch").dispatch("click");
+  p.byId("keywords").value = "draft";
+  p.byId("workflow-settings-view").dispatch("keydown", { key: "Escape", target: p.byId("keywords") });
+  assert.equal(p.byId("workflow-settings-view").hidden, true);
+  assert.equal(p.byId("keywords").value, "applied");
+
+  p.byId("settings-codeSearch").dispatch("click");
+  p.byId("keywords").value = "applied by keyboard";
+  p.byId("workflow-settings-view").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("keywords") });
+  assert.equal(p.posted.at(-1)!["type"], "applySettings");
+  assert.equal((p.posted.at(-1)!["form"] as FormState).keywords, "applied by keyboard");
+});
+
+test("settings 8: Apply sends the whole form with the draft once, returns to the form, and a press then carries it", () => {
+  const p = settingsPage();
+  p.byId("issue").value = "JR-12345";
+  p.byId("settings-codeSearch").dispatch("click");
+  p.byId("keywords").value = "VolumeDescriptor";
+  p.byId("maxFiles").value = "10";
+  p.byId("settings-apply").dispatch("click");
+
+  const applied = p.posted.at(-1) as { type: string; form: FormState };
+  assert.equal(applied.type, "applySettings");
+  assert.equal(applied.form.keywords, "VolumeDescriptor");
+  assert.equal(applied.form.maxFiles, "10");
+  // The form's own fields ride along unchanged.
+  assert.equal(applied.form.issueKey, "JR-12345");
+  assert.equal(p.posted.filter((message) => message["type"] === "applySettings").length, 1);
+  assert.equal(p.byId("workflow-settings-view").hidden, true);
+  assert.equal(p.focused, "settings-codeSearch");
+  p.byId("form").dispatch("submit");
+  assert.equal((p.posted.at(-1)!["form"] as FormState).keywords, "VolumeDescriptor");
+});
+
+test("settings 17: a form change waiting on the debounce cannot overwrite what was just applied", () => {
+  const p = settingsPage();
+  // Typed on the form a moment ago: its snapshot holds the settings before Apply.
+  p.byId("issue").value = "JR-12345";
+  p.byId("form").dispatch("input", { target: p.byId("issue") });
+  p.byId("settings-codeSearch").dispatch("click");
+  p.byId("keywords").value = "newly applied";
+  p.byId("settings-apply").dispatch("click");
+  p.flush();
+
+  const changes = p.posted.filter((message) => message["type"] === "formChanged");
+  assert.deepEqual(changes, [], "the older snapshot went out after Apply");
+  // And a later change on the form carries the applied settings, not the old ones.
+  p.byId("plan-gitHistory").checked = false;
+  p.byId("form").dispatch("change", { target: p.byId("plan-gitHistory") });
+  p.flush();
+  assert.equal((p.posted.at(-1)!["form"] as FormState).keywords, "newly applied");
+});
+
+test("settings 18: while the host is busy Apply waits and says why; the page is still readable", () => {
+  const p = settingsPage();
+  p.send({ ...prepared({ handoffBusy: true }) });
+  p.byId("settings-fixWithAI").dispatch("click");
+  assert.equal(p.byId("settings-apply").getAttribute("aria-disabled"), "true");
+  assert.equal(p.byId("settings-busy").hidden, false);
+  p.byId("hint").value = "typed while busy";
+  const before = p.posted.length;
+  p.byId("settings-apply").dispatch("click");
+  assert.deepEqual(p.posted.slice(before), [], "Apply went out over an operation in flight");
+  assert.equal(p.byId("workflow-settings-view").hidden, false, "the page closed as if applied");
+
+  // Free again: Apply works, with what was typed.
+  p.send(prepared());
+  assert.equal(p.byId("settings-apply").getAttribute("aria-disabled"), "false");
+  assert.equal(p.byId("settings-busy").hidden, true);
+  p.byId("settings-apply").dispatch("click");
+  assert.equal((p.posted.at(-1)!["form"] as FormState).hint, "typed while busy");
+});
+
+test("settings: a form the host replaces while the page is open replaces the draft too", () => {
+  // Another work item opened from History, or a mode the host restored: the
+  // host's form supersedes a draft of the one before, and a push is never a
+  // silent partial merge.
+  const p = settingsPage();
+  p.byId("settings-codeSearch").dispatch("click");
+  p.byId("keywords").value = "a draft for the old item";
+  p.send({ ...prepared(), revision: 3, form: { ...DEFAULT_FORM, issueKey: "JR-2", keywords: "the host's" } });
+  assert.equal(p.byId("keywords").value, "the host's");
+  p.byId("settings-cancel").dispatch("click");
+  assert.equal(p.byId("keywords").value, "the host's");
+});
+
+test("settings 13: each row's summary is the host's line, and absent when there is none", () => {
+  const p = load();
+  const workflow = buildWorkflow({
+    source: "jira",
+    plan: DEFAULT_FORM.plan,
+    fixWithAI: false,
+    progress: { state: "idle", rows: [], artifacts: [] },
+    artifacts: [],
+    settingsSummaries: { codeSearch: "4 keywords · 2 focus paths · max 10 files", fixWithAI: "Claude Code · Standard Fix" },
+  });
+  p.send(state({ workflow }));
+  assert.equal(p.byId("settings-summary-codeSearch").textContent, "4 keywords · 2 focus paths · max 10 files");
+  assert.equal(p.byId("settings-summary-codeSearch").hidden, false);
+  assert.equal(p.byId("settings-summary-fixWithAI").textContent, "Claude Code · Standard Fix");
+  assert.equal(p.byId("settings-summary-issueDetails").hidden, true);
+  assert.equal(p.byId("settings-summary-buildContext").hidden, true);
+  // And the row still says what it does.
+  assert.equal(p.byId("description-codeSearch").textContent, "Search relevant code in the repository");
+
+  p.send(state());
+  assert.equal(p.byId("settings-summary-codeSearch").hidden, true, "a summary outlived the settings it described");
+});
+
+test("settings 16: a gear works while the row is running, and never ticks its checkbox", () => {
+  const p = load();
+  p.send(state({ progress: { state: "running", rows: [row("code_search", "running")], artifacts: [] } }));
+  const checked = p.byId("plan-codeSearch").checked;
+  p.byId("settings-codeSearch").dispatch("click");
+  assert.equal(p.byId("plan-codeSearch").checked, checked);
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
 });

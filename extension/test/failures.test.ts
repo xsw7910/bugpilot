@@ -162,7 +162,7 @@ test("every reason resolveAgent can give becomes the same card", () => {
   for (const reason of [
     "claude is not on PATH.",
     "No AI coding agent was found on PATH (looked for claude).",
-    "No custom agent command is set. Put one in Advanced settings, using {prompt} where the handoff prompt goes.",
+    "No custom agent command is set. Put one in Workflow Settings → Fix with AI, using {prompt} where the handoff prompt goes.",
     "The custom agent command has no {prompt} in it, so the agent would get no instructions.",
   ]) {
     const error = handoffError(reason);

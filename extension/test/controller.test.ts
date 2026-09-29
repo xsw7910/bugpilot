@@ -2469,13 +2469,20 @@ test("improving a hint never touches what the developer wrote", async () => {
   assert.equal(h.last().form?.hint, HINTED.hint, "the hint was overwritten before it was accepted");
 });
 
-test("Use Improved takes the suggestion into the hint; Keep Original does not", async () => {
+test("Use Improved and Keep Original both clear the suggestion; neither writes the host's form", async () => {
+  // The page puts an accepted suggestion into the settings page's Hint — a
+  // draft, like everything there — so the host's form, and whether a context is
+  // stale, changes only when the page is applied.
   const h = hintHarness({ improveHint: async () => ({ ok: true, text: "Investigate validation." }) });
   await h.controller.refreshEnvironment();
-  await h.controller.handle({ type: "improveHint", form: HINTED });
+  await h.controller.handle({ type: "ready" });
+  const revision = h.last().revision;
+  await h.controller.handle({ type: "improveHint", form: { ...HINTED, hint: "a draft hint" } });
+  assert.equal(h.last().hintImprovement?.suggestion, "Investigate validation.");
 
   await h.controller.handle({ type: "useImprovedHint" });
-  assert.equal(h.last().form?.hint, "Investigate validation.");
+  assert.equal(h.last().form?.hint, HINTED.hint, "the host took the draft or the suggestion as its own");
+  assert.equal(h.last().revision, revision, "the page's draft was overwritten");
   assert.equal(h.last().hintImprovement?.suggestion, undefined, "the suggestion outlived its use");
 
   const kept = hintHarness({ improveHint: async () => ({ ok: true, text: "Something else." }) });
@@ -7188,4 +7195,123 @@ test("next action 10: a second press while a run is still being set up starts no
   assert.equal(h.streamRuns.length, 1, "a declined or doubled rebuild ran");
   assert.equal(h.last().primary.busy, false, "the button stayed Running… after the question was declined");
   assert.equal(h.last().primary.action, "rebuildContext");
+});
+
+// --- Workflow Settings: Apply is the one door ----------------------------------
+
+const applySettings = (form: FormState) => ({ type: "applySettings", form }) as const;
+
+test("settings 9: an applied preparation input makes the context stale, and the rows' summaries follow", async () => {
+  const h = await preparedHarness();
+  assert.equal(h.last().primary.action, "fixWithAI");
+  assert.equal(codeRow(h.last()).settingsSummary, undefined, "a row with default settings said something");
+
+  await h.controller.handle(applySettings(jiraForm({ keywords: "VolumeDescriptor, outputType", focusFiles: "src/a.ts\nsrc/b.ts", maxFiles: "10" })));
+  assert.equal(h.last().primary.action, "rebuildContext", "applied search settings left the context current");
+  assert.equal(codeRow(h.last()).settingsSummary, "2 keywords · 2 focus paths · max 10 files");
+  // Saved like any form change, so a reloaded window keeps it.
+  assert.equal(h.saved.at(-1)?.keywords, "VolumeDescriptor, outputType");
+  assert.equal(h.streamRuns.length, 1, "applying settings started a run");
+  assert.equal(h.terminals.length, 0, "applying settings started an agent");
+});
+
+test("settings 10: an applied agent, Fresh or hint-reading choice leaves the context current", async () => {
+  const h = await preparedHarness();
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude", fresh: true, useIssueDetails: false })));
+  assert.equal(h.last().primary.action, "fixWithAI");
+  assert.equal(fixRow(h.last()).settingsSummary, "Claude Code");
+  assert.equal(buildRow(h.last()).settingsSummary, "Deletes previous artifacts first");
+  // But a Fix Mode or a hint does make it stale, as the page says.
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude", hint: "look at the controller" })));
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.equal(fixRow(h.last()).settingsSummary, "Claude Code · hint added");
+});
+
+test("settings 14: no summary carries a value the developer typed, a path or a command", async () => {
+  const secret = "C:/Users/someone/secret/project";
+  const h = await preparedHarness();
+  await h.controller.handle(
+    applySettings(
+      jiraForm({
+        keywords: "PrivateToken",
+        focusFiles: `${secret}/a.ts`,
+        ignorePaths: `${secret}/build`,
+        hint: "the password is hunter2",
+        agent: "custom",
+        agentCommand: `${secret}/agent --token abc {prompt}`,
+        attachments: [`${secret}/crash.log`],
+        title: "Secret title",
+      }),
+    ),
+  );
+  const summaries = h.last().workflow.flatMap((step) => (step.settingsSummary ? [step.settingsSummary] : [])).join(" | ");
+  assert.equal(summaries, "1 attachment | 1 keyword · 1 focus path · 1 ignored path | Custom agent command · hint added");
+  for (const leak of ["PrivateToken", "secret", "hunter2", "abc", "Secret title", "crash.log", "someone"]) {
+    assert.equal(summaries.includes(leak), false, `a summary carries "${leak}"`);
+  }
+});
+
+test("settings 18: Apply is refused while anything is in flight, and the page is given the host's form back", async () => {
+  const h = harness({ ...WITH_FILES, agentOnPath: true, hold: true, events: successfulRun.filter((event) => event.type !== "completed") });
+  await h.controller.refreshEnvironment();
+  const running = h.controller.handle({ type: "nextAction", action: "run", form: jiraForm() });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const revision = h.last().revision;
+
+  await h.controller.handle(applySettings(jiraForm({ keywords: "mid-run" })));
+  assert.equal(h.last().form?.keywords, "", "the host took settings over a run in flight");
+  assert.ok(h.last().revision > revision, "the page was left showing settings the host does not hold");
+  assert.match(h.notices.at(-1)!.message, /^Workflow Settings were not applied\. A BugPilot run is in progress/);
+  h.release();
+  await running;
+});
+
+test("settings: the attachment dialog answers the settings page's draft, never the host's form", async () => {
+  const h = harness({ ...WITH_FILES, agentOnPath: true, pickFiles: ["/logs/b.log", "/logs/a.log"] });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "ready" });
+  const revision = h.last().revision;
+  await h.controller.handle({ type: "pickAttachments", attachments: ["/logs/a.log"] });
+  // Merged onto what the page showed, de-duplicated, sent once.
+  assert.deepEqual(h.last().attachmentPick, { token: 1, attachments: ["/logs/a.log", "/logs/b.log"] });
+  assert.deepEqual(h.last().form?.attachments ?? [], [], "the pick went into the host's form");
+  assert.equal(h.last().revision, revision, "the page's draft was overwritten");
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().attachmentPick, undefined, "the answer was sent twice");
+
+  // Capped at the CLI's ceiling, and said.
+  const many = harness({ agentOnPath: true, pickFiles: Array.from({ length: 12 }, (_, index) => `/logs/${index}.log`) });
+  await many.controller.refreshEnvironment();
+  await many.controller.handle({ type: "pickAttachments", attachments: [] });
+  assert.equal(many.last().attachmentPick?.attachments.length, 10);
+  assert.match(many.notices.at(-1)!.message, /at most 10 files/);
+  // A cancelled dialog says nothing at all.
+  const cancelled = harness({ agentOnPath: true, pickFiles: [] });
+  await cancelled.controller.refreshEnvironment();
+  const pushes = cancelled.states.length;
+  await cancelled.controller.handle({ type: "pickAttachments", attachments: ["/logs/a.log"] });
+  assert.equal(cancelled.states.length, pushes);
+});
+
+test("settings: improving the draft's hint reads it, and never takes it as the host's form", async () => {
+  const h = await preparedHarness();
+  await h.controller.handle({ type: "improveHint", form: jiraForm({ hint: "look at the controller" }) });
+  assert.equal(h.last().primary.action, "fixWithAI", "a draft hint made the context stale before Apply");
+  assert.equal(h.hintPrompts.length, 1);
+  assert.match(h.hintPrompts[0]!, /look at the controller/);
+});
+
+test("settings 19: the next-action states are unchanged by applying settings that do not touch them", async () => {
+  const h = await preparedHarness();
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude" })));
+  await h.controller.handle({ type: "nextAction", action: "fixWithAI", form: jiraForm({ agent: "claude" }) });
+  assert.equal(h.terminals.length, 1);
+  assert.equal(h.last().primary.action, "openSession");
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude", maxFiles: "5" })));
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.deepEqual(h.last().primary.more, ["openSession"]);
+  await h.controller.handle({ type: "nextAction", action: "rebuildContext", form: jiraForm({ agent: "claude", maxFiles: "5" }) });
+  assert.ok(h.streamRuns[1]!.args.includes("--max-files=5"), "Rebuild Context did not use the applied settings");
+  assert.equal(h.last().primary.action, "openSession");
+  assert.deepEqual(h.last().primary.more, ["startNewAttempt", "rebuildContext"]);
 });

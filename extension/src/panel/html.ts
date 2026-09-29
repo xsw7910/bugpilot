@@ -9,15 +9,16 @@
  * The shape is one column, read top to bottom, because that is the order the
  * work happens in:
  *
- *     Issue → Run → the six workflow steps → advanced settings
+ *     Issue → Run → the six workflow steps → Workflow Settings
  *
  * Only the first two of those are open on an untouched panel. §34's UI-A1
  * made the workflow a disclosure beside Advanced settings, so what greets a
  * developer is the one sentence the tool is about — type the issue, press
  * Run — rather than every control the panel owns laid out at equal weight.
  * Batch 7 took Fix Mode out of that sentence too: Standard Fix is what almost
- * every run uses, so choosing another is a setting, under Advanced settings →
- * Strategy, rather than a question asked before every Run.
+ * every run uses, so choosing another is a setting — then under Advanced
+ * settings → Strategy, now on the Workflow Settings page with the rest of Fix
+ * with AI's settings — rather than a question asked before every Run.
  *
  * It replaced three separate places that described the same run: an
  * "Investigate" fieldset of checkboxes, a "Progress" checklist repeating the
@@ -48,6 +49,16 @@ import { WORKFLOW_STEP_IDS, STEP_LABELS, stepDescription } from "../app/workflow
 import type { WorkflowStepId } from "../app/workflow.ts";
 import { NEXT_ACTION_LABELS, RUN_HINT } from "../app/nextAction.ts";
 import type { NextActionId } from "../app/nextAction.ts";
+import {
+  REQUIRES_REBUILD_LABEL,
+  SETTINGS_ACTION_LABELS,
+  SETTINGS_SECTION_OF_STEP,
+  SETTINGS_SECTION_TITLES,
+  WORKFLOW_SETTINGS_SECTIONS,
+  sectionRebuildNote,
+  showsRebuildLabel,
+} from "../app/workflowSettings.ts";
+import type { SettingsField, WorkflowSettingsSection } from "../app/workflowSettings.ts";
 
 export interface PanelHtmlOptions {
   /** A fresh random nonce per document load. */
@@ -71,9 +82,9 @@ interface TextField {
   /**
    * A codicon name, drawn in the gutter to the left of the label.
    *
-   * What makes Advanced settings scannable: nine fields read as a list you can
-   * run your eye down rather than nine paragraphs. Every field in the section
-   * has one, because a gap in that column is more distracting than an icon.
+   * What makes the settings page scannable: its fields read as a list you can
+   * run your eye down rather than paragraphs. Every field there has one,
+   * because a gap in that column is more distracting than an icon.
    */
   readonly icon?: string;
   /** Which of the six semantic tones colours it. Defaults to `muted`. */
@@ -141,7 +152,7 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
         <p class="card-title" id="hint-suggestion-heading" tabindex="-1">AI Suggestion</p>
         <p class="preview-text" id="hint-suggestion-text"></p>
         <div class="run-buttons">
-          <button type="button" id="hint-use" class="primary">Use Improved</button>
+          <button type="button" id="hint-use">Use Improved</button>
           <button type="button" id="hint-keep">Keep Original</button>
         </div>
       </div>
@@ -150,23 +161,21 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
 /**
  * Strategy: how the agent approaches the bug — the one Fix Mode selector.
  *
- * Under Advanced settings since Batch 7, first in the section. It is an input
- * to the run like everything else here, and Standard Fix is what almost every
- * run uses; on the main form it asked a question before every Run that the
- * default already answers. Moving it is placement only: the selection is
- * `FormState.fixModeId` whether the section is open or closed, the host still
+ * On the Workflow Settings page, in Fix with AI's section (off the main form
+ * since Batch 7). It is an input to the run like everything else there, and
+ * Standard Fix is what almost every run uses. The selection is
+ * `FormState.fixModeId` whether the page is open or closed, the host still
  * restores and normalizes it, and the selected mode's description — including
- * "Investigation only" — stays directly under the selector it describes.
+ * "Investigation only" — stays directly under the selector it describes. It
+ * changes the prepared task, so it says it requires a context rebuild.
  *
  * The gear opens Manage Fix Modes (view, duplicate, create, edit, delete),
  * which is why it sits beside the selector rather than anywhere else.
  *
- * While the section is closed, its summary names a non-default mode on the
- * title line (`#advanced-strategy`): the host can change the selection without
- * a click — reopening a work item restores the mode it was prepared with — so a
- * closed section still says when Run will not use the default. The visible
- * label is aria-hidden so the disclosure's name stays what it was; the same
- * fact reaches assistive tech as the summary's description.
+ * While the page is closed, the line beside the Workflow Settings entry names a
+ * non-default applied mode (`#settings-strategy`): the host can change the
+ * selection without a click — reopening a work item restores the mode it was
+ * prepared with — so the form still says when Run will not use the default.
  */
 const FIX_MODE_FIELD = `        <div class="field" id="field-fixModeId">
 ${settingHeader({
@@ -175,6 +184,7 @@ ${settingHeader({
   icon: "lightbulb",
   tone: "primary",
   hint: "How the AI works on this bug.",
+  rebuild: showsRebuildLabel("fixModeId"),
 })}
           <div class="fix-mode-row">
             <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-hint fixModeId-description">
@@ -557,84 +567,26 @@ ${FIX_RESULT_ROW}
         </div>
       </details>
 
-      <details class="group advanced" id="advanced">
-        <summary aria-describedby="advanced-strategy-description">
-          <span class="codicon codicon-settings-gear adv-gear icon-primary" aria-hidden="true"></span>
-          <span class="adv-heading">
-            <span class="adv-title-row">
-              <span class="adv-title">Advanced Settings (Optional)</span>
-              <span class="adv-strategy" id="advanced-strategy" aria-hidden="true" hidden>
-                <span class="codicon codicon-lightbulb icon-primary" aria-hidden="true"></span>
-                <span class="adv-strategy-name" id="advanced-strategy-name"></span>
-              </span>
-            </span>
-            <span class="adv-subtitle">Fine-tune the investigation to get better results</span>
-          </span>
-          <span class="adv-toggle">
-            <span class="codicon codicon-chevron-up" aria-hidden="true"></span>
-            Hide Advanced
-          </span>
-          <span id="advanced-strategy-description" hidden></span>
-        </summary>
-
-  ${groupHeading("strategy", "Strategy")}
-${FIX_MODE_FIELD}
-
-  ${groupHeading("guidance", "Guidance")}
-  ${GUIDANCE_FIELDS.map(field).join("\n")}
-
-  ${groupHeading("retrieval", "Retrieval Overrides")}
-  ${RETRIEVAL_FIELDS.map(field).join("\n")}
-
-        <div class="limits">
-  ${LIMIT_FIELDS.map(field).join("\n")}
-        </div>
-
-  ${groupHeading("run-options", "Run Options")}
-  ${RUN_OPTION_FIELDS.map(field).join("\n")}
-
-        <div class="field" id="field-agent">
-  ${settingHeader({
-          forId: "agent",
-          label: "AI agent",
-          icon: "hubot",
-          tone: "primary",
-        })}
-          <select id="agent" name="agent">
-            <option value="auto">Auto-detect (Recommended)</option>
-            <option value="claude">Claude Code</option>
-            <option value="custom">Custom command…</option>
-          </select>
-        </div>
-  ${field(AGENT_COMMAND_FIELD)}
-
-        <div class="field" id="field-attachments">
-  ${settingHeader({
-          forId: "add-attachment",
-          label: "Attachments",
-          icon: "attach",
-          tone: "muted",
-          hint: "Copied into the work item and named in the agent's task file.",
-        })}
-          <ul id="attachment-list" class="attachments" hidden></ul>
-          <button type="button" id="add-attachment">
-            <span class="codicon codicon-add" aria-hidden="true"></span>
-            Add files…
-          </button>
-        </div>
-
-        <div class="field field-check">
-  ${settingHeader({
-          forId: "fresh",
-          label: "Delete previous artifacts first",
-          control: '<input type="checkbox" id="fresh" aria-describedby="fresh-hint"> ',
-          labelClass: "choice",
-          // Kept, and the only helper text in the section that describes a
-          // consequence rather than a field: this one deletes an agent's work.
-          hint: "Removes existing generated artifacts before running. Off by default to avoid accidental data loss.",
-        })}
-        </div>
-      </details>
+      <!--
+        The way into Workflow Settings from the form, beside the per-row gears:
+        the page where every step's settings live (app/workflowSettings.ts). It
+        replaced the "Advanced Settings (Optional)" disclosure, which held the
+        same controls grouped by kind rather than by the step they change. The
+        line under it names a non-default Fix Mode, because the host can change
+        the selection without a click — reopening a work item restores the mode
+        it was prepared with — and Run would not use the default then.
+      -->
+      <div class="settings-entry">
+        <button type="button" id="open-settings" class="settings-open" aria-describedby="settings-strategy-description">
+          <span class="codicon codicon-settings-gear icon-primary" aria-hidden="true"></span>
+          <span class="settings-open-label">Workflow Settings</span>
+        </button>
+        <span class="settings-strategy" id="settings-strategy" aria-hidden="true" hidden>
+          <span class="codicon codicon-lightbulb icon-primary" aria-hidden="true"></span>
+          <span class="settings-strategy-name" id="settings-strategy-name"></span>
+        </span>
+        <span id="settings-strategy-description" hidden></span>
+      </div>
 
       <!--
         What BugPilot is configured with, for the developer who is not sure
@@ -658,6 +610,8 @@ ${FIX_MODE_FIELD}
     <section id="notices" class="notices" role="status" hidden></section>
 
   </section>
+
+${settingsView()}
 
   <section id="fix-mode-manager-view" class="view" aria-labelledby="manage-heading" hidden>
     <div class="view-head">
@@ -776,6 +730,110 @@ ${EDITOR_SECTIONS.map(section).join("\n")}
 `;
 }
 
+/** The AI agent picker: three choices, no helper text — each option says what it does. */
+const AGENT_FIELD = `        <div class="field" id="field-agent">
+  ${settingHeader({
+    forId: "agent",
+    label: "AI agent",
+    icon: "hubot",
+    tone: "primary",
+    rebuild: showsRebuildLabel("agent"),
+  })}
+          <select id="agent" name="agent">
+            <option value="auto">Auto-detect (Recommended)</option>
+            <option value="claude">Claude Code</option>
+            <option value="custom">Custom command…</option>
+          </select>
+        </div>`;
+
+/** Files to copy in beside the issue: a list the page renders, and the dialog's button. */
+const ATTACHMENTS_FIELD = `        <div class="field" id="field-attachments">
+  ${settingHeader({
+    forId: "add-attachment",
+    label: "Attachments",
+    icon: "attach",
+    tone: "muted",
+    hint: "Copied into the work item and named in the agent's task file.",
+  })}
+          <ul id="attachment-list" class="attachments" hidden></ul>
+          <button type="button" id="add-attachment">
+            <span class="codicon codicon-add" aria-hidden="true"></span>
+            Add files…
+          </button>
+        </div>`;
+
+/**
+ * Delete previous artifacts first — Fresh. Kept with the only helper text in the
+ * page that describes a consequence rather than a field: this one deletes an
+ * agent's work.
+ */
+const FRESH_FIELD = `        <div class="field field-check">
+  ${settingHeader({
+    forId: "fresh",
+    label: "Delete previous artifacts first",
+    control: '<input type="checkbox" id="fresh" aria-describedby="fresh-hint"> ',
+    labelClass: "choice",
+    hint: "Removes existing generated artifacts before running. Off by default to avoid accidental data loss.",
+  })}
+        </div>`;
+
+/** What each section holds, in the order `SETTINGS_SECTION_FIELDS` lists its fields. */
+function sectionBody(section: WorkflowSettingsSection): string {
+  switch (section) {
+    case "issue-details":
+      return `${RUN_OPTION_FIELDS.map(field).join("\n")}\n${ATTACHMENTS_FIELD}`;
+    case "code-search":
+      return `${RETRIEVAL_FIELDS.map(field).join("\n")}
+        <div class="limits">
+  ${LIMIT_FIELDS.map(field).join("\n")}
+        </div>`;
+    case "build-context":
+      return FRESH_FIELD;
+    case "fix-with-ai":
+      return `${AGENT_FIELD}\n${field(AGENT_COMMAND_FIELD)}\n${FIX_MODE_FIELD}\n${GUIDANCE_FIELDS.map(field).join("\n")}`;
+  }
+}
+
+/**
+ * Workflow Settings: one page, one section per step that has settings, in the
+ * workflow's order — so a row's gear lands on its section and the whole
+ * configuration can still be read top to bottom.
+ *
+ * A view like the Fix Mode ones, outside the form: Enter in one of its fields
+ * must not submit a Run, and nothing typed here is part of the form until
+ * Apply. Each section's heading takes focus when a gear lands on it, and its
+ * note says — from `SETTING_REQUIRES_REBUILD` — whether its changes make a
+ * prepared context stale. Apply is the page's one primary button; Back and
+ * Cancel both discard.
+ */
+function settingsView(): string {
+  const sections = WORKFLOW_SETTINGS_SECTIONS.map(
+    (section) => `    <section class="settings-section" id="settings-section-${section}" aria-labelledby="settings-title-${section}">
+      <h3 class="settings-section-title" id="settings-title-${section}" tabindex="-1">${SETTINGS_SECTION_TITLES[section]}</h3>
+      <p class="hint settings-rebuild" id="settings-note-${section}">${sectionRebuildNote(section)}</p>
+${sectionBody(section)}
+    </section>`,
+  ).join("\n\n");
+  return `  <section id="workflow-settings-view" class="view" aria-labelledby="settings-heading" hidden>
+    <div class="view-head">
+      <button type="button" id="settings-back" class="link view-back">
+        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
+        Back
+      </button>
+      <h2 id="settings-heading" class="view-title" tabindex="-1">Workflow Settings</h2>
+      <p class="muted view-lede">What each workflow step uses. Changes take effect when you press Apply; Back and Cancel discard them.</p>
+    </div>
+
+${sections}
+
+    <p class="muted settings-busy" id="settings-busy" role="status" hidden>BugPilot is working on this work item. Apply is available once it finishes.</p>
+    <div class="settings-actions">
+      <button type="button" id="settings-cancel">Cancel</button>
+      <button type="button" id="settings-apply" class="primary">Apply</button>
+    </div>
+  </section>`;
+}
+
 /**
  * A setting's label and its helper text, on one line while there is room.
  *
@@ -797,6 +855,8 @@ function settingHeader(options: {
   /** For a checkbox, whose control lives inside its own label. */
   readonly control?: string;
   readonly labelClass?: string;
+  /** Say, beside the label, that changing this setting makes a prepared context stale. */
+  readonly rebuild?: boolean;
 }): string {
   // The tone is a class, never an inline style: the colours belong to the
   // stylesheet, where a theme can be reasoned about in one place.
@@ -809,25 +869,11 @@ function settingHeader(options: {
   // an empty paragraph is a gap where the helper text used to be.
   const hint = options.hint ? `<p class="hint" id="${options.forId}-hint">${options.hint}</p>` : "";
   const labelClass = options.labelClass ? ` class="${options.labelClass}"` : "";
+  const rebuild = options.rebuild ? `<span class="rebuild-label" id="${options.forId}-rebuild">${REQUIRES_REBUILD_LABEL}</span>` : "";
   return `      <div class="setting-header">
         <label${labelClass} for="${options.forId}">${icon}${options.control ?? ""}${options.label}</label>
-        ${hint}
+        ${rebuild}${hint}
       </div>`;
-}
-
-/**
- * One heading inside Advanced settings, with a rule under it.
- *
- * A heading and a hairline rather than a bordered card: the section already
- * sits inside a `<details>` inside a panel, and a third box around each group
- * would be three borders deep before the first label. `aria-labelledby` points
- * the group at it, so the grouping is available to a screen reader and not only
- * to the eye.
- *
- * `h3`, because Advanced settings' own title is the `h2` above it.
- */
-function groupHeading(id: string, title: string): string {
-  return `        <h3 class="setting-group" id="group-${id}">${title}</h3>`;
 }
 
 function field(entry: TextField): string {
@@ -859,6 +905,7 @@ ${settingHeader({
     ...(entry.icon === undefined ? {} : { icon: entry.icon }),
     ...(entry.tone === undefined ? {} : { tone: entry.tone }),
     ...(entry.hint === undefined ? {} : { hint: entry.hint }),
+    rebuild: showsRebuildLabel(entry.id as SettingsField),
   })}
       ${control}
       <p class="error" id="${entry.id}-error" hidden></p>
@@ -889,18 +936,27 @@ function step(id: WorkflowStepId): string {
   // The Jira wording, because that is the source the form starts on; the host
   // replaces it with the manual wording on the first push after a switch.
   const description = stepDescription(id, "jira");
+  // A gear only where the step has a settings section: Git history and Similar
+  // fixes are configured by their checkbox alone. Named for its step — "Configure
+  // Code Search" — because six buttons all called Settings are one name read six
+  // times. Visible at rest (quieter until hovered or focused), never hover-only.
+  const section = SETTINGS_SECTION_OF_STEP[id];
+  const gear = section
+    ? `\n            <button type="button" class="icon step-settings" id="settings-${id}" title="${SETTINGS_ACTION_LABELS[section]}" aria-label="${SETTINGS_ACTION_LABELS[section]}"><span class="codicon codicon-settings-gear" aria-hidden="true"></span></button>`
+    : "";
+  const summary = section ? `\n            <p class="step-settings-summary" id="settings-summary-${id}" hidden></p>` : "";
   return `        <li class="step" id="step-${id}">
           <div class="step-head">
             <label class="step-label" for="plan-${id}">${box}<span>${STEP_LABELS[id]}</span></label>
             <span class="step-duration" id="duration-${id}"></span>
-            <span class="step-status codicon" id="status-${id}" aria-hidden="true" hidden></span>
+            <span class="step-status codicon" id="status-${id}" aria-hidden="true" hidden></span>${gear}
           </div>
           <div class="step-foot">
             <p class="step-description" id="description-${id}">${description}</p>
             ${note}
             <button type="button" class="step-artifact" id="artifact-${id}" hidden><span class="codicon codicon-file" aria-hidden="true"></span><span id="artifact-${id}-name"></span></button>
           </div>
-          <div class="step-body">
+          <div class="step-body">${summary}
             <p class="step-detail" id="detail-${id}" hidden></p>
 ${stepContent(id)}
 ${errorCard(`error-${id}`)}
@@ -1104,8 +1160,8 @@ function section(entry: { readonly id: string; readonly label: string }): string
     </div>`;
 }
 
-/** The ids of the fields Advanced settings hides, so a test can check it hides them. */
-export const ADVANCED_FIELD_IDS: readonly string[] = [
+/** The ids of the text fields the Workflow Settings page holds, so a test can check it holds them. */
+export const SETTINGS_FIELD_IDS: readonly string[] = [
   ...GUIDANCE_FIELDS,
   ...RETRIEVAL_FIELDS,
   ...LIMIT_FIELDS,
@@ -1121,7 +1177,7 @@ export const ADVANCED_FIELD_IDS: readonly string[] = [
  * and `description`, and which of the two it fills is derived from what is in
  * it. `test/panel.test.ts` states that mapping rather than exempting it.
  *
- * Everything else is what Advanced settings holds, in the order it holds it —
- * one list, so a field cannot be added to a group and forgotten here.
+ * Everything else is what the Workflow Settings page holds — one list, so a
+ * field cannot be added to a section and forgotten here.
  */
-export const TEXT_FIELD_IDS: readonly string[] = ["issue", ...ADVANCED_FIELD_IDS];
+export const TEXT_FIELD_IDS: readonly string[] = ["issue", ...SETTINGS_FIELD_IDS];

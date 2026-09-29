@@ -27,7 +27,13 @@ First release. What it does today:
   The CLI's two-step retry loop stays in the command palette.
 - Jira credentials live in VS Code's SecretStorage and reach the CLI as
   environment variables — never on a command line, never in the panel.
-- **Fix Mode.** Under **Advanced settings → Strategy**, a dropdown chooses how
+- **Workflow Settings.** A ⚙ on each step that has settings — Issue details,
+  Code search, Build context, Fix with AI — opens one settings page at that
+  step's section. Changes apply with **Apply** and are discarded by Cancel or
+  Back; each section says whether its changes require rebuilding context, and
+  the rows show a short summary of their settings. It replaces the Advanced
+  Settings disclosure.
+- **Fix Mode.** Under **Workflow Settings → Fix with AI**, a dropdown chooses how
   the agent approaches the bug: Standard Fix (the default), Conservative Fix,
   Investigate First, Test-Driven Fix or Deep Analysis, plus any custom mode you
   or the project define. Investigate First prepares an investigation-only pass —

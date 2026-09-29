@@ -16,7 +16,7 @@
  *
  * and everything else is in the ⋯ menu beside it: Start New Attempt once an
  * attempt exists, Rebuild Context once there is a context to rebuild. Fresh and
- * the CLI's Retry stay where recovery belongs — Advanced settings and the
+ * the CLI's Retry stay where recovery belongs — Workflow Settings and the
  * command palette — rather than on the path every run takes.
  *
  * Computed by the host on every push, like the workflow rows: the page cannot
