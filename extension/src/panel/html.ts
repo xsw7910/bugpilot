@@ -558,9 +558,10 @@ ${MORE_ACTIONS.map(menuItem).join("\n")}
         Advanced Settings (§37.91): the one page where every step's settings live
         (app/workflowSettings.ts), also reached from each row's gear. Under Run
         and its hint and above the workflow — with the inputs, not after the
-        results, where it read as part of the review above Diagnostics. A quiet
-        link: never a button beside Run, Fix with AI or Review with AI. Its name
-        is its visible text; the tooltip says where it goes.
+        results, where it read as part of the review above Diagnostics. A
+        compact secondary button (§37.93): findable, and never a second primary
+        beside Run, Fix with AI or Review with AI. Its name is its visible text;
+        the tooltip says where it goes.
       -->
       <div class="settings-entry">
         <button type="button" id="open-settings" class="settings-open" title="Open advanced workflow settings">

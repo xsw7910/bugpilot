@@ -2648,16 +2648,27 @@ test("Advanced Settings sits with the inputs — after Issue, Fix Mode and Hint,
   assert.equal(HTML.split('class="settings-entry"').length - 1, 1, "more than one way in from the form");
 });
 
-test("Advanced Settings is a quiet link: never a primary button, and its name is what it says", () => {
+test("Advanced Settings is a compact secondary button: bordered, unfilled, never the primary style", () => {
   const button = /<button type="button" id="open-settings"[^>]*>/.exec(HTML)?.[0] ?? "";
   assert.equal(button.includes("primary"), false);
   // The accessible name is the visible text; the tooltip says where it goes.
   assert.equal(button.includes("aria-label"), false);
   assert.match(button, /title="Open advanced workflow settings"/);
+  assert.match(HTML, /<button type="button" id="open-settings"[^>]*>\s*<span class="codicon codicon-settings-gear" aria-hidden="true"><\/span>\s*<span class="settings-open-label">Advanced Settings<\/span>/);
   const rule = /\.settings-open \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
-  assert.match(rule, /border: none;/);
-  assert.match(rule, /background: none;/);
-  assert.match(rule, /color: var\(--vscode-descriptionForeground\)/);
+  // A button now (§37.93), not the quiet link of §37.91.
+  assert.match(rule, /border: 1px solid var\(--vscode-button-border, var\(--vscode-panel-border\)\);/);
+  assert.match(rule, /padding: 3px 10px;/);
+  assert.match(rule, /background: transparent;/);
+  assert.match(rule, /color: var\(--vscode-foreground\);/);
+  assert.equal(/border: none|descriptionForeground|text-decoration/.test(rule), false, "still the old muted link");
+  // Never the primary's colours.
+  assert.equal(/--vscode-button-background|--vscode-button-foreground/.test(rule), false);
+  // Hover strengthens it; focus is the shared focus outline.
+  assert.match(CSS, /\.settings-open:hover:not\(:disabled\) \{[^}]*background: var\(--vscode-toolbar-hoverBackground/s);
+  assert.match(CSS, /button:focus-visible \{[^}]*outline: 1px solid var\(--vscode-focusBorder\)/s);
+  // Content-sized, not a full-width bar.
+  assert.equal(/(?<![a-z-])width: 100%|flex: 1/.test(rule), false);
 });
 
 test("Advanced Settings wraps between words at 200px, never inside one", () => {

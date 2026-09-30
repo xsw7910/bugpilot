@@ -60,7 +60,7 @@
       "bugpilot": [
         {
           "id": "bugpilot.panel",
-          "name": "Prepare",
+          "name": "Workflow",
           "type": "webview"
         },
         {

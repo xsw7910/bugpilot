@@ -82,7 +82,8 @@ editor and you save them; nothing is written behind your edits.
 
 1. Open the repository you are fixing bugs in. One folder, and ideally a git
    checkout — BugPilot writes `.ai/<work-item>/` next to your code.
-2. Click the BugPilot icon in the activity bar.
+2. Click the BugPilot icon in the activity bar. It has three views:
+   **Workflow** (the panel below), **Artifacts** and **History**.
 3. If a Jira issue: run **BugPilot: Set Jira Credentials** once (email plus an
    API token from your Atlassian account settings). They are kept in VS Code's
    SecretStorage and reach the CLI as environment variables — never in a
@@ -112,7 +113,7 @@ Improve with AI   ☑ Include issue details
 [        ▶ Run        ] [ Stop ]
          Ctrl+Enter
 Run prepares the issue context for AI-assisted fixing.
-⚙ Advanced Settings
+[ ⚙ Advanced Settings ]
 ──────────────────────────────────────────────
 Investigation & AI Fix                Running 3/6…
 ☑ Issue details         <0.1s  ● Completed  ⚙

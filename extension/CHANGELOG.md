@@ -4,7 +4,7 @@
 
 First release. What it does today:
 
-- **One workflow panel.** A Jira issue key or a bug you describe, one primary
+- **One workflow panel**, the **Workflow** view. A Jira issue key or a bug you describe, one primary
   button, and six steps: issue details, code search, git history, similar fixes,
   build context, and an optional **Fix with AI**. Each row is both the choice and
   the outcome: the checkbox on the left, and on the right how it went, said once

@@ -10423,3 +10423,40 @@ in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
 **Regression.** Extension 1523 tests pass (1517 before: 4 panel and 2 page tests
 added; the label, order, helper and layout tests updated); typecheck, smoke and
 `git diff --check` clean.
+
+### 37.93 The Prepare view is Workflow; Advanced Settings is a compact secondary button (after `044fa8f`, uncommitted)
+
+**Status:** implemented, verified in the test suites and in a real VS Code
+window; not committed, not pushed, no version change. Extension only. Decisions
+in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
+"Confirmed decisions (Workflow view name; Advanced Settings as a button)" at the
+end of §19.
+
+**What changed.**
+
+- `package.json`: the `bugpilot.panel` view's name *Workflow* (id unchanged). No
+  other user-visible text named the view.
+- `panel.css`: `.settings-open` a compact secondary button — 1px button border,
+  transparent, foreground text, 3px × 10px, hover fill and stronger border.
+- README: the three views named at *Click the BugPilot icon*; the diagram's
+  `[ ⚙ Advanced Settings ]`. CHANGELOG: the Workflow view named.
+
+**Real VS Code pass** (the disposable profile, the throwaway work item).
+
+- PASS A: the BugPilot sidebar's sections are Workflow, Artifacts, History
+  (announced "Workflow Section"); no "Prepare" in the sidebar; the palette offers
+  *BugPilot: Focus on Workflow View*.
+- PASS B: the entry is a bordered, transparent, foreground-text button, 148 ×
+  25px, one line, above the workflow.
+- PASS C: beside the blue, white-text primary (284 × 29px, reading Open AI
+  Session) it stays secondary.
+- PASS D: Tab from the Hint reaches it; Enter opens the page on its heading;
+  Back returns the focus to it; Space opens it too.
+- PASS E: 200px — the three section titles whole, the entry on one line, no
+  overflow.
+- PASS F: Dark, Light, High Contrast Dark (the theme's contrast border), High
+  Contrast Light.
+
+**Regression.** Extension 1524 tests pass (1523 before: the quiet-link test
+replaced by a secondary-button one; a manifest test for the view names added);
+typecheck, smoke and `git diff --check` clean.

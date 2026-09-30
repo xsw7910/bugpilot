@@ -263,3 +263,22 @@ test("every menu the manifest contributes is a list, so VS Code reports no subme
     assert.ok(Array.isArray(items), `contributes.menus["${id}"] is not a list`);
   }
 });
+
+// --- The main view is Workflow (§37.93) --------------------------------------
+
+test("the main view is called Workflow — its id unchanged — beside Artifacts and History", () => {
+  const views = manifest.contributes.views["bugpilot"] ?? [];
+  assert.deepEqual(
+    views.map((view) => [view.id, view.name]),
+    [
+      ["bugpilot.panel", "Workflow"],
+      ["bugpilot.artifacts", "Artifacts"],
+      ["bugpilot.history", "History"],
+    ],
+  );
+  // No view, command or menu title calls it Prepare any more (the word may
+  // still name a step elsewhere: "Prepare structured context for AI").
+  assert.equal(views.some((view) => /prepare/i.test(view.name)), false);
+  const titles = (manifest.contributes as unknown as { commands: { title: string }[] }).commands.map((command) => command.title);
+  assert.equal(titles.some((title) => /\bPrepare\b/.test(title)), false, "a command still says Prepare");
+});

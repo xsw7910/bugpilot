@@ -2635,6 +2635,24 @@ Navigation)" (§37.77); the page and what it edits are unchanged.
    stands; `useIssueDetails` stored and sent as before; neither control changes
    the other.
 
+### Confirmed decisions (Workflow view name; Advanced Settings as a button)
+
+1. **The main top-level BugPilot view is named Workflow rather than Prepare**,
+   because it now owns the end-to-end issue → context → AI fix → review /
+   verification workflow. The sidebar reads Workflow, Artifacts, History; VS
+   Code's generated command follows (*BugPilot: Focus on Workflow View*). The
+   view id `bugpilot.panel` is unchanged — no migration for a label. "Prepare"
+   stays where it is a step's own wording (*Prepare structured context for
+   AI*) and in "prepared context".
+
+2. **Advanced Settings stays near the main workflow controls but uses a compact
+   secondary-button treatment so it is easier to discover** (revising §37.91's
+   quiet link): a gear and the label in the normal foreground, a hairline
+   border (`--vscode-button-border`, falling back to the panel border), no fill,
+   content-sized, a hover fill and a stronger border; the shared focus outline.
+   Never the primary colours. Label, tooltip (*Open advanced workflow
+   settings*), placement and focus return unchanged.
+
 ---
 
 # 20. Step Secondary Text 状态原则

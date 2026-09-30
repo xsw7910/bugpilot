@@ -353,9 +353,11 @@ details[open] > summary {
 /* The way in from the form: a quiet full-width row under the workflow, with the
    gear every row's own entry uses. The Fix Mode line beside it names a
    non-default mode and wraps under it rather than squeezing it at 200px. */
-/* Advanced Settings, under Run and above the workflow (§37.91): a quiet link
-   with a gear — secondary to every button near it. Its label wraps between
-   words at the narrowest widths, never inside one. */
+/* Advanced Settings, under Run and above the workflow (§37.91): a compact
+   secondary button (§37.93) — a gear, the label in the normal foreground, a
+   hairline border and no fill, content-sized. Visibly a button, never the
+   primary one's blue, and never louder than Run beside it. Its label wraps
+   between words at the narrowest widths, never inside one. */
 .settings-entry {
   display: flex;
   flex-wrap: wrap;
@@ -367,26 +369,25 @@ details[open] > summary {
 .settings-open {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   max-width: 100%;
-  padding: 2px 0;
-  border: none;
-  background: none;
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.9em;
+  padding: 3px 10px;
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+  border-radius: 2px;
+  background: transparent;
+  color: var(--vscode-foreground);
   text-align: left;
   overflow-wrap: normal;
 }
 
 .settings-open:hover:not(:disabled) {
-  background: none;
-  color: var(--vscode-foreground);
-  text-decoration: underline;
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
 }
 
 .settings-open .codicon {
   flex: none;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* One section per step that has settings. A heading and a hairline, not a
