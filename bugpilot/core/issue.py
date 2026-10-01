@@ -98,6 +98,16 @@ class IssueGuidance:
 
     hint: str | None = None
     fix_mode: Mapping[str, object] | None = None
+    # The developer's description of an attached file, by its name in
+    # `attachments/`: why the file matters. Guidance like the hint, so it is
+    # recorded here and survives --resume with the files it describes.
+    attachment_notes: Mapping[str, str] = field(default_factory=dict)
+    # The files this work item currently has in `attachments/`, by name: the
+    # last selection a run copied (§37.99). The record is what a task file
+    # names and what a later run may delete — never whatever else is in the
+    # folder. ``None``: never recorded (a work item from before, or only ever
+    # prepared additively), and the folder is read as it always was.
+    attachment_files: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -335,6 +345,18 @@ def issue_to_dict(issue: IssueArtifact) -> dict[str, object]:
         "guidance": {
             "hint": issue.guidance.hint,
             "fix_mode": dict(issue.guidance.fix_mode) if issue.guidance.fix_mode is not None else None,
+            # Only when there is one: a work item without described attachments
+            # writes the issue.json it always has.
+            **(
+                {"attachment_notes": dict(issue.guidance.attachment_notes)}
+                if issue.guidance.attachment_notes
+                else {}
+            ),
+            **(
+                {"attachment_files": list(issue.guidance.attachment_files)}
+                if issue.guidance.attachment_files is not None
+                else {}
+            ),
         },
     }
 
@@ -360,6 +382,8 @@ def issue_from_dict(data: object, work_item_id: str) -> IssueArtifact:
     guidance = _dict(data.get("guidance"))
     hint = guidance.get("hint")
     fix_mode = guidance.get("fix_mode")
+    notes = _dict(guidance.get("attachment_notes"))
+    files = guidance.get("attachment_files")
     return IssueArtifact(
         id=issue_id,
         source=source,
@@ -406,6 +430,16 @@ def issue_from_dict(data: object, work_item_id: str) -> IssueArtifact:
         guidance=IssueGuidance(
             hint=hint.strip() or None if isinstance(hint, str) else None,
             fix_mode=dict(fix_mode) if isinstance(fix_mode, dict) else None,
+            attachment_notes={
+                str(name): note.strip()
+                for name, note in notes.items()
+                if isinstance(note, str) and note.strip()
+            },
+            attachment_files=(
+                tuple(name for name in files if isinstance(name, str) and name)
+                if isinstance(files, list)
+                else None
+            ),
         ),
     )
 

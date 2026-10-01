@@ -581,7 +581,7 @@ test("a saved form comes back whole, with only the agent translated", () => {
 
 /** Text a terminal must never receive as shell syntax, from Jira, a description, a path or a title. */
 const HOSTILE = [
-  "C:\\sandbox\\bugpilot repo\\task.md",
+  "C:\\path\\to\\sample repo\\task.md",
   'Fix the issue described in "task.md" & preserve existing behavior.',
   "修复这个问题并保持现有行为",
   "Don't break the saver",

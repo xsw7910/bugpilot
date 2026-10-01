@@ -573,3 +573,20 @@ export function createExtensionsPort(): NonNullable<ControllerPorts["extensions"
     },
   };
 }
+
+/**
+ * Where pasted and dropped attachments are kept (§37.98): the extension's own
+ * global storage, `attachments/<digest>/<name>` — outside every repository, so
+ * nothing lands in a working tree until a run copies it into `.ai/<id>/`.
+ * The same content is the same directory, so a second paste rewrites the same
+ * file rather than making another.
+ */
+export function createAttachmentStore(storageRoot: string): NonNullable<ControllerPorts["storeAttachment"]> {
+  return async (digest, name, bytes) => {
+    const directory = path.join(storageRoot, "attachments", digest);
+    await mkdir(directory, { recursive: true });
+    const file = path.join(directory, name);
+    await writeFile(file, bytes);
+    return file;
+  };
+}

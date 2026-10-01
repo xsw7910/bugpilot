@@ -17,8 +17,11 @@ import {
   parseKeywords,
   parsePaths,
   planFlags,
+  preparationFingerprint,
+  restoreForm,
 } from "../src/app/form.ts";
 import type { FormState } from "../src/app/form.ts";
+import { commandForLog } from "../src/app/logSafety.ts";
 
 const OPTIONS = { root: "/work/app", platform: "linux" } as const;
 
@@ -482,4 +485,100 @@ test("choosing a Fix Mode changes nothing else about the command line", () => {
     withMode.filter((arg) => !arg.startsWith("--fix-mode")),
     argsOf(base),
   );
+});
+
+// --- attachment descriptions (§37.98) ------------------------------------------
+
+test("a described attachment sends one --attach-description per --attach, by position", () => {
+  const args = argsOf(
+    form({
+      issueKey: "JR-1",
+      attachments: ["/logs/crash.log", "/shots/login.png"],
+      attachmentDescriptions: { "/shots/login.png": "  Login button stays\n disabled.  " },
+    }),
+  );
+  const attach = args.filter((arg) => arg.startsWith("--attach="));
+  const described = args.filter((arg) => arg.startsWith("--attach-description="));
+  assert.deepEqual(attach, ["--attach=/logs/crash.log", "--attach=/shots/login.png"]);
+  // Blank for the first, collapsed for the second, in the same order.
+  assert.deepEqual(described, ["--attach-description=", "--attach-description=Login button stays disabled."]);
+});
+
+test("without descriptions the command line is exactly what it always was", () => {
+  const args = argsOf(form({ issueKey: "JR-1", attachments: ["/logs/crash.log"], attachmentDescriptions: { "/logs/crash.log": "   " } }));
+  assert.equal(args.some((arg) => arg.startsWith("--attach-description")), false);
+  // A description for a file no longer attached describes nothing.
+  const stale = argsOf(form({ issueKey: "JR-1", attachments: ["/logs/crash.log"], attachmentDescriptions: { "/gone.png": "old" } }));
+  assert.equal(stale.some((arg) => arg.startsWith("--attach-description")), false);
+});
+
+test("adding, removing or re-describing an attachment makes the context stale; the agent never does", () => {
+  const base = form({ issueKey: "JR-1", attachments: ["/logs/crash.log"] });
+  const print = preparationFingerprint(base);
+  assert.notEqual(preparationFingerprint({ ...base, attachments: ["/logs/crash.log", "/s/shot.png"] }), print, "adding");
+  assert.notEqual(preparationFingerprint({ ...base, attachments: [] }), print, "removing");
+  assert.notEqual(preparationFingerprint({ ...base, attachmentDescriptions: { "/logs/crash.log": "After Save." } }), print, "describing");
+  // Whitespace a run would collapse is not a change.
+  const described = { ...base, attachmentDescriptions: { "/logs/crash.log": "After Save." } };
+  assert.equal(preparationFingerprint({ ...base, attachmentDescriptions: { "/logs/crash.log": " After  Save. " } }), preparationFingerprint(described));
+  // The AI Agent is the handoff's, never the context's.
+  for (const agent of ["codex-cli", "claude-extension", "custom"] as const) {
+    assert.equal(preparationFingerprint({ ...described, agent, agentCommand: "x {prompt}" }), preparationFingerprint(described), agent);
+  }
+});
+
+test("a form saved before descriptions existed comes back with none", () => {
+  const saved = { ...DEFAULT_FORM, attachments: ["/logs/crash.log"] } as Partial<FormState>;
+  delete (saved as { attachmentDescriptions?: unknown }).attachmentDescriptions;
+  const restored = restoreForm(saved as FormState);
+  assert.deepEqual(restored.attachmentDescriptions, {});
+  assert.deepEqual(restored.attachments, ["/logs/crash.log"]);
+});
+
+// --- the panel's attachment list is the whole set (§37.99) -------------------------
+
+test("every prepare run says its attachment list is the whole set, even an empty one", () => {
+  // "None selected" has no --attach to say it with, so the flag always goes.
+  for (const state of [
+    form({ issueKey: "JR-1" }),
+    form({ issueKey: "JR-1", attachments: ["/logs/crash.log"] }),
+    form({ source: "manual", description: "It crashes.", attachments: ["/a.png", "/b.log"], attachmentDescriptions: { "/a.png": "x" } }),
+  ]) {
+    const args = argsOf(state);
+    assert.equal(args.filter((arg) => arg === "--replace-attachments").length, 1, JSON.stringify(state.attachments));
+    // After the files it qualifies, so the line reads in order.
+    const last = Math.max(...args.map((arg, index) => (arg.startsWith("--attach") ? index : -1)));
+    assert.ok(args.indexOf("--replace-attachments") > last);
+  }
+  // A retry prepares nothing new about attachments.
+  assert.equal(buildRetryArgs("JR-1").includes("--replace-attachments"), false);
+  // And the log keeps the bare flag: it is BugPilot's, not the developer's text.
+  assert.match(commandForLog(argsOf(form({ issueKey: "JR-1", attachments: ["/logs/crash.log"] }))), / --attach=<redacted> --replace-attachments /);
+});
+
+test("every flag the panel builds is one the CLI declares", () => {
+  // The extension and the CLI ship together; a flag one sends and the other
+  // does not know is an argparse error on every run, so it is caught here.
+  const cli = readFileSync(new URL("../../bugpilot/cli.py", import.meta.url), "utf8");
+  const args = argsOf(
+    form({
+      source: "manual",
+      description: "It crashes.",
+      title: "Crash",
+      hint: "the saver",
+      keywords: "save",
+      focusFiles: "src/a.ts",
+      ignorePaths: "build/",
+      maxFiles: "5",
+      maxSearchLines: "100",
+      attachments: ["/a.png"],
+      attachmentDescriptions: { "/a.png": "x" },
+      fixModeId: "standard",
+      plan: { ...DEFAULT_FORM.plan, gitHistory: false },
+    }),
+  );
+  const flags = [...new Set(args.filter((arg) => arg.startsWith("--")).map((arg) => arg.split("=")[0]!))];
+  for (const name of flags) {
+    assert.match(cli, new RegExp(`add_argument\\(\\s*"${name}"`), `${name} is not declared in bugpilot/cli.py`);
+  }
 });

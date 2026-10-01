@@ -128,7 +128,9 @@ import type {
 } from "./fixModes.ts";
 import type { Log } from "./log.ts";
 import type { Envelope, StreamEvent } from "../protocol.ts";
-import { MAX_ATTACHMENTS } from "../panel/messages.ts";
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../panel/messages.ts";
+import type { AttachmentData } from "../panel/messages.ts";
+import { attachmentDigest, attachmentFileName, holdsDigest } from "./attachmentFiles.ts";
 import type {
   CreatedFixMode,
   Notice,
@@ -256,6 +258,12 @@ export interface ControllerPorts {
   };
   /** The last agent a handoff reached, for Auto-detect; kept across reloads by the host. */
   readonly lastAgent?: LastAgentStore;
+  /**
+   * Keep a pasted or dropped file: write its bytes under the extension's own
+   * storage, in a directory named by `digest`, as `name`, and return the path.
+   * The host's path, never the page's. Absent: such a file cannot be kept.
+   */
+  readonly storeAttachment?: (digest: string, name: string, bytes: Uint8Array) => Promise<string>;
   /**
    * Persist which work item is being shown.
    *
@@ -1137,6 +1145,9 @@ export class Controller {
         return;
       case "applySettings":
         await this.applySettings(message.form);
+        return;
+      case "addAttachmentData":
+        await this.addAttachmentData(message.origin, message.files, message.attachments);
         return;
       case "pickAttachments":
         await this.pickAttachments(message.attachments);
@@ -2220,6 +2231,70 @@ export class Controller {
     }
     this.#attachmentPickToken += 1;
     this.#attachmentPick = { token: this.#attachmentPickToken, attachments: merged.slice(0, MAX_ATTACHMENTS) };
+    this.#push();
+    this.#attachmentPick = undefined;
+  }
+
+  /**
+   * Files pasted or dropped onto the settings page, for its draft list.
+   *
+   * The page sends bytes and the host keeps them, so every attachment is still
+   * a path the host chose. Answered like the file dialog: the merged list goes
+   * back to the page once and becomes the form's only on Apply. A file already
+   * attached — the same content, by digest — is not attached twice, so a second
+   * paste or a drop after a paste changes nothing.
+   *
+   * The log gets the kind, the size and the count. Never the name, the bytes or
+   * anything the developer wrote about them.
+   */
+  async addAttachmentData(origin: "paste" | "drop", files: readonly AttachmentData[], current: readonly string[]): Promise<void> {
+    const store = this.#ports.storeAttachment;
+    if (!store) {
+      this.#ports.ui.notify("warning", "This editor cannot keep pasted or dropped files. Use Add files… instead.");
+      return;
+    }
+    const merged = [...current];
+    const refused = new Set<string>();
+    let added = 0;
+    for (const file of files) {
+      if (merged.length >= MAX_ATTACHMENTS) {
+        refused.add(`BugPilot attaches at most ${MAX_ATTACHMENTS} files`);
+        break;
+      }
+      const bytes = Buffer.from(file.data, "base64");
+      if (bytes.length === 0) {
+        refused.add("an empty file");
+        continue;
+      }
+      if (bytes.length > MAX_ATTACHMENT_BYTES) {
+        refused.add(`a file larger than ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`);
+        continue;
+      }
+      const digest = attachmentDigest(bytes);
+      if (holdsDigest(merged, digest)) {
+        refused.add("a file that is already attached");
+        continue;
+      }
+      let stored: string;
+      try {
+        stored = await store(digest, attachmentFileName(file.name, file.type, merged), bytes);
+      } catch (error) {
+        // The code only: the message would carry the path, and with it the name.
+        this.#ports.log.error(`A ${origin === "paste" ? "pasted" : "dropped"} attachment could not be stored (${(error as { code?: string }).code ?? "error"}).`);
+        refused.add("a file that could not be stored");
+        continue;
+      }
+      merged.push(stored);
+      added += 1;
+      const kind = /^[\w.+-]+\/[\w.+-]+$/.test(file.type) ? file.type : "unknown type";
+      this.#ports.log.info(`Attachment added by ${origin} (${kind}, ${Math.max(1, Math.round(bytes.length / 1024))} KB); ${merged.length} attached.`);
+    }
+    if (refused.size > 0) {
+      this.#ports.ui.notify(added === 0 && refused.size === 1 && refused.has("a file that is already attached") ? "info" : "warning", `Not attached: ${[...refused].join("; ")}.`);
+    }
+    if (added === 0) return;
+    this.#attachmentPickToken += 1;
+    this.#attachmentPick = { token: this.#attachmentPickToken, attachments: merged };
     this.#push();
     this.#attachmentPick = undefined;
   }

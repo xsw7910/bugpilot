@@ -8,6 +8,7 @@
  * is registration, dialogs, and handing the controller its ports.
  */
 
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
@@ -17,6 +18,7 @@ import type { CommandId } from "./commands.ts";
 import { installInstructions, resolveEnvironment } from "./app/environment.ts";
 import type { Environment } from "./app/environment.ts";
 import { TASK_ARTIFACT } from "./app/artifacts.ts";
+import { AttachmentReferenceRegistry, initializeAttachmentGc, runAttachmentGc } from "./app/attachmentStorage.ts";
 import { Controller } from "./app/controller.ts";
 import { isWorkItemId, restoreForm } from "./app/form.ts";
 import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues } from "./app/logSafety.ts";
@@ -37,6 +39,7 @@ import {
   createGitignoreIo,
   loadIssueDetails,
   canRun,
+  createAttachmentStore,
   createExtensionsPort,
   createFilesPort,
   createUiPort,
@@ -96,6 +99,16 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   });
 
+  const storageRoot = context.globalStorageUri.fsPath;
+  const attachmentReferences = new AttachmentReferenceRegistry(context.globalState, workspaceReferenceId(), storageRoot);
+  // Recorded at start-up too: a form saved before references were recorded
+  // (§37.100) is protected from this window's first collection on.
+  attachmentReferences.record(restoreForm(context.workspaceState.get<FormState>(FORM_STATE_KEY)).attachments);
+  // And the first start-up after the upgrade starts the migration grace
+  // period now, not when the deferred pass gets round to it (§37.101). Never
+  // rejects; a failure only means nothing is collected this session.
+  const attachmentGcTracking = initializeAttachmentGc(context.globalState, Date.now(), log);
+
   const environment = async (): Promise<Environment> => {
     const resolved = await resolveEnvironment({
       folders: workspaceFolders(),
@@ -148,7 +161,13 @@ export function activate(context: vscode.ExtensionContext): void {
       // for a command line is the extension's business, not the project's.
       descriptionFilePath: () =>
         path.join(context.globalStorageUri.fsPath, "bug-description.md"),
-      saveForm: (form) => void context.workspaceState.update(FORM_STATE_KEY, form),
+      saveForm: (form) => {
+        void context.workspaceState.update(FORM_STATE_KEY, form);
+        // The form is this workspace's; the attachments it names live in
+        // storage every workspace shares, so what it references is recorded
+        // where every window's collection can see it.
+        attachmentReferences.record(form.attachments);
+      },
       saveWorkItem: (workItemId) =>
         void context.workspaceState.update(WORK_ITEM_STATE_KEY, workItemId),
       // One spawn for the whole catalog, from the one place that knows the
@@ -229,6 +248,8 @@ export function activate(context: vscode.ExtensionContext): void {
       ),
       canRun,
       extensions: createExtensionsPort(),
+      // Pasted and dropped attachments, kept beside the long-description file.
+      storeAttachment: createAttachmentStore(storageRoot),
       lastAgent: {
         get: () => context.globalState.get<string>(LAST_AGENT_STATE_KEY),
         set: (id) => void context.globalState.update(LAST_AGENT_STATE_KEY, id),
@@ -537,6 +558,37 @@ export function activate(context: vscode.ExtensionContext): void {
   // the background, cached. A `--version` per CLI and a manifest read per
   // extension; never an agent run and never a terminal.
   void controller.detectAgents();
+  // Old pasted and dropped attachments nobody references any more (§37.100):
+  // once a session, after start-up has settled, in the background. Never on a
+  // paste, never on a timer after that.
+  const collect = setTimeout(() => {
+    void attachmentGcTracking.then((trackingSince) =>
+      runAttachmentGc({
+        storageRoot,
+        registry: attachmentReferences,
+        current: restoreForm(context.workspaceState.get<FormState>(FORM_STATE_KEY)).attachments,
+        trackingSince,
+        log,
+      }),
+    );
+  }, ATTACHMENT_GC_DELAY_MS);
+  // Waited for by nothing: a host shutting down does not stay up for it.
+  collect.unref();
+  context.subscriptions.push({ dispose: () => clearTimeout(collect) });
+}
+
+/** How long after activation the one attachment collection waits. */
+const ATTACHMENT_GC_DELAY_MS = 30_000;
+
+/**
+ * This window's workspace, as a key that names no path: the workspace file, or
+ * its folders, hashed. A window whose folders change gets a new key, and the
+ * old one's references stay recorded — kept, never collected.
+ */
+function workspaceReferenceId(): string {
+  const workspace = vscode.workspace.workspaceFile?.toString()
+    ?? (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.toString()).join("\n");
+  return createHash("sha256").update(workspace === "" ? "no-folder" : workspace).digest("hex").slice(0, 16);
 }
 
 /**

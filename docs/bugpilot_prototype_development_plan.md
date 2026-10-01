@@ -11038,3 +11038,432 @@ resets (Oct 3, 2026, 5:01 PM local) with one read-only `exec` and one handoff.
 
 **Code and tests.** No code changed; no test added. `agents.test.ts` 46/46;
 extension 1596/1596; typecheck, smoke and `git diff --check` clean.
+
+### 37.97 Issue details: "Gather issue information" for every source (after `d3ce575`, uncommitted)
+
+**Status:** implemented, verified in the test suites and the activation smoke
+test; not committed. Extension only.
+
+The Issue details row's description was source-dependent — *Fetch Jira issue
+information* for a Jira key, *Parse the description you wrote* for a typed bug —
+and the page's own markup, rendered before the first push, always carried the
+Jira one. It is now one line for both, **Gather issue information**
+(`STEP_DESCRIPTIONS.issueDetails` in `workflow.ts`; `stepDescription(id)` lost
+its `source` argument). The title *Issue details*, *Always runs* and every
+behaviour are unchanged; what the step actually read stays on the row's result
+line (*JR-12345 · Jira issue* / *Manual bug description*), as before.
+
+Searched the rest of the Workflow UI for wording that assumes Jira: the running
+line (*Loading the Jira issue…* / *Reading the description…*), the result line,
+the artifact descriptions and the Issue field's placeholder are already
+source-aware or name both; the *Fetching the Jira issue* activity label belongs to
+the `fetch` step, which a typed bug never runs (`MANUAL_EXCLUDED_STEPS`); the
+Jira credentials footer and the Jira comment artifacts are Jira-only by nature.
+None changed.
+
+**Tests.** `workflow.test.ts`: the description test now asserts the one line for
+both sources and no "Jira" in it; the pending-row summary expects the new text.
+Extension 1596 tests pass; typecheck, smoke and `git diff --check` clean.
+
+### 37.98 Attachments: paste, drag & drop, and a description per file (after `5787477`, uncommitted)
+
+**Status:** implemented, verified in both test suites, the activation smoke test
+and a real VS Code window; not committed. Extension and CLI.
+
+**Input.** *Add files…* is unchanged. Two more ways in, both on the Advanced
+Settings page's Attachments field:
+
+- **Paste** (Ctrl+V / Cmd+V) anywhere on the settings page except inside a text
+  box: the clipboard's files — a screenshot, an image, a file copied in a file
+  manager where Chromium exposes it — become attachments. Plain text never does,
+  and a paste inside an input or a description box stays that box's own paste.
+- **Drop** files onto the field (dashed focus-colour outline while over it). In
+  VS Code a plain file drag over a webview is taken by the workbench for its
+  editor; **Shift** must be held for the drop to reach the panel — found in the
+  real window, so the helper text says so: *Add files, drag & drop (hold
+  Shift), or paste from clipboard.*
+
+The page never names a path (the §5 rule). It reads each file's bytes and posts
+them — all of one paste or drop in one `addAttachmentData` message, so two files
+cannot race onto a stale draft — and the host (`Controller.addAttachmentData`)
+checks the size (10 MB, the CLI's ceiling; refused on the page first), the count
+(10), hashes the content (`attachmentFiles.ts`, SHA-256, 16 hex) and stores it
+through the new `storeAttachment` port at `globalStorage/attachments/<digest>/
+<name>` (`createAttachmentStore`). The path goes back to the draft exactly as
+the file dialog's does (`attachmentPick`). The same content again — a second
+paste, a drop after a paste — is refused as *already attached* by its digest
+directory; no other hashing. A clipboard image named `image.png` (what Chromium
+calls them all) becomes `screenshot-N.<ext>`, N one past the highest attached; a
+real file keeps its name, made safe for every file system.
+
+**Descriptions.** Each row is now the file (icon, name cut with an ellipsis, ×)
+and under it an optional one-line-growing box, *Add a description…*,
+`aria-label` *Description of <name>*, at most 500 characters. Kept in the
+settings draft and applied with it: `FormState.attachmentDescriptions`, by
+attachment path, persisted with the form in `workspaceState` (an older saved
+form gets `{}` — `restoreForm`). Removing a file drops its description; a blank
+one is not kept.
+
+**To the CLI and `task.md`.** `--attach-description=TEXT`, repeatable, by
+position — the Nth describes the Nth `--attach`; the extension sends one per
+`--attach` (empty for none) only when at least one is described, so a run
+without descriptions is the command line it always was. The CLI refuses a count
+that does not match. `copy_attachments(..., descriptions)` carries each to the
+name the file was copied under (a renamed duplicate keeps its own; a skipped file
+drops its), one line, whitespace collapsed, ≤ 500 characters. They are recorded
+with the hint in `issue.json` → `guidance.attachment_notes` (written only when
+non-empty), so `--resume` keeps them: a file re-copied by this run takes this
+run's description or none; a file only on disk from an earlier run keeps its.
+`task.md`'s existing *Developer Attachments* section is now one entry per file:
+
+```
+### screenshot-1.png
+
+Description: Login button remains disabled after entering valid credentials.
+File: `.ai/<id>/attachments/screenshot-1.png`
+```
+
+no `Description:` line when there is none, the existing path convention, and
+never the file's contents. The section's sentence now says *issue description*,
+not *Jira description*, and adds that a description is the developer's note to
+check against the file.
+
+**Rebuild semantics.** `preparationFingerprint` includes each attachment's
+normalized description, so adding, removing or describing a file makes a
+prepared context stale (*Rebuild Context*); `SETTING_REQUIRES_REBUILD` says the
+same for the page's label, and Issue details' note still reads *Changes here
+require rebuilding context.* The AI Agent changes neither the attachments nor
+staleness.
+
+**Privacy.** The log gets `Attachment added by paste (image/png, 1 KB); 3
+attached.` — kind, size, count; never the name, the bytes or a description. A
+store failure logs its error code only. The run line shows `--attach=<redacted>
+--attach-description=<redacted>` (§37.95's allowlist, unchanged).
+
+**Real VS Code pass** (the standalone 1.139.1 harness, scratch profile, the
+working-tree CLI from a scratch venv, 200px sidebar):
+
+- Shift-drop of a real `error.log` and `login-dialog.png` (Chromium's
+  `Input.dispatchDragEvent` with file paths, through the workbench): both
+  attached, stored under `globalStorage/shiweix.bugpilot/attachments/<digest>/`.
+  The same drop without Shift: taken by the workbench, nothing attached — hence
+  the helper text.
+- Ctrl+V with a real image on the Windows clipboard: *screenshot-1.png*. Again:
+  *Not attached: a file that is already attached.* Ctrl+V with the caret in a
+  description box: nothing attached, the box unchanged.
+- Two descriptions typed, one left blank, Apply, Run → `task.md` exactly as
+  above (two `Description:` lines, none for the blank one), the three files in
+  `.ai/<id>/attachments/`, `guidance.attachment_notes` in `issue.json`.
+- After an extension-host restart the descriptions came back from the saved
+  form.
+- AI Agent changed to Codex CLI → still *Fix with AI*, 3 attachments; a
+  description edited → *Rebuild Context*.
+- 200px: no horizontal overflow; names cut, × visible, descriptions wrap.
+- Found and fixed in the window: a description box stayed one line with a
+  scrollbar — `grow()` only handled the fixed fields by id, and a box drawn while
+  the page was hidden was never measured; descriptions now grow on input and when
+  the page opens, with the 2px border added back so no scrollbar shows.
+- Every BugPilot log of the session: no description, file name, file content or
+  base64.
+
+**Tests.** Python `test_attachments.py` +8 (pairing by position, renamed and
+skipped files, one bounded line, the task section's entries and blank omission,
+a stray note not mentioned, `issue.json` round trip with `--resume` keeping and a
+blank clearing, the CLI's pairing and mismatch refusal). Extension +26:
+`attachmentFiles.test.ts` (3: naming, sanitizing, digest); `form.test.ts` (4:
+argument pairing, no descriptions → unchanged argv, staleness incl. the agent,
+an old saved form); `panel.test.ts` (5: the ceilings against Python and the
+page's copies, the message boundary takes bytes only, descriptions bounded and
+keyed to listed files, the field's text and status line, the CSS that keeps a
+row inside 200px); `controller.test.ts` (6: store and `screenshot-N`, dedupe,
+oversize, no port, the log keeps metadata only, description staleness vs the
+AI Agent); `page.test.ts` (8: description draft and Apply, remove with its
+description, paste of an image, paste in a text box and text-only paste ignored,
+closed page or a run ignored, Shift-free drop handling in the page, oversize on
+the page, description growth). `workflowSettings.test.ts`' staleness table and
+the attachment-row tests updated for the new row. Extension 1622 pass, Python
+1268 pass; typecheck, smoke and `git diff --check` clean.
+
+Also in this change: three test fixtures from §37.94/§37.95 used local-looking
+paths (a developer checkout, a personal home directory) that `tests/test_publishable.py`
+refuses; now `C:\path\to\…`, same spaces, parentheses and ampersand.
+
+**Not verified / limits.**
+
+- Dragging from VS Code's own Explorer: it carries `vscode` URIs, not files, and
+  the page takes no path from the page side — not supported.
+- Paste of a file copied in Windows Explorer (not an image): depends on what
+  Chromium puts in `clipboardData.files`; not exercised.
+- Pasted and dropped files accumulate in global storage; nothing removes them yet.
+- A file removed from the list after a run stayed in `.ai/<id>/attachments/`
+  and in `task.md` on the next `--resume` run — fixed in §37.99.
+- macOS (Cmd+V) not run.
+
+### 37.99 Attachments on resume: the current selection is the whole set (after `5787477`, uncommitted)
+
+**Status:** implemented, verified in both test suites, the CLI integration suite
+and the activation smoke test; not committed. CLI and extension.
+
+**Previous behaviour (§37.98's open limit).** Attachments only ever accumulated:
+`copy_attachments` added files to `.ai/<id>/attachments/` and removed none;
+`prompt_step` named whatever `attachment_names()` read from that folder; and
+`merge_attachment_notes` kept an earlier description for any file not re-copied.
+So a file removed in the panel stayed on disk, in `task.md` and with its
+description on every `--resume` (Rebuild Context of the same work item). And the
+CLI could not have done better: with no `--attach`, "nothing selected" and "no
+change" were the same command line. A Fresh run cleared it all.
+
+**Now.**
+
+- `--replace-attachments` (CLI, `InvestigationOptions.replace_attachments`): the
+  `--attach` files are the work item's complete set. The extension sends it on
+  every prepare run (`buildPrepareArgs`), including one with no attachments;
+  never on a retry. Without it the CLI behaves exactly as before — `--attach`
+  adds.
+- `issue.json` → `guidance.attachment_files`: the names, in `attachments/`, of
+  the files the work item currently has — the ownership record. Written by a
+  replace run (an empty list when everything was removed); kept and extended by
+  an additive run once it exists; absent (`None`) for a work item that never had
+  one.
+- `prompt_step` and `copilot_task_step` name `listed_attachments(target,
+  record)`: the recorded names still on disk, or — with no record — the folder as
+  before. Descriptions come from the same run: a replace run records only this
+  run's (`result.notes`), so a removed file's description and an edited one's
+  old text are gone.
+- Cleanup (`_attachment_guidance`, replace runs only): names the previous record
+  listed and this run did not copy are deleted through `remove_attachments`.
+
+**Cleanup safety.** Only names BugPilot recorded as copied are ever candidates —
+never "whatever else is in the folder". `remove_attachments` refuses any name
+that is not a single plain file name (`is_plain_attachment_name`: no `/`, `\`,
+`:`, not `.`/`..`), deletes only a regular file or a link (the link, not its
+target) directly in `attachments/`, and does nothing unless that folder resolves
+to a child of the work item's directory. A file someone placed there by hand,
+`context.md`, the developer's original, anything outside — untouched, and a
+tampered record pointing at them deletes nothing (tested). A work item from
+before the record keeps its older files on disk; they are simply no longer
+named.
+
+**Resume.** Same selection → same files, same descriptions, same `task.md`.
+One removed → its copy deleted, gone from the record, the notes and `task.md`.
+All removed → empty folder, `attachment_files: []`, no *Developer Attachments*
+section. A Fresh run is unchanged.
+
+**Not addressed.** The content-addressed copies the extension keeps in global
+storage for pasted and dropped files (`globalStorage/attachments/<digest>/`)
+still accumulate; collecting them is a separate task.
+
+**Tests.** Python `test_attachments.py` +11: unchanged resume; remove one
+(folder, record, notes, `task.md`; the original intact); remove all; a changed
+and a cleared description; a hand-placed file and `context.md` survive and are
+not named; a tampered record cannot delete outside the folder;
+`remove_attachments` on traversal, absolute, drive and nested names; a work item
+without a record; additive resume unchanged; Fresh unchanged; the CLI flag end
+to end on a Jira work item. Extension `form.test.ts` +2: the flag on every
+prepare run, once, after the attachment flags, never on a retry, kept bare in
+the log; every flag the panel builds is declared in `bugpilot/cli.py`. Extension
+1624 pass; CLI integration 12 pass; Python 1279 pass; typecheck, smoke and `git
+diff --check` clean. (§37.98's note no longer quotes the local-looking paths
+`tests/test_publishable.py` refuses.)
+
+### 37.100 Collecting old pasted and dropped attachments (after `5787477`, uncommitted)
+
+**Status:** implemented, verified in the extension suite and the activation
+smoke test; not committed; exercised in a real VS Code window with §37.101.
+Extension only — no CLI change, no UI change, no setting.
+
+**Previous behaviour (§37.98 and §37.99's open limit).** Every paste or drop
+writes the bytes to `globalStorage/attachments/<digest>/<name>`
+(`createAttachmentStore`) and the form keeps the absolute path. Nothing ever
+removed one: not removing it from the list, not a run, not a Fresh run. Removing
+it from the draft cannot delete it either, because the same content may sit in
+another workspace's form (global storage is shared by every workspace; the form
+is not). So the folder only grew.
+
+**Where a stored path can be referenced** (traced before anything was deleted):
+
+- the applied form, kept per workspace in `workspaceState` (`bugpilot.form`),
+  restored at activation through `restoreForm`, and held by the controller;
+- the webview's own `setState` copy, which is the same applied form (the page
+  persists `readForm()`, which reads the applied settings);
+- the Workflow Settings draft before Apply: page memory only — `pickAttachments`
+  and `addAttachmentData` answer the page without saving the form — and lost on
+  reload;
+- **not** the work item: `.ai/<id>/attachments/` holds the CLI's own copies, and
+  `issue.json` records copied names (`attachment_files`, `attachment_notes`),
+  never a global-storage path. History, `run.json`, the saved work item id and
+  reviewed fixes hold none.
+
+**Design** (`src/app/attachmentStorage.ts`, no `vscode` import).
+
+- *Reference record.* Every `saveForm`, and once at activation, records the
+  form's stored attachments as `<digest>/<name>` keys in `globalState` under
+  `bugpilot.attachmentReferences.<workspace>` — one key per workspace (a hash of
+  the workspace file or folder URIs, so no path is stored), written only when the
+  list changes, removed when it is empty. Picked files outside the storage folder
+  are never recorded. A collection reads every workspace's key plus the current
+  form.
+- *Rule.* A file is removed only if it is a regular file directly inside
+  `attachments/<16 lowercase hex>/`, referenced by no recorded key and not by the
+  current form, and its mtime is older than `ATTACHMENT_GC_RETENTION_DAYS = 30`.
+  Comparison is by key, case-folded on Windows.
+- *Retention.* 30 days by the file's own mtime. The age is what protects an
+  unapplied draft (recorded nowhere) and covers a reference this window cannot
+  see. A second paste of the same content rewrites the file and restarts it.
+- *Trigger.* One pass per activation, 30 s after it, in the background
+  (`setTimeout`, unref'd, cleared when activation's subscriptions are disposed).
+  Not on a paste, not on a keystroke, never again in that session.
+- *Safety.* The `attachments` folder must be a real directory whose resolved
+  path is the resolved storage root's own child, so a link or junction there
+  stops the pass. A digest folder or file that is a link, anything not named like
+  a digest, a folder inside a digest folder, a loose file — all left alone and
+  counted as unexpected. No recursion: exactly two levels. Each file is
+  `lstat`ed again just before `unlink` and kept if it changed. An emptied digest
+  folder is removed with `rmdir` (fails unless empty); the `attachments` folder
+  itself is never removed. `bug-description.md` and the rest of the storage root
+  are never looked at.
+- *Failures.* An unreadable folder or file, or an `unlink` that fails (locked,
+  denied), is skipped and counted; the pass goes on. `runAttachmentGc` never
+  throws; if the reference record cannot be read it removes nothing and logs
+  `Attachment GC did not run (<code>).` No notification in any case.
+- *Log.* One line, counts only, and only when there was something to count:
+  `Attachment GC scanned N blobs; removed R; kept K` (+ skipped / unexpected).
+  No name, digest, path or description.
+
+**Retained on purpose.**
+
+- Anything referenced by any workspace's record, however old.
+- Anything younger than 30 days, referenced or not.
+- Blobs referenced by a workspace that is never opened again: its record is not
+  expired, because nothing can tell a gone workspace from a quiet one.
+- Blobs recorded under an old key when a window's folders change (multi-root
+  edits): the old key keeps them.
+- Anything that does not match the layout exactly, and files that could not be
+  deleted (tried again next activation).
+
+**Limitations.**
+
+- The folder still grows within 30 days, and indefinitely for blobs referenced
+  by abandoned workspaces. There is no size cap.
+- Forms saved by a version before this one are recorded only once that
+  workspace is opened again. As first written, the blob's own age was their only
+  protection, so a blob already older than 30 days could go at the first
+  start-up after the upgrade. §37.101 closes that: such blobs get one grace
+  period counted from when tracking began.
+- Empty windows (no folder) share one record key; BugPilot needs a repository,
+  so none is expected to hold attachments.
+- A paste of identical content in the instant between the re-check and the
+  `unlink` can still lose that file (a narrow race, once per session).
+- The real-window run is recorded in §37.101.
+
+**Tests.** `test/attachmentStorage.test.ts` (16, all on temporary folders, never
+real global storage): a referenced old blob kept and an unreferenced old one
+removed; the current form protects before anything is recorded; a recent
+unreferenced blob kept; a blob two workspaces share kept until both drop it; an
+emptied digest folder removed, the `attachments` folder never; a missing folder
+is silent; malformed layout (uppercase, short, non-hex, loose file, nested
+folder, `bug-description.md`) untouched; a junction digest folder, a file link
+and a linked `attachments` folder cannot lead outside (all three exercised on
+this machine); reference keys reject outside, traversal and nested paths and fold
+case on Windows; a locked file skipped while others go; a file rewritten between
+the two looks kept; an unreadable record logs one line, throws nothing and
+removes nothing; an unreadable folder skipped; the record writes only on change,
+stores keys not paths, and ignores other state; the log line has no name, digest
+or path; activation collects once from a cancellable timer, records on every
+`saveForm`, and the controller never collects. The smoke test now disposes
+activation's subscriptions. Extension 1640 pass; typecheck, smoke and `git diff
+--check` clean. No Python change.
+
+### 37.101 Attachment GC migration: one grace period for blobs from before tracking (after `5787477`, uncommitted)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and a real disposable VS Code window; not committed. Extension only — no
+CLI, UI, setting or storage-layout change; the 30-day rule is unchanged.
+
+**The risk (§37.100).** References are recorded per workspace only when that
+workspace's form is saved or the workspace is opened. A form saved before
+§37.100 has no record until then, and no window can list the workspaces that
+have not been opened — `globalState` holds no other workspace's form. So at the
+first start-up after the upgrade, a blob already older than 30 days and
+referenced only by a not-yet-reopened workspace looked unreferenced and old, and
+could be removed.
+
+**Prior art.** No `globalState` value here was versioned before. Saved values
+are migrated on read (`restoreForm`, `migrateAgentChoice`), and artifact
+readers refuse a `schema_version` they do not know. The marker follows both.
+
+**Design.**
+
+- `bugpilot.attachmentGcVersion` in `globalState`: `{ version: 1,
+  trackingSince: <ms> }` — when reference tracking began on this machine.
+  `initializeAttachmentGc` runs at activation, right after this workspace's
+  references are recorded, not in the deferred pass: a window closed within
+  seconds has still started the clock. It writes the marker only if no build
+  has; afterwards every start-up reads the same moment back and writes nothing.
+- *Grace.* A blob's age is counted from `max(mtime, trackingSince)`. A blob from
+  before tracking therefore has to wait one full retention period (30 days)
+  after the upgrade, which is the time every workspace has to be opened and
+  record what it references. A blob written after tracking began ages by its own
+  mtime exactly as before. Referenced blobs are kept regardless.
+- *Conservative on anything odd.* A marker that cannot be read as version 1 with
+  a finite time is replaced with `now` (the grace starts over — it never
+  shortens). A marker with a higher version (a newer BugPilot) turns collection
+  off for that session and is not rewritten. A marker that cannot be read or
+  saved means nothing is collected that session; the next start-up writes a
+  later time, which only lengthens the grace.
+- *Never in the way.* `initializeAttachmentGc` never rejects; the reference
+  record never throws into a save or the activation (a failed write is retried
+  on the next change) and no longer rewrites an unchanged list after a restart.
+  Saved forms are never read for anything but their attachment paths, and never
+  rewritten or deleted. Collection stays one background pass, 30 s after
+  activation.
+- *Log.* Once, at the first start-up: `Attachment GC started tracking
+  references; stored attachments are kept at least 30 days from now.` On
+  failure: `Attachment GC state could not be saved (<code>); nothing is
+  collected this session.` A newer marker: `Attachment GC is off: its state was
+  written by a newer BugPilot.` Counts and codes only, as before.
+
+**Not guaranteed.** A workspace that is not opened at all during the 30 days
+after the upgrade is still unprotected once the grace is over: its legacy blobs
+are removed, and its next run fails to copy them as it would for any missing
+attachment. The grace is a fixed window, not a proof that every workspace was
+seen — nothing can provide that. Everything §37.100 lists as retained or
+limited otherwise still applies.
+
+**Tests.** `test/attachmentStorage.test.ts` +8 (24): the first start-up after the
+upgrade removes no legacy blob (one in this workspace's form, one only in an
+unopened workspace), records this workspace and writes the marker; a legacy blob
+kept on day 29 and removed on day 31 after the upgrade; a workspace reopened in
+the grace period keeps its legacy blobs for good; after the migration a blob
+written since tracking began goes 30 days after its own mtime, not tracking + 30;
+the marker survives a restart and nothing is rewritten; malformed markers restart
+the grace, a newer version turns collection off without being rewritten; a
+marker that cannot be read, saved, or whose write throws collects nothing and
+throws nothing; a failed reference write is retried. The activation test checks
+the marker is initialised before the deferred pass. The smoke test activates a
+second time with GC state whose reads and writes fail: it activates and logs the
+one line. Extension 1648 pass; typecheck, smoke and `git diff --check` clean. No
+Python change.
+
+**Real window** (standalone VS Code 1.139.1, disposable profile, VSIX built from
+this tree). The profile already held three pasted/dropped blobs from §37.98,
+referenced by the `repo` workspace's saved form with no reference record; they
+were aged to 60 days, and one more 60-day blob referenced by nothing was added.
+
+1. Opened `repo with spaces` (empty form) — `repo` not opened. Activated
+   normally; `Attachment GC started tracking references…` at activation; 30 s
+   later `Attachment GC scanned 4 blobs; removed 0; kept 4.` The marker was in
+   the profile's global state afterwards; no reference record (an empty form
+   writes none).
+2. Opened `repo`. No second "started" line. `scanned 4 blobs; removed 0; kept 4`.
+   Its record `bugpilot.attachmentReferences.<hash>` listed the three
+   `<digest>/<name>` keys.
+3. With the window closed, moved `trackingSince` 40 days back and added a 2-day
+   unreferenced blob; opened `repo with spaces` again. `scanned 5 blobs; removed
+   1; kept 4.` Only the unreferenced legacy blob and its digest folder were
+   gone; the three blobs referenced by the other workspace's record and the
+   recent one were intact.
+
+None of the three logs contained an attachment name, a digest or a storage
+path. The window was closed by its own process each time; the developer's VS
+Code was not touched.

@@ -426,7 +426,12 @@ export const STEP_LABELS: Readonly<Record<WorkflowStepId, string>> = {
   fixResult: "Fix result",
 };
 
-const STEP_DESCRIPTIONS: Readonly<Record<Exclude<WorkflowStepId, "issueDetails">, string>> = {
+const STEP_DESCRIPTIONS: Readonly<Record<WorkflowStepId, string>> = {
+  // Source-agnostic: the step reads a Jira issue or the bug typed into the
+  // panel, and the page renders this line before it knows which. What it
+  // actually read is the row's own result line ("JR-1 · Jira issue", "Manual
+  // bug description").
+  issueDetails: "Gather issue information",
   codeSearch: "Search relevant code in the repository",
   gitHistory: "Find recent related changes",
   similarFixes: "Search for similar issues and solutions",
@@ -444,17 +449,14 @@ const RUNNING_TEXT: Readonly<Record<Exclude<WorkflowStepId, "issueDetails" | "fi
 };
 
 /**
- * One line under each label, saying what the step does.
- *
- * `issueDetails` depends on the input source: "Fetch Jira issue information" is
- * simply untrue for a bug the developer typed out.
+ * One line under each label, saying what the step does — the same whichever
+ * source the work item has.
  *
  * Exported because the markup carries these too: a page built before the first
  * push would otherwise show six labels with nothing under them.
  */
-export function stepDescription(id: WorkflowStepId, source: Source): string {
-  if (id !== "issueDetails") return STEP_DESCRIPTIONS[id];
-  return source === "jira" ? "Fetch Jira issue information" : "Parse the description you wrote";
+export function stepDescription(id: WorkflowStepId): string {
+  return STEP_DESCRIPTIONS[id];
 }
 
 /** How the AI step ended, as the controller observed it. */
@@ -590,7 +592,7 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
     const base = {
       id,
       label: STEP_LABELS[id],
-      description: stepDescription(id, input.source),
+      description: stepDescription(id),
       enabled: required ? true : input.plan[id],
       ...(required ? { required: true } : {}),
       status,
@@ -868,7 +870,7 @@ function resultOf(
   input: WorkflowInput,
   present: ReadonlySet<string>,
 ): Pick<RowDraft, "summary" | "detail" | "artifact" | "actions" | "search"> {
-  const description = stepDescription(id, input.source);
+  const description = stepDescription(id);
   if (status === "idle") return { summary: description, actions: [] };
   if (status === "running") return { summary: runningText(id, input), actions: [] };
   if (status !== "success") return { summary: FINISHED_TEXT[status], actions: [] };
@@ -964,7 +966,7 @@ function fixWithAiRow(
   const base = {
     id,
     label: STEP_LABELS[id],
-    description: stepDescription(id, input.source),
+    description: stepDescription(id),
     enabled: input.fixWithAI,
     actions: [] as StepActionId[],
     ...(input.attempt === undefined ? {} : { attempt: input.attempt }),

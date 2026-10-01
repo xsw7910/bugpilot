@@ -24,13 +24,15 @@ const handlers = new Map();
 const disposable = { dispose: () => {} };
 
 const views = [];
+/** What activation wrote to the BugPilot output channel. */
+const output = [];
 const listeners = [];
 
 /** Only what activation touches. Anything missing shows up as a TypeError. */
 const vscodeStub = {
   window: {
     createOutputChannel: () => ({
-      appendLine: () => {},
+      appendLine: (line) => output.push(line),
       show: () => {},
       dispose: () => {},
     }),
@@ -145,7 +147,7 @@ const { COMMANDS } = require("../out/commands.js");
 const context = {
   subscriptions: [],
   workspaceState: { get: () => undefined, update: async () => {} },
-  globalState: { get: () => undefined, update: async () => {} },
+  globalState: { get: () => undefined, update: async () => {}, keys: () => [] },
   secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
   extensionUri: { fsPath: "/ext", toString: () => "/ext" },
   globalStorageUri: { fsPath: "/storage", toString: () => "/storage" },
@@ -199,7 +201,41 @@ for (const command of safeCommands) {
 
 assert.equal(typeof extension.deactivate, "function", "the built extension exports no deactivate()");
 extension.deactivate();
+// Disposing what activation registered cancels its deferred work — the
+// attachment collection's timer among it (§37.100).
+for (const subscription of context.subscriptions) subscription.dispose?.();
+
+// Attachment GC state that cannot be read or saved (§37.101) must not cost the
+// activation: it activates, says once that nothing is collected, and goes on.
+const brokenState = {
+  subscriptions: [],
+  workspaceState: context.workspaceState,
+  globalState: {
+    // Only the GC's own keys fail: the rest of activation reads global state too.
+    get: (key) => {
+      if (key.startsWith("bugpilot.attachment")) throw new Error("global state unavailable");
+      return undefined;
+    },
+    update: () => Promise.reject(new Error("global state unavailable")),
+    keys: () => {
+      throw new Error("global state unavailable");
+    },
+  },
+  secrets: context.secrets,
+  extensionUri: context.extensionUri,
+  globalStorageUri: context.globalStorageUri,
+};
+output.length = 0;
+extension.activate(brokenState);
+await new Promise((resolve) => setImmediate(resolve));
+assert.ok(
+  output.some((line) => line.includes("Attachment GC state could not be saved")),
+  "a GC state failure is reported once in the log",
+);
+assert.ok(output.some((line) => line.includes("BugPilot extension activated.")), "activation went on regardless");
+extension.deactivate();
+for (const subscription of brokenState.subscriptions) subscription.dispose?.();
 
 console.log(
-  `smoke ok: activated, registered ${actual.length} commands and ${views.length} views, and built the panel HTML`,
+  `smoke ok: activated, registered ${actual.length} commands and ${declaredViews.length} views, and built the panel HTML`,
 );

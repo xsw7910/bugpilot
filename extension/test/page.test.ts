@@ -194,6 +194,8 @@ interface Page {
   readonly flush: () => void;
   /** Fire every ResizeObserver the page made: its boxes changed size. */
   readonly resize: () => void;
+  /** Fire a document-level event (a paste) at the page's document listeners. */
+  readonly dispatchDocument: (type: string, event: Record<string, unknown>) => void;
 }
 
 let page: Page | undefined;
@@ -221,8 +223,12 @@ function load(savedState?: unknown): Page {
   // What the page builds at runtime (a notice's button), so focus on one of
   // them is reported like focus on anything in the markup.
   const created: FakeElement[] = [];
+  const documentListeners = new Map<string, Listener[]>();
   const document = {
     getElementById: (id: string) => elements.get(id) ?? null,
+    addEventListener: (type: string, listener: Listener) => {
+      documentListeners.set(type, [...(documentListeners.get(type) ?? []), listener]);
+    },
     createElement: (_tag: string) => {
       const element = new FakeElement("");
       created.push(element);
@@ -282,6 +288,9 @@ function load(savedState?: unknown): Page {
   };
 
   const current: Page = {
+    dispatchDocument: (type: string, event: Record<string, unknown>) => {
+      for (const listener of documentListeners.get(type) ?? []) listener({ preventDefault: () => {}, ...event });
+    },
     resize: () => {
       for (const fire of observers) fire();
     },
@@ -1601,6 +1610,11 @@ test("a validation problem in a settings field opens Workflow Settings there", (
   assert.equal(p.focused, "maxFiles");
 });
 
+/** An attachment row's parts: the line with the icon, name and ×; then the description. */
+const attachmentName = (row: FakeElement) => row.children[0]!.children[1]!;
+const attachmentRemove = (row: FakeElement) => row.children[0]!.children[2]!;
+const attachmentDescription = (row: FakeElement) => row.children[1]!;
+
 test("attached files are listed by name, with the full path on hover", () => {
   const p = load();
   p.send(
@@ -1613,11 +1627,11 @@ test("attached files are listed by name, with the full path on hover", () => {
   const rows = p.byId("attachment-list").children;
   assert.equal(p.byId("attachment-list").hidden, false);
   assert.deepEqual(
-    rows.map((row) => row.children[0]!.textContent),
+    rows.map((row) => attachmentName(row).textContent),
     ["crash.log", "shot.png"],
     "a basename is what a developer recognises",
   );
-  assert.equal(rows[0]!.children[0]!.getAttribute("title"), "C:\\logs\\crash.log");
+  assert.equal(attachmentName(rows[0]!).getAttribute("title"), "C:\\logs\\crash.log");
 });
 
 test("removing one takes it out of the draft, and out of the form once applied", () => {
@@ -1627,10 +1641,10 @@ test("removing one takes it out of the draft, and out of the form once applied",
   );
   p.byId("open-settings").dispatch("click");
   // The × on the first row.
-  p.byId("attachment-list").children[0]!.children[1]!.dispatch("click");
+  attachmentRemove(p.byId("attachment-list").children[0]!).dispatch("click");
 
   assert.deepEqual(
-    p.byId("attachment-list").children.map((row) => row.children[0]!.textContent),
+    p.byId("attachment-list").children.map((row) => attachmentName(row).textContent),
     ["two.log"],
   );
   // A draft: nothing goes to the host until Apply.
@@ -1656,14 +1670,14 @@ test("Add files asks the host for the dialog with the draft's list, and takes th
   // Only the host can open a dialog; it gets the list on screen to add to.
   assert.deepEqual(p.posted.at(-1), { type: "pickAttachments", attachments: ["/a/one.log"] });
 
-  const names = () => p.byId("attachment-list").children.map((row) => row.children[0]!.textContent);
+  const names = () => p.byId("attachment-list").children.map((row) => attachmentName(row).textContent);
   p.send(state({ attachmentPick: { token: 1, attachments: ["/a/one.log", "/b/two.log"] } }));
   assert.deepEqual(names(), ["one.log", "two.log"]);
   // The draft's, not the form's: a press now still sends the applied list.
   p.byId("form").dispatch("submit");
   assert.deepEqual((p.posted.at(-1)!["form"] as { attachments: string[] }).attachments, ["/a/one.log"]);
   // Taken once: the same answer pushed again adds nothing back.
-  p.byId("attachment-list").children[1]!.children[1]!.dispatch("click");
+  attachmentRemove(p.byId("attachment-list").children[1]!).dispatch("click");
   p.send(state({ attachmentPick: { token: 1, attachments: ["/a/one.log", "/b/two.log"] } }));
   assert.deepEqual(names(), ["one.log"]);
 });
@@ -6899,4 +6913,144 @@ test("ticking Include issue details is a form change, and never starts an improv
   // And the host's copy, pushed back, is what the box shows.
   page.send(state({ revision: 3, form: { ...DEFAULT_FORM, useIssueDetails: false } }));
   assert.equal(page.byId("useIssueDetails").checked, false);
+});
+
+// --- §37.98: paste, drop and descriptions on the Attachments field ----------------
+
+/** A clipboard or drop File, as much of one as the page reads. */
+const fakeFile = (name: string, type: string, text: string, size?: number) => ({
+  name,
+  type,
+  size: size ?? new TextEncoder().encode(text).length,
+  arrayBuffer: async () => new TextEncoder().encode(text).buffer,
+});
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+const lastData = (p: Page) => [...p.posted].reverse().find((message) => message["type"] === "addAttachmentData") as
+  | { origin: string; files: { name: string; type: string; data: string }[]; attachments: string[] }
+  | undefined;
+
+function attachmentsPage(attachments: string[] = ["/a/one.log"], descriptions: Record<string, string> = {}) {
+  const p = load();
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, attachments, attachmentDescriptions: descriptions } }));
+  p.byId("open-settings").dispatch("click");
+  return p;
+}
+
+test("each attachment has an optional description, kept in the draft and sent on Apply", () => {
+  const p = attachmentsPage(["/a/one.log", "/b/shot.png"], { "/b/shot.png": "Login button stays disabled." });
+  const rows = p.byId("attachment-list").children;
+  assert.equal(attachmentDescription(rows[0]!).value, "");
+  assert.equal((attachmentDescription(rows[0]!) as unknown as { placeholder: string }).placeholder, "Add a description…");
+  assert.equal(attachmentDescription(rows[0]!).getAttribute("aria-label"), "Description of one.log");
+  assert.equal(attachmentDescription(rows[1]!).value, "Login button stays disabled.");
+
+  attachmentDescription(rows[0]!).value = "Console output after Save.";
+  attachmentDescription(rows[0]!).dispatch("input");
+  // A draft: nothing reaches the host until Apply.
+  p.flush();
+  assert.equal(p.posted.some((message) => message["type"] === "formChanged"), false);
+  p.byId("settings-apply").dispatch("click");
+  const sent = p.posted.at(-1) as { type: string; form: { attachmentDescriptions: Record<string, string> } };
+  assert.equal(sent.type, "applySettings");
+  assert.deepEqual(sent.form.attachmentDescriptions, {
+    "/a/one.log": "Console output after Save.",
+    "/b/shot.png": "Login button stays disabled.",
+  });
+});
+
+test("removing an attachment takes its description with it; a blank one is not sent", () => {
+  const p = attachmentsPage(["/a/one.log", "/b/two.log"], { "/a/one.log": "first", "/b/two.log": "second" });
+  attachmentRemove(p.byId("attachment-list").children[0]!).dispatch("click");
+  const second = attachmentDescription(p.byId("attachment-list").children[0]!);
+  second.value = "   ";
+  second.dispatch("input");
+  p.byId("settings-apply").dispatch("click");
+  const sent = p.posted.at(-1) as { form: { attachments: string[]; attachmentDescriptions: Record<string, string> } };
+  assert.deepEqual(sent.form.attachments, ["/b/two.log"]);
+  assert.deepEqual(sent.form.attachmentDescriptions, {});
+});
+
+test("Ctrl+V of a screenshot on the settings page sends its bytes to the host, once", async () => {
+  const p = attachmentsPage();
+  let prevented = false;
+  p.dispatchDocument("paste", {
+    target: p.byId("add-attachment"),
+    clipboardData: { files: [fakeFile("image.png", "image/png", "PNGDATA")], items: [] },
+    preventDefault: () => (prevented = true),
+  });
+  await settle();
+  assert.equal(prevented, true, "the paste was not taken over");
+  assert.deepEqual(lastData(p), {
+    type: "addAttachmentData",
+    origin: "paste",
+    files: [{ name: "image.png", type: "image/png", data: Buffer.from("PNGDATA").toString("base64") }],
+    attachments: ["/a/one.log"],
+  });
+});
+
+test("a paste into a text field stays that field's paste, and plain text is never an attachment", async () => {
+  const p = attachmentsPage();
+  const before = p.posted.length;
+  let prevented = false;
+  const description = attachmentDescription(p.byId("attachment-list").children[0]!);
+  (description as unknown as { tagName: string }).tagName = "TEXTAREA";
+  // A file on the clipboard, but the caret is in the description.
+  p.dispatchDocument("paste", { target: description, clipboardData: { files: [fakeFile("image.png", "image/png", "x")] }, preventDefault: () => (prevented = true) });
+  // Text only, anywhere.
+  p.dispatchDocument("paste", { target: p.byId("add-attachment"), clipboardData: { files: [], items: [{ kind: "string" }] }, preventDefault: () => (prevented = true) });
+  await settle();
+  assert.equal(prevented, false);
+  assert.equal(p.posted.slice(before).some((message) => message["type"] === "addAttachmentData"), false);
+});
+
+test("a paste with the settings page closed, or during a run, attaches nothing", async () => {
+  const p = load();
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, attachments: [] } }));
+  p.dispatchDocument("paste", { target: p.byId("issue"), clipboardData: { files: [fakeFile("image.png", "image/png", "x")] } });
+  p.byId("open-settings").dispatch("click");
+  p.byId("add-attachment").disabled = true;
+  p.dispatchDocument("paste", { target: p.byId("add-attachment"), clipboardData: { files: [fakeFile("image.png", "image/png", "x")] } });
+  await settle();
+  assert.equal(lastData(p), undefined);
+});
+
+test("files dropped on the Attachments field are sent as bytes, with the drop shown while over it", async () => {
+  const p = attachmentsPage();
+  const field = p.byId("field-attachments");
+  let accepted = false;
+  field.dispatch("dragover", { dataTransfer: { types: ["Files"] }, preventDefault: () => (accepted = true) });
+  assert.equal(accepted, true, "a file drag was not accepted");
+  assert.ok(field.classes.has("drop-target"));
+  field.dispatch("drop", { dataTransfer: { types: ["Files"], files: [fakeFile("error.log", "text/plain", "stack trace")] } });
+  await settle();
+  assert.equal(field.classes.has("drop-target"), false);
+  assert.equal(lastData(p)?.origin, "drop");
+  assert.deepEqual(lastData(p)?.files.map((file) => file.name), ["error.log"]);
+  // A drag of text is not a drop target.
+  accepted = false;
+  field.dispatch("dragover", { dataTransfer: { types: ["text/plain"] }, preventDefault: () => (accepted = true) });
+  assert.equal(accepted, false);
+});
+
+test("a file over 10 MB is refused on the page, before its bytes cross; the reason is shown", async () => {
+  const p = attachmentsPage();
+  p.dispatchDocument("paste", {
+    target: p.byId("add-attachment"),
+    clipboardData: { files: [fakeFile("huge.mov", "video/quicktime", "x", 10 * 1024 * 1024 + 1)] },
+  });
+  await settle();
+  assert.equal(lastData(p), undefined);
+  assert.equal(p.byId("attachment-status").hidden, false);
+  assert.equal(p.byId("attachment-status").textContent, "Not attached: huge.mov is larger than 10 MB.");
+});
+
+test("a long description grows its box instead of scrolling inside one line", () => {
+  // Found in the real window at 200px: the box stayed one line with a scrollbar.
+  const p = attachmentsPage();
+  const box = attachmentDescription(p.byId("attachment-list").children[0]!);
+  box.clientHeight = 20;
+  box.scrollHeight = 58;
+  box.value = "Login button remains disabled after entering valid credentials, even after waiting.";
+  box.dispatch("input");
+  assert.equal(box.style["height"], "58px");
 });

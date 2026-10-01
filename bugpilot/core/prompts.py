@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from .attachments import ATTACHMENTS_DIR
 from .delivery_instructions import assisted_delivery_block, delivery_safety_block
@@ -30,6 +30,7 @@ def generate_task(
     jira_comment: bool = False,
     attachments: Sequence[str] | None = None,
     fix_mode: FixMode | None = None,
+    attachment_notes: Mapping[str, str] | None = None,
 ) -> str:
     """``task.md``: the one package BugPilot hands a coding agent.
 
@@ -42,7 +43,7 @@ def generate_task(
     # standalone per-phase prompt files are generated.
     branch = branch_name(issue_key, summary)
     mode = _task_fix_mode(fix_mode)
-    return _copilot_task(issue_key, branch, hint, jira_comment, attachments, mode)
+    return _copilot_task(issue_key, branch, hint, jira_comment, attachments, mode, attachment_notes)
 
 
 def copilot_team_instructions() -> str:
@@ -180,6 +181,7 @@ def _copilot_task(
     jira_comment: bool = True,
     attachments: Sequence[str] | None = None,
     fix_mode: FixMode | None = None,
+    attachment_notes: Mapping[str, str] | None = None,
 ) -> str:
     mode = _task_fix_mode(fix_mode)
     investigating = mode.is_investigation
@@ -261,7 +263,7 @@ def _copilot_task(
         "- Do not work directly on main/master.\n"
         "- Do not edit files on main/master.\n"
         "- Create or switch to the feature branch before editing files.\n\n"
-        f"{_attachments_section(issue_key, attachments)}"
+        f"{_attachments_section(issue_key, attachments, attachment_notes)}"
         "## Required Input Files\n\n"
         f"- Read `.ai/{issue_key}/context.md`.\n"
         f"- Read and inspect `.ai/{issue_key}/retrieval.json` if present: the ranked related files with their matched lines, the search terms, and the search confidence.\n"
@@ -366,14 +368,22 @@ def _required_output_section(issue_key: str, investigating: bool) -> str:
     )
 
 
-def _attachments_section(issue_key: str, attachments: Sequence[str] | None) -> str:
-    """Files the developer attached, named one by one.
+def _attachments_section(
+    issue_key: str,
+    attachments: Sequence[str] | None,
+    notes: Mapping[str, str] | None = None,
+) -> str:
+    """Files the developer attached, one entry each, with why it matters.
 
     Only ever lists files that were actually copied — `copy_attachments` drops
     what it could not take, and this is handed the result of reading the
     directory rather than the developer's original request. Telling an agent to
     read something that is not there wastes a turn and teaches it to distrust
     the list.
+
+    A description is the developer's note on why a file matters, recorded with
+    the work item; a file without one simply has none. Named by path, never
+    inlined: a screenshot or a log is read where it lies.
 
     The wording about images is deliberate. Whether an agent can open a PNG
     depends on the agent and the model behind it, and that is not knowable from
@@ -383,16 +393,22 @@ def _attachments_section(issue_key: str, attachments: Sequence[str] | None) -> s
     names = [name for name in (attachments or []) if name]
     if not names:
         return ""
-    lines = "".join(
-        f"- `.ai/{issue_key}/{ATTACHMENTS_DIR}/{name}`\n" for name in names
-    )
+    described = notes or {}
+    entries = ""
+    for name in names:
+        note = " ".join(str(described.get(name) or "").split())
+        entries += f"### {name}\n\n"
+        if note:
+            entries += f"Description: {note}\n"
+        entries += f"File: `.ai/{issue_key}/{ATTACHMENTS_DIR}/{name}`\n\n"
     return (
         "## Developer Attachments\n\n"
         "The developer attached these files for this bug. They are not part of "
-        "the repository and are not in the Jira description.\n\n"
-        f"{lines}"
-        "\n"
+        "the repository and are not in the issue description.\n\n"
+        f"{entries}"
         "- Read the ones your tools can open, and use them as evidence.\n"
+        "- A description is the developer's note on why the file matters; check it "
+        "against the file rather than taking it as a finding.\n"
         "- If one is an image or a format you cannot read, say so plainly "
         "instead of guessing at its contents.\n\n"
     )

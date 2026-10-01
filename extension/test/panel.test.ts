@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 
 import {
   MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_DESCRIPTION,
   PANEL_ACTIONS,
   PANEL_MESSAGE_TYPES,
   WORKFLOW_CHECKBOX_IDS,
@@ -76,6 +78,8 @@ const MODEL_TEXT_FIELDS = Object.keys(DEFAULT_FORM).filter(
       "fixWithAI",
       "agent",
       "attachments",
+      // One per attachment, built with the list rather than a fixed control.
+      "attachmentDescriptions",
       "fixModeId",
       "useIssueDetails",
     ].includes(key),
@@ -219,6 +223,12 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   formChanged: { type: "formChanged", form: DEFAULT_FORM },
   applySettings: { type: "applySettings", form: DEFAULT_FORM },
   pickAttachments: { type: "pickAttachments", attachments: ["C:/logs/crash.txt"] },
+  addAttachmentData: {
+    type: "addAttachmentData",
+    origin: "paste",
+    files: [{ name: "", type: "image/png", data: "iVBORw0KGgo=" }],
+    attachments: ["C:/logs/crash.txt"],
+  },
   addAttachments: { type: "addAttachments", form: DEFAULT_FORM },
   action: { type: "action", id: "fixWithAI" },
   command: { type: "command", id: "bugpilot.openSettings" },
@@ -725,9 +735,9 @@ test("helper text survives only where a placeholder could not carry it", () => {
     ].sort(),
     "helper text should remain only where a placeholder could not carry it",
   );
-  // Where the files go and who reads them: not inferable from "Attachments",
-  // and there is no input to hang a placeholder on.
-  assert.match(advanced, /named in the agent's task file/);
+  // How files get here — the dialog, a drop, the clipboard: not inferable from
+  // "Attachments", and there is no input to hang a placeholder on.
+  assert.match(advanced, /Add files, drag &amp; drop \(hold Shift\), or paste from clipboard\./);
 
   // And what each of them says is the reason it survived.
   assert.match(advanced, /\{prompt\} is replaced with the handoff prompt, already quoted\./);
@@ -2755,4 +2765,74 @@ test("the helper belongs to Include issue details: in its group, under it, and d
   assert.equal(group.includes('id="improve-hint"'), false);
   assert.match(group, /aria-describedby="useIssueDetails-hint"/);
   assert.equal(HTML.includes("The issue title and description only. No repository, history or files are read."), false, "the old helper is still there");
+});
+
+// --- paste, drop and descriptions (§37.98) ----------------------------------------
+
+test("the description and size ceilings are the CLI's, and the page's copies agree", () => {
+  const python = readFileSync(new URL("../../bugpilot/core/attachments.py", import.meta.url), "utf8");
+  assert.equal(MAX_ATTACHMENT_DESCRIPTION, Number(/MAX_ATTACHMENT_NOTE_CHARS = (\d+)/.exec(python)?.[1]));
+  assert.equal(MAX_ATTACHMENT_BYTES, 10 * 1024 * 1024);
+  assert.match(python, /MAX_ATTACHMENT_BYTES = 10 \* 1024 \* 1024/);
+  // The page cannot import either; it repeats them.
+  assert.match(PAGE_JS, new RegExp(`const MAX_ATTACHMENTS = ${MAX_ATTACHMENTS};`));
+  assert.match(PAGE_JS, /const MAX_ATTACHMENT_BYTES = 10 \* 1024 \* 1024;/);
+  assert.match(PAGE_JS, new RegExp(`const MAX_ATTACHMENT_DESCRIPTION = ${MAX_ATTACHMENT_DESCRIPTION};`));
+});
+
+test("pasted or dropped files cross the boundary as bytes, never as a path", () => {
+  const ok = parsePanelMessage({
+    type: "addAttachmentData",
+    origin: "drop",
+    files: [{ name: "error.log", type: "text/plain", data: "aGVsbG8=" }],
+    attachments: ["/a/one.log"],
+  });
+  assert.deepEqual(ok, {
+    type: "addAttachmentData",
+    origin: "drop",
+    files: [{ name: "error.log", type: "text/plain", data: "aGVsbG8=" }],
+    attachments: ["/a/one.log"],
+  });
+  for (const bad of [
+    { origin: "clipboard", files: [{ name: "a", type: "", data: "aGVsbG8=" }] },
+    { origin: "paste", files: [] },
+    { origin: "paste", files: [{ name: "a", type: "", data: "not base64!" }] },
+    { origin: "paste", files: [{ name: "a", type: "", data: "A".repeat(15 * 1024 * 1024) }] },
+    { origin: "paste", files: [{ name: "a", type: "", path: "C:/secret.txt" }] },
+  ]) {
+    assert.equal(parsePanelMessage({ type: "addAttachmentData", attachments: [], ...bad }), undefined, JSON.stringify(bad).slice(0, 80));
+  }
+});
+
+test("descriptions from the page describe only the files in the same form, and are bounded", () => {
+  const message = parsePanelMessage({
+    type: "formChanged",
+    form: {
+      ...DEFAULT_FORM,
+      attachments: ["/a/one.log"],
+      attachmentDescriptions: { "/a/one.log": "x".repeat(900), "/not/attached.png": "stray", "/a/two.log": 42 },
+    },
+  });
+  assert.ok(message && message.type === "formChanged");
+  assert.deepEqual(Object.keys(message.form.attachmentDescriptions), ["/a/one.log"]);
+  assert.equal(message.form.attachmentDescriptions["/a/one.log"]!.length, MAX_ATTACHMENT_DESCRIPTION);
+});
+
+test("the Attachments field says how files get there, and has a quiet status line", () => {
+  const field = /<div class="field" id="field-attachments">[\s\S]*?<\/button>\s*<\/div>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(field, "");
+  assert.match(field, /Add files, drag &amp; drop \(hold Shift\), or paste from clipboard\./);
+  assert.match(field, /<p class="hint attachment-status" id="attachment-status" role="status" hidden><\/p>/);
+  assert.equal(/Jira/.test(field), false);
+  // The section still says its changes need a rebuild.
+  assert.equal(sectionRebuildNote("issue-details"), "Changes here require rebuilding context.");
+});
+
+test("an attachment row never pushes a narrow sidebar sideways", () => {
+  // The name is cut, the × keeps its place, and the description wraps.
+  assert.match(CSS, /\.attachment-row \{[^}]*min-width: 0/s);
+  assert.match(CSS, /\.attachment-name \{[^}]*min-width: 0[^}]*text-overflow: ellipsis/s);
+  assert.match(CSS, /\.attachment-description \{[^}]*overflow-wrap: anywhere/s);
+  assert.match(CSS, /\.attachment-description \{[^}]*resize: none/s);
+  assert.match(CSS, /#field-attachments\.drop-target \{[^}]*var\(--vscode-focusBorder\)/s);
 });

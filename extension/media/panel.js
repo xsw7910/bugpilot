@@ -81,7 +81,7 @@
    * message on a page nobody opened is a message nobody sees.
    */
   const SETTINGS_SECTIONS = {
-    "issue-details": { fields: ["title", "attachments"], focus: ["title", "add-attachment"] },
+    "issue-details": { fields: ["title", "attachments", "attachmentDescriptions"], focus: ["title", "add-attachment"] },
     "code-search": {
       fields: ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"],
       focus: ["keywords"],
@@ -182,6 +182,7 @@
     agentCommand: "",
     agent: "auto",
     attachments: [],
+    attachmentDescriptions: {},
     fresh: false,
   };
   /**
@@ -213,6 +214,18 @@
    * one.
    */
   let attachments = [];
+  /** The draft's description per attachment path; only non-blank ones are kept. */
+  let attachmentDescriptions = {};
+
+  /**
+   * The same ceilings `messages.ts` and `bugpilot/core/attachments.py` hold,
+   * duplicated because a webview imports nothing; `test/panel.test.ts`
+   * compares them. A file over the size is refused here, before its bytes
+   * cross to the host.
+   */
+  const MAX_ATTACHMENTS = 10;
+  const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+  const MAX_ATTACHMENT_DESCRIPTION = 500;
   let shownProblems = "";
   /** The catalog as it was last rendered, so options are not rebuilt per push. */
   let fixModeSignature;
@@ -406,15 +419,24 @@
    * opened — and waits to be called again.
    */
   function grow(element) {
-    if (!element || !GROWING_FIELDS.includes(element.id)) return;
+    // The fixed fields by id; an attachment's description by its class, since
+    // those are built per row and have none.
+    const describing = Boolean(element) && String(element.className || "").split(/\s+/).includes("attachment-description");
+    if (!element || !(GROWING_FIELDS.includes(element.id) || describing)) return;
     element.style.height = "auto";
     const resting = element.clientHeight;
     if (!resting) return;
-    element.style.height = `${Math.max(resting, element.scrollHeight)}px`;
+    // A description's box is border-box: its border has to be added back, or
+    // the text sits 2px short and a scrollbar shows (seen in the real window).
+    const border = describing ? Math.max(0, Number(element.offsetHeight) - element.clientHeight || 0) : 0;
+    element.style.height = `${Math.max(resting, element.scrollHeight + border)}px`;
   }
 
   function growAll() {
     for (const field of GROWING_FIELDS) grow(byId(field));
+    // The descriptions too: drawn while the settings page was hidden, they had
+    // no layout to grow to until it opened.
+    for (const item of byId("attachment-list").children) grow(item.children && item.children[1]);
   }
 
   // --- reading the form ----------------------------------------------------
@@ -441,7 +463,13 @@
   function formWith(settings) {
     const issue = byId("issue").value;
     const source = issueSource();
-    const form = { source, plan: {}, ...settings, attachments: [...settings.attachments] };
+    const form = {
+      source,
+      plan: {},
+      ...settings,
+      attachments: [...settings.attachments],
+      attachmentDescriptions: { ...(settings.attachmentDescriptions || {}) },
+    };
     // The one box, split into the two fields the host and the CLI expect. The
     // unused one is cleared rather than left behind: a stale description under
     // a Jira key would reach `--description` the moment the key was deleted.
@@ -466,6 +494,7 @@
     for (const field of SETTINGS_TEXT_FIELDS) settings[field] = byId(field).value;
     settings.agent = byId("agent").value || "auto";
     settings.attachments = [...attachments];
+    settings.attachmentDescriptions = describedOnly(attachments, attachmentDescriptions);
     settings.fresh = byId("fresh").checked;
     return settings;
   }
@@ -476,6 +505,7 @@
     for (const field of SETTINGS_TEXT_FIELDS) settings[field] = form[field] ?? "";
     settings.agent = LEGACY_AGENTS[form.agent] ?? form.agent ?? "auto";
     settings.attachments = Array.isArray(form.attachments) ? [...form.attachments] : [];
+    settings.attachmentDescriptions = describedOnly(settings.attachments, form.attachmentDescriptions || {});
     settings.fresh = form.fresh === true;
     return settings;
   }
@@ -488,6 +518,7 @@
     // than left as a blank select.
     if (byId("agent").value === "") byId("agent").value = "auto";
     attachments = [...settings.attachments];
+    attachmentDescriptions = { ...(settings.attachmentDescriptions || {}) };
     renderAttachments();
     byId("fresh").checked = settings.fresh === true;
     applyAgentVisibility();
@@ -570,6 +601,12 @@
       const item = document.createElement("li");
       item.className = "attachment";
 
+      const row = document.createElement("div");
+      row.className = "attachment-row";
+      const icon = document.createElement("span");
+      icon.className = "codicon codicon-file attachment-icon";
+      icon.setAttribute("aria-hidden", "true");
+
       const name = document.createElement("span");
       name.className = "attachment-name";
       // The basename is what a developer recognises; the full path is the
@@ -589,13 +626,106 @@
       remove.addEventListener("click", () => {
         // The draft's list: the form changes on Apply, not here.
         attachments = attachments.filter((entry) => entry !== path);
+        delete attachmentDescriptions[path];
         renderAttachments();
       });
 
-      item.append(name, remove);
+      // Why this file matters, optional: one line under it in task.md. A
+      // textarea so a sentence wraps in a narrow sidebar; typed into the draft
+      // without re-rendering, so the caret stays where it is.
+      const description = document.createElement("textarea");
+      description.className = "attachment-description";
+      description.rows = 1;
+      description.maxLength = MAX_ATTACHMENT_DESCRIPTION;
+      description.placeholder = "Add a description…";
+      description.setAttribute("aria-label", `Description of ${name.textContent}`);
+      description.value = attachmentDescriptions[path] || "";
+      description.disabled = byId("add-attachment").disabled;
+      description.addEventListener("input", () => {
+        if (description.value.trim() === "") delete attachmentDescriptions[path];
+        else attachmentDescriptions[path] = description.value;
+        grow(description);
+      });
+
+      row.append(icon, name, remove);
+      item.append(row, description);
       list.append(item);
+      grow(description);
     }
     list.hidden = attachments.length === 0;
+  }
+
+  /** Only the descriptions of files still in `list`, and only non-blank ones. */
+  function describedOnly(list, descriptions) {
+    const kept = {};
+    for (const path of list) {
+      const text = descriptions[path];
+      if (typeof text === "string" && text.trim() !== "") kept[path] = text.slice(0, MAX_ATTACHMENT_DESCRIPTION);
+    }
+    return kept;
+  }
+
+  /** The files a paste or a drop carries; plain text carries none. */
+  function filesOf(transfer) {
+    if (!transfer) return [];
+    const files = [...(transfer.files || [])];
+    if (files.length === 0 && transfer.items) {
+      for (const item of transfer.items) {
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+    }
+    return files;
+  }
+
+  /** Where a paste is the field's own: a text box keeps its normal paste. */
+  function editable(target) {
+    return Boolean(target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable));
+  }
+
+  /** Bytes as base64, in chunks: one String.fromCharCode over 10 MB overflows the stack. */
+  function toBase64(bytes) {
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary);
+  }
+
+  function attachmentStatus(text) {
+    const status = byId("attachment-status");
+    status.textContent = text;
+    status.hidden = text === "";
+  }
+
+  /**
+   * Hand pasted or dropped files to the host: bytes, never a path. All of one
+   * paste or drop in one message, with the draft's list for the host to add
+   * to; the answer comes back like the file dialog's.
+   */
+  async function attachFiles(files, origin) {
+    if (byId("add-attachment").disabled) return;
+    const room = MAX_ATTACHMENTS - attachments.length;
+    const refused = [];
+    const payload = [];
+    for (const [index, file] of files.entries()) {
+      const label = file.name || "The pasted image";
+      if (index >= room) {
+        refused.push(`BugPilot attaches at most ${MAX_ATTACHMENTS} files`);
+        break;
+      }
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        refused.push(`${label} is larger than ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`);
+        continue;
+      }
+      payload.push({ name: file.name || "", type: file.type || "", data: toBase64(new Uint8Array(await file.arrayBuffer())) });
+    }
+    attachmentStatus(refused.length === 0 ? "" : `Not attached: ${refused.join("; ")}.`);
+    if (payload.length > 0) {
+      vscode.postMessage({ type: "addAttachmentData", origin, files: payload, attachments: [...attachments] });
+    }
   }
 
   /**
@@ -835,7 +965,12 @@
     }
     setFormEnabled(!blocked && !checking && !running);
     byId("run").disabled = blocked || checking || running;
-    byId("add-attachment").disabled = blocked || checking || running;
+    const attachLocked = blocked || checking || running;
+    if (byId("add-attachment").disabled !== attachLocked) {
+      byId("add-attachment").disabled = attachLocked;
+      // The descriptions follow the button: built with the list, so redrawn.
+      renderAttachments();
+    }
   }
 
   /** The control a problem is shown on, which is not always its own name. */
@@ -3569,6 +3704,31 @@
   byId("add-attachment").addEventListener("click", () =>
     vscode.postMessage({ type: "pickAttachments", attachments: [...attachments] }),
   );
+  // Ctrl+V / Cmd+V on the settings page: an image or a file on the clipboard
+  // becomes an attachment. Not inside a text box — there it is that box's own
+  // paste — and plain text is never an attachment.
+  document.addEventListener("paste", (event) => {
+    if (!settingsOpen || editable(event.target)) return;
+    const files = filesOf(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void attachFiles(files, "paste");
+  });
+  const dropZone = byId("field-attachments");
+  const carriesFiles = (event) => Boolean(event.dataTransfer && [...(event.dataTransfer.types || [])].includes("Files"));
+  dropZone.addEventListener("dragover", (event) => {
+    if (!carriesFiles(event) || byId("add-attachment").disabled) return;
+    event.preventDefault();
+    dropZone.classList.toggle("drop-target", true);
+  });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.toggle("drop-target", false));
+  dropZone.addEventListener("drop", (event) => {
+    dropZone.classList.toggle("drop-target", false);
+    const files = filesOf(event.dataTransfer);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void attachFiles(files, "drop");
+  });
   byId("set-credentials").addEventListener("click", () =>
     vscode.postMessage({ type: "action", id: "setCredentials" }),
   );

@@ -54,6 +54,7 @@ test("the gears map rows to sections one to one, and a section is titled by its 
 const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   title: { title: "Crash on save" },
   attachments: { attachments: ["/logs/crash.txt"] },
+  attachmentDescriptions: { attachmentDescriptions: { "/logs/crash.txt": "Console output after Save." } },
   keywords: { keywords: "VolumeDescriptor" },
   focusFiles: { focusFiles: "src/a.ts" },
   ignorePaths: { ignorePaths: "build/" },
@@ -70,8 +71,10 @@ test("the page's 'requires rebuild' words are the host's staleness rule, field b
   const jira = { ...DEFAULT_FORM, issueKey: "JR-1" };
   const manual: FormState = { ...DEFAULT_FORM, source: "manual", description: "It crashes." };
   for (const field of Object.keys(CHANGED) as SettingsField[]) {
-    // Title only reaches a run for a hand-written bug, as on the command line.
-    const base = field === "title" ? manual : jira;
+    // Title only reaches a run for a hand-written bug, as on the command line;
+    // a description only describes a file that is attached, the same in both.
+    const base =
+      field === "title" ? manual : field === "attachmentDescriptions" ? { ...jira, attachments: ["/logs/crash.txt"] } : jira;
     const moved = preparationFingerprint({ ...base, ...CHANGED[field] }) !== preparationFingerprint(base);
     assert.equal(moved, SETTING_REQUIRES_REBUILD[field], `${field}: the label and the fingerprint disagree`);
   }

@@ -56,12 +56,15 @@ test("the workflow is the six steps, in order, whatever the run did", () => {
   assert.equal(steps[0]!.enabled, true);
 });
 
-test("issue details is required, and says what it will actually do", () => {
-  // "Fetch Jira issue information" is untrue for a bug someone typed out, and
-  // the row is the only place that difference is visible.
-  assert.match(stepDescription("issueDetails", "jira"), /Fetch Jira/);
-  assert.match(stepDescription("issueDetails", "manual"), /description you wrote/);
-  assert.equal(buildWorkflow(input({ source: "manual" }))[0]!.description, stepDescription("issueDetails", "manual"));
+test("issue details says what it does in words true of every source", () => {
+  // A work item is a Jira issue or a bug typed into the panel, and the page
+  // shows this line before it knows which: no Jira in it.
+  assert.equal(stepDescription("issueDetails"), "Gather issue information");
+  for (const source of ["jira", "manual"] as const) {
+    const row = buildWorkflow(input({ source }))[0]!;
+    assert.equal(row.description, "Gather issue information", source);
+    assert.equal(/jira/i.test(row.description), false, source);
+  }
 });
 
 test("an unticked step is enabled: false rather than missing", () => {
@@ -161,7 +164,7 @@ const ISSUE = { id: "JR-12345", source: "jira", title: "WidgetController rejects
 
 test("Issue details says what it is doing, then what it read", () => {
   const pending = stepIn(buildWorkflow(input()), "issueDetails");
-  assert.equal(pending.summary, "Fetch Jira issue information");
+  assert.equal(pending.summary, "Gather issue information");
 
   const running = stepIn(
     buildWorkflow(input({ workItemId: "JR-12345", progress: progress("running", { issue_details: "running" }) })),

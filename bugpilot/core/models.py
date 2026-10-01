@@ -120,6 +120,12 @@ class InvestigationOptions:
     # it. Unlike `focus_files`, which only ranks paths the search already
     # walks, these are copied into the work item and named in the task file.
     attachments: list[str] = field(default_factory=list)
+    # Why each attachment matters, by position: the Nth describes the Nth file;
+    # blank means no description. Recorded in issue.json and named in the task.
+    attachment_descriptions: list[str] = field(default_factory=list)
+    # `attachments` is the complete set (§37.99): a file an earlier run copied
+    # that is not among them is removed from the work item. Off, they add to it.
+    replace_attachments: bool = False
 
 
 @dataclass

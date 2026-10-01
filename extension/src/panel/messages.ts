@@ -65,7 +65,7 @@ const CAPS: Readonly<Record<keyof FormTextFields, number>> = {
 
 type FormTextFields = Omit<
   FormState,
-  "source" | "plan" | "fresh" | "fixWithAI" | "agent" | "attachments" | "useIssueDetails"
+  "source" | "plan" | "fresh" | "fixWithAI" | "agent" | "attachments" | "attachmentDescriptions" | "useIssueDetails"
 >;
 
 /**
@@ -76,6 +76,18 @@ type FormTextFields = Omit<
  * source and compares.
  */
 export const MAX_ATTACHMENTS = 10;
+
+/**
+ * The longest attachment description a run sends: `MAX_ATTACHMENT_NOTE_CHARS`
+ * in `bugpilot/core/attachments.py`, compared by a test like the count above.
+ */
+export const MAX_ATTACHMENT_DESCRIPTION = 500;
+
+/**
+ * The largest file `bugpilot/core/attachments.py` copies (`MAX_ATTACHMENT_BYTES`).
+ * A pasted or dropped file over it is refused before its bytes are kept.
+ */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 /** A plain file name: a letter or digit, then name characters. */
 const ARTIFACT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -347,6 +359,19 @@ export type PanelMessage =
    */
   | { readonly type: "pickAttachments"; readonly attachments: readonly string[] }
   /**
+   * "Attach these files I pasted or dropped": their bytes, never a path — the
+   * page cannot name one, and a webview is given none. The host stores them,
+   * adds the paths it chose to the draft list sent with them, and answers like
+   * `pickAttachments`. All of one paste or drop in one message, so two files
+   * never race each other onto a stale list.
+   */
+  | {
+      readonly type: "addAttachmentData";
+      readonly origin: "paste" | "drop";
+      readonly files: readonly AttachmentData[];
+      readonly attachments: readonly string[];
+    }
+  /**
    * "Open the file dialog and add what I choose."
    *
    * Carries the form for the same reason `run` does: the host's copy can be up
@@ -445,6 +470,7 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   formChanged: true,
   applySettings: true,
   pickAttachments: true,
+  addAttachmentData: true,
   addAttachments: true,
   action: true,
   command: true,
@@ -585,6 +611,21 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     }
     case "pickAttachments":
       return { type, attachments: parseAttachments(message?.["attachments"]) };
+    case "addAttachmentData": {
+      const origin = message?.["origin"];
+      const files = Array.isArray(message?.["files"])
+        ? (message!["files"] as unknown[]).slice(0, MAX_ATTACHMENTS).map(parseAttachmentData)
+        : [];
+      if ((origin !== "paste" && origin !== "drop") || files.length === 0 || files.some((file) => file === undefined)) {
+        return undefined;
+      }
+      return {
+        type,
+        origin,
+        files: files as AttachmentData[],
+        attachments: parseAttachments(message?.["attachments"]),
+      };
+    }
     case "run":
     case "formChanged":
     case "applySettings":
@@ -744,6 +785,7 @@ function parseForm(raw: unknown): FormState | undefined {
     maxSearchLines: text("maxSearchLines"),
     agentCommand: text("agentCommand"),
     attachments: parseAttachments(record["attachments"]),
+    attachmentDescriptions: parseAttachmentDescriptions(record["attachmentDescriptions"], parseAttachments(record["attachments"])),
     // Shape-checked here rather than trusted: the page only offers ids the CLI
     // listed, but this is the untrusted side of the boundary and the value ends
     // up as a command-line flag. Anything else becomes "no selection", which
@@ -796,6 +838,54 @@ function parseAttachments(value: unknown): string[] {
     .filter((entry): entry is string => typeof entry === "string" && entry !== "")
     .slice(0, MAX_ATTACHMENTS)
     .map((entry) => entry.slice(0, 4_096));
+}
+
+/** One pasted or dropped file as the page sends it. */
+export interface AttachmentData {
+  /** The name it had, if any: a screenshot has none worth keeping ("image.png"). */
+  readonly name: string;
+  readonly type: string;
+  /** Its bytes, base64. */
+  readonly data: string;
+}
+
+/** Base64 for the largest file a run copies, and a little room. */
+const MAX_ATTACHMENT_BASE64 = Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 8;
+
+/**
+ * A file's name, type and bytes, shape-checked. Bytes over the size a run
+ * copies are refused here rather than decoded; the host checks again after.
+ */
+function parseAttachmentData(value: unknown): AttachmentData | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const { name, type, data } = record;
+  if (typeof data !== "string" || data === "" || data.length > MAX_ATTACHMENT_BASE64) return undefined;
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) return undefined;
+  return {
+    name: typeof name === "string" ? name.slice(0, 260) : "",
+    type: typeof type === "string" ? type.slice(0, 100) : "",
+    data,
+  };
+}
+
+/**
+ * Descriptions coming back from the page, by attachment path.
+ *
+ * Only for paths in the same form's list — a key the list does not have
+ * describes nothing — and only strings, each clamped to what a run sends.
+ */
+function parseAttachmentDescriptions(value: unknown, attachments: readonly string[]): Record<string, string> {
+  const record = asRecord(value);
+  if (!record) return {};
+  const descriptions: Record<string, string> = {};
+  for (const path of attachments) {
+    const text = record[path];
+    if (typeof text === "string" && text.trim() !== "") {
+      descriptions[path] = text.slice(0, MAX_ATTACHMENT_DESCRIPTION);
+    }
+  }
+  return descriptions;
 }
 
 function asString(value: unknown, cap: number): string | undefined {

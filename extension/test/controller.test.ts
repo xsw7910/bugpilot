@@ -156,6 +156,8 @@ interface HarnessOptions {
   readonly executeExtensionCommand?: (command: string) => Promise<void>;
   /** The host's store for the last agent a handoff reached; absent keeps it for the session. */
   readonly lastAgent?: LastAgentStore;
+  /** Keep a pasted or dropped file; absent means the host cannot. */
+  readonly storeAttachment?: NonNullable<ControllerPorts["storeAttachment"]>;
   /** What the file dialog returns when the panel asks for attachments. */
   readonly pickFiles?: readonly string[];
   /** The Fix Mode catalog discovery returns; absent means no discovery port. */
@@ -342,6 +344,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       return options.agentOnPath ?? false;
     },
     ...(options.lastAgent === undefined ? {} : { lastAgent: options.lastAgent }),
+    ...(options.storeAttachment === undefined ? {} : { storeAttachment: options.storeAttachment }),
     ...(options.extensions === undefined
       ? {}
       : {
@@ -9327,13 +9330,13 @@ test("an existing custom command keeps working exactly as before", async () => {
 test("a repository path with spaces, parentheses and an ampersand is only ever the terminal's cwd", async () => {
   // The path is the one piece of machine text near the handoff. It must reach
   // the terminal as its working directory, never as shell text.
-  const root = "C:\\sandbox\\bugpilot repo (copy) & more";
+  const root = "C:\\path\\to\\sample repo (copy) & more";
   const h = await preparedHarness({ environment: { ...READY, root } });
   await h.controller.handle(next("fixWithAI"));
   assert.equal(h.terminals.length, 1);
   assert.equal(h.terminals[0]!.cwd, root);
   assert.equal(h.terminals[0]!.commandLine, `claude ${JSON.stringify(HANDOFF)}`);
-  assert.equal(h.terminals[0]!.commandLine.includes("bugpilot repo"), false);
+  assert.equal(h.terminals[0]!.commandLine.includes("sample repo"), false);
 });
 
 // --- §37.95: nothing typed, read from Jira or handed to an agent reaches the log ---
@@ -9457,4 +9460,117 @@ test("a work item id that is not one is logged by its length, not by what was ty
 
   assert.deepEqual(leaked(h), []);
   assert.ok(h.logged.some((entry) => /^ERROR Refusing to open a work item whose id is not one \(\d+ characters\)\.$/.test(entry)), h.logged.join("\n"));
+});
+
+// --- §37.98: pasted and dropped attachments, and their descriptions ------------------
+
+/** A fake attachment store: records each write and answers a path under its digest. */
+function recordingStore() {
+  const stored: { digest: string; name: string; bytes: number }[] = [];
+  const store: NonNullable<ControllerPorts["storeAttachment"]> = async (digest, name, bytes) => {
+    stored.push({ digest, name, bytes: bytes.length });
+    return `/storage/attachments/${digest}/${name}`;
+  };
+  return { stored, store };
+}
+
+const b64 = (text: string) => Buffer.from(text).toString("base64");
+const PASTE = (data: string, attachments: readonly string[] = [], name = "image.png", type = "image/png") =>
+  ({ type: "addAttachmentData", origin: "paste", files: [{ name, type, data }], attachments }) as const;
+const picked = (h: Harness) => h.last().attachmentPick?.attachments;
+
+test("a pasted screenshot is stored by the host and comes back to the draft as screenshot-1.png", async () => {
+  const { stored, store } = recordingStore();
+  const h = harness({ storeAttachment: store });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(PASTE(b64("first screenshot"), ["/logs/crash.log"]));
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0]!.name, "screenshot-1.png");
+  assert.match(stored[0]!.digest, /^[0-9a-f]{16}$/);
+  assert.deepEqual(picked(h), ["/logs/crash.log", `/storage/attachments/${stored[0]!.digest}/screenshot-1.png`]);
+  // The form is not touched: the draft's answer, applied or cancelled by the page.
+  assert.deepEqual(h.saved.at(-1)?.attachments ?? [], []);
+
+  await h.controller.handle(PASTE(b64("second screenshot"), picked(h)!));
+  assert.equal(stored[1]!.name, "screenshot-2.png");
+});
+
+test("the same file pasted or dropped again is not attached twice", async () => {
+  const { stored, store } = recordingStore();
+  const h = harness({ storeAttachment: store });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(PASTE(b64("one screenshot")));
+  const list = picked(h)!;
+  const pushes = h.states.length;
+
+  await h.controller.handle({ type: "addAttachmentData", origin: "drop", files: [{ name: "shot.png", type: "image/png", data: b64("one screenshot") }], attachments: list });
+  assert.equal(stored.length, 1, "the duplicate was stored again");
+  assert.equal(h.states.length, pushes, "a duplicate answered the draft anyway");
+  assert.equal(h.notices.at(-1)?.message, "Not attached: a file that is already attached.");
+  assert.equal(h.notices.at(-1)?.kind, "info");
+});
+
+test("a dropped file keeps its own name; one over 10 MB is refused before it is kept", async () => {
+  const { stored, store } = recordingStore();
+  const h = harness({ storeAttachment: store });
+  await h.controller.refreshEnvironment();
+  const big = Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64");
+  await h.controller.handle({
+    type: "addAttachmentData",
+    origin: "drop",
+    files: [
+      { name: "error.log", type: "text/plain", data: b64("stack trace") },
+      { name: "huge.bin", type: "", data: big },
+    ],
+    attachments: [],
+  });
+  assert.deepEqual(stored.map((entry) => entry.name), ["error.log"]);
+  assert.equal(picked(h)?.length, 1);
+  assert.match(h.notices.at(-1)?.message ?? "", /larger than 10 MB/);
+});
+
+test("without a store the host says so, and keeps nothing", async () => {
+  const h = harness();
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(PASTE(b64("x")));
+  assert.match(h.notices.at(-1)?.message ?? "", /cannot keep pasted or dropped files/);
+  assert.equal(picked(h), undefined);
+});
+
+test("the log says what kind of file, how big and how many — never its name, bytes or description", async () => {
+  const { store } = recordingStore();
+  const h = harness({ events: successfulRun, storeAttachment: store });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(PASTE(b64("SECRET_CLIPBOARD_CONTENT_7731"), [], "customer-SECRET_FILE_NAME.log", "text/plain"));
+  const path = picked(h)![0]!;
+  await h.controller.run(jiraForm({ attachments: [path], attachmentDescriptions: { [path]: "SECRET_ATTACHMENT_DESCRIPTION_5520" } }));
+
+  for (const secret of ["SECRET_CLIPBOARD_CONTENT_7731", b64("SECRET_CLIPBOARD_CONTENT_7731"), "SECRET_FILE_NAME", "SECRET_ATTACHMENT_DESCRIPTION_5520"]) {
+    assert.equal(h.logged.some((line) => line.includes(secret)), false, `${secret} reached the log:\n${h.logged.join("\n")}`);
+  }
+  assert.ok(h.logged.includes("Attachment added by paste (text/plain, 1 KB); 1 attached."), h.logged.join("\n"));
+  assert.ok(h.logged.some((line) => /--attach=<redacted> --attach-description=<redacted>/.test(line)), h.logged.join("\n"));
+  // The run itself got the description: only the log lost it.
+  assert.ok(h.streamRuns[0]!.args.includes("--attach-description=SECRET_ATTACHMENT_DESCRIPTION_5520"));
+});
+
+test("describing an attachment makes the prepared context stale; changing the AI Agent leaves attachments alone", async () => {
+  const h = harness({ ...WITH_FILES, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", jiraForm({ attachments: ["/logs/crash.log"] })));
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  // The AI Agent: no rebuild, and the attachments and their descriptions as they were.
+  await h.controller.handle(applySettings(jiraForm({ attachments: ["/logs/crash.log"], agent: "codex-cli" })));
+  assert.equal(h.last().primary.action, "fixWithAI");
+  assert.deepEqual(h.saved.at(-1)?.attachments, ["/logs/crash.log"]);
+  assert.deepEqual(h.saved.at(-1)?.attachmentDescriptions, {});
+
+  // A description: the context no longer says what the next run would prepare.
+  await h.controller.handle(
+    applySettings(jiraForm({ attachments: ["/logs/crash.log"], attachmentDescriptions: { "/logs/crash.log": "After Save." }, agent: "codex-cli" })),
+  );
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.deepEqual(h.saved.at(-1)?.attachmentDescriptions, { "/logs/crash.log": "After Save." });
 });

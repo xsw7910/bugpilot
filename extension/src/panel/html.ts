@@ -782,9 +782,10 @@ const ATTACHMENTS_FIELD = `        <div class="field" id="field-attachments">
     label: "Attachments",
     icon: "attach",
     tone: "muted",
-    hint: "Copied into the work item and named in the agent's task file.",
+    hint: "Add files, drag &amp; drop (hold Shift), or paste from clipboard.",
   })}
           <ul id="attachment-list" class="attachments" hidden></ul>
+          <p class="hint attachment-status" id="attachment-status" role="status" hidden></p>
           <button type="button" id="add-attachment">
             <span class="codicon codicon-add" aria-hidden="true"></span>
             Add files…
@@ -964,7 +965,7 @@ function step(id: WorkflowStepId): string {
   const note = required ? `<span class="step-note" id="note-${id}">Always runs</span>` : "";
   // The Jira wording, because that is the source the form starts on; the host
   // replaces it with the manual wording on the first push after a switch.
-  const description = stepDescription(id, "jira");
+  const description = stepDescription(id);
   // A gear only where the step has a settings section: Git history and Similar
   // fixes are configured by their checkbox alone. Named for its step — "Configure
   // Code Search" — because six buttons all called Settings are one name read six
@@ -1018,7 +1019,7 @@ const FIX_RESULT_ROW = `        <li class="step" id="step-fixResult" hidden>
             </span>
           </div>
           <div class="step-foot" id="foot-fixResult">
-            <p class="step-description" id="description-fixResult">${stepDescription("fixResult", "jira")}</p>
+            <p class="step-description" id="description-fixResult">${stepDescription("fixResult")}</p>
           </div>
           <div class="step-body">
             <p class="step-detail" id="detail-fixResult" hidden></p>

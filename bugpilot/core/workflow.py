@@ -44,7 +44,15 @@ from .artifacts import (
 )
 from .fix_report import FixReport, manual_fix_report_template, read_fix_report
 from .run import RunArtifact, RunError, load_run, read_run_quietly, save_run
-from .attachments import ATTACHMENTS_DIR, attachment_names, copy_attachments
+from .attachments import (
+    ATTACHMENTS_DIR,
+    AttachmentResult,
+    attachment_names,
+    copy_attachments,
+    listed_attachments,
+    merge_attachment_notes,
+    remove_attachments,
+)
 from .fix_mode_state import (
     persist_fix_mode,
     select_fix_mode,
@@ -199,12 +207,20 @@ def refine_investigation(
     # Refining takes the same options as a first run, so it takes attachments
     # too. Accepting them and copying nothing would be the quietest kind of
     # bug: the caller passed files and the agent never hears of them.
+    copied = copy_attachments(target, options.attachments, options.attachment_descriptions)
     attachment_warnings = [
-        f"Attachment not added ({reason}): {source}"
-        for source, reason in copy_attachments(target, options.attachments).skipped
+        f"Attachment not added ({reason}): {source}" for source, reason in copied.skipped
     ]
     for warning in attachment_warnings:
         log(target, f"[WARN] {warning}")
+    # What the work item now has, and why each file matters, go where the hint
+    # is recorded, so the regenerated task file names exactly them; `prompt`
+    # reads `issue` when it runs, after this.
+    if copied.copied or options.replace_attachments:
+        issue = issue.with_guidance(
+            _attachment_guidance(target, issue.guidance, copied, exact=options.replace_attachments)
+        )
+        save_issue(repo_root, issue)
     failing: str | None = None
     try:
         for step in WORKFLOW_STEPS:
@@ -348,7 +364,26 @@ def run_investigation(
     # actually arrived. A file that could not be copied is reported, never
     # listed: telling an agent to read something that is not there is worse
     # than not offering it at all.
-    attachment_result = copy_attachments(target, request.options.attachments)
+    attachment_result = copy_attachments(
+        target, request.options.attachments, request.options.attachment_descriptions
+    )
+    # Which files the work item now has and what each is for, recorded with the
+    # hint in issue.json. With --replace-attachments the selection is the whole
+    # set and what an earlier run copied outside it is removed; without, this
+    # run adds to what is there (§37.99).
+    attachments_now = _attachment_guidance(
+        target,
+        previous.guidance if previous is not None else IssueGuidance(),
+        attachment_result,
+        exact=request.options.replace_attachments,
+    )
+    issue = issue.with_guidance(
+        replace(
+            issue.guidance,
+            attachment_notes=attachments_now.attachment_notes,
+            attachment_files=attachments_now.attachment_files,
+        )
+    )
     attachment_warnings = [
         f"Attachment not added ({reason}): {source}"
         for source, reason in attachment_result.skipped
@@ -856,7 +891,8 @@ def prompt_step(
         summary = issue.title or None
         hint = issue.guidance.hint
         jira_comment = _jira_comment_enabled(target)
-        attached = attachment_names(target)
+        # The recorded selection, not whatever is in the folder (§37.99).
+        attached = listed_attachments(target, issue.guidance.attachment_files)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
         task = generate_task(
             issue_key,
@@ -865,6 +901,7 @@ def prompt_step(
             jira_comment=jira_comment,
             attachments=attached,
             fix_mode=mode,
+            attachment_notes=issue.guidance.attachment_notes,
         )
         atomic_write_text(target / TASK_ARTIFACT, task)
         _mark_step(repo_root, issue_key, "prompt", "pass")
@@ -893,7 +930,7 @@ def copilot_task_step(
         summary = issue.title or None
         hint = issue.guidance.hint
         jira_comment = _jira_comment_enabled(target)
-        attached = attachment_names(target)
+        attached = listed_attachments(target, issue.guidance.attachment_files)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
         task = generate_task(
             issue_key,
@@ -902,6 +939,7 @@ def copilot_task_step(
             jira_comment=jira_comment,
             attachments=attached,
             fix_mode=mode,
+            attachment_notes=issue.guidance.attachment_notes,
         )
         atomic_write_text(target / TASK_ARTIFACT, task)
         log(target, "[END] copilot_task: pass")
@@ -1920,3 +1958,37 @@ def _result_summary_line(repo_root: Path, issue_key: str) -> str:
     source = report.summary or report.changes
     first_line = next((line.strip("- ").strip() for line in source.splitlines() if line.strip() and line.strip() != "TBD"), "")
     return first_line[:72] or "complete AI-assisted bug fix"
+
+
+def _attachment_guidance(
+    target: Path, previous: IssueGuidance, result: AttachmentResult, *, exact: bool
+) -> IssueGuidance:
+    """The attachment record after this run's copy: which files, and why each matters.
+
+    ``exact`` (``--replace-attachments``, which the extension always sends): the
+    files this run copied are the whole set. A file the previous record named
+    and this run did not copy is deleted from ``attachments/`` — only a recorded
+    name, through ``remove_attachments``' checks, never anything else in the
+    folder — and its description goes with it. A work item with no record yet
+    (prepared before §37.99) gets one now; its older files are left on disk but
+    are no longer named.
+
+    Not ``exact``: the run adds to what is there, as ``--attach`` always did. A
+    record, once kept, grows by what was copied; with none, there still is none
+    and the task file reads the folder.
+    """
+    if exact:
+        recorded = previous.attachment_files or ()
+        stale = [name for name in recorded if name not in result.copied]
+        removed = remove_attachments(target, stale)
+        if removed:
+            log(target, f"[INFO] removed {len(removed)} attachment(s) no longer selected")
+        return replace(previous, attachment_files=tuple(result.copied), attachment_notes=dict(result.notes))
+    files = previous.attachment_files
+    if files is not None:
+        files = tuple(files) + tuple(name for name in result.copied if name not in files)
+    return replace(
+        previous,
+        attachment_files=files,
+        attachment_notes=merge_attachment_notes(previous.attachment_notes, result),
+    )

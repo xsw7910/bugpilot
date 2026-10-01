@@ -256,6 +256,8 @@ def build_parser() -> argparse.ArgumentParser:
     bug_parser.add_argument("--focus-file", metavar="PATH", action="append", default=[], dest="focus_files", help="Rank this file or directory higher. Repeatable.")
     bug_parser.add_argument("--ignore-path", metavar="PATH", action="append", default=[], dest="ignore_paths", help="Exclude this file or directory from code search. Repeatable.")
     bug_parser.add_argument("--attach", metavar="PATH", action="append", default=[], dest="attachments", help="Copy this file into the work item for the agent to read: a log, a screenshot, a config. Repeatable.")
+    bug_parser.add_argument("--attach-description", metavar="TEXT", action="append", default=[], dest="attachment_descriptions", help="Why the matching --attach file matters, by position: the Nth describes the Nth --attach. Give one per --attach (an empty one for none), or none at all.")
+    bug_parser.add_argument("--replace-attachments", action="store_true", help="Make the --attach files the work item's complete set: a file an earlier run attached that is not among them is removed from .ai/<id>/attachments/ and from the task file. Without it, --attach adds to what an earlier run attached.")
     bug_parser.add_argument("--max-files", type=int, metavar="N", help="How many related files to keep (default 10).")
     bug_parser.add_argument("--max-search-lines", type=int, metavar="N", help="Line budget for the matched-lines section (default 300).")
     bug_parser.add_argument("--skip-code-search", action="store_true", help="Skip the code search capability.")
@@ -1751,12 +1753,21 @@ def _build_bug_request(repo_root: Path, args) -> InvestigationRequest:
             "or describe the bug (bugpilot bug --description \"...\")."
         )
 
+    # Paired by position, so a count that does not match would describe the
+    # wrong file: refused rather than guessed at.
+    if args.attachment_descriptions and len(args.attachment_descriptions) != len(args.attachments):
+        raise ValueError(
+            "Give one --attach-description per --attach, in the same order "
+            "(an empty one for a file without a description), or none at all."
+        )
     options = InvestigationOptions(
         hint=args.hint,
         keywords=list(args.keywords),
         focus_files=list(args.focus_files),
         ignore_paths=list(args.ignore_paths),
         attachments=list(args.attachments),
+        attachment_descriptions=list(args.attachment_descriptions),
+        replace_attachments=bool(args.replace_attachments),
     )
     # A zero empties the results and a negative slices from the end; both look
     # like a broken search rather than a rejected argument.

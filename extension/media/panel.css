@@ -978,12 +978,25 @@ button.icon .codicon {
    a developer recognises anyway. */
 .attachment {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 4px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 4px 4px;
   border: 1px solid var(--vscode-panel-border);
   border-radius: 2px;
   background: var(--vscode-editorWidget-background, transparent);
+}
+
+/* The file, and the way to take it back off: one line, the name cut, never the button. */
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.attachment-icon {
+  flex: none;
+  color: var(--vscode-descriptionForeground);
 }
 
 .attachment-name {
@@ -993,6 +1006,22 @@ button.icon .codicon {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.9em;
+}
+
+/* Why the file matters: prose, so the UI font rather than the paths' editor
+   font, and it wraps instead of scrolling sideways in a narrow sidebar. */
+.attachment-description {
+  min-height: 0;
+  resize: none;
+  font-family: var(--vscode-font-family);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+/* Files dragged over the field: the drop lands here. */
+#field-attachments.drop-target {
+  outline: 1px dashed var(--vscode-focusBorder);
+  outline-offset: 2px;
 }
 
 /* --- results on the workflow rows ------------------------------------------ */

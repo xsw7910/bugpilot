@@ -70,7 +70,7 @@ export function isSettingsField(field: string): field is SettingsField {
  */
 export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, readonly SettingsField[]>> = {
   // A hand-written bug's title, and files to copy in beside the issue.
-  "issue-details": ["title", "attachments"],
+  "issue-details": ["title", "attachments", "attachmentDescriptions"],
   // What the search boosts, prefers, skips, and how much it returns.
   "code-search": ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"],
   // How a preparation treats the work item's previous folder.
@@ -92,6 +92,8 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
   // On the manual path only, as on the command line; the section says so.
   title: true,
   attachments: true,
+  // Named in task.md under each file, so prepared context like the files.
+  attachmentDescriptions: true,
   keywords: true,
   focusFiles: true,
   ignorePaths: true,

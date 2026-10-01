@@ -70,8 +70,18 @@ export interface FormState {
    * than from the webview — the page never names a path the host did not pick.
    * Unlike `focusFiles`, which only ranks paths the search already walks,
    * these are copied into the work item and named in the agent's task file.
+   *
+   * A pasted screenshot or a dropped file is no exception: the page hands the
+   * host its bytes, and the path is the one the host stored them under.
    */
   readonly attachments: readonly string[];
+  /**
+   * Why an attachment matters, by its path in `attachments`: optional, one
+   * line each under the file in task.md. Part of the prepared context, like
+   * the hint — so changing one makes a prepared context stale. An entry for a
+   * path no longer attached is ignored.
+   */
+  readonly attachmentDescriptions: Readonly<Record<string, string>>;
   /**
    * Which AI Fix Mode the next run uses, by id.
    *
@@ -123,6 +133,7 @@ export const DEFAULT_FORM: FormState = {
   maxFiles: "",
   maxSearchLines: "",
   attachments: [],
+  attachmentDescriptions: {},
   fixModeId: "",
   plan: {
     issueDetails: true,
@@ -146,7 +157,20 @@ export const DEFAULT_FORM: FormState = {
  */
 export function restoreForm(saved: FormState | undefined): FormState {
   if (saved === undefined) return DEFAULT_FORM;
-  return { ...saved, agent: migrateAgentChoice(saved.agent) };
+  return {
+    ...saved,
+    agent: migrateAgentChoice(saved.agent),
+    // A form saved before descriptions existed has none.
+    attachmentDescriptions: saved.attachmentDescriptions ?? {},
+  };
+}
+
+/**
+ * One attachment's description as a run sends it: whitespace collapsed, as the
+ * CLI records it — so a trailing space never makes a context look stale.
+ */
+export function attachmentDescriptionOf(form: FormState, path: string): string {
+  return (form.attachmentDescriptions?.[path] ?? "").replace(/\s+/g, " ").trim();
 }
 
 export type FormField =
@@ -439,9 +463,19 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   // from the editor's own dialog moments ago, and the CLI reports anything
   // that vanished in between as a warning rather than a failure — which is the
   // right place for it, since the same race exists for a CLI user.
-  for (const attachment of form.attachments) {
-    if (attachment.trim() !== "") args.push(flag("--attach", attachment));
+  const attached = form.attachments.filter((attachment) => attachment.trim() !== "");
+  for (const attachment of attached) args.push(flag("--attach", attachment));
+  // Paired by position, one per --attach, and only when one is described: a
+  // run without descriptions is exactly the command line it always was.
+  const described = attached.map((attachment) => attachmentDescriptionOf(form, attachment));
+  if (described.some((text) => text !== "")) {
+    for (const text of described) args.push(flag("--attach-description", text));
   }
+  // The panel's list is the whole selection, not an addition to the last run's
+  // (§37.99): a file removed here leaves the work item — its copy, its
+  // description and its place in task.md — on a resume too. Always sent,
+  // because "none selected" has no --attach to say it with.
+  args.push("--replace-attachments");
 
   // Always explicit when the panel has a selection. The CLI's own precedence is
   // explicit > persisted > Standard, and letting the persisted value win here
@@ -521,6 +555,9 @@ export function preparationFingerprint(form: FormState): string {
     maxFiles: form.maxFiles.trim(),
     maxSearchLines: form.maxSearchLines.trim(),
     attachments: form.attachments.filter((entry) => entry.trim() !== ""),
+    attachmentDescriptions: form.attachments
+      .filter((entry) => entry.trim() !== "")
+      .map((entry) => attachmentDescriptionOf(form, entry)),
     fixModeId: form.fixModeId.trim(),
     plan: planFlags(form.plan),
   });

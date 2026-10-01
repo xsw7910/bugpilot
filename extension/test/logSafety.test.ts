@@ -23,7 +23,7 @@ test("a run's command line keeps its flags and loses every value somebody typed"
     "--keywords=VolumeDescriptor",
     "--focus-file=src/private/secret_area.py",
     "--ignore-path=vendor",
-    "--attach=C:\\Users\\someone\\Desktop\\crash.log",
+    "--attach=C:\\path\\to\\Desktop\\crash.log",
     "--max-files=10",
     "--max-search-lines=300",
     "--fix-mode=investigate",
