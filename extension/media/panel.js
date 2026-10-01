@@ -184,6 +184,17 @@
     attachments: [],
     fresh: false,
   };
+  /**
+   * The line under the AI Agent picker per choice, from the host's detection
+   * (`PanelState.agents`). The page only shows it; it never detects.
+   */
+  let agentLines = {};
+  /**
+   * Agent values an older page or saved form may hold, and what they meant:
+   * `claude` ran the claude CLI. A <select> would silently drop a value that
+   * has no option, and `|| "auto"` would then pick a different agent.
+   */
+  const LEGACY_AGENTS = { claude: "claude-cli" };
   /** Whether the Workflow Settings page is the view on screen (or under a Fix Mode view). */
   let settingsOpen = false;
   /** The control that opened the page, where focus goes back to. */
@@ -463,7 +474,7 @@
   function settingsOf(form) {
     const settings = {};
     for (const field of SETTINGS_TEXT_FIELDS) settings[field] = form[field] ?? "";
-    settings.agent = form.agent ?? "auto";
+    settings.agent = LEGACY_AGENTS[form.agent] ?? form.agent ?? "auto";
     settings.attachments = Array.isArray(form.attachments) ? [...form.attachments] : [];
     settings.fresh = form.fresh === true;
     return settings;
@@ -472,7 +483,10 @@
   /** Put settings into the page's controls: the applied ones, or back over a draft. */
   function writeSettings(settings) {
     for (const field of SETTINGS_TEXT_FIELDS) byId(field).value = settings[field] ?? "";
-    byId("agent").value = settings.agent ?? "auto";
+    byId("agent").value = LEGACY_AGENTS[settings.agent] ?? settings.agent ?? "auto";
+    // An agent this page has no option for is Auto-detect, said as such rather
+    // than left as a blank select.
+    if (byId("agent").value === "") byId("agent").value = "auto";
     attachments = [...settings.attachments];
     renderAttachments();
     byId("fresh").checked = settings.fresh === true;
@@ -597,6 +611,19 @@
     // The agent's name, never its custom command line.
     const option = agent.options ? agent.options[agent.selectedIndex] : undefined;
     agent.setAttribute("title", option ? option.text : "");
+    renderAgentStatus();
+  }
+
+  /**
+   * The quiet line under the picker, for whichever choice it shows — the draft's
+   * while Advanced Settings is open: "Detected: Codex CLI" for Auto-detect, how
+   * an explicit agent stands otherwise. Hidden when the host has nothing to say.
+   */
+  function renderAgentStatus() {
+    const line = agentLines[byId("agent").value];
+    const status = byId("agent-status");
+    status.textContent = typeof line === "string" ? line : "";
+    status.hidden = typeof line !== "string" || line === "";
   }
 
   /**
@@ -673,6 +700,8 @@
     // Outside the result on purpose: whether this is the environment the
     // developer thinks it is has nothing to do with whether a run succeeded.
     renderDiagnostics(state);
+    agentLines = (state.agents && state.agents.lines) || {};
+    renderAgentStatus();
     renderNotices(state);
     renderManage(state);
     renderSettings(state);
@@ -2573,6 +2602,9 @@
    */
   function openSettings(section, origin, focusId) {
     settingsOpen = true;
+    // The picker's status line is about this machine now: the host answers
+    // from its cache, or detects once, and says so in the next state.
+    vscode.postMessage({ type: "detectAgents" });
     if (origin !== undefined) settingsOrigin = origin;
     showView("settings", { focus: false });
     const target = section && SETTINGS_SECTIONS[section] ? byId(`settings-section-${section}`) : undefined;

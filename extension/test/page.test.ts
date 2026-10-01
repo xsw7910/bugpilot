@@ -381,6 +381,7 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
     // Always present, like the readiness beside it: the question Diagnostics
     // answers is asked most urgently when nothing has run.
     diagnostics: { rows: [] },
+    agents: { lines: {} },
     problems: [],
     progress,
     workflow,
@@ -758,6 +759,47 @@ test("the custom agent command appears only when a custom agent is chosen", () =
   p.byId("agent").value = "auto";
   p.byId("form").dispatch("change", { target: p.byId("agent") });
   assert.equal(p.byId("field-agentCommand").hidden, true);
+});
+
+const AGENT_LINES = {
+  auto: "Detected: Codex CLI",
+  "codex-cli": "Available",
+  "claude-cli": "Not found on PATH",
+  "codex-extension": "Not installed or disabled",
+  "claude-extension": "Installed · Limited integration",
+};
+
+test("the AI Agent status line shows the host's line for the choice on screen", () => {
+  const p = load();
+  p.send(state({ agents: { lines: AGENT_LINES } }));
+  assert.equal(p.byId("agent-status").textContent, "Detected: Codex CLI");
+  assert.equal(p.byId("agent-status").hidden, false);
+
+  // The draft's choice, as it changes: no round trip to the host.
+  p.byId("agent").value = "claude-extension";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("agent") });
+  assert.equal(p.byId("agent-status").textContent, "Installed · Limited integration");
+
+  // A custom command has nothing to say under the picker; its own field is there.
+  p.byId("agent").value = "custom";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("agent") });
+  assert.equal(p.byId("agent-status").hidden, true);
+});
+
+test("the AI Agent status line is hidden until the host has detected anything", () => {
+  const p = load();
+  p.send(state());
+  assert.equal(p.byId("agent-status").hidden, true);
+  assert.equal(p.byId("agent-status").textContent, "");
+  p.send(state({ agents: { lines: { auto: "No supported AI agent detected." } } }));
+  assert.equal(p.byId("agent-status").textContent, "No supported AI agent detected.");
+  assert.equal(p.byId("agent-status").hidden, false);
+});
+
+test("a form that still says `claude` selects Claude CLI, not a blank picker", () => {
+  const p = load();
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, agent: "claude" as never } }));
+  assert.equal(p.byId("agent").value, "claude-cli");
 });
 
 test("Ctrl+Enter runs without the button being clicked", () => {
@@ -1515,7 +1557,7 @@ test("the command box belongs to the custom choice alone", () => {
   p.byId("form").dispatch("change", { target: p.byId("agent") });
   assert.equal(p.byId("field-agentCommand").hidden, false);
 
-  p.byId("agent").value = "claude";
+  p.byId("agent").value = "claude-cli";
   p.byId("form").dispatch("change", { target: p.byId("agent") });
   assert.equal(p.byId("field-agentCommand").hidden, true);
 });
@@ -4686,7 +4728,6 @@ function loop(options: { holdRun?: boolean } = {}): Loop {
       },
       openFolder: async (directory) => { folders.push(directory.replaceAll("\\", "/")); },
       pickFiles: async () => [],
-      revealAgentPanel: async () => false,
       runCommand: async () => {},
     },
     log: { info: () => {}, error: () => {} },
@@ -5629,8 +5670,9 @@ test("settings 3: Code search's gear opens Workflow Settings at Code search, hig
   assert.ok(section.classes.has("settings-section-target"));
   assert.equal(p.byId("settings-section-fix-with-ai").classes.has("settings-section-target"), false);
   assert.equal(p.focused, "keywords");
-  // Opening the page asks the host nothing, and starts nothing.
-  assert.deepEqual(p.posted.slice(before), []);
+  // Opening the page starts nothing: its one question is which AI agents are
+  // here, for the picker's status line — answered from the host's cache.
+  assert.deepEqual(p.posted.slice(before), [{ type: "detectAgents" }]);
   // The emphasis is brief.
   p.flush();
   assert.equal(section.classes.has("settings-section-target"), false);

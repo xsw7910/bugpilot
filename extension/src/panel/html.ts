@@ -48,6 +48,8 @@
 import { WORKFLOW_STEP_IDS, STEP_LABELS, stepDescription } from "../app/workflow.ts";
 import type { WorkflowStepId } from "../app/workflow.ts";
 import { NEXT_ACTION_LABELS, RUN_HINT } from "../app/nextAction.ts";
+import { AGENT_CHOICES, AGENT_LABELS } from "../app/agents.ts";
+import type { AgentChoice } from "../app/agents.ts";
 import type { NextActionId } from "../app/nextAction.ts";
 import {
   REQUIRES_REBUILD_LABEL,
@@ -746,20 +748,31 @@ ${EDITOR_SECTIONS.map(section).join("\n")}
 `;
 }
 
-/** The AI agent picker: three choices, no helper text — each option says what it does. */
+/** An option's text: the label, with the picker's two decorations. */
+const AGENT_OPTION_TEXT: Readonly<Record<AgentChoice, string>> = {
+  ...AGENT_LABELS,
+  auto: `${AGENT_LABELS.auto} (Recommended)`,
+  custom: `${AGENT_LABELS.custom}…`,
+};
+
+/**
+ * The AI Agent picker: one option per adapter in `agents.ts`, and one quiet
+ * line under it — what Auto-detect found, or how the chosen agent stands
+ * ("Installed · Limited integration"). The host fills the line from
+ * `PanelState.agents`; the page never detects anything itself.
+ */
 const AGENT_FIELD = `        <div class="field" id="field-agent">
   ${settingHeader({
     forId: "agent",
-    label: "AI agent",
+    label: "AI Agent",
     icon: "hubot",
     tone: "primary",
     rebuild: showsRebuildLabel("agent"),
   })}
-          <select id="agent" name="agent">
-            <option value="auto">Auto-detect (Recommended)</option>
-            <option value="claude">Claude Code</option>
-            <option value="custom">Custom command…</option>
+          <select id="agent" name="agent" aria-describedby="agent-status">
+${AGENT_CHOICES.map((choice) => `            <option value="${choice}">${AGENT_OPTION_TEXT[choice]}</option>`).join("\n")}
           </select>
+          <p class="hint agent-status" id="agent-status" aria-live="polite" hidden></p>
         </div>`;
 
 /** Files to copy in beside the issue: a list the page renders, and the dialog's button. */

@@ -131,7 +131,7 @@ Investigation & AI Fix                Running 3/6…
   Prepare structured context for AI
 ☐ Fix with AI                                ⚙
   Run the prepared context with your AI coding agent
-  Claude Code
+  Claude CLI
 ──────────────────────────────────────────────
 ```
 
@@ -165,7 +165,7 @@ their checkbox, so they have no gear.
 | Issue details | Title (a bug you describe), Attachments |
 | Code search | Keywords, Focus files, Ignore paths, Max files, Max search lines |
 | Build context | Delete previous artifacts first |
-| Fix with AI | AI agent, custom agent command |
+| Fix with AI | AI Agent, custom agent command |
 
 The page edits a copy: nothing you change there is used until you press
 **Apply** (or Ctrl+Enter). **Cancel**, **Back** and Escape discard the changes,
@@ -174,12 +174,12 @@ page stay as you left them. Fix Mode and Hint are not on this page: they are on
 the main page under the issue, where you define the problem, and each setting
 has exactly one place. Each section says whether its changes **require
 rebuilding context** — after applying one that does, the button at the top
-becomes **Rebuild Context**. Changing the AI agent or *Delete previous artifacts
+becomes **Rebuild Context**. Changing the AI Agent or *Delete previous artifacts
 first* does not. While BugPilot is running something, Apply waits until it
 finishes.
 
 A row with settings shows a short summary of them under its description — "4
-keywords · 2 focus paths · max 10 files", "Claude Code" — as counts and names
+keywords · 2 focus paths · max 10 files", "Claude CLI" — as counts and names
 only, never what you typed or a path.
 
 ## Fix Mode
@@ -279,9 +279,9 @@ a terminal; leave it alone and BugPilot stops once the context is ready, and the
 button at the top becomes **Fix with AI** for when you want it. Either way the
 row says what happened — Ready, Started, Failed: Did not start — and "started"
 means only that: BugPilot does not watch the agent, so it never says the fix
-worked, tests passed or files changed. Which agent it hands to is **Workflow
-Settings → Fix with AI → AI agent**: auto-detect, Claude Code, or a custom
-command of your own (see below).
+worked, tests passed or files changed. Which agent it hands to is **Advanced
+Settings → Fix with AI → AI Agent**: Auto-detect, Codex CLI, Claude CLI, the
+Codex or Claude extension, or a custom command of your own (see below).
 
 After the handoff the button is **Open AI Session**: keep talking to the agent
 in its terminal. It brings that terminal forward and says **AI session
@@ -325,20 +325,20 @@ review is what a reviewer said about the change; verification evidence is what
 you actually ran or tried, and what you saw.
 
 **Review with AI** starts a reviewer instead, with the same prompt and the
-agent **Advanced Settings → Fix with AI → AI agent** selects — the one Fix with
+agent **Advanced Settings → Fix with AI → AI Agent** selects — the one Fix with
 AI uses — at the repository root, where the reviewer can read those files and
 the diff. The prompt asks for four sections — `## Summary`, `## Findings`,
 `## Validation Notes` and `## Recommendations` — tells the reviewer to keep
 reading the code apart from anything it actually ran, and asks for no verdict:
 not "pass", not "approved", not "safe to merge".
 
-- **Claude Code (Auto-detect or Claude Code):** BugPilot runs it once,
+- **Claude CLI (chosen, or what Auto-detect found):** BugPilot runs it once,
   non-interactively (`claude -p --output-format json`), with the prompt on its
   input and no terminal. The reviewer can read files and run `git diff`,
   `git status`, `git log` and `git show`, and nothing else: it cannot edit
   files or run other commands, and neither your Claude Code settings nor the
   repository's widen that. While it runs, the row says **Reviewing with Claude
-  Code…** with a spinner, that the review is read-only and in the background,
+  CLI…** with a spinner, that the review is read-only and in the background,
   and how long it has been running (*Elapsed: 00:18*) — no percentage, because
   the agent reports none, and none of its tool output. **Show details** says
   which agent, the mode, when it started and the four sections it will return.
@@ -355,10 +355,14 @@ not "pass", not "approved", not "safe to merge".
   not produce a usable structured result*, with the reason, and **Paste Review
   Output** is the way on (a reply that only needs a heading fixed is already in
   the box). Nothing is ever read from a terminal.
-- **A custom agent command** (Codex included) is never run for its output: it
-  is a shell template, so the prompt goes to it in a terminal as before, the
-  row says **AI review started**, and you bring the reply back with Paste
-  Review Output.
+- **Codex CLI, or a custom agent command,** is never run for its output — Codex
+  CLI's non-interactive mode has not been measured here, and a custom command is
+  a shell template — so the prompt goes to it in a terminal as before, the row
+  says **AI review started**, and you bring the reply back with Paste Review
+  Output.
+- **The Codex or Claude extension** gets the prompt on your clipboard and its
+  own view opened; the row says *BugPilot review prompt copied. Paste it into
+  Codex to continue* (or Claude).
 
 Review with AI is offered once per fix. It disappears as soon as a reviewer
 starts, and stays hidden for that fix — through a reload, a reopen, saving a
@@ -509,20 +513,38 @@ The command palette's **BugPilot: Retry After a Failed Fix** is still there: the
 CLI's own two-step loop, which creates the `user_feedback.md` template for you
 to fill in first.
 
-## The AI agent
+## The AI Agent
 
 Nothing on the Advanced Settings page is needed for a normal run.
 
-**AI agent** decides what **Fix with AI** and **Review with AI** run — one
-setting for both:
+**AI Agent** decides what **Fix with AI** and **Review with AI** run — one
+setting for both. A quiet line under it says what BugPilot found on this
+machine: *Detected: Codex CLI* for Auto-detect, or how the agent you chose
+stands — *Available*, *Not found on PATH*, *Installed · Limited integration*,
+*Not installed or disabled*.
 
 | Choice | What happens |
 | --- | --- |
-| Auto-detect | The first known agent CLI found on `PATH`. Today that list is `claude` |
-| Claude Code | `claude "<handoff prompt>"`, and nothing else is tried |
+| Auto-detect | The best agent this machine has, by how well BugPilot can reach it (below) |
+| Codex CLI | `codex "<handoff prompt>"` in a terminal, and nothing else is tried |
+| Claude CLI | `claude "<handoff prompt>"` in a terminal, and nothing else is tried |
+| Codex Extension | The prompt is copied and the Codex view opened: paste it to continue |
+| Claude Extension | The same, for the Claude Code extension |
 | Custom command… | Your own command line, with `{prompt}` where the handoff prompt goes |
 
-A custom command is how you use Codex, Gemini, or an in-house agent:
+A choice you make is kept: if Codex CLI is not installed, Fix with AI says
+*Codex CLI is not available* and does not start Claude instead. Only
+Auto-detect chooses, and it picks, in order: the agent your last handoff
+reached, if it is still there; an extension BugPilot can call directly; a CLI
+on `PATH` (Claude CLI first, because Review with AI can read its answer back);
+an installed extension, by clipboard; and a custom command, if you set one.
+
+Neither extension offers a documented way for another extension to hand it a
+prompt, so both are *Limited integration*: BugPilot never types into their
+views. Changing the AI Agent never needs a context rebuild. Settings saved by an
+earlier version that chose *Claude Code* come back as Claude CLI.
+
+A custom command is how you use Gemini, OpenCode, or an in-house agent:
 
 ```
 my-agent --yolo --prompt {prompt}
@@ -534,8 +556,9 @@ with AI puts its prompt on your clipboard instead of opening a terminal that
 prints "command not found"; Review with AI says so on the row, next to Copy
 Review Prompt.
 
-Only `claude` is in the auto-detect list because its invocation was measured on
-a real install. Nobody here knows the flags of the others, and a guessed command
+Codex and Claude are built in because their interactive invocation is one
+positional prompt — measured on a real `claude` install, and the form `codex`
+documents. Nobody here knows the flags of the others, and a guessed command
 line fails in a terminal in a way that looks like a bug in this extension —
 hence the custom template rather than our guess.
 
@@ -579,8 +602,12 @@ worth knowing:
 | "did not answer `doctor --json` in time" | Usually a frozen executable starting cold under antivirus. Try again |
 | "runs, but its environment check failed" | The CLI is fine; something it needs is not. The message names which |
 | A run stops with "ran longer than BugPilot waits" | Narrow the search: ignore vendored or generated directories, or lower Max files |
-| "not on PATH" after Fix with AI | The prompt is on your clipboard instead. Install an agent CLI, or set **Advanced Settings → Fix with AI → AI agent** to a custom command |
+| "is not available" or "No supported AI agent detected" after Fix with AI | The prompt is on your clipboard instead. Install the agent, or choose another in **Advanced Settings → Fix with AI → AI Agent** |
 | The icons on Build context never appear | They follow the file: they arrive when `context.md` does |
 
 The **BugPilot** output channel (**BugPilot: Show Log**) records every command
-line it ran, which is the fastest way to reproduce a problem in a terminal.
+line it ran, which is the fastest way to reproduce a problem in a terminal. What
+you typed and what Jira returned are never in it: a description, title, hint,
+keywords and paths show as `<redacted>`, and for Fix with AI and Review with AI
+it names the agent, never the prompt or a custom command — so the log is safe
+to paste into an issue.

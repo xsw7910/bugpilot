@@ -14,8 +14,8 @@
 
 import type { ProgressView } from "../app/progress.ts";
 import type { FieldProblem, FormState, Source } from "../app/form.ts";
-import { AGENT_CHOICES } from "../app/agents.ts";
-import type { AgentChoice } from "../app/agents.ts";
+import { migrateAgentChoice } from "../app/agents.ts";
+import type { AgentStatusView } from "../app/agents.ts";
 import { WORKFLOW_STEP_IDS } from "../app/workflow.ts";
 import type { OverallStatus, WorkflowStepResult } from "../app/workflow.ts";
 import type { ArtifactList } from "../app/artifacts.ts";
@@ -198,6 +198,12 @@ export interface PanelState {
    * environment I think it is — is asked most urgently when nothing has run.
    */
   readonly diagnostics: DiagnosticsView;
+  /**
+   * The line under the AI Agent picker, per choice: "Detected: Codex CLI",
+   * "Installed · Limited integration". From the host's cached detection; empty
+   * until a detection has been asked for, and never a probe of the page's own.
+   */
+  readonly agents: AgentStatusView;
 }
 
 /**
@@ -366,6 +372,12 @@ export type PanelMessage =
   | { readonly type: "dismissImprovedHint" }
   | { readonly type: "manageFixModes" }
   | { readonly type: "closeFixModes" }
+  /**
+   * "Advanced Settings opened": find out which AI agents are here, for the
+   * picker's status line. Bare — the page names no agent and no command; the
+   * host detects from its cache and answers in `PanelState.agents`.
+   */
+  | { readonly type: "detectAgents" }
   | {
       readonly type: "fixModeAction";
       readonly action: FixModeActionId;
@@ -443,6 +455,7 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   dismissImprovedHint: true,
   manageFixModes: true,
   closeFixModes: true,
+  detectAgents: true,
   fixModeAction: true,
   saveFixMode: true,
   recordReview: true,
@@ -489,6 +502,7 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     case "dismissImprovedHint":
     case "manageFixModes":
     case "closeFixModes":
+    case "detectAgents":
       return { type };
     case "fixModeAction": {
       const action = message?.["action"];
@@ -747,9 +761,9 @@ function parseForm(raw: unknown): FormState | undefined {
     // Opt-in, so an absent or malformed field means "do not involve a model" —
     // the safe reading of a message the host cannot vouch for.
     fixWithAI: record["fixWithAI"] === true,
-    agent: (AGENT_CHOICES as readonly string[]).includes(agent as string)
-      ? (agent as AgentChoice)
-      : "auto",
+    // A page restored from before §37.94 can still say `claude`: translated,
+    // not dropped to Auto-detect, which could pick a different agent.
+    agent: migrateAgentChoice(agent),
     fresh: record["fresh"] === true,
     // Absent means on: the box ships ticked, and a page too old to send it
     // should not silently turn the issue context off.

@@ -180,9 +180,22 @@ export interface HintProvider {
 }
 
 export const HINT_PROVIDERS: readonly HintProvider[] = [
-  { id: "claude", label: "Claude Code", command: "claude", args: ["-p"] },
-  { id: "codex", label: "Codex", command: "codex", args: ["exec", "-"] },
+  { id: "claude", label: "Claude CLI", command: "claude", args: ["-p"] },
+  { id: "codex", label: "Codex CLI", command: "codex", args: ["exec", "-"] },
 ];
+
+/**
+ * Which provider an explicit AI Agent choice improves hints with: the same
+ * vendor's CLI. An extension agent has no interface that answers on stdout,
+ * so Codex Extension means the `codex` CLI here — the same product, never the
+ * other vendor's.
+ */
+const HINT_VENDOR: Readonly<Record<Exclude<AgentChoice, "auto" | "custom">, HintProvider["id"]>> = {
+  "claude-cli": "claude",
+  "codex-cli": "codex",
+  "claude-extension": "claude",
+  "codex-extension": "codex",
+};
 
 export type HintProviderPlan =
   | { readonly kind: "run"; readonly provider: HintProvider }
@@ -204,12 +217,12 @@ export async function resolveHintProvider(
     return {
       kind: "unavailable",
       reason:
-        "Improving a hint needs an AI CLI it can talk to directly. Choose Claude Code " +
-        "or auto-detect in Advanced Settings → Fix with AI; a custom command is used for Fix with AI only.",
+        "Improving a hint needs an AI CLI it can talk to directly. Choose Codex CLI, Claude CLI " +
+        "or Auto-detect in Advanced Settings → Fix with AI; a custom command is used for Fix with AI only.",
     };
   }
   const candidates =
-    choice === "auto" ? HINT_PROVIDERS : HINT_PROVIDERS.filter((entry) => entry.id === choice);
+    choice === "auto" ? HINT_PROVIDERS : HINT_PROVIDERS.filter((entry) => entry.id === HINT_VENDOR[choice]);
   for (const provider of candidates) {
     if (await canRun(provider.command)) return { kind: "run", provider };
   }

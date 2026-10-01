@@ -88,6 +88,15 @@ h2 {
   margin-top: 4px;
 }
 
+/* "Detected: Codex CLI": a status of the picker above it, as quiet as a hint. */
+.agent-status {
+  margin-top: 4px;
+}
+
+.agent-status[hidden] {
+  display: none;
+}
+
 /* The selector keeps the width it had; the gear sits beside it. */
 .fix-mode-row {
   display: flex;
@@ -603,6 +612,16 @@ label {
    horizontal scrollbar. Measured, not guessed. */
 .field-check .setting-header > label {
   flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The custom agent command's label is the one name too long for a 200px
+   sidebar: `flex: none` held it at its full width, 3px past the panel, and gave
+   the page a horizontal scrollbar whenever Custom command was chosen (seen in
+   the real window, §37.94). Only this label may wrap: letting every label
+   shrink wrapped "Focus Files (optional)", which fits exactly, on rounding. */
+#field-agentCommand .setting-header > label {
+  flex: 0 1 auto;
   min-width: 0;
 }
 

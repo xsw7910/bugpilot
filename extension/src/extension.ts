@@ -18,7 +18,8 @@ import { installInstructions, resolveEnvironment } from "./app/environment.ts";
 import type { Environment } from "./app/environment.ts";
 import { TASK_ARTIFACT } from "./app/artifacts.ts";
 import { Controller } from "./app/controller.ts";
-import { DEFAULT_FORM, isWorkItemId } from "./app/form.ts";
+import { isWorkItemId, restoreForm } from "./app/form.ts";
+import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues } from "./app/logSafety.ts";
 import { fixModeCommandPort, payloadCommandPort } from "./app/fixModeTransport.ts";
 import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
@@ -36,6 +37,7 @@ import {
   createGitignoreIo,
   loadIssueDetails,
   canRun,
+  createExtensionsPort,
   createFilesPort,
   createUiPort,
   findAgentSession,
@@ -59,6 +61,11 @@ const FORM_STATE_KEY = "bugpilot.form";
 const WORK_ITEM_STATE_KEY = "bugpilot.workItem";
 /** Which fix each work item's last review attempt was for (§37.80); host state, never a repository file. */
 const REVIEWED_FIXES_STATE_KEY = "bugpilot.reviewedFixes";
+/**
+ * The AI agent the last handoff reached, for Auto-detect (§37.94). Global, not
+ * per workspace: which agents are installed is a fact about the machine.
+ */
+const LAST_AGENT_STATE_KEY = "bugpilot.lastAgent";
 
 /**
  * This extension's id, as the marketplace and an `@ext:` settings filter spell
@@ -221,8 +228,15 @@ export function activate(context: vscode.ExtensionContext): void {
         (value) => void context.workspaceState.update(REVIEWED_FIXES_STATE_KEY, value),
       ),
       canRun,
+      extensions: createExtensionsPort(),
+      lastAgent: {
+        get: () => context.globalState.get<string>(LAST_AGENT_STATE_KEY),
+        set: (id) => void context.globalState.update(LAST_AGENT_STATE_KEY, id),
+      },
     },
-    context.workspaceState.get<FormState>(FORM_STATE_KEY) ?? DEFAULT_FORM,
+    // Through `restoreForm`, so a choice saved by an older version — `claude` —
+    // comes back as the agent it meant rather than as Auto-detect.
+    restoreForm(context.workspaceState.get<FormState>(FORM_STATE_KEY)),
   );
 
   artifactsView = new ArtifactsTree(() => controller.artifacts);
@@ -256,6 +270,11 @@ export function activate(context: vscode.ExtensionContext): void {
     // hand — including the common case of opening a folder in an empty window.
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void controller.refreshEnvironment();
+    }),
+    // An AI extension installed, removed, enabled or disabled: what Auto-detect
+    // found may be wrong now.
+    vscode.extensions.onDidChange(() => {
+      void controller.agentsChanged();
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(`${SETTINGS.section}.${SETTINGS.executablePath}`)) {
@@ -508,12 +527,16 @@ export function activate(context: vscode.ExtensionContext): void {
       // a warning, and a saved value nobody can see would repeat that warning
       // at every start-up (§37.70).
       if (!isWorkItemId(last)) {
-        log.error(`Forgetting a saved work item whose id is not one: ${JSON.stringify(last)}`);
+        log.error(`Forgetting a saved work item whose id is not one ${rejectedValueForLog(last)}.`);
         return context.workspaceState.update(WORK_ITEM_STATE_KEY, undefined);
       }
       return controller.showWorkItem(last);
     })
     .catch((error: unknown) => log.error(`Start-up failed: ${(error as Error).message}`));
+  // Which AI agents this machine has, for the picker's status line: once, in
+  // the background, cached. A `--version` per CLI and a manifest read per
+  // extension; never an agent run and never a terminal.
+  void controller.detectAgents();
 }
 
 /**
@@ -598,7 +621,9 @@ async function runText(
   log: { error: (message: string) => void },
 ): Promise<void> {
   channel.appendLine("");
-  channel.appendLine(`$ bugpilot ${args.join(" ")}`);
+  // Through the same rule as the panel's runs: a work item typed into the
+  // palette's box is shown only if it is one (§37.95).
+  channel.appendLine(`$ ${commandForLog(args)}`);
   try {
     const result = await new Runner(executable).run(args, { cwd: root, timeoutMs: 120_000 });
     for (const line of `${result.stdout}${result.stderr}`.split("\n")) {
@@ -607,8 +632,9 @@ async function runText(
     channel.appendLine(`  exit ${result.code ?? "aborted"}`);
     channel.show(true);
   } catch (error) {
-    log.error(`${args.join(" ")} failed: ${(error as Error).message}`);
-    vscode.window.showErrorMessage(`BugPilot could not run ${args[0]}: ${(error as Error).message}`);
+    const reason = redactKnown((error as Error).message, sensitiveValues(args));
+    log.error(`${commandForLog(args)} failed: ${reason}`);
+    vscode.window.showErrorMessage(`BugPilot could not run ${args[0]}: ${reason}`);
   }
 }
 

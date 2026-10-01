@@ -60,7 +60,7 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   maxFiles: { maxFiles: "5" },
   maxSearchLines: { maxSearchLines: "100" },
   fresh: { fresh: true },
-  agent: { agent: "claude" },
+  agent: { agent: "claude-cli" },
   agentCommand: { agentCommand: "my-agent {prompt}" },
 };
 
@@ -119,7 +119,7 @@ test("summaries are counts and names, singular or plural, and only for what is s
       maxSearchLines: "1",
       attachments: ["/l/one.log", "/l/two.log"],
       fresh: true,
-      agent: "claude",
+      agent: "claude-cli",
       fixModeId: "conservative",
       hint: "check the reader",
     },
@@ -128,7 +128,7 @@ test("summaries are counts and names, singular or plural, and only for what is s
     issueDetails: "2 attachments",
     codeSearch: "3 keywords · 1 focus path · 2 ignored paths · max 10 files · max 1 search line",
     buildContext: "Deletes previous artifacts first",
-    fixWithAI: "Claude Code",
+    fixWithAI: "Claude CLI",
   });
   // A limit the run would reject is not reported as one.
   assert.equal(settingsSummaries({ ...DEFAULT_FORM, maxFiles: "abc", maxSearchLines: "0" }).codeSearch, undefined);

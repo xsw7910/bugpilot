@@ -17,6 +17,7 @@
  * renders them contains no control of any kind.
  */
 
+import { AGENT_LABELS } from "./agents.ts";
 import type { Source } from "./form.ts";
 
 /** One label and its value, as a row. */
@@ -61,11 +62,7 @@ export interface DiagnosticsInput {
 }
 
 /** The agent picker's options, in the words the picker uses. */
-const AGENT_LABELS: Readonly<Record<string, string>> = {
-  auto: "Auto-detect",
-  claude: "Claude Code",
-  custom: "Custom command",
-};
+const AGENT_NAMES: Readonly<Record<string, string>> = AGENT_LABELS;
 
 /**
  * The rows, in the order they are read.
@@ -94,7 +91,7 @@ export function diagnostics(input: DiagnosticsInput): DiagnosticsView {
 
   rows.push({
     label: "AI agent",
-    value: AGENT_LABELS[input.agent] ?? input.agent,
+    value: AGENT_NAMES[input.agent] ?? input.agent,
     detail: describeResolved(input.resolvedAgent),
   } as DiagnosticsRow);
 

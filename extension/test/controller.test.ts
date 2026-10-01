@@ -21,6 +21,7 @@ import type { PayloadCommandRequest } from "../src/app/fixModeTransport.ts";
 import { REVIEW_NEXT_STEP } from "../src/app/workflow.ts";
 import { MAX_REVIEW_OUTPUT } from "../src/app/reviewOutput.ts";
 import { CLAUDE_CAPTURED_REVIEW } from "../src/app/agents.ts";
+import type { InstalledExtension, LastAgentStore } from "../src/app/agents.ts";
 import type { CapturedRun } from "../src/app/reviewRun.ts";
 import { ARTIFACT_REFRESH_DEBOUNCE_MS, ARTIFACT_REFRESH_RETRY_MS } from "../src/app/controller.ts";
 import { VERIFICATION_AUTOSAVE_MS } from "../src/app/verificationCapture.ts";
@@ -102,6 +103,8 @@ interface Harness {
   readonly folders: string[];
   /** Which executables `canRun` was asked about, in order. */
   readonly probed: string[];
+  /** Every other extension's command BugPilot ran, in order. */
+  readonly extensionCommands: string[];
   readonly saved: FormState[];
   readonly savedWorkItems: string[];
   /** How many times the Fix Mode catalog was asked for. */
@@ -145,9 +148,14 @@ interface HarnessOptions {
   readonly form?: FormState;
   /** Hold the stream open so a Stop can be observed mid-run. */
   readonly hold?: boolean;
-  /** Whether an agent CLI can be started, and whether an agent panel can be revealed. */
+  /** Whether an agent CLI can be started. */
   readonly agentOnPath?: boolean;
-  readonly agentPanel?: boolean;
+  /** The AI extensions installed, by id; absent means the host has no extensions port. */
+  readonly extensions?: Readonly<Record<string, InstalledExtension>>;
+  /** Run another extension's command: a function may answer later, or throw. */
+  readonly executeExtensionCommand?: (command: string) => Promise<void>;
+  /** The host's store for the last agent a handoff reached; absent keeps it for the session. */
+  readonly lastAgent?: LastAgentStore;
   /** What the file dialog returns when the panel asks for attachments. */
   readonly pickFiles?: readonly string[];
   /** The Fix Mode catalog discovery returns; absent means no discovery port. */
@@ -175,8 +183,6 @@ interface HarnessOptions {
   readonly agentProbe?: (command: string) => Promise<boolean>;
   /** Make opening a terminal throw, as a host that cannot start a shell would. */
   readonly terminalThrows?: Error;
-  /** Answer `revealAgentPanel` instead of `agentPanel`: a function may answer later. */
-  readonly revealAgent?: () => Promise<boolean>;
   /** Hold a clipboard write open until the promise settles. */
   readonly clipboardHold?: () => Promise<void>;
   /** Answer a captured one-shot review; absent means the host has none. */
@@ -216,6 +222,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const revealed: string[] = [];
   const folders: string[] = [];
   const probed: string[] = [];
+  const extensionCommands: string[] = [];
   const fixModeCalls = { count: 0 };
   const files: Record<string, string> = { ...(options.files ?? {}) };
   let release = () => {};
@@ -310,7 +317,6 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         folders.push(directory);
       },
       pickFiles: async () => options.pickFiles ?? [],
-      revealAgentPanel: async () => (options.revealAgent ? options.revealAgent() : (options.agentPanel ?? false)),
     },
     log: {
       info: (message) => logged.push(message),
@@ -335,6 +341,18 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       if (options.agentProbe) return options.agentProbe(command);
       return options.agentOnPath ?? false;
     },
+    ...(options.lastAgent === undefined ? {} : { lastAgent: options.lastAgent }),
+    ...(options.extensions === undefined
+      ? {}
+      : {
+          extensions: {
+            get: (id: string) => options.extensions?.[id],
+            executeCommand: async (command: string) => {
+              extensionCommands.push(command);
+              await options.executeExtensionCommand?.(command);
+            },
+          },
+        }),
     now: () => 1_000,
     ...(options.gitignore === undefined ? {} : { gitignore: options.gitignore }),
     saveForm: (form) => saved.push(form),
@@ -387,6 +405,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     issueLookups,
     folders,
     probed,
+    extensionCommands,
     states,
     streamRuns,
     jsonRuns,
@@ -670,7 +689,6 @@ test("an unusable CLI is re-checked on Run before refusing", async () => {
       revealTerminal: () => false,
       openFolder: async () => {},
       pickFiles: async () => [],
-      revealAgentPanel: async () => false,
     },
     log: { info: () => {}, error: () => {} },
     environment: async () => environment,
@@ -1160,7 +1178,6 @@ test("overlapping environment refreshes share one probe", async () => {
       revealTerminal: () => false,
       openFolder: async () => {},
       pickFiles: async () => [],
-      revealAgentPanel: async () => false,
     },
     log: { info: () => {}, error: () => {} },
     environment: async () => {
@@ -1340,7 +1357,7 @@ test("ticking Fix with AI runs it as the last step, without a second click", asy
   assert.equal(h.terminals.length, 1);
   const fix = h.last().workflow.find((step) => step.id === "fixWithAI");
   assert.equal(fix?.status, "success");
-  assert.match(fix?.detail ?? "", /Handed to Claude Code in a terminal/);
+  assert.match(fix?.detail ?? "", /Handed to Claude CLI in a terminal/);
   assert.equal(h.last().overall.text, "AI fix started");
 });
 
@@ -1394,14 +1411,14 @@ test("with Build context off, the AI step is not offered at all", async () => {
   assert.equal(h.last().workflow.find((step) => step.id === "fixWithAI")?.enabled, false);
 });
 
-test("without an agent on PATH it copies and points at the panel instead", async () => {
+test("without any agent it copies the prompt instead, and brings no agent's panel forward", async () => {
   // A terminal printing "command not found" reads as our bug, not a missing
   // tool, so the fallback never opens one.
   const h = harness({
     events: successfulRun,
     directory: ["task.md"],
     agentOnPath: false,
-    agentPanel: true,
+    extensions: {},
   });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -1416,8 +1433,9 @@ test("without an agent on PATH it copies and points at the panel instead", async
   assert.equal(fix?.status, "failed");
   assert.equal(fix?.summary, "Did not start");
   assert.equal(fix?.error?.title, "AI agent unavailable");
-  assert.match(fix?.detail ?? "", /not on PATH/);
+  assert.match(fix?.detail ?? "", /No supported AI agent detected/);
   assert.match(fix?.detail ?? "", /clipboard/);
+  assert.deepEqual(h.extensionCommands, []);
 });
 
 test("a custom agent command is used verbatim, with the prompt substituted", async () => {
@@ -3219,7 +3237,7 @@ test("an agent that will not start leaves the whole result standing", async () =
   assert.equal(runErrorOf(after), undefined, "a handoff failure was reported as a run failure");
   assert.equal(fixRow(after).error?.kind, "agent");
   assert.equal(fixRow(after).error?.title, "AI agent unavailable");
-  assert.match(fixRow(after).error?.detail ?? "", /not on PATH/);
+  assert.match(fixRow(after).error?.detail ?? "", /No supported AI agent detected/);
   assert.equal(fixRow(after).error?.action?.command, COMMANDS.openSettings);
 
   // And the result is exactly what it was.
@@ -3453,7 +3471,7 @@ test("a new run clears the outcome the previous one reached, and keeps the sessi
   assert.equal(h.last().primary.action, "openSession");
   assert.deepEqual(h.last().primary.more, ["startNewAttempt", "rebuildContext"]);
   assert.equal(fixRow(h.last()).status, "success");
-  assert.equal(fixRow(h.last()).detail, "Handed to Claude Code in a terminal.");
+  assert.equal(fixRow(h.last()).detail, "Handed to Claude CLI in a terminal.");
   assert.equal(h.terminals.length, 1, "rebuilding the context handed it over again");
 });
 
@@ -3844,7 +3862,7 @@ test("the resolved agent appears only once a handoff has resolved one", async ()
 
   await h.controller.handle({ type: "action", id: "fixWithAI" });
 
-  assert.equal(rowOf(h, "AI agent")?.detail, "Resolved: Claude Code");
+  assert.equal(rowOf(h, "AI agent")?.detail, "Resolved: Claude CLI");
 });
 
 test("a handoff that found nothing says so, without guessing why", async () => {
@@ -4696,7 +4714,7 @@ test("Review with AI hands review-package's prompt to the selected agent in a te
   // The canonical prompt, from the read-only query — asked for once, built
   // nowhere in this extension.
   assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [["review-package", "JR-12345", "--json"]]);
-  // The agent the form selects (auto: Claude Code), in one terminal, in the
+  // The agent the form selects (auto: Claude CLI), in one terminal, in the
   // repository root where `.ai/JR-12345/` and the diff are.
   assert.deepEqual(h.probed, ["claude"]);
   assert.deepEqual(h.terminals, [
@@ -4707,7 +4725,7 @@ test("Review with AI hands review-package's prompt to the selected agent in a te
   assert.deepEqual(reviewOf(h.last()), {
     state: "started",
     summary: "AI review started",
-    detail: "Handed to Claude Code in a terminal.",
+    detail: "Handed to Claude CLI in a terminal.",
     next: REVIEW_NEXT_STEP,
   });
   assert.equal(offersReview(h.last()), false, "a second reviewer was offered for the same report");
@@ -4756,7 +4774,7 @@ test("Review with AI uses the agent selected now, the same one Fix with AI uses"
 });
 
 test("with no agent available, no reviewer starts and the row says why, beside a Copy Review Prompt that still works", async () => {
-  const h = await openedForReview(reviewOptions({ agentOnPath: false, agentPanel: true }));
+  const h = await openedForReview(reviewOptions({ agentOnPath: false, extensions: {} }));
   const fixBefore = fixRow(h.last());
   const noticesBefore = h.notices.length;
 
@@ -4769,7 +4787,10 @@ test("with no agent available, no reviewer starts and the row says why, beside a
   assert.equal(review.error.title, "AI review did not start");
   assert.match(review.error.message, /^BugPilot couldn't start the selected AI agent\./);
   assert.match(review.error.message, /Copy Review Prompt still gives you the prompt\.$/);
-  assert.equal(review.error.detail, "claude is not on PATH.");
+  assert.equal(
+    review.error.detail,
+    "No supported AI agent detected. BugPilot looked for Claude CLI, Codex CLI, Codex Extension and Claude Extension.",
+  );
   assert.deepEqual(review.error.action, { title: "Open Settings", command: COMMANDS.openSettings });
   // No pretend start, no clipboard fallback, no agent panel pushed forward.
   assert.deepEqual(h.clipboard, []);
@@ -5121,7 +5142,7 @@ test("a report removed while the agent is being looked for starts no reviewer", 
   assert.equal(fixResultOf(h.last()), undefined);
 });
 
-test("an agent probe that throws is a failure on the row, not a button left waiting", async () => {
+test("an agent probe that throws is 'not found' on the row, not a crash or a button left waiting", async () => {
   const h = await openedForReview(reviewOptions({ agentProbe: () => Promise.reject(new Error("spawn EPERM")) }));
 
   await h.controller.handle(REVIEW);
@@ -5130,7 +5151,8 @@ test("an agent probe that throws is a failure on the row, not a button left wait
   assert.equal(review?.state, "failed");
   if (review?.state !== "failed") return;
   assert.equal(review.error.title, "AI review did not start");
-  assert.equal(review.error.detail, "spawn EPERM");
+  // Detection never throws: a probe that did is an agent not found.
+  assert.match(review.error.detail ?? "", /^No supported AI agent detected/);
   assert.deepEqual(review.error.action, { title: "Open Settings", command: COMMANDS.openSettings });
   assert.equal(offersReview(h.last()), true, "the button did not come back");
   assert.deepEqual(h.terminals, []);
@@ -5143,7 +5165,26 @@ const FIX: PanelMessage = { type: "action", id: "fixWithAI" };
 /** A probe that answers when the test says so, one resolver per call. */
 const heldProbe = () => {
   const answers: ((found: boolean) => void)[] = [];
-  return { agentProbe: () => new Promise<boolean>((resolve) => { answers.push(resolve); }), answers };
+  let settled: boolean | undefined;
+  return {
+    agentProbe: () =>
+      settled === undefined ? new Promise<boolean>((resolve) => { answers.push(resolve); }) : Promise.resolve(settled),
+    answers,
+    /** Answer every probe held now, and every one asked from here on: Auto-detect asks one CLI after another. */
+    answerAll: (found: boolean) => {
+      settled = found;
+      for (const answer of answers) answer(found);
+    },
+  };
+};
+
+/** The Claude Code extension as its 2.1.285 manifest declares it: no prompt-taking command. */
+const CLAUDE_EXTENSION: Readonly<Record<string, InstalledExtension>> = {
+  "anthropic.claude-code": {
+    version: "2.1.285",
+    active: true,
+    commands: ["claude-vscode.sidebar.open", "claude-vscode.editor.openLast"],
+  },
 };
 
 test("a Fix with AI press for a work item that is no longer shown never lands on the new one", async () => {
@@ -5173,7 +5214,7 @@ test("a Fix with AI press for a work item that is no longer shown never lands on
 
 test("with no agent, a stale Fix with AI press copies nothing and says nothing on the new work item", async () => {
   const probe = heldProbe();
-  const h = harness(twoReports(REVIEW_PACKAGE, { agentProbe: probe.agentProbe, agentPanel: true }));
+  const h = harness(twoReports(REVIEW_PACKAGE, { agentProbe: probe.agentProbe, extensions: {} }));
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-1");
 
@@ -5181,7 +5222,7 @@ test("with no agent, a stale Fix with AI press copies nothing and says nothing o
   await settle();
   await h.controller.showWorkItem("JR-2");
   const noticesOnB = h.notices.length;
-  for (const answer of probe.answers) answer(false);
+  probe.answerAll(false);
   await pressing;
 
   assert.deepEqual(h.clipboard, [], "A's prompt went to the clipboard with B on screen");
@@ -5359,27 +5400,29 @@ test("an id the CLI streams is checked too: one that is not a work item id is no
   assert.deepEqual(h.savedWorkItems, []);
 });
 
-test("with no agent, a switch while the agent panel is being revealed leaves the new work item alone", async () => {
+test("through an extension bridge, a switch while the agent's panel is being revealed leaves the new work item alone", async () => {
   // The prompt was copied for A — A was on screen then — but by the time the
   // reveal answers, B is: no outcome, card or notice of A's may land on B.
-  let reveal: (shown: boolean) => void = () => {};
+  let reveal: () => void = () => {};
   const h = harness(twoReports(REVIEW_PACKAGE, {
     agentOnPath: false,
-    revealAgent: () => new Promise<boolean>((resolve) => { reveal = resolve; }),
+    extensions: CLAUDE_EXTENSION,
+    executeExtensionCommand: () => new Promise<void>((resolve) => { reveal = resolve; }),
   }));
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-1");
 
   const pressing = h.controller.handle(FIX);
   await settle();
-  assert.equal(h.clipboard.length, 1, "the no-agent branch was not reached");
+  assert.equal(h.clipboard.length, 1, "the bridge was not reached");
+  assert.deepEqual(h.extensionCommands, ["claude-vscode.sidebar.open"]);
   await h.controller.showWorkItem("JR-2");
   const rowOnB = fixRow(h.last());
   const noticesOnB = h.notices.length;
-  reveal(true);
+  reveal();
   await pressing;
 
-  assert.deepEqual(fixRow(h.last()), rowOnB, "A's no-agent outcome landed on B");
+  assert.deepEqual(fixRow(h.last()), rowOnB, "A's bridge outcome landed on B");
   assert.equal(fixRow(h.last()).error, undefined);
   assert.equal(h.notices.length, noticesOnB);
 });
@@ -5409,16 +5452,12 @@ test("a press dropped by a switch cannot free the new work item's handoff: still
   assert.deepEqual(h.terminals.map((terminal) => terminal.name), ["Fix with AI · JR-2"]);
 });
 
-test("with no agent, a switch while the prompt is being copied brings no agent panel forward for it", async () => {
+test("through an extension bridge, a switch while the prompt is being copied brings no agent panel forward for it", async () => {
   let release: () => void = () => {};
-  const reveals: string[] = [];
   const h = harness(twoReports(REVIEW_PACKAGE, {
     agentOnPath: false,
     clipboardHold: () => new Promise<void>((resolve) => { release = resolve; }),
-    revealAgent: async () => {
-      reveals.push("revealed");
-      return true;
-    },
+    extensions: CLAUDE_EXTENSION,
   }));
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-1");
@@ -5431,7 +5470,7 @@ test("with no agent, a switch while the prompt is being copied brings no agent p
   release();
   await pressing;
 
-  assert.deepEqual(reveals, [], "an agent panel was brought forward for A with B on screen");
+  assert.deepEqual(h.extensionCommands, [], "an agent panel was brought forward for A with B on screen");
   assert.deepEqual(fixRow(h.last()), rowOnB);
   assert.equal(h.notices.length, noticesOnB);
 });
@@ -5989,7 +6028,7 @@ test("started is not finished: while the reviewer runs the row says Reviewing…
   await tick();
   const row = fixResultOf(h.last())!;
   assert.equal(reviewOf(h.last())?.state, "reviewing");
-  assert.equal((reviewOf(h.last()) as { summary: string }).summary, "Reviewing with Claude Code…");
+  assert.equal((reviewOf(h.last()) as { summary: string }).summary, "Reviewing with Claude CLI…");
   assert.equal(row.reviewPrefill, undefined, "a draft before the reviewer finished");
   assert.equal(row.actions.includes("reviewWithAI"), false);
   // Everything that would touch the folder waits: a second review, recordings, a paste, a run.
@@ -7258,7 +7297,7 @@ test("next action 3: Fix with AI hands over the prepared task.md, and prepares n
   assert.deepEqual(h.terminals, [{ name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: TASK_HANDOFF }]);
   // "Started", and nothing about what the agent did.
   assert.equal(fixRow(h.last()).statusText, "Started");
-  assert.equal(fixRow(h.last()).detail, "Handed to Claude Code in a terminal.");
+  assert.equal(fixRow(h.last()).detail, "Handed to Claude CLI in a terminal.");
 });
 
 test("next action 3: Fix with AI uses the agent the form has selected now", async () => {
@@ -7352,7 +7391,7 @@ test("next action 6: a new attempt with empty feedback writes nothing and hands 
   assert.equal(retryRuns(h).length, 0, "empty feedback ran bug --retry, which writes a template");
   assert.equal(h.terminals.length, 2);
   assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345 (2)", cwd: ROOT, commandLine: TASK_HANDOFF });
-  assert.equal(fixRow(h.last()).detail, "New attempt handed to Claude Code in a terminal.");
+  assert.equal(fixRow(h.last()).detail, "New attempt handed to Claude CLI in a terminal.");
   assert.equal(fixRow(h.last()).attempt, undefined, "the form was not told the press was answered");
   assert.equal(h.last().primary.action, "openSession");
 
@@ -7377,7 +7416,7 @@ test("next action 7: feedback goes into user_feedback.md, bug --retry builds the
   assert.equal(retryRuns(h)[0]!.options.env?.["JIRA_TOKEN"], TOKEN);
   assert.equal(h.terminals.length, 2);
   assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345 (2)", cwd: ROOT, commandLine: RETRY_HANDOFF });
-  assert.equal(fixRow(h.last()).detail, "New attempt, with your feedback, handed to Claude Code in a terminal.");
+  assert.equal(fixRow(h.last()).detail, "New attempt, with your feedback, handed to Claude CLI in a terminal.");
   // The context was not rebuilt for it.
   assert.equal(h.streamRuns.length, 1);
 });
@@ -7450,7 +7489,7 @@ test("next action 8: a changed preparation input makes the context stale, and Re
     assert.equal(h.last().primary.action, "fixWithAI", `undoing ${JSON.stringify(change)} did not make it current`);
   }
   // What happens after a run is not a preparation input.
-  await h.controller.handle({ type: "formChanged", form: jiraForm({ agent: "claude", fixWithAI: true, fresh: true, useIssueDetails: false }) });
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ agent: "claude-cli", fixWithAI: true, fresh: true, useIssueDetails: false }) });
   assert.equal(h.last().primary.action, "fixWithAI");
   assert.equal(h.streamRuns.length, 1);
 });
@@ -7733,15 +7772,15 @@ test("settings 9: an applied preparation input makes the context stale, and the 
 
 test("settings 10: an applied agent, Fresh or hint-reading choice leaves the context current", async () => {
   const h = await preparedHarness();
-  await h.controller.handle(applySettings(jiraForm({ agent: "claude", fresh: true, useIssueDetails: false })));
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude-cli", fresh: true, useIssueDetails: false })));
   assert.equal(h.last().primary.action, "fixWithAI");
-  assert.equal(fixRow(h.last()).settingsSummary, "Claude Code");
+  assert.equal(fixRow(h.last()).settingsSummary, "Claude CLI");
   assert.equal(buildRow(h.last()).settingsSummary, "Deletes previous artifacts first");
   // But a Fix Mode or a hint does make it stale, as the page says.
-  await h.controller.handle(applySettings(jiraForm({ agent: "claude", hint: "look at the controller" })));
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude-cli", hint: "look at the controller" })));
   assert.equal(h.last().primary.action, "rebuildContext");
   // The summary is the agent's alone: the hint is on the main page, in view.
-  assert.equal(fixRow(h.last()).settingsSummary, "Claude Code");
+  assert.equal(fixRow(h.last()).settingsSummary, "Claude CLI");
 });
 
 test("Fix Mode and Hint on the main page: an edit is a form change, and makes the context stale exactly as before", async () => {
@@ -7839,14 +7878,14 @@ test("settings: improving the draft's hint reads it, and never takes it as the h
 
 test("settings 19: the next-action states are unchanged by applying settings that do not touch them", async () => {
   const h = await preparedHarness();
-  await h.controller.handle(applySettings(jiraForm({ agent: "claude" })));
-  await h.controller.handle({ type: "nextAction", action: "fixWithAI", form: jiraForm({ agent: "claude" }) });
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude-cli" })));
+  await h.controller.handle({ type: "nextAction", action: "fixWithAI", form: jiraForm({ agent: "claude-cli" }) });
   assert.equal(h.terminals.length, 1);
   assert.equal(h.last().primary.action, "openSession");
-  await h.controller.handle(applySettings(jiraForm({ agent: "claude", maxFiles: "5" })));
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude-cli", maxFiles: "5" })));
   assert.equal(h.last().primary.action, "rebuildContext");
   assert.deepEqual(h.last().primary.more, ["openSession"]);
-  await h.controller.handle({ type: "nextAction", action: "rebuildContext", form: jiraForm({ agent: "claude", maxFiles: "5" }) });
+  await h.controller.handle({ type: "nextAction", action: "rebuildContext", form: jiraForm({ agent: "claude-cli", maxFiles: "5" }) });
   assert.ok(h.streamRuns[1]!.args.includes("--max-files=5"), "Rebuild Context did not use the applied settings");
   assert.equal(h.last().primary.action, "openSession");
   assert.deepEqual(h.last().primary.more, ["startNewAttempt", "rebuildContext"]);
@@ -8218,11 +8257,11 @@ test("progress 1–3: starting until the process has started, then reviewing wit
   r.start();
   const view = reviewOf(h.last()) as { state: string; summary: string; detail: string; startedAt: number; details: Record<string, unknown> };
   assert.equal(view.state, "reviewing");
-  assert.equal(view.summary, "Reviewing with Claude Code…");
+  assert.equal(view.summary, "Reviewing with Claude CLI…");
   assert.equal(view.detail, "BugPilot is running a read-only AI review in the background. This may take a minute.");
   assert.equal(view.startedAt, 1_700_000_000_000);
   assert.deepEqual(view.details, {
-    agent: "Claude Code",
+    agent: "Claude CLI",
     mode: "Read-only background review",
     status: "Running",
     outputFormat: ["Summary", "Findings", "Validation Notes", "Recommendations"],
@@ -8371,7 +8410,7 @@ test("progress diagnostics say what happened, and never the prompt or the reply"
   r.finish({ code: 0, stdout: claudeJson(CAPTURED_REVIEW), stderr: "", aborted: false });
   await reviewing;
   const log = h.logged.join("\n");
-  for (const said of [/starting with Claude Code/, /process started/, /completed; its result parsed/]) assert.match(log, said);
+  for (const said of [/starting with Claude CLI/, /process started/, /completed; its result parsed/]) assert.match(log, said);
   for (const secret of ["Final Review Request", "The change handles the null input", "## Summary"]) {
     assert.equal(log.includes(secret), false, secret);
   }
@@ -9128,4 +9167,294 @@ test("flat artifacts: a work item reopened from History ends on its list, never 
   await h.controller.showWorkItem("JR-1");
   assert.equal(h.controller.artifacts.kind, "ready", "left on loading — the tree would say Scanning .ai/ …");
   assert.deepEqual(artifactNames(h).slice(0, 3), ["issue.json:written", "context.md:written", "task.md:written"]);
+});
+
+// --- §37.94: the AI Agent layer, through the controller ----------------------------
+
+const CODEX_ONLY = (command: string) => Promise.resolve(command === "codex");
+const HANDOFF = "Read .ai/JR-12345/task.md and complete the workflow.";
+
+test("Codex CLI is runnable: an explicit choice starts `codex` in the repository root", async () => {
+  const form = jiraForm({ agent: "codex-cli" });
+  const h = await preparedHarness({ agentProbe: CODEX_ONLY, form });
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+
+  assert.deepEqual(h.terminals, [{ name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: `codex ${JSON.stringify(HANDOFF)}` }]);
+  assert.equal(fixRow(h.last()).detail, "Handed to Codex CLI in a terminal.");
+  assert.deepEqual(h.probed, ["codex"], "an agent other than the chosen one was probed");
+});
+
+test("explicit Codex CLI that is missing does not silently start Claude", async () => {
+  // Claude is installed; Codex is not. The developer chose Codex.
+  const form = jiraForm({ agent: "codex-cli" });
+  const h = await preparedHarness({ agentProbe: (command) => Promise.resolve(command === "claude"), form });
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+
+  assert.deepEqual(h.terminals, [], "another agent was started in the chosen one's place");
+  const row = fixRow(h.last());
+  assert.equal(row.status, "failed");
+  assert.equal(row.error?.title, "AI agent unavailable");
+  assert.equal(
+    row.error?.detail,
+    "Codex CLI is not available: codex was not found on PATH. Install or configure Codex CLI, or choose another AI Agent.",
+  );
+  assert.deepEqual(h.probed, ["codex"], "an agent other than the chosen one was probed");
+});
+
+test("explicit Claude CLI that is missing does not silently start Codex", async () => {
+  const form = jiraForm({ agent: "claude-cli" });
+  const h = await preparedHarness({ agentProbe: CODEX_ONLY, form });
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+  assert.deepEqual(h.terminals, []);
+  assert.match(fixRow(h.last()).error?.detail ?? "", /^Claude CLI is not available/);
+  assert.deepEqual(h.probed, ["claude"]);
+});
+
+test("Auto-detect hands over to whichever CLI is there, and remembers it", async () => {
+  const stored: string[] = [];
+  const h = await preparedHarness({
+    agentProbe: CODEX_ONLY,
+    lastAgent: { get: () => stored.at(-1), set: (id) => void stored.push(id) },
+  });
+  await h.controller.handle(next("fixWithAI"));
+
+  assert.equal(h.terminals[0]?.commandLine, `codex ${JSON.stringify(HANDOFF)}`);
+  assert.deepEqual(stored, ["codex-cli"], "the agent the handoff reached was not remembered");
+  assert.ok(h.logged.includes("Auto-detect resolved to Codex CLI."), h.logged.join("\n"));
+});
+
+test("an extension bridge: the prompt is copied, the agent's view opened, and the row says to paste", async () => {
+  const form = jiraForm({ agent: "claude-extension" });
+  const h = await preparedHarness({ agentOnPath: false, extensions: CLAUDE_EXTENSION, form });
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+
+  assert.deepEqual(h.terminals, [], "a bridge opened a terminal");
+  assert.deepEqual(h.clipboard, [HANDOFF]);
+  assert.deepEqual(h.extensionCommands, ["claude-vscode.sidebar.open"]);
+  const row = fixRow(h.last());
+  assert.equal(row.status, "success");
+  assert.equal(row.detail, "BugPilot AI fix context copied. Paste it into Claude to continue.");
+  assert.equal(row.error, undefined);
+  assert.equal(h.notices.at(-1)?.message, "BugPilot AI fix context copied. Paste it into Claude to continue.");
+  // No terminal to reopen: Open AI Session is not what comes next.
+  assert.notEqual(h.last().primary.action, "openSession");
+  assert.deepEqual(h.probed, [], "a bridge spawned a CLI probe");
+});
+
+test("an explicit extension that is not installed is refused, and its CLI is not used instead", async () => {
+  const form = jiraForm({ agent: "codex-extension" });
+  const h = await preparedHarness({ agentOnPath: true, extensions: {}, form });
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+  assert.deepEqual(h.terminals, []);
+  assert.deepEqual(h.extensionCommands, []);
+  assert.match(fixRow(h.last()).error?.detail ?? "", /^Codex Extension is not available: the openai\.chatgpt extension is not installed/);
+});
+
+test("Review with AI through a bridge copies the review prompt and says so on the row", async () => {
+  const h = await openedForReview(
+    reviewOptions({ agentOnPath: false, extensions: CLAUDE_EXTENSION, form: { ...DEFAULT_FORM, issueKey: "JR-12345", agent: "claude-extension" } }),
+  );
+  await h.controller.handle(REVIEW);
+  assert.deepEqual(h.terminals, []);
+  assert.equal(h.clipboard.length, 1);
+  assert.deepEqual(h.extensionCommands, ["claude-vscode.sidebar.open"]);
+  const review = reviewOf(h.last());
+  assert.equal(review?.state, "started");
+  assert.equal(review?.state === "started" && review.detail, "BugPilot review prompt copied. Paste it into Claude to continue.");
+});
+
+test("changing the AI Agent does not make the prepared context stale or rebuild it", async () => {
+  const h = await preparedHarness();
+  const runs = h.streamRuns.length;
+  assert.equal(h.last().primary.action, "fixWithAI");
+  for (const agent of ["codex-cli", "claude-extension", "custom", "auto"] as const) {
+    await h.controller.handle(applySettings(jiraForm({ agent, agentCommand: "my-agent {prompt}" })));
+    assert.equal(h.last().primary.action, "fixWithAI", `${agent}: the context was marked stale`);
+  }
+  assert.equal(h.streamRuns.length, runs, "changing the agent rebuilt the context");
+});
+
+test("the picker's status line: detected on request, cached, and in the panel state", async () => {
+  const h = harness({ agentProbe: CODEX_ONLY, extensions: CLAUDE_EXTENSION });
+  await h.controller.refreshEnvironment();
+  assert.deepEqual(h.last().agents.lines, {}, "a status was shown before anything was detected");
+
+  await h.controller.handle({ type: "detectAgents" });
+  assert.deepEqual(h.last().agents.lines, {
+    "claude-cli": "Not found on PATH",
+    "codex-cli": "Available",
+    "codex-extension": "Not installed or disabled",
+    "claude-extension": "Installed · Limited integration",
+    auto: "Detected: Codex CLI",
+  });
+  const probes = h.probed.length;
+  // Opening the settings page again spawns nothing: the answer is cached.
+  await h.controller.handle({ type: "detectAgents" });
+  assert.equal(h.probed.length, probes);
+  // An extension installed or removed: asked again.
+  await h.controller.agentsChanged();
+  assert.ok(h.probed.length > probes);
+});
+
+test("a detection that fails does not crash the extension: every agent is simply unavailable", async () => {
+  const h = harness({ agentProbe: () => Promise.reject(new Error("spawn EPERM")) });
+  await h.controller.refreshEnvironment();
+  await h.controller.detectAgents();
+  assert.equal(h.last().agents.lines.auto, "No supported AI agent detected.");
+});
+
+test("a page from before §37.94 that still says `claude` is read as Claude CLI", () => {
+  const message = parsePanelMessage({ type: "formChanged", form: { ...DEFAULT_FORM, agent: "claude" } });
+  assert.equal(message?.type === "formChanged" && message.form.agent, "claude-cli");
+  const unknown = parsePanelMessage({ type: "formChanged", form: { ...DEFAULT_FORM, agent: "gemini" } });
+  assert.equal(unknown?.type === "formChanged" && unknown.form.agent, "auto");
+});
+
+test("an existing custom command keeps working exactly as before", async () => {
+  const form = jiraForm({ agent: "custom", agentCommand: "my-agent --prompt {prompt}" });
+  const h = await preparedHarness({ agentProbe: (command) => Promise.resolve(command === "my-agent"), form });
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+  assert.equal(h.terminals[0]?.commandLine, `my-agent --prompt ${JSON.stringify(HANDOFF)}`);
+  assert.equal(fixRow(h.last()).detail, "Handed to my-agent in a terminal.");
+});
+
+test("a repository path with spaces, parentheses and an ampersand is only ever the terminal's cwd", async () => {
+  // The path is the one piece of machine text near the handoff. It must reach
+  // the terminal as its working directory, never as shell text.
+  const root = "C:\\sandbox\\bugpilot repo (copy) & more";
+  const h = await preparedHarness({ environment: { ...READY, root } });
+  await h.controller.handle(next("fixWithAI"));
+  assert.equal(h.terminals.length, 1);
+  assert.equal(h.terminals[0]!.cwd, root);
+  assert.equal(h.terminals[0]!.commandLine, `claude ${JSON.stringify(HANDOFF)}`);
+  assert.equal(h.terminals[0]!.commandLine.includes("bugpilot repo"), false);
+});
+
+// --- §37.95: nothing typed, read from Jira or handed to an agent reaches the log ---
+
+const SECRET_DESCRIPTION = "SECRET_BUG_DESCRIPTION_48291";
+const SECRET_JIRA = "SECRET_JIRA_TEXT_73125";
+const SECRET_INSTRUCTION = "SECRET_CUSTOM_INSTRUCTION_99421";
+const SECRET_TOKEN_VALUE = "SECRET_TOKEN_ABC123";
+const SECRETS = [SECRET_DESCRIPTION, SECRET_JIRA, SECRET_INSTRUCTION, SECRET_TOKEN_VALUE];
+
+/** Which of the secrets the log holds; the answer must always be none. */
+const leaked = (h: Harness) => SECRETS.filter((secret) => h.logged.some((line) => line.includes(secret)));
+
+const DESCRIBED: FormState = {
+  ...DEFAULT_FORM,
+  source: "manual",
+  description: `Saving crashes ${SECRET_DESCRIPTION}`,
+  title: `Title ${SECRET_JIRA}`,
+  hint: SECRET_INSTRUCTION,
+  keywords: `${SECRET_INSTRUCTION}_kw, save`,
+};
+
+test("a described bug's run logs which flags it had, never its description, title, hint or keywords", async () => {
+  const h = harness({ events: successfulRun });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(DESCRIBED);
+
+  assert.deepEqual(leaked(h), []);
+  const line = h.logged.find((entry) => entry.startsWith("bugpilot bug "));
+  assert.ok(line, h.logged.join("\n"));
+  assert.match(line!, /--description=<redacted> --title=<redacted> --hint=<redacted> --keywords=<redacted> --keywords=<redacted>/);
+  assert.match(line!, /--resume --prepare-only --json-lines$/);
+  // The run itself still got the text: only the log lost it.
+  assert.ok(h.streamRuns[0]!.args.some((arg) => arg.includes(SECRET_DESCRIPTION)));
+});
+
+test("a Jira run, and improving its hint from the issue's text, log the key and the outcome only", async () => {
+  const h = harness({
+    events: successfulRun,
+    agentOnPath: true,
+    issueDetails: { title: `Crash ${SECRET_JIRA}`, description: `Steps ${SECRET_JIRA}` },
+    improveHint: async () => ({ ok: true, text: `Look at the saver ${SECRET_INSTRUCTION}` }),
+  });
+  await h.controller.refreshEnvironment();
+  const form = jiraForm({ hint: SECRET_INSTRUCTION });
+  await h.controller.run(form);
+  await h.controller.handle({ type: "improveHint", form });
+
+  assert.deepEqual(leaked(h), []);
+  assert.ok(h.logged.some((entry) => entry.startsWith("bugpilot bug JR-12345 --hint=<redacted>")), h.logged.join("\n"));
+  // The issue's text reached the hint prompt, which is its job, and only that.
+  assert.match(h.hintPrompts[0] ?? "", new RegExp(SECRET_JIRA));
+});
+
+test("a run that dies says how, with the argv it echoed scrubbed", async () => {
+  const h = harness({
+    terminated: false,
+    stderr: `usage: bugpilot bug [-h] ...\nbugpilot bug: error: unrecognized arguments: --hint=${SECRET_INSTRUCTION}\nTraceback (most recent call last):\nValueError: ${DESCRIBED.description}`,
+    events: [{ type: "started", work_item_id: "local_20260930230052", source: "manual" }],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(DESCRIBED);
+
+  assert.deepEqual(leaked(h), []);
+  const error = h.logged.find((entry) => entry.startsWith("ERROR bugpilot bug ended without a result"));
+  assert.ok(error, h.logged.join("\n"));
+  // Still a useful line: where it stopped, the exit, and the traceback's shape.
+  assert.match(error!, /\(exit [^)]+\):/);
+  assert.match(error!, /unrecognized arguments: --hint=<redacted>/);
+  assert.match(error!, /ValueError: <redacted>/);
+});
+
+test("a run that could not start says why, without the argv the error carried", async () => {
+  const h = harness({ streamThrows: new Error(`spawn failed: bugpilot bug --description=${DESCRIBED.description.trim()}`) });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(DESCRIBED);
+
+  assert.deepEqual(leaked(h), []);
+  assert.ok(h.logged.some((entry) => entry === "ERROR bugpilot bug could not run: spawn failed: bugpilot bug --description=<redacted>"), h.logged.join("\n"));
+  // The toast says the same, scrubbed the same way.
+  assert.equal(h.notices.some((notice) => notice.message.includes(SECRET_DESCRIPTION)), false);
+});
+
+test("Fix with AI logs which agent got which work item, never the handoff prompt", async () => {
+  const h = await preparedHarness();
+  await h.controller.handle(next("fixWithAI"));
+
+  assert.equal(h.terminals.length, 1);
+  assert.ok(h.logged.includes("Handing JR-12345 to Claude CLI in a terminal."), h.logged.join("\n"));
+  assert.equal(h.logged.some((entry) => entry.includes("complete the workflow")), false, "the handoff prompt reached the log");
+});
+
+test("a custom agent command is never logged: it may carry a token", async () => {
+  const form = jiraForm({ agent: "custom", agentCommand: `my-agent --token ${SECRET_TOKEN_VALUE} --prompt {prompt}` });
+  const h = await preparedHarness({ agentProbe: (command) => Promise.resolve(command === "my-agent"), form });
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+
+  // The terminal is where the command belongs; the log only says that it went there.
+  assert.ok(h.terminals[0]?.commandLine.includes(SECRET_TOKEN_VALUE));
+  assert.deepEqual(leaked(h), []);
+  assert.ok(h.logged.includes("Handing JR-12345 to Custom command in a terminal."), h.logged.join("\n"));
+});
+
+test("Review with AI in a terminal logs the agent, never the review prompt or the command", async () => {
+  const h = await openedForReview(
+    reviewOptions({ agentProbe: (command) => Promise.resolve(command === "my-reviewer"), form: { ...DEFAULT_FORM, issueKey: "JR-12345", agent: "custom", agentCommand: `my-reviewer --token ${SECRET_TOKEN_VALUE} {prompt}` } }),
+  );
+  await h.controller.handle(REVIEW);
+
+  assert.equal(h.terminals.length, 1);
+  assert.deepEqual(leaked(h), []);
+  assert.ok(h.logged.includes("Handing the review of JR-12345 to Custom command in a terminal."), h.logged.join("\n"));
+  assert.equal(h.logged.some((entry) => entry.includes("Final Review Request")), false, "the review prompt reached the log");
+});
+
+test("a work item id that is not one is logged by its length, not by what was typed", async () => {
+  const h = harness();
+  await h.controller.refreshEnvironment();
+  await h.controller.showWorkItem(`${SECRET_DESCRIPTION} as typed`);
+
+  assert.deepEqual(leaked(h), []);
+  assert.ok(h.logged.some((entry) => /^ERROR Refusing to open a work item whose id is not one \(\d+ characters\)\.$/.test(entry)), h.logged.join("\n"));
 });

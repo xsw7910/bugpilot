@@ -19,6 +19,7 @@
  * copy of the section list that `test/panel.test.ts` compares with this one.
  */
 
+import { AGENT_LABELS } from "./agents.ts";
 import { parseKeywords, parsePaths } from "./form.ts";
 import type { FormState } from "./form.ts";
 import type { WorkflowStepId } from "./workflow.ts";
@@ -144,8 +145,8 @@ export function sectionRebuildNote(section: WorkflowSettingsSection): string {
 
 /** What the Fix with AI summary calls each agent choice. Never the custom command itself. */
 const AGENT_SUMMARY: Readonly<Record<FormState["agent"], string>> = {
+  ...AGENT_LABELS,
   auto: "Auto-detected agent",
-  claude: "Claude Code",
   custom: "Custom agent command",
 };
 

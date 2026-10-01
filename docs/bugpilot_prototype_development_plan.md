@@ -10460,3 +10460,581 @@ end of §19.
 **Regression.** Extension 1524 tests pass (1523 before: the quiet-link test
 replaced by a secondary-button one; a manifest test for the view names added);
 typecheck, smoke and `git diff --check` clean.
+
+### 37.94 AI Agent abstraction: Codex CLI, Claude CLI, the Codex and Claude extensions (after `d3ce575`, uncommitted)
+
+**Status:** implemented, verified in the test suites, the activation smoke test
+and a real VS Code window (see *Real-world verification* below; Codex CLI
+partially verified in §37.96), not committed, not pushed, no version change. Extension only — the CLI is untouched, and so is its own
+`claude` launch path.
+
+**Why.** Fix with AI said "your AI coding agent", but `agents.ts` had one table
+entry, `claude`, and the no-agent fallback revealed Claude Code's panel whatever
+was chosen. The picker is now six choices over one adapter interface, and the
+workflow depends on the interface only.
+
+**The shape** (`src/app/agents.ts`).
+
+- `AiAgentAdapter { id, label, vendor?, capturedReview?, detect(), run(request, launch) }`.
+  `detect()` returns an `AgentCapability` — `installed`, `available`,
+  `integration` (`native-extension` | `cli` | `extension-bridge` | `custom`),
+  `canReceivePrompt`, `canModifyWorkspace`, a short `detail` for the picker and,
+  when unavailable, a `reason` sentence for the failure card. It never throws,
+  never runs the agent and never opens a terminal.
+- `run()` gets an `AiFixRequest` — repository root, work item id, the
+  one-sentence handoff prompt, the prepared file it points at, and `purpose`
+  (`fix` | `review`) — and an `AgentLaunch` the controller supplies: open the
+  handoff terminal, copy to the clipboard, run another extension's command. Each
+  step is guarded by the press's epoch, so an adapter cannot land an old press on
+  a new work item however it orders its awaits (the §37.70 rule, now enforced in
+  the launch rather than by each caller). It returns `terminal`, `native`,
+  `bridge` or `failed`.
+- The request deliberately carries no hint, keywords, focus files or Fix Mode:
+  those are in `task.md` already. Changing the agent therefore never changes what
+  the agent is told, and `preparationFingerprint` still excludes `agent` and
+  `agentCommand` — *Changes here apply to the next run and do not require
+  rebuilding context* stays true (asserted by a new controller test).
+- Adapters: `cliAgent` (`CLI_AGENTS`: Claude CLI — `claude`, with the §37.80
+  captured review; Codex CLI — `codex`), `extensionAgent` (`EXTENSION_AGENTS`:
+  `openai.chatgpt`, `anthropic.claude-code`), `customCommandAgent` (the existing
+  template, behaviour unchanged). Adding Gemini CLI, OpenCode or Copilot is one
+  definition plus one picker option; the controller does not change.
+- `AgentService` owns the adapters, detection, the cache, Auto-detect and the
+  picker's status lines. The controller calls `resolve`, `refresh`, `status`,
+  `invalidate` and `succeeded`, and names no agent.
+
+**Detection.**
+
+- CLI: `canRun` — `--version`, now with a 5 s Runner timeout (was 15 s), then the
+  PATH/`PATHEXT` lookup for a Windows `.cmd` launcher. A timeout or non-zero exit
+  still means "exists"; ENOENT with no launcher means "not found".
+- Extension: `vscode.extensions.getExtension(id)` (undefined when not installed
+  or disabled), `isActive`, and the installed manifest's `contributes.commands`.
+  Only commands that list declares are ever executed. Nothing is activated to
+  find out.
+- Every detection is bounded by a 10 s backstop (`DETECTION_TIMEOUT_MS`); a throw
+  or a hang is "unavailable", with *could not be checked* as the reason.
+- Cache: two minutes, for the status line only. A handoff always detects afresh,
+  and a handoff's probe never joins another press's (each press is answered by
+  its own probe, which kept the §37.70 double-press test meaningful — it caught
+  the first version joining them). `vscode.extensions.onDidChange` invalidates.
+- When: once at activation (background), whenever Advanced Settings opens (the
+  page's new bare `detectAgents` message; cached), when the custom command
+  changes while the lines are on show, and immediately before every Fix with AI
+  and Review with AI.
+- Log lines: *Detecting AI agents…*, *Codex CLI available.*, *Claude CLI not
+  available (Not found on PATH).*, *Claude Extension installed, no native
+  integration.*, *Auto-detect resolved to Codex CLI.* — never a prompt, a path in
+  `.ai/`, a token or Jira text. A refresh answered from cache logs nothing.
+
+**What the installed extensions actually offer** (read off their manifests on
+this machine, 2026-09-30).
+
+- `openai.chatgpt` 26.917.62051 (the Codex extension): ten commands —
+  `chatgpt.openSidebar`, `chatgpt.newCodexPanel`, `chatgpt.addToThread` (editor
+  context menu), `chatgpt.addFileToThread` (editor title context menu), and
+  others. None is documented for another extension to call; the two that take
+  something take an editor selection or a file by VS Code's menu convention.
+- `anthropic.claude-code` 2.1.285: thirty-one commands, none taking a prompt.
+- Neither declares an API. So both are **bridges**: the prompt is copied, the
+  agent's view is opened (`chatgpt.openSidebar`; `claude-vscode.sidebar.open`,
+  then `claude-vscode.editor.openLast`), and the row and a notice say *BugPilot
+  AI fix context copied. Paste it into Codex to continue.* (or Claude; *BugPilot
+  review prompt copied…* for Review with AI). No UI typing, no URI handlers.
+- The native path exists and is tested with a fake definition
+  (`ExtensionAgentDefinition.native`: a command, its arguments from the request,
+  used only when the installed manifest declares it; a native command that fails
+  falls back to the same agent's bridge). No built-in definition has one. A
+  future candidate is `chatgpt.addFileToThread` with `task.md`'s URI, once its
+  argument is documented.
+- A bridge records no terminal session: Open AI Session has nothing to reopen,
+  and the primary action stays Fix with AI until `fix_report.md` arrives.
+
+**Auto-detect** (capability-ranked, evaluated lazily so a machine with a working
+agent is not made to probe for every other):
+
+1. the agent the last handoff reached (`bugpilot.lastAgent` in `globalState` —
+   machine-level, since installs are), if it is still available;
+2. an extension with a native integration;
+3. a CLI — Claude CLI before Codex CLI, because its captured review lets Review
+   with AI read the answer back; the tie-break is `CLI_AGENTS`' order;
+4. an installed extension, as a bridge;
+5. the custom command, only when one is configured with `{prompt}`.
+
+Nothing: *No supported AI agent detected. BugPilot looked for Claude CLI, Codex
+CLI, Codex Extension and Claude Extension.* — the prompt goes to the clipboard,
+and (new) no agent's panel is brought forward: for an explicit choice that would
+be exactly the silent switch this must not make. `succeeded()` is called for a
+terminal, native or bridge handoff and for a captured review. Auto-detect never
+changes the saved choice.
+
+**Explicit choices never fall back.** Only the chosen adapter is detected; if it
+is unavailable the card's detail is its own sentence — *Codex CLI is not
+available: codex was not found on PATH. Install or configure Codex CLI, or choose
+another AI Agent.*; *Codex Extension is not available: the openai.chatgpt
+extension is not installed or is disabled. Install it, or choose another AI
+Agent.* Improving a hint with an explicit choice uses that vendor's own CLI
+(`HINT_VENDOR`: the extensions have nothing that answers on stdout), never the
+other vendor's.
+
+**Review with AI.** Unchanged for Claude CLI (captured, read-only). Codex CLI and
+custom commands get the terminal handoff — Codex CLI's `exec` mode has not been
+measured here, so it is not captured. An extension gets the bridge; the review
+row says *AI review started* with the copied-prompt detail
+(`ReviewHandoff.started.detail`).
+
+**UI.** *AI Agent* (was *AI agent*); options Auto-detect (Recommended), Codex
+CLI, Claude CLI, Codex Extension, Claude Extension, Custom command…; one
+`.hint`-styled status line under the select (`#agent-status`, `aria-live`
+polite, the select's `aria-describedby`) showing `PanelState.agents.lines[choice]`
+for the choice on screen — the draft's while Advanced Settings is open: *Detected:
+Codex CLI*, *No supported AI agent detected.*, *Detecting AI agents…*,
+*Available*, *Not found on PATH*, *Installed · Limited integration*, *Not
+installed or disabled*; hidden for a custom command and before any detection. Settings
+summaries and Diagnostics use the same labels.
+
+**Migration.** The only old value was `agent: "claude"`, which ran the `claude`
+CLI: it becomes `claude-cli` wherever a saved or received form is read —
+`restoreForm` for `workspaceState`, `parseForm` at the message boundary, and
+`LEGACY_AGENTS` in `panel.js` for a page's own restored state. Anything unknown
+is Auto-detect. `agent: "custom"` and `agentCommand` are untouched.
+
+**Removed.** `UiPort.revealAgentPanel` and its hard-coded Claude command list in
+`host/ports.ts`; `resolveAgent`, `resolveReviewer`, `KNOWN_AGENTS`, `AgentPlan`,
+`ReviewerPlan`. Replaced by `createExtensionsPort()` (host) and
+`ControllerPorts.extensions` / `lastAgent`.
+
+**Not verified / open.**
+
+- The real VS Code pass is recorded below, with what it could not cover.
+- `codex "<prompt>"` is the documented interactive form but was not run here —
+  Codex CLI is not installed on this machine.
+- User-visible labels changed: *Handed to Claude CLI in a terminal*, *Reviewing
+  with Claude CLI…* (were *Claude Code*); hint-provider labels *Claude CLI* /
+  *Codex CLI*.
+- Activation now spawns `claude --version` and `codex --version` once, in the
+  background.
+
+**Files.** `src/app/agents.ts` (rewritten), `controller.ts`, `form.ts`
+(`restoreForm`), `hintImprovement.ts`, `diagnostics.ts`, `workflowSettings.ts`,
+`workflow.ts`, `panel/html.ts`, `panel/messages.ts`, `host/ports.ts`,
+`extension.ts`, `media/panel.js`, `media/panel.css`,
+`scripts/smoke-activate.mjs`; README and CHANGELOG. Tests: new
+`test/agents.test.ts` (42); controller (+12, harness: `extensions`,
+`executeExtensionCommand`, `lastAgent`, `heldProbe().answerAll`), page (+3),
+panel, hint, reviewRun, diagnostics, workflowSettings, nextAction, workflow
+updated.
+
+**Regression.** Extension 1574 tests pass (1524 before: 42 agent, 12 controller,
+3 page and 1 hint test added; 8 resolution tests moved from `workflow.test.ts` to
+`agents.test.ts`; label, probe and fallback expectations updated); typecheck,
+smoke and `git diff --check` clean.
+
+#### Real-world verification (2026-09-30)
+
+**Setup.** A disposable VS Code 1.139.1 — the standalone Microsoft archive build
+(`VSCode-win32-x64-1.139.1.zip`, the installed build's commit `04c0d99f4f`),
+because the installed VS Code refused to start a second instance while its own
+update was staged ("Code is currently being updated"). Own `--user-data-dir` and
+`--extensions-dir`; the working tree packaged as a VSIX; `anthropic.claude-code`
+2.1.286 and `openai.chatgpt` 26.917.62051 installed from the Marketplace into
+that profile only; a throwaway git repository with one file; a hand-described
+bug prepared through Run (`local_20260930230052`, later `local_20260930231316`).
+Driven over the DevTools protocol with real mouse and key input. The user's own
+VS Code, profile and extensions were not touched; the system clipboard was saved
+before the bridge checks and restored after.
+
+**Verified.**
+
+- *Picker.* Six options in order, label *AI Agent*, `aria-describedby`
+  `agent-status`, the option text as the select's `title`. 360px: every line on
+  one line, no overflow. 200px: the select is 146px, *Auto-detect (Recommended)*
+  is cut by the native control under its arrow (full text in the tooltip; the
+  option text is unchanged by this work); *Installed · Limited integration* and
+  *Detected: Custom command* wrap to two lines; nothing overflows.
+- *Themes.* Dark Modern, Light Modern, High Contrast, High Contrast Light at
+  200px and 360px: the line is `descriptionForeground` like every other hint on
+  the page, the select uses the dropdown colours and, in both high-contrast
+  themes, the contrast border.
+- *Status lines from real detection.* *Detected: Claude CLI*; Codex CLI *Not
+  found on PATH*; Claude CLI *Available*; both extensions *Installed · Limited
+  integration*; Custom command hidden. *No supported AI agent detected.* was not
+  reproducible on this machine (Claude CLI and Claude Code are always present) and
+  is covered by the tests only.
+- *Claude CLI, explicit.* Chosen in Advanced Settings and applied: the
+  section's note says no rebuild, the primary stayed Fix with AI, `run.json` was
+  not rewritten. Fix with AI opened one terminal, *Fix with AI ·
+  local_20260930230052*, in the repository root, running `claude "Read
+  .ai/local_20260930230052/task.md and complete the workflow."`; the row read
+  *Started · Handed to Claude CLI in a terminal.*; the primary became Open AI
+  Session; `bugpilot.lastAgent` in the profile's global state became
+  `claude-cli`. Claude Code started and stopped at its own folder-trust prompt;
+  the terminal was killed there, so no agent ran.
+- *Review with AI, captured.* With a fixture `fix_report.md` and a small diff:
+  *Reviewing with Claude CLI…*, then *AI review finished* with the Review Result
+  form prefilled (*Prefilled from AI review — review before saving.*) from
+  Claude's reply, 54 s one-shot in the repository root. The reviewer changed
+  nothing (`git status`: only the fixture edit).
+- *Claude Extension bridge.* The clipboard held exactly `Read
+  .ai/local_20260930230052/task.md and complete the workflow.`; the Claude Code
+  view opened in the secondary side bar; the toast and the Fix with AI row read
+  *BugPilot AI fix context copied. Paste it into Claude to continue.*; no
+  terminal; the Claude input stayed empty (*Ask Claude to edit…*).
+- *Codex Extension bridge.* The same, with the Codex view focused and *…Paste it
+  into Codex to continue.*; `lastAgent` became `codex-extension`, and Auto-detect
+  then said *Detected: Codex Extension* (the last-used tier, as designed).
+- *Explicit extension missing.* Codex uninstalled, Codex Extension chosen: the
+  row *Failed*, the header *AI fix did not start*, the detail *Codex Extension is
+  not available: the openai.chatgpt extension is not installed or is disabled.
+  Install it, or choose another AI Agent. The handoff prompt is on the clipboard
+  instead.*; no terminal, Claude not started, no view brought forward.
+- *Lifecycle.* Disable Codex → VS Code asks for Restart Extensions → on
+  re-activation Codex Extension is unavailable and Auto-detect skips the
+  last-used `codex-extension` for Claude CLI. Enable Codex → applied without a
+  restart; `onDidChange` re-detected within a second and the line came back.
+  Uninstall → the same as disable. Developer: Reload Window → detection in the
+  activation second; the stale `lastAgent` skipped.
+- *Double press.* Two primary-button clicks a few milliseconds apart with the
+  custom command `cmd /c echo {prompt}`: one terminal, one *Started* row, the
+  second press answered *BugPilot is still handing this work item to an agent.*;
+  the terminal echoed `"Read .ai/local_20260930231316/task.md and complete the
+  workflow."` quoted as one argument by PowerShell.
+- *Startup cost.* Activation 16:53:47, all detection logged 16:53:48, in the
+  background. Measured: `claude --version` 224 ms; `codex` ENOENT in 3 ms and a
+  PATH lookup. Probes use `windowsHide: true`, no shell, and the Runner's
+  timeout kills the process tree; no terminal or console window appeared. The
+  extension-host log has no unhandled rejection; its only errors, *Channel has
+  been closed* at the Restart Extensions moment, come from the Claude Code
+  extension's own stderr handler.
+- *Log.* The lines documented above appeared as written; no prompt text, token
+  or path under `.ai/` beyond the handoff command line itself.
+
+**Found and fixed.**
+
+- A disabled extension is reported by VS Code exactly as a missing one, so the
+  status said *Not installed* for a disabled Codex. Now *Not installed or
+  disabled* (`agents.ts`); the failure sentence already said both.
+- At 200px, choosing Custom command gave the page a 3px horizontal scrollbar:
+  the *Custom agent command* label is held at full width by `.setting-header >
+  label { flex: none }`. That label alone may now shrink
+  (`#field-agentCommand .setting-header > label { flex: 0 1 auto; min-width: 0 }`);
+  letting every label shrink was tried and wrapped *Focus Files (optional)*,
+  which fits 200px exactly. Pre-existing, not introduced by §37.94. Rechecked in
+  the window: overflow 0, other labels unchanged.
+
+**Quoting and injection review.** No unsafe interpolation found; nothing
+changed. Every prompt bound for a terminal passes `isPlainPrompt` before any
+probe — letters, digits, whitespace and `. , : # / _ -`, starting with a letter,
+digit or `#` — and is then one JSON-quoted argument with newlines collapsed.
+The prompts are the handoff sentences built from a validated work-item id and
+Review with AI's canonical prompt; Jira titles, descriptions and hints only ever
+live in `task.md`. The repository path reaches the terminal only as
+`createTerminal({ cwd })`. The bridges use the clipboard, never a shell. New
+regression tests: a Windows path with spaces, `"task.md" & preserve…`, Unicode
+(`修复这个问题并保持现有行为`), an apostrophe, parentheses, `%PATH%`, `;`, `|`,
+`>`, `$env:`, backticks, `&&` and a leading `-` are refused by each terminal
+adapter and before any probe for every choice; an allowed prompt with a newline
+and `--yolo` stays one quoted argument; a repository path with spaces,
+parentheses and `&` is only the terminal's cwd.
+
+**Codex CLI: documented, not executed here** (since partially verified against
+codex-cli 0.159.2, §37.96). Codex CLI is not installed here and was
+not installed for this. From the current official reference
+(developers.openai.com/codex/cli/reference → learn.chatgpt.com, read 2026-09-30):
+
+- A. interactive: `codex [PROMPT]` — "Optional text instruction to start the
+  session." This is what Codex CLI's adapter runs, in a terminal.
+- B. non-interactive: `codex exec [PROMPT]` (alias `codex e`); progress on
+  stderr, the final message on stdout; needs a git repository unless
+  `--skip-git-repo-check`; `--ephemeral` keeps no session files.
+- C. prompt: positional, or `-` to read it from stdin (`codex exec -`, which the
+  hint improver already uses).
+- D. workspace: `--cd, -C <path>`; BugPilot instead opens the terminal in the
+  repository root, as for Claude.
+- E. capture: `--output-last-message, -o <path>` writes the final message to a
+  file; `--json` streams JSON events; `--sandbox, -s read-only |
+  workspace-write | danger-full-access`, `--ask-for-approval, -a on-request |
+  never`.
+
+A read-only captured review for Codex could be `codex exec --sandbox read-only
+--ask-for-approval never --ephemeral -` with the prompt on stdin, but it has not
+been run, so it is not implemented: Codex CLI's Review with AI stays the
+terminal handoff.
+
+**Still unverified.**
+
+- Codex CLI end to end — since partially verified, §37.96: detection, the
+  terminal handoff and the prompt's parsing hold; a working Codex session was not
+  run.
+- *No supported AI agent detected.* and *Detecting AI agents…* in the window
+  (tests only).
+- A native extension integration: neither extension has one.
+- The native `<select>` popup list itself: drawn by Chromium outside the page, so
+  not captured; the options were read from the DOM.
+- macOS and Linux.
+
+**Regression.** Extension 1580 tests pass (1574 before: 4 agent quoting tests, 1
+controller repository-path test, 1 panel CSS test); typecheck, smoke and `git
+diff --check` clean. Python not rerun beyond `tests/test_review_package.py` (14
+passed), which reads `agents.ts`; no Python changed.
+
+### 37.95 Logging privacy: nothing typed or read from Jira reaches the output channel (after `d3ce575`, uncommitted)
+
+**Status:** implemented, verified in the test suites and the activation smoke
+test; not committed, not pushed, no version change. Extension only.
+
+**Previous risk.** The BugPilot output channel — the log a developer pastes into
+an issue — recorded text it had no business keeping:
+
+- every run's full argv: `bugpilot bug --description=<the bug> --title=…
+  --hint=… --keywords=… --focus-file=… --attach=<a private path>`
+  (`controller.ts`, seen in the §37.94 real-window log);
+- on a crashed run, the CLI's stderr verbatim — argparse's "unrecognized
+  arguments" and a traceback can both quote the argv back;
+- a spawn or contract error's message, which can carry the argv;
+- every Fix with AI and terminal Review with AI command line: the handoff
+  prompt, and a custom agent command whole, token and all;
+- `parseEnvelope`'s "not a single JSON object" message, which embedded Node's
+  parse error — and Node quotes a fragment of the bad stdout, which for
+  `issue-details` is the issue's own text;
+- the raw value of a work item id that failed validation (a saved state, a
+  stream, or text typed into the palette's work item box);
+- `runText`'s `$ bugpilot clean <whatever was typed>` and its failure line.
+
+**Now** (`src/app/logSafety.ts`, one small module, no framework):
+
+- `commandForLog(args)`: still a command line, as the channel always promised,
+  but an allowlist decides which values stay — `--fix-mode`, `--max-files`,
+  `--max-search-lines`, `--description-file` (the extension's scratch path).
+  Every other `--flag=value` becomes `--flag=<redacted>`, including flags added
+  later; a positional stays only as the subcommand or a valid work item id.
+  `bugpilot bug JR-12345 --hint=<redacted> --fix-mode=standard --resume
+  --prepare-only --json-lines`.
+- `sensitiveValues` + `redactKnown`: what a process or an error echoes back is
+  scrubbed of those exact values (longest first; under three characters left
+  alone). `stderrForLog` keeps the last 40 lines, scrubbed, after
+  `bugpilot bug ended without a result (exit N):`.
+- Handoffs log the agent and the work item only: `Handing JR-12345 to Claude CLI
+  in a terminal.`, `Handing the review of JR-12345 to Custom command in a
+  terminal.` The terminal still gets the command; the log does not.
+- `rejectedValueForLog`: a value that failed id validation by its length,
+  `(30 characters)`.
+- `parseEnvelope` reports `(SyntaxError, N characters)`; the output stays on the
+  `ProtocolError` for code that needs it.
+
+**Kept.** Which operation ran and with which flags; the work item id; the agent
+and how Auto-detect resolved (§37.94's lines were already prompt-free); exit
+codes; where a run stopped and the traceback's shape; repository paths; every
+"Refusing …" guard line.
+
+**Checked and unchanged.** The hint improver never logged its prompt or the
+issue text; captured reviews log their state only; `doctor` prints presence
+booleans for the Jira settings, never their values; the Jira token travels in the
+environment and `assertNoSecretsInArgs` keeps it out of argv. The Python
+CLI's `bugpilot.execution` trace has only a `NullHandler` and is persisted
+nowhere.
+
+**Tests.** `test/logSafety.test.ts` (8): the allowlist on a full argv and on the
+form's real `buildPrepareArgs` output, Jira/retry/`clean` lines unchanged, an
+unknown flag and a typed positional redacted, scrubbing and the stderr tail,
+rejected ids, the JSON parse message. `controller.test.ts` (+8), each asserting
+that `SECRET_BUG_DESCRIPTION_48291`, `SECRET_JIRA_TEXT_73125`,
+`SECRET_CUSTOM_INSTRUCTION_99421` and `SECRET_TOKEN_ABC123` appear in no log
+line, and that the useful line is still there: a described bug's run; a Jira run
+plus improving its hint from the issue's text; a crashed run echoing argv and a
+traceback on stderr; a spawn error carrying argv (log and toast); Fix with AI to
+Claude CLI; a custom agent command with a token; a terminal Review with AI; a
+rejected work item id.
+
+**Remaining.** Text the CLI prints on stderr that BugPilot did not pass in — a
+Jira field quoted by a Python exception — is not knowable to the extension and
+can still reach the crashed-run line (its last 40 lines only). `runText` shows
+`agent-check` and `clean` output verbatim, as before: that is the command the
+developer asked to see. Notifications are not logs but use the same scrubbed
+text.
+
+**Regression.** Extension 1596 tests pass (1580 before: 16 added); typecheck,
+smoke and `git diff --check` clean. No Python touched.
+
+### 37.96 Codex CLI in a real environment: CODEX CLI PARTIALLY VERIFIED (after `d3ce575`, uncommitted)
+
+**Status:** verification only; no code changed, no test added. Codex CLI is
+**partially verified**: BugPilot's side of the Codex CLI handoff is verified end
+to end against the real `codex` binary; a Codex session that actually works on
+the prompt was not run, by choice and because of the binary used (below).
+
+**Binary and environment.** Codex CLI is not installed on this machine (`codex`
+is not on PATH) and was not installed. The developer chose to test with the
+official binary the Codex VS Code extension ships —
+`openai.chatgpt-26.928.31416-win32-x64\bin\windows-x86_64\codex.exe`,
+`codex --version` → **`codex-cli 0.159.2`** — put on PATH for the disposable
+VS Code window only (the §37.94 harness: standalone VS Code 1.139.1, scratch
+profile, Windows 11, PowerShell 7 as the terminal's shell). The account is
+signed in with ChatGPT (`codex login status`), so every Codex start in the
+window used an empty scratch `CODEX_HOME`: logged out, and no model call
+possible. Agreed scope: the handoff only, no model call.
+
+**The interface, from the installed help (0.159.2).**
+
+- A/B. `codex [OPTIONS] [PROMPT]` — "Optional user prompt to start the session".
+  `[PROMPT]` takes exactly one value: a second word is `error: unexpected
+  argument '…' found`, exit 2. So the sentence must arrive as one argument.
+- C. `codex exec [OPTIONS] [PROMPT]` — "If not provided as an argument (or if `-`
+  is used), instructions are read from stdin"; `--ephemeral`, `-o,
+  --output-last-message <FILE>`, `--json` (JSONL events on stdout),
+  `--output-schema`, `--skip-git-repo-check`, `--ignore-user-config`.
+- D. `-C, --cd <DIR>` — "the agent's working root". BugPilot does not pass it;
+  the terminal's cwd is the repository root.
+- E/F. `-s, --sandbox read-only | workspace-write | danger-full-access` on both.
+  `-a, --ask-for-approval on-request | never` is listed for the interactive CLI
+  and **not** in `codex exec --help`.
+- G. Usage errors exit 2. Other exit codes were not observed.
+- H. stdin for `exec` is documented (above), not exercised.
+- `--no-daemon` — "Run without the shared background server".
+
+**Verified in the window** (throwaway git repository at
+`…\scratchpad\vs\repo with spaces`, work item `local_20261001022750`):
+
+- *Detection.* Startup, in the background, in the activation second: *Codex CLI
+  available.*; the picker said *Available*; no terminal opened. Without the
+  binary on PATH: *Codex CLI not available (Not found on PATH).*
+- *Scenario C* (no last-used agent, both CLIs): *Detected: Claude CLI* — the
+  documented order, unchanged.
+- *Fix with AI → Codex CLI, explicit.* Applying it rebuilt nothing. Exactly one
+  terminal, *Fix with AI · local_20261001022750*, cwd the repository root with
+  its spaces, PowerShell running `codex "Read
+  .ai/local_20261001022750/task.md and complete the workflow."`. Codex got past
+  argument parsing — so the sentence arrived as one argument — and then stopped
+  by itself: *Error: this CLI has no complete local package; install a packaged
+  Codex CLI or use the standalone installer. To work without the background
+  server, rerun the same command with --no-daemon.* The row said *Started ·
+  Handed to Codex CLI in a terminal.*; `bugpilot.lastAgent` became `codex-cli`;
+  `task.md`'s SHA-256 and `run.json`'s mtime unchanged; `git status` clean.
+- *The prompt, by hand.* `codex --no-daemon "Read
+  .ai/local_20261001022750/task.md and complete the workflow."` typed into a
+  VS Code terminal in the same root: the interactive session started and showed
+  *Welcome to Codex… Sign in with ChatGPT*, its first screen for a logged-out
+  home. The real login's first screen (folder trust, or the session itself) was
+  deliberately not opened: with it, Codex could send the prompt.
+- *Shell safety, against the real parser.* The sentence unquoted: `unexpected
+  argument '.ai/local_20261001022750/task.md'`. BugPilot's quoted form passes;
+  the §37.94 gate keeps anything PowerShell would expand out of it.
+- *Scenario A* (last-used `codex-cli`, available): *Detected: Codex CLI*.
+- *Scenario B* (last-used `codex-cli`, Codex removed from PATH): *Detected:
+  Claude CLI*.
+- *Explicit Codex CLI, unavailable.* Row *Failed*, *Codex CLI is not available:
+  codex was not found on PATH. Install or configure Codex CLI, or choose another
+  AI Agent. The handoff prompt is on the clipboard instead.*; no terminal, no
+  Claude, no extension view brought forward; `lastAgent` stayed `codex-cli`.
+- *task.md missing.* *There is no task.md for local_20261001022750. Run BugPilot
+  with Build context enabled first.*; row *Skipped*; no terminal.
+- *Log.* Both sessions' BugPilot logs hold no prompt, no `task.md` line and no
+  description: `bugpilot bug --description=<redacted> --fix-mode=standard
+  --resume --prepare-only --json-lines`, `Handing local_20261001022750 to Codex
+  CLI in a terminal.` Codex's own terminal shows the command line; that is the
+  terminal, not BugPilot's log.
+- *Codex stderr.* A usage error repeats the offending argument
+  (`unexpected argument 'SECRET_EXTRA_ARG' found`) and the usage text; an
+  invalid flag did not repeat the prompt beside it. BugPilot never reads an
+  interactive Codex's stderr — it runs in a terminal — so none of it reaches the
+  output channel.
+
+**Not verified.**
+
+- A Codex session working on the prompt: needs a packaged CLI (npm or the
+  standalone installer; the bundled binary refuses the default daemon mode) and
+  the developer's consent to a model call.
+- Codex's folder-trust or approval behaviour with a signed-in account.
+- Whether BugPilot should pass `--no-daemon`: not changed — a packaged CLI is not
+  expected to need it, and that was not testable here.
+
+**Review with AI for Codex: unchanged (terminal handoff).** A captured review
+would be something like `codex exec -s read-only --ephemeral -` with the prompt on
+stdin and the final message on stdout, but not one of the requirements has been
+seen to hold: no `codex exec` was run (no model call was agreed), so stdout
+capture, the exit codes and the failure shapes are unobserved; `exec` lists no
+`--ask-for-approval`, so "never stops for approval" is unproven; and read-only
+behaviour under `-s read-only` was not exercised. Per the rule, nothing was added.
+
+**Tests.** No code changed, so none added. `agents.test.ts` 46/46; extension
+1596/1596; typecheck, smoke and `git diff --check` clean. No Python touched.
+
+#### With a packaged Codex CLI (2026-09-30, later): still PARTIALLY VERIFIED
+
+**Install.** Approved by the developer: `npm install -g @openai/codex` (the
+README's npm route; the other official Windows route is `powershell
+-ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"`).
+→ **`codex-cli 0.159.3`**, shims `%APPDATA%\npm\codex.ps1`, `codex.cmd`, `codex`
+over `@openai/codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe`.
+PowerShell resolves `codex` to `codex.ps1`; the execution policy allows it.
+`codex exec --help` still lists no `--ask-for-approval`.
+
+**Authentication.** `codex login status` → *Logged in using ChatGPT* (the
+existing `~/.codex` sign-in; nothing copied, nothing given to BugPilot). The
+service answered — and refused: *You've hit your usage limit… try again at Oct
+3rd, 2026 5:01 PM.* **No model call succeeded**, so nothing that needs Codex to
+work on a prompt could be observed.
+
+**`codex exec`, really run** (empty scratch folder, `--skip-git-repo-check
+--ephemeral -s read-only`):
+
+- The header, on **stderr**: `approval: never`, `sandbox: read-only`, the model,
+  a session id — and the prompt itself (`user` / the text). stdout empty on
+  failure. Exit **1** for the usage limit.
+- `-` reads the prompt from stdin; with an argument it still prints *Reading
+  additional input from stdin…*.
+- `--json`: JSONL on **stdout** (`thread.started`, `turn.started`, `error`,
+  `turn.failed`), nothing on stderr; exit 1.
+- `-o <file>`: not written when the turn fails.
+- Not signed in (empty `CODEX_HOME`): `401 Unauthorized` from
+  `wss://api.openai.com/v1/responses`, *Reconnecting… 2/5* retries, then exit 1
+  — the same exit as the usage limit, told apart only by text.
+- A usage error: exit **2**.
+- No file was created in the folder.
+
+**BugPilot → Codex CLI in the window** (npm CLI on the normal PATH, the real
+sign-in, `repo with spaces`, `local_20261001022750`):
+
+- Detection *Codex CLI available*; with `lastAgent` `codex-cli`, Auto-detect
+  *Detected: Codex CLI*.
+- Fix with AI: one terminal in the repository root; row *Started · Handed to
+  Codex CLI in a terminal.*; `lastAgent` stays `codex-cli`; `task.md` hash
+  unchanged; `git status` clean; nothing in the repository written.
+- **No `--no-daemon` needed**: the packaged CLI's interactive session started
+  (`>_ OpenAI Codex (v0.159.3)`, cwd shown) and started Codex's shared background
+  server itself (`~\.codex\packages\app-server-daemon\releases\0.159.3…\codex.exe
+  app-server`, which outlives the terminal; the two test-started processes were
+  stopped afterwards). BugPilot unchanged.
+- **What Codex asks first, signed in:** (1) *Folder access … Trust this folder?
+  Codex can read, edit, and run files here, subject to your permission settings.
+  Folder settings can run code automatically, even without a model request.
+  Continue only if you trust these files. Your trust decision will be saved.* —
+  *1. Trust and continue / 2. Back to Agent Command Center*. Answered *Trust* (now
+  saved in the developer's Codex config for this scratch path). (2) *GPT-5.5
+  retires on October 14, 2026. Switch to GPT-6.1 Sol…* — *1. Try new model / 2.
+  Use existing model*; answered *Use existing model*. Both appear before the
+  prompt is sent: a first handoff to Codex in a new repository needs those
+  answers from the developer.
+- **The prompt was accepted**: the session's first message was `Read
+  .ai/local_20261001022750/task.md and complete the workflow.`, then *Working*,
+  then the usage-limit refusal and an *Approaching rate limits — switch to
+  gpt-6-luna?* screen. **Codex did not read `task.md`**: the turn ended at its
+  first model request.
+- BugPilot's log: run and handoff lines only; no prompt, `task.md` text or
+  description. Codex's own terminal shows the prompt — the terminal, not the log.
+
+**Captured Review with AI for Codex: not implemented.** Proven: non-interactive
+`exec`, stdin delivery, `approval: never` in exec mode, distinct exit codes for
+a usage error (2) and a failed turn (1), JSON events usable for failure. Not
+proven, because no turn succeeded: that stdout or `-o` holds the final answer on
+success, the success exit code, that `-s read-only` stops edits, that no
+approval or notice can block an `exec` turn, how long an auth failure retries
+before exiting. And `exec` writes the prompt to stderr, which a capture path
+would have to keep out of every log. The terminal handoff stays.
+
+**Still unverified.** Codex working on a BugPilot task (reading `task.md`,
+answering); everything in the paragraph above. Retry after the usage limit
+resets (Oct 3, 2026, 5:01 PM local) with one read-only `exec` and one handoff.
+
+**Code and tests.** No code changed; no test added. `agents.test.ts` 46/46;
+extension 1596/1596; typecheck, smoke and `git diff --check` clean.

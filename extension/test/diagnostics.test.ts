@@ -89,7 +89,8 @@ test("the agent shows the selection, and what it resolved to only once it has", 
 
 test("every agent choice has a name, and an unknown one survives as itself", () => {
   assert.equal(rowsOf({ agent: "auto" })["AI agent"]?.value, "Auto-detect");
-  assert.equal(rowsOf({ agent: "claude" })["AI agent"]?.value, "Claude Code");
+  assert.equal(rowsOf({ agent: "claude-cli" })["AI agent"]?.value, "Claude CLI");
+  assert.equal(rowsOf({ agent: "codex-extension" })["AI agent"]?.value, "Codex Extension");
   assert.equal(rowsOf({ agent: "custom" })["AI agent"]?.value, "Custom command");
   assert.equal(rowsOf({ agent: "something-new" })["AI agent"]?.value, "something-new");
 });

@@ -92,7 +92,10 @@ export function parseEnvelope(stdout: string, stderr = ""): Envelope {
     payload = asRecord(JSON.parse(text));
   } catch (cause) {
     throw new ProtocolError(
-      `bugpilot stdout was not a single JSON object: ${(cause as Error).message}`,
+      // Not the parser's message: Node's quotes a fragment of the input, and
+      // that input can be an issue's own text (§37.95). The error's kind and
+      // the output's size say enough; the output itself is on the error.
+      `bugpilot stdout was not a single JSON object (${(cause as Error).name}, ${stdout.length} characters).`,
       stdout,
       stderr,
     );

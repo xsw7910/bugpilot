@@ -28,7 +28,7 @@ import { pickLatestSession, sessionIdFromFileName } from "../app/session.ts";
 import { Runner } from "../runner.ts";
 import { CAPTURED_REVIEW_TIMEOUT_MS } from "../app/reviewRun.ts";
 import type { SessionCandidate } from "../app/session.ts";
-import type { FilesPort, UiPort } from "../app/controller.ts";
+import type { ControllerPorts, FilesPort, UiPort } from "../app/controller.ts";
 import type { GitignoreEntry, GitignoreIo } from "../app/gitignore.ts";
 import type { PanelState } from "../panel/messages.ts";
 
@@ -135,24 +135,6 @@ export function createUiPort(deps: UiPortDeps): UiPort {
       // `fsPath`, not `path`: on Windows the latter is "/c:/..." and every
       // consumer of this list hands it to a process.
       return (picked ?? []).map((uri) => uri.fsPath);
-    },
-    revealAgentPanel: async () => {
-      // Read off the installed extension's own manifest rather than guessed:
-      // anthropic.claude-code 2.1.263 contributes these, and none of its
-      // twenty-six commands accepts a prompt — which is why the primary path
-      // is a terminal and this is only about putting an agent's panel in front
-      // of the developer after the prompt is on the clipboard. Other agents can
-      // be added to the list; each one is a command id read from a real
-      // manifest, never a guess.
-      for (const command of ["claude-vscode.sidebar.open", "claude-vscode.editor.openLast"]) {
-        try {
-          await vscode.commands.executeCommand(command);
-          return true;
-        } catch {
-          // Not installed, or renamed in a newer version. Try the next.
-        }
-      }
-      return false;
     },
     notify: (kind, message) => {
       if (kind === "error") void vscode.window.showErrorMessage(message);
@@ -343,9 +325,10 @@ export async function mcpConfigured(
  * Whether an executable can be started at all.
  *
  * A `--version` handshake, because that is the cheapest question that proves a
- * spawn works; ENOENT is the answer that matters. Used before offering to run
- * `claude` in a terminal, since a terminal printing "command not found" reads
- * as a bug in this extension rather than a missing tool.
+ * spawn works; ENOENT is the answer that matters. Used to detect an AI CLI
+ * before offering to run it in a terminal, since a terminal printing "command
+ * not found" reads as a bug in this extension rather than a missing tool. No
+ * terminal is opened and nothing but `--version` is run.
  *
  * ENOENT alone would be too harsh a verdict on Windows, where a spawn probe
  * cannot see a `.cmd` launcher that a terminal runs happily — see
@@ -355,7 +338,10 @@ export async function mcpConfigured(
  */
 export async function canRun(executable: string): Promise<boolean> {
   try {
-    await new Runner(executable).run(["--version"], { cwd: process.cwd(), timeoutMs: 15_000 });
+    // Short: a CLI that has not printed its version in five seconds still
+    // exists — a timeout is not ENOENT — and nothing should wait longer to
+    // learn that.
+    await new Runner(executable).run(["--version"], { cwd: process.cwd(), timeoutMs: 5_000 });
     return true;
   } catch (error) {
     const code = (error as { code?: string } | undefined)?.code;
@@ -554,4 +540,36 @@ export async function runCapturedReview(request: {
 
 function firstLine(text: string): string {
   return text.trim().split("\n")[0]?.trim() ?? "";
+}
+
+/**
+ * The installed AI extensions, as VS Code's extension API reports them (§37.94).
+ *
+ * `getExtension` answers undefined for an extension that is not installed and
+ * for one that is disabled, which is the right answer for both: neither can be
+ * handed anything. The command list is the installed manifest's own
+ * `contributes.commands` — what this version declares, read without activating
+ * it — so `agents.ts` never runs a command that is not there. Which ids to ask
+ * about and which commands to run are `agents.ts`'s; this only answers and
+ * executes.
+ */
+export function createExtensionsPort(): NonNullable<ControllerPorts["extensions"]> {
+  return {
+    get: (id) => {
+      const extension = vscode.extensions.getExtension(id);
+      if (!extension) return undefined;
+      const manifest = extension.packageJSON as { version?: unknown; contributes?: { commands?: unknown } } | undefined;
+      const declared = Array.isArray(manifest?.contributes?.commands) ? manifest.contributes.commands : [];
+      return {
+        version: typeof manifest?.version === "string" ? manifest.version : "",
+        active: extension.isActive,
+        commands: declared
+          .map((entry) => (entry as { command?: unknown } | null)?.command)
+          .filter((command): command is string => typeof command === "string"),
+      };
+    },
+    executeCommand: async (command, ...args) => {
+      await vscode.commands.executeCommand(command, ...args);
+    },
+  };
 }

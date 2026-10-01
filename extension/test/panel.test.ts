@@ -100,7 +100,7 @@ const fullForm = {
   maxSearchLines: "300",
   plan: { codeSearch: true, gitHistory: false, similarFixes: true, buildContext: true },
   fixWithAI: true,
-  agent: "claude",
+  agent: "claude-cli",
   agentCommand: "",
   fresh: true,
 };
@@ -229,6 +229,7 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   dismissImprovedHint: { type: "dismissImprovedHint" },
   manageFixModes: { type: "manageFixModes" },
   closeFixModes: { type: "closeFixModes" },
+  detectAgents: { type: "detectAgents" },
   fixModeAction: { type: "fixModeAction", action: "view", id: "standard", scope: "builtin" },
   parseReviewOutput: { type: "parseReviewOutput", text: "## Summary\nReads correctly.\n" },
   discardReviewDraft: { type: "discardReviewDraft" },
@@ -962,12 +963,27 @@ test("a path field says one-per-line by showing it", () => {
   }
 });
 
-test("the AI agent picker is a label and three options, and nothing else", () => {
+test("the AI Agent picker is a label, the six options and one status line, and nothing else", () => {
   // The option text is the explanation, so the helper line and the note that
   // used to sit under it are both gone. What is not gone is the label: the
   // select is still named for a screen reader.
-  assert.match(HTML, /<option value="auto">Auto-detect \(Recommended\)<\/option>/);
-  assert.match(HTML, /<label[^>]*for="agent"/);
+  const select = /<select id="agent"[\s\S]*?<\/select>/.exec(HTML)?.[0] ?? "";
+  assert.deepEqual(
+    [...select.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)].map((match) => [match[1], match[2]]),
+    [
+      ["auto", "Auto-detect (Recommended)"],
+      ["codex-cli", "Codex CLI"],
+      ["claude-cli", "Claude CLI"],
+      ["codex-extension", "Codex Extension"],
+      ["claude-extension", "Claude Extension"],
+      ["custom", "Custom command…"],
+    ],
+  );
+  assert.match(HTML, /<label[^>]*for="agent"[^>]*>[\s\S]*?AI Agent<\/label>/);
+  // The status line: quiet, announced politely, described by the select, empty
+  // until the host says something.
+  assert.match(select, /aria-describedby="agent-status"/);
+  assert.match(HTML, /<p class="hint agent-status" id="agent-status" aria-live="polite" hidden><\/p>/);
   assert.equal(/id="agent-hint"/.test(HTML), false);
   assert.equal(/id="agent-auto-note"/.test(HTML), false);
   // And the rule it left behind: no dead stylesheet for a removed element.
@@ -2014,6 +2030,15 @@ test("a label that is a whole sentence is allowed to wrap", () => {
   assert.match(CSS, /\.field-check \.setting-header > label \{[^}]*min-width: 0/s);
 });
 
+test("the custom agent command's label may wrap, and only that one name label", () => {
+  // Measured in the real window at 200px (§37.94): held at full width it stood
+  // 3px past the panel and scrolled the page sideways. Every other name label
+  // keeps `flex: none` — letting them all shrink wrapped one that fits exactly.
+  assert.match(CSS, /#field-agentCommand \.setting-header > label \{[^}]*flex: 0 1 auto/s);
+  assert.match(CSS, /#field-agentCommand \.setting-header > label \{[^}]*min-width: 0/s);
+  assert.match(CSS, /\n\.setting-header > label \{[^}]*flex: none/s);
+});
+
 test("the agent error sits under the button it is about", () => {
   // Directly under Fix with AI, on its row: nothing a developer can still do
   // sits between the button and the reason it did not work.
@@ -2273,6 +2298,10 @@ test("the page decides nothing about what a diagnostic means", () => {
     "Not checked",
     "No repository",
     "Auto-detect",
+    "Detected:",
+    "Limited integration",
+    "Native integration",
+    "Not found on PATH",
     "secrets",
     "packageJSON",
     "process.env",

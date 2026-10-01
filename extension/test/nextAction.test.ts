@@ -162,7 +162,7 @@ test("what happens after a run, and whitespace a run ignores, leave it alone", (
   const base = preparationFingerprint(form({ keywords: "a, b", focusFiles: "src/x.ts" }));
   for (const change of [
     { fixWithAI: true },
-    { agent: "claude" as const },
+    { agent: "claude-cli" as const },
     { agent: "custom" as const, agentCommand: "my-agent {prompt}" },
     { fresh: true },
     { useIssueDetails: false },

@@ -148,10 +148,29 @@ test("auto takes the first CLI that is actually installed", async () => {
 });
 
 test("a named provider that is missing is said by name", async () => {
-  const plan = await resolveHintProvider("claude", async () => false);
+  const plan = await resolveHintProvider("claude-cli", async () => false);
 
   assert.equal(plan.kind, "unavailable");
   assert.match(plan.kind === "unavailable" ? plan.reason : "", /claude was not found/);
+});
+
+test("an explicit agent improves hints with its own vendor's CLI, never the other's", async () => {
+  // An extension has nothing that answers on stdout, so its vendor's CLI is
+  // asked; Codex is never answered with Claude, nor the other way round.
+  for (const [choice, command] of [
+    ["codex-cli", "codex"],
+    ["codex-extension", "codex"],
+    ["claude-cli", "claude"],
+    ["claude-extension", "claude"],
+  ] as const) {
+    const asked: string[] = [];
+    const plan = await resolveHintProvider(choice, async (probe) => {
+      asked.push(probe);
+      return true;
+    });
+    assert.equal(plan.kind === "run" && plan.provider.command, command, choice);
+    assert.deepEqual(asked, [command], choice);
+  }
 });
 
 test("nothing installed is one message naming what was looked for", async () => {
@@ -171,6 +190,6 @@ test("a custom agent command is refused rather than filled in with a hint", asyn
   });
 
   assert.equal(plan.kind, "unavailable");
-  assert.match(plan.kind === "unavailable" ? plan.reason : "", /Claude Code or auto-detect/);
+  assert.match(plan.kind === "unavailable" ? plan.reason : "", /Codex CLI, Claude CLI or Auto-detect/);
   assert.equal(probed, false, "a custom command was probed anyway");
 });

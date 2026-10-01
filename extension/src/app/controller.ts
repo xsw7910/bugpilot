@@ -67,8 +67,16 @@ import type { PayloadCommandRequest } from "./fixModeTransport.ts";
 import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
-import { resolveAgent, resolveReviewer } from "./agents.ts";
-import type { AgentPlan, ReviewerPlan } from "./agents.ts";
+import { AgentService, capturedReviewOf } from "./agents.ts";
+import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues, stderrForLog } from "./logSafety.ts";
+import type {
+  AgentLaunch,
+  AgentResolution,
+  AiFixRequest,
+  CapturedReviewInvocation,
+  InstalledExtension,
+  LastAgentStore,
+} from "./agents.ts";
 import { buildWorkflow, canOpenFolder, canStartReview, overallStatus } from "./workflow.ts";
 import type { AttemptDraft, AttemptView, FixWithAiOutcome, ReviewHandoff, ValidationView, VerificationEdit } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
@@ -206,15 +214,6 @@ export interface UiPort {
    */
   pickFiles(): Promise<readonly string[]>;
   /**
-   * Bring an installed agent's own view forward, if there is one.
-   *
-   * Returns false when there is nothing to reveal. Which commands those are is
-   * the host's business: the ids belong to other extensions, and keeping them
-   * there also keeps them out of the command allowlist the page is checked
-   * against.
-   */
-  revealAgentPanel(): Promise<boolean>;
-  /**
    * Execute one of the extension's own commands.
    *
    * Used for the buttons on the blocked card, whose command ids the host itself
@@ -245,6 +244,18 @@ export interface ControllerPorts {
    * "command not found" reads as a bug in this extension.
    */
   readonly canRun?: (executable: string) => Promise<boolean>;
+  /**
+   * The installed AI extensions, through VS Code's extension API, and a way to
+   * run their commands (§37.94). Only `agents.ts` names an extension or a
+   * command, and only commands the installed manifest declares are run — never
+   * one the page named. Absent: every extension agent is "not installed".
+   */
+  readonly extensions?: {
+    readonly get: (id: string) => InstalledExtension | undefined;
+    readonly executeCommand: (command: string, ...args: readonly unknown[]) => Promise<void>;
+  };
+  /** The last agent a handoff reached, for Auto-detect; kept across reloads by the host. */
+  readonly lastAgent?: LastAgentStore;
   /**
    * Persist which work item is being shown.
    *
@@ -782,6 +793,11 @@ export class Controller {
    * pressed a button about.
    */
   #resolvedAgent: ResolvedAgent | undefined;
+  /**
+   * The AI Agent layer: every handoff resolves its agent here and hands the
+   * request to the adapter it gets back. Nothing in this file names an agent.
+   */
+  readonly #agents: AgentService;
   /** `doctor`'s last report, when the environment was ready. The notices come from it. */
   #report: Record<string, unknown> | undefined;
   /** Repository Files' quick fix (§37.85). */
@@ -880,6 +896,41 @@ export class Controller {
   constructor(ports: ControllerPorts, initialForm: FormState = DEFAULT_FORM) {
     this.#ports = ports;
     this.#form = initialForm;
+    const extensions = ports.extensions;
+    this.#agents = new AgentService({
+      probes: {
+        canRun: async (command) => (await ports.canRun?.(command)) ?? false,
+        ...(extensions ? { extension: (id: string) => extensions.get(id) } : {}),
+      },
+      log: ports.log,
+      ...(ports.lastAgent ? { lastAgent: ports.lastAgent } : {}),
+      ...(ports.now ? { now: ports.now } : {}),
+    });
+  }
+
+  /**
+   * Find out which AI agents this machine has, for the picker's status line
+   * (§37.94): at startup, when Advanced Settings opens, after the custom
+   * command changes. Cached — a second call within a couple of minutes spawns
+   * nothing — and never a handoff: a run asks again for itself.
+   */
+  async detectAgents(): Promise<void> {
+    const pending = this.#agents.refresh(this.#form.agentCommand);
+    this.#push();
+    try {
+      await pending;
+    } catch (error) {
+      // Not expected — detection answers rather than throws — but a picker
+      // status is never worth an unhandled rejection.
+      this.#ports.log.error(`Detecting AI agents failed: ${(error as Error).message}`);
+    }
+    this.#push();
+  }
+
+  /** An extension was installed, removed, enabled or disabled: what was detected may be wrong now. */
+  async agentsChanged(): Promise<void> {
+    this.#agents.invalidate();
+    await this.detectAgents();
   }
 
   get workItemId(): string | undefined {
@@ -1113,6 +1164,9 @@ export class Controller {
         return;
       case "manageFixModes":
         await this.openFixModeManager();
+        return;
+      case "detectAgents":
+        await this.detectAgents();
         return;
       case "closeFixModes":
         this.closeFixModeManager();
@@ -1391,7 +1445,9 @@ export class Controller {
       // running forever (release stabilization).
       const credentials = await this.#ports.credentials();
       this.#jiraConfigured = credentials.configured;
-      this.#ports.log.info(`bugpilot ${built.args.join(" ")}`);
+      // The flags, never the text: a description, a hint or a keyword is
+      // `<redacted>` in the log (§37.95).
+      this.#ports.log.info(commandForLog(built.args));
       const outcome = await this.#ports.runner.runStreaming(
         built.args,
         {
@@ -1422,7 +1478,7 @@ export class Controller {
             this.#setWorkItem(event.work_item_id);
           } else if (event.type === "started" && typeof event.work_item_id === "string") {
             this.#ports.log.error(
-              `Ignoring a work item id from bugpilot that is not one: ${JSON.stringify(event.work_item_id)}`,
+              `Ignoring a work item id from bugpilot that is not one ${rejectedValueForLog(event.work_item_id)}.`,
             );
           }
           this.#progress = tracker.view();
@@ -1436,7 +1492,11 @@ export class Controller {
           outcome.result.aborted ? (this.#stoppedByUser ? "stopped" : "timeout") : "crashed",
         );
         if (!outcome.result.aborted && outcome.result.stderr.trim() !== "") {
-          this.#ports.log.error(outcome.result.stderr.trim());
+          // Its tail, scrubbed: argparse and a traceback can both quote the
+          // argv back, description and all.
+          this.#ports.log.error(
+            `bugpilot ${built.args[0] ?? ""} ended without a result (exit ${outcome.result.code ?? "none"}):\n${stderrForLog(outcome.result.stderr, sensitiveValues(built.args))}`,
+          );
         }
       }
       this.#progress = tracker.view();
@@ -1444,8 +1504,9 @@ export class Controller {
       // A spawn failure, or output that broke the contract outright.
       tracker.interrupted("crashed");
       this.#progress = tracker.view();
-      this.#ports.log.error(`bugpilot could not run: ${(error as Error).message}`);
-      this.#ports.ui.notify("error", `bugpilot could not run: ${(error as Error).message}`);
+      const reason = redactKnown((error as Error).message, sensitiveValues(built.args));
+      this.#ports.log.error(`bugpilot ${built.args[0] ?? ""} could not run: ${reason}`);
+      this.#ports.ui.notify("error", `bugpilot could not run: ${reason}`);
     } finally {
       this.#running = false;
       this.#abort = undefined;
@@ -1872,7 +1933,7 @@ export class Controller {
     // The prompt is built from the id, and it goes on a command line: an id
     // that is not one is refused, never cleaned up into one (§37.70).
     if (!isWorkItemId(workItemId)) {
-      this.#ports.log.error(`Refusing to hand over a work item whose id is not one: ${JSON.stringify(workItemId)}`);
+      this.#ports.log.error(`Refusing to hand over a work item whose id is not one ${rejectedValueForLog(workItemId)}.`);
       this.#ports.ui.notify("warning", "BugPilot will not hand over this work item: its id is not one BugPilot could have created.");
       return;
     }
@@ -1939,70 +2000,130 @@ export class Controller {
     // hand over: an agent told to read a missing file starts by looking for it.
     if (this.#noTaskToHandOver(workItemId)) return;
     const text = launch.prompt;
-    const plan = await this.#resolveSelectedAgent(text);
+    const resolution = await this.#resolveSelectedAgent(text);
     if (epoch !== this.#fixEpoch) return;
     // The folder may have been read again while the agent was looked for, and
     // task.md gone with it (a Clean, say): the same answer as before the probe.
     if (this.#noTaskToHandOver(workItemId)) return;
 
-    if (plan.kind === "refused") {
+    if (resolution.kind === "refused") {
       // Not reachable with a valid id — the sentence is plain — but the gate is
       // shared with Review with AI, and a refusal is said, not swallowed.
       this.#fix = {
         status: "skipped",
         detail: "The handoff prompt is not one BugPilot puts on a command line, so nothing was handed to an agent.",
       };
-      this.#ports.ui.notify("warning", `BugPilot will not hand ${workItemId} over: ${plan.reason}`);
+      this.#ports.ui.notify("warning", `BugPilot will not hand ${workItemId} over: ${resolution.reason}`);
+      return;
+    }
+    if (resolution.kind === "unavailable") {
+      await this.#noAgentForHandoff(text, resolution.reason, epoch);
       return;
     }
 
-    if (plan.kind === "run") {
-      // A retry that works clears the card the previous attempt left behind.
-      this.#handoffError = undefined;
-      this.#resolvedAgent = { kind: "resolved", label: plan.label };
-      // Numbered from the second, so Open AI Session — and the developer, in
-      // the terminal list — can tell this attempt's terminal from the last one.
-      const attempts = (this.#sessions.get(workItemId)?.attempts ?? 0) + 1;
-      const terminal = attempts === 1 ? fixTerminalName(workItemId) : `${fixTerminalName(workItemId)} (${attempts})`;
-      this.#ports.log.info(`Handing ${workItemId} to ${plan.label}: ${plan.commandLine}`);
-      this.#ports.ui.runInTerminal(terminal, root, plan.commandLine);
-      this.#sessions.set(workItemId, { terminal, agent: plan.label, attempts });
+    // Numbered from the second, so Open AI Session — and the developer, in
+    // the terminal list — can tell this attempt's terminal from the last one.
+    const attempts = (this.#sessions.get(workItemId)?.attempts ?? 0) + 1;
+    const terminal = attempts === 1 ? fixTerminalName(workItemId) : `${fixTerminalName(workItemId)} (${attempts})`;
+    const request: AiFixRequest = {
+      workspacePath: root,
+      workItemId,
+      prompt: text,
+      preparedContextPath: path.join(root, ".ai", workItemId, TASK_ARTIFACT),
+      purpose: "fix",
+    };
+    const wanted = () => epoch === this.#fixEpoch;
+    const result = await resolution.adapter.run(
+      request,
+      this.#agentLaunch(wanted, (commandLine) => {
+        // The agent, never the command line: a custom command can carry a
+        // token, and the prompt is not the log's business (§37.95).
+        this.#ports.log.info(`Handing ${workItemId} to ${resolution.adapter.label} in a terminal.`);
+        this.#ports.ui.runInTerminal(terminal, root, commandLine);
+      }),
+    );
+    if (!wanted()) return;
+
+    if (result.kind === "failed") {
+      this.#fix = { status: "skipped", detail: `${result.reason} Nothing was handed to an agent.` };
+      this.#resolvedAgent = { kind: "unavailable" };
+      this.#handoffError = handoffError(result.reason);
+      return;
+    }
+    // A retry that works clears the card the previous attempt left behind.
+    this.#handoffError = undefined;
+    this.#resolvedAgent = { kind: "resolved", label: result.label };
+    this.#agents.succeeded(resolution.adapter.id);
+    if (result.kind === "terminal") {
+      this.#sessions.set(workItemId, { terminal, agent: result.label, attempts });
       // A new session: what the last Open AI Session press said is about the old one.
       this.#clearSessionFeedback();
       // "success" means handed over, and the detail says so. The agent runs in
       // a terminal this extension does not own, so whether it *fixed* anything
       // is not knowable here and is not claimed.
-      this.#fix = { status: "success", detail: launch.detail(plan.label) };
+      this.#fix = { status: "success", detail: launch.detail(result.label) };
       // No push here: `fixWithAI`'s `finally` does one, and pushing before it
       // would put a state on screen that is both busy and finished at once.
       return;
     }
+    // Native or bridge: in another extension's own view, not a terminal this
+    // panel could bring back, so no session is recorded — Open AI Session has
+    // nothing to reopen, and the next step is the fix report arriving.
+    this.#fix = { status: "success", detail: result.message };
+    this.#ports.ui.notify("info", result.message);
+  }
 
-    // Nothing to run. Copy the prompt and put the developer in front of
-    // whatever agent they do have, rather than opening a terminal that prints
-    // "command not found" and reads as our failure.
+  /**
+   * What an adapter may do for a press, each step guarded: once the press is not
+   * wanted any more, a copy, a command and a terminal all do nothing.
+   */
+  #agentLaunch(wanted: () => boolean, runInTerminal: (commandLine: string) => void): AgentLaunch {
+    const extensions = this.#ports.extensions;
+    return {
+      runInTerminal: (commandLine) => {
+        if (wanted()) runInTerminal(commandLine);
+      },
+      copyToClipboard: async (text) => {
+        if (wanted()) await this.#ports.ui.copyToClipboard(text);
+      },
+      executeCommand: async (command, ...args) => {
+        if (!wanted() || !extensions) return false;
+        try {
+          await extensions.executeCommand(command, ...args);
+          return wanted();
+        } catch (error) {
+          this.#ports.log.error(`${command} did not run: ${(error as Error).message}`);
+          return false;
+        }
+      },
+    };
+  }
+
+  /**
+   * No agent to hand to: copy the prompt and say so, rather than opening a
+   * terminal that prints "command not found" and reads as our failure. No
+   * other agent's view is brought forward — for an explicit choice that would
+   * be the silent switch it must never make.
+   */
+  async #noAgentForHandoff(text: string, reason: string, epoch: number): Promise<void> {
     await this.#ports.ui.copyToClipboard(text);
-    // Copied while this work item was on screen; if it is not any more, do not
-    // bring an agent's panel forward for it either.
-    if (epoch !== this.#fixEpoch) return;
-    const revealed = await this.#ports.ui.revealAgentPanel();
+    // Copied while this work item was on screen; if it is not any more, say
+    // nothing about it on the one that is.
     if (epoch !== this.#fixEpoch) return;
     this.#fix = {
       status: "skipped",
-      detail: `${plan.reason} The handoff prompt is on the clipboard instead.`,
+      detail: `${reason} The handoff prompt is on the clipboard instead.`,
     };
     // The same event, said twice on purpose: a status on the workflow row, and
-    // a card beside the result that says what to do about it. `plan.reason` is
-    // `resolveAgent`'s own sentence and is the Details text, never the headline.
+    // a card beside the result that says what to do about it. `reason` is the
+    // agent layer's own sentence and is the Details text, never the headline.
     this.#resolvedAgent = { kind: "unavailable" };
-    this.#handoffError = handoffError(plan.reason);
+    this.#handoffError = handoffError(reason);
     // The push is `fixWithAI`'s, for the same reason as the success branch. A
     // notification is a toast rather than panel state, so its order is its own.
     this.#ports.ui.notify(
       "info",
-      revealed
-        ? `${plan.reason} The handoff prompt is on the clipboard — paste it into your agent.`
-        : `${plan.reason} The handoff prompt is on the clipboard; paste it into your agent, or install one.`,
+      `${reason} The handoff prompt is on the clipboard; paste it into your agent, or install one.`,
     );
   }
 
@@ -2335,7 +2456,7 @@ export class Controller {
     // and none of them is trusted to name a work item (§37.70). Logged, not
     // echoed into the notice: the name is not ours.
     if (!isWorkItemId(workItemId)) {
-      this.#ports.log.error(`Refusing to open a work item whose id is not one: ${JSON.stringify(workItemId)}`);
+      this.#ports.log.error(`Refusing to open a work item whose id is not one ${rejectedValueForLog(workItemId)}.`);
       this.#ports.ui.notify("warning", "BugPilot will not open this work item: its id is not one BugPilot could have created.");
       return;
     }
@@ -2798,6 +2919,10 @@ export class Controller {
     // change: the selection moves when somebody picks from a list, not while
     // they type, so this costs nothing and stops the row lagging a push behind.
     if (previous.agent !== form.agent) changed = true;
+    // A new custom command is a new candidate for Auto-detect and a new status
+    // line — asked about only once the picker's lines are on show at all, and
+    // in the background: the form's own push does not wait for a probe.
+    if (previous.agentCommand !== form.agentCommand && this.#agents.detected) void this.detectAgents();
     const scope = workItemScopeOf(form);
     // `undefined` is a half-typed key: not yet any work item, so not yet a
     // reason to conclude the developer moved to another one.
@@ -3095,49 +3220,66 @@ export class Controller {
       this.#reviewFailed(reviewHandoffError("prompt", result));
       return;
     }
-    let plan: ReviewerPlan;
+    let resolution: AgentResolution;
     try {
-      plan = await resolveReviewer({
-        choice: this.#form.agent,
-        customCommand: this.#form.agentCommand,
-        prompt: result.prompt,
-        canRun: async (command) => (await this.#ports.canRun?.(command)) ?? false,
-        capture: this.#ports.runCapturedReview !== undefined,
-      });
+      resolution = await this.#resolveSelectedAgent(result.prompt);
     } catch (error) {
-      // Not expected — `canRun` answers rather than throws — but a probe that
+      // Not expected — detection answers rather than throws — but a probe that
       // failed must not leave the button waiting for ever.
       if (!this.#reviewStillWanted(epoch)) return;
       this.#reviewFailed(reviewHandoffError("agent", oneSentence((error as Error).message)));
       return;
     }
     if (!this.#reviewStillWanted(epoch)) return;
-    // The shared prompt gate (`isPlainPrompt`, applied by `resolveAgent` before
-    // any probe): had, but not put on a command line.
-    if (plan.kind === "refused") {
-      this.#reviewFailed(reviewHandoffError("command-line", plan.reason));
+    // The shared prompt gate (`isPlainPrompt`, applied before any probe): had,
+    // but not handed over.
+    if (resolution.kind === "refused") {
+      this.#reviewFailed(reviewHandoffError("command-line", resolution.reason));
       return;
     }
-    if (plan.kind === "unavailable") {
+    if (resolution.kind === "unavailable") {
       this.#resolvedAgent = { kind: "unavailable" };
-      this.#reviewFailed(reviewHandoffError("agent", plan.reason));
+      this.#reviewFailed(reviewHandoffError("agent", resolution.reason));
       return;
     }
-    this.#resolvedAgent = { kind: "resolved", label: plan.label };
-    if (plan.kind === "captured") {
-      await this.#runCapturedReview(workItemId, root, epoch, fix, plan, result.prompt);
+    const captured = capturedReviewOf(resolution, this.#ports.runCapturedReview !== undefined);
+    if (captured) {
+      this.#resolvedAgent = { kind: "resolved", label: captured.label };
+      this.#agents.succeeded(resolution.adapter.id);
+      await this.#runCapturedReview(workItemId, root, epoch, fix, captured, result.prompt);
       return;
     }
-    this.#ports.log.info(`Handing the review of ${workItemId} to ${plan.label}: ${plan.commandLine}`);
+
+    const wanted = () => this.#reviewStillWanted(epoch);
+    let handed;
     try {
-      this.#ports.ui.runInTerminal(`Review with AI · ${workItemId}`, root, plan.commandLine);
+      handed = await resolution.adapter.run(
+        { workspacePath: root, workItemId, prompt: result.prompt, purpose: "review" },
+        this.#agentLaunch(wanted, (commandLine) => {
+          // The agent, never the command line or the review prompt (§37.95).
+          this.#ports.log.info(`Handing the review of ${workItemId} to ${resolution.adapter.label} in a terminal.`);
+          this.#ports.ui.runInTerminal(`Review with AI · ${workItemId}`, root, commandLine);
+        }),
+      );
     } catch (error) {
+      if (!wanted()) return;
       this.#reviewFailed(reviewHandoffError("terminal", oneSentence((error as Error).message)));
       return;
     }
-    // Started: this fix has had its attempt, whatever the terminal does next.
+    if (!wanted()) return;
+    if (handed.kind === "failed") {
+      this.#resolvedAgent = { kind: "unavailable" };
+      this.#reviewFailed(reviewHandoffError("agent", handed.reason));
+      return;
+    }
+    this.#resolvedAgent = { kind: "resolved", label: handed.label };
+    this.#agents.succeeded(resolution.adapter.id);
+    // Started: this fix has had its attempt, whatever the agent does next.
     this.#markReviewed(workItemId, fix);
-    this.#review = { state: "started", agent: plan.label };
+    this.#review =
+      handed.kind === "terminal"
+        ? { state: "started", agent: handed.label }
+        : { state: "started", agent: handed.label, detail: handed.message };
     this.#push();
   }
 
@@ -3162,7 +3304,7 @@ export class Controller {
     root: string,
     epoch: number,
     fix: string | undefined,
-    plan: Extract<ReviewerPlan, { kind: "captured" }>,
+    plan: { readonly label: string; readonly command: string; readonly invocation: CapturedReviewInvocation },
     prompt: string,
   ): Promise<void> {
     const port = this.#ports.runCapturedReview;
@@ -3334,13 +3476,8 @@ export class Controller {
    * so Fix with AI and Review with AI can never disagree about which agent the
    * developer chose.
    */
-  #resolveSelectedAgent(prompt: string): Promise<AgentPlan> {
-    return resolveAgent({
-      choice: this.#form.agent,
-      customCommand: this.#form.agentCommand,
-      prompt,
-      canRun: async (command) => (await this.#ports.canRun?.(command)) ?? false,
-    });
+  #resolveSelectedAgent(prompt: string): Promise<AgentResolution> {
+    return this.#agents.resolve({ choice: this.#form.agent, customCommand: this.#form.agentCommand, prompt });
   }
 
   /** `review-package --json`, read: the package, or why there is none, in one sentence. */
@@ -4253,6 +4390,7 @@ export class Controller {
       // both known. The page receives a rendered card and decides nothing.
       ...(failed === undefined || owned ? {} : { runError: failed }),
       diagnostics: this.#diagnostics(),
+      agents: this.#agents.status(this.#form.agentCommand),
       warnings: this.#notices(),
       ...(this.#noticeStatus === undefined ? {} : { noticeStatus: this.#noticeStatus }),
       jiraConfigured: this.#jiraConfigured,

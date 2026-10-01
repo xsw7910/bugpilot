@@ -95,6 +95,13 @@ const vscodeStub = {
       return disposable;
     },
   },
+  extensions: {
+    getExtension: () => undefined,
+    onDidChange: () => {
+      listeners.push("extensions");
+      return disposable;
+    },
+  },
   env: { clipboard: { writeText: async () => {} } },
   EventEmitter: class {
     constructor() {
@@ -138,6 +145,7 @@ const { COMMANDS } = require("../out/commands.js");
 const context = {
   subscriptions: [],
   workspaceState: { get: () => undefined, update: async () => {} },
+  globalState: { get: () => undefined, update: async () => {} },
   secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
   extensionUri: { fsPath: "/ext", toString: () => "/ext" },
   globalStorageUri: { fsPath: "/storage", toString: () => "/storage" },
@@ -166,11 +174,12 @@ assert.deepEqual(
 // Stale answers are a real failure mode: without these the panel keeps saying
 // "no folder is open" after one is opened, keeps running the old binary after
 // `bugpilot.executablePath` changes, and keeps the Repository Files warning
-// after the repository's .gitignore is saved with the rules in it.
+// after the repository's .gitignore is saved with the rules in it — and keeps
+// saying an AI extension is installed after it was removed (§37.94).
 assert.deepEqual(
   [...listeners].sort(),
-  ["configuration", "saveTextDocument", "workspaceFolders"],
-  "activation must react to folder, configuration and .gitignore changes",
+  ["configuration", "extensions", "saveTextDocument", "workspaceFolders"],
+  "activation must react to folder, configuration, .gitignore and extension changes",
 );
 
 // Handlers that touch no child process are invoked for real: a null deref in

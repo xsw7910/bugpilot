@@ -192,7 +192,8 @@ export interface VerificationEdit {
  * hides the button across a reload.
  *
  * - `starting`: the prompt and the agent are being worked out.
- * - `started`: a terminal was opened with the prompt — nothing comes back.
+ * - `started`: a terminal was opened with the prompt, or it was copied for an
+ *   extension agent — nothing comes back either way.
  * - `reviewing`: a captured one-shot review is running.
  * - `captured`: it finished and its reply filled the Review Result draft.
  * - `captureFailed`: it started, but no draft came of it.
@@ -202,7 +203,8 @@ export interface VerificationEdit {
  */
 export type ReviewHandoff =
   | { readonly state: "starting" }
-  | { readonly state: "started"; readonly agent: string }
+  /** `detail`: how it was handed over, when not in a terminal — a bridge's "copied, paste it into…". */
+  | { readonly state: "started"; readonly agent: string; readonly detail?: string }
   | { readonly state: "reviewing"; readonly agent: string; readonly startedAt: number }
   | { readonly state: "captured"; readonly agent: string }
   | {
@@ -810,7 +812,7 @@ function reviewView(review: ReviewHandoff, drafted: boolean, saved: boolean): Re
       return {
         state: "started",
         summary: REVIEW_STARTED_TITLE,
-        detail: `Handed to ${review.agent} in a terminal.`,
+        detail: review.detail ?? `Handed to ${review.agent} in a terminal.`,
         next: REVIEW_NEXT_STEP,
       };
     case "reviewing":

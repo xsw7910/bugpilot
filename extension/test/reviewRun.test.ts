@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { CLAUDE_CAPTURED_REVIEW, KNOWN_AGENTS, resolveReviewer } from "../src/app/agents.ts";
+import { AgentService, CLAUDE_CAPTURED_REVIEW, CLI_AGENTS, capturedReviewOf } from "../src/app/agents.ts";
 import {
   CAPTURE_FAILED,
   MAX_REMEMBERED_FIXES,
@@ -29,36 +29,35 @@ const read = (captured: CapturedRun) => capturedReviewOutcome(captured, CLAUDE_C
 // --- which agents are captured -------------------------------------------------
 
 const PROMPT = "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n";
-const installed = (...commands: string[]) => async (command: string) => commands.includes(command);
 
-test("Claude Code is the one agent with a captured review; auto and claude reach it", async () => {
-  assert.deepEqual(KNOWN_AGENTS.filter((agent) => agent.capturedReview !== undefined).map((agent) => agent.id), ["claude"]);
-  for (const choice of ["auto", "claude"] as const) {
-    const plan = await resolveReviewer({ choice, customCommand: "", prompt: PROMPT, canRun: installed("claude"), capture: true });
-    assert.equal(plan.kind, "captured", choice);
-    assert.equal(plan.kind === "captured" && plan.command, "claude");
+const reviewer = async (choice: "auto" | "claude-cli" | "custom", onPath: readonly string[], capture: boolean, prompt = PROMPT, customCommand = "") => {
+  const agents = new AgentService({ probes: { canRun: async (command) => onPath.includes(command) } });
+  const resolution = await agents.resolve({ choice, customCommand, prompt });
+  return { resolution, captured: capturedReviewOf(resolution, capture) };
+};
+
+test("Claude CLI is the one agent with a captured review; auto and claude-cli reach it", async () => {
+  assert.deepEqual(CLI_AGENTS.filter((agent) => agent.capturedReview !== undefined).map((agent) => agent.id), ["claude-cli"]);
+  for (const choice of ["auto", "claude-cli"] as const) {
+    const { captured } = await reviewer(choice, ["claude"], true);
+    assert.equal(captured?.command, "claude", choice);
+    assert.equal(captured?.invocation, CLAUDE_CAPTURED_REVIEW);
   }
 });
 
 test("a custom command is never captured: it keeps the terminal handoff", async () => {
-  const plan = await resolveReviewer({
-    choice: "custom",
-    customCommand: "codex {prompt}",
-    prompt: PROMPT,
-    canRun: installed("codex"),
-    capture: true,
-  });
-  assert.equal(plan.kind, "run");
-  assert.match(plan.kind === "run" ? plan.commandLine : "", /^codex "/);
+  const { resolution, captured } = await reviewer("custom", ["codex"], true, PROMPT, "codex {prompt}");
+  assert.equal(resolution.kind, "ready");
+  assert.equal(captured, undefined);
 });
 
 test("without a capture port, or without the agent, there is no captured plan", async () => {
-  const noPort = await resolveReviewer({ choice: "auto", customCommand: "", prompt: PROMPT, canRun: installed("claude"), capture: false });
-  assert.equal(noPort.kind, "run");
-  const missing = await resolveReviewer({ choice: "claude", customCommand: "", prompt: PROMPT, canRun: installed(), capture: true });
-  assert.equal(missing.kind, "unavailable");
-  const refused = await resolveReviewer({ choice: "claude", customCommand: "", prompt: "$(rm -rf .)", canRun: installed("claude"), capture: true });
-  assert.equal(refused.kind, "refused", "the prompt gate applies to a captured review too");
+  assert.equal((await reviewer("auto", ["claude"], false)).captured, undefined);
+  const missing = await reviewer("claude-cli", [], true);
+  assert.equal(missing.resolution.kind, "unavailable");
+  assert.equal(missing.captured, undefined);
+  const refused = await reviewer("claude-cli", ["claude"], true, "$(rm -rf .)");
+  assert.equal(refused.resolution.kind, "refused", "the prompt gate applies to a captured review too");
 });
 
 test("the captured invocation is one-shot, read-only and isolated from the developer's settings", () => {

@@ -25,6 +25,7 @@
 import path from "node:path";
 
 import { isWithin } from "../workspace.ts";
+import { migrateAgentChoice } from "./agents.ts";
 import type { AgentChoice } from "./agents.ts";
 
 export type Source = "jira" | "manual";
@@ -135,6 +136,18 @@ export const DEFAULT_FORM: FormState = {
   agentCommand: "",
   fresh: false,
 };
+
+/**
+ * A form saved by an earlier session, as this version reads it.
+ *
+ * Kept whole — every field the developer set comes back — with the one value
+ * whose meaning moved translated: `agent: "claude"` from before §37.94 is Claude
+ * CLI, which is what it ran.
+ */
+export function restoreForm(saved: FormState | undefined): FormState {
+  if (saved === undefined) return DEFAULT_FORM;
+  return { ...saved, agent: migrateAgentChoice(saved.agent) };
+}
 
 export type FormField =
   | "issueKey"
