@@ -11467,3 +11467,45 @@ were aged to 60 days, and one more 60-day blob referenced by nothing was added.
 None of the three logs contained an attachment name, a digest or a storage
 path. The window was closed by its own process each time; the developer's VS
 Code was not touched.
+
+### 37.102 Run directly under the Issue (after `5787477`, uncommitted)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and a real disposable VS Code window; not committed. Presentation only —
+no behaviour, Fix Mode, agent or workflow change.
+
+- **Run moved.** The existing Run block — the button row (Run/Stop/⋯), Ctrl+Enter,
+  the Open AI Session feedback line, the ⋯ menu and `#run-hint` — moved as one
+  piece from under the Hint to directly under the Issue field. Still the one
+  `type="submit"` `#run`; no second button. Order now: Issue → Run → Fix Mode →
+  Hint → Improve with AI / Include issue details → Advanced Settings → Workflow
+  Steps. DOM order is the tab order (verified with real Tab presses).
+- **"Uses the current settings below."** A static `.hint` line, the Run block's
+  last, centred like `#run-hint`, with one field's gap (14px) before Fix Mode.
+  No role or live region; colour, size and wrapping come from `.hint`.
+- **"Investigation & AI Fix" → "Workflow Steps".** The section contains the
+  steps Run executes, not a separate AI Fix action. Disclosure behaviour and the
+  status text ("Ready to run", "Context ready", …) unchanged. README sketch and
+  first-run steps updated to the new order.
+- **Issue details wording** was already source-agnostic ("Gather issue
+  information", §37.97); a test now also asserts "Fetch Jira issue information"
+  is nowhere in the page.
+
+**Tests.** `panel.test.ts`: the default-view and Issue-field order tests now
+expect Issue, then Run, then the settings; the workflow test expects the new
+heading; +3 (§37.102): Run after the Issue's own lines and before Fix Mode, one
+`#run`/submit/Run label, accessible name unchanged, no positive tabindex; the
+note's text, quietness (no role/live/error/hidden) and CSS; "Workflow Steps"
+with "Ready to run" in the summary, and neither old string in the HTML or page
+script. The existing page tests for Ctrl+Enter (runs; ignored while disabled;
+uses the applied mode) are unchanged and pass. Extension 1651 pass; typecheck,
+smoke and `git diff --check` clean.
+
+**Real window** (standalone VS Code 1.139.1, disposable profile, VSIX from this
+tree), Dark Modern and Light Modern, sidebar at 360px and 200px: no horizontal
+overflow; Run fills its row (318/318px, 158/158px in the Run state; beside the ⋯
+button in the Fix with AI state); the note is one line at 360px and wraps to
+two centred lines at 200px; 14px from the Issue to Run and from the note to Fix
+Mode; "Workflow Steps" fits at 200px. Ctrl+Enter in the Issue field of a fresh
+scratch repository (Run label and Fix with AI unticked checked first) ran a
+`--prepare-only` run to "Context ready". High-contrast themes not checked.

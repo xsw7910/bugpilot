@@ -870,6 +870,14 @@ button:focus-visible {
   text-align: center;
 }
 
+/* "Uses the current settings below." (§37.102): the Run block's quiet last
+   line, centred under the button like the hint above it, then one field's gap
+   before Fix Mode so the settings read as their own group, not as Run's. */
+#run-settings-note {
+  margin: 0 0 14px;
+  text-align: center;
+}
+
 /* Open AI Session's acknowledgement, under the button (§37.87). Empty — and so
    no height — until a press is answered; it wraps rather than widening the
    panel. Neutral in every case: a closed terminal is not a failed fix. */

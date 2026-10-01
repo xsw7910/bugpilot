@@ -6528,7 +6528,7 @@ test("what the last press came to is on the card, under the warning", () => {
   assert.ok(noticeButton(page));
 });
 
-// --- Investigation & AI Fix: one status per row (§37.86) --------------------
+// --- Workflow Steps: one status per row (§37.86) ----------------------------
 
 /** Every text a row shows, visible or not, as the page left it. */
 function rowTexts(p: Page, id: string): { text: string; hidden: boolean }[] {

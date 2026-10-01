@@ -412,7 +412,7 @@ test("the workflow is one section, not an Investigate box plus a Progress box", 
   // The refactor this file guards: three places describing one run became one.
   // A regression here is not cosmetic — it is the old shape coming back.
   assert.match(HTML, /id="workflow"/);
-  assert.match(HTML, /Investigation &amp; AI Fix/);
+  assert.match(HTML, /<h2 id="workflow-heading">Workflow Steps<\/h2>/);
   assert.match(HTML, /id="workflow-status"[^>]*role="status"/);
   for (const gone of ['id="handoff"', 'id="progress-section"', 'id="rows"', "<legend>"]) {
     assert.equal(HTML.includes(gone), false, `${gone} belongs to the old three-section layout`);
@@ -1541,8 +1541,8 @@ test("the default view is the Issue field, Run, two disclosures and the way into
   // Everything the form shows before the first disclosure, in reading order.
   const visible = form.slice(0, form.indexOf("<details"));
   const open = [...visible.matchAll(/id="(field-[A-Za-z]+|run)"/g)].map((match) => match[1]);
-  // The problem's definition, then Run (§37.84): Issue, Fix Mode, Hint.
-  assert.deepEqual(open, ["field-issue", "field-fixModeId", "field-hint", "run"]);
+  // The issue, then Run, then the optional settings it uses (§37.102).
+  assert.deepEqual(open, ["field-issue", "run", "field-fixModeId", "field-hint"]);
 
   // And everything after it is behind one of exactly two closed disclosures,
   // or on the settings page, so no optional control is on screen until it is
@@ -1580,17 +1580,17 @@ test("the Issue field is one box that says it takes either kind of input", () =>
   // One quiet line under the box says the same in words, and the box is described by it.
   assert.match(HTML, /<p class="hint" id="issue-hint">Use a Jira issue ID, or describe the problem directly\.<\/p>/);
   assert.match(HTML, /<textarea[^>]*id="issue"[^>]*aria-describedby="issue-hint issue-note issue-error"/);
-  // Above Run, the problem's definition and nothing else, in tab order: the
-  // Issue, how the AI approaches it, and the guidance it carries (§37.84).
-  const beforeRun = HTML.slice(0, HTML.indexOf('id="run"'));
-  const controls = [...beforeRun.matchAll(/<(?:input|textarea|select|button)[^>]*id="([A-Za-z-]+)"/g)].map(
-    (match) => match[1],
-  );
+  // Above Run, the Issue and nothing else (§37.102); between Run's block and
+  // Advanced Settings, in tab order, how the AI approaches it and the guidance
+  // it carries (§37.84).
+  const ids = (markup: string) =>
+    [...markup.matchAll(/<(?:input|textarea|select|button)[^>]*id="([A-Za-z-]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(ids(HTML.slice(0, HTML.indexOf('id="run"'))), ["issue"], "something other than the Issue is above Run");
   assert.deepEqual(
-    controls,
+    ids(HTML.slice(HTML.indexOf('id="run-settings-note"'), HTML.indexOf('id="open-settings"'))),
     // Improve with AI before Include issue details: the action, then the option (§37.92).
-    ["issue", "fixModeId", "manage-fix-modes", "hint", "improve-hint", "useIssueDetails", "hint-use", "hint-keep"],
-    "the order above Run is not Issue, Fix Mode, Hint",
+    ["fixModeId", "manage-fix-modes", "hint", "improve-hint", "useIssueDetails", "hint-use", "hint-keep"],
+    "the order under Run is not Fix Mode, Hint",
   );
 });
 
@@ -2514,7 +2514,7 @@ test("the line that says what the quick fix did is a live region the page can fo
   assert.ok(HTML.indexOf('id="notices"') < HTML.indexOf('id="notice-status"'));
 });
 
-// --- Investigation & AI Fix: status as words and a dot (§37.86) -------------
+// --- Workflow Steps: status as words and a dot (§37.86) ---------------------
 
 test("each row's first line is the choice, then the metadata — duration, status, gear — and the file is not among them", () => {
   for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]) {
@@ -2835,4 +2835,49 @@ test("an attachment row never pushes a narrow sidebar sideways", () => {
   assert.match(CSS, /\.attachment-description \{[^}]*overflow-wrap: anywhere/s);
   assert.match(CSS, /\.attachment-description \{[^}]*resize: none/s);
   assert.match(CSS, /#field-attachments\.drop-target \{[^}]*var\(--vscode-focusBorder\)/s);
+});
+
+// --- Run directly under the Issue (§37.102) -----------------------------------
+
+test("Run sits right under the Issue, before Fix Mode, and is the only Run", () => {
+  const at = (id: string) => HTML.indexOf(`id="${id}"`);
+  // Issue, its own lines, Run's block, then the settings, Advanced Settings, Workflow Steps.
+  const order = ["field-issue", "issue-error", "run", "run-hint", "run-settings-note", "field-fixModeId", "field-hint", "useIssueDetails", "open-settings", "workflow"];
+  for (let index = 1; index < order.length; index += 1) {
+    assert.ok(at(order[index - 1]!) < at(order[index]!), `${order[index - 1]} is not above ${order[index]}`);
+  }
+  // Moved, not copied: one submit, one #run, one Run label.
+  assert.equal(HTML.split('id="run"').length - 1, 1);
+  assert.equal(HTML.split('type="submit"').length - 1, 1, "a second submit button");
+  assert.equal(HTML.split('<span id="run-label">Run</span>').length - 1, 1);
+  // The accessible name is still the visible label, and no tabindex reorders
+  // the keyboard away from the reading order.
+  assert.match(HTML, /<button type="submit" id="run" class="primary">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
+  assert.equal(/tabindex="[1-9]/.test(HTML), false, "a positive tabindex reorders the keyboard");
+});
+
+test("under Run, one quiet line says the controls below are the settings it uses", () => {
+  assert.match(HTML, /<p class="hint" id="run-settings-note">Uses the current settings below\.<\/p>/);
+  const note = /<p[^>]*id="run-settings-note"[^>]*>/.exec(HTML)?.[0] ?? "";
+  // Help text, not a status or an error: nothing announces it, nothing colours it.
+  for (const loud of ["role=", "aria-live", "error", "hidden"]) assert.equal(note.includes(loud), false, loud);
+  // Centred under the button like the hint above it, with one field's gap
+  // before Fix Mode; colour, size and wrapping are the shared .hint rule's.
+  const rule = /#run-settings-note \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /margin: 0 0 14px;/);
+  assert.match(rule, /text-align: center;/);
+  assert.equal(/color|font|white-space|nowrap/.test(rule), false, "the note restyles itself");
+  assert.match(/\.muted,\s*\.hint \{([^}]*)\}/.exec(CSS)?.[1] ?? "", /overflow-wrap: anywhere;/);
+});
+
+test("the workflow section is Workflow Steps; Investigation & AI Fix is gone from the page", () => {
+  const summary = /<summary class="workflow-summary">[\s\S]*?<\/summary>/.exec(HTML)?.[0] ?? "";
+  assert.match(summary, /<h2 id="workflow-heading">Workflow Steps<\/h2>/);
+  assert.match(summary, /<span id="workflow-status" class="workflow-status" role="status">Ready to run<\/span>/);
+  assert.equal(HTML.includes("Investigation &amp; AI Fix"), false);
+  assert.equal(HTML.includes("Investigation & AI Fix"), false);
+  assert.equal(PAGE_JS.includes("Investigation & AI Fix"), false);
+  // Issue details says what it does for every source, never Jira's name.
+  assert.equal(HTML.includes("Fetch Jira issue information"), false);
+  assert.equal(PAGE_JS.includes("Fetch Jira issue information"), false);
 });

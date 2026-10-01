@@ -518,19 +518,12 @@ export function panelHtml(options: PanelHtmlOptions): string {
 ${ISSUE_FIELD}
 
       <!--
-        How the AI should approach the issue, and any guidance for it: with the
-        issue itself, the problem as the developer defines it — above Run, in
-        the order they are read and tabbed through (§37.84).
-      -->
-${FIX_MODE_FIELD}
-${GUIDANCE_FIELDS.map(field).join("\n")}
-
-      <!--
-        The one primary action, under the problem's definition: Run, Fix with AI,
-        Open AI Session or Rebuild Context — whichever is next for the work item
-        and the form, as the host says (app/nextAction.ts) — or Running…. Its id
-        stays "run" because it is still the form's submit, and Ctrl+Enter still
-        presses it.
+        The one primary action, directly under the Issue (§37.102): enter the
+        issue, then Run — everything below it is optional tuning for the next
+        run. Run, Fix with AI, Open AI Session or Rebuild Context — whichever is
+        next for the work item and the form, as the host says
+        (app/nextAction.ts) — or Running…. Its id stays "run" because it is
+        still the form's submit, and Ctrl+Enter still presses it.
 
         Beside it only what cannot be pressed at the same time (Stop, during a
         run) or what is not the next step (the ⋯ menu: Start New Attempt,
@@ -555,15 +548,27 @@ ${GUIDANCE_FIELDS.map(field).join("\n")}
 ${MORE_ACTIONS.map(menuItem).join("\n")}
       </div>
       <p class="hint" id="run-hint">${RUN_HINT}</p>
+      <!-- Says what the controls under Run are: settings this Run uses, not a
+           second step. Static, quiet, and the block's last line, so it sits
+           right above the settings it points at. -->
+      <p class="hint" id="run-settings-note">Uses the current settings below.</p>
+
+      <!--
+        How the AI should approach the issue, and any guidance for it: optional
+        tuning for the run above, in the order they are read and tabbed through
+        (§37.84, §37.102).
+      -->
+${FIX_MODE_FIELD}
+${GUIDANCE_FIELDS.map(field).join("\n")}
 
       <!--
         Advanced Settings (§37.91): the one page where every step's settings live
-        (app/workflowSettings.ts), also reached from each row's gear. Under Run
-        and its hint and above the workflow — with the inputs, not after the
-        results, where it read as part of the review above Diagnostics. A
-        compact secondary button (§37.93): findable, and never a second primary
-        beside Run, Fix with AI or Review with AI. Its name is its visible text;
-        the tooltip says where it goes.
+        (app/workflowSettings.ts), also reached from each row's gear. After the
+        main page's own settings and above the workflow — with the inputs, not
+        after the results, where it read as part of the review above
+        Diagnostics. A compact secondary button (§37.93): findable, and never a
+        second primary beside Run, Fix with AI or Review with AI. Its name is
+        its visible text; the tooltip says where it goes.
       -->
       <div class="settings-entry">
         <button type="button" id="open-settings" class="settings-open" title="Open advanced workflow settings">
@@ -583,7 +588,7 @@ ${MORE_ACTIONS.map(menuItem).join("\n")}
       -->
       <details class="group" id="workflow" aria-labelledby="workflow-heading">
         <summary class="workflow-summary">
-          <h2 id="workflow-heading">Investigation &amp; AI Fix</h2>
+          <h2 id="workflow-heading">Workflow Steps</h2>
           <span id="workflow-status" class="workflow-status" role="status">Ready to run</span>
         </summary>
         <!--

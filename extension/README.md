@@ -90,13 +90,14 @@ editor and you save them; nothing is written behind your edits.
    command line, never in the panel.
 4. In the **Issue** field, type an issue key such as `JR-12345`, or describe the
    problem in your own words. The line under the field says which it read —
-   "Jira issue JR-12345" or "Bug description". Under it, **Fix Mode** says how
-   the AI should approach the bug (Standard Fix unless you change it) and
-   **Hint** takes any guidance you want it to have; both are optional.
-5. Press **Run** (or `Ctrl+Enter`).
+   "Jira issue JR-12345" or "Bug description".
+5. Press **Run**, directly under it (or `Ctrl+Enter`). Below Run are the
+   optional settings it uses: **Fix Mode** says how the AI should approach the
+   bug (Standard Fix unless you change it) and **Hint** takes any guidance you
+   want it to have.
 
-That is the whole panel: the problem — issue, Fix Mode, hint — one button, and
-one list of steps.
+That is the whole panel: the issue, one button, the settings it uses, and one
+list of steps.
 
 ```
 Issue
@@ -104,18 +105,19 @@ Issue
 Use a Jira issue ID, or describe the problem directly.
 Jira issue JR-12345
 
+[        ▶ Run        ] [ Stop ]
+         Ctrl+Enter
+Run prepares the issue context for AI-assisted fixing.
+     Uses the current settings below.
+
 Fix Mode
 [ Standard Fix                            ▾ ] ⚙
 Hint
 [ e.g. Check initialization logic…          ]
 Improve with AI   ☑ Include issue details
-
-[        ▶ Run        ] [ Stop ]
-         Ctrl+Enter
-Run prepares the issue context for AI-assisted fixing.
 [ ⚙ Advanced Settings ]
 ──────────────────────────────────────────────
-Investigation & AI Fix                Running 3/6…
+Workflow Steps                        Running 3/6…
 ☑ Issue details         <0.1s  ● Completed  ⚙
   JR-12345 · Jira issue
   issue.json
