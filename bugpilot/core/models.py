@@ -19,7 +19,7 @@ See ``docs/adapter_design.md`` section 3.3.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .config import WORKFLOW_STEPS
 
@@ -100,6 +100,75 @@ class BugSpec:
         return self.source == SOURCE_JIRA and bool(self.source_ref)
 
 
+#: History Depth's options (Git History Settings). ``recent`` is Batch 1's bounds;
+#: ``git_history.HISTORY_DEPTH_LIMITS`` says what each one reads.
+GIT_HISTORY_DEPTHS: tuple[str, ...] = ("recent", "broader")
+DEFAULT_MAX_RELATED_COMMITS = 10
+#: Max Related Commits' ceiling. A context section of 25 commits is already more
+#: than an agent reads closely; beyond it the list is noise, not evidence.
+MAX_RELATED_COMMITS_LIMIT = 25
+
+
+@dataclass(frozen=True)
+class GitHistoryOptions:
+    """Git History Settings: how the Git history step searches. Code Search never reads them.
+
+    The defaults are Batch 1's behaviour exactly, so a run that sets none of
+    these finds what it found before they existed. ``keywords`` and ``files``
+    are Git History's own — Additional Commit Keywords and Additional Files —
+    and extend the shared Keywords and Focus Files rather than replace them.
+    """
+
+    use_shared_keywords: bool = True
+    use_shared_focus_files: bool = True
+    keywords: tuple[str, ...] = ()
+    files: tuple[str, ...] = ()
+    search_commit_messages: bool = True
+    search_file_history: bool = True
+    history_depth: str = "recent"
+    max_related_commits: int = DEFAULT_MAX_RELATED_COMMITS
+
+    @property
+    def searches_nothing(self) -> bool:
+        """Both routes off: the step has nothing it may do, and is skipped."""
+        return not (self.search_commit_messages or self.search_file_history)
+
+    def normalized(self) -> GitHistoryOptions:
+        """These options with any out-of-range value replaced by its default.
+
+        For a library caller; the CLI refuses such values instead. An unknown
+        depth reads as ``recent`` and a count outside 1–25 as the default, which
+        is the safe reading — never "everything".
+        """
+        depth = self.history_depth if self.history_depth in GIT_HISTORY_DEPTHS else "recent"
+        count = self.max_related_commits
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_RELATED_COMMITS_LIMIT:
+            count = DEFAULT_MAX_RELATED_COMMITS
+        return GitHistoryOptions(
+            use_shared_keywords=self.use_shared_keywords is not False,
+            use_shared_focus_files=self.use_shared_focus_files is not False,
+            keywords=tuple(str(item) for item in self.keywords),
+            files=tuple(str(item) for item in self.files),
+            search_commit_messages=self.search_commit_messages is not False,
+            search_file_history=self.search_file_history is not False,
+            history_depth=depth,
+            max_related_commits=count,
+        )
+
+
+def effective_plan(plan: InvestigationPlan, options: InvestigationOptions) -> InvestigationPlan:
+    """The plan once the options have had their say.
+
+    Git History with both search routes turned off has nothing it may do, so it
+    is skipped exactly as an unticked Git history is — marked ``skipped`` in
+    ``run.json``, a ``step_skipped`` event on the stream — rather than run to
+    produce an empty section. Neither route is ever turned back on.
+    """
+    if plan.git_history and options.git_history.searches_nothing:
+        return replace(plan, git_history=False)
+    return plan
+
+
 @dataclass
 class InvestigationOptions:
     """How to retrieve context. Defaults mirror the previous hardcoded constants.
@@ -126,6 +195,9 @@ class InvestigationOptions:
     # `attachments` is the complete set (§37.99): a file an earlier run copied
     # that is not among them is removed from the work item. Off, they add to it.
     replace_attachments: bool = False
+    # How Git history searches (Git History Settings). Code Search reads
+    # `keywords` and `focus_files` above and never this.
+    git_history: GitHistoryOptions = field(default_factory=GitHistoryOptions)
 
 
 @dataclass
@@ -190,7 +262,7 @@ class InvestigationRequest:
         return self.spec.work_item_id
 
     def resolved_steps(self) -> list[str]:
-        return self.plan.resolve_steps(self.spec.source)
+        return effective_plan(self.plan, self.options).resolve_steps(self.spec.source)
 
     def skipped_steps(self) -> list[str]:
-        return self.plan.skipped_steps(self.spec.source)
+        return effective_plan(self.plan, self.options).skipped_steps(self.spec.source)

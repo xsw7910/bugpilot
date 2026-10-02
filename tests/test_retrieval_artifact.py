@@ -36,6 +36,8 @@ from bugpilot.core.retrieval import (
 needs_rg = pytest.mark.skipif(shutil.which("rg") is None, reason="code search needs ripgrep")
 
 RETRIEVAL_KEYS = {"schema_version", "confidence", "reasons", "noise_indicators", "terms", "related_files"}
+#: A prepare run's Git history step adds its section (Git History v2, Batch 3).
+PREPARED_RETRIEVAL_KEYS = RETRIEVAL_KEYS | {"git_history"}
 TERM_KEYS = {
     "value", "source", "weight", "effective_weight", "match_count", "classification", "derived_from", "status",
 }
@@ -111,7 +113,7 @@ def test_a_prepare_run_writes_one_canonical_retrieval_artifact(tmp_path):
     target = tmp_path / ".ai" / work_item
     data = _read(tmp_path, work_item)
 
-    assert set(data) == RETRIEVAL_KEYS
+    assert set(data) == PREPARED_RETRIEVAL_KEYS
     assert data["schema_version"] == 1
     assert data["confidence"] == "high"
     assert data["reasons"][0] == "At least one high-confidence application source file was found."
@@ -223,13 +225,15 @@ def test_the_same_search_serializes_identically(tmp_path):
 @needs_rg
 def test_git_history_is_looked_up_for_the_top_ranked_files(tmp_path, monkeypatch):
     seen: list[list[str]] = []
-    real = workflow.generate_git_context
+    real = workflow.collect_git_history
 
-    def spy(repo_root, issue_key, related_files=None):
-        seen.append(list(related_files or []))
-        return real(repo_root, issue_key, related_files)
+    def spy(repo_root, issue_key, query=None, settings=None):
+        # Git History v2: the ranked files are one input of the query, still
+        # the top five in rank order.
+        seen.append(list(query.ranked_files))
+        return real(repo_root, issue_key, query, settings)
 
-    monkeypatch.setattr(workflow, "generate_git_context", spy)
+    monkeypatch.setattr(workflow, "collect_git_history", spy)
     work_item = _prepare(_repo(tmp_path))
 
     assert seen == [[item["file"] for item in _read(tmp_path, work_item)["related_files"][:5]]]

@@ -42,7 +42,19 @@
     "maxFiles",
     "maxSearchLines",
     "agentCommand",
+    "gitKeywords",
+    "gitFiles",
+    "gitMaxCommits",
   ];
+
+  /**
+   * Git History Settings' four switches, which ship ticked: an absent value is
+   * on, as `restoreForm` and the host's `parseForm` read it.
+   */
+  const GIT_SWITCHES = ["gitUseSharedKeywords", "gitUseSharedFocusFiles", "gitSearchMessages", "gitSearchFileHistory"];
+
+  /** History Depth's options, as `GIT_HISTORY_DEPTHS` in `form.ts` lists them. */
+  const GIT_HISTORY_DEPTHS = ["recent", "broader"];
 
   /**
    * A Jira issue key, as `form.ts` and `bugpilot/core/identity.py` spell it.
@@ -86,6 +98,19 @@
       fields: ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"],
       focus: ["keywords"],
     },
+    "git-history": {
+      fields: [
+        "gitUseSharedKeywords",
+        "gitUseSharedFocusFiles",
+        "gitKeywords",
+        "gitFiles",
+        "gitSearchMessages",
+        "gitSearchFileHistory",
+        "gitHistoryDepth",
+        "gitMaxCommits",
+      ],
+      focus: ["gitUseSharedKeywords"],
+    },
     "build-context": { fields: ["fresh"], focus: ["fresh"] },
     "fix-with-ai": { fields: ["agent", "agentCommand"], focus: ["agent"] },
   };
@@ -94,6 +119,7 @@
   const STEP_SETTINGS = {
     issueDetails: "issue-details",
     codeSearch: "code-search",
+    gitHistory: "git-history",
     buildContext: "build-context",
     fixWithAI: "fix-with-ai",
   };
@@ -111,7 +137,7 @@
    * the developer has to discover. `rows` in the markup is the height each one
    * starts at; `max-height` in `panel.css` is where growing stops.
    */
-  const GROWING_FIELDS = ["issue", "hint", "keywords", "focusFiles", "ignorePaths"];
+  const GROWING_FIELDS = ["issue", "hint", "keywords", "focusFiles", "ignorePaths", "gitKeywords", "gitFiles"];
 
   /** The five the CLI runs, which are the ones that go into `form.plan`. */
   const PLAN_FIELDS = [
@@ -184,6 +210,14 @@
     attachments: [],
     attachmentDescriptions: {},
     fresh: false,
+    gitKeywords: "",
+    gitFiles: "",
+    gitMaxCommits: "",
+    gitUseSharedKeywords: true,
+    gitUseSharedFocusFiles: true,
+    gitSearchMessages: true,
+    gitSearchFileHistory: true,
+    gitHistoryDepth: "recent",
   };
   /**
    * The line under the AI Agent picker per choice, from the host's detection
@@ -496,7 +530,14 @@
     settings.attachments = [...attachments];
     settings.attachmentDescriptions = describedOnly(attachments, attachmentDescriptions);
     settings.fresh = byId("fresh").checked;
+    for (const field of GIT_SWITCHES) settings[field] = byId(field).checked;
+    settings.gitHistoryDepth = gitHistoryDepthOf(byId("gitHistoryDepth").value);
     return settings;
+  }
+
+  /** A History Depth this page offers, else `recent` — never a blank select. */
+  function gitHistoryDepthOf(value) {
+    return GIT_HISTORY_DEPTHS.includes(value) ? value : "recent";
   }
 
   /** The applied settings, out of a whole form. */
@@ -507,6 +548,8 @@
     settings.attachments = Array.isArray(form.attachments) ? [...form.attachments] : [];
     settings.attachmentDescriptions = describedOnly(settings.attachments, form.attachmentDescriptions || {});
     settings.fresh = form.fresh === true;
+    for (const field of GIT_SWITCHES) settings[field] = form[field] !== false;
+    settings.gitHistoryDepth = gitHistoryDepthOf(form.gitHistoryDepth);
     return settings;
   }
 
@@ -521,6 +564,8 @@
     attachmentDescriptions = { ...(settings.attachmentDescriptions || {}) };
     renderAttachments();
     byId("fresh").checked = settings.fresh === true;
+    for (const field of GIT_SWITCHES) byId(field).checked = settings[field] !== false;
+    byId("gitHistoryDepth").value = gitHistoryDepthOf(settings.gitHistoryDepth);
     applyAgentVisibility();
   }
 
@@ -1070,6 +1115,8 @@
 
     const byStep = Object.fromEntries(steps.map((step) => [step.id, step]));
     renderSearch(byStep.codeSearch);
+    renderRelatedCommits(byStep.gitHistory);
+    renderSupportingFiles(byStep.gitHistory);
     renderStepActions(byStep.buildContext, byStep.fixWithAI);
     renderAttempt(byStep.fixWithAI, state.workItemId);
     renderFixResult(byStep.fixResult, state.workItemId);
@@ -2248,6 +2295,82 @@
   }
 
   /**
+   * Git history's Related commits: the record's commits, in the record's order.
+   *
+   * Present only while the row carries them — a finished Git history whose
+   * structured record could be read and listed at least one commit — so a
+   * running, failed, skipped or pending row, or a work item prepared before the
+   * record existed, never shows a list. Every string is repository text (a
+   * commit subject, a path) or a developer's keyword, and goes in through
+   * `textContent`; nothing here ranks, filters or reorders.
+   */
+  function renderRelatedCommits(gitHistory) {
+    const commits = (gitHistory && gitHistory.gitHistory && gitHistory.gitHistory.commits) || [];
+    const section = byId("related-commits");
+    const list = byId("related-commits-list");
+    list.replaceChildren();
+    section.hidden = commits.length === 0;
+
+    for (const commit of commits) {
+      const row = document.createElement("div");
+      row.className = "commit-row";
+
+      const title = document.createElement("p");
+      title.className = "commit-title";
+      const hash = document.createElement("span");
+      hash.className = "commit-hash";
+      hash.textContent = commit.shortHash;
+      const subject = document.createElement("span");
+      subject.className = "commit-subject";
+      subject.textContent = commit.subject;
+      title.append(hash, subject);
+      row.append(title);
+
+      // The lines the host chose to send, in a fixed order: what matched, which
+      // known files it changed (every path in the tooltip), and why it counts.
+      for (const [key, className] of [
+        ["matched", "commit-meta"],
+        ["changed", "commit-meta"],
+        ["why", "commit-meta"],
+      ]) {
+        if (!commit[key]) continue;
+        const line = document.createElement("p");
+        line.className = className;
+        line.textContent = commit[key];
+        if (key === "changed" && commit.changedPaths) line.setAttribute("title", commit.changedPaths);
+        row.append(line);
+      }
+      list.append(row);
+    }
+  }
+
+  /**
+   * Git history's Supporting files: what the related commits also changed that
+   * Code search did not return (Batch 4).
+   *
+   * The same row as a Relevant file — the name opens it — and a line saying how
+   * history found it, so it is never mistaken for a search result. Present only
+   * while the row carries some. Its open is its own message: the host checks
+   * the file is still in the checkout first, since the list is the run's
+   * evidence and the checkout may have moved on. Nothing here asks the disk.
+   */
+  function renderSupportingFiles(gitHistory) {
+    const files = (gitHistory && gitHistory.gitHistory && gitHistory.gitHistory.supportingFiles) || [];
+    const section = byId("supporting-files");
+    const list = byId("supporting-files-list");
+    list.replaceChildren();
+    section.hidden = files.length === 0;
+    for (const file of files) {
+      const row = fileRow({ name: file.name, path: file.path, matched: [] }, { supporting: true });
+      const detail = document.createElement("p");
+      detail.className = "file-matched";
+      detail.textContent = file.detail;
+      row.append(detail);
+      list.append(row);
+    }
+  }
+
+  /**
    * Which terms the run searched, and how each behaved.
    *
    * Built through `textContent` like every other list here: a search term comes
@@ -2362,8 +2485,10 @@
    * the row usable at 200px — the accessible name is "Open <file>" rather than
    * a path read out character by character, and the full path is the tooltip.
    * Matched terms sit outside the button so they do not lengthen that name.
+   * `options.supporting` marks a Git history Supporting file, whose open has
+   * its own message.
    */
-  function fileRow(file) {
+  function fileRow(file, options = {}) {
     const row = document.createElement("div");
     row.className = "file-row";
 
@@ -2382,9 +2507,10 @@
     open.append(name, location);
     // The path travels back as the host gave it; the host resolves it against
     // the repository and refuses anything that lands outside.
-    open.addEventListener("click", () =>
-      vscode.postMessage({ type: "openRelevantFile", path: file.path }),
-    );
+    open.addEventListener("click", () => {
+      if (options.supporting) vscode.postMessage({ type: "openSupportingFile", path: file.path });
+      else vscode.postMessage({ type: "openRelevantFile", path: file.path });
+    });
 
     row.append(open);
     const matched = Array.isArray(file.matched) ? file.matched : [];
@@ -2631,6 +2757,8 @@
     // in it invites a choice that does not exist.
     byId("fixModeId").disabled = !enabled || !fixModesReady;
     byId("fresh").disabled = !enabled;
+    for (const field of GIT_SWITCHES) byId(field).disabled = !enabled;
+    byId("gitHistoryDepth").disabled = !enabled;
     byId("plan-buildContext").disabled = !enabled;
     applyPlanCoupling();
   }

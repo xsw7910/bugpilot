@@ -339,6 +339,94 @@ const LIMIT_FIELDS: readonly TextField[] = [
   },
 ];
 
+/**
+ * Git History Settings: what Git history follows of the shared guidance, what
+ * it adds of its own, which routes it searches, how far back, how many commits
+ * it keeps. Every default is a run's behaviour before these existed, which is
+ * why each switch arrives ticked and the two text boxes and the count empty.
+ *
+ * The helper text says the one thing a developer has to know about each of
+ * Git history's own inputs: Code search never reads it.
+ */
+const GIT_HISTORY_TEXT_FIELDS: readonly TextField[] = [
+  {
+    id: "gitKeywords",
+    label: "Additional commit keywords",
+    kind: "textarea",
+    rows: 2,
+    icon: "search",
+    tone: "primary",
+    hint: "Searched in commit messages only. Code search does not use them.",
+    placeholder: "e.g. gather order, StackMerge",
+  },
+  {
+    id: "gitFiles",
+    label: "Additional files",
+    kind: "textarea",
+    rows: 3,
+    icon: "file",
+    tone: "muted",
+    hint: "File history only. Code search does not use them.",
+    placeholder: "e.g.\nsrc/legacy/\nsrc/core/example.cpp",
+  },
+];
+
+/** Max Related Commits: empty is the CLI's default, shown as the placeholder. */
+const GIT_MAX_COMMITS_FIELD: TextField = {
+  id: "gitMaxCommits",
+  label: "Max related commits",
+  kind: "number",
+  icon: "git-commit",
+  tone: "muted",
+  placeholder: "10",
+};
+
+/**
+ * One of Git history's switches: a checkbox inside its own label, like Fresh.
+ * A helper line only where a consequence needs saying — that turning shared
+ * guidance off here leaves Code search as it was; the search switches' labels
+ * say everything they do.
+ */
+function gitHistorySwitch(id: string, label: string, hint?: string): string {
+  const described = hint ? ` aria-describedby="${id}-hint"` : "";
+  return `        <div class="field field-check" id="field-${id}">
+  ${settingHeader({
+    forId: id,
+    label,
+    control: `<input type="checkbox" id="${id}"${described} checked> `,
+    labelClass: "choice",
+    ...(hint === undefined ? {} : { hint }),
+  })}
+        </div>`;
+}
+
+/** History Depth: the two depths the backend has, and what the second one means. */
+const GIT_HISTORY_DEPTH_FIELD = `        <div class="field" id="field-gitHistoryDepth">
+  ${settingHeader({
+    forId: "gitHistoryDepth",
+    label: "History depth",
+    icon: "history",
+    tone: "muted",
+    hint: "Broader reads three times as far back per file.",
+  })}
+          <select id="gitHistoryDepth" name="gitHistoryDepth" aria-describedby="gitHistoryDepth-hint">
+            <option value="recent">Recent</option>
+            <option value="broader">Broader</option>
+          </select>
+        </div>`;
+
+const GIT_HISTORY_SECTION = [
+  gitHistorySwitch("gitUseSharedKeywords", "Use shared Keywords", "Code search uses them either way."),
+  gitHistorySwitch("gitUseSharedFocusFiles", "Use shared Focus Files", "Code search uses them either way."),
+  ...GIT_HISTORY_TEXT_FIELDS.map(field),
+  gitHistorySwitch("gitSearchMessages", "Search commit messages"),
+  gitHistorySwitch("gitSearchFileHistory", "Search related file history"),
+  `        <div class="limits">
+${GIT_HISTORY_DEPTH_FIELD}
+  ${field(GIT_MAX_COMMITS_FIELD)}
+        </div>`,
+].join("\n");
+
 const AGENT_COMMAND_FIELD: TextField = {
   id: "agentCommand",
   label: "Custom agent command",
@@ -822,6 +910,8 @@ function sectionBody(section: WorkflowSettingsSection): string {
         <div class="limits">
   ${LIMIT_FIELDS.map(field).join("\n")}
         </div>`;
+    case "git-history":
+      return GIT_HISTORY_SECTION;
     case "build-context":
       return FRESH_FIELD;
     case "fix-with-ai":
@@ -971,8 +1061,8 @@ function step(id: WorkflowStepId): string {
   // The Jira wording, because that is the source the form starts on; the host
   // replaces it with the manual wording on the first push after a switch.
   const description = stepDescription(id);
-  // A gear only where the step has a settings section: Git history and Similar
-  // fixes are configured by their checkbox alone. Named for its step — "Configure
+  // A gear only where the step has a settings section: Similar fixes is
+  // configured by its checkbox alone. Named for its step — "Configure
   // Code Search" — because six buttons all called Settings are one name read six
   // times. Visible at rest (quieter until hovered or focused), never hover-only.
   const section = SETTINGS_SECTION_OF_STEP[id];
@@ -1064,6 +1154,25 @@ function stepContent(id: WorkflowStepId): string {
             <details class="terms" id="search-details" hidden>
               <summary id="search-details-summary">Search details</summary>
               <div id="search-details-list"></div>
+            </details>`;
+  }
+  if (id === "gitHistory") {
+    // Which commits, and why those: collapsed like Code search's two, because
+    // the summary line ("6 related commits found") is the answer and this is
+    // for the developer who wants to look. Built by the page from the
+    // structured record the host read out of retrieval.json — never from
+    // context.md — and only while that record has commits to list.
+    //
+    // Then Supporting files (Batch 4): what those commits also changed that Code
+    // search did not return. A list of its own, under the row whose evidence it
+    // is, so it can never be read as Code search's Relevant files.
+    return `            <details class="commits" id="related-commits" hidden>
+              <summary id="related-commits-summary">Related commits</summary>
+              <div id="related-commits-list"></div>
+            </details>
+            <details class="files" id="supporting-files" hidden>
+              <summary id="supporting-files-summary">Supporting files</summary>
+              <div id="supporting-files-list"></div>
             </details>`;
   }
   if (id === "buildContext") {
@@ -1266,6 +1375,8 @@ function section(entry: { readonly id: string; readonly label: string }): string
 export const SETTINGS_FIELD_IDS: readonly string[] = [
   ...RETRIEVAL_FIELDS,
   ...LIMIT_FIELDS,
+  ...GIT_HISTORY_TEXT_FIELDS,
+  GIT_MAX_COMMITS_FIELD,
   ...RUN_OPTION_FIELDS,
   AGENT_COMMAND_FIELD,
 ].map((entry) => entry.id);

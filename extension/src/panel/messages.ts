@@ -20,7 +20,7 @@ import { WORKFLOW_STEP_IDS } from "../app/workflow.ts";
 import type { OverallStatus, WorkflowStepResult } from "../app/workflow.ts";
 import type { ArtifactList } from "../app/artifacts.ts";
 import type { CommandAction } from "../app/environment.ts";
-import { FIX_MODE_ID_RE } from "../app/form.ts";
+import { FIX_MODE_ID_RE, gitHistoryDepthOf } from "../app/form.ts";
 import type { UserFacingError } from "../app/failures.ts";
 import type { DiagnosticsView } from "../app/diagnostics.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
@@ -61,11 +61,26 @@ const CAPS: Readonly<Record<keyof FormTextFields, number>> = {
   maxSearchLines: 16,
   agentCommand: 2_000,
   fixModeId: 64,
+  gitKeywords: 8_000,
+  gitFiles: 16_000,
+  gitMaxCommits: 16,
 };
 
 type FormTextFields = Omit<
   FormState,
-  "source" | "plan" | "fresh" | "fixWithAI" | "agent" | "attachments" | "attachmentDescriptions" | "useIssueDetails"
+  | "source"
+  | "plan"
+  | "fresh"
+  | "fixWithAI"
+  | "agent"
+  | "attachments"
+  | "attachmentDescriptions"
+  | "useIssueDetails"
+  | "gitUseSharedKeywords"
+  | "gitUseSharedFocusFiles"
+  | "gitSearchMessages"
+  | "gitSearchFileHistory"
+  | "gitHistoryDepth"
 >;
 
 /**
@@ -392,6 +407,13 @@ export type PanelMessage =
    * trusting a shape check made on the far side of the boundary.
    */
   | { readonly type: "openRelevantFile"; readonly path: string }
+  /**
+   * "Open this file from Git history's Supporting files." The same shape and the
+   * same boundary as `openRelevantFile`; kept apart because only this open asks
+   * the checkout first — a supporting file is evidence from when the run was
+   * made, and may have gone since.
+   */
+  | { readonly type: "openSupportingFile"; readonly path: string }
   | { readonly type: "improveHint"; readonly form: FormState }
   | { readonly type: "useImprovedHint" }
   | { readonly type: "dismissImprovedHint" }
@@ -476,6 +498,7 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   command: true,
   openArtifact: true,
   openRelevantFile: true,
+  openSupportingFile: true,
   improveHint: true,
   useImprovedHint: true,
   dismissImprovedHint: true,
@@ -646,7 +669,8 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       // the editor, including ones that write files.
       return id === undefined ? undefined : { type, id };
     }
-    case "openRelevantFile": {
+    case "openRelevantFile":
+    case "openSupportingFile": {
       const value = asString(message?.["path"], 1_024);
       // Shape here, boundary on the host: this says "a plausible relative
       // path", and the controller says "inside the repository", which is the
@@ -810,6 +834,17 @@ function parseForm(raw: unknown): FormState | undefined {
     // Absent means on: the box ships ticked, and a page too old to send it
     // should not silently turn the issue context off.
     useIssueDetails: record["useIssueDetails"] !== false,
+    // Git History Settings. The four switches ship on, and absent means on
+    // for the same reason; Git history's own text is capped like the rest,
+    // and a depth this version does not offer is `recent`.
+    gitUseSharedKeywords: record["gitUseSharedKeywords"] !== false,
+    gitUseSharedFocusFiles: record["gitUseSharedFocusFiles"] !== false,
+    gitKeywords: text("gitKeywords"),
+    gitFiles: text("gitFiles"),
+    gitSearchMessages: record["gitSearchMessages"] !== false,
+    gitSearchFileHistory: record["gitSearchFileHistory"] !== false,
+    gitHistoryDepth: gitHistoryDepthOf(record["gitHistoryDepth"]),
+    gitMaxCommits: text("gitMaxCommits"),
   };
 }
 

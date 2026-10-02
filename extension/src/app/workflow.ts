@@ -18,10 +18,12 @@
  *
  * Every word a row says is derived from real state — the run's step marks (the
  * live stream, or `run.json` for a reopened work item), the files on disk, and
- * the two artifacts the host parses (`issue.json`, `retrieval.json`). Where no
- * structured result exists, the row says only what is known: Git history and
- * Similar fixes say "Completed", because their results live inside `context.md`
- * by design (§37, Batch 3) and are not parsed out of prose for a summary line.
+ * the two artifacts the host parses (`issue.json`, `retrieval.json`). Git
+ * history reports from its structured section of `retrieval.json` (Git History
+ * v2, Batch 3) — "6 related commits found" and a Related commits disclosure —
+ * and says only "Completed" for a work item prepared before that section
+ * existed. Similar fixes says "Completed": its result lives inside
+ * `context.md`, and nothing is parsed out of prose for a summary line.
  *
  * `fixWithAI` is not a CLI capability: it is an action the extension takes, so
  * its state comes from the controller. It never reports "complete" — the agent
@@ -37,6 +39,8 @@ import {
   VERIFICATION_REPORT_ARTIFACT,
 } from "./artifacts.ts";
 import type { RelevantFile } from "./contextSummary.ts";
+import { describeGitHistory, relatedCommitRows, supportingFileRows } from "./gitHistory.ts";
+import type { GitHistoryResult, RelatedCommitRow, SupportingFileRow } from "./gitHistory.ts";
 import type { UserFacingError } from "./failures.ts";
 import type { FixReportPreview } from "./fixReport.ts";
 import type { ValidationChecklist } from "./reviewPackage.ts";
@@ -321,6 +325,18 @@ export interface SessionSummary {
   readonly attempts: number;
 }
 
+/** Git history's Related commits disclosure, from `retrieval.json.git_history`. */
+export interface GitHistoryContent {
+  /** In the record's order; never empty — a row with no commits has no disclosure. */
+  readonly commits: readonly RelatedCommitRow[];
+  /**
+   * Files those commits changed that Code Search did not return (Batch 4) —
+   * Git history's evidence, its own disclosure under this row, never Code
+   * search's Relevant files. Absent when there are none.
+   */
+  readonly supportingFiles?: readonly SupportingFileRow[];
+}
+
 /** What Code search found, from `retrieval.json`, for its two disclosures. */
 export interface SearchContent {
   readonly files: readonly RelevantFile[];
@@ -377,6 +393,8 @@ export interface WorkflowStepResult {
   readonly actions: readonly StepActionId[];
   /** Code search only: which files and which terms. */
   readonly search?: SearchContent;
+  /** Git history only: the related commits, once its structured result was read. */
+  readonly gitHistory?: GitHistoryContent;
   /** Fix result only: the Validation checklist, once asked for. */
   readonly validation?: ValidationView;
   /** Fix result only: the review prompt is being prepared, so the button waits. */
@@ -433,7 +451,7 @@ const STEP_DESCRIPTIONS: Readonly<Record<WorkflowStepId, string>> = {
   // bug description").
   issueDetails: "Gather issue information",
   codeSearch: "Search relevant code in the repository",
-  gitHistory: "Find recent related changes",
+  gitHistory: "Find related commits and file changes",
   similarFixes: "Search for similar issues and solutions",
   buildContext: "Prepare structured context for AI",
   fixWithAI: "Run the prepared context with your AI coding agent",
@@ -493,6 +511,8 @@ export interface WorkflowInput {
   readonly issue?: IssueSummary;
   /** `retrieval.json`, projected; absent when it is missing or unreadable. */
   readonly search?: SearchResult;
+  /** `retrieval.json.git_history`, read; absent when there is no section to trust. */
+  readonly gitHistory?: GitHistoryResult;
   /** True while a handoff is being resolved, which spawns a probe. */
   readonly handoffBusy?: boolean;
   /** Why the last handoff could not start. */
@@ -869,7 +889,7 @@ function resultOf(
   status: StepStatus,
   input: WorkflowInput,
   present: ReadonlySet<string>,
-): Pick<RowDraft, "summary" | "detail" | "artifact" | "actions" | "search"> {
+): Pick<RowDraft, "summary" | "detail" | "artifact" | "actions" | "search" | "gitHistory"> {
   const description = stepDescription(id);
   if (status === "idle") return { summary: description, actions: [] };
   if (status === "running") return { summary: runningText(id, input), actions: [] };
@@ -913,9 +933,25 @@ function resultOf(
         actions: ["openContext", "copyContext"],
       };
     }
+    case "gitHistory": {
+      // From the structured record only. Without one — a work item prepared
+      // before it existed, or a run with no retrieval to record it in — the
+      // row says what it always said, and nothing is read out of context.md.
+      const history = input.gitHistory;
+      if (!history) return { summary: FINISHED_TEXT.success, actions: [] };
+      const commits = relatedCommitRows(history);
+      const supportingFiles = supportingFileRows(history);
+      return {
+        summary: describeGitHistory(history),
+        actions: [],
+        ...(commits.length > 0
+          ? { gitHistory: { commits, ...(supportingFiles.length > 0 ? { supportingFiles } : {}) } }
+          : {}),
+      };
+    }
     default:
-      // Git history and Similar fixes: their results are inside `context.md`,
-      // and there is no structured count to report without parsing prose.
+      // Similar fixes: its result is inside `context.md`, and there is no
+      // structured count to report without parsing prose.
       return { summary: FINISHED_TEXT.success, actions: [] };
   }
 }

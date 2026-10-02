@@ -82,6 +82,12 @@ const MODEL_TEXT_FIELDS = Object.keys(DEFAULT_FORM).filter(
       "attachmentDescriptions",
       "fixModeId",
       "useIssueDetails",
+      // Git History Settings' four switches and its depth select.
+      "gitUseSharedKeywords",
+      "gitUseSharedFocusFiles",
+      "gitSearchMessages",
+      "gitSearchFileHistory",
+      "gitHistoryDepth",
     ].includes(key),
 );
 
@@ -234,6 +240,7 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   command: { type: "command", id: "bugpilot.openSettings" },
   openArtifact: { type: "openArtifact", name: "task.md" },
   openRelevantFile: { type: "openRelevantFile", path: "src/widgets/WidgetController.cpp" },
+  openSupportingFile: { type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" },
   improveHint: { type: "improveHint", form: DEFAULT_FORM },
   useImprovedHint: { type: "useImprovedHint" },
   dismissImprovedHint: { type: "dismissImprovedHint" },
@@ -559,7 +566,7 @@ test("the workflow has no primary button: the one primary action is at the top",
 
 test("a gear on exactly the rows that have settings, named for its step", () => {
   const withGear = WORKFLOW_STEP_IDS.filter((id) => SETTINGS_SECTION_OF_STEP[id] !== undefined);
-  assert.deepEqual(withGear, ["issueDetails", "codeSearch", "buildContext", "fixWithAI"]);
+  assert.deepEqual(withGear, ["issueDetails", "codeSearch", "gitHistory", "buildContext", "fixWithAI"]);
   for (const id of withGear) {
     const section = SETTINGS_SECTION_OF_STEP[id]!;
     const head = /<div class="step-head">[\s\S]*?<\/div>/.exec(rowMarkup(id))?.[0] ?? "";
@@ -578,6 +585,8 @@ test("a gear on exactly the rows that have settings, named for its step", () => 
   assert.deepEqual(Object.values(SETTINGS_ACTION_LABELS), [
     "Configure Issue Details",
     "Configure Code Search",
+    // Git History Settings (Git History Retrieval v2, Batch 2).
+    "Configure Git History",
     "Configure Build Context",
     // Fix Mode and Hint moved to the main page: this gear is the agent's (§37.90).
     "Configure AI Agent",
@@ -585,13 +594,14 @@ test("a gear on exactly the rows that have settings, named for its step", () => 
 });
 
 test("rows with nothing to configure have no gear, and no summary line", () => {
-  for (const id of ["gitHistory", "similarFixes", "fixResult"]) {
+  for (const id of ["similarFixes", "fixResult"]) {
     const row = rowMarkup(id);
     assert.equal(row.includes("step-settings"), false, `${id} has a gear`);
     assert.equal(row.includes(`settings-summary-${id}`), false, `${id} has a summary line`);
   }
-  // Six rows, four gears, one Workflow Settings entry: no gear called Settings.
-  assert.equal([...HTML.matchAll(/class="icon step-settings"/g)].length, 4);
+  // Six rows, five gears (Git history has had one since its settings), one
+  // Workflow Settings entry: no gear called Settings.
+  assert.equal([...HTML.matchAll(/class="icon step-settings"/g)].length, 5);
   assert.equal(/aria-label="Settings"|title="Settings"/.test(HTML), false);
 });
 
@@ -691,10 +701,11 @@ test("every setting has a header row with a real label in it", () => {
   const rows = [...SETTINGS_VIEW.matchAll(/<div class="setting-header">([\s\S]*?)<\/div>/g)].map(
     (match) => match[1]!,
   );
-  // The text fields, plus the three rows that are not text fields: the agent
-  // picker, the attachment list and the checkbox. (Fix Mode and Hint are the
-  // main page's now, §37.84.)
-  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3, "a row is missing the pattern");
+  // The text fields, plus the rows that are not text fields: the agent
+  // picker, the attachment list and the Fresh checkbox, and Git history's four
+  // switches and its depth select. (Fix Mode and Hint are the main page's now,
+  // §37.84.)
+  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 5, "a row is missing the pattern");
 
   for (const row of rows) {
     const label = /<label[^>]*for="([^"]+)"/.exec(row);
@@ -732,6 +743,11 @@ test("helper text survives only where a placeholder could not carry it", () => {
       "add-attachment", "agentCommand", "fresh",
       // What the setting is for, which is what UI-A2's grouping asserts.
       "focusFiles", "keywords",
+      // Git History Settings. A consequence each: Git history's own inputs
+      // never reach Code search, and turning shared guidance off here leaves
+      // Code search as it was — the one thing a developer must not have to
+      // guess. And what Broader means, which a select cannot hold.
+      "gitKeywords", "gitFiles", "gitUseSharedKeywords", "gitUseSharedFocusFiles", "gitHistoryDepth",
     ].sort(),
     "helper text should remain only where a placeholder could not carry it",
   );
@@ -1638,10 +1654,10 @@ test("Workflow Settings is one section per step that has settings, in the workfl
     sections.map((match) => [match[1], match[2]]),
     WORKFLOW_SETTINGS_SECTIONS.map((section) => [section, SETTINGS_SECTION_TITLES[section]]),
   );
-  assert.deepEqual(WORKFLOW_SETTINGS_SECTIONS, ["issue-details", "code-search", "build-context", "fix-with-ai"]);
-  // Git history and Similar fixes have nothing to configure beyond their
-  // checkbox: no section pretends otherwise.
-  assert.equal(/settings-section-(git-history|similar-fixes)/.test(HTML), false);
+  assert.deepEqual(WORKFLOW_SETTINGS_SECTIONS, ["issue-details", "code-search", "git-history", "build-context", "fix-with-ai"]);
+  // Similar fixes has nothing to configure beyond its checkbox: no section
+  // pretends otherwise. (Git history has had one since its settings.)
+  assert.equal(/settings-section-similar-fixes/.test(HTML), false);
   // Each says whether its changes need a rebuild — the model's sentence.
   for (const section of WORKFLOW_SETTINGS_SECTIONS) {
     assert.match(settingsSection(section), new RegExp(`id="settings-note-${section}">${sectionRebuildNote(section).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</p>`));
@@ -1820,30 +1836,25 @@ test("a file name stays readable and a long path cannot scroll the panel", () =>
   assert.equal(/\.file[^{]*\{[^}]*text-overflow/s.test(CSS), false);
 });
 
-test("a relevant-file path is shape-checked before the host will look at it", () => {
+test("a relevant-file or supporting-file path is shape-checked before the host will look at it", () => {
   // The page only echoes paths the host gave it, but this is the untrusted side
   // of the boundary and the value becomes a file the editor opens.
-  for (const bad of [
-    undefined,
-    null,
-    7,
-    "",
-    "   ",
-    "../../outside.txt",
-    "src/../../outside.txt",
-    "/etc/passwd",
-    "C:/Windows/win.ini",
-  ]) {
-    assert.equal(
-      parsePanelMessage({ type: "openRelevantFile", path: bad }),
+  for (const type of ["openRelevantFile", "openSupportingFile"] as const) {
+    for (const bad of [
       undefined,
-      JSON.stringify(bad),
-    );
+      null,
+      7,
+      "",
+      "   ",
+      "../../outside.txt",
+      "src/../../outside.txt",
+      "/etc/passwd",
+      "C:/Windows/win.ini",
+    ]) {
+      assert.equal(parsePanelMessage({ type, path: bad }), undefined, `${type} ${JSON.stringify(bad)}`);
+    }
+    assert.deepEqual(parsePanelMessage({ type, path: "src/a.cpp" }), { type, path: "src/a.cpp" });
   }
-  assert.deepEqual(parsePanelMessage({ type: "openRelevantFile", path: "src/a.cpp" }), {
-    type: "openRelevantFile",
-    path: "src/a.cpp",
-  });
 });
 
 // --- UI-B2: the failure card's markup ----------------------------------------
@@ -2040,10 +2051,12 @@ test("a label that is a whole sentence is allowed to wrap", () => {
   assert.match(CSS, /\.field-check \.setting-header > label \{[^}]*min-width: 0/s);
 });
 
-test("the custom agent command's label may wrap, and only that one name label", () => {
+test("the custom agent command's and Additional commit keywords' labels may wrap, and only those name labels", () => {
   // Measured in the real window at 200px (§37.94): held at full width it stood
   // 3px past the panel and scrolled the page sideways. Every other name label
   // keeps `flex: none` — letting them all shrink wrapped one that fits exactly.
+  // "Additional commit keywords" is the second (Git History Settings): 191px
+  // against 182px, measured the same way; `gitHistorySettings.test.ts` pins it.
   assert.match(CSS, /#field-agentCommand \.setting-header > label \{[^}]*flex: 0 1 auto/s);
   assert.match(CSS, /#field-agentCommand \.setting-header > label \{[^}]*min-width: 0/s);
   assert.match(CSS, /\n\.setting-header > label \{[^}]*flex: none/s);
@@ -2558,11 +2571,11 @@ test("the dot is small, round, sized without a pixel width, and coloured from th
 });
 
 test("gears only where a step has settings, as buttons in the metadata", () => {
-  for (const id of ["issueDetails", "codeSearch", "buildContext", "fixWithAI"]) {
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "buildContext", "fixWithAI"]) {
     const row = rowMarkup(id);
     assert.match(row, new RegExp(`<button type="button" class="icon step-settings" id="settings-${id}"`), id);
   }
-  for (const id of ["gitHistory", "similarFixes"]) {
+  for (const id of ["similarFixes"]) {
     assert.equal(rowMarkup(id).includes("step-settings"), false, `${id} has a gear`);
   }
 });

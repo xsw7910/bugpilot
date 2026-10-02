@@ -446,6 +446,10 @@ bugpilot bug --description-file bug.txt
 ```text
 --hint  --keywords  --focus-file  --ignore-path          # Options
 --max-files  --max-search-lines                          # Options（成对，见 §3.3）
+--git-keyword  --git-file                                # Options.git_history（只给 Git history）
+--git-no-shared-keywords  --git-no-shared-focus-files    # Options.git_history
+--git-no-commit-search  --git-no-file-history            # Options.git_history（两者都关 = 跳过 git_context）
+--git-history-depth {recent,broader}  --git-max-commits  # Options.git_history（1–25）
 --skip-code-search  --skip-git-history                   # Plan
 --skip-similar-fixes  --only-issue-details               # Plan
 ```

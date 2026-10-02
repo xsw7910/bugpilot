@@ -5,6 +5,9 @@
  * the same search, and BugPilot now writes that search as one artifact. So it
  * is read once, parsed once and shape-checked once, here; the three views are
  * projections of what this returns and never open or parse the file themselves.
+ * Git history's structured result is a section of the same file
+ * (`git_history`, Git History v2 Batch 3): handed on here untouched, and
+ * checked entry by entry by its one reader, `gitHistory.ts`.
  * Two parsers of one file would be two opinions about what a malformed one
  * means.
  *
@@ -37,6 +40,8 @@ export interface Retrieval {
   readonly relatedFiles?: readonly unknown[];
   /** `terms`, in search order. Entries unchecked. */
   readonly terms?: readonly unknown[];
+  /** `git_history`, when it is an object at all. Checked by `gitHistory.ts`. */
+  readonly gitHistory?: Readonly<Record<string, unknown>>;
 }
 
 export function parseRetrieval(text: string | undefined): Retrieval | undefined {
@@ -52,9 +57,11 @@ export function parseRetrieval(text: string | undefined): Retrieval | undefined 
   if (!isRecord(value) || value["schema_version"] !== SCHEMA_VERSION) return undefined;
   const relatedFiles = value["related_files"];
   const terms = value["terms"];
+  const gitHistory = value["git_history"];
   return {
     ...(Array.isArray(relatedFiles) ? { relatedFiles } : {}),
     ...(Array.isArray(terms) ? { terms } : {}),
+    ...(isRecord(gitHistory) ? { gitHistory } : {}),
   };
 }
 

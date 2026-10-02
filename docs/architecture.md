@@ -2,7 +2,8 @@
 
 > **Status note:** this guide predates the artifact consolidation
 > (`docs/bugpilot_prototype_development_plan.md` §37). The current prepare
-> contract is five artifacts — `issue.json`, `retrieval.json`, `context.md`,
+> contract is five artifacts — `issue.json`, `retrieval.json` (which also holds
+> Git history's structured `git_history` section), `context.md`,
 > `task.md`, `run.json` — and the files this guide still describes
 > (`bug_context.md`, `agent_task.md`, `workflow_status.json`,
 > `execution.log`, and the per-stage issue/search files) are no longer
@@ -295,8 +296,37 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   writes `memory_search.md`.
 - **`git_ops.py` (~122 lines)** — thin git wrappers: `command_available`,
   `run_command`, `inside_git_repo`, `current_branch`, `working_tree_status`,
-  plus `generate_git_context` (branch/status/per-file recent log) and
-  `branch_name(issue_key, description)` → `feature/<key>-<slug>` used by prompts.
+  and `branch_name(issue_key, description)` → `feature/<key>-<slug>` used by prompts.
+- **`git_history.py`** — Git History v2. `collect_git_history` finds and ranks
+  the related commits — commit-message search (issue key, shared Keywords,
+  Additional Commit Keywords, extracted identifiers) and file history (Focus
+  Files, Additional Files, top Code Search files), merged once per commit with
+  its reasons, bounded by the Git History Settings — and returns a structured
+  `GitHistoryRecord`. Data flow (Batch 3): Git retrieval → the record, written
+  by `workflow.git_context_step` atomically into `retrieval.json` as its
+  `git_history` section (schema_version 1; status, search settings, summary
+  counts, commits with source-tagged matched terms and files, reasons,
+  warnings) → `render_git_context` renders the record into `context.md`'s Git
+  History section (and for `bugpilot git-context`) → the extension's
+  `gitHistory.ts` reads the same section for the Git history row ("N related
+  commits found") and its Related commits disclosure. Nothing reads Git
+  history back out of `context.md`. Changed-file feedback (Batch 4): after
+  ranking, the strongest retained commits (≤5, each with evidence of its own,
+  never a bulk commit) are asked for their changed file names — never a diff —
+  and the files Code Search did not return become `git_history.supporting_files`,
+  each with `source: "git_history"`, its commits and its reasons. They are
+  supporting evidence, not search results: they never enter `related_files`,
+  never trigger another search, and are shown in `context.md` under "Supporting
+  Files From Related Commits" and in the panel under the Git history row's
+  Supporting files — never among Code search's Relevant files. Ranking rules
+  added from corpus evidence (Batch 5): a clean merge that only repeats the
+  branch commits it brought in is not listed (a merge with a conflict
+  resolution or evidence of its own stays, and lends only files its branch
+  commits read for feedback did not), and a shared Keyword or extracted term matching
+  more than 20 candidate commits is *broad* — it adds 2 points and says so, but
+  no longer keeps a commit in the list on its own. The corpus is
+  `tests/git_history_corpus.py` (`python tests/git_history_corpus.py` prints
+  the table; `test_git_history_corpus.py` holds its floors).
 - **`context.py` (~183 lines)** — `build_context(...)` assembles `bug_context.md`
   from every prior artifact and computes a 0–100 `_quality_score`. Imports no
   other core module; depends purely on files on disk.

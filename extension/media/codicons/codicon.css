@@ -61,6 +61,11 @@
 .codicon-list-ordered:before { content: "\eb16"; }
 .codicon-hubot:before { content: "\eb08"; }
 .codicon-terminal:before { content: "\ea85"; }
+/* Git History Settings: History depth and Max related commits. Both code points
+   checked present in the vendored codicon.ttf's own cmap, and equal to the
+   names' code points in VS Code's bundled codicon.css. */
+.codicon-history:before { content: "\ea82"; }
+.codicon-git-commit:before { content: "\eafc"; }
 
 /*
  * The primary action's ⋯ menu and what it holds, and Start New Attempt's two

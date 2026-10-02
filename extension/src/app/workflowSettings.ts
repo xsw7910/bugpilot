@@ -10,9 +10,10 @@
  * change, so "what does Code search use?" had no one place to look. The
  * controls moved; none was added, renamed or given a second copy.
  *
- * A section exists only where a step has settings. Git history and Similar
- * fixes have none beyond their checkbox on the row, so they get no gear and no
- * section — a gear that opens an empty page is a control that lies.
+ * A section exists only where a step has settings. Similar fixes has none
+ * beyond its checkbox on the row, so it gets no gear and no section — a gear
+ * that opens an empty page is a control that lies. Git history has had one since
+ * the Git History Settings (Git History Retrieval v2, Batch 2).
  *
  * Everything here is data the host and the markup both read: the page cannot
  * import it (no bundler, see `panel/messages.ts`), so `media/panel.js` carries a
@@ -25,7 +26,7 @@ import type { FormState } from "./form.ts";
 import type { WorkflowStepId } from "./workflow.ts";
 
 /** The settings page's sections, top to bottom — the workflow's own order. */
-export const WORKFLOW_SETTINGS_SECTIONS = ["issue-details", "code-search", "build-context", "fix-with-ai"] as const;
+export const WORKFLOW_SETTINGS_SECTIONS = ["issue-details", "code-search", "git-history", "build-context", "fix-with-ai"] as const;
 export type WorkflowSettingsSection = (typeof WORKFLOW_SETTINGS_SECTIONS)[number];
 
 /**
@@ -34,6 +35,7 @@ export type WorkflowSettingsSection = (typeof WORKFLOW_SETTINGS_SECTIONS)[number
 export const SETTINGS_SECTION_OF_STEP: Readonly<Partial<Record<WorkflowStepId, WorkflowSettingsSection>>> = {
   issueDetails: "issue-details",
   codeSearch: "code-search",
+  gitHistory: "git-history",
   buildContext: "build-context",
   fixWithAI: "fix-with-ai",
 };
@@ -42,6 +44,7 @@ export const SETTINGS_SECTION_OF_STEP: Readonly<Partial<Record<WorkflowStepId, W
 export const SETTINGS_SECTION_TITLES: Readonly<Record<WorkflowSettingsSection, string>> = {
   "issue-details": "Issue details",
   "code-search": "Code search",
+  "git-history": "Git history",
   "build-context": "Build context",
   "fix-with-ai": "Fix with AI",
 };
@@ -73,6 +76,18 @@ export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, r
   "issue-details": ["title", "attachments", "attachmentDescriptions"],
   // What the search boosts, prefers, skips, and how much it returns.
   "code-search": ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"],
+  // Which shared guidance Git history follows, what it adds of its own, which
+  // routes it searches, how far back, and how many commits it keeps.
+  "git-history": [
+    "gitUseSharedKeywords",
+    "gitUseSharedFocusFiles",
+    "gitKeywords",
+    "gitFiles",
+    "gitSearchMessages",
+    "gitSearchFileHistory",
+    "gitHistoryDepth",
+    "gitMaxCommits",
+  ],
   // How a preparation treats the work item's previous folder.
   "build-context": ["fresh"],
   // Who the task goes to. How it is approached, and the hint it carries, are
@@ -99,6 +114,15 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
   ignorePaths: true,
   maxFiles: true,
   maxSearchLines: true,
+  // Every one of them can change the Git History section of context.md.
+  gitUseSharedKeywords: true,
+  gitUseSharedFocusFiles: true,
+  gitKeywords: true,
+  gitFiles: true,
+  gitSearchMessages: true,
+  gitSearchFileHistory: true,
+  gitHistoryDepth: true,
+  gitMaxCommits: true,
   fresh: false,
   agent: false,
   agentCommand: false,
@@ -111,6 +135,7 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
 export const SETTINGS_ACTION_LABELS: Readonly<Record<WorkflowSettingsSection, string>> = {
   "issue-details": "Configure Issue Details",
   "code-search": "Configure Code Search",
+  "git-history": "Configure Git History",
   "build-context": "Configure Build Context",
   // Fix Mode and Hint are on the main page (§37.84): this gear is the agent's.
   "fix-with-ai": "Configure AI Agent",
@@ -177,6 +202,20 @@ export function settingsSummaries(form: FormState): Partial<Record<WorkflowStepI
     limit(form.maxSearchLines, "search line"),
   ].filter((part) => part !== "");
   if (search.length > 0) summaries.codeSearch = search.join(" · ");
+
+  const routesOff = !form.gitSearchMessages && !form.gitSearchFileHistory;
+  const history = [
+    counted(parseKeywords(form.gitKeywords).length, "commit keyword"),
+    counted(parsePaths(form.gitFiles).length, "additional file"),
+    form.gitUseSharedKeywords ? "" : "shared keywords off",
+    form.gitUseSharedFocusFiles ? "" : "shared focus files off",
+    routesOff ? "both searches off" : "",
+    !routesOff && !form.gitSearchMessages ? "commit search off" : "",
+    !routesOff && !form.gitSearchFileHistory ? "file history off" : "",
+    form.gitHistoryDepth === "broader" ? "broader history" : "",
+    limit(form.gitMaxCommits, "commit"),
+  ].filter((part) => part !== "");
+  if (history.length > 0) summaries.gitHistory = history.join(" · ");
 
   if (form.fresh) summaries.buildContext = "Deletes previous artifacts first";
 

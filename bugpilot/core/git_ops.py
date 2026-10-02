@@ -12,7 +12,11 @@ def command_available(command: str) -> bool:
     return shutil.which(command) is not None
 
 
-def run_command(args: list[str], cwd: Path) -> tuple[int, str]:
+#: What :func:`run_command` returns for a command that outlived its ``timeout``.
+TIMEOUT_EXIT_CODE = 124
+
+
+def run_command(args: list[str], cwd: Path, timeout: float | None = None) -> tuple[int, str]:
     try:
         completed = subprocess.run(
             args,
@@ -22,9 +26,13 @@ def run_command(args: list[str], cwd: Path) -> tuple[int, str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             check=False,
+            timeout=timeout,
         )
     except FileNotFoundError:
         return 127, f"{args[0]} command not found"
+    except subprocess.TimeoutExpired:
+        # The argv is not echoed: a git search carries the developer's keywords.
+        return TIMEOUT_EXIT_CODE, f"{args[0]} timed out"
     return completed.returncode, completed.stdout.strip()
 
 
@@ -81,51 +89,6 @@ def artifact_directories_ignored(repo_root: Path) -> dict[str, bool] | None:
         directory: run_command(["git", "check-ignore", "-q", f"{directory}/probe"], repo_root)[0] == 0
         for directory in ARTIFACT_DIRECTORIES
     }
-
-
-def generate_git_context(repo_root: Path, issue_key: str, related_files: list[str] | None = None) -> str:
-    """Branch, status and recent commits for the files the search ranked highest.
-
-    ``related_files`` comes from the retrieval the caller already holds, so this
-    reads no artifact of its own.
-    """
-    lines = [f"# Git Context: {issue_key}", ""]
-    if not command_available("git"):
-        lines.extend(["## Warning", "", "git command is not available."])
-        return "\n".join(lines).rstrip() + "\n"
-    if not inside_git_repo(repo_root):
-        lines.extend(["## Warning", "", "Current directory is not inside a git repository."])
-        return "\n".join(lines).rstrip() + "\n"
-
-    status = working_tree_status(repo_root) or "unknown"
-    clean = status == "clean"
-    lines.extend(
-        [
-            "## Repository",
-            "",
-            f"- Current branch: {current_branch(repo_root) or 'unknown'}",
-            f"- Working tree: {'clean' if clean else 'dirty'}",
-            "",
-            "## Status",
-            "",
-            "```text",
-            status,
-            "```",
-            "",
-            "## Recent Commits For Related Files",
-            "",
-        ]
-    )
-
-    related_files = related_files or []
-    if not related_files:
-        lines.append("_No related files available yet._")
-    for file_name in related_files:
-        code, output = run_command(["git", "log", "--oneline", "-n", "5", "--", file_name], repo_root)
-        lines.extend([f"### {file_name}", "", "```text"])
-        lines.append(output if code == 0 and output else "No recent commits found.")
-        lines.extend(["```", ""])
-    return "\n".join(lines).rstrip() + "\n"
 
 
 def branch_name(issue_key: str, description: str | None = None) -> str:

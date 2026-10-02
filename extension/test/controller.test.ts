@@ -19,6 +19,7 @@ import type { FixModeRequest } from "../src/app/controller.ts";
 import type { PayloadCommandRequest } from "../src/app/fixModeTransport.ts";
 
 import { REVIEW_NEXT_STEP } from "../src/app/workflow.ts";
+import { SETTINGS_SECTION_OF_STEP } from "../src/app/workflowSettings.ts";
 import { MAX_REVIEW_OUTPUT } from "../src/app/reviewOutput.ts";
 import { CLAUDE_CAPTURED_REVIEW } from "../src/app/agents.ts";
 import type { InstalledExtension, LastAgentStore } from "../src/app/agents.ts";
@@ -30,8 +31,9 @@ import { parseVerificationReport } from "../src/app/verificationReport.ts";
 import type { WorkflowStepId, WorkflowStepResult } from "../src/app/workflow.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
 import { GITIGNORE_ACTION_NAME, GITIGNORE_FAILED } from "../src/app/controller.ts";
+import { SUPPORTING_FILE_MISSING, SUPPORTING_FILE_NOT_A_FILE, SUPPORTING_FILE_UNCHECKED } from "../src/app/controller.ts";
 import { SESSION_FEEDBACK_MS } from "../src/app/controller.ts";
-import type { GitignoreDocument, GitignoreIo } from "../src/app/gitignore.ts";
+import type { GitignoreDocument, GitignoreEntry, GitignoreIo } from "../src/app/gitignore.ts";
 
 /**
  * One workflow row of a pushed state.
@@ -2760,6 +2762,247 @@ test("a finished run reports what it produced, each on the row that produced it"
   // A task ready to hand over is `ready`, never the green tick.
   assert.equal(fixRow(state).status, "ready");
   assert.equal(canFix(state), true);
+});
+
+// --- Git History v2, Batch 3: the row reads the structured record ---------------
+
+const gitRowOf = (state: PanelState) => stepOf(state, "gitHistory");
+
+/** A `retrieval.json` with Code search's lists and a Git history section of `count` commits. */
+function retrievalWithHistory(count: number, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    ...JSON.parse(retrievalJson({ related_files: [{ file: "a.cpp" }, { file: "b.cpp" }], terms: [{ value: "x" }] })),
+    git_history: {
+      schema_version: 1,
+      status: "completed",
+      search: { commit_message_search: true, file_history_search: true, history_depth: "recent", max_related_commits: 10 },
+      summary: { candidate_count: 9, related_commit_count: count, incomplete: false, failed_lookup_count: 0 },
+      commits: Array.from({ length: count }, (_, index) => ({
+        hash: String(index).repeat(40),
+        short_hash: String(index).repeat(10),
+        subject: `Commit ${index}`,
+        date: "2026-01-01",
+        score: 30,
+        matched_terms: [{ value: "poststack", source: "shared_keyword" }],
+        files: [{ path: "src/a.cpp", source: "code_search_ranked_file" }],
+        reasons: ["matched shared keyword: poststack"],
+      })),
+      warnings: [],
+      ...extra,
+    },
+  });
+}
+
+test("a finished run reports Git history from its structured record", async () => {
+  const h = harness({ events: successfulRun, directory: ["task.md", "context.md", "retrieval.json"], files: { "retrieval.json": retrievalWithHistory(3) } });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  const row = gitRowOf(h.last());
+  assert.equal(row.statusText, "Completed");
+  assert.equal(row.summary, "3 related commits found");
+  assert.deepEqual(row.gitHistory?.commits.map((commit) => commit.subject), ["Commit 0", "Commit 1", "Commit 2"]);
+  // One read of the file, two projections that agree with it.
+  assert.equal(codeRow(h.last()).summary, "1 term · 2 relevant files");
+  // The gear Batch 2 added is still on the row's model.
+  assert.equal(SETTINGS_SECTION_OF_STEP.gitHistory, "git-history");
+});
+
+test("a partial record says so on the row", async () => {
+  const h = harness({
+    events: successfulRun,
+    directory: ["task.md", "context.md", "retrieval.json"],
+    files: { "retrieval.json": retrievalWithHistory(6, { summary: { incomplete: true, failed_lookup_count: 1 } }) },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  assert.equal(gitRowOf(h.last()).summary, "6 related commits found · Some lookups incomplete");
+});
+
+test("a work item prepared before the record existed, or with one that cannot be read, says Completed", async () => {
+  for (const text of [
+    retrievalJson({ related_files: [{ file: "a.cpp" }], terms: [{ value: "x" }] }),
+    retrievalWithHistory(2, { schema_version: 99 }),
+    retrievalWithHistory(2, { status: "exploded" }),
+    JSON.stringify({ ...JSON.parse(retrievalJson({ related_files: [{ file: "a.cpp" }] })), git_history: "{ not json" }),
+  ]) {
+    const h = harness({ events: successfulRun, directory: ["task.md", "context.md", "retrieval.json"], files: { "retrieval.json": text } });
+    await h.controller.refreshEnvironment();
+    await h.controller.run(jiraForm());
+    const row = gitRowOf(h.last());
+    assert.equal(row.statusText, "Completed");
+    assert.equal(row.summary, "", "a count was invented");
+    assert.equal(row.gitHistory, undefined);
+    // And the rest of the workflow is untouched by it.
+    assert.match(codeRow(h.last()).summary, /relevant file/);
+    assert.ok(reportsContext(h.last()));
+  }
+});
+
+test("supporting files reach the Git history row, and never Code search's Relevant files", async () => {
+  const supporting = [
+    { path: "src/stack/StackInputModel.cpp", source: "git_history", score: 22, change: "modified", commit_hashes: ["0".repeat(40), "1".repeat(40)], reasons: ["changed in 2 related commits"] },
+  ];
+  const h = harness({
+    events: successfulRun,
+    directory: ["task.md", "context.md", "retrieval.json"],
+    files: { "retrieval.json": retrievalWithHistory(2, { supporting_files: supporting }) },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  const row = gitRowOf(h.last());
+  assert.equal(row.summary, "2 related commits found · 1 supporting file");
+  assert.deepEqual(row.gitHistory?.supportingFiles, [
+    { path: "src/stack/StackInputModel.cpp", name: "StackInputModel.cpp", detail: "Changed in 2 related commits" },
+  ]);
+  assert.deepEqual(codeRow(h.last()).search?.files.map((file) => file.path), ["a.cpp", "b.cpp"]);
+  // Opened through its own checked open; with no stat port, as before.
+  await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+  assert.match(h.opened.at(-1) ?? "", /StackInputModel\.cpp$/);
+});
+
+// --- Supporting files: the open checks the current checkout (post-v2 hardening) ---------
+
+/** The checkout as the stat port sees it: each repository path's entry (missing if unnamed), or a throw. */
+function checkout(entries: Readonly<Record<string, GitignoreEntry | Error>>) {
+  const asked: string[] = [];
+  const io: GitignoreIo = {
+    document: () => undefined,
+    stat: async (file) => {
+      asked.push(file);
+      const entry = entries[nodePath.relative(ROOT, file).split(nodePath.sep).join("/")] ?? "missing";
+      if (entry instanceof Error) throw entry;
+      return entry;
+    },
+    read: async () => {
+      throw new Error("an open reads nothing");
+    },
+    write: async () => {
+      throw new Error("an open writes nothing");
+    },
+  };
+  return { io, asked };
+}
+
+const SUPPORTING = [
+  { path: "src/stack/StackInputModel.cpp", source: "git_history", score: 22, change: "modified", commit_hashes: ["0".repeat(40), "1".repeat(40)], reasons: ["changed in 2 related commits"] },
+];
+
+async function withSupportingFiles(entries: Readonly<Record<string, GitignoreEntry | Error>>) {
+  const disk = checkout(entries);
+  const h = harness({
+    events: successfulRun,
+    directory: ["task.md", "context.md", "retrieval.json"],
+    files: { "retrieval.json": retrievalWithHistory(2, { supporting_files: SUPPORTING }) },
+    gitignore: disk.io,
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  return { h, asked: disk.asked };
+}
+
+test("a supporting file still in the checkout opens", async () => {
+  const { h, asked } = await withSupportingFiles({ "src/stack/StackInputModel.cpp": "file" });
+  await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+  const target = nodePath.resolve(ROOT, "src/stack/StackInputModel.cpp");
+  assert.deepEqual(asked, [target]);
+  assert.deepEqual(h.opened, [target]);
+  assert.deepEqual(h.notices, []);
+});
+
+test("a supporting file gone from the checkout is not opened, says so, and stays listed", async () => {
+  const { h } = await withSupportingFiles({});
+  const before = { state: JSON.stringify(h.last()), states: h.states.length, written: h.written.length, runs: h.streamRuns.length + h.jsonRuns.length };
+
+  await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+
+  assert.deepEqual(h.opened, [], "a missing file was handed to the editor");
+  assert.deepEqual(h.notices, [{ kind: "warning", message: SUPPORTING_FILE_MISSING }]);
+  assert.equal(SUPPORTING_FILE_MISSING, "This file is no longer in the current checkout.");
+  // Evidence from when the run was made: nothing re-rendered, rewritten or rerun,
+  // and the row still lists it.
+  assert.deepEqual(
+    { state: JSON.stringify(h.last()), states: h.states.length, written: h.written.length, runs: h.streamRuns.length + h.jsonRuns.length },
+    before,
+  );
+  assert.deepEqual(gitRowOf(h.last()).gitHistory?.supportingFiles?.map((file) => file.path), ["src/stack/StackInputModel.cpp"]);
+});
+
+test("a directory, or a symbolic link, is not opened as a supporting file", async () => {
+  for (const entry of ["other", "symlink"] as const) {
+    const { h } = await withSupportingFiles({ "src/stack/StackInputModel.cpp": entry });
+    await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+    assert.deepEqual(h.opened, [], entry);
+    assert.deepEqual(h.notices, [{ kind: "warning", message: SUPPORTING_FILE_NOT_A_FILE }], entry);
+  }
+});
+
+test("a stat that fails does not crash the panel, and opens nothing", async () => {
+  const { h } = await withSupportingFiles({ "src/stack/StackInputModel.cpp": new Error("EACCES: permission denied") });
+  await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+  assert.deepEqual(h.opened, []);
+  assert.deepEqual(h.notices, [{ kind: "warning", message: SUPPORTING_FILE_UNCHECKED }]);
+  assert.ok(h.logged.some((line) => /^ERROR Could not check a supporting file: EACCES/.test(line)));
+  // And the panel goes on answering.
+  await h.controller.handle({ type: "openRelevantFile", path: "a.cpp" });
+  assert.deepEqual(h.opened, [nodePath.resolve(ROOT, "a.cpp")]);
+});
+
+test("an unsafe supporting path is refused before the disk is asked", async () => {
+  const { h, asked } = await withSupportingFiles({});
+  for (const escape of ["../../outside.txt", "src/../../outside.txt", "/etc/passwd", "C:/Windows/win.ini", ".."]) {
+    await h.controller.openSupportingFile(escape);
+  }
+  assert.deepEqual(asked, [], "a path outside the repository reached the stat");
+  assert.deepEqual(h.opened, []);
+  assert.equal(h.logged.filter((line) => /Refusing to open/.test(line)).length, 5, "a refusal went unlogged");
+});
+
+test("a Relevant file opens as before: Code Search's list is never checked against the disk", async () => {
+  // The stat port is there and says missing; a Relevant file is still handed
+  // straight to the editor, exactly as before the supporting-file check.
+  const { h, asked } = await withSupportingFiles({});
+  await h.controller.handle({ type: "openRelevantFile", path: "a.cpp" });
+  assert.deepEqual(h.opened, [nodePath.resolve(ROOT, "a.cpp")]);
+  assert.deepEqual(asked, []);
+  assert.deepEqual(h.notices, []);
+});
+
+test("rendering supporting files asks the disk nothing", async () => {
+  const { h, asked } = await withSupportingFiles({});
+  await h.controller.handle({ type: "ready" });
+  assert.equal(gitRowOf(h.last()).gitHistory?.supportingFiles?.length, 1);
+  assert.deepEqual(asked, [], "a render stat'ed a supporting file");
+});
+
+test("a Batch 3 record without supporting files still reads", async () => {
+  const h = harness({ events: successfulRun, directory: ["task.md", "context.md", "retrieval.json"], files: { "retrieval.json": retrievalWithHistory(2) } });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  const row = gitRowOf(h.last());
+  assert.equal(row.summary, "2 related commits found");
+  assert.equal(row.gitHistory?.supportingFiles, undefined);
+});
+
+test("mid-run, Git history never shows the previous run's commits", async () => {
+  const h = harness({
+    hold: true,
+    events: successfulRun,
+    directory: ["task.md", "context.md", "retrieval.json"],
+    files: { "retrieval.json": retrievalWithHistory(4) },
+  });
+  await h.controller.refreshEnvironment();
+  const running = h.controller.run(jiraForm());
+  await Promise.resolve();
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+
+  const row = gitRowOf(h.last());
+  assert.equal(row.gitHistory, undefined, "a previous run's commits were offered mid-run");
+  assert.equal(/related commit/.test(row.summary), false);
+  h.release();
+  await running;
+  assert.equal(gitRowOf(h.last()).summary, "4 related commits found");
 });
 
 test("counts are omitted, not guessed, when the retrieval cannot be read", async () => {
@@ -7771,6 +8014,84 @@ test("settings 9: an applied preparation input makes the context stale, and the 
   assert.equal(h.saved.at(-1)?.keywords, "VolumeDescriptor, outputType");
   assert.equal(h.streamRuns.length, 1, "applying settings started a run");
   assert.equal(h.terminals.length, 0, "applying settings started an agent");
+});
+
+const gitRow = (state: PanelState) => stepOf(state, "gitHistory");
+
+test("settings 9b: every applied Git History Setting makes the context stale, and none starts a run", async () => {
+  for (const change of [
+    { gitUseSharedKeywords: false },
+    { gitUseSharedFocusFiles: false },
+    { gitKeywords: "stackmerge" },
+    { gitFiles: "src/legacy/" },
+    { gitSearchMessages: false },
+    { gitSearchFileHistory: false },
+    { gitHistoryDepth: "broader" as const },
+    { gitMaxCommits: "5" },
+  ]) {
+    const h = await preparedHarness();
+    assert.equal(h.last().primary.action, "fixWithAI");
+    assert.equal(gitRow(h.last()).settingsSummary, undefined, "a Git history row at its defaults said something");
+    await h.controller.handle(applySettings(jiraForm(change)));
+    assert.equal(h.last().primary.action, "rebuildContext", `${JSON.stringify(change)} left the context current`);
+    assert.equal(h.last().primary.label, "Rebuild Context");
+    assert.notEqual(gitRow(h.last()).settingsSummary, undefined, `${JSON.stringify(change)} has no summary`);
+    // Saved like any form change, so a reloaded window keeps it.
+    const key = Object.keys(change)[0] as keyof FormState;
+    assert.deepEqual(h.saved.at(-1)?.[key], change[key as keyof typeof change]);
+    // Applying is not rebuilding: nothing ran, nothing was handed over.
+    assert.equal(h.streamRuns.length, 1, `${JSON.stringify(change)} started a run`);
+    assert.equal(h.terminals.length, 0);
+  }
+});
+
+test("settings 9c: changing the AI Agent beside Git History Settings still leaves the context current", async () => {
+  const h = await preparedHarness();
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude-cli", agentCommand: "" })));
+  assert.equal(h.last().primary.action, "fixWithAI");
+  // And a Git History change with it is still stale, on its own account.
+  await h.controller.handle(applySettings(jiraForm({ agent: "claude-cli", gitMaxCommits: "3" })));
+  assert.equal(h.last().primary.action, "rebuildContext");
+});
+
+test("settings 9d: Rebuild Context runs with the applied Git History Settings, and Code search's inputs as they were", async () => {
+  const h = await preparedHarness();
+  const edited = jiraForm({
+    keywords: "poststack",
+    focusFiles: "src/Focus.cpp",
+    gitKeywords: "stackmerge",
+    gitFiles: "src/Legacy.cpp",
+    gitUseSharedKeywords: false,
+    gitHistoryDepth: "broader",
+    gitMaxCommits: "5",
+  });
+  await h.controller.handle(applySettings(edited));
+  await h.controller.handle(next("rebuildContext", edited));
+
+  assert.equal(h.streamRuns.length, 2);
+  const args = h.streamRuns[1]!.args;
+  for (const expected of [
+    "--git-keyword=stackmerge",
+    "--git-file=src/Legacy.cpp",
+    "--git-no-shared-keywords",
+    "--git-history-depth=broader",
+    "--git-max-commits=5",
+    "--resume",
+  ]) {
+    assert.ok(args.includes(expected), `${expected} missing from the rebuild`);
+  }
+  // Code search gets its own keywords and focus files, and none of Git history's.
+  assert.deepEqual(args.filter((arg) => arg.startsWith("--keywords=")), ["--keywords=poststack"]);
+  assert.deepEqual(args.filter((arg) => arg.startsWith("--focus-file=")), ["--focus-file=src/Focus.cpp"]);
+});
+
+test("settings 9e: a shared Keyword change is stale whether or not Git history uses it", async () => {
+  // One context-wide stale state: Code search reads the Keywords either way.
+  const h = await preparedHarness();
+  await h.controller.handle(applySettings(jiraForm({ gitUseSharedKeywords: false })));
+  await h.controller.handle(next("rebuildContext", jiraForm({ gitUseSharedKeywords: false })));
+  await h.controller.handle(applySettings(jiraForm({ gitUseSharedKeywords: false, keywords: "poststack" })));
+  assert.equal(h.last().primary.action, "rebuildContext");
 });
 
 test("settings 10: an applied agent, Fresh or hint-reading choice leaves the context current", async () => {

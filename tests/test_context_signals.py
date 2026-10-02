@@ -16,7 +16,8 @@ import json
 
 from bugpilot.core.context import _caution_markdown, _quality_score
 from bugpilot.core.issue import IssueArtifact, IssueDetails
-from bugpilot.core.retrieval import RelatedFile, RetrievalArtifact
+from bugpilot.core.git_history import GitHistoryOutcome, RepositoryState
+from bugpilot.core.retrieval import GitHistoryRecord, RelatedFile, RetrievalArtifact
 
 
 def _issue(title: str = "", description: str = "", **details: str) -> IssueArtifact:
@@ -62,7 +63,8 @@ TEN_LOW_VALUE_FILES = tuple(
 
 LOW_QUALITY = "low"
 HIGH_QUALITY = "high"
-GIT = "## Recent Commits\n\n- abc123 something"
+#: A Git history step that ran in a repository (Batch 3: the structured outcome, not Markdown).
+GIT = GitHistoryOutcome("JR-12345", GitHistoryRecord("completed"), RepositoryState("main", True, "clean"))
 NO_MEMORY = "No similar memory entries found."
 
 

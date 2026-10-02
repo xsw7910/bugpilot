@@ -618,9 +618,18 @@ label {
 /* The custom agent command's label is the one name too long for a 200px
    sidebar: `flex: none` held it at its full width, 3px past the panel, and gave
    the page a horizontal scrollbar whenever Custom command was chosen (seen in
-   the real window, §37.94). Only this label may wrap: letting every label
-   shrink wrapped "Focus Files (optional)", which fits exactly, on rounding. */
+   the real window, §37.94). Only this label and the one below may wrap:
+   letting every label shrink wrapped "Focus Files (optional)", which fits
+   exactly, on rounding. */
 #field-agentCommand .setting-header > label {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* "Additional commit keywords" (Git History Settings) is the second name too
+   long for a 200px sidebar: 191px against a 182px panel, measured in the real
+   window, and the page scrolled sideways until it could wrap. */
+#field-gitKeywords .setting-header > label {
   flex: 0 1 auto;
   min-width: 0;
 }
@@ -1221,6 +1230,49 @@ button.icon .codicon {
 
 .term-meta,
 .term-origin {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Related commits, under Git history: the same typography as Search details —
+ * a record to scan, not a card per commit. A subject is free text and a path
+ * a monorepo's, so both may break anywhere rather than widen a 200px panel.
+ */
+.commits {
+  margin-top: 2px;
+}
+
+.commits[hidden] {
+  display: none;
+}
+
+.commit-row {
+  padding: 3px 0;
+}
+
+.commit-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The short hash: quieter, monospace, and never split from itself. An inline
+   block, because the hash and the subject are two spans with no space between
+   them: inline, "ec83583635Rename" was one unbreakable run, and at 200px
+   `overflow-wrap: anywhere` split the subject's first word in two (measured in
+   the real window). As an atomic inline it ends a line cleanly instead. */
+.commit-hash {
+  display: inline-block;
+  margin-right: 6px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.commit-meta {
   margin: 0;
   color: var(--vscode-descriptionForeground);
   font-size: 0.9em;

@@ -24,6 +24,7 @@ from bugpilot.core.memory import build_memory_entry, search_memory
 from bugpilot.core.prompts import _fallback_team_instructions, copilot_team_instructions
 from bugpilot.core.retrieval import RelatedFile, RetrievalArtifact, save_retrieval
 from bugpilot.core.search import INCLUDE_GLOBS, _noise_flags, run_code_search
+from bugpilot.core.git_history import render_git_context
 from bugpilot.core.workflow import copilot_task_step, git_context_step, run_bug_workflow
 
 # The issue-stage files `issue.json` replaced. Normal execution writes none of them.
@@ -539,7 +540,7 @@ def test_memory_search_with_no_memory_entries_writes_no_results(tmp_path):
 
 
 def test_git_context_outside_git_repo_does_not_crash(tmp_path):
-    text = git_context_step(tmp_path, "JR-12345")
+    text = render_git_context(git_context_step(tmp_path, "JR-12345"))
 
     assert "Current directory is not inside a git repository" in text
     assert not (tmp_path / ".ai" / "JR-12345" / "git_context.md").exists()

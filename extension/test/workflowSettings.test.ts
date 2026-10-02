@@ -42,8 +42,8 @@ test("the gears map rows to sections one to one, and a section is titled by its 
   const steps = Object.keys(SETTINGS_SECTION_OF_STEP);
   for (const step of steps) assert.ok((WORKFLOW_STEP_IDS as readonly string[]).includes(step), step);
   assert.deepEqual(Object.values(SETTINGS_SECTION_OF_STEP), [...WORKFLOW_SETTINGS_SECTIONS]);
-  // No gear where there is nothing to configure.
-  assert.equal(SETTINGS_SECTION_OF_STEP.gitHistory, undefined);
+  // No gear where there is nothing to configure. Git history has one now.
+  assert.equal(SETTINGS_SECTION_OF_STEP.gitHistory, "git-history");
   assert.equal(SETTINGS_SECTION_OF_STEP.similarFixes, undefined);
   for (const [step, section] of Object.entries(SETTINGS_SECTION_OF_STEP)) {
     assert.equal(SETTINGS_SECTION_TITLES[section], STEP_LABELS[step as keyof typeof STEP_LABELS]);
@@ -63,6 +63,14 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   fresh: { fresh: true },
   agent: { agent: "claude-cli" },
   agentCommand: { agentCommand: "my-agent {prompt}" },
+  gitUseSharedKeywords: { gitUseSharedKeywords: false },
+  gitUseSharedFocusFiles: { gitUseSharedFocusFiles: false },
+  gitKeywords: { gitKeywords: "stackmerge" },
+  gitFiles: { gitFiles: "src/legacy/" },
+  gitSearchMessages: { gitSearchMessages: false },
+  gitSearchFileHistory: { gitSearchFileHistory: false },
+  gitHistoryDepth: { gitHistoryDepth: "broader" },
+  gitMaxCommits: { gitMaxCommits: "5" },
 };
 
 test("the page's 'requires rebuild' words are the host's staleness rule, field by field", () => {
@@ -83,6 +91,7 @@ test("the page's 'requires rebuild' words are the host's staleness rule, field b
 test("a section says once whether its changes need a rebuild; no section is mixed any more", () => {
   assert.equal(sectionRebuildNote("issue-details"), "Changes here require rebuilding context.");
   assert.equal(sectionRebuildNote("code-search"), "Changes here require rebuilding context.");
+  assert.equal(sectionRebuildNote("git-history"), "Changes here require rebuilding context.");
   assert.equal(sectionRebuildNote("build-context"), "Changes here apply to the next run and do not require rebuilding context.");
   // The agent and its command: which agent, never what it is given.
   assert.equal(sectionRebuildNote("fix-with-ai"), "Changes here apply to the next run and do not require rebuilding context.");

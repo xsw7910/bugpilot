@@ -11,6 +11,7 @@ sub-documents' own headings sit one level below it.
 from __future__ import annotations
 
 from .artifacts import RETRIEVAL_ARTIFACT, TASK_ARTIFACT
+from .git_history import GitHistoryOutcome, render_git_context
 from .issue import IssueArtifact
 from .jira import COMMENT_SIGNAL_TERMS
 from .retrieval import RelatedFile, RetrievalArtifact
@@ -20,7 +21,7 @@ def build_context(
     issue: IssueArtifact,
     keywords: dict[str, object],
     retrieval: RetrievalArtifact | None,
-    git_history: str | None = None,
+    git_history: GitHistoryOutcome | None = None,
     similar_fixes: str | None = None,
 ) -> str:
     """The context document.
@@ -28,9 +29,12 @@ def build_context(
     ``retrieval`` is ``None`` when the search did not run, ``git_history`` and
     ``similar_fixes`` when those steps did not; each dependent section then says
     so instead of guessing. The two text results are what
-    ``git_ops.generate_git_context`` and ``memory.search_memory`` return.
+    Git history arrives as the structured outcome the Git history step
+    produced — the same record it wrote into ``retrieval.json`` — and is rendered
+    by ``git_history.render_git_context``, the one renderer of the commit list;
+    similar fixes as the Markdown ``memory.search_memory`` returns.
     """
-    quality, signals = _quality_score(issue, keywords, retrieval, similar_fixes or "", git_history or "")
+    quality, signals = _quality_score(issue, keywords, retrieval, similar_fixes or "", git_history)
     return (
         f"# Bug Context: {issue.id}\n\n"
         "## Scope\n\n"
@@ -326,10 +330,10 @@ def _similar_fixes_markdown(similar_fixes: str | None) -> str:
     return _section_excerpt(similar_fixes, "## Similar Historical Issues") or "No similar memory entries found."
 
 
-def _git_history_markdown(git_history: str | None) -> str:
+def _git_history_markdown(git_history: GitHistoryOutcome | None) -> str:
     if git_history is None:
         return "_Git context has not been generated yet._"
-    return _demote(git_history)
+    return _demote(render_git_context(git_history))
 
 
 def _section_excerpt(markdown: str, heading: str, max_lines: int = 12) -> str:
@@ -400,7 +404,7 @@ def _quality_score(
     keywords: dict[str, object],
     retrieval: RetrievalArtifact | None,
     memory_search: str,
-    git_context: str,
+    git_context: GitHistoryOutcome | None,
 ) -> tuple[int, list[str]]:
     confidence = retrieval.confidence.lower() if retrieval is not None else "low"
     file_count = len(retrieval.related_files) if retrieval is not None else 0
@@ -411,7 +415,7 @@ def _quality_score(
         # good news even when every file on the list is a generic-word match.
         f"Related files found: {file_count} (search confidence: {confidence})",
         f"Memory search results found: {'yes' if memory_search and 'No similar memory entries found.' not in memory_search else 'no'}",
-        f"Git context available: {'yes' if git_context and '## Warning' not in git_context else 'no'}",
+        f"Git context available: {'yes' if _git_available(git_context) else 'no'}",
     ]
     score = 20
     if issue.description:
@@ -422,6 +426,11 @@ def _quality_score(
         score += _RELATED_FILE_POINTS.get(confidence, 4)
     if memory_search and "No similar memory entries found." not in memory_search:
         score += 10
-    if git_context and "## Warning" not in git_context:
+    if _git_available(git_context):
         score += 5
     return min(score, 100), signals
+
+
+def _git_available(git_context: GitHistoryOutcome | None) -> bool:
+    """The step ran in a repository git could read — whatever it then found."""
+    return git_context is not None and git_context.record.status != "unavailable"

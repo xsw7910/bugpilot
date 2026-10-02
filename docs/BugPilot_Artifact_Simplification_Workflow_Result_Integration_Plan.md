@@ -259,6 +259,14 @@ The conceptual structure above was checked against the real pipeline. What
    data to persist, so §9 and §10's `retrieval.json.git_history` /
    `.similar_fixes` wait until one does. Nothing is fabricated for the UI.
 
+   *Follow-up (2026-10-01, Git History Retrieval v2 Batch 3):* Git history now
+   has structured data, and it is stored where this section reserved it —
+   `retrieval.json.git_history` (its own `schema_version: 1`), written by the
+   Git history step; still no `git_history.json`, and the prepare contract is
+   still five files. `similar_fixes` still waits. The Git history row reads the
+   section ("N related commits found", Related commits); `context.md` is
+   rendered from the same record and never parsed.
+
 ---
 
 ## 4.3 Context 类

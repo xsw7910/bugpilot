@@ -26,6 +26,9 @@ const SAFE_VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--fix-mode",
   "--max-files",
   "--max-search-lines",
+  // A choice and a count: neither is anything the developer typed in prose.
+  "--git-history-depth",
+  "--git-max-commits",
   "--description-file",
 ]);
 

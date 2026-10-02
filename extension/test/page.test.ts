@@ -29,6 +29,7 @@ import { buildWorkflow, overallStatus } from "../src/app/workflow.ts";
 import { primaryView } from "../src/app/nextAction.ts";
 import type { NextActionInput } from "../src/app/nextAction.ts";
 import type { SearchContent, WorkflowInput, WorkflowStepResult } from "../src/app/workflow.ts";
+import type { GitHistoryResult } from "../src/app/gitHistory.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
 import type { ProgressView } from "../src/app/progress.ts";
 
@@ -3851,6 +3852,139 @@ test("the order is the host's, and grouping keeps it inside each group", () => {
     .map((row) => row.children[0]!.children[0]!.textContent);
   // z before a, readme before design: the artifact's order, partitioned.
   assert.deepEqual(names, ["z.cpp", "a.cpp", "readme.md", "design.md"]);
+});
+
+// --- Git history: Related commits (Git History v2, Batch 3) ---------------
+
+const HOSTILE = `<script>alert("x")</script> & 'q' < > — 日本語 ü`;
+
+/** A Git history record as `gitHistory.ts` reads one, with these commits. */
+function withCommits(
+  commits: GitHistoryResult["commits"],
+  supportingFiles: GitHistoryResult["supportingFiles"] = [],
+): Partial<WorkflowInput> {
+  return { gitHistory: { status: "completed", incomplete: false, commits, supportingFiles } };
+}
+
+const COMMIT = {
+  hash: "a".repeat(40),
+  shortHash: "aaaaaaaaaa",
+  subject: "Add poststack support to Angle Stack",
+  date: "2026-03-01",
+  terms: [{ value: "poststack", source: "shared_keyword" as const }],
+  files: [
+    { path: "src/stack/AngleStack.cpp", source: "shared_focus_file" as const },
+    { path: "src/select/VolumeSelector.cpp", source: "code_search_ranked_file" as const },
+  ],
+};
+
+test("Related commits does not exist before a run, nor for a work item without a record", () => {
+  const p = load();
+  p.send(state());
+  assert.equal(p.byId("related-commits").hidden, true);
+  p.send(prepared());
+  assert.equal(p.byId("related-commits").hidden, true, "a legacy work item showed a list");
+  assert.equal(p.byId("related-commits-list").children.length, 0);
+});
+
+test("a record with no commits hides the list; the summary line says none were found", () => {
+  const p = load();
+  p.send(prepared(withCommits([])));
+  assert.equal(p.byId("related-commits").hidden, true);
+});
+
+test("each commit is a row: the short hash and subject, then what matched, what changed and why", () => {
+  const p = load();
+  p.send(prepared(withCommits([COMMIT, { ...COMMIT, hash: "b".repeat(40), shortHash: "bbbbbbbbbb", subject: "Second", terms: [], files: [] }])));
+
+  assert.equal(p.byId("related-commits").hidden, false);
+  // Collapsed: the summary line is the answer, the list is for looking.
+  assert.equal(p.byId("related-commits").open, false);
+  const rows = p.byId("related-commits-list").children;
+  assert.deepEqual(rows.map((row) => row.className), ["commit-row", "commit-row"]);
+  const [title, matched, changed, why] = rows[0]!.children;
+  assert.deepEqual(title!.children.map((span) => [span.className, span.textContent]), [
+    ["commit-hash", "aaaaaaaaaa"],
+    ["commit-subject", "Add poststack support to Angle Stack"],
+  ]);
+  assert.equal(matched!.textContent, "Matched: poststack");
+  assert.equal(changed!.textContent, "Changed: AngleStack.cpp, VolumeSelector.cpp");
+  assert.equal(changed!.getAttribute("title"), "src/stack/AngleStack.cpp\nsrc/select/VolumeSelector.cpp");
+  assert.equal(why!.textContent, "Why: shared keyword · focus file · Code search file");
+  // The record's order, and a commit with nothing more to say is just its title.
+  assert.equal(rows[1]!.children.length, 1);
+  assert.equal(rows[1]!.children[0]!.children[1]!.textContent, "Second");
+  // No score anywhere on the row.
+  assert.equal(JSON.stringify(rows.map((row) => row.children.map((child) => child.textContent))).includes("135"), false);
+});
+
+test("a subject, a term or a path that looks like markup is text", () => {
+  const p = load();
+  p.send(
+    prepared(
+      withCommits([
+        { ...COMMIT, subject: HOSTILE, terms: [{ value: HOSTILE, source: "shared_keyword" }], files: [{ path: `src/${HOSTILE}.cpp`, source: "additional_file" }] },
+      ]),
+    ),
+  );
+  const [title, matched, changed] = p.byId("related-commits-list").children[0]!.children;
+  assert.equal(title!.children[1]!.textContent, HOSTILE);
+  assert.equal(matched!.textContent, `Matched: ${HOSTILE}`);
+  assert.equal(changed!.getAttribute("title"), `src/${HOSTILE}.cpp`);
+  // Built with createElement and textContent, as the guard above requires of the whole page.
+  const render = /function renderRelatedCommits[\s\S]*?\n  }\n/.exec(PAGE_SOURCE)?.[0] ?? "";
+  assert.notEqual(render, "");
+  assert.equal(/innerHTML|outerHTML|insertAdjacentHTML/.test(render), false);
+});
+
+test("a later push without commits clears the list", () => {
+  const p = load();
+  p.send(prepared(withCommits([COMMIT])));
+  assert.equal(p.byId("related-commits-list").children.length, 1);
+  p.send(prepared());
+  assert.equal(p.byId("related-commits").hidden, true);
+  assert.equal(p.byId("related-commits-list").children.length, 0);
+});
+
+test("Supporting files is hidden without any, and lists each one with its own open", () => {
+  const p = load();
+  p.send(prepared(withCommits([COMMIT])));
+  assert.equal(p.byId("supporting-files").hidden, true);
+
+  p.send(prepared(withCommits([COMMIT], [
+    { path: "src/stack/StackInputModel.cpp", change: "modified", commitCount: 2 },
+    { path: "src/Gather.cpp", change: "added", commitCount: 1 },
+  ])));
+  assert.equal(p.byId("supporting-files").hidden, false);
+  assert.equal(p.byId("supporting-files").open, false, "collapsed, like the other disclosures");
+  const rows = p.byId("supporting-files-list").children;
+  assert.deepEqual(rows.map((row) => row.className), ["file-row", "file-row"]);
+  const [button, detail] = rows[0]!.children;
+  assert.deepEqual(button!.children.map((span) => span.textContent), ["StackInputModel.cpp", "src/stack/StackInputModel.cpp"]);
+  assert.equal(detail!.textContent, "Changed in 2 related commits");
+  assert.equal(rows[1]!.children[1]!.textContent, "Changed in 1 related commit · added");
+  // Its own open, which the host checks against the checkout before opening.
+  button!.dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+  // Rendering asked nothing of the disk: the page has no way to, and posted
+  // nothing until the click.
+  assert.equal(p.posted.filter((message) => (message as { type?: string }).type === "openSupportingFile").length, 1);
+  // And Code search's list is still only Code search's.
+  assert.equal(
+    p.byId("relevant-files-list").children.some((row) => JSON.stringify(row.children.map((c) => c.textContent)).includes("StackInputModel")),
+    false,
+  );
+});
+
+test("a supporting path that looks like markup is text", () => {
+  const p = load();
+  p.send(prepared(withCommits([COMMIT], [{ path: `src/${HOSTILE}.cpp`, change: "modified", commitCount: 1 }])));
+  const [button] = p.byId("supporting-files-list").children[0]!.children;
+  assert.equal(button!.children[1]!.textContent, `src/${HOSTILE}.cpp`);
+  assert.equal(button!.getAttribute("title"), `src/${HOSTILE}.cpp`);
+  const render = /function renderSupportingFiles[\s\S]*?\n  }\n/.exec(PAGE_SOURCE)?.[0] ?? "";
+  assert.notEqual(render, "");
+  assert.equal(/innerHTML|outerHTML|insertAdjacentHTML/.test(render), false);
 });
 
 test("a click asks the host to open exactly the path the artifact gave", () => {

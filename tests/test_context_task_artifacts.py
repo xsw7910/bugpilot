@@ -225,23 +225,28 @@ def test_git_history_reaches_the_context_without_a_file_of_its_own(tmp_path):
     history = _section(_read(tmp_path, work_item, "context.md"), "## Git History")
 
     assert "- Current branch:" in history
-    assert "#### src/WidgetController.cpp" in history
-    assert "Filter the VDS output type in WidgetController" in history
+    # Git History v2: one ranked commit, with the file and the keyword that found it.
+    assert "— Filter the VDS output type in WidgetController" in history
+    assert "Relevant files:\n- `src/WidgetController.cpp`\n" in history
+    assert "matched shared keyword: WidgetController" in history
     assert not (tmp_path / ".ai" / work_item / "git_context.md").exists()
 
 
 @needs_rg
 def test_outside_a_git_repository_the_context_says_so(tmp_path, monkeypatch):
     # The working tree tmp_path sits in must not be the one that answers.
-    monkeypatch.setattr(workflow, "generate_git_context", _no_repository_git_context)
+    monkeypatch.setattr(workflow, "collect_git_history", _no_repository_git_context)
     work_item = _manual(_repo(tmp_path))
     history = _section(_read(tmp_path, work_item, "context.md"), "## Git History")
 
     assert "Current directory is not inside a git repository." in history
 
 
-def _no_repository_git_context(repo_root, issue_key, related_files=None):
-    return f"# Git Context: {issue_key}\n\n## Warning\n\nCurrent directory is not inside a git repository.\n"
+def _no_repository_git_context(repo_root, issue_key, query=None, settings=None):
+    from bugpilot.core.git_history import NOT_A_REPOSITORY_WARNING, GitHistoryOutcome
+    from bugpilot.core.retrieval import GitHistoryRecord
+
+    return GitHistoryOutcome(issue_key, GitHistoryRecord("unavailable", warnings=(NOT_A_REPOSITORY_WARNING,)))
 
 
 @needs_rg

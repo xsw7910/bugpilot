@@ -30,6 +30,17 @@ import type { AgentChoice } from "./agents.ts";
 
 export type Source = "jira" | "manual";
 
+/**
+ * History Depth's options, as `GIT_HISTORY_DEPTHS` in `bugpilot/core/models.py`
+ * spells them (`test/gitHistorySettings.test.ts` compares the two). `recent` is Batch 1's
+ * bounds; `broader` reads three times as far back per file.
+ */
+export const GIT_HISTORY_DEPTHS = ["recent", "broader"] as const;
+export type GitHistoryDepth = (typeof GIT_HISTORY_DEPTHS)[number];
+
+/** Max Related Commits' range, as `MAX_RELATED_COMMITS_LIMIT` in `models.py`. */
+export const GIT_MAX_COMMITS_LIMIT = 25;
+
 /** The five logical capabilities of §3.3, as the panel shows them. */
 export interface PlanState {
   /** Always on: this is the input, not an option. Kept for display. */
@@ -110,6 +121,26 @@ export interface FormState {
   readonly agent: AgentChoice;
   /** The command line for `agent: "custom"`, with a `{prompt}` placeholder. */
   readonly agentCommand: string;
+  // Git History Settings: how the Git history step searches. Git history's
+  // alone — Code Search reads `keywords` and `focusFiles` above, and none of
+  // these. Every default is Batch 1's behaviour, and a form at the defaults
+  // sends no flag for them, so its command line is the one it always was.
+
+  /** Git history also searches commits for `keywords`. */
+  readonly gitUseSharedKeywords: boolean;
+  /** Git history also reads the history of `focusFiles`. */
+  readonly gitUseSharedFocusFiles: boolean;
+  /** Additional Commit Keywords: comma- or newline-separated, like `keywords`. */
+  readonly gitKeywords: string;
+  /** Additional Files: newline-separated, like `focusFiles`. */
+  readonly gitFiles: string;
+  /** Search commit messages for the issue key and keywords. */
+  readonly gitSearchMessages: boolean;
+  /** Read the history of the related files. */
+  readonly gitSearchFileHistory: boolean;
+  readonly gitHistoryDepth: GitHistoryDepth;
+  /** Max Related Commits; empty means the CLI's default, as Max files does. */
+  readonly gitMaxCommits: string;
   /**
    * Delete `.ai/<work_item>/` before running.
    *
@@ -145,8 +176,21 @@ export const DEFAULT_FORM: FormState = {
   fixWithAI: false,
   agent: "auto",
   agentCommand: "",
+  gitUseSharedKeywords: true,
+  gitUseSharedFocusFiles: true,
+  gitKeywords: "",
+  gitFiles: "",
+  gitSearchMessages: true,
+  gitSearchFileHistory: true,
+  gitHistoryDepth: "recent",
+  gitMaxCommits: "",
   fresh: false,
 };
+
+/** A History Depth from anywhere outside this module: an unknown value is `recent`. */
+export function gitHistoryDepthOf(value: unknown): GitHistoryDepth {
+  return (GIT_HISTORY_DEPTHS as readonly unknown[]).includes(value) ? (value as GitHistoryDepth) : "recent";
+}
 
 /**
  * A form saved by an earlier session, as this version reads it.
@@ -162,6 +206,18 @@ export function restoreForm(saved: FormState | undefined): FormState {
     agent: migrateAgentChoice(saved.agent),
     // A form saved before descriptions existed has none.
     attachmentDescriptions: saved.attachmentDescriptions ?? {},
+    // A form saved before the Git History Settings existed gets their
+    // defaults — which are what that form's runs did. Absent means on for the
+    // four switches: reading a missing `true` as off would quietly turn a
+    // search route off for everyone who upgraded.
+    gitUseSharedKeywords: saved.gitUseSharedKeywords !== false,
+    gitUseSharedFocusFiles: saved.gitUseSharedFocusFiles !== false,
+    gitKeywords: typeof saved.gitKeywords === "string" ? saved.gitKeywords : "",
+    gitFiles: typeof saved.gitFiles === "string" ? saved.gitFiles : "",
+    gitSearchMessages: saved.gitSearchMessages !== false,
+    gitSearchFileHistory: saved.gitSearchFileHistory !== false,
+    gitHistoryDepth: gitHistoryDepthOf(saved.gitHistoryDepth),
+    gitMaxCommits: typeof saved.gitMaxCommits === "string" ? saved.gitMaxCommits : "",
   };
 }
 
@@ -184,7 +240,10 @@ export type FormField =
   | "maxFiles"
   | "maxSearchLines"
   | "agentCommand"
-  | "fixModeId";
+  | "fixModeId"
+  | "gitKeywords"
+  | "gitFiles"
+  | "gitMaxCommits";
 
 /** A problem attached to the field that caused it, so the UI can show it there. */
 export interface FieldProblem {
@@ -441,6 +500,9 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   for (const [field, name, text] of [
     ["focusFiles", "--focus-file", form.focusFiles],
     ["ignorePaths", "--ignore-path", form.ignorePaths],
+    // Git history's own files: the same rule as a Focus File, since they are
+    // the same kind of path read the same way.
+    ["gitFiles", "--git-file", form.gitFiles],
   ] as const) {
     for (const entry of parsePaths(text)) {
       if (path.isAbsolute(entry) && !isWithin(options.root, entry, options.platform)) {
@@ -458,6 +520,8 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
 
   pushNumber(form.maxFiles, "maxFiles", "--max-files", problems, args);
   pushNumber(form.maxSearchLines, "maxSearchLines", "--max-search-lines", problems, args);
+
+  args.push(...gitHistoryFlags(form, problems));
 
   // One flag per file. Not validated for existence here: the file was chosen
   // from the editor's own dialog moments ago, and the CLI reports anything
@@ -511,6 +575,35 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   return { ok: true, args, files };
 }
 
+/**
+ * The Git History Settings as flags: only what differs from the defaults, so a
+ * form nobody configured sends the command line Batch 1 sent. Off-switches
+ * rather than on-switches for the same reason. `--git-file` is pushed with the
+ * other paths, above, through their one path rule.
+ */
+function gitHistoryFlags(form: FormState, problems: FieldProblem[]): string[] {
+  const flags: string[] = [];
+  for (const keyword of parseKeywords(form.gitKeywords)) flags.push(flag("--git-keyword", keyword));
+  if (!form.gitUseSharedKeywords) flags.push("--git-no-shared-keywords");
+  if (!form.gitUseSharedFocusFiles) flags.push("--git-no-shared-focus-files");
+  if (!form.gitSearchMessages) flags.push("--git-no-commit-search");
+  if (!form.gitSearchFileHistory) flags.push("--git-no-file-history");
+  const depth = gitHistoryDepthOf(form.gitHistoryDepth);
+  if (depth !== "recent") flags.push(flag("--git-history-depth", depth));
+  const count = form.gitMaxCommits.trim();
+  if (count !== "") {
+    if (!/^\d+$/.test(count) || Number(count) < 1 || Number(count) > GIT_MAX_COMMITS_LIMIT) {
+      problems.push({
+        field: "gitMaxCommits",
+        message: `Enter a whole number from 1 to ${GIT_MAX_COMMITS_LIMIT}, or leave it empty.`,
+      });
+    } else {
+      flags.push(flag("--git-max-commits", String(Number(count))));
+    }
+  }
+  return flags;
+}
+
 function pushNumber(
   raw: string,
   field: FormField,
@@ -560,6 +653,18 @@ export function preparationFingerprint(form: FormState): string {
       .map((entry) => attachmentDescriptionOf(form, entry)),
     fixModeId: form.fixModeId.trim(),
     plan: planFlags(form.plan),
+    // Every Git History Setting can change the prepared context's Git History
+    // section, so each one is here — read the way the argument builder reads it.
+    git: {
+      sharedKeywords: form.gitUseSharedKeywords,
+      sharedFocusFiles: form.gitUseSharedFocusFiles,
+      keywords: parseKeywords(form.gitKeywords),
+      files: parsePaths(form.gitFiles),
+      messages: form.gitSearchMessages,
+      fileHistory: form.gitSearchFileHistory,
+      depth: gitHistoryDepthOf(form.gitHistoryDepth),
+      maxCommits: form.gitMaxCommits.trim(),
+    },
   });
 }
 

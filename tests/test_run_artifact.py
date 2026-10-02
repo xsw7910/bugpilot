@@ -185,7 +185,8 @@ def test_a_human_command_reports_an_unusable_run_file_without_a_traceback(tmp_pa
     (target / "run.json").write_text("{ truncated", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    assert main(["git-context", "JR-1"]) == 1
+    # A command that records its step (`git-context` only prints since Git History v2's review).
+    assert main(["keywords", "JR-1"]) == 1
 
     err = capsys.readouterr().err
     assert "run.json" in err

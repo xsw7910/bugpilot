@@ -17,11 +17,19 @@ from .context import build_context
 from .delivery_instructions import delivery_instructions_block, delivery_safety_block
 from .doctor import collect_doctor_report
 from .handoff import handoff_prompt
-from .git_ops import current_branch, generate_git_context, inside_git_repo, run_command, working_tree_status
+from .git_history import (
+    RANKED_HISTORY_FILES,
+    GitHistoryOutcome,
+    GitHistoryQuery,
+    collect_git_history,
+    focus_files_from_retrieval,
+    select_extracted_terms,
+)
+from .git_ops import current_branch, inside_git_repo, run_command, working_tree_status
 from .jira import JiraCommentPostError, JiraCommentPostResult, JiraFetchError, JiraFetchResult, enrich_issue, fetch_issue, jira_field_report_markdown, post_jira_comment, prepare_jira_comment_text, sanitize_comment_text
 from .keywords import extract_keywords
 from .logging_utils import log
-from .identity import is_known_work_item_id, validate_work_item_id
+from .identity import is_jira_issue_key, is_known_work_item_id, validate_work_item_id
 from .issue import (
     IssueArtifact,
     IssueGuidance,
@@ -33,7 +41,15 @@ from .issue import (
     save_issue,
 )
 from .memory import add_memory_entry, build_memory_entry, search_memory
-from .models import SOURCE_MANUAL, BugSpec, InvestigationOptions, InvestigationPlan, InvestigationRequest
+from .models import (
+    SOURCE_MANUAL,
+    BugSpec,
+    GitHistoryOptions,
+    InvestigationOptions,
+    InvestigationPlan,
+    InvestigationRequest,
+    effective_plan,
+)
 from .artifacts import (
     CONTEXT_ARTIFACT,
     FIX_REPORT_ARTIFACT,
@@ -106,7 +122,7 @@ class _RetrievalState:
     keywords: dict[str, object] | None = None
     retrieval: RetrievalArtifact | None = None
     similar_fixes: str | None = None
-    git_history: str | None = None
+    git_history: GitHistoryOutcome | None = None
 
 
 def refine_investigation(
@@ -139,7 +155,9 @@ def refine_investigation(
     issue = _require_issue(repo_root, work_item_id)
     # `fetch`/`parse` are the point of the exercise: their output is already on
     # disk. `doctor` re-checks an environment this run already passed.
-    resolved = set(plan.resolve_steps(issue.source)) - {"fetch", "parse", "doctor"}
+    # Through `effective_plan`, as a full run is: Git History with both of its
+    # search routes off is skipped, not run to an empty section.
+    resolved = set(effective_plan(plan, options).resolve_steps(issue.source)) - {"fetch", "parse", "doctor"}
 
     # A new hint replaces the recorded one before anything reads it, so the task
     # file regenerated below carries the hint this refinement was asked for.
@@ -164,7 +182,14 @@ def refine_investigation(
         found.similar_fixes = memory_search_step(repo_root, work_item_id, keywords=found.keywords)
 
     def history() -> None:
-        found.git_history = git_context_step(repo_root, work_item_id, retrieval=found.retrieval)
+        found.git_history = git_context_step(
+            repo_root,
+            work_item_id,
+            retrieval=found.retrieval,
+            issue=issue,
+            keywords=found.keywords,
+            options=search_options,
+        )
 
     # A dispatch table rather than a chain of ifs, so a step that ends up in
     # `resolved` with no handler raises instead of being silently skipped. That is
@@ -458,7 +483,7 @@ def run_investigation(
     keywords: dict[str, object] | None = None
     retrieval: RetrievalArtifact | None = None
     similar_fixes: str | None = None
-    git_history: str | None = None
+    git_history: GitHistoryOutcome | None = None
 
     try:
         _progress(progress, "doctor")
@@ -485,7 +510,14 @@ def run_investigation(
             retrieval = code_search_step(repo_root, issue_key, search_options, keywords=keywords)
         if "git_context" in resolved:
             _progress(progress, "git_context")
-            git_history = git_context_step(repo_root, issue_key, retrieval=retrieval)
+            git_history = git_context_step(
+                repo_root,
+                issue_key,
+                retrieval=retrieval,
+                issue=issue,
+                keywords=keywords,
+                options=search_options,
+            )
         if "context" in resolved:
             _progress(progress, "context")
             context_step(
@@ -791,31 +823,155 @@ def code_search_step(
         raise
 
 
-#: How many of the ranked files git history is looked up for.
-GIT_HISTORY_FILES = 5
-
-
 def git_context_step(
-    repo_root: Path, issue_key: str, retrieval: RetrievalArtifact | None = None
-) -> str:
-    """Branch, status and recent commits for the top files, as Markdown. Writes nothing.
+    repo_root: Path,
+    issue_key: str,
+    retrieval: RetrievalArtifact | None = None,
+    *,
+    issue: IssueArtifact | None = None,
+    keywords: dict[str, object] | None = None,
+    options: InvestigationOptions | None = None,
+    record: bool = True,
+) -> GitHistoryOutcome:
+    """The ranked related commits, as a structured record, and the checkout's state.
 
-    The context renders the result from memory; it is not a file because
-    nothing but the context step ever read it.
+    The record is written into ``retrieval.json`` as its ``git_history``
+    section — the one source the context and the panel render the commits
+    from — and handed to the context step in memory as well. How it searches is
+    this run's Git History Settings (``options.git_history``); a standalone run
+    has none and uses the defaults, which are Batch 1's behaviour.
+
+    ``record=False`` — ``bugpilot git-context`` — only returns the outcome to
+    print: neither the section nor ``run.json`` changes, as before v2, so the
+    panel and ``context.md`` go on showing the run that prepared them together.
     """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] git_context")
     try:
+        settings = (options.git_history if options is not None else GitHistoryOptions()).normalized()
+        # The settings' shape only: never a keyword or a path (§37.95).
+        log(
+            target,
+            "[INFO] git_context settings: "
+            f"commitSearch={str(settings.search_commit_messages).lower()} "
+            f"fileHistory={str(settings.search_file_history).lower()} "
+            f"maxCommits={settings.max_related_commits} historyDepth={settings.history_depth} "
+            f"sharedKeywords={'on' if settings.use_shared_keywords else 'off'} "
+            f"sharedFocusFiles={'on' if settings.use_shared_focus_files else 'off'} "
+            f"commitKeywords={len(settings.keywords)} additionalFiles={len(settings.files)}",
+        )
         retrieval = retrieval or read_retrieval_quietly(repo_root, issue_key)
-        files = retrieval.top_files(GIT_HISTORY_FILES) if retrieval is not None else []
-        history = generate_git_context(repo_root, issue_key, files)
+        query = _git_history_query(repo_root, issue_key, retrieval, issue, keywords, options, settings)
+        outcome = collect_git_history(repo_root, issue_key, query, settings)
+        if not record:
+            log(target, "[END] git_context: printed, nothing recorded")
+            return outcome
+        _record_git_history(repo_root, issue_key, retrieval, outcome)
         _mark_step(repo_root, issue_key, "git_context", "pass")
         log(target, "[END] git_context: pass")
-        return history
+        return outcome
     except Exception as exc:
-        _mark_step(repo_root, issue_key, "git_context", "fail")
+        if record:
+            _forget_git_history(repo_root, issue_key)
+            _mark_step(repo_root, issue_key, "git_context", "fail")
         log(target, f"[ERROR] git_context: {exc}")
         raise
+
+
+def _record_git_history(
+    repo_root: Path, issue_key: str, retrieval: RetrievalArtifact | None, outcome: GitHistoryOutcome
+) -> None:
+    """Write the record into the retrieval it belongs beside, atomically.
+
+    Into the retrieval this run searched with — on disk already, written by
+    Code Search moments ago or by an earlier run — and only that: with no
+    retrieval there is no file to add a section to, and writing one would
+    invent a search that never ran. The context still renders the record from
+    memory; the panel then says only "Completed".
+    """
+    if retrieval is None:
+        log(issue_dir(repo_root, issue_key), "[INFO] git_context: no retrieval.json to record the result in")
+        return
+    save_retrieval(repo_root, issue_key, replace(retrieval, git_history=outcome.record))
+    record = outcome.record
+    # Counts only: never a subject, a term or a path.
+    log(
+        issue_dir(repo_root, issue_key),
+        f"[INFO] git_context recorded: status={record.status}, {record.candidate_count} candidate(s), "
+        f"{len(record.commits)} retained{', incomplete' if record.incomplete else ''}",
+    )
+
+
+def _forget_git_history(repo_root: Path, issue_key: str) -> None:
+    """After a failed step, take an earlier run's section out of ``retrieval.json``.
+
+    Belt and braces: the panel only reads the section once ``run.json`` says
+    the step passed. But a file that still claimed an earlier result after the
+    step meant to replace it failed would be a stale answer waiting for a
+    reader, so it goes — quietly, since the failure being reported is the
+    step's, not this.
+    """
+    try:
+        current = read_retrieval_quietly(repo_root, issue_key)
+        if current is not None and current.git_history is not None:
+            save_retrieval(repo_root, issue_key, replace(current, git_history=None))
+    except Exception as exc:  # pragma: no cover - the step's own failure is the one reported
+        log(issue_dir(repo_root, issue_key), f"[WARN] git_context: could not drop the earlier result ({type(exc).__name__})")
+
+
+def _git_history_query(
+    repo_root: Path,
+    issue_key: str,
+    retrieval: RetrievalArtifact | None,
+    issue: IssueArtifact | None,
+    keywords: dict[str, object] | None,
+    options: InvestigationOptions | None,
+    settings: GitHistoryOptions | None = None,
+) -> GitHistoryQuery:
+    """What Git History searches with: the shared guidance plus the issue's own signals.
+
+    A pipeline run hands over this run's options, so its Keywords and Focus
+    Files are the ones Code Search just used. A standalone ``git-context`` or
+    ``context`` has no options and replays what ``retrieval.json`` recorded —
+    the ``source: "user"`` terms and the files the search marked as focus —
+    exactly as :func:`work_item_keywords` does for the keywords.
+
+    The Git History Settings act here and only here: *Use shared Keywords* /
+    *Use shared Focus Files* off leave those fields empty, and the Additional
+    Commit Keywords and Additional Files arrive in fields of their own. Nothing
+    here changes what Code Search was given.
+    """
+    settings = settings or GitHistoryOptions()
+    issue = issue or read_issue_quietly(repo_root, issue_key)
+    if options is not None:
+        shared_keywords = [word.strip() for word in options.keywords if word.strip()]
+        focus_files = tuple(options.focus_files)
+    else:
+        shared_keywords = _user_terms(retrieval)
+        focus_files = focus_files_from_retrieval(retrieval)
+    if keywords is None and issue is not None:
+        keywords = extract_issue_keywords(issue, shared_keywords)
+    # Only an external key is worth searching for: a hand-written bug's
+    # `local_…` id was minted by this tool and no commit can carry it.
+    reference = issue.source_ref if issue is not None else issue_key
+    git_keywords = tuple(word.strip() for word in settings.keywords if word.strip())
+    return GitHistoryQuery(
+        issue_id=reference if reference and is_jira_issue_key(reference) else None,
+        shared_keywords=tuple(shared_keywords) if settings.use_shared_keywords else (),
+        git_keywords=git_keywords,
+        # The shared Keywords are excluded even when Git History does not use
+        # them: the extraction carries them at its head, and leaving them in
+        # would let a switched-off Keyword back in as an "issue term".
+        extracted_terms=select_extracted_terms(
+            keywords, exclude=[*shared_keywords, *git_keywords], retrieval=retrieval
+        ),
+        focus_files=focus_files if settings.use_shared_focus_files else (),
+        git_files=tuple(path for path in settings.files if path.strip()),
+        ranked_files=tuple(retrieval.top_files(RANKED_HISTORY_FILES)) if retrieval is not None else (),
+        # Every file Code Search returned: never searched, only never offered
+        # again as a supporting file (Batch 4).
+        known_files=tuple(item.file for item in retrieval.related_files) if retrieval is not None else (),
+    )
 
 
 def context_step(
@@ -824,7 +980,7 @@ def context_step(
     issue: IssueArtifact | None = None,
     keywords: dict[str, object] | None = None,
     retrieval: RetrievalArtifact | None = None,
-    git_history: str | None = None,
+    git_history: GitHistoryOutcome | None = None,
     similar_fixes: str | None = None,
 ) -> None:
     """Write ``context.md`` from what the steps before it produced, in memory.

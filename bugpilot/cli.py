@@ -13,6 +13,7 @@ from bugpilot.core import agent_runner, copilot, doctor, errors, setup, workflow
 from bugpilot.core.cleanup import clean_issue_artifacts
 from bugpilot.core.context import build_context
 from bugpilot.core.email_notify import EmailSendError
+from bugpilot.core.git_history import render_git_context
 from bugpilot.core.fix_mode_state import fix_mode_metadata
 from bugpilot.core.fix_mode_store import FixModeCatalog, FixModeStore, scoped_modes
 from bugpilot.core.fix_modes import FixMode, FixModeError
@@ -40,7 +41,15 @@ from bugpilot.core.identity import is_work_item_id
 from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.issue import IssueArtifactError, read_issue_quietly
 from bugpilot.core.keywords import extract_keywords
-from bugpilot.core.models import SOURCE_MANUAL, InvestigationOptions, InvestigationPlan, InvestigationRequest
+from bugpilot.core.models import (
+    GIT_HISTORY_DEPTHS,
+    MAX_RELATED_COMMITS_LIMIT,
+    SOURCE_MANUAL,
+    GitHistoryOptions,
+    InvestigationOptions,
+    InvestigationPlan,
+    InvestigationRequest,
+)
 from bugpilot.core.memory import add_memory_entry, search_memory
 from bugpilot.core.prompts import generate_task
 
@@ -262,6 +271,17 @@ def build_parser() -> argparse.ArgumentParser:
     bug_parser.add_argument("--max-search-lines", type=int, metavar="N", help="Line budget for the matched-lines section (default 300).")
     bug_parser.add_argument("--skip-code-search", action="store_true", help="Skip the code search capability.")
     bug_parser.add_argument("--skip-git-history", action="store_true", help="Skip the git history capability.")
+    # Git History Settings: Git history only — Code Search never reads them.
+    # Off-switches rather than on-switches, so a command line that names none of
+    # them runs exactly as before they existed.
+    bug_parser.add_argument("--git-keyword", metavar="WORD", action="append", default=[], dest="git_keywords", help="Extra keyword for the git history commit search only. Repeatable.")
+    bug_parser.add_argument("--git-file", metavar="PATH", action="append", default=[], dest="git_files", help="Extra file or directory whose git history is read; not used by code search. Repeatable.")
+    bug_parser.add_argument("--git-no-shared-keywords", action="store_true", help="Git history ignores --keywords (code search still uses them).")
+    bug_parser.add_argument("--git-no-shared-focus-files", action="store_true", help="Git history ignores --focus-file (code search still uses them).")
+    bug_parser.add_argument("--git-no-commit-search", action="store_true", help="Git history does not search commit messages.")
+    bug_parser.add_argument("--git-no-file-history", action="store_true", help="Git history does not read the history of related files.")
+    bug_parser.add_argument("--git-history-depth", choices=GIT_HISTORY_DEPTHS, default="recent", help="How far back git history reads (default recent).")
+    bug_parser.add_argument("--git-max-commits", type=int, metavar="N", help=f"How many related commits to keep, 1-{MAX_RELATED_COMMITS_LIMIT} (default 10).")
     bug_parser.add_argument("--skip-similar-fixes", action="store_true", help="Skip the memory search for similar past bugs.")
     bug_parser.add_argument("--only-issue-details", action="store_true", help="Only normalize the bug description; skip search, history and context.")
     _add_json_flag(bug_parser)
@@ -576,9 +596,11 @@ def _dispatch(args, repo_root: Path) -> int:
         return 0
 
     if args.command == "git-context":
-        # Printed, not written: the context renders git history from memory,
-        # and nothing else ever read the file this used to produce.
-        print(workflow.git_context_step(repo_root, args.issue_key), end="")
+        # Printed, not written: what Git history finds now, with the default
+        # settings, through the renderer the context uses. The prepared run's
+        # section in retrieval.json, its run.json step and its context.md are
+        # left as they are, so the panel and the agent keep reading one run.
+        print(render_git_context(workflow.git_context_step(repo_root, args.issue_key, record=False)), end="")
         return 0
 
     if args.command == "context":
@@ -1023,6 +1045,28 @@ def _launch_expectation_lines(fix_mode: FixMode | None, *, retry: bool) -> list[
         "It stops at the commit gate and asks before committing.",
         "Review its changes as third-party code before you commit.",
     ]
+
+
+def _git_history_options(args: argparse.Namespace) -> GitHistoryOptions:
+    """The Git History Settings a ``bug`` command line asks for.
+
+    A count outside 1-25 is refused rather than clamped: a typo should say so,
+    not quietly run with a different number.
+    """
+    max_commits = args.git_max_commits
+    if max_commits is not None and not 1 <= max_commits <= MAX_RELATED_COMMITS_LIMIT:
+        raise ValueError(f"--git-max-commits must be between 1 and {MAX_RELATED_COMMITS_LIMIT}.")
+    defaults = GitHistoryOptions()
+    return GitHistoryOptions(
+        use_shared_keywords=not args.git_no_shared_keywords,
+        use_shared_focus_files=not args.git_no_shared_focus_files,
+        keywords=tuple(args.git_keywords),
+        files=tuple(args.git_files),
+        search_commit_messages=not args.git_no_commit_search,
+        search_file_history=not args.git_no_file_history,
+        history_depth=args.git_history_depth,
+        max_related_commits=defaults.max_related_commits if max_commits is None else max_commits,
+    )
 
 
 def _emit_status_json(repo_root: Path, issue_key: str) -> int:
@@ -1779,6 +1823,7 @@ def _build_bug_request(repo_root: Path, args) -> InvestigationRequest:
         if args.max_search_lines < 1:
             raise ValueError("--max-search-lines must be at least 1.")
         options.max_search_lines = args.max_search_lines
+    options.git_history = _git_history_options(args)
 
     plan = InvestigationPlan(
         code_search=not (args.skip_code_search or args.only_issue_details),

@@ -39,6 +39,8 @@ import {
   relevantFiles,
 } from "./contextSummary.ts";
 import { RETRIEVAL_ARTIFACT, parseRetrieval } from "./retrieval.ts";
+import { gitHistoryOf } from "./gitHistory.ts";
+import type { GitHistoryResult } from "./gitHistory.ts";
 import { ISSUE_ARTIFACT, parseIssue } from "./issue.ts";
 import type { IssueSummary } from "./issue.ts";
 import { parseFixReport } from "./fixReport.ts";
@@ -81,7 +83,7 @@ import { buildWorkflow, canOpenFolder, canStartReview, overallStatus } from "./w
 import type { AttemptDraft, AttemptView, FixWithAiOutcome, ReviewHandoff, ValidationView, VerificationEdit } from "./workflow.ts";
 import type { DiagnosticsView } from "./diagnostics.ts";
 import { GITIGNORE_NAME, addGitignoreRules, rulesFor, unignoredArtifactDirectories } from "./gitignore.ts";
-import type { GitignoreIo } from "./gitignore.ts";
+import type { GitignoreEntry, GitignoreIo } from "./gitignore.ts";
 import { handoffError, reviewHandoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
 import { diagnostics } from "./diagnostics.ts";
@@ -532,6 +534,12 @@ export const GITIGNORE_ACTION_LABEL = "Add to .gitignore";
 export const GITIGNORE_ACTION_NAME = "Add .ai and .ai_memory to .gitignore";
 export const GITIGNORE_FAILED = "Could not update .gitignore. The BugPilot output has the details.";
 
+/** Why a Git history Supporting file did not open: the checkout no longer has it as a file. */
+export const SUPPORTING_FILE_MISSING = "This file is no longer in the current checkout.";
+export const SUPPORTING_FILE_NOT_A_FILE = "This supporting file is not a regular file in the current checkout.";
+export const SUPPORTING_FILE_UNCHECKED =
+  "Could not check this supporting file in the current checkout. The BugPilot output has the details.";
+
 /** The rules the quick fix would write now: git's per-directory answer, nothing else. */
 export function gitignoreRulesFromReport(report: Record<string, unknown> | undefined): readonly string[] {
   if (report === undefined || report["ai_artifacts_ignored"] !== false) return [];
@@ -639,6 +647,8 @@ export class Controller {
    * changes when the directory does.
    */
   #searchCounts: ContextCounts = {};
+  /** `retrieval.json.git_history`, read with the rest of the file; absent when there is none to trust. */
+  #gitHistory: GitHistoryResult | undefined;
   /** `issue.json`, for the Issue details row, as the last refresh read it. */
   #issue: IssueSummary | undefined;
   /**
@@ -1172,6 +1182,9 @@ export class Controller {
         return;
       case "openRelevantFile":
         await this.openRelevantFile(message.path);
+        return;
+      case "openSupportingFile":
+        await this.openSupportingFile(message.path);
         return;
       case "manageFixModes":
         await this.openFixModeManager();
@@ -3134,6 +3147,7 @@ export class Controller {
     this.#files = [];
     this.#moreFiles = 0;
     this.#terms = [];
+    this.#gitHistory = undefined;
   }
 
   /** Drop Fix result's review aids: another work item, or a run starting. */
@@ -4221,6 +4235,7 @@ export class Controller {
     const retrieval = parseRetrieval(text);
     this.#searchCounts = contextCounts(retrieval);
     this.#terms = retrievalTerms(retrieval);
+    this.#gitHistory = gitHistoryOf(retrieval);
     const found = relevantFiles(retrieval);
     this.#files = found.slice(0, MAX_LISTED_FILES);
     this.#moreFiles = Math.max(0, found.length - this.#files.length);
@@ -4232,17 +4247,70 @@ export class Controller {
    *
    * The path came out of `retrieval.json` and went through a webview, which
    * is the part that matters: by the time it arrives here it is untrusted input
-   * that happens to look like something BugPilot wrote. So it is resolved
-   * against the repository and checked with the same `isWithin` the focus-file
-   * and ignore-path validation uses, and a path that lands outside is refused
-   * and logged rather than opened.
+   * that happens to look like something BugPilot wrote. So it goes through
+   * `#repositoryFile`, and a path that lands outside is refused and logged
+   * rather than opened. Code Search's files are this run's search results, so
+   * nothing else is asked before the editor opens one.
    */
   async openRelevantFile(relativePath: string): Promise<void> {
+    const target = this.#repositoryFile(relativePath);
+    if (target !== undefined) await this.#ports.ui.openFile(target);
+  }
+
+  /**
+   * Open one file from Git history's Supporting files — if it is still there.
+   *
+   * A supporting file is historical evidence: it was a file in the checkout
+   * when the run recorded it, and it stays listed, because that is still true
+   * of the run. The checkout may have moved on since, so this open asks first:
+   * the same path checks as a Relevant file, then the editor's own stat (the
+   * one the `.gitignore` fix uses). Only a regular file is opened. A missing
+   * one, a directory, a symbolic link (which could lead anywhere) or a stat
+   * that cannot answer is not, and the developer is told which; the record,
+   * the context and the panel's list are left exactly as they are.
+   *
+   * Without the stat port — a host that has none — it is the plain checked
+   * open, as it was before.
+   */
+  async openSupportingFile(relativePath: string): Promise<void> {
+    const target = this.#repositoryFile(relativePath);
+    if (target === undefined) return;
+    const stat = this.#ports.gitignore?.stat;
+    if (stat === undefined) {
+      await this.#ports.ui.openFile(target);
+      return;
+    }
+    let entry: GitignoreEntry;
+    try {
+      entry = await stat(target);
+    } catch (error) {
+      this.#ports.log.error(`Could not check a supporting file: ${(error as Error)?.message || String(error)}`);
+      this.#ports.ui.notify("warning", SUPPORTING_FILE_UNCHECKED);
+      return;
+    }
+    if (entry === "file") {
+      await this.#ports.ui.openFile(target);
+      return;
+    }
+    this.#ports.log.info(`Not opening a supporting file: ${entry === "missing" ? "no longer in the checkout" : `not a regular file (${entry})`}.`);
+    this.#ports.ui.notify("warning", entry === "missing" ? SUPPORTING_FILE_MISSING : SUPPORTING_FILE_NOT_A_FILE);
+  }
+
+  /**
+   * A repository-relative path from the page, as a path inside the repository.
+   *
+   * The path came out of `retrieval.json` and went through a webview, so it is
+   * untrusted input by the time it arrives: the same `isSafeRelativePath` the
+   * page and the message parser use, then resolved and checked with the
+   * `isWithin` the focus-file and ignore-path validation uses. Anything else is
+   * refused and logged.
+   */
+  #repositoryFile(relativePath: string): string | undefined {
     const root = this.#root;
-    if (!root) return;
+    if (!root) return undefined;
     if (!isSafeRelativePath(relativePath)) {
       this.#ports.log.error(`Refusing to open a suspicious file path: ${relativePath}`);
-      return;
+      return undefined;
     }
     const target = path.resolve(root, relativePath);
     if (!isWithin(root, target)) {
@@ -4250,9 +4318,9 @@ export class Controller {
       // forms, and this catches whatever a symlink or an odd separator turned
       // them into after resolution.
       this.#ports.log.error(`Refusing to open a file outside the repository: ${relativePath}`);
-      return;
+      return undefined;
     }
-    await this.#ports.ui.openFile(target);
+    return target;
   }
 
   /**
@@ -4401,6 +4469,7 @@ export class Controller {
           terms: this.#terms,
         },
       },
+      ...(this.#gitHistory === undefined ? {} : { gitHistory: this.#gitHistory }),
       handoffBusy: this.#handoffBusy,
       ...(this.#handoffError === undefined ? {} : { handoffError: this.#handoffError }),
       ...(failed === undefined ? {} : { runError: failed }),
