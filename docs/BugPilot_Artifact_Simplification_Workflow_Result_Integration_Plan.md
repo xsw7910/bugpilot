@@ -2661,6 +2661,80 @@ Navigation)" (§37.77); the page and what it edits are unchanged.
    Never the primary colours. Label, tooltip (*Open advanced workflow
    settings*), placement and focus return unchanged.
 
+### Confirmed decisions (⋯ More and Reset Session)
+
+This revises decision 2 of "Confirmed decisions (Next action)": the menu's
+button is no longer absent when the menu has no next step.
+
+1. **⋯ More is always in the Run row**, a visible secondary button: the ellipsis
+   glyph and the word *More*, a hairline border, no fill, the normal
+   foreground, a hover fill and the shared focus outline — never the primary
+   colours, so it does not compete with Run. Accessible name and tooltip *More
+   actions*. Where the row would otherwise overflow (a sidebar under ~260px) the
+   word is dropped and the glyph stays; the name does not change. Run's own
+   label ellipsizes before the row overflows.
+2. **The menu**: **Reset Session** first, always; then a separator and the next
+   steps exactly as before (Start New Attempt, Rebuild Context, Open AI
+   Session), only while the host lists them and never while anything is in
+   flight. Reset Session is an ordinary item, not a red one. It is the only
+   entry point: no Reset beside Run, in the workflow header or under Fix Mode.
+3. **Reset Session resets the current session, not the extension.** Session
+   fields go back to `DEFAULT_FORM`: the Issue (key or description, title),
+   Hint and *Include issue details*, Keywords, Focus Files, Ignore paths, both
+   limits, attachments and their descriptions, the workflow-step boxes (Fix with
+   AI unticked), every Git History Setting, Fresh, and Fix Mode — to the
+   catalog's default, Standard Fix. Kept as the developer's preference: the AI
+   Agent and its custom command (`FORM_FIELD_SCOPE` in `sessionReset.ts`, a
+   `Record` over the form's keys, so a new field must be classified). Also
+   kept: extension settings, credentials, the last-agent and reviewed-fix
+   records, History. The work item is detached — on disk too (the saved work
+   item is cleared), so a restart reopens nothing — and every result, error,
+   draft and in-page editor of the old session is dropped. The fresh form
+   arrives on the page through a new `revision`; the page clears no field
+   itself.
+4. **The question.** A modal `<dialog>` — *Reset BugPilot Session?* / *Reset the
+   current issue, workflow settings, and prepared context.* — with one choice,
+   *Generated files*: **Keep generated files** (default, every time it opens) or
+   **Delete generated files**. Keep's helper: *History will be kept.* Delete's:
+   *The current generated context and artifacts will be permanently deleted.
+   Repository source files will not be deleted.*, plus that the work item leaves
+   History; the button becomes **Reset and Delete**. Delete is unavailable, and
+   says so, when the session has no work item. Not a form: Enter on a choice
+   presses nothing; the focus starts on the chosen option, Cancel and Escape
+   close it and return to ⋯ More, and neither works while the host is resetting.
+   The confirm button keeps the ordinary primary style — the codebase has no
+   danger button — and the warning is carried by the helper's warning glyph.
+5. **Keep** deletes nothing: `.ai/<work item>/` and its History row stay, and
+   the work item reopens from History as before. An agent session record (Open
+   AI Session's terminal) is kept with it.
+6. **Delete** removes `.ai/<work item>/` of the current work item and nothing
+   else, by the Clean command's own delete (`bugpilot clean <id>`: the folder,
+   never its memory entry, never through a link inside it), only after
+   `checkArtifactDirectory` proved the folder is the repository's own — a valid
+   work item id, `.ai` and `.ai/<id>` real directories (not a link or junction),
+   resolving to `<realpath(root)>/.ai/<id>`. Success is the folder being gone,
+   never an exit code alone. Pasted attachments in the extension's global
+   storage are not deleted here: other workspaces may reference the same blob,
+   and the reference-tracked collector (§37.100) removes them once nothing does.
+7. **Failure order: delete first, reset only after.** A refused or failed delete
+   resets nothing — form, work item and results stay — the folder is read again
+   to show what is left, and the dialog says why (*Session not reset: …*);
+   deletion is never claimed. History, being the `.ai/` folders, loses exactly
+   the deleted work item's row; no History migration, no *Clear History*.
+8. **In flight.** A BugPilot run is stopped (as Stop) and a captured AI review is
+   cancelled (as Cancel Review, without asking again), and the reset waits for
+   each to end. An artifact write (a recording, a clean, a retry package, a new
+   attempt's feedback) or a handoff still being worked out refuses the reset —
+   the dialog says why beforehand. An agent already handed the work item is not
+   BugPilot's to stop: the dialog says it keeps running. A run being set up, a
+   hint improvement, a work item being opened, a folder read or a Fix Mode
+   lookup that resumes after the reset finds the session epoch changed and
+   lands on nothing. Unsaved verification evidence is saved first on Keep (or
+   lost only after the developer says so) and not saved on Delete.
+9. **Logging**: *Session reset.*, *Session reset; generated artifacts
+   deleted.*, *Session reset deletion failed: <type>* — an exit code, an errno
+   or a refusal reason; never the issue, hint, keywords, a file name or a path.
+
 ---
 
 # 20. Step Secondary Text 状态原则

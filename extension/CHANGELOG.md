@@ -15,9 +15,13 @@ First release. What it does today:
   **Fix with AI** once `task.md` is ready, **Open AI Session** once an agent has
   it, **Rebuild Context** when the form has changed since it was prepared, and
   **Running…** while anything is in flight. Rebuild Context and Start New Attempt
-  sit behind a **⋯** beside it. Open AI Session acknowledges every press under
+  sit behind **⋯ More** beside it. Open AI Session acknowledges every press under
   the button — "AI session focused", or that the session is no longer available
   — and never starts a new one.
+- **Reset Session**, from ⋯ More: back to a fresh session — the issue, its
+  settings and the prepared context — keeping the AI Agent preference and
+  History. It asks first: keep the generated files (the default) or delete the
+  current work item's `.ai/<work item>/`, and nothing else.
 - **Fix with AI** hands the finished package to a coding agent. **AI Agent**:
   Auto-detect, Codex CLI, Claude CLI (each in a terminal), the Codex or Claude
   extension (the prompt copied and the agent's view opened — neither documents

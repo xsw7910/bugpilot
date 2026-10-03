@@ -77,6 +77,10 @@
 .codicon-debug-restart:before { content: "\ead2"; }
 .codicon-comment-discussion:before { content: "\eac7"; }
 .codicon-checklist:before { content: "\eab3"; }
+/* Reset Session, the menu's first item (§37.103): the editor's own Discard
+   Changes arrow. Checked in the vendored codicon.ttf's cmap and glyph names
+   (U+EAE2, "discard"), and equal to VS Code's own code point for the name. */
+.codicon-discard:before { content: "\eae2"; }
 
 /* Attachments: the row's own icon, the add button, and each file's remove. */
 .codicon-attach:before { content: "\ec34"; }

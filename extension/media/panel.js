@@ -415,8 +415,27 @@
   let primary = { action: "run", label: "Run", enabled: true, busy: false, hint: "", more: [] };
   /** The icon beside each primary label; busy is a spinner whatever the action. */
   const PRIMARY_ICONS = { run: "play", fixWithAI: "hubot", openSession: "terminal", rebuildContext: "refresh" };
-  /** The ⋯ menu's items, in the markup's order. */
+  /** The ⋯ More menu's next-action items, in the markup's order, below Reset Session. */
   const MORE_ITEMS = ["startNewAttempt", "rebuildContext", "openSession"];
+  /** The next-action items the menu last offered, so a change under an open menu closes it. */
+  let moreOffered = "";
+  // Reset Session (§37.103): the host's view of its dialog, the session the
+  // page last drew, the last refusal shown, and a press not yet answered — a
+  // second is never sent.
+  let sessionReset = { epoch: 0, busy: false, notes: [] };
+  let sessionEpoch;
+  let resetErrorToken;
+  let resetRequested = false;
+  let resetNotesDrawn = "";
+  /** The disclosures a fresh session starts with closed. */
+  const SESSION_DISCLOSURES = [
+    "workflow",
+    "relevant-files",
+    "search-details",
+    "related-commits",
+    "supporting-files",
+    "validation-checklist",
+  ];
   // Start New Attempt's form: which work item it was opened for, whether the
   // host was starting an attempt at the last push, the failure last shown and
   // the last helper answer taken — so a push that changes nothing rewrites
@@ -882,6 +901,9 @@
     renderSettings(state);
     renderHintImprovement(state);
     renderFooter(state);
+    // Last: a reset done closes what the renders above may have drawn for the
+    // old session's last moment.
+    renderSessionReset(state);
   }
 
   /**
@@ -2603,12 +2625,21 @@
     if (!primary.enabled) button.disabled = true;
     button.setAttribute("aria-busy", primary.busy ? "true" : "false");
 
-    // The ⋯ menu holds what the host listed and nothing else; with nothing to
-    // list, there is no menu button either.
+    // ⋯ More is always there: Reset Session is always on offer (§37.103). Below
+    // it, the next steps the host listed and nothing else — none while anything
+    // is in flight — after a separator only when there are any.
     const more = primary.enabled ? primary.more || [] : [];
     for (const id of MORE_ITEMS) byId(`menu-${id}`).hidden = !more.includes(id);
-    byId("more-actions").hidden = more.length === 0;
-    if (more.length === 0) closeMoreMenu(false);
+    byId("menu-separator").hidden = more.length === 0;
+    byId("more-actions").hidden = false;
+    // What it offers changed under an open menu — a run started, the context went
+    // stale: closed, as it always was, rather than left open on items that went.
+    const offered = more.join(",");
+    if (offered !== moreOffered) {
+      moreOffered = offered;
+      const inMenu = ["resetSession", ...MORE_ITEMS].some((id) => byId(`menu-${id}`) === document.activeElement);
+      closeMoreMenu(inMenu);
+    }
   }
 
   /** The same words as the ⋯ menu's items, for the button when it is one of them. */
@@ -2631,9 +2662,157 @@
     if (wasOpen && returnFocus) byId("more-actions").focus();
   }
 
-  /** The menu's items that are on offer, in order. */
+  /** The menu's items that are on offer, in order: Reset Session, then the next steps. */
   function menuItems() {
-    return MORE_ITEMS.map((id) => byId(`menu-${id}`)).filter((item) => !item.hidden);
+    return ["resetSession", ...MORE_ITEMS].map((id) => byId(`menu-${id}`)).filter((item) => !item.hidden);
+  }
+
+  // --- Reset Session (§37.103) ----------------------------------------------
+
+  /**
+   * Open the question. Every opening starts at Keep: deleting is chosen each
+   * time, never remembered. A form change still waiting on the debounce goes
+   * now, so the host holds what is on screen should the reset not happen.
+   */
+  function openResetDialog() {
+    const dialog = byId("reset-dialog");
+    if (dialog.open) return;
+    clearTimeout(changeTimer);
+    vscode.postMessage({ type: "formChanged", form: readForm() });
+    byId("reset-keep").checked = true;
+    byId("reset-delete").checked = false;
+    resetRequested = false;
+    showResetError("");
+    renderResetDialog();
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.open = true;
+    // The chosen option, never the button that resets.
+    byId("reset-keep").focus();
+  }
+
+  /** Close it; the focus goes to `focusId`, if given — ⋯ More after a Cancel. */
+  function closeResetDialog(focusId) {
+    const dialog = byId("reset-dialog");
+    if (!dialog.open) return;
+    if (typeof dialog.close === "function") dialog.close();
+    else dialog.open = false;
+    resetRequested = false;
+    showResetError("");
+    if (focusId) byId(focusId).focus();
+  }
+
+  function showResetError(message) {
+    const error = byId("reset-error");
+    // Shown before it is filled, so the alert is announced.
+    error.hidden = message === "";
+    error.textContent = message;
+  }
+
+  /** The question as it stands: the choice, its helper, the host's notes, the button. */
+  function renderResetDialog() {
+    const view = sessionReset;
+    const keep = byId("reset-keep");
+    const remove = byId("reset-delete");
+    // Delete has nothing to act on without a work item: there, but unavailable, and why.
+    const hasFiles = typeof view.workItemId === "string" && view.workItemId !== "";
+    if (!hasFiles && remove.checked) {
+      remove.checked = false;
+      keep.checked = true;
+    }
+    keep.disabled = view.busy;
+    remove.disabled = view.busy || !hasFiles;
+    remove.setAttribute("aria-describedby", hasFiles ? "reset-delete-hint reset-delete-history" : "reset-no-files");
+    const deleting = hasFiles && remove.checked;
+    byId("reset-keep-hint").hidden = deleting;
+    byId("reset-delete-hint").hidden = !deleting;
+    byId("reset-delete-history").hidden = !deleting;
+    byId("reset-no-files").hidden = hasFiles;
+
+    const notes = view.notes || [];
+    const drawn = JSON.stringify(notes);
+    if (drawn !== resetNotesDrawn) {
+      resetNotesDrawn = drawn;
+      const list = byId("reset-notes");
+      list.replaceChildren();
+      for (const note of notes) {
+        const item = document.createElement("li");
+        item.textContent = note;
+        list.append(item);
+      }
+    }
+    byId("reset-notes").hidden = notes.length === 0;
+    const blocked = byId("reset-blocked");
+    blocked.textContent = view.blocked || "";
+    blocked.hidden = !view.blocked;
+
+    // `aria-disabled`, so a keyboard user who pressed it keeps the focus while
+    // the host works; the handler refuses.
+    const waiting = view.busy || resetRequested;
+    const confirm = byId("reset-confirm");
+    confirm.setAttribute("aria-disabled", waiting || Boolean(view.blocked) ? "true" : "false");
+    confirm.setAttribute("aria-busy", waiting ? "true" : "false");
+    confirm.setAttribute("aria-describedby", deleting ? "reset-delete-hint" : "reset-keep-hint");
+    byId("reset-confirm-keep").hidden = waiting || deleting;
+    byId("reset-confirm-delete").hidden = waiting || !deleting;
+    byId("reset-confirm-busy").hidden = !waiting;
+    byId("reset-cancel").setAttribute("aria-disabled", view.busy ? "true" : "false");
+    byId("reset-status").textContent = view.busy
+      ? view.deleting
+        ? "Deleting generated files…"
+        : "Resetting the session…"
+      : "";
+  }
+
+  /** Reset Session or Reset and Delete: one press, the one choice, to the host. */
+  function confirmReset() {
+    const confirm = byId("reset-confirm");
+    if (!byId("reset-dialog").open || confirm.getAttribute("aria-disabled") === "true") return;
+    const remove = byId("reset-delete");
+    const deleteGeneratedFiles = remove.checked && !remove.disabled;
+    // A form change typed before the dialog opened must not arrive after the
+    // reset and bring the old session back.
+    clearTimeout(changeTimer);
+    resetRequested = true;
+    showResetError("");
+    renderResetDialog();
+    vscode.postMessage({ type: "resetSession", deleteGeneratedFiles });
+  }
+
+  /**
+   * What the host says about Reset Session, every push. A new epoch is a reset
+   * done: the page lets go of what it held about the old session. A refusal is
+   * shown once, in the open dialog.
+   */
+  function renderSessionReset(state) {
+    const view = state.sessionReset || { epoch: 0, busy: false, notes: [] };
+    sessionReset = view;
+    const fresh = sessionEpoch !== undefined && view.epoch !== sessionEpoch;
+    sessionEpoch = view.epoch;
+    if (fresh) freshSession();
+    const error = view.error;
+    if (error && error.token !== resetErrorToken) {
+      resetErrorToken = error.token;
+      resetRequested = false;
+      if (byId("reset-dialog").open) showResetError(error.message || "");
+    }
+    renderResetDialog();
+  }
+
+  /**
+   * The host reset the session: its disclosures, editors, menu and dialog go —
+   * the fresh form arrives the usual way, with a new revision, and no field is
+   * cleared here. The focus, if it was in the question, goes to the Issue field:
+   * where a fresh session starts.
+   */
+  function freshSession() {
+    const answered = byId("reset-dialog").open === true;
+    closeResetDialog();
+    closeMoreMenu(false);
+    closeAttemptEditor(true);
+    for (const id of SESSION_DISCLOSURES) byId(id).open = false;
+    attachmentStatus("");
+    if (activeView === "main") scrollPanelTo(0);
+    if (answered) byId("issue").focus();
   }
 
   /**
@@ -3615,6 +3794,31 @@
       event.preventDefault();
       next.focus();
     }
+  });
+  // Reset Session: always on offer; it only opens the question.
+  byId("menu-resetSession").addEventListener("click", () => {
+    closeMoreMenu(false);
+    openResetDialog();
+  });
+  byId("reset-confirm").addEventListener("click", confirmReset);
+  byId("reset-cancel").addEventListener("click", () => {
+    if (byId("reset-cancel").getAttribute("aria-disabled") === "true") return;
+    closeResetDialog("more-actions");
+  });
+  for (const id of ["reset-keep", "reset-delete"]) byId(id).addEventListener("change", renderResetDialog);
+  // Escape is Cancel — not while the host is resetting, which cannot be undone
+  // half-way. Both the key and the browser's own close request, one path.
+  const cancelReset = (event) => {
+    event.preventDefault();
+    if (!sessionReset.busy) closeResetDialog("more-actions");
+  };
+  byId("reset-dialog").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") cancelReset(event);
+  });
+  byId("reset-dialog").addEventListener("cancel", cancelReset);
+  // Closed by the browser anyway (it may insist on a second Escape): in step.
+  byId("reset-dialog").addEventListener("close", () => {
+    resetRequested = false;
   });
   for (const id of MORE_ITEMS) {
     byId(`menu-${id}`).addEventListener("click", () => {

@@ -148,10 +148,11 @@ item — you never need to know what resume, retry or fresh mean to find it:
 | **Rebuild Context** | You changed the issue, hint, keywords, focus files, Fix Mode or another preparation setting since | Prepares it again, keeping what the agent wrote |
 | **Running…** | Something is in flight | Nothing — it waits |
 
-**Stop** joins it while a run is in flight. Once there is a context, a **⋯**
-button beside it holds what is not the next step: **Rebuild Context**, and —
-once an attempt exists — **Start New Attempt**. Nothing is ever shown greyed
-out beside it.
+**Stop** joins it while a run is in flight. Beside it, always, is **⋯ More**
+(just **⋯** in a very narrow sidebar). It holds **Reset Session** — see
+[Starting over](#starting-over-reset-session) — and, once there is a context,
+what is not the next step: **Rebuild Context**, and — once an attempt exists —
+**Start New Attempt**. Nothing is ever shown greyed out beside it.
 
 ## Advanced Settings
 
@@ -490,6 +491,35 @@ as it was prepared before.
 `task.md`, copy the handoff prompt, reveal the artifacts folder, retry, or
 clean it up. Each one switches the panel to that row first, so nothing happens
 to a work item you cannot see.
+
+## Starting over: Reset Session
+
+**⋯ More → Reset Session** puts the panel back to a fresh session: the Issue,
+the Hint, Keywords, Focus Files, attachments, the workflow steps, every Code
+Search and Git History setting, Fresh, and Fix Mode (back to Standard Fix) —
+and the work item on screen, with its results, is let go. The next button is
+**Run** again, and a reload or a restart opens the fresh session too.
+
+It keeps what is yours rather than the issue's: the **AI Agent** you chose and
+its custom command, your settings, and **History**.
+
+It asks first, with one choice about the generated files:
+
+- **Keep generated files** (the default) leaves `.ai/<work item>/` exactly as
+  it is. The work item stays in History, and clicking it there reopens it.
+- **Delete generated files** permanently deletes `.ai/<work item>/` — the
+  current work item's context, task, report and copied attachments — and
+  nothing else: never a repository file, never another work item, never the
+  memory entry. The work item leaves History with its folder. BugPilot deletes
+  only a real folder inside the repository's own `.ai/`; if `.ai` or the folder
+  is a link or junction, or the delete does not finish, nothing is reset and
+  the dialog says why.
+
+A BugPilot run in progress is stopped first, and a background AI review
+BugPilot is running is cancelled. An agent already handed the work item keeps
+running in its own terminal or extension — BugPilot cannot stop it, and the
+dialog says so. While a review result or verification evidence is being saved,
+Reset waits for it.
 
 ## When a fix did not work
 

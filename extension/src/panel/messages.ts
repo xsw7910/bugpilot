@@ -231,6 +231,37 @@ export interface PanelState {
    * until a detection has been asked for, and never a probe of the page's own.
    */
   readonly agents: AgentStatusView;
+  /**
+   * Reset Session (§37.103): what its dialog needs to say, and the session the
+   * page is showing. Always present: the ⋯ More menu always offers it.
+   */
+  readonly sessionReset: SessionResetView;
+}
+
+/**
+ * Reset Session's dialog, as the host sees it. The page decides nothing here:
+ * whether Delete has anything to act on, what the reset will stop, and why it
+ * cannot start, are all the host's.
+ */
+export interface SessionResetView {
+  /**
+   * Bumped by every completed reset. When it changes the page drops what it
+   * holds about the old session — open editors, disclosures, the dialog —
+   * while the fresh form arrives the usual way, with a new `revision`.
+   */
+  readonly epoch: number;
+  /** A reset is under way: the dialog waits, and nothing else may start. */
+  readonly busy: boolean;
+  /** While busy: whether it is deleting generated files. */
+  readonly deleting?: boolean;
+  /** Why a reset cannot start right now — an artifact write in flight — said in the dialog. */
+  readonly blocked?: string;
+  /** What the reset would stop, or leave running, one sentence each. */
+  readonly notes: readonly string[];
+  /** The work item whose generated files Delete would remove; absent, there are none. */
+  readonly workItemId?: string;
+  /** Why the last press reset nothing, sent once: `token` changes per answer. */
+  readonly error?: { readonly token: number; readonly message: string };
 }
 
 /**
@@ -440,6 +471,12 @@ export type PanelMessage =
    */
   | { readonly type: "recordReview"; readonly review: ReviewEntry }
   /**
+   * "Reset the current session" (§37.103), from the Reset Session dialog: the
+   * one choice it asks for. No work item and no path — the host knows which work
+   * item is current, and deletes only that one's generated files, only when asked.
+   */
+  | { readonly type: "resetSession"; readonly deleteGeneratedFiles: boolean }
+  /**
    * "Read this pasted review into the form" (Paste Review Output): the text as
    * pasted, bounded. The host answers once with the sections or the reason it
    * could not read them; nothing is saved.
@@ -508,6 +545,7 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   fixModeAction: true,
   saveFixMode: true,
   recordReview: true,
+  resetSession: true,
   parseReviewOutput: true,
   discardReviewDraft: true,
   verificationDraft: true,
@@ -582,6 +620,12 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
           recommendations: text("recommendations"),
         },
       };
+    }
+    case "resetSession": {
+      // Deleting is never inferred: only an explicit boolean is a choice, and a
+      // message without one is dropped rather than read as either.
+      const deleteGeneratedFiles = message?.["deleteGeneratedFiles"];
+      return typeof deleteGeneratedFiles === "boolean" ? { type, deleteGeneratedFiles } : undefined;
     }
     case "parseReviewOutput": {
       // Clamped one past the cap, so a paste that is too long is refused by the

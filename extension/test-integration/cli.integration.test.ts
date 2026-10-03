@@ -22,7 +22,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +44,7 @@ import { recordVerificationArgs, verificationOutcome, verificationPayload } from
 import { parseVerificationReport } from "../src/app/verificationReport.ts";
 import type { VerificationCheckEntry } from "../src/app/verificationReport.ts";
 import { payloadCommandPort } from "../src/app/fixModeTransport.ts";
+import { deleteWorkItemArtifacts } from "../src/app/sessionReset.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -598,4 +599,50 @@ test("whatever bugpilot is on PATH is classified, not misread", async () => {
     ["ready", "incompatible", "unhealthy", "unresponsive"].includes(verdict.kind),
     verdict.kind,
   );
+});
+
+// --- Reset Session's Delete generated files (§37.103) ---------------------------
+
+test("Reset Session's Delete runs the real clean on .ai/<id>/ only, and never deletes through a link", async () => {
+  const root = repository();
+  const outside = mkdtempSync(path.join(tmpdir(), "bugpilot-it-outside-"));
+  writeFileSync(path.join(outside, "precious.txt"), "do not delete\n", "utf8");
+  for (const id of ["JR-1", "JR-2"]) {
+    mkdirSync(path.join(root, ".ai", id), { recursive: true });
+    writeFileSync(path.join(root, ".ai", id, "task.md"), `${id}\n`, "utf8");
+  }
+  writeFileSync(path.join(root, ".ai", "notes.txt"), "mine\n", "utf8");
+  mkdirSync(path.join(root, ".ai_memory", "bugs"), { recursive: true });
+  writeFileSync(path.join(root, ".ai_memory", "bugs", "JR-1.md"), "memory\n", "utf8");
+  // A link inside the folder being deleted, to something outside it: removed
+  // as a link, its target left alone.
+  symlinkSync(outside, path.join(root, ".ai", "JR-1", "linked"), process.platform === "win32" ? "junction" : "dir");
+  const clean = (id: string) => () => runner().run([...MODULE, "clean", id], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
+
+  assert.deepEqual(await deleteWorkItemArtifacts({ root, workItemId: "JR-1", clean: clean("JR-1") }), { kind: "deleted" });
+  assert.equal(existsSync(path.join(root, ".ai", "JR-1")), false);
+  assert.equal(readFileSync(path.join(outside, "precious.txt"), "utf8"), "do not delete\n");
+  assert.equal(readFileSync(path.join(root, ".ai", "JR-2", "task.md"), "utf8"), "JR-2\n");
+  assert.equal(readFileSync(path.join(root, ".ai", "notes.txt"), "utf8"), "mine\n");
+  assert.equal(readFileSync(path.join(root, ".ai_memory", "bugs", "JR-1.md"), "utf8"), "memory\n");
+  assert.ok(existsSync(path.join(root, "src", "record.py")));
+
+  // The work item folder itself a link: refused before the CLI is asked.
+  rmSync(path.join(root, ".ai", "JR-2"), { recursive: true });
+  symlinkSync(outside, path.join(root, ".ai", "JR-2"), process.platform === "win32" ? "junction" : "dir");
+  let asked = false;
+  const refused = await deleteWorkItemArtifacts({
+    root,
+    workItemId: "JR-2",
+    clean: async () => {
+      asked = true;
+      return clean("JR-2")();
+    },
+  });
+  assert.deepEqual(refused, { kind: "refused", reason: "link" });
+  assert.equal(asked, false);
+  assert.equal(readFileSync(path.join(outside, "precious.txt"), "utf8"), "do not delete\n");
+
+  // Nothing there: missing, and the CLI is not asked.
+  assert.deepEqual(await deleteWorkItemArtifacts({ root, workItemId: "JR-3", clean: clean("JR-3") }), { kind: "missing" });
 });

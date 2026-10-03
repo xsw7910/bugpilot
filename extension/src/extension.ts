@@ -22,6 +22,7 @@ import { AttachmentReferenceRegistry, initializeAttachmentGc, runAttachmentGc } 
 import { Controller } from "./app/controller.ts";
 import { isWorkItemId, restoreForm } from "./app/form.ts";
 import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues } from "./app/logSafety.ts";
+import { deleteWorkItemArtifacts } from "./app/sessionReset.ts";
 import { fixModeCommandPort, payloadCommandPort } from "./app/fixModeTransport.ts";
 import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
@@ -168,8 +169,20 @@ export function activate(context: vscode.ExtensionContext): void {
         // where every window's collection can see it.
         attachmentReferences.record(form.attachments);
       },
+      // `undefined` after Reset Session: the key is removed, so a restart
+      // reopens nothing (§37.103).
       saveWorkItem: (workItemId) =>
         void context.workspaceState.update(WORK_ITEM_STATE_KEY, workItemId),
+      // Reset Session's Delete generated files: `.ai/<work item>/`, checked to
+      // be the repository's own real folder, then removed by the CLI's `clean`
+      // — the Clean command's own delete — and looked at again. Nothing of its
+      // output reaches the log: the controller says what happened.
+      deleteWorkItemArtifacts: (root, workItemId) =>
+        deleteWorkItemArtifacts({
+          root,
+          workItemId,
+          clean: () => new Runner(executable).run(["clean", workItemId], { cwd: root, timeoutMs: 120_000 }),
+        }),
       // One spawn for the whole catalog, from the one place that knows the
       // discovery command. The controller asks when the environment resolves,
       // which is also when the executable can have changed.

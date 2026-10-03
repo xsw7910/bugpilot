@@ -248,6 +248,7 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   closeFixModes: { type: "closeFixModes" },
   detectAgents: { type: "detectAgents" },
   fixModeAction: { type: "fixModeAction", action: "view", id: "standard", scope: "builtin" },
+  resetSession: { type: "resetSession", deleteGeneratedFiles: false },
   parseReviewOutput: { type: "parseReviewOutput", text: "## Summary\nReads correctly.\n" },
   discardReviewDraft: { type: "discardReviewDraft" },
   verificationDraft: {
@@ -421,9 +422,14 @@ test("the workflow is one section, not an Investigate box plus a Progress box", 
   assert.match(HTML, /id="workflow"/);
   assert.match(HTML, /<h2 id="workflow-heading">Workflow Steps<\/h2>/);
   assert.match(HTML, /id="workflow-status"[^>]*role="status"/);
-  for (const gone of ['id="handoff"', 'id="progress-section"', 'id="rows"', "<legend>"]) {
+  // In the run's form, that is: Reset Session's dialog, outside it, groups its
+  // two choices with a legend of its own (§37.103).
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(form, "");
+  for (const gone of ['id="handoff"', 'id="progress-section"', 'id="rows"']) {
     assert.equal(HTML.includes(gone), false, `${gone} belongs to the old three-section layout`);
   }
+  assert.equal(form.includes("<legend>"), false, "<legend> belongs to the old three-section layout");
 });
 
 test("the AI step is a workflow row rather than a button, and starts unticked", () => {
@@ -1076,33 +1082,76 @@ test("the primary action, Stop and the ⋯ menu are one row, in that order", () 
   const buttons = [...row.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]);
   assert.deepEqual(buttons, ["run", "stop", "more-actions"]);
   assert.equal(HTML.includes('id="retry"'), false, "Retry is still a button of its own");
-  // Hidden in the markup too, not just after the first state push: the page is
-  // built before the host answers, and both would flash there.
-  for (const id of ["stop", "more-actions"]) {
-    assert.match(row, new RegExp(`id="${id}"[^>]*hidden`), `${id} should start hidden`);
-  }
+  // Stop is hidden in the markup too, not just after the first state push: the
+  // page is built before the host answers, and it would flash there. ⋯ More is
+  // not: Reset Session is always on offer (§37.103).
+  assert.match(row, /id="stop"[^>]*hidden/, "stop should start hidden");
+  assert.doesNotMatch(/<button[^>]*id="more-actions"[^>]*>/.exec(HTML)?.[0] ?? "", /\shidden/, "⋯ More is always there");
   // The menu button says what it is to a screen reader, and which list it opens.
   assert.match(row, /id="more-actions"[^>]*aria-label="More actions"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="more-menu"/);
-  // Run is the only one that is always there, so it is the one that stretches.
+  // Run is the only one that stretches.
   assert.match(CSS, /#run\s*\{[^}]*flex:\s*1/);
   assert.match(CSS, /#stop,\s*#more-actions\s*\{\s*flex: none;/);
 });
 
-test("the ⋯ menu holds Start New Attempt, Rebuild Context and Open AI Session, all hidden until offered", () => {
-  const menu = /<div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
+test("⋯ More is a visible secondary button: the glyph and its word, outlined, never primary (§37.103)", () => {
+  const tag = /<button[^>]*id="more-actions"[^>]*>/.exec(HTML)?.[0] ?? "";
+  const attr = (name: string) => new RegExp(`${name}="([^"]*)"`).exec(tag)?.[1];
+  const button = /<button[^>]*id="more-actions"[^>]*>[\s\S]*?<\/button>/.exec(HTML)?.[0] ?? "";
+  // The glyph, then the word, which a narrow sidebar may drop — the name stays.
+  assert.match(button, /<span class="codicon codicon-ellipsis" aria-hidden="true"><\/span><span class="more-label">More<\/span><\/button>$/);
+  assert.equal(attr("aria-label"), "More actions");
+  assert.equal(attr("title"), "More actions");
+  // Its visible word is part of its name, so a speech user can say what they see.
+  assert.ok(attr("aria-label")!.startsWith("More"));
+  assert.doesNotMatch(tag, /class="[^"]*\b(primary|icon)\b/, "⋯ More is neither primary nor a bare toolbar glyph");
+  // A hairline border, no fill, the normal foreground; a hover fill; the shared outline.
+  // Its own rule, not the `#stop, #more-actions` one the row shares.
+  const rule = /\}\s*#more-actions \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /border: 1px solid var\(--vscode-button-border, var\(--vscode-panel-border\)\)/);
+  assert.match(rule, /background: transparent/);
+  assert.match(rule, /color: var\(--vscode-foreground\)/);
+  assert.doesNotMatch(rule, /--vscode-button-background\b|--vscode-button-foreground\b/, "⋯ More uses the primary colours");
+  assert.match(CSS, /#more-actions:hover:not\(:disabled\) \{[^}]*background: var\(--vscode-toolbar-hoverBackground/);
+  assert.match(CSS, /button:focus-visible \{\s*outline: 1px solid var\(--vscode-focusBorder\)/);
+  // Only a very narrow sidebar drops the word — the glyph and the name stay —
+  // and there the row tightens so a run's words fit beside Stop and ⋯.
+  const narrow = /@media \(max-width: (\d+)px\) \{((?:\s*[^{}]+\{[^}]*\})+)\s*\}/g;
+  const block = [...CSS.matchAll(narrow)].find((match) => match[2]!.includes(".more-label"));
+  assert.ok(block, "no narrow-width rule drops the More label");
+  assert.ok(Number(block[1]) < 360, "the word is dropped at 360px, where it fits");
+  assert.match(block[2]!, /#more-actions \.more-label \{\s*display: none;\s*\}/);
+  assert.doesNotMatch(block[2]!, /#more-actions \.codicon \{[^}]*display: none/, "the glyph went too");
+  assert.match(block[2]!, /#run\[aria-busy="true"\] #run-icon \{\s*display: none;\s*\}/);
+  // And Run's label gives way before the row overflows.
+  assert.match(CSS, /#run-label \{[^}]*min-width: 0;[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/);
+});
+
+test("the ⋯ More menu: Reset Session first, a separator, then the next steps hidden until offered", () => {
+  const menu = /<div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>[\s\S]*?\n      <\/div>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(menu, "", "no menu under the button row");
-  const items = [...menu.matchAll(/<button type="button" role="menuitem" class="menu-item" id="menu-([A-Za-z]+)" title="[^"]+" hidden>/g)].map(
-    (match) => match[1],
-  );
-  assert.deepEqual(items, ["startNewAttempt", "rebuildContext", "openSession"]);
+  const items = [...menu.matchAll(/<button type="button" role="menuitem" class="menu-item" id="menu-([A-Za-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(items, ["resetSession", "startNewAttempt", "rebuildContext", "openSession"]);
+  // Reset Session is always shown; the next steps start hidden.
+  assert.match(menu, /id="menu-resetSession" title="[^"]+"><span class="codicon codicon-discard" aria-hidden="true"><\/span><span>Reset Session<\/span><\/button>/);
+  for (const id of ["startNewAttempt", "rebuildContext", "openSession"]) {
+    assert.match(menu, new RegExp(`id="menu-${id}" title="[^"]+" hidden>`), id);
+  }
+  // The separator sits between the two groups, and is not a stop for the keyboard.
+  assert.ok(menu.indexOf('id="menu-resetSession"') < menu.indexOf('id="menu-separator"'));
+  assert.ok(menu.indexOf('id="menu-separator"') < menu.indexOf('id="menu-startNewAttempt"'));
+  assert.match(menu, /<div class="menu-separator" id="menu-separator" role="separator" hidden><\/div>/);
   assert.match(menu, /<span>Start New Attempt<\/span>/);
   assert.match(menu, /<span>Rebuild Context<\/span>/);
-  // Nothing in it is a primary button, and nothing is called Retry, Resume or Fresh.
+  // Nothing in it is a primary button, nothing is called Retry, Resume or Fresh,
+  // and Reset Session is an ordinary item — no danger colour on the entry.
   assert.equal(menu.includes('class="primary"'), false);
   for (const word of ["Retry", "Resume", "Fresh"]) assert.equal(menu.includes(word), false, `the menu says ${word}`);
+  assert.doesNotMatch(menu, /danger|error|warning/, "Reset Session is styled as a destructive entry");
   // And it lets `hidden` win, like the button row does.
   assert.match(CSS, /\.more-menu\[hidden\] \{\s*display: none;/);
   assert.match(CSS, /\.menu-item\[hidden\] \{\s*display: none;/);
+  assert.match(CSS, /\.menu-separator\[hidden\] \{\s*display: none;/);
 });
 
 test("Start New Attempt's form: optional feedback, the example, two helpers, Cancel and Start", () => {
@@ -2893,4 +2942,78 @@ test("the workflow section is Workflow Steps; Investigation & AI Fix is gone fro
   // Issue details says what it does for every source, never Jira's name.
   assert.equal(HTML.includes("Fetch Jira issue information"), false);
   assert.equal(PAGE_JS.includes("Fetch Jira issue information"), false);
+});
+
+// --- Reset Session's question (§37.103) ----------------------------------------
+
+const RESET_DIALOG_HTML = /<dialog class="reset-dialog" id="reset-dialog"[\s\S]*?<\/dialog>/.exec(HTML)?.[0] ?? "";
+
+test("Reset Session's question is a modal dialog of its own: outside every view and the run's form", () => {
+  assert.notEqual(RESET_DIALOG_HTML, "", "no Reset Session dialog");
+  assert.match(RESET_DIALOG_HTML, /^<dialog class="reset-dialog" id="reset-dialog" aria-labelledby="reset-title" aria-describedby="reset-body">/);
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  assert.equal(form.includes('id="reset-dialog"'), false, "the question is inside the run's form: Enter in it would run");
+  for (const view of ["main-view", "workflow-settings-view", "fix-mode-manager-view"]) {
+    const section = new RegExp(`<section id="${view}"[\\s\\S]*?\\n  </section>`).exec(HTML)?.[0] ?? "";
+    assert.notEqual(section, "", view);
+    assert.equal(section.includes('id="reset-dialog"'), false, `the question is inside ${view}, which can be hidden`);
+  }
+  // Not a form either: Enter on a choice submits nothing.
+  assert.doesNotMatch(RESET_DIALOG_HTML, /<form|type="submit"/);
+  // Nothing in it takes the focus by itself — the page puts it on the choice.
+  assert.doesNotMatch(RESET_DIALOG_HTML, /autofocus/);
+});
+
+test("the question: its title, what resets, the two choices with Keep chosen, and what each means", () => {
+  assert.match(RESET_DIALOG_HTML, /<h2 class="reset-title" id="reset-title">Reset BugPilot Session\?<\/h2>/);
+  assert.match(RESET_DIALOG_HTML, /<p class="reset-body" id="reset-body">Reset the current issue, workflow settings, and prepared context\.<\/p>/);
+  assert.match(RESET_DIALOG_HTML, /<fieldset class="reset-files" id="reset-files">\s*<legend>Generated files<\/legend>/);
+  const radios = [...RESET_DIALOG_HTML.matchAll(/<input type="radio" name="reset-files" id="(reset-[a-z]+)" value="([a-z]+)"( checked)?/g)].map(
+    (match) => [match[1], match[2], match[3] === " checked"],
+  );
+  assert.deepEqual(radios, [
+    ["reset-keep", "keep", true],
+    ["reset-delete", "delete", false],
+  ]);
+  assert.match(RESET_DIALOG_HTML, /<label class="choice" for="reset-keep">[^<]*<input[^>]*>\s*Keep generated files<\/label>/);
+  assert.match(RESET_DIALOG_HTML, /<label class="choice" for="reset-delete">[^<]*<input[^>]*>\s*Delete generated files<\/label>/);
+  // Keep's helper shows; Delete's — the permanent deletion, and History — only once chosen.
+  assert.match(RESET_DIALOG_HTML, /<p class="hint reset-helper" id="reset-keep-hint">History will be kept\.<\/p>/);
+  assert.match(
+    RESET_DIALOG_HTML,
+    /id="reset-delete-hint" hidden>[\s\S]*?The current generated context and artifacts will be permanently deleted\. Repository source files will not be deleted\./,
+  );
+  assert.match(RESET_DIALOG_HTML, /id="reset-delete-history" hidden>This work item will no longer appear in History; other History entries are kept\.</);
+  assert.match(RESET_DIALOG_HTML, /id="reset-no-files" hidden>This session has no generated files yet\.</);
+  // A refusal is announced; progress is a status.
+  assert.match(RESET_DIALOG_HTML, /<p class="error" id="reset-error" role="alert" hidden><\/p>/);
+  assert.match(RESET_DIALOG_HTML, /id="reset-status" role="status"/);
+});
+
+test("the question's buttons: Cancel, then Reset Session — Reset and Delete once Delete is chosen; never red", () => {
+  const actions = /<div class="reset-actions">[\s\S]*?<\/div>/.exec(RESET_DIALOG_HTML)?.[0] ?? "";
+  const buttons = [...actions.matchAll(/<button type="button" id="([a-z-]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(buttons, ["reset-cancel", "reset-confirm"]);
+  assert.match(actions, /<button type="button" id="reset-cancel">Cancel<\/button>/);
+  assert.match(
+    actions,
+    /id="reset-confirm" class="primary"[^>]*><span id="reset-confirm-keep">Reset Session<\/span><span id="reset-confirm-delete" hidden>Reset and Delete<\/span><span id="reset-confirm-busy" hidden>Resetting…<\/span><\/button>/,
+  );
+  // No danger styling: the codebase has no such button, and the warning is the helper's.
+  assert.doesNotMatch(RESET_DIALOG_HTML, /class="[^"]*\b(danger|destructive)\b/);
+  assert.match(RESET_DIALOG_HTML, /id="reset-delete-hint" hidden><span class="codicon codicon-warning icon-warning" aria-hidden="true"><\/span>/);
+});
+
+test("the question fits the sidebar, in the editor's widget colours, and lets hidden win", () => {
+  const rule = /\.reset-dialog \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /width: min\(360px, calc\(100vw - 24px\)\)/);
+  assert.match(rule, /max-height: calc\(100vh - 24px\)/);
+  assert.match(rule, /overflow-y: auto/);
+  assert.match(rule, /overflow-wrap: anywhere/);
+  assert.match(rule, /background: var\(--vscode-editorWidget-background/);
+  assert.match(rule, /border: 1px solid var\(--vscode-editorWidget-border/);
+  assert.match(CSS, /\.reset-dialog::backdrop \{\s*background: var\(--vscode-widget-shadow, transparent\);/);
+  // The buttons wrap rather than widen the dialog at 200px.
+  assert.match(CSS, /\.reset-actions \{[^}]*flex-wrap: wrap;/);
+  assert.match(CSS, /\.reset-warning\[hidden\] \{\s*display: none;/);
 });

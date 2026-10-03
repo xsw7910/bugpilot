@@ -133,6 +133,17 @@ import type { Envelope, StreamEvent } from "../protocol.ts";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../panel/messages.ts";
 import type { AttachmentData } from "../panel/messages.ts";
 import { attachmentDigest, attachmentFileName, holdsDigest } from "./attachmentFiles.ts";
+import {
+  RESET_CANCELS_REVIEW,
+  RESET_LEAVES_AGENT,
+  RESET_STOPS_RUN,
+  SESSION_RESET,
+  SESSION_RESET_DELETED,
+  SESSION_RESET_NOTHING_TO_DELETE,
+  deletionProblem,
+  resetSessionForm,
+} from "./sessionReset.ts";
+import type { ArtifactDeletion, ResetSessionOptions } from "./sessionReset.ts";
 import type {
   CreatedFixMode,
   Notice,
@@ -140,6 +151,7 @@ import type {
   PanelMessage,
   PanelState,
   SessionFeedback,
+  SessionResetView,
   Readiness,
 } from "../panel/messages.ts";
 
@@ -267,13 +279,21 @@ export interface ControllerPorts {
    */
   readonly storeAttachment?: (digest: string, name: string, bytes: Uint8Array) => Promise<string>;
   /**
-   * Persist which work item is being shown.
+   * Persist which work item is being shown — or, after Reset Session, that none
+   * is (`undefined`), so a restart does not bring the old one back.
    *
    * §5.4 requires the progress view to come back after a restart, and
    * `run.json` is the only record that survives the process — but
    * only if the window remembers *which* work item to read it from.
    */
-  readonly saveWorkItem?: (workItemId: string) => void;
+  readonly saveWorkItem?: (workItemId: string | undefined) => void;
+  /**
+   * Reset Session's Delete generated files (§37.103): remove `.ai/<work item>/`
+   * — checked to be the repository's own, then the CLI's `clean`, then looked
+   * at again (`deleteWorkItemArtifacts` in `sessionReset.ts`). Absent: this host
+   * cannot delete them, and a reset that asks to is refused.
+   */
+  readonly deleteWorkItemArtifacts?: (root: string, workItemId: string) => Promise<ArtifactDeletion>;
   /**
    * This extension's own version, which is not the CLI's.
    *
@@ -387,9 +407,10 @@ export const ARTIFACT_REFRESH_RETRY_MS = 750;
  * The artifact writes the host performs itself, one at a time (Batch 12): recording
  * a review result, recording verification evidence, cleaning a work item, and
  * preparing a retry package (release stabilization: it writes into the folder too)
- * — which Start New Attempt does too, when it carries feedback.
+ * — which Start New Attempt does too, when it carries feedback — and Reset Session
+ * (§37.103), which may delete the folder and always detaches from it.
  */
-type ArtifactMutation = "review" | "verification" | "clean" | "retry" | "attempt" | "aiReview";
+type ArtifactMutation = "review" | "verification" | "clean" | "retry" | "attempt" | "aiReview" | "reset";
 
 /** What a run that has to wait is told, per mutation in flight. */
 const RUN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
@@ -399,6 +420,7 @@ const RUN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   retry: "Wait for the retry to finish before starting a run.",
   attempt: "Wait for the new attempt to be prepared before starting a run.",
   aiReview: "Wait for the AI review to finish before starting a run.",
+  reset: "Wait for the session reset to finish before starting a run.",
 };
 
 /** What Retry is told, per artifact write in flight. */
@@ -409,6 +431,7 @@ const RETRY_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   retry: "Wait for the retry to finish before retrying.",
   attempt: "Wait for the new attempt to be prepared before retrying.",
   aiReview: "Wait for the AI review to finish before retrying.",
+  reset: "Wait for the session reset to finish before retrying.",
 };
 
 /** What Clean is told while a recording is in flight. */
@@ -422,6 +445,7 @@ const CLEAN_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   retry: "Wait for the retry to finish before cleaning this work item.",
   attempt: "Wait for the new attempt to be prepared before cleaning this work item.",
   aiReview: "Wait for the AI review to finish before cleaning this work item.",
+  reset: "Wait for the session reset to finish before cleaning this work item.",
 };
 
 /** What a handoff is told, per artifact write in flight: it would read a folder being written. */
@@ -432,6 +456,7 @@ const HANDOFF_WAITS_FOR: Readonly<Record<ArtifactMutation, string>> = {
   retry: "Wait for the retry to finish before handing this work item to an agent.",
   attempt: "Wait for the new attempt to be prepared before handing this work item to an agent.",
   aiReview: "Wait for the AI review to finish before handing this work item to an agent.",
+  reset: "Wait for the session reset to finish before handing this work item to an agent.",
 };
 
 /** What the primary action is waiting for, per artifact write in flight. */
@@ -442,7 +467,13 @@ const BUSY_WITH: Readonly<Record<ArtifactMutation, string>> = {
   retry: "Wait for the retry to finish.",
   attempt: "Wait for the new attempt to be prepared.",
   aiReview: "Wait for the AI review to finish.",
+  reset: "Wait for the session reset to finish.",
 };
+
+/** Why Reset Session waits for a handoff being worked out: it may open a terminal at any moment. */
+export const RESET_WAITS_FOR_HANDOFF = "Wait for BugPilot to finish handing this work item to an agent.";
+/** Why Reset Session waits for Review with AI being prepared: it may open a terminal at any moment. */
+export const RESET_WAITS_FOR_REVIEW = "Wait for Review with AI to start.";
 
 /** Why a handoff refuses a context the form no longer describes. */
 export const STALE_HANDOFF =
@@ -911,6 +942,26 @@ export class Controller {
    */
   #probe: Promise<void> | undefined;
 
+  // --- Reset Session (§37.103) -------------------------------------------------
+
+  /**
+   * Which session this is: bumped by every completed Reset Session. Anything that
+   * waits — a run, a folder read, a work item being opened, a hint being
+   * improved, a key's Fix Mode being looked up — takes it before the wait and
+   * drops its result if it changed, so nothing of the old session reappears on
+   * the fresh one.
+   */
+  #sessionEpoch = 0;
+  /** A reset in flight, from the press until it reset or said why not. */
+  #reset: { readonly deleting: boolean } | undefined;
+  /** Why the last press reset nothing, held for exactly one push. */
+  #resetError: { readonly token: number; readonly message: string } | undefined;
+  #resetErrorToken = 0;
+  /** The run in flight — the whole of it, handoff included — so a reset can wait for it to end. */
+  #runTask: Promise<void> | undefined;
+  /** The captured review in flight, so a reset that cancelled it can wait for it to end. */
+  #reviewTask: Promise<void> | undefined;
+
   constructor(ports: ControllerPorts, initialForm: FormState = DEFAULT_FORM) {
     this.#ports = ports;
     this.#form = initialForm;
@@ -1213,6 +1264,9 @@ export class Controller {
       case "recordReview":
         await this.recordReview(message.review);
         return;
+      case "resetSession":
+        await this.resetSession({ deleteGeneratedFiles: message.deleteGeneratedFiles });
+        return;
       case "parseReviewOutput":
         this.parseReviewOutput(message.text);
         return;
@@ -1317,6 +1371,7 @@ export class Controller {
 
   /** Why nothing can start right now, in a sentence. */
   #busyReason(): string {
+    if (this.#reset !== undefined) return BUSY_WITH.reset;
     if (this.#running || this.#runPending) return "A BugPilot run is in progress. Wait for it to finish, or press Stop.";
     if (this.#mutation !== undefined) return BUSY_WITH[this.#mutation];
     return "BugPilot is still handing this work item to an agent.";
@@ -1337,6 +1392,9 @@ export class Controller {
     // Refused here, the one door every run goes through — not by a page button.
     // Nothing is marked: the run simply has not begun.
     if (this.#refuseRunForMutation()) return;
+    // The session this run was asked for in (§37.103): a reset before it starts
+    // means the form it was given belongs to a session that is gone.
+    const epoch = this.#sessionEpoch;
     // A run can delete the folder the verification form is saving into: save
     // it first, or go on only if the developer says so (§37.83).
     // Awaited only when there is something to save, so a run with nothing
@@ -1344,9 +1402,13 @@ export class Controller {
     if (this.#hasUnsavedVerification() && !(await this.#settleVerificationDraft("Run"))) return;
     this.#runPending = true;
     const before = this.#runsStarted;
+    const task = this.#prepare(form, options, epoch);
+    // The whole run, handoff included: what Reset Session waits for after Stop.
+    this.#runTask = task;
     try {
-      await this.#prepare(form, options);
+      await task;
     } finally {
+      if (this.#runTask === task) this.#runTask = undefined;
       const started = this.#runsStarted !== before;
       this.#runPending = false;
       // A run that never began — declined, invalid, refused — may have been
@@ -1355,7 +1417,7 @@ export class Controller {
     }
   }
 
-  async #prepare(form: FormState, options: { readonly handOff?: boolean }): Promise<void> {
+  async #prepare(form: FormState, options: { readonly handOff?: boolean }, epoch: number): Promise<void> {
     this.#form = form;
     this.#ports.saveForm?.(form);
 
@@ -1365,6 +1427,10 @@ export class Controller {
       await this.refreshEnvironment();
       if (this.#readiness.kind !== "ready" || !this.#root) return;
     }
+    // Reset while the environment was checked, or being reset now: this form's
+    // problems are not the fresh session's to show, and its Fresh question is not
+    // one to ask (§37.103).
+    if (epoch !== this.#sessionEpoch || this.#reset !== undefined) return;
     const root = this.#root;
 
     const built = buildPrepareArgs(form, {
@@ -1390,7 +1456,13 @@ export class Controller {
 
     // Checked again at the door: a recording or a clean pressed while this run
     // was still being set up (the environment, the Fresh confirmation, the files
-    // above) must not have a run start over it.
+    // above) must not have a run start over it — nor a reset, which this run's
+    // form no longer describes (§37.103): dropped quietly, since the developer
+    // chose the reset after pressing Run.
+    if (this.#reset !== undefined || epoch !== this.#sessionEpoch) {
+      this.#ports.log.info("Run not started: the session was reset while it was being set up.");
+      return;
+    }
     if (this.#refuseRunForMutation()) return;
     const tracker = new ProgressTracker(effectivePlan(form.plan), this.#ports.now);
     let runWarnings: readonly string[] = [];
@@ -1483,6 +1555,9 @@ export class Controller {
           timeoutMs: RUN_TIMEOUT_MS,
         },
         (event) => {
+          // A reset waits for this run to end, so this is only ever a process
+          // the Runner gave up on still talking (§37.103): not this session's.
+          if (epoch !== this.#sessionEpoch) return;
           tracker.apply(event);
           // Things the run did differently than asked — an attachment that had
           // vanished by the time it was copied, so far. Not a failure, and not
@@ -1535,6 +1610,12 @@ export class Controller {
       this.#running = false;
       this.#abort = undefined;
     }
+    // Belt and braces for the same case: nothing of a run from before a reset
+    // reaches the fresh session.
+    if (epoch !== this.#sessionEpoch) {
+      this.#push();
+      return;
+    }
 
     for (const warning of runWarnings) this.#ports.ui.notify("warning", warning);
 
@@ -1548,8 +1629,10 @@ export class Controller {
     // The last row of the workflow, and the only one this extension performs
     // itself. Reached only when the developer ticked it *and* the run produced
     // something to hand over — a prompt pointing at artifacts that a failed run
-    // never wrote would send an agent looking for a missing file.
-    if (options.handOff !== false && canFixWithAI(form)) {
+    // never wrote would send an agent looking for a missing file. Never while a
+    // reset is waiting for this run to end: an agent started now would be
+    // working on a session the developer just asked to leave (§37.103).
+    if (options.handOff !== false && canFixWithAI(form) && this.#reset === undefined) {
       if (this.#progress.state === "done") await this.fixWithAI();
       else {
         this.#fix = {
@@ -2174,10 +2257,12 @@ export class Controller {
    * so picking the same log twice does not attach it twice.
    */
   async addAttachments(form: FormState): Promise<void> {
+    const epoch = this.#sessionEpoch;
     const picked = await this.#ports.ui.pickFiles();
     // Cancelled. Nothing to merge, and no revision bump — which would rewrite
-    // every field in the page for no reason.
-    if (picked.length === 0) return;
+    // every field in the page for no reason. Nor after a reset: `form` is the
+    // old session's (§37.103).
+    if (picked.length === 0 || epoch !== this.#sessionEpoch) return;
 
     const merged = [...form.attachments];
     for (const path of picked) {
@@ -2233,8 +2318,10 @@ export class Controller {
    * back to the page, once, and becomes the form's only if the page is applied.
    */
   async pickAttachments(current: readonly string[]): Promise<void> {
+    const epoch = this.#sessionEpoch;
     const picked = await this.#ports.ui.pickFiles();
-    if (picked.length === 0) return;
+    // A reset meanwhile: `current` is the old session's draft (§37.103).
+    if (picked.length === 0 || epoch !== this.#sessionEpoch) return;
     const merged = [...current];
     for (const path of picked) {
       if (!merged.includes(path)) merged.push(path);
@@ -2266,6 +2353,7 @@ export class Controller {
       this.#ports.ui.notify("warning", "This editor cannot keep pasted or dropped files. Use Add files… instead.");
       return;
     }
+    const epoch = this.#sessionEpoch;
     const merged = [...current];
     const refused = new Set<string>();
     let added = 0;
@@ -2305,7 +2393,8 @@ export class Controller {
     if (refused.size > 0) {
       this.#ports.ui.notify(added === 0 && refused.size === 1 && refused.has("a file that is already attached") ? "info" : "warning", `Not attached: ${[...refused].join("; ")}.`);
     }
-    if (added === 0) return;
+    // Kept, but not added to a draft that a reset replaced meanwhile (§37.103).
+    if (added === 0 || epoch !== this.#sessionEpoch) return;
     this.#attachmentPickToken += 1;
     this.#attachmentPick = { token: this.#attachmentPickToken, attachments: merged };
     this.#push();
@@ -2471,6 +2560,8 @@ export class Controller {
   async #readArtifacts(tolerant: boolean): Promise<boolean> {
     const workItemId = this.#workItemId;
     if (!workItemId || !this.#root) return true;
+    // The same work item again after a reset is still another session's read.
+    const epoch = this.#sessionEpoch;
     const known = this.#artifacts.kind === "ready" && this.#artifactsListedFor === workItemId;
     // Shown while the directory is being read: on a large repository over a
     // network share this is not instant, and an empty list in the meantime
@@ -2483,8 +2574,9 @@ export class Controller {
     const listing = await this.#ports.files.listDirectory(
       path.join(this.#root, ".ai", workItemId),
     );
-    // Another work item was shown while the directory was read.
-    if (this.#workItemId !== workItemId) return true;
+    // Another work item was shown while the directory was read, or the session
+    // was reset.
+    if (this.#workItemId !== workItemId || epoch !== this.#sessionEpoch) return true;
     if (listing.kind === "unreadable") {
       if (tolerant && known) {
         this.#ports.log.info(`.ai/${workItemId}/ could not be read just now (${listing.detail}); kept what was shown.`);
@@ -2512,7 +2604,8 @@ export class Controller {
       this.#forgetCapture();
     }
     const fixBefore = this.#fixReportIdentity;
-    const complete = await this.#readSummary(workItemId, names, tolerant);
+    const complete = await this.#readSummary(workItemId, names, tolerant, epoch);
+    if (complete === undefined) return true;
     // The report may have been rewritten since the checklist was read — a new
     // fix, by content. The same report read again keeps it. A copy in flight is
     // not affected: the prompt depends on the work item alone.
@@ -2557,9 +2650,17 @@ export class Controller {
       );
       return;
     }
+    if (this.#reset !== undefined) {
+      this.#ports.ui.notify("warning", "Wait for the session reset to finish before opening a work item.");
+      return;
+    }
+    // A reset during any wait below means the developer left this session, and
+    // what was being opened with it (§37.103).
+    const epoch = this.#sessionEpoch;
     // Unsaved verification changes are saved first — or, if they cannot be,
     // lost only after the developer says so (§37.83).
     if (this.#hasUnsavedVerification() && !(await this.#settleVerificationDraft("Open the other work item"))) return;
+    if (epoch !== this.#sessionEpoch || this.#reset !== undefined) return;
     this.#setWorkItem(workItemId);
     // Another bug entirely: nothing of the previous one's handoff belongs to
     // it — not the error, not the outcome, and not one still being worked out.
@@ -2573,6 +2674,7 @@ export class Controller {
     this.#forgetSummary();
     this.#artifactNames = [];
     const parsed = await this.#readStatus(workItemId);
+    if (epoch !== this.#sessionEpoch) return;
     this.#progress = viewFromStatus(parsed);
     this.#preparedFixMode = preparedFixModeFromStatus(parsed, this.#fixModes);
     // The reopened item is the subject of the next Run too, as far as that can
@@ -2670,14 +2772,19 @@ export class Controller {
       return;
     }
 
+    // An answer that arrives after a reset is about a hint the fresh session
+    // does not have (§37.103): dropped, wherever it was waiting.
+    const epoch = this.#sessionEpoch;
     const plan = await resolveHintProvider(form.agent, this.#ports.canRun);
+    if (epoch !== this.#sessionEpoch) return;
     if (plan.kind === "unavailable") {
       this.#hintError = plan.reason;
       this.#push();
       return;
     }
 
-    const context = await this.#hintContext(form);
+    const context = await this.#hintContext(form, epoch);
+    if (epoch !== this.#sessionEpoch) return;
     const key = hintCacheKey({ hint, context, provider: plan.provider.id });
     const remembered = this.#hintCache.get(key);
     if (remembered !== undefined) {
@@ -2698,6 +2805,8 @@ export class Controller {
     } catch (error) {
       outcome = { ok: false as const, reason: `${plan.provider.label} could not be run: ${(error as Error).message}` };
     }
+    // The reset cleared the busy flag itself; a press since may have set it again.
+    if (epoch !== this.#sessionEpoch) return;
     this.#hintBusy = false;
 
     if (!outcome.ok) {
@@ -2723,7 +2832,7 @@ export class Controller {
    * repository, no history, no files. A Jira lookup that fails is a reason to
    * improve the wording alone, said out loud, not a reason to refuse.
    */
-  async #hintContext(form: FormState): Promise<HintContext> {
+  async #hintContext(form: FormState, epoch: number): Promise<HintContext> {
     if (!form.useIssueDetails) return { kind: "hint-only" };
     if (form.source === "manual") {
       const title = form.title.trim();
@@ -2743,7 +2852,8 @@ export class Controller {
       details = undefined;
     }
     if (!details) {
-      this.#hintNotice = "Issue details unavailable — improving from hint only.";
+      // Not said on a session reset meanwhile: it is about a hint that is gone.
+      if (epoch === this.#sessionEpoch) this.#hintNotice = "Issue details unavailable — improving from hint only.";
       return { kind: "hint-only" };
     }
     // Kept for the rest of the session, so pressing Improve twice, or running
@@ -3018,10 +3128,14 @@ export class Controller {
       if (changed || JSON.stringify(this.#primaryView()) !== primaryBefore) this.#push();
       return;
     }
+    const epoch = this.#sessionEpoch;
     const prepared =
       scope === MANUAL_WORK_ITEM_SCOPE
         ? undefined
         : preparedFixModeFromStatus(await this.#readStatus(scope), this.#fixModes);
+    // Reset while the status was read: the key it was read for is gone, and its
+    // mode is not the fresh session's (§37.103).
+    if (epoch !== this.#sessionEpoch) return;
     // Only the selection follows the typed key. `#preparedFixMode` keeps
     // describing the work item whose artifacts and progress are on screen,
     // which is still the one that was opened.
@@ -3335,7 +3449,14 @@ export class Controller {
     if (captured) {
       this.#resolvedAgent = { kind: "resolved", label: captured.label };
       this.#agents.succeeded(resolution.adapter.id);
-      await this.#runCapturedReview(workItemId, root, epoch, fix, captured, result.prompt);
+      // Held so Reset Session, having cancelled it, can wait for it to end.
+      const task = this.#runCapturedReview(workItemId, root, epoch, fix, captured, result.prompt);
+      this.#reviewTask = task;
+      try {
+        await task;
+      } finally {
+        if (this.#reviewTask === task) this.#reviewTask = undefined;
+      }
       return;
     }
 
@@ -3609,10 +3730,15 @@ export class Controller {
     return this.#offersPostFix() && !this.#running && this.#mutation === undefined;
   }
 
-  /** Refuse a run, saying why, while an artifact write is in flight. */
+  /**
+   * Refuse a run, saying why, while an artifact write is in flight — or a reset,
+   * from its press on: it holds the artifact-write guard only once what it
+   * stopped has ended, and no run starts in between.
+   */
   #refuseRunForMutation(): boolean {
-    if (this.#mutation === undefined) return false;
-    this.#ports.ui.notify("warning", RUN_WAITS_FOR[this.#mutation]);
+    const waiting = this.#reset !== undefined ? "reset" : this.#mutation;
+    if (waiting === undefined) return false;
+    this.#ports.ui.notify("warning", RUN_WAITS_FOR[waiting]);
     return true;
   }
 
@@ -4148,6 +4274,214 @@ export class Controller {
     return true;
   }
 
+  /**
+   * Reset Session (§37.103): put the current session back to a fresh first-use
+   * state — the one operation that does, so nothing in the page clears a field
+   * and hopes the host follows.
+   *
+   * In order, each step only once the one before it is done:
+   *
+   *  1. Refuse, changing nothing, while a write or a handoff that cannot be
+   *     stopped is in flight (`#resetBlocker`).
+   *  2. Keep: unsaved verification evidence is saved first, as on any switch
+   *     away from the work item — or lost only if the developer says so.
+   *  3. Stop what BugPilot itself runs for this session — the run (as Stop
+   *     does), a captured AI review (as Cancel Review does) — and wait for each
+   *     to end, so no event of theirs can land on the fresh session. An agent
+   *     already handed the work item runs in a terminal or another extension and
+   *     is not BugPilot's to stop; the dialog says so beforehand.
+   *  4. Delete, if asked: `.ai/<work item>/` and nothing else, through
+   *     `deleteWorkItemArtifacts`. A refusal or a failure resets nothing: the
+   *     session is as it was (bar what step 3 stopped), the folder is read again
+   *     to show what is left, and the dialog says why. Deletion is never claimed
+   *     unless the folder is gone.
+   *  5. Reset, in one synchronous step (`#applyReset`): the form to the product
+   *     defaults with the AI Agent preference kept, the work item detached — on
+   *     disk too, so a restart opens nothing — and every result, error and draft
+   *     of the old session dropped. History is not touched; Keep leaves the old
+   *     folder, and so its History row, exactly where it was.
+   *
+   * From the press to the end it is busy like a run, and from step 4 it holds the
+   * artifact-write guard, so nothing else starts under it.
+   */
+  async resetSession(options: ResetSessionOptions): Promise<void> {
+    const deleting = options.deleteGeneratedFiles;
+    if (this.#reset !== undefined) {
+      this.#ports.log.error("Refusing a second Reset Session while one is in progress.");
+      return;
+    }
+    const blocker = this.#resetBlocker();
+    if (blocker !== undefined) {
+      this.#ports.log.info("Session reset refused: an operation that cannot be stopped is in flight.");
+      this.#resetFailed(`Session not reset. ${blocker}`);
+      return;
+    }
+    this.#reset = { deleting };
+    this.#push();
+    try {
+      // Saved first only when the files stay; deleted with them otherwise.
+      if (!deleting && this.#hasUnsavedVerification() && !(await this.#settleVerificationDraft("Reset the session"))) {
+        this.#ports.log.info("Session reset cancelled: unsaved verification changes were kept.");
+        return;
+      }
+      await this.#stopForReset();
+      this.#mutation = "reset";
+      this.#push();
+      // The work item as it stands now: a hand-written bug's run may have
+      // named it while it was being stopped.
+      const workItemId = this.#workItemId;
+      let deleted: ArtifactDeletion | undefined;
+      if (deleting && workItemId !== undefined) {
+        deleted = await this.#deleteGeneratedFiles(workItemId);
+        if (deleted.kind === "refused" || deleted.kind === "failed") {
+          this.#ports.log.error(`Session reset deletion failed: ${deleted.kind === "refused" ? `refused (${deleted.reason})` : deleted.reason}.`);
+          this.#resetFailed(deletionProblem(deleted, workItemId));
+          // What is on disk now, which may be less than before.
+          await this.refreshArtifacts();
+          this.#ports.ui.refreshViews();
+          return;
+        }
+      }
+      this.#applyReset(workItemId, deleting, deleted);
+    } finally {
+      if (this.#mutation === "reset") this.#mutation = undefined;
+      this.#reset = undefined;
+      this.#push();
+    }
+  }
+
+  /**
+   * Why a reset cannot start now — one sentence — or nothing. What BugPilot can
+   * stop does not block it: a run, a captured review. What it cannot stop part
+   * way does: an artifact write (a recording, a clean, a retry package, a new
+   * attempt's feedback), and a handoff being worked out, which may open an
+   * agent's terminal at any moment and would then be working on a session the
+   * developer has left.
+   */
+  #resetBlocker(): string | undefined {
+    if (this.#mutation !== undefined && this.#mutation !== "aiReview") return BUSY_WITH[this.#mutation];
+    if (this.#handoffBusy) return RESET_WAITS_FOR_HANDOFF;
+    if (this.#review?.state === "starting" && this.#reviewRun === undefined) return RESET_WAITS_FOR_REVIEW;
+    return undefined;
+  }
+
+  /** Stop the run and the captured review BugPilot owns, and wait for both to end. */
+  async #stopForReset(): Promise<void> {
+    const review = this.#reviewRun;
+    if (review !== undefined && !review.cancelled) {
+      review.cancelled = true;
+      this.#ports.log.info("Cancelling the captured review: the session is being reset.");
+      review.abort.abort();
+    }
+    if (this.#abort !== undefined) {
+      this.#ports.log.info("Stopping the bugpilot run: the session is being reset.");
+      this.#stoppedByUser = true;
+      this.#abort.abort();
+    }
+    // A run still being set up has no process to stop: it finds the reset at its
+    // door and does not start. Each task settles; neither throws past here.
+    await Promise.all([this.#runTask, this.#reviewTask].map((task) => task?.catch(() => {})));
+  }
+
+  /** The work item's generated files, gone — or why not. Never throws. */
+  async #deleteGeneratedFiles(workItemId: string): Promise<ArtifactDeletion> {
+    const root = this.#root;
+    if (root === undefined || this.#readiness.kind !== "ready") return { kind: "failed", reason: "not-ready" };
+    if (!this.#ports.deleteWorkItemArtifacts) return { kind: "failed", reason: "unsupported" };
+    this.#artifactWatchStale = true;
+    try {
+      return await this.#ports.deleteWorkItemArtifacts(root, workItemId);
+    } catch (error) {
+      const code = (error as { code?: unknown } | undefined)?.code;
+      return { kind: "failed", reason: typeof code === "string" ? code : "error" };
+    }
+  }
+
+  /**
+   * The reset itself: synchronous, so nothing interleaves with it. Everything
+   * that waits elsewhere took `#sessionEpoch` before it waited, and drops what
+   * it brings back once this bumps it.
+   */
+  #applyReset(workItemId: string | undefined, deleting: boolean, deleted: ArtifactDeletion | undefined): void {
+    this.#sessionEpoch += 1;
+    // The form: the product defaults, Fix Mode at the catalog's own default, the
+    // AI Agent preference kept (`FORM_FIELD_SCOPE`). A new revision puts it on
+    // the page; `#replaceForm` persists it, so a restart shows the fresh form.
+    this.#replaceForm(resetSessionForm(this.#form, selectedFixModeId(this.#fixModes, undefined)));
+    this.#fixModeWorkItem = undefined;
+    this.#problems = [];
+    // The work item: detached here and in the saved state.
+    this.#workItemId = undefined;
+    this.#ports.saveWorkItem?.(undefined);
+    this.#artifacts = { kind: "empty", detail: "No work item selected yet." };
+    this.#artifactNames = [];
+    this.#artifactsListedFor = undefined;
+    this.#progress = { state: "idle", rows: viewFromStatus(undefined).rows, artifacts: [] };
+    this.#preparedWith = undefined;
+    this.#preparedFixMode = undefined;
+    this.#stoppedByUser = false;
+    // Every result and draft of the old session: the rows' summaries, Fix
+    // result's aids and recordings, the handoff's outcome and card, a new
+    // attempt's form, the Open AI Session line, an attachment answer, the hint
+    // suggestion.
+    this.#forgetSummary();
+    this.#forgetFix();
+    this.#clearSessionFeedback();
+    this.#attachmentPick = undefined;
+    this.#hintSuggestion = undefined;
+    this.#hintError = undefined;
+    this.#hintNotice = undefined;
+    this.#hintBusy = false;
+    // A deleted folder took what the agent was given; the session record with
+    // it. Kept, the folder keeps its record too, for a reopen from History.
+    if (deleted !== undefined && workItemId !== undefined) this.#sessions.delete(workItemId);
+    // The Artifacts view follows the work item; History, after a delete, has one
+    // row fewer.
+    this.#ports.ui.refreshViews();
+    const message =
+      deleted === undefined
+        ? deleting
+          ? SESSION_RESET_NOTHING_TO_DELETE
+          : SESSION_RESET
+        : deleted.kind === "deleted"
+          ? SESSION_RESET_DELETED
+          : SESSION_RESET_NOTHING_TO_DELETE;
+    this.#ports.log.info(deleted?.kind === "deleted" ? "Session reset; generated artifacts deleted." : "Session reset.");
+    this.#ports.ui.notify("info", message);
+  }
+
+  /** Say, once, why the press reset nothing. */
+  #resetFailed(message: string): void {
+    this.#resetErrorToken += 1;
+    this.#resetError = { token: this.#resetErrorToken, message };
+    this.#push();
+    this.#resetError = undefined;
+  }
+
+  /** Reset Session's dialog, from the state already held here. */
+  #sessionResetView(): SessionResetView {
+    const workItemId = this.#workItemId;
+    const notes: string[] = [];
+    if (this.#running || this.#runPending) notes.push(RESET_STOPS_RUN);
+    if (this.#reviewRun !== undefined && !this.#reviewRun.cancelled) notes.push(RESET_CANCELS_REVIEW);
+    // Handed over and running somewhere BugPilot cannot reach: a terminal this
+    // panel opened, another extension's view, or a review terminal.
+    const agent =
+      workItemId !== undefined &&
+      (this.#sessions.has(workItemId) || this.#fix?.status === "success" || this.#review?.state === "started");
+    if (agent) notes.push(RESET_LEAVES_AGENT);
+    const blocked = this.#reset === undefined ? this.#resetBlocker() : undefined;
+    return {
+      epoch: this.#sessionEpoch,
+      busy: this.#reset !== undefined,
+      ...(this.#reset === undefined ? {} : { deleting: this.#reset.deleting }),
+      ...(blocked === undefined ? {} : { blocked }),
+      notes,
+      ...(workItemId === undefined ? {} : { workItemId }),
+      ...(this.#resetError === undefined ? {} : { error: this.#resetError }),
+    };
+  }
+
   /** Open the recorded review — the canonical file, and only while it is listed. */
   async openReviewReport(): Promise<void> {
     if (!this.#workItemId || !this.#artifactNames.includes(REVIEW_REPORT_ARTIFACT)) {
@@ -4167,17 +4501,29 @@ export class Controller {
    * past the parse is the projections' business, which omit a number and drop
    * an entry rather than guess at either.
    */
-  async #readSummary(workItemId: string, names: readonly string[], tolerant = false): Promise<boolean> {
+  async #readSummary(
+    workItemId: string,
+    names: readonly string[],
+    tolerant: boolean,
+    epoch: number,
+  ): Promise<boolean | undefined> {
     let complete = true;
-    const issueText = names.includes(ISSUE_ARTIFACT)
-      ? await this.#ports.files.readFile(this.#itemFile(workItemId, ISSUE_ARTIFACT))
+    // Each file only when listed — the listing decides whether there is a Fix
+    // result row, and a listed report that cannot be read is projected as
+    // unreadable — and all of them before any is projected, so a reset or
+    // another work item during a read leaves nothing half-written (§37.103):
+    // that is `undefined`.
+    const read = (name: string) => this.#ports.files.readFile(this.#itemFile(workItemId, name));
+    const issueText = names.includes(ISSUE_ARTIFACT) ? await read(ISSUE_ARTIFACT) : undefined;
+    const fixText = names.includes(FIX_REPORT_ARTIFACT) ? await read(FIX_REPORT_ARTIFACT) : undefined;
+    const reviewText = names.includes(REVIEW_REPORT_ARTIFACT) ? await read(REVIEW_REPORT_ARTIFACT) : undefined;
+    const verificationText = names.includes(VERIFICATION_REPORT_ARTIFACT)
+      ? await read(VERIFICATION_REPORT_ARTIFACT)
       : undefined;
+    const text = names.includes(RETRIEVAL_ARTIFACT) ? await read(RETRIEVAL_ARTIFACT) : undefined;
+    if (this.#workItemId !== workItemId || epoch !== this.#sessionEpoch) return undefined;
+
     this.#issue = parseIssue(issueText);
-    // Only when listed: the listing decides whether there is a Fix result row,
-    // and a listed report that cannot be read is projected as unreadable.
-    const fixText = names.includes(FIX_REPORT_ARTIFACT)
-      ? await this.#ports.files.readFile(this.#itemFile(workItemId, FIX_REPORT_ARTIFACT))
-      : undefined;
     // Listed but not read, while a readable report was known: in a tolerant
     // read that is a file caught mid-write, not an unreadable one — and above
     // all not a new fix. Keep the last reading; the caller reads once more.
@@ -4204,9 +4550,6 @@ export class Controller {
     this.#fixReportIdentity = identity;
     // The same rule for the recorded review: listed, a Review Result; listed but
     // unreadable, one with "Preview unavailable".
-    const reviewText = names.includes(REVIEW_REPORT_ARTIFACT)
-      ? await this.#ports.files.readFile(this.#itemFile(workItemId, REVIEW_REPORT_ARTIFACT))
-      : undefined;
     const keepReview =
       tolerant && names.includes(REVIEW_REPORT_ARTIFACT) && reviewText === undefined && this.#reviewReport?.readable === true;
     if (keepReview) complete = false;
@@ -4214,9 +4557,6 @@ export class Controller {
       this.#reviewReport = names.includes(REVIEW_REPORT_ARTIFACT) ? parseReviewReport(reviewText) : undefined;
     }
     // And for recorded evidence: listed, a Verification Evidence section.
-    const verificationText = names.includes(VERIFICATION_REPORT_ARTIFACT)
-      ? await this.#ports.files.readFile(this.#itemFile(workItemId, VERIFICATION_REPORT_ARTIFACT))
-      : undefined;
     const keepVerification =
       tolerant &&
       names.includes(VERIFICATION_REPORT_ARTIFACT) &&
@@ -4229,9 +4569,6 @@ export class Controller {
         ? parseVerificationReport(this.#verificationText)
         : undefined;
     }
-    const text = names.includes(RETRIEVAL_ARTIFACT)
-      ? await this.#ports.files.readFile(this.#itemFile(workItemId, RETRIEVAL_ARTIFACT))
-      : undefined;
     const retrieval = parseRetrieval(text);
     this.#searchCounts = contextCounts(retrieval);
     this.#terms = retrievalTerms(retrieval);
@@ -4362,9 +4699,9 @@ export class Controller {
     return this.#sessions.has(workItemId) || this.#artifactNames.includes(FIX_REPORT_ARTIFACT);
   }
 
-  /** A run, a handoff, a new attempt or an artifact write in flight: nothing else may start. */
+  /** A run, a handoff, a new attempt, an artifact write or a reset in flight: nothing else may start. */
   #busy(): boolean {
-    return this.#running || this.#runPending || this.#handoffBusy || this.#mutation !== undefined;
+    return this.#running || this.#runPending || this.#handoffBusy || this.#mutation !== undefined || this.#reset !== undefined;
   }
 
   /** The primary action and its menu, for the form and work item on screen. */
@@ -4550,6 +4887,7 @@ export class Controller {
           }),
       ...(this.#attachmentPick === undefined ? {} : { attachmentPick: this.#attachmentPick }),
       ...(this.#workItemId === undefined ? {} : { workItemId: this.#workItemId }),
+      sessionReset: this.#sessionResetView(),
     });
   }
 }

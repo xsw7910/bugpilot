@@ -52,6 +52,21 @@ import { AGENT_CHOICES, AGENT_LABELS } from "../app/agents.ts";
 import type { AgentChoice } from "../app/agents.ts";
 import type { NextActionId } from "../app/nextAction.ts";
 import {
+  DELETE_FILES_HELPER,
+  DELETE_FILES_HISTORY,
+  DELETE_FILES_LABEL,
+  GENERATED_FILES_LEGEND,
+  KEEP_FILES_HELPER,
+  KEEP_FILES_LABEL,
+  NO_FILES_TO_DELETE,
+  RESET_AND_DELETE_LABEL,
+  RESET_DIALOG_BODY,
+  RESET_DIALOG_TITLE,
+  RESET_SESSION_LABEL,
+  RESET_SESSION_TOOLTIP,
+  RESETTING_LABEL,
+} from "../app/sessionReset.ts";
+import {
   REQUIRES_REBUILD_LABEL,
   SETTINGS_ACTION_LABELS,
   SETTINGS_SECTION_OF_STEP,
@@ -503,10 +518,17 @@ const OPEN_FOLDER: ActionButton = {
 };
 
 /**
- * The ⋯ menu beside the primary action: the next steps that are not the next
- * step. Each item is shown only while the host lists it in `primary.more`, so
+ * The ⋯ More menu beside the primary action (§37.103): Reset Session first,
+ * always, then — below a separator — the next steps that are not the next step.
+ * Each of those is shown only while the host lists it in `primary.more`, so
  * Start New Attempt does not exist on screen before the first attempt does.
+ *
+ * Reset Session is an ordinary item, not a red one: it only opens a question,
+ * and the question says what it does before anything happens.
  */
+const RESET_MENU_ITEM = `        <button type="button" role="menuitem" class="menu-item" id="menu-resetSession" title="${RESET_SESSION_TOOLTIP}"><span class="codicon codicon-discard" aria-hidden="true"></span><span>${RESET_SESSION_LABEL}</span></button>
+        <div class="menu-separator" id="menu-separator" role="separator" hidden></div>`;
+
 const MORE_ACTIONS: readonly { readonly id: NextActionId; readonly icon: string; readonly title: string }[] = [
   {
     id: "startNewAttempt",
@@ -525,6 +547,42 @@ const MORE_ACTIONS: readonly { readonly id: NextActionId; readonly icon: string;
     title: "Focus the existing BugPilot AI terminal",
   },
 ];
+
+/**
+ * Reset Session's question (§37.103): what resets, and what happens to the
+ * generated files — Keep, the default, or Delete.
+ *
+ * A modal `<dialog>`, outside every view: the panel behind it is inert while
+ * it is open, and Escape is Cancel. Not a `<form>`: Enter on a choice selects
+ * it and presses nothing, so no single key resets anything. The focus starts on
+ * the chosen option, never on the button that resets.
+ *
+ * Every sentence is here, in the markup — the page only shows and hides them:
+ * Delete swaps the helper for the permanent-deletion warning and the History
+ * consequence, and the button for Reset and Delete. The notes (a run that will
+ * be stopped, an agent that will not be) are the host's and arrive per push.
+ */
+const RESET_DIALOG = `  <dialog class="reset-dialog" id="reset-dialog" aria-labelledby="reset-title" aria-describedby="reset-body">
+    <h2 class="reset-title" id="reset-title">${RESET_DIALOG_TITLE}</h2>
+    <p class="reset-body" id="reset-body">${RESET_DIALOG_BODY}</p>
+    <fieldset class="reset-files" id="reset-files">
+      <legend>${GENERATED_FILES_LEGEND}</legend>
+      <label class="choice" for="reset-keep"><input type="radio" name="reset-files" id="reset-keep" value="keep" checked aria-describedby="reset-keep-hint"> ${KEEP_FILES_LABEL}</label>
+      <label class="choice" for="reset-delete"><input type="radio" name="reset-files" id="reset-delete" value="delete" aria-describedby="reset-delete-hint reset-delete-history"> ${DELETE_FILES_LABEL}</label>
+    </fieldset>
+    <p class="hint reset-helper" id="reset-keep-hint">${KEEP_FILES_HELPER}</p>
+    <p class="reset-helper reset-warning" id="reset-delete-hint" hidden><span class="codicon codicon-warning icon-warning" aria-hidden="true"></span><span>${DELETE_FILES_HELPER}</span></p>
+    <p class="hint reset-helper" id="reset-delete-history" hidden>${DELETE_FILES_HISTORY}</p>
+    <p class="hint reset-helper" id="reset-no-files" hidden>${NO_FILES_TO_DELETE}</p>
+    <ul class="reset-notes" id="reset-notes" hidden></ul>
+    <p class="muted reset-blocked" id="reset-blocked" hidden></p>
+    <p class="error" id="reset-error" role="alert" hidden></p>
+    <p class="muted reset-status" id="reset-status" role="status"></p>
+    <div class="reset-actions">
+      <button type="button" id="reset-cancel">Cancel</button>
+      <button type="button" id="reset-confirm" class="primary" aria-describedby="reset-keep-hint"><span id="reset-confirm-keep">${RESET_SESSION_LABEL}</span><span id="reset-confirm-delete" hidden>${RESET_AND_DELETE_LABEL}</span><span id="reset-confirm-busy" hidden>${RESETTING_LABEL}</span></button>
+    </div>
+  </dialog>`;
 
 function menuItem(entry: (typeof MORE_ACTIONS)[number]): string {
   return `        <button type="button" role="menuitem" class="menu-item" id="menu-${entry.id}" title="${entry.title}" hidden><span class="codicon codicon-${entry.icon}" aria-hidden="true"></span><span>${NEXT_ACTION_LABELS[entry.id]}</span></button>`;
@@ -614,8 +672,10 @@ ${ISSUE_FIELD}
         still the form's submit, and Ctrl+Enter still presses it.
 
         Beside it only what cannot be pressed at the same time (Stop, during a
-        run) or what is not the next step (the ⋯ menu: Start New Attempt,
-        Rebuild Context). Nothing here is a second primary button.
+        run) or what is not the next step (the ⋯ More menu: Reset Session,
+        Start New Attempt, Rebuild Context). Nothing here is a second primary
+        button. ⋯ More is always there (§37.103): a quiet outlined button with
+        its word, which a narrow sidebar drops before the row would overflow.
       -->
       <div class="run">
         <div class="run-buttons">
@@ -624,7 +684,7 @@ ${ISSUE_FIELD}
             <span id="run-label">Run</span>
           </button>
           <button type="button" id="stop" hidden disabled>Stop</button>
-          <button type="button" id="more-actions" class="icon" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu" hidden><span class="codicon codicon-ellipsis" aria-hidden="true"></span></button>
+          <button type="button" id="more-actions" class="more-button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu"><span class="codicon codicon-ellipsis" aria-hidden="true"></span><span class="more-label">More</span></button>
         </div>
         <span class="kbd">Ctrl+Enter</span>
       </div>
@@ -633,6 +693,7 @@ ${ISSUE_FIELD}
            announced without moving the keyboard focus. -->
       <p class="session-feedback" id="session-feedback" role="status" aria-live="polite"></p>
       <div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>
+${RESET_MENU_ITEM}
 ${MORE_ACTIONS.map(menuItem).join("\n")}
       </div>
       <p class="hint" id="run-hint">${RUN_HINT}</p>
@@ -820,6 +881,8 @@ ${EDITOR_SECTIONS.map(section).join("\n")}
       <div id="editor-preview-body"></div>
     </div>
   </section>
+
+${RESET_DIALOG}
 
   <footer class="footer">
     <p class="footer-line">

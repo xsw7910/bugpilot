@@ -405,6 +405,8 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
       settled: progress.state === "done" || progress.state === "failed",
     }),
     fixModes: { kind: "loading" },
+    // Nothing reset yet, nothing in flight: Reset Session offered, with nothing to delete.
+    sessionReset: { epoch: 0, busy: false, notes: [] },
     ...overrides,
   };
 };
@@ -927,7 +929,8 @@ test("Stop and the ⋯ menu's items send their own messages", () => {
 test("Start New Attempt is not offered before the first attempt, and is once one exists", () => {
   const p = load();
   p.send(state());
-  assert.equal(p.byId("more-actions").hidden, true);
+  // ⋯ More holds Reset Session alone (§37.103).
+  assert.equal(p.byId("more-actions").hidden, false);
   assert.equal(p.byId("menu-startNewAttempt").hidden, true);
 
   // Prepared, never handed over: Fix with AI, and nothing about attempts.
@@ -948,9 +951,20 @@ test("the ⋯ menu closes on Escape and gives the focus back to its button", () 
   const p = load();
   p.send(prepared(STARTED));
   p.byId("more-actions").dispatch("click");
-  assert.equal(p.focused, "menu-startNewAttempt", "the menu opened without focusing its first item");
+  assert.equal(p.focused, "menu-resetSession", "the menu opened without focusing its first item");
+  // The separator is not a stop: Down goes from Reset Session to the next step.
+  p.byId("more-menu").dispatch("keydown", { key: "ArrowDown" });
+  assert.equal(p.focused, "menu-startNewAttempt");
   p.byId("more-menu").dispatch("keydown", { key: "ArrowDown" });
   assert.equal(p.focused, "menu-rebuildContext");
+  p.byId("more-menu").dispatch("keydown", { key: "End" });
+  assert.equal(p.focused, "menu-rebuildContext", "End went past the last item on offer");
+  p.byId("more-menu").dispatch("keydown", { key: "ArrowDown" });
+  assert.equal(p.focused, "menu-resetSession", "Down from the last item wraps to the first");
+  p.byId("more-menu").dispatch("keydown", { key: "ArrowUp" });
+  assert.equal(p.focused, "menu-rebuildContext", "Up from the first item wraps to the last");
+  p.byId("more-menu").dispatch("keydown", { key: "Home" });
+  assert.equal(p.focused, "menu-resetSession");
   p.byId("more-menu").dispatch("keydown", { key: "Escape" });
   assert.equal(p.byId("more-menu").hidden, true);
   assert.equal(p.focused, "more-actions");
@@ -974,28 +988,39 @@ test("Stop is absent until there is a run to stop", () => {
   assert.equal(p.byId("stop").hidden, true);
 });
 
-test("the ⋯ menu is not offered while anything is in flight, and an open one closes", () => {
-  // Nothing in it may overlap a run, a handoff or an artifact write — and the
-  // row already has Stop in it.
+test("no next step is offered while anything is in flight, and an open menu closes", () => {
+  // Nothing of the next steps may overlap a run, a handoff or an artifact
+  // write. ⋯ More stays, beside Stop: Reset Session is how a developer leaves a
+  // run they no longer want (§37.103).
   const p = load();
   p.send(prepared(STARTED));
   p.byId("more-actions").dispatch("click");
   assert.equal(p.byId("more-menu").hidden, false);
+  p.byId("more-menu").dispatch("keydown", { key: "ArrowDown" });
+  assert.equal(p.focused, "menu-startNewAttempt");
 
   p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
-  assert.equal(p.byId("more-actions").hidden, true);
+  assert.equal(p.byId("more-actions").hidden, false);
   assert.equal(p.byId("more-menu").hidden, true, "the menu stayed open over a run");
+  assert.equal(p.focused, "more-actions", "the focus was left on an item that went");
+  for (const id of MORE_NEXT_STEPS) assert.equal(p.byId(id).hidden, true, `${id} offered mid-run`);
+  assert.equal(p.byId("menu-separator").hidden, true);
+  assert.equal(p.byId("menu-resetSession").hidden, false);
   assert.equal(p.byId("stop").hidden, false);
 
   // A handoff in flight: busy too, though no run is.
   p.send(prepared({ ...STARTED, handoffBusy: true }));
-  assert.equal(p.byId("more-actions").hidden, true);
+  for (const id of MORE_NEXT_STEPS) assert.equal(p.byId(id).hidden, true, id);
   assert.equal(p.byId("run-label").textContent, "Running…");
 
   p.send(prepared(STARTED));
-  assert.equal(p.byId("more-actions").hidden, false);
+  assert.equal(p.byId("menu-startNewAttempt").hidden, false);
+  assert.equal(p.byId("menu-separator").hidden, false);
   assert.equal(p.byId("stop").hidden, true);
 });
+
+/** The ⋯ More menu's next-step items, below Reset Session. */
+const MORE_NEXT_STEPS = ["menu-startNewAttempt", "menu-rebuildContext", "menu-openSession"] as const;
 
 // --- Start New Attempt's form -------------------------------------------------
 
@@ -3234,7 +3259,13 @@ test("nothing about a result is shown before the first run", () => {
   const p = load();
   p.send(state());
 
-  for (const id of ["open-context", "copy-context", "open-folder", "more-actions"]) {
+  for (const id of ["open-context", "copy-context", "open-folder"]) {
+    assert.equal(p.byId(id).hidden, true, id);
+  }
+  // ⋯ More is always there (§37.103), holding only Reset Session: no next step
+  // is offered behind it before there is a context.
+  assert.equal(p.byId("more-actions").hidden, false);
+  for (const id of ["menu-startNewAttempt", "menu-rebuildContext", "menu-openSession", "menu-separator"]) {
     assert.equal(p.byId(id).hidden, true, id);
   }
   for (const id of ["relevant-files", "search-details", "strategy-fixWithAI", "actions-buildContext", "attempt-editor"]) {
@@ -3258,7 +3289,10 @@ test("a run in flight shows progress on its rows, and offers nothing to press", 
   p.send(state({ progress: { state: "running", rows: [row("code_search", "running")], artifacts: [] } }));
 
   assert.equal(p.byId("description-codeSearch").textContent, "Searching repository…");
-  assert.equal(p.byId("more-actions").hidden, true, "something else was offered mid-run");
+  // Only Reset Session behind ⋯ More (§37.103): no next step was offered mid-run.
+  for (const id of ["menu-startNewAttempt", "menu-rebuildContext", "menu-openSession"]) {
+    assert.equal(p.byId(id).hidden, true, `${id} was offered mid-run`);
+  }
   assert.equal(p.byId("open-folder").hidden, true);
   assert.equal(p.byId("run-label").textContent, "Running…");
   assert.equal(p.byId("run").disabled, true);
@@ -3422,7 +3456,7 @@ test("a result from one run does not survive into the next", () => {
     assert.equal(p.byId(`detail-${id}`).hidden, true, id);
     assert.equal(p.byId(`artifact-${id}`).hidden, true, id);
   }
-  for (const id of ["open-context", "copy-context", "open-folder", "more-actions", "strategy-fixWithAI", "relevant-files", "search-details"]) {
+  for (const id of ["open-context", "copy-context", "open-folder", "menu-rebuildContext", "strategy-fixWithAI", "relevant-files", "search-details"]) {
     assert.equal(p.byId(id).hidden, true, id);
   }
   assert.equal(p.byId("run-label").textContent, "Running…");
@@ -4270,7 +4304,10 @@ test("the row says it is working, and offers no second press meanwhile", () => {
   assert.match(p.byId("mark-fixWithAI").className, /codicon-spin/);
   assert.equal(p.byId("run-label").textContent, "Running…");
   assert.equal(p.byId("run").disabled, true);
-  assert.equal(p.byId("more-actions").hidden, true);
+  // Nothing behind ⋯ More but Reset Session, which waits for the handoff (§37.103).
+  for (const id of ["menu-startNewAttempt", "menu-rebuildContext", "menu-openSession"]) {
+    assert.equal(p.byId(id).hidden, true, id);
+  }
   // Busy is not an outcome.
   assert.equal(p.byId("step-fixWithAI").classes.has("step-success"), false);
 });
@@ -4794,7 +4831,7 @@ interface Loop {
   readonly drain: () => Promise<void>;
 }
 
-function loop(options: { holdRun?: boolean } = {}): Loop {
+function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["deleteWorkItemArtifacts"] } = {}): Loop {
   const page = load();
   const routed: string[] = [];
   const states: PanelState[] = [];
@@ -4888,6 +4925,7 @@ function loop(options: { holdRun?: boolean } = {}): Loop {
       return { ok: true, text: "Look in the widget controller." };
     },
     loadIssueDetails: async () => ({ title: "Widget rejects the output type", description: "After reload." }),
+    ...(options.deleteArtifacts === undefined ? {} : { deleteWorkItemArtifacts: options.deleteArtifacts }),
   };
   const controller = new Controller(ports, { ...DEFAULT_FORM, issueKey: "JR-12345", hint: "look in the widget" });
   const drain = async () => {
@@ -7187,4 +7225,299 @@ test("a long description grows its box instead of scrolling inside one line", ()
   box.value = "Login button remains disabled after entering valid credentials, even after waiting.";
   box.dispatch("input");
   assert.equal(box.style["height"], "58px");
+});
+
+// --- Reset Session (§37.103) ---------------------------------------------------
+
+/** The host's view of the dialog, with a work item whose files Delete would remove. */
+const RESETTABLE = { epoch: 0, busy: false, notes: [], workItemId: "JR-12345" } as const;
+
+/** A page showing a prepared work item, with Reset Session's question open from ⋯ More. */
+function withResetDialog(overrides: Partial<PanelState> = {}) {
+  const p = load();
+  p.send(prepared({}, { sessionReset: RESETTABLE, ...overrides }));
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-resetSession").dispatch("click");
+  return p;
+}
+
+const resetPosts = (p: Page) => p.posted.filter((message) => message["type"] === "resetSession");
+
+test("reset page 1: ⋯ More offers Reset Session from the first push, and it opens the question at Keep", () => {
+  const p = load();
+  p.send(state());
+  assert.equal(p.byId("more-actions").hidden, false);
+  p.byId("more-actions").dispatch("click");
+  assert.equal(p.byId("more-menu").hidden, false);
+  assert.equal(p.focused, "menu-resetSession", "the menu did not open on Reset Session");
+  assert.equal(p.byId("reset-dialog").open, false, "the menu item alone reset nothing, and opened nothing yet");
+
+  p.byId("menu-resetSession").dispatch("click");
+
+  assert.equal(p.byId("more-menu").hidden, true, "the menu stayed open under the question");
+  assert.equal(p.byId("reset-dialog").open, true);
+  // Keep, and the focus on it: never on the button that resets.
+  assert.equal(p.byId("reset-keep").checked, true);
+  assert.equal(p.byId("reset-delete").checked, false);
+  assert.equal(p.focused, "reset-keep");
+  assert.equal(p.byId("reset-keep-hint").hidden, false);
+  assert.equal(p.byId("reset-delete-hint").hidden, true);
+  assert.equal(p.byId("reset-delete-history").hidden, true);
+  assert.equal(p.byId("reset-confirm-keep").hidden, false);
+  assert.equal(p.byId("reset-confirm-delete").hidden, true);
+  assert.equal(p.byId("reset-confirm-busy").hidden, true);
+  assert.equal(p.byId("reset-confirm").getAttribute("aria-disabled"), "false");
+  // Opening asks the host nothing but to hold what is on screen.
+  assert.deepEqual(resetPosts(p), []);
+  assert.equal(p.posted.at(-1)?.["type"], "formChanged");
+});
+
+test("reset page 2: with no generated files, Delete is there but unavailable, and says why", () => {
+  const p = load();
+  p.send(state());
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-resetSession").dispatch("click");
+  assert.equal(p.byId("reset-delete").disabled, true);
+  assert.equal(p.byId("reset-no-files").hidden, false);
+  assert.equal(p.byId("reset-delete").getAttribute("aria-describedby"), "reset-no-files");
+  // A stale frame cannot turn it on.
+  p.byId("reset-delete").checked = true;
+  p.byId("reset-delete").dispatch("change");
+  assert.equal(p.byId("reset-keep").checked, true);
+  p.byId("reset-confirm").dispatch("click");
+  assert.deepEqual(resetPosts(p), [{ type: "resetSession", deleteGeneratedFiles: false }]);
+});
+
+test("reset page 3: choosing Delete says what it costs, and the button becomes Reset and Delete", () => {
+  const p = withResetDialog();
+  assert.equal(p.byId("reset-delete").disabled, false);
+  assert.equal(p.byId("reset-no-files").hidden, true);
+  p.byId("reset-keep").checked = false;
+  p.byId("reset-delete").checked = true;
+  p.byId("reset-delete").dispatch("change");
+
+  assert.equal(p.byId("reset-keep-hint").hidden, true);
+  assert.equal(p.byId("reset-delete-hint").hidden, false);
+  assert.equal(p.byId("reset-delete-history").hidden, false);
+  assert.equal(p.byId("reset-confirm-keep").hidden, true);
+  assert.equal(p.byId("reset-confirm-delete").hidden, false);
+  assert.equal(p.byId("reset-confirm").getAttribute("aria-describedby"), "reset-delete-hint");
+  assert.equal(p.byId("reset-delete").getAttribute("aria-describedby"), "reset-delete-hint reset-delete-history");
+
+  // And back.
+  p.byId("reset-delete").checked = false;
+  p.byId("reset-keep").checked = true;
+  p.byId("reset-keep").dispatch("change");
+  assert.equal(p.byId("reset-keep-hint").hidden, false);
+  assert.equal(p.byId("reset-delete-hint").hidden, true);
+  assert.equal(p.byId("reset-confirm-keep").hidden, false);
+  assert.equal(p.byId("reset-confirm").getAttribute("aria-describedby"), "reset-keep-hint");
+});
+
+test("reset page 4: the button sends the one choice, once; a second press waits for the host", () => {
+  const p = withResetDialog();
+  p.byId("reset-keep").checked = false;
+  p.byId("reset-delete").checked = true;
+  p.byId("reset-delete").dispatch("change");
+  p.byId("reset-confirm").dispatch("click");
+  assert.deepEqual(resetPosts(p), [{ type: "resetSession", deleteGeneratedFiles: true }]);
+  assert.equal(p.byId("reset-confirm").getAttribute("aria-disabled"), "true");
+  assert.equal(p.byId("reset-confirm-busy").hidden, false);
+  p.byId("reset-confirm").dispatch("click");
+  assert.equal(resetPosts(p).length, 1, "a second reset was sent");
+  // The question stays open until the host answers.
+  assert.equal(p.byId("reset-dialog").open, true);
+  // Every message it sends is one the host parses.
+  assert.ok(parsePanelMessage(resetPosts(p)[0]));
+});
+
+test("reset page 5: a form change typed before the question opened never arrives after the reset", () => {
+  const p = load();
+  p.send(prepared({}, { sessionReset: RESETTABLE }));
+  p.byId("hint").value = "typed just now";
+  p.byId("form").dispatch("input", { target: p.byId("hint") });
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-resetSession").dispatch("click");
+  // Sent now, with what is on screen…
+  const change = p.posted.at(-1) as { type: string; form: { hint: string } };
+  assert.equal(change.type, "formChanged");
+  assert.equal(change.form.hint, "typed just now");
+  // In a real window the field's `change` fires as the focus moves into the
+  // question, arming the debounce again; the press must cancel that one too.
+  p.byId("form").dispatch("change", { target: p.byId("hint") });
+  p.byId("reset-confirm").dispatch("click");
+  const count = p.posted.length;
+  // …and the debounce, had it been left, would post nothing afterwards.
+  p.flush();
+  assert.equal(p.posted.length, count, "a form change went out after the reset");
+});
+
+test("reset page 6: Cancel, Escape and the browser's own close request leave everything, and focus ⋯ More", () => {
+  for (const close of [
+    (p: Page) => p.byId("reset-cancel").dispatch("click"),
+    (p: Page) => p.byId("reset-dialog").dispatch("keydown", { key: "Escape" }),
+    (p: Page) => p.byId("reset-dialog").dispatch("cancel"),
+  ]) {
+    const p = withResetDialog();
+    p.byId("reset-keep").checked = false;
+    p.byId("reset-delete").checked = true;
+    p.byId("reset-delete").dispatch("change");
+    close(p);
+    assert.equal(p.byId("reset-dialog").open, false);
+    assert.equal(p.focused, "more-actions");
+    assert.deepEqual(resetPosts(p), []);
+    // Reopened, it starts at Keep again: deleting is never remembered.
+    p.byId("more-actions").dispatch("click");
+    p.byId("menu-resetSession").dispatch("click");
+    assert.equal(p.byId("reset-keep").checked, true);
+    assert.equal(p.byId("reset-delete").checked, false);
+  }
+  // Enter on a choice selects it and presses nothing: no single key resets.
+  const p = withResetDialog();
+  p.byId("reset-dialog").dispatch("keydown", { key: "Enter", target: p.byId("reset-keep") });
+  p.byId("reset-dialog").dispatch("keydown", { key: " ", target: p.byId("reset-keep") });
+  assert.deepEqual(resetPosts(p), []);
+  assert.equal(p.byId("reset-dialog").open, true);
+});
+
+test("reset page 7: while the host resets, the question waits — no Cancel, no Escape, no second press", () => {
+  const p = withResetDialog();
+  p.byId("reset-confirm").dispatch("click");
+  p.send(prepared({}, { sessionReset: { ...RESETTABLE, busy: true, deleting: true, notes: [] } }));
+  assert.equal(p.byId("reset-status").textContent, "Deleting generated files…");
+  assert.equal(p.byId("reset-cancel").getAttribute("aria-disabled"), "true");
+  assert.equal(p.byId("reset-keep").disabled, true);
+  assert.equal(p.byId("reset-delete").disabled, true);
+  p.byId("reset-cancel").dispatch("click");
+  p.byId("reset-dialog").dispatch("keydown", { key: "Escape" });
+  p.byId("reset-dialog").dispatch("cancel");
+  assert.equal(p.byId("reset-dialog").open, true, "the question closed on a reset half-way through");
+  p.byId("reset-confirm").dispatch("click");
+  assert.equal(resetPosts(p).length, 1);
+  p.send(prepared({}, { sessionReset: { ...RESETTABLE, busy: true, deleting: false } }));
+  assert.equal(p.byId("reset-status").textContent, "Resetting the session…");
+});
+
+test("reset page 8: a refusal is said once, in the open question, and the button is back", () => {
+  const p = withResetDialog();
+  p.byId("reset-confirm").dispatch("click");
+  const message = "Session not reset: .ai/JR-12345/ or .ai/ is a link or junction, and BugPilot does not delete through one. Nothing was deleted.";
+  p.send(prepared({}, { sessionReset: { ...RESETTABLE, busy: true, error: { token: 1, message } } }));
+  p.send(prepared({}, { sessionReset: RESETTABLE }));
+  assert.equal(p.byId("reset-error").hidden, false);
+  assert.equal(p.byId("reset-error").textContent, message);
+  assert.equal(p.byId("reset-confirm").getAttribute("aria-disabled"), "false");
+  assert.equal(p.byId("reset-dialog").open, true);
+  // Another press clears it until the next answer.
+  p.byId("reset-confirm").dispatch("click");
+  assert.equal(p.byId("reset-error").hidden, true);
+  // Closed and opened again: gone.
+  p.send(prepared({}, { sessionReset: { ...RESETTABLE, error: { token: 2, message } } }));
+  p.byId("reset-cancel").dispatch("click");
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-resetSession").dispatch("click");
+  assert.equal(p.byId("reset-error").hidden, true);
+});
+
+test("reset page 9: what the host says the reset would stop or cannot stop is listed; a blocker waits the button", () => {
+  const p = withResetDialog({
+    sessionReset: {
+      ...RESETTABLE,
+      notes: [
+        "The current BugPilot run will be stopped.",
+        "An AI agent BugPilot handed this work item to keeps running in its own terminal or view; Reset Session cannot stop it.",
+      ],
+    },
+  });
+  assert.equal(p.byId("reset-notes").hidden, false);
+  assert.deepEqual(
+    p.byId("reset-notes").children.map((item) => item.textContent),
+    [
+      "The current BugPilot run will be stopped.",
+      "An AI agent BugPilot handed this work item to keeps running in its own terminal or view; Reset Session cannot stop it.",
+    ],
+  );
+  p.send(prepared({}, { sessionReset: { ...RESETTABLE, blocked: "Wait for the review result recording to finish." } }));
+  assert.equal(p.byId("reset-notes").hidden, true);
+  assert.equal(p.byId("reset-blocked").hidden, false);
+  assert.equal(p.byId("reset-blocked").textContent, "Wait for the review result recording to finish.");
+  assert.equal(p.byId("reset-confirm").getAttribute("aria-disabled"), "true");
+  p.byId("reset-confirm").dispatch("click");
+  assert.deepEqual(resetPosts(p), [], "a reset was sent past the blocker");
+});
+
+test("reset page 10: a reset done closes the question, lets go of the old session's page state, and starts at the Issue", () => {
+  const p = load();
+  p.send(prepared(STARTED, { sessionReset: RESETTABLE }));
+  // The old session's page state: the workflow and its disclosures open, the
+  // new-attempt form open with something typed.
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-startNewAttempt").dispatch("click");
+  p.byId("attempt-feedback").value = "Typed for JR-12345.";
+  p.byId("relevant-files").open = true;
+  p.byId("search-details").open = true;
+  assert.equal(p.byId("workflow").open, true);
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-resetSession").dispatch("click");
+  p.byId("reset-confirm").dispatch("click");
+
+  // The host's answer: a new epoch, and the fresh form with a new revision.
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, fixModeId: "" }, sessionReset: { epoch: 1, busy: false, notes: [] } }));
+
+  assert.equal(p.byId("reset-dialog").open, false);
+  assert.equal(p.focused, "issue");
+  assert.equal(p.byId("issue").value, "");
+  assert.equal(p.byId("hint").value, "");
+  assert.equal(p.byId("run-label").textContent, "Run");
+  for (const id of ["workflow", "relevant-files", "search-details", "related-commits", "supporting-files", "validation-checklist"]) {
+    assert.equal(p.byId(id).open, false, `${id} stayed open`);
+  }
+  assert.equal(p.byId("attempt-editor").hidden, true);
+  assert.equal(p.byId("attempt-feedback").value, "", "the new attempt's feedback survived the reset");
+  assert.equal(p.byId("more-menu").hidden, true);
+  // The page kept the fresh form for a reload, not the old one.
+  assert.deepEqual((p.stored.at(-1) as { form: { issueKey: string; hint: string } }).form.issueKey, "");
+});
+
+test("reset page 11: a page loaded after a reset takes the session as it finds it", () => {
+  const p = load();
+  p.send(state({ sessionReset: { epoch: 3, busy: false, notes: [] } }));
+  p.byId("workflow").open = true;
+  p.send(state({ sessionReset: { epoch: 3, busy: false, notes: [] } }));
+  assert.equal(p.byId("workflow").open, true, "a push with the same session closed what the developer opened");
+  assert.notEqual(p.focused, "issue");
+});
+
+test("reset page 12: Reset Session, pressed on the page, reaches the controller and the page shows a fresh session", async () => {
+  const deletes: string[] = [];
+  const l = loop({
+    deleteArtifacts: async (_root, id) => {
+      deletes.push(id);
+      return { kind: "deleted" };
+    },
+  });
+  await l.drain();
+  await l.controller.refreshEnvironment();
+  await l.controller.showWorkItem("JR-12345");
+  assert.equal(l.page.byId("run-label").textContent, "Open AI Session");
+  assert.equal(l.page.byId("issue").value, "JR-12345");
+
+  l.page.byId("more-actions").dispatch("click");
+  l.page.byId("menu-resetSession").dispatch("click");
+  assert.equal(l.page.byId("reset-delete").disabled, false, "Delete was unavailable with a work item on screen");
+  l.page.byId("reset-keep").checked = false;
+  l.page.byId("reset-delete").checked = true;
+  l.page.byId("reset-delete").dispatch("change");
+  l.page.byId("reset-confirm").dispatch("click");
+  await l.drain();
+
+  assert.ok(l.routed.includes("resetSession"), "Reset Session never reached the controller");
+  assert.deepEqual(deletes, ["JR-12345"]);
+  assert.equal(l.page.byId("reset-dialog").open, false);
+  assert.equal(l.page.focused, "issue");
+  assert.equal(l.page.byId("issue").value, "");
+  assert.equal(l.page.byId("hint").value, "", "the hint survived the reset");
+  assert.equal(l.page.byId("run-label").textContent, "Run");
+  assert.equal(l.page.byId("step-fixResult").hidden, true);
+  assert.equal(l.controller.workItemId, undefined);
 });

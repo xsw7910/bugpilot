@@ -7,7 +7,7 @@ import { COMMANDS } from "../src/commands.ts";
 
 import { Controller } from "../src/app/controller.ts";
 import type { ControllerPorts, RunOptions } from "../src/app/controller.ts";
-import { DEFAULT_FORM } from "../src/app/form.ts";
+import { DEFAULT_FORM, restoreForm } from "../src/app/form.ts";
 import type { FormState } from "../src/app/form.ts";
 import type { Environment } from "../src/app/environment.ts";
 import type { Envelope, StreamEvent } from "../src/protocol.ts";
@@ -33,6 +33,8 @@ import type { UserFacingError } from "../src/app/failures.ts";
 import { GITIGNORE_ACTION_NAME, GITIGNORE_FAILED } from "../src/app/controller.ts";
 import { SUPPORTING_FILE_MISSING, SUPPORTING_FILE_NOT_A_FILE, SUPPORTING_FILE_UNCHECKED } from "../src/app/controller.ts";
 import { SESSION_FEEDBACK_MS } from "../src/app/controller.ts";
+import { RESET_WAITS_FOR_HANDOFF } from "../src/app/controller.ts";
+import { RESET_CANCELS_REVIEW, RESET_LEAVES_AGENT, RESET_STOPS_RUN } from "../src/app/sessionReset.ts";
 import type { GitignoreDocument, GitignoreEntry, GitignoreIo } from "../src/app/gitignore.ts";
 
 /**
@@ -108,7 +110,8 @@ interface Harness {
   /** Every other extension's command BugPilot ran, in order. */
   readonly extensionCommands: string[];
   readonly saved: FormState[];
-  readonly savedWorkItems: string[];
+  /** Every work item the window was told to reopen after a restart; `undefined` is "none" (Reset Session). */
+  readonly savedWorkItems: (string | undefined)[];
   /** How many times the Fix Mode catalog was asked for. */
   readonly fixModeCalls: { count: number };
   /** The fake file contents, live: a test may add or remove one mid-scenario. */
@@ -205,6 +208,10 @@ interface HarnessOptions {
   readonly gitignore?: GitignoreIo;
   /** Make bringing a found terminal forward throw, as an editor that cannot show it would. */
   readonly revealThrows?: Error;
+  /** Reset Session's delete port; absent means the host has none. */
+  readonly deleteArtifacts?: NonNullable<ControllerPorts["deleteWorkItemArtifacts"]>;
+  /** Handed every streaming run's event callback, so a test can deliver an event late. */
+  readonly onStream?: (onEvent: (event: StreamEvent) => void) => void;
 }
 
 function harness(options: HarnessOptions = {}): Harness & { release: () => void } {
@@ -219,7 +226,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const refreshes = { count: 0 };
   const confirms: { message: string; confirmLabel: string; keepLabel?: string }[] = [];
   const saved: FormState[] = [];
-  const savedWorkItems: string[] = [];
+  const savedWorkItems: (string | undefined)[] = [];
   const ranCommands: string[] = [];
   const terminals: { name: string; cwd: string; commandLine: string }[] = [];
   const openTerminals: string[] = [];
@@ -237,6 +244,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     runner: {
       runStreaming: async (args, runOptions, onEvent) => {
         streamRuns.push({ args, options: runOptions });
+        options.onStream?.(onEvent);
         if (options.streamThrows) throw options.streamThrows;
         for (const event of options.events ?? []) onEvent(event);
         if (options.hold) {
@@ -362,6 +370,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     ...(options.gitignore === undefined ? {} : { gitignore: options.gitignore }),
     saveForm: (form) => saved.push(form),
     saveWorkItem: (workItemId) => savedWorkItems.push(workItemId),
+    ...(options.deleteArtifacts === undefined ? {} : { deleteWorkItemArtifacts: options.deleteArtifacts }),
     ...(options.fixModes === undefined
       ? {}
       : {
@@ -9894,4 +9903,582 @@ test("describing an attachment makes the prepared context stale; changing the AI
   );
   assert.equal(h.last().primary.action, "rebuildContext");
   assert.deepEqual(h.saved.at(-1)?.attachmentDescriptions, { "/logs/crash.log": "After Save." });
+});
+
+// --- Reset Session (§37.103) ---------------------------------------------------
+
+/**
+ * Everything a long session sets, on a Jira work item: every session field away
+ * from its default, the AI Agent preference set, and two markers that must never
+ * reach the log.
+ */
+const SESSION_FORM = (overrides: Partial<FormState> = {}): FormState => ({
+  ...DEFAULT_FORM,
+  issueKey: "JR-12345",
+  hint: "SECRET_HINT_9917 check WidgetController",
+  useIssueDetails: false,
+  keywords: "SECRET_KEYWORD_4403",
+  focusFiles: "src/widgets/",
+  ignorePaths: "build/",
+  maxFiles: "5",
+  maxSearchLines: "100",
+  attachments: ["/logs/crash.log"],
+  attachmentDescriptions: { "/logs/crash.log": "The trace" },
+  fixModeId: "test-driven",
+  agent: "codex-cli",
+  agentCommand: "my-agent --prompt {prompt}",
+  gitUseSharedKeywords: false,
+  gitUseSharedFocusFiles: false,
+  gitKeywords: "gather order",
+  gitFiles: "src/legacy/",
+  gitSearchMessages: false,
+  gitSearchFileHistory: false,
+  gitHistoryDepth: "broader",
+  gitMaxCommits: "20",
+  ...overrides,
+});
+
+/** The form a reset leaves: the defaults, Standard Fix, the agent preference kept. */
+const FRESH_FORM: FormState = {
+  ...DEFAULT_FORM,
+  fixModeId: "standard",
+  agent: "codex-cli",
+  agentCommand: "my-agent --prompt {prompt}",
+};
+
+const RESET_KEEP: PanelMessage = { type: "resetSession", deleteGeneratedFiles: false };
+const RESET_DELETE: PanelMessage = { type: "resetSession", deleteGeneratedFiles: true };
+
+/** The reset's refusals, as the pushes that carried them said them. */
+const resetErrors = (h: Harness) =>
+  h.states.map((state) => state.sessionReset.error?.message).filter((message): message is string => message !== undefined);
+
+/** A panel showing a fresh session: nothing bound, nothing prepared, nothing to say. */
+function assertFresh(state: PanelState, form: FormState = FRESH_FORM): void {
+  assert.deepEqual(state.form, form);
+  assert.equal(state.workItemId, undefined);
+  assert.equal(state.primary.action, "run");
+  assert.equal(state.primary.label, "Run");
+  assert.equal(state.primary.busy, false);
+  assert.deepEqual(state.primary.more, [], "a next step was offered on a fresh session");
+  assert.equal(state.progress.state, "idle");
+  assert.equal(state.artifacts.kind, "empty");
+  assert.equal(state.preparedFixMode, undefined);
+  assert.deepEqual(state.problems, []);
+  assert.equal(state.runError, undefined);
+  assert.equal(state.sessionFeedback, undefined);
+  assert.deepEqual(state.workItemActions, []);
+  assert.equal(state.hintImprovement?.suggestion, undefined);
+  assert.equal(state.hintImprovement?.busy, false);
+  for (const step of state.workflow) {
+    assert.equal(step.status, "idle", `${step.id} kept a status`);
+    assert.equal(step.artifact, undefined, `${step.id} kept an artifact`);
+    assert.equal(step.error, undefined, `${step.id} kept a failure`);
+    assert.equal(step.detail, undefined, `${step.id} kept a detail line`);
+  }
+  assert.equal(state.workflow.some((step) => step.id === "fixResult"), false, "the Fix result row survived");
+  assert.deepEqual([...(codeRow(state).search?.files ?? [])], [], "Relevant Files survived");
+  assert.equal(stepOf(state, "gitHistory").gitHistory, undefined, "the Git History result survived");
+  assert.equal(state.sessionReset.busy, false);
+  assert.equal(state.sessionReset.workItemId, undefined);
+}
+
+test("reset 1: Keep puts every session field back, keeps the AI Agent, detaches the work item, deletes nothing", async () => {
+  const deletes: string[] = [];
+  const h = harness({
+    ...WITH_FILES,
+    fixModes: CATALOG,
+    deleteArtifacts: async (_root, id) => {
+      deletes.push(id);
+      return { kind: "deleted" };
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+  // Prepared, with results on the rows and the work item bound.
+  assert.equal(h.last().primary.action, "fixWithAI");
+  assert.equal(h.last().workItemId, "JR-12345");
+  assert.ok((codeRow(h.last()).search?.files ?? []).length > 0);
+  assert.equal(h.last().sessionReset.workItemId, "JR-12345", "Delete would have nothing to act on");
+  // Then stale: a plan change, the Fix with AI box and Fresh.
+  await h.controller.handle(
+    applySettings(SESSION_FORM({ fixWithAI: true, fresh: true, plan: { ...DEFAULT_FORM.plan, similarFixes: false } })),
+  );
+  assert.equal(h.last().primary.action, "rebuildContext");
+  const revision = h.last().revision;
+  const refreshes = h.refreshes.count;
+
+  await h.controller.handle(RESET_KEEP);
+
+  const after = h.last();
+  assert.ok(after.revision > revision, "the page was not told to replace its form");
+  assertFresh(after);
+  // Persisted: the fresh form, and no work item to reopen after a restart.
+  assert.deepEqual(h.saved.at(-1), FRESH_FORM);
+  assert.equal(h.savedWorkItems.at(-1), undefined);
+  assert.ok(h.savedWorkItems.length >= 2, "the reset never told the host to forget the work item");
+  // Keep deletes nothing; the trees are read again, History with them.
+  assert.deepEqual(deletes, []);
+  assert.ok(h.refreshes.count > refreshes, "the Artifacts and History views were not refreshed");
+  assert.ok(h.notices.some((notice) => notice.kind === "info" && notice.message === "Session reset."));
+  assert.ok(h.logged.includes("Session reset."), h.logged.join("\n"));
+  // Nothing typed reaches the log.
+  for (const secret of ["SECRET_HINT_9917", "SECRET_KEYWORD_4403"]) {
+    assert.equal(h.logged.some((line) => line.includes(secret)), false, `${secret} reached the log`);
+  }
+});
+
+test("reset 2: the next Run after a reset prepares from the fresh form, with no old flag", async () => {
+  const h = harness({ ...WITH_FILES, fixModes: CATALOG });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+  await h.controller.handle(RESET_KEEP);
+
+  await h.controller.handle(next("run", { ...FRESH_FORM, issueKey: "JR-777" }));
+
+  const args = h.streamRuns.at(-1)!.args;
+  assert.deepEqual(args.slice(0, 2), ["bug", "JR-777"]);
+  for (const gone of ["--hint", "--keywords", "--focus-file", "--ignore-path", "--max-files", "--attach=", "--git-"]) {
+    assert.equal(args.some((arg) => arg.startsWith(gone)), false, `${gone} survived the reset: ${args.join(" ")}`);
+  }
+  assert.ok(args.includes("--fix-mode=standard"));
+  assert.ok(args.includes("--resume"), "Fresh survived the reset");
+});
+
+test("reset 3: a restart after a reset opens the fresh form, and the AI Agent is still the developer's", async () => {
+  const h = harness({ ...WITH_FILES, fixModes: CATALOG });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+  await h.controller.handle(RESET_KEEP);
+
+  // What extension.ts restores from: the saved form through restoreForm, and
+  // the saved work item — none, so nothing is reopened.
+  const saved = restoreForm(h.saved.at(-1));
+  assert.deepEqual(saved, FRESH_FORM);
+  assert.equal(h.savedWorkItems.at(-1), undefined);
+  const restarted = harness({ ...WITH_FILES, fixModes: CATALOG, form: saved });
+  await restarted.controller.refreshEnvironment();
+  assertFresh(restarted.last());
+  assert.equal(restarted.last().form?.agent, "codex-cli");
+  assert.equal(restarted.last().form?.agentCommand, "my-agent --prompt {prompt}");
+});
+
+test("reset 4: from a typed-but-never-run session, or one already fresh, Reset is a fresh form and nothing else", async () => {
+  const h = harness({ fixModes: CATALOG });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({
+    type: "formChanged",
+    form: SESSION_FORM({ issueKey: "", description: "SECRET_DESCRIPTION_31 crash", source: "manual" }),
+  });
+  await h.controller.handle(RESET_KEEP);
+  assertFresh(h.last());
+  assert.equal(h.logged.some((line) => line.includes("SECRET_DESCRIPTION_31")), false);
+  // Again, on a session already fresh, asking to delete: nothing to delete, said so.
+  await h.controller.handle(RESET_DELETE);
+  assertFresh(h.last());
+  assert.ok(h.notices.some((notice) => notice.message === "Session reset. There were no generated files to delete."));
+});
+
+test("reset 5: Delete removes only the current work item's files, through the port, then resets", async () => {
+  const deletes: [string, string][] = [];
+  const h = harness({
+    ...WITH_FILES,
+    fixModes: CATALOG,
+    deleteArtifacts: async (root, id) => {
+      deletes.push([root, id]);
+      return { kind: "deleted" };
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+
+  await h.controller.handle(RESET_DELETE);
+
+  assert.deepEqual(deletes, [[ROOT, "JR-12345"]], "anything but the current work item was asked for");
+  assertFresh(h.last());
+  assert.ok(h.notices.some((notice) => notice.message === "Session reset. Generated files deleted."));
+  assert.ok(h.logged.includes("Session reset; generated artifacts deleted."), h.logged.join("\n"));
+  // No CLI call of its own: no `clean` of another item, no `list`.
+  assert.equal(h.jsonRuns.some((run) => run.args[0] === "clean" || run.args[0] === "list"), false);
+
+  // A folder already gone is not an error: the reset says there was nothing.
+  const gone = harness({ ...WITH_FILES, fixModes: CATALOG, deleteArtifacts: async () => ({ kind: "missing" }) });
+  await gone.controller.refreshEnvironment();
+  await gone.controller.handle(next("run", SESSION_FORM()));
+  await gone.controller.handle(RESET_DELETE);
+  assertFresh(gone.last());
+  assert.ok(gone.notices.some((notice) => notice.message === "Session reset. There were no generated files to delete."));
+});
+
+test("reset 6: a refused or failed delete resets nothing, says why once, and shows what is on disk", async () => {
+  for (const [outcome, logged] of [
+    [{ kind: "refused", reason: "link" }, "ERROR Session reset deletion failed: refused (link)."],
+    [{ kind: "refused", reason: "outside" }, "ERROR Session reset deletion failed: refused (outside)."],
+    [{ kind: "failed", reason: "exit-1" }, "ERROR Session reset deletion failed: exit-1."],
+  ] as const) {
+    let readsAfter = 0;
+    let deleting = false;
+    const h = harness({
+      ...WITH_FILES,
+      fixModes: CATALOG,
+      deleteArtifacts: async () => {
+        deleting = true;
+        return outcome;
+      },
+      onReadFile: () => {
+        if (deleting) readsAfter += 1;
+      },
+    });
+    await h.controller.refreshEnvironment();
+    await h.controller.handle(next("run", SESSION_FORM()));
+    const before = h.last();
+    const savedBefore = h.saved.length;
+
+    await h.controller.handle(RESET_DELETE);
+
+    const after = h.last();
+    // Nothing reset: the same form, work item, results and next step.
+    assert.deepEqual(after.form, before.form, `${outcome.kind}: the form was reset`);
+    assert.equal(after.workItemId, "JR-12345");
+    assert.equal(after.primary.action, "fixWithAI");
+    assert.ok((codeRow(after).search?.files ?? []).length > 0, "the results went with a delete that did not happen");
+    assert.equal(h.saved.length, savedBefore, "a form was saved");
+    assert.equal(h.savedWorkItems.includes(undefined), false, "the work item was forgotten");
+    // Said once, in the dialog, and never as a success.
+    const errors = resetErrors(h);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]!, /^Session not reset: /);
+    assert.equal(after.sessionReset.error, undefined, "the refusal was sent with every push");
+    assert.equal(after.sessionReset.busy, false);
+    assert.equal(h.notices.some((notice) => /^Session reset/.test(notice.message)), false);
+    assert.ok(h.logged.includes(logged), h.logged.join("\n"));
+    // The folder was read again: a half-done delete shows what is left.
+    assert.ok(readsAfter > 0, "the folder was not read again after the delete");
+  }
+});
+
+test("reset 7: Delete where this host cannot delete resets nothing", async () => {
+  const h = harness({ ...WITH_FILES, fixModes: CATALOG });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+  await h.controller.handle(RESET_DELETE);
+  assert.equal(h.last().workItemId, "JR-12345");
+  assert.equal(resetErrors(h).length, 1);
+  assert.ok(h.logged.includes("ERROR Session reset deletion failed: unsupported."), h.logged.join("\n"));
+});
+
+/** A run under way: started and searching, not finished. */
+const RUNNING_EVENTS: readonly StreamEvent[] = successfulRun.slice(0, 8);
+
+/**
+ * A held run whose ending can be held too: once `holdEnd()` is called, the
+ * run's own read of the folder after it stops waits for `releaseEnd()`.
+ */
+function heldRun(extra: HarnessOptions = {}) {
+  let holding = false;
+  let release: () => void = () => {};
+  const h = harness({
+    ...WITH_FILES,
+    fixModes: CATALOG,
+    events: RUNNING_EVENTS,
+    hold: true,
+    onReadFile: () => (holding ? new Promise<void>((resolve) => (release = resolve)) : undefined),
+    ...extra,
+  });
+  return {
+    h,
+    holdEnd: () => void (holding = true),
+    releaseEnd: () => {
+      holding = false;
+      release();
+    },
+  };
+}
+
+test("reset 8: during a run, Reset stops it, waits for it to end, then resets", async () => {
+  const { h, holdEnd, releaseEnd } = heldRun();
+  await h.controller.refreshEnvironment();
+  const running = h.controller.run(SESSION_FORM());
+  await tick();
+  assert.equal(h.last().progress.state, "running");
+  // The dialog says so beforehand.
+  assert.deepEqual(h.last().sessionReset.notes, [RESET_STOPS_RUN]);
+
+  holdEnd();
+  const resetting = h.controller.handle(RESET_KEEP);
+  await tick();
+  // Stopped as Stop stops it — and, while it ends, nothing is reset yet and
+  // nothing can start.
+  assert.equal(h.streamRuns[0]!.options.signal?.aborted, true, "the run was not stopped");
+  assert.equal(h.controller.workItemId, "JR-12345", "the session was reset before the run had ended");
+  assert.equal(h.last().sessionReset.busy, true);
+  assert.equal(h.last().primary.busy, true);
+  releaseEnd();
+  await resetting;
+  await running;
+  assertFresh(h.last());
+  assert.ok(h.logged.includes("Stopping the bugpilot run: the session is being reset."));
+  // Nothing it would have done afterwards happened: no handoff, no terminal.
+  assert.deepEqual(h.terminals, []);
+});
+
+test("reset 9: no event of the old run reaches the fresh session, however late", async () => {
+  let deliver: ((event: StreamEvent) => void) | undefined;
+  const h = harness({ ...WITH_FILES, hold: true, onStream: (onEvent) => (deliver = onEvent) });
+  await h.controller.refreshEnvironment();
+  const running = h.controller.run(jiraForm());
+  await tick();
+  await h.controller.handle(RESET_KEEP);
+  await running;
+  const pushes = h.states.length;
+
+  // A process the Runner gave up on, still talking.
+  deliver!({ type: "started", work_item_id: "JR-99999", source: "jira" });
+  deliver!({ type: "step_completed", step: "code_search" });
+  deliver!({ type: "completed", ok: true });
+
+  assert.equal(h.states.length, pushes, "a late event pushed a state");
+  assert.equal(h.controller.workItemId, undefined, "a late event bound a work item");
+  assertFresh(h.last(), { ...DEFAULT_FORM });
+});
+
+test("reset 10: a run still being set up when Reset is pressed never starts, and asks nothing more", async () => {
+  let answer: (value: boolean) => void = () => {};
+  const h = harness({ ...WITH_FILES, fixModes: CATALOG, confirmAnswer: () => new Promise<boolean>((resolve) => (answer = resolve)) });
+  await h.controller.refreshEnvironment();
+  // Fresh asks first: the run is pending, with no process yet.
+  const running = h.controller.run(SESSION_FORM({ fresh: true }));
+  await tick();
+  assert.equal(h.confirms.length, 1);
+
+  const resetting = h.controller.handle(RESET_KEEP);
+  await tick();
+  answer(true);
+  await running;
+  await resetting;
+
+  assert.equal(h.streamRuns.length, 0, "a run started after the session was reset");
+  assertFresh(h.last());
+  assert.ok(h.logged.includes("Run not started: the session was reset while it was being set up."));
+  // Quietly: the developer chose the reset, so no "wait for the reset" warning.
+  assert.equal(h.notices.some((notice) => notice.kind === "warning"), false, JSON.stringify(h.notices));
+});
+
+test("reset 11: after a failed run, Reset clears the failure with everything else", async () => {
+  const h = harness({
+    fixModes: CATALOG,
+    events: [
+      { type: "started", work_item_id: "JR-12345", source: "jira" },
+      { type: "completed", ok: false, error: { code: "JIRA_AUTH_FAILED", message: "401" } },
+    ],
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+  assert.ok(runErrorOf(h.last()), "the run did not fail");
+
+  await h.controller.handle(RESET_KEEP);
+
+  assertFresh(h.last());
+  assert.equal(runErrorOf(h.last()), undefined);
+});
+
+test("reset 12: refused while a write that cannot be stopped is in flight — said before and on the press", async () => {
+  const hold = held();
+  const { h } = capturable({ answer: hold.answer });
+  await opened(h);
+  const recording = h.controller.recordReview(REVIEW_ENTRY);
+  await tick();
+  // The dialog knows before the press.
+  assert.equal(h.last().sessionReset.blocked, "Wait for the review result recording to finish.");
+
+  await h.controller.handle(RESET_KEEP);
+
+  assert.equal(h.last().workItemId, "JR-12345", "a reset went ahead over a recording");
+  assert.deepEqual(resetErrors(h), ["Session not reset. Wait for the review result recording to finish."]);
+  hold.resolve(RECORDED);
+  await recording;
+  assert.equal(h.last().sessionReset.blocked, undefined);
+  await h.controller.handle(RESET_KEEP);
+  assert.equal(h.last().workItemId, undefined, "the reset was still refused once the recording ended");
+});
+
+test("reset 13: refused while a handoff is being worked out — it may open a terminal any moment", async () => {
+  let release: (value: boolean) => void = () => {};
+  const h = await preparedHarness({ agentProbe: () => new Promise<boolean>((resolve) => (release = resolve)) });
+  const handing = h.controller.handle(next("fixWithAI"));
+  await tick();
+  assert.equal(h.last().sessionReset.blocked, RESET_WAITS_FOR_HANDOFF);
+
+  await h.controller.handle(RESET_KEEP);
+
+  assert.equal(h.last().workItemId, "JR-12345");
+  assert.deepEqual(resetErrors(h), [`Session not reset. ${RESET_WAITS_FOR_HANDOFF}`]);
+  release(true);
+  await handing;
+});
+
+test("reset 14: a captured AI review is cancelled, waited for, and not counted as an attempt", async () => {
+  const r = heldReview();
+  const h = await openedForReview(r.options);
+  const reviewing = h.controller.handle(REVIEW);
+  await tick();
+  r.start();
+  assert.equal(reviewOf(h.last())?.state, "reviewing");
+  assert.ok(h.last().sessionReset.notes.includes(RESET_CANCELS_REVIEW));
+  assert.equal(h.last().sessionReset.blocked, undefined, "a review BugPilot can stop blocked the reset");
+
+  await h.controller.handle(RESET_KEEP);
+  await reviewing;
+
+  assert.deepEqual(r.aborts, [1], "the review process was not ended");
+  assert.equal(r.store.size, 0, "the abandoned review still counts as this fix's attempt");
+  // Cancel Review's own question is not asked again: the dialog said it.
+  assert.deepEqual(h.confirms, []);
+  assert.equal(h.controller.workItemId, undefined);
+  assert.equal(fixResultOf(h.last()), undefined);
+});
+
+test("reset 15: an agent already handed the work item is said to keep running; Keep keeps its session, Delete drops it", async () => {
+  for (const deleting of [false, true]) {
+    const h = await attemptedHarness({ deleteArtifacts: async () => ({ kind: "deleted" }) });
+    assert.ok(h.last().sessionReset.notes.includes(RESET_LEAVES_AGENT));
+    await h.controller.handle(deleting ? RESET_DELETE : RESET_KEEP);
+    assert.equal(h.controller.workItemId, undefined);
+    // Back to the same work item: its terminal is still the one to reopen,
+    // unless the files the agent was given were deleted.
+    await h.controller.handle(next("run"));
+    assert.equal(h.last().primary.action, deleting ? "fixWithAI" : "openSession", `deleting: ${deleting}`);
+  }
+});
+
+test("reset 16: Keep saves unsaved verification evidence first, or asks; Delete does not save into a folder it deletes", async () => {
+  const keep = await autosaving({});
+  await keep.draft([check("Unit tests")]);
+  await keep.h.controller.handle(RESET_KEEP);
+  assert.equal(keep.calls.length, 1, "Keep dropped an unsaved verification form");
+  assert.equal(keep.h.controller.workItemId, undefined);
+
+  const asked = await autosaving({
+    confirm: false,
+    answer: async () => ({ ok: false, command: "record-verification", error: { code: "INTERNAL_ERROR", message: "locked" } }),
+  });
+  await asked.draft([check("Unit tests")]);
+  await asked.h.controller.handle(RESET_KEEP);
+  assert.match(asked.h.confirms.at(-1)?.message ?? "", /could not be saved\. Reset the session anyway\? They will be lost\./);
+  assert.equal(asked.h.confirms.at(-1)?.keepLabel, "Keep Editing");
+  assert.equal(asked.h.controller.workItemId, "JR-12345", "Keep Editing still reset the session");
+  assert.equal(asked.h.last().sessionReset.busy, false);
+});
+
+test("reset 17: a hint improvement, a work item being opened, or a folder being read land on nothing after a reset", async () => {
+  // The hint: its answer is about a hint the fresh session does not have.
+  let improve: (value: { ok: true; text: string }) => void = () => {};
+  const hint = harness({ agentOnPath: true, improveHint: () => new Promise((resolve) => (improve = resolve)) });
+  await hint.controller.refreshEnvironment();
+  const improving = hint.controller.improveHint(jiraForm({ hint: "look at it", useIssueDetails: false }));
+  await tick();
+  assert.equal(hint.last().hintImprovement?.busy, true);
+  await hint.controller.handle(RESET_KEEP);
+  assert.equal(hint.last().hintImprovement?.busy, false);
+  improve({ ok: true, text: "Improved." });
+  await improving;
+  assert.equal(hint.last().hintImprovement?.suggestion, undefined, "the old hint's suggestion reached the fresh session");
+
+  // A work item being opened from History when the reset happened.
+  let releaseStatus: () => void = () => {};
+  let holdStatus = true;
+  const opening = harness({
+    directory: PREPARED_FILES,
+    files: { "run.json": PREPARED_RUN_JSON },
+    onReadFile: (file) =>
+      holdStatus && file.endsWith("run.json") ? new Promise<void>((resolve) => (releaseStatus = resolve)) : undefined,
+  });
+  await opening.controller.refreshEnvironment();
+  const shown = opening.controller.showWorkItem("JR-12345");
+  await tick();
+  holdStatus = false;
+  await opening.controller.handle(RESET_KEEP);
+  releaseStatus();
+  await shown;
+  assert.equal(opening.controller.workItemId, undefined, "the opened work item came back after the reset");
+  assert.equal(opening.savedWorkItems.at(-1), undefined);
+  assert.equal(opening.last().progress.state, "idle");
+
+  // A refresh of the folder, mid-read.
+  let releaseRead: () => void = () => {};
+  let holdRead = false;
+  const reading = harness({
+    ...WITH_FILES,
+    onReadFile: (file) =>
+      holdRead && file.endsWith("retrieval.json") ? new Promise<void>((resolve) => (releaseRead = resolve)) : undefined,
+  });
+  await reading.controller.refreshEnvironment();
+  await reading.controller.handle(next("run"));
+  holdRead = true;
+  const refresh = reading.controller.refreshActiveWorkItem();
+  await tick();
+  holdRead = false;
+  await reading.controller.handle(RESET_KEEP);
+  const pushes = reading.states.length;
+  releaseRead();
+  await refresh;
+  // Not even a push: what it read is not projected anywhere, shown or not.
+  assert.equal(reading.states.length, pushes, "a read from before the reset was projected");
+  assertFresh(reading.last(), { ...DEFAULT_FORM });
+});
+
+test("reset 18: a second press while one is under way does nothing, and nothing else starts meanwhile", async () => {
+  const { h, holdEnd, releaseEnd } = heldRun();
+  await h.controller.refreshEnvironment();
+  const running = h.controller.run(SESSION_FORM());
+  await tick();
+  holdEnd();
+  const first = h.controller.handle(RESET_KEEP);
+  await tick();
+  assert.equal(h.last().sessionReset.busy, true);
+  assert.equal(h.last().primary.busy, true, "something could be started under the reset");
+  await h.controller.handle(RESET_DELETE);
+  assert.ok(h.logged.includes("ERROR Refusing a second Reset Session while one is in progress."));
+  // A run asked for meanwhile waits; it does not start.
+  await h.controller.run(jiraForm({ issueKey: "JR-2" }));
+  assert.equal(h.streamRuns.length, 1);
+  releaseEnd();
+  await first;
+  await running;
+  assertFresh(h.last());
+  assert.equal(h.notices.filter((notice) => /^Session reset/.test(notice.message)).length, 1);
+});
+
+test("reset 19: the message carries one explicit choice, and nothing else", () => {
+  assert.deepEqual(parsePanelMessage({ type: "resetSession", deleteGeneratedFiles: false }), RESET_KEEP);
+  assert.deepEqual(parsePanelMessage({ type: "resetSession", deleteGeneratedFiles: true }), RESET_DELETE);
+  // No choice, or one that is not a boolean, is no message: never read as Delete.
+  for (const raw of [
+    { type: "resetSession" },
+    { type: "resetSession", deleteGeneratedFiles: "true" },
+    { type: "resetSession", deleteGeneratedFiles: 1 },
+    { type: "resetSession", deleteGeneratedFiles: null },
+  ]) {
+    assert.equal(parsePanelMessage(raw), undefined, JSON.stringify(raw));
+  }
+  // A path or a work item from the page is not carried.
+  assert.deepEqual(parsePanelMessage({ type: "resetSession", deleteGeneratedFiles: true, workItemId: "JR-1", path: "/etc" }), RESET_DELETE);
+});
+
+test("reset 20: a run that finishes as Reset is pressed hands nothing to an agent", async () => {
+  // The run completed — Fix with AI ticked, an agent on PATH — and is still
+  // reading its folder when the reset arrives: no terminal, no clipboard.
+  const { h, holdEnd, releaseEnd } = heldRun({ events: successfulRun, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  const running = h.controller.run(SESSION_FORM({ fixWithAI: true }));
+  await tick();
+  holdEnd();
+  const resetting = h.controller.handle(RESET_KEEP);
+  await tick();
+  releaseEnd();
+  await resetting;
+  await running;
+  assert.deepEqual(h.terminals, [], "an agent was started for a session being reset");
+  assert.deepEqual(h.clipboard, []);
+  assertFresh(h.last());
 });

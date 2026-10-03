@@ -11509,3 +11509,96 @@ two centred lines at 200px; 14px from the Issue to Run and from the note to Fix
 Mode; "Workflow Steps" fits at 200px. Ctrl+Enter in the Issue field of a fresh
 scratch repository (Run label and Fix with AI unticked checked first) ran a
 `--prepare-only` run to "Context ready". High-contrast themes not checked.
+
+### 37.103 ⋯ More and Reset Session (after `fa5eb36`, uncommitted)
+
+**Status:** implemented, verified in the extension suite, the integration suite
+(real `bugpilot clean`), the activation smoke test and a real disposable VS Code
+window; not committed. Decisions in the canonical plan, "Confirmed decisions (⋯
+More and Reset Session)". Git History Retrieval v2, Code Search, Relevant Files,
+Fix Mode, the AI Agent layer and History are unchanged.
+
+- **⋯ More.** The bare ⋯ beside Run (hidden until a next step existed) is now an
+  always-present secondary button: the ellipsis glyph and *More*, hairline
+  border, no fill, normal foreground, hover fill, shared focus outline; name and
+  tooltip *More actions*. At ≤260px the word drops (glyph and name stay) and the
+  row tightens (4px gaps, 6px button padding, the busy spinner yields to the
+  words — the running step's row still spins); Run's label ellipsizes rather than
+  overflow. The codicon subset gains `discard` (U+EAE2, checked in the vendored
+  font's cmap and glyph names, equal to VS Code's code point).
+- **The menu**: Reset Session first and always; a separator; then Start New
+  Attempt / Rebuild Context / Open AI Session exactly as before (host-listed,
+  none while busy). An open menu closes when what it offers changes, and gives
+  the focus back to ⋯ More if it was inside. Arrow/Home/End/Escape as before.
+- **The question** is a modal `<dialog>` outside every view and the form (not a
+  form itself: Enter on a choice presses nothing): *Reset BugPilot Session?*,
+  Keep generated files (default every opening) / Delete generated files, Keep's
+  *History will be kept.*, Delete's permanent-deletion warning plus the History
+  consequence, and **Reset Session** ↔ **Reset and Delete**. Focus starts on the
+  chosen option; Cancel/Escape close it and return to ⋯ More, not while the host
+  is resetting. The host's notes (a run that will be stopped, a review that will
+  be cancelled, an agent that will keep running), a blocker, progress and a
+  refusal are rendered from `PanelState.sessionReset`. Opening it flushes a
+  pending form change; the press cancels the debounce, so no old form arrives
+  after the reset.
+- **One host operation**, `Controller.resetSession({ deleteGeneratedFiles })`
+  (message `resetSession`, a strict boolean): refuse while an artifact write or
+  a handoff being worked out is in flight; on Keep, settle unsaved verification
+  evidence; stop the run and cancel a captured review and wait for both
+  (`#runTask`, `#reviewTask`); hold the `reset` artifact-write guard; delete if
+  asked; then reset synchronously (`#applyReset`): `resetSessionForm` (defaults,
+  catalog-default Fix Mode, agent + command kept), work item detached and
+  `saveWorkItem(undefined)`, results, errors, drafts, hint suggestion and session
+  feedback dropped; the trees refreshed. A session epoch guards every path that
+  waits (run setup, run events, post-run handoff, `showWorkItem`, `#formChanged`'s
+  status read, folder reads — `#readSummary` now reads everything before
+  projecting anything — hint improvement, attachment answers).
+- **Delete** = `deleteWorkItemArtifacts` (`app/sessionReset.ts`): valid work
+  item id; `.ai` and `.ai/<id>` real directories, not links or junctions;
+  `realpath` equal to `<realpath(root)>/.ai/<id>`; then `bugpilot clean <id>`;
+  success only if the folder is gone. Refused → nothing touched; failed → nothing
+  reset, folder re-read, *Session not reset: …*. Global-storage attachment blobs
+  are left to the §37.100 collector (shared across workspaces).
+
+**Tests.** +51 (1723 → 1774). `sessionReset.test.ts` (14): field
+classification, the fresh form, deletion against real temp directories — only
+`.ai/<id>/` goes; missing; a junction at `.ai/<id>` and at `.ai` refused with the
+target intact; a file refused; ids refused before any file-system call; a
+resolved path elsewhere refused; Windows case; success only when gone; safe
+reasons; no path in the sentences. Controller (20): Keep resets every field and
+keeps the agent, persists, deletes nothing; next Run has no old flag; restart
+via `restoreForm`; typed-but-never-run; Delete through the port only; refused
+and failed deletes reset nothing and say so once; no port; reset during a run
+(stopped, waited for), late events, a run still being set up, a failed run;
+blocked by a recording and by a handoff; a captured review cancelled and
+unmarked; Keep keeps / Delete drops the agent session; verification settle;
+hint, `showWorkItem` and folder read landing on nothing; double press; message
+parsing; a completing run hands nothing over. Page (12) and markup (5): the
+button, menu, dialog, keyboard, focus, busy, refusal, blocker, notes, fresh
+session, and the page↔controller loop. Existing tests updated where the old rule
+was "⋯ hidden until a next step exists" and the old `<legend>` guard (scoped to
+the form). Integration +1: the real `clean` through the delete helper with a
+junction inside the folder (removed as a link, its target intact), an unrelated
+work item, `.ai/notes.txt`, the memory entry and source untouched; a folder that
+is a junction refused before the CLI is asked. Mutation checks: removing each
+epoch guard, the handoff guard, the run-stop await, the blockers, the
+verification settle, `saveWorkItem(undefined)` or the session drop each fails a
+test (the folder-read guard once the test also counted pushes).
+
+**Real window** (standalone VS Code, disposable profile, VSIX from this tree,
+CLI = editable install of this tree, a disposable fixture repository; Fix with AI
+never pressed, custom agent `cmd /c echo {prompt}`): ⋯ More visible on an
+untouched panel; menu by mouse, Enter, Space, arrows, Escape (focus back); the
+dialog modal, focus on Keep, ↓ selects Delete (button and helpers switch), Enter
+on a choice does nothing, Escape closes; Keep reset → Issue/Hint empty, Run,
+"Ready to run", workflow collapsed, focus on Issue, toast *Session reset.*,
+folder and History row kept, custom agent kept; restart → still fresh, agent
+kept; Delete reset → only that work item's folder gone, the other folder, the
+source and its History row kept, toast *Session reset. Generated files
+deleted.*; Reset during a live run → *The current BugPilot run will be stopped.*
+shown, run stopped (logged), fresh session; the stopped run's partial folder is
+kept, as Keep says. Dark Modern and Light Modern at 360px and 200px: no
+horizontal overflow (panel, open menu, dialog in both states, the busiest row);
+every primary label and Running… fit at 200px after the narrow-width rule (found
+in this pass: "R…" while running, Open AI Session cut by 1px, and the dialog's
+paragraph spacing). High-contrast themes not checked.
