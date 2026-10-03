@@ -367,12 +367,12 @@ export interface WorkflowStepResult {
    * The row's second line: only what `statusText` does not already say.
    *
    * The description while pending, what it is doing while running ("Searching
-   * repository…"), and what it produced once done ("Manual bug description",
-   * "4 terms · 6 relevant files"). `""` when the only thing to say is the
-   * status itself — a row never says Completed twice.
+   * repository…"), and what it produced once done (the issue's title, "4 terms
+   * · 6 relevant files"). `""` when the only thing to say is the status itself
+   * — a row never says Completed twice.
    */
   readonly summary: string;
-  /** A quieter second line, when the result has one: the issue's title, which agent. */
+  /** A quieter second line, when the result has one: which agent. */
   readonly detail?: string;
   /**
    * What this step's applied settings are, in one short line — "4 keywords ·
@@ -902,10 +902,12 @@ function resultOf(
       const issue = input.issue;
       const artifact = present.has(ISSUE_ARTIFACT) ? { artifact: ISSUE_ARTIFACT } : {};
       if (!issue) return { summary: FINISHED_TEXT.success, actions: [], ...artifact };
-      const summary = issue.source === "jira" ? `${issue.id} · Jira issue` : "Manual bug description";
+      // One line (§37.104): the issue's own title — what a developer
+      // recognises — and, only without one, where it came from. The key is in
+      // the Issue field already, and the source is the Issue field's note.
+      const source = issue.source === "jira" ? `${issue.id} · Jira issue` : "Manual bug description";
       return {
-        summary,
-        ...(issue.title === "" ? {} : { detail: issue.title }),
+        summary: issue.title === "" ? source : issue.title,
         actions: [],
         ...artifact,
       };
@@ -1108,12 +1110,14 @@ export interface OverallStatus {
  *
  * The handoff's outcome is reported whether or not the box was ticked: since
  * the button moved onto the row, pressing it is a choice in its own right, and
- * a header reading "Context ready" over a failed handoff would contradict the
- * row below it.
+ * a header reading "Ready" over a failed handoff would contradict the row
+ * below it.
  */
 export function overallStatus(
   steps: readonly WorkflowStepResult[],
   progress: ProgressView,
+  /** The prepared context no longer matches the form — the button says Rebuild Context. */
+  options: { readonly stale?: boolean } = {},
 ): OverallStatus {
   // The steps a run performs: Fix result is a file, not a step, so it never
   // counts towards "Running 3/6…".
@@ -1129,6 +1133,8 @@ export function overallStatus(
   }
   if (progress.state === "failed") return { kind: "failed", text: "Run failed" };
   if (progress.state === "stopped") return { kind: "idle", text: "Stopped" };
+  // What the primary button says too: this context is not the form's any more.
+  if (options.stale) return { kind: "idle", text: OVERALL_STALE };
   // A report on disk is the newest fact BugPilot can state about a work item
   // after the handoff this session saw — and the only one about a reopened
   // one, whose handoff nobody recorded. Factual, never "fixed".
@@ -1138,8 +1144,17 @@ export function overallStatus(
     if (fix?.status === "success") return { kind: "done", text: HANDOFF_STARTED_TITLE };
     if (fix?.status === "failed") return { kind: "failed", text: "AI fix did not start" };
     if (report) return { kind: "done", text: FIX_REPORT_AVAILABLE };
-    return { kind: "done", text: "Context ready" };
+    return { kind: "done", text: OVERALL_READY };
   }
   if (report) return { kind: "done", text: FIX_REPORT_AVAILABLE };
-  return { kind: "idle", text: "Ready to run" };
+  return { kind: "idle", text: OVERALL_IDLE };
 }
+
+/**
+ * The header's words for the three quiet states (§37.104): one or two words
+ * each, so the header stays on one line beside "Workflow Steps" at 200px.
+ * "Ready" is the context's — the rows say which step produced what.
+ */
+export const OVERALL_IDLE = "Not started";
+export const OVERALL_READY = "Ready";
+export const OVERALL_STALE = "Needs rebuild";

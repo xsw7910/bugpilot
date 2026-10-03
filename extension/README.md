@@ -101,25 +101,22 @@ list of steps.
 
 ```
 Issue
-[ Enter a Jira ticket (e.g. JR-12345) or describe the bug ]
-Use a Jira issue ID, or describe the problem directly.
+[ Enter a Jira ticket or describe the bug   ]
 Jira issue JR-12345
 
-[        ▶ Run        ] [ Stop ]
+[        ▶ Run        ] [ Stop ] [ ⋯ More ]
          Ctrl+Enter
-Run prepares the issue context for AI-assisted fixing.
-     Uses the current settings below.
 
 Fix Mode
 [ Standard Fix                            ▾ ] ⚙
 Hint
-[ e.g. Check initialization logic…          ]
+[ Add technical guidance or suspected areas ]
 Improve with AI   ☑ Include issue details
 [ ⚙ Advanced Settings ]
 ──────────────────────────────────────────────
 Workflow Steps                        Running 3/6…
 ☑ Issue details         <0.1s  ● Completed  ⚙
-  JR-12345 · Jira issue
+  Widget rejects the output type
   issue.json
 ☑ Code search           32.5s  ● Completed  ⚙
   11 terms · 6 relevant files
@@ -147,6 +144,13 @@ item — you never need to know what resume, retry or fresh mean to find it:
 | **Open AI Session** | An attempt has started | Brings back the terminal the agent is running in |
 | **Rebuild Context** | You changed the issue, hint, keywords, focus files, Fix Mode or another preparation setting since | Prepares it again, keeping what the agent wrote |
 | **Running…** | Something is in flight | Nothing — it waits |
+
+Beside **Ctrl+Enter** under it, a word or two say why it reads what it reads —
+*Context ready*, *AI session started*, *Fix report available*, *Settings
+changed* — and **Workflow Steps** says the same in brief: *Not started*, *Running
+3/6…*, *Ready*, *Needs rebuild*. What a button or a setting does is its
+tooltip: hover **Run**, **Rebuild Context**, **Fix Mode**, **Hint** or
+**Include issue details** (which says exactly what the improver may read).
 
 **Stop** joins it while a run is in flight. Beside it, always, is **⋯ More**
 (just **⋯** in a very narrow sidebar). It holds **Reset Session** — see
@@ -267,7 +271,7 @@ under the step's name rather than squeezing it.
 
 Once a step finishes, its second line says what it produced, if that is more
 than its status, with the file it wrote as a link under it. **Issue details**
-names the issue (`issue.json`). **Code search** counts the terms it searched
+shows the issue's title (`issue.json`). **Code search** counts the terms it searched
 and the relevant files it found (`retrieval.json`), with **Relevant files** and
 **Search details** folded beneath it. **Git history** and **Similar fixes** say
 only **Completed** — their results are inside `context.md`. **Build context**

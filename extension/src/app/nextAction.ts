@@ -47,6 +47,18 @@ export const NEXT_ACTION_LABELS: Readonly<Record<NextActionId, string>> = {
   startNewAttempt: "Start New Attempt",
 };
 
+/**
+ * What each primary action does, as the button's tooltip — and, for the ⋯
+ * menu's items, theirs (§37.104). Fix with AI says it in its label. The page
+ * keeps a copy (`PRIMARY_TITLES` in panel.js) that a test compares to this one.
+ */
+export const PRIMARY_TOOLTIPS = {
+  run: "Prepare the issue context for AI-assisted fixing",
+  rebuildContext: "Rebuild the prepared context using the current settings",
+  // Focus only: Open AI Session never starts or restarts a session (§37.87).
+  openSession: "Focus the existing BugPilot AI terminal",
+} as const satisfies Partial<Record<PrimaryActionId, string>>;
+
 /** What the button says while the host is doing something it must not overlap. */
 export const BUSY_LABEL = "Running…";
 
@@ -57,7 +69,11 @@ export interface PrimaryView {
   readonly enabled: boolean;
   /** True while a run, a handoff or an artifact write is in flight. */
   readonly busy: boolean;
-  /** One line under the button, saying why it says what it says; empty to hide. */
+  /**
+   * The state beside Ctrl+Enter under the button — a few words saying why it
+   * says what it says (§37.104), never a sentence about what it does: that is
+   * the button's tooltip. Empty to show the shortcut alone.
+   */
   readonly hint: string;
   /** The ⋯ menu, in order; empty means no menu. */
   readonly more: readonly NextActionId[];
@@ -85,17 +101,17 @@ export interface NextActionInput {
   readonly sessionKnown: boolean;
   /** Delete previous artifacts first is ticked, which a rebuild honours after asking. */
   readonly fresh: boolean;
-  /** The last run finished or failed, so Run's own sentence is no longer news. */
-  readonly settled: boolean;
 }
 
-export const RUN_HINT = "Run prepares the issue context for AI-assisted fixing.";
-export const FIX_HINT = "Context ready. Next: Fix with AI.";
-export const SESSION_HINT = "An AI session was started for this work item. Continue the conversation there.";
-export const EARLIER_ATTEMPT_HINT =
-  "An earlier AI attempt wrote fix_report.md. Open its session, or start a new attempt from ⋯.";
-export const STALE_HINT = "The form changed since this context was prepared. Rebuild Context prepares it again.";
-export const FRESH_REBUILD_HINT = "Delete previous artifacts first is on, so it asks before deleting anything.";
+// The state words under the button (§37.104). Run has none: what it does is
+// its tooltip, and an untouched panel needs no sentence to say it.
+export const FIX_HINT = "Context ready";
+export const SESSION_HINT = "AI session started";
+/** An agent wrote fix_report.md, in a session this window did not start. */
+export const EARLIER_ATTEMPT_HINT = "Fix report available";
+export const STALE_HINT = "Settings changed";
+/** Kept because it is a warning, not an explanation: Fresh deletes, after asking. */
+export const FRESH_REBUILD_HINT = "Asks before deleting artifacts";
 
 export function primaryView(input: NextActionInput): PrimaryView {
   const action: PrimaryActionId = !input.prepared
@@ -130,13 +146,13 @@ export function primaryView(input: NextActionInput): PrimaryView {
 function hintFor(action: PrimaryActionId, input: NextActionInput): string {
   switch (action) {
     case "run":
-      return input.settled ? "" : RUN_HINT;
+      return "";
     case "fixWithAI":
       return FIX_HINT;
     case "openSession":
       return input.sessionKnown ? SESSION_HINT : EARLIER_ATTEMPT_HINT;
     case "rebuildContext":
-      return input.fresh ? `${STALE_HINT} ${FRESH_REBUILD_HINT}` : STALE_HINT;
+      return input.fresh ? `${STALE_HINT} · ${FRESH_REBUILD_HINT}` : STALE_HINT;
   }
 }
 

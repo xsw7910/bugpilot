@@ -11602,3 +11602,57 @@ horizontal overflow (panel, open menu, dialog in both states, the busiest row);
 every primary label and Running… fit at 200px after the narrow-width rule (found
 in this pass: "R…" while running, Open AI Session cut by 1px, and the dialog's
 paragraph spacing). High-contrast themes not checked.
+
+### 37.104 Text density on the Workflow panel (after `fa5eb36`, uncommitted)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and a real disposable VS Code window; not committed. Presentation and copy
+only. Decisions in the canonical plan, "Confirmed decisions (Text density)".
+
+- **Removed from the screen** (each still reachable): *Use a Jira issue ID, or
+  describe the problem directly.* (placeholder + tooltip), *Run prepares the
+  issue context for AI-assisted fixing.* (Run's tooltip), *The form changed
+  since this context was prepared. Rebuild Context prepares it again.* (*Settings
+  changed* + Rebuild's tooltip), *Uses the current settings below.* (gone; Run's
+  tooltip), *How the AI works on this bug.* (label tooltip), the mode
+  description (selector tooltip + accessible description), *Add technical
+  guidance, constraints, or suspected areas.* (placeholder + tooltip), *Includes
+  only the issue title and description. Repository files and history are not
+  read.* (tooltip + visually hidden description).
+- **Run status line** `#run-status`: *Ctrl+Enter* and `#run-hint` (host words,
+  CSS dot `content: "·" / ""`). Hints: *Context ready*, *AI session started*,
+  *Fix report available*, *Settings changed*, *· Asks before deleting
+  artifacts*; Run none. `NextActionInput.settled` removed (it only gated Run's
+  sentence). `PRIMARY_TOOLTIPS` in `nextAction.ts`; the page's `PRIMARY_TITLES`
+  copy is compared by a test.
+- **Workflow header**: *Ready to run* → *Not started*, *Context ready* → *Ready*,
+  new *Needs rebuild* (`overallStatus(…, { stale })`, from the controller's
+  `#stale()`).
+- **Issue details row**: the title alone (fallback *JR-… · Jira issue* /
+  *Manual bug description*).
+- **CSS**: `.visually-hidden` (the one `width: 1px`, exempted in the
+  fixed-width guard), `.run-status`, `#field-fixModeId { margin-top: 12px }`;
+  `#run-settings-note`, `#run-hint` and `.hint-include .hint` rules removed.
+
+**Tests.** 1774 → 1778: updated the copy-pinning tests (37 across controller,
+page, panel, workflow, nextAction), plus new ones — hint states are words not
+sentences and the full set the model can produce; header vocabulary incl. *Needs
+rebuild*; the seven strings are off the screen and each meaning has a home; the
+Fix Mode note is on screen only for investigation/problem/no catalog; Issue
+details one line with fallbacks.
+
+**Real window** (disposable profile, VSIX from this tree, CLI = editable
+install; Fix with AI never pressed). Issue → Workflow Steps, Run state: 517 →
+361px at 360px, 666 → 399px at 200px; stale: 533 → 409px and 682 → 447px. At
+200px the panel no longer needs a vertical scrollbar in the Run state. Dark
+Modern and Light Modern, 360px and 200px: no horizontal scroll (also with the
+workflow open); *Ctrl+Enter · Settings changed* one line at 200px; Fix Mode row,
+⋯ More and Advanced Settings intact; *Workflow Steps / Needs rebuild* wraps
+under the heading at 200px. Live tooltips and descriptions read from the DOM
+(Chromium draws title pop-ups outside the page): all as above. Tab order with
+real keys unchanged: Issue → Run → ⋯ More → Fix Mode → gear → Hint → Improve
+with AI → Include issue details → Advanced Settings → Workflow Steps →
+Diagnostics. Prepared (*Context ready*, header *Ready*), stale (*Settings
+changed*, *Needs rebuild*) and back again; rows kept *16 terms · 1 relevant
+file* and *1 related commit found*; an invalid Max files still opened Advanced
+Settings with its error. High-contrast themes not checked.

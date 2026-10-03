@@ -358,7 +358,6 @@ const primaryOf = (input: Partial<NextActionInput> = {}) =>
     attempted: false,
     sessionKnown: false,
     fresh: false,
-    settled: false,
     ...input,
   });
 
@@ -402,7 +401,6 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
     jiraConfigured: false,
     primary: primaryOf({
       busy: progress.state === "running",
-      settled: progress.state === "done" || progress.state === "failed",
     }),
     fixModes: { kind: "loading" },
     // Nothing reset yet, nothing in flight: Reset Session offered, with nothing to delete.
@@ -497,7 +495,6 @@ const prepared = (extra: Partial<WorkflowInput> = {}, overrides: Partial<PanelSt
     prepared: files.includes("task.md"),
     attempted: started || files.includes("fix_report.md"),
     sessionKnown: started,
-    settled: true,
   });
   return state({ progress, workflow, workItemId: "JR-12345", workItemActions: ["openFolder"], primary, ...overrides });
 };
@@ -918,7 +915,7 @@ test("Stop and the ⋯ menu's items send their own messages", () => {
   assert.equal(p.byId("more-actions").getAttribute("aria-expanded"), "false");
 
   // Open AI Session, from the menu while the context is stale.
-  p.send(prepared(STARTED, { primary: primaryOf({ prepared: true, stale: true, attempted: true, sessionKnown: true, settled: true }) }));
+  p.send(prepared(STARTED, { primary: primaryOf({ prepared: true, stale: true, attempted: true, sessionKnown: true }) }));
   assert.equal(p.byId("run-label").textContent, "Rebuild Context");
   assert.equal(p.byId("menu-openSession").hidden, false);
   assert.equal(p.byId("menu-startNewAttempt").hidden, true, "a new attempt was offered on a stale context");
@@ -1178,10 +1175,11 @@ test("the page never labels the button itself: every push's label wins, in order
   p.byId("form").dispatch("input", { target: p.byId("hint") });
   assert.equal(p.byId("run-label").textContent, "Fix with AI", "the page decided the context was stale");
 
-  p.send(prepared({}, { primary: primaryOf({ prepared: true, stale: true, settled: true }) }));
+  p.send(prepared({}, { primary: primaryOf({ prepared: true, stale: true }) }));
   assert.equal(p.byId("run-label").textContent, "Rebuild Context");
   assert.match(p.byId("run-icon").className, /codicon-refresh/);
-  assert.match(p.byId("run-hint").textContent, /The form changed since this context was prepared/);
+  assert.equal(p.byId("run-hint").textContent, "Settings changed");
+  assert.equal(p.byId("run").getAttribute("title"), "Rebuild the prepared context using the current settings");
 
   p.send(prepared());
   assert.equal(p.byId("run-label").textContent, "Fix with AI");
@@ -1347,7 +1345,7 @@ test("what happened to the AI step is spelled out on its own row", () => {
 test("the overall status is shown in the workflow header", () => {
   const p = load();
   p.send(state());
-  assert.equal(p.byId("workflow-status").textContent, "Ready to run");
+  assert.equal(p.byId("workflow-status").textContent, "Not started");
 
   p.send(
     state({
@@ -1762,11 +1760,35 @@ test("the Fix Mode options come from the host, not from the page", () => {
   assert.equal(select.disabled, false);
 });
 
-test("the selected mode's description is shown under the selector", () => {
+test("the selected mode's description is announced and on hover, not a line on the panel (§37.104)", () => {
   const page = load();
   page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
 
+  // Still the selector's accessible description…
   assert.equal(page.byId("fixModeId-description").textContent, "Default workflow for most bugs.");
+  // …off the screen, and the selector's tooltip says it with the mode's name.
+  assert.equal(page.byId("fixModeId-description").classes.has("visually-hidden"), true);
+  assert.equal(page.byId("fixModeId").getAttribute("title"), "Standard Fix — Default workflow for most bugs.");
+});
+
+test("what changes what happens is on the panel: investigation only, a problem, no catalog", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } }));
+  assert.equal(page.byId("fixModeId-description").classes.has("visually-hidden"), false);
+  assert.match(page.byId("fixModeId-description").textContent, /^Investigation only/);
+
+  // Back to a mode that edits source: quiet again.
+  page.byId("fixModeId").value = "standard";
+  page.byId("form").dispatch("change", { target: page.byId("fixModeId") });
+  assert.equal(page.byId("fixModeId-description").classes.has("visually-hidden"), true);
+
+  const problem = { field: "fixModeId" as const, message: "Pick a Fix Mode from the list." };
+  page.send(state({ fixModes: MODES, problems: [problem] }));
+  assert.equal(page.byId("fixModeId-description").classes.has("visually-hidden"), false);
+  assert.equal(page.byId("fixModeId-description").textContent, problem.message);
+
+  page.send(state({ fixModes: { kind: "unavailable", detail: "AI Fix Modes could not be read." } }));
+  assert.equal(page.byId("fixModeId-description").classes.has("visually-hidden"), false);
 });
 
 test("an investigation mode says so before anything runs", () => {
@@ -3303,10 +3325,9 @@ test("a finished run reads as results on the rows, and one next action", () => {
   const p = load();
   p.send(prepared({ strategy: "Standard Fix" }));
 
-  // Issue details: which issue, and its title on the line below.
-  assert.equal(p.byId("description-issueDetails").textContent, "JR-12345 · Jira issue");
-  assert.equal(p.byId("detail-issueDetails").textContent, "WidgetController rejects the VDS output type");
-  assert.equal(p.byId("detail-issueDetails").hidden, false);
+  // Issue details: one line, the issue's title (§37.104).
+  assert.equal(p.byId("description-issueDetails").textContent, "WidgetController rejects the VDS output type");
+  assert.equal(p.byId("detail-issueDetails").hidden, true, "a second line under Issue details");
   assert.equal(p.byId("artifact-issueDetails-name").textContent, "issue.json");
   assert.equal(p.byId("artifact-issueDetails").hidden, false);
   // Code search: what was searched and what it found, from retrieval.json.
@@ -3333,8 +3354,8 @@ test("a finished run reads as results on the rows, and one next action", () => {
   assert.equal(p.byId("run-label").textContent, "Fix with AI");
   assert.match(p.byId("run-icon").className, /codicon-hubot/);
   assert.equal(p.byId("run").disabled, false);
-  // Short, and no file names in the instruction (§37.86).
-  assert.equal(p.byId("run-hint").textContent, "Context ready. Next: Fix with AI.");
+  // A state beside the shortcut, no instruction: the button is the next step (§37.104).
+  assert.equal(p.byId("run-hint").textContent, "Context ready");
   // Behind ⋯, rebuilding it — and not yet a new attempt: none has started.
   assert.equal(p.byId("more-actions").hidden, false);
   assert.equal(p.byId("menu-rebuildContext").hidden, false);
@@ -3388,8 +3409,8 @@ test("an issue title renders as text", () => {
   const p = load();
   p.send(prepared({ issue: { id: "JR-12345", source: "jira", title: hostile } }));
 
-  assert.equal(p.byId("detail-issueDetails").textContent, hostile);
-  assert.equal(p.byId("detail-issueDetails").children.length, 0, "the title became markup");
+  assert.equal(p.byId("description-issueDetails").textContent, hostile);
+  assert.equal(p.byId("description-issueDetails").children.length, 0, "the title became markup");
 });
 
 test("Fix with AI, the top button, asks the host for exactly that — with the form", () => {
@@ -3429,7 +3450,7 @@ test("a later failure never erases the rows that finished before it", () => {
   const p = load();
   p.send(failedAt("build_context", { kind: "run", title: "Run failed", message: "It stopped." }, ["issue_details", "code_search"]));
 
-  assert.equal(p.byId("description-issueDetails").textContent, "JR-12345 · Jira issue");
+  assert.equal(p.byId("description-issueDetails").textContent, "WidgetController rejects the VDS output type");
   assert.equal(p.byId("description-codeSearch").textContent, "53 terms · 8 relevant files");
   assert.equal(p.byId("error-buildContext").hidden, false);
   assert.equal(p.byId("error-issueDetails").hidden, true);
@@ -3449,7 +3470,7 @@ test("a result from one run does not survive into the next", () => {
   // cannot inherit the previous one's result for a frame.
   const p = load();
   p.send(prepared({ strategy: "Standard Fix", ...withSearch({ files: FOUND, terms: TERMS }) }));
-  assert.equal(p.byId("detail-issueDetails").hidden, false);
+  assert.equal(p.byId("description-issueDetails").hidden, false);
 
   p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
   for (const id of STEP_IDS) {
@@ -3478,7 +3499,7 @@ test("no report, no Fix result row", () => {
   assert.equal(p.byId("step-fixResult").hidden, true);
   assert.equal(p.byId("open-fix-report").hidden, true);
   assert.equal(p.byId("artifact-fixResult").hidden, true);
-  assert.equal(p.byId("workflow-status").textContent, "Context ready");
+  assert.equal(p.byId("workflow-status").textContent, "Ready");
 });
 
 test("a report is one row: the agent's summary, its tests line, the file and one button", () => {
@@ -3585,7 +3606,7 @@ test("Fix with AI keeps its own state beside a report", () => {
   assert.equal(p.byId("description-fixWithAI").textContent, "Fix report available");
   assert.equal(p.byId("step-fixWithAI").classes.has("step-success"), false, "a start nobody saw wore the tick");
   assert.equal(p.byId("run-label").textContent, "Open AI Session");
-  assert.equal(p.byId("run-hint").textContent, "An earlier AI attempt wrote fix_report.md. Open its session, or start a new attempt from ⋯.");
+  assert.equal(p.byId("run-hint").textContent, "Fix report available");
   assert.equal(p.byId("menu-startNewAttempt").hidden, false);
   assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
 
@@ -4261,7 +4282,7 @@ test("a successful handoff turns the top button into Open AI Session, and says w
   assert.equal(p.byId("detail-fixWithAI").textContent, "Handed to Claude Code in a terminal.");
   assert.equal(p.byId("run-label").textContent, "Open AI Session", "a second handoff was the next step");
   assert.match(p.byId("run-icon").className, /codicon-terminal/);
-  assert.equal(p.byId("run-hint").textContent, "An AI session was started for this work item. Continue the conversation there.");
+  assert.equal(p.byId("run-hint").textContent, "AI session started");
   // A new attempt is there, but behind ⋯ — not a competing button.
   assert.equal(p.byId("menu-startNewAttempt").hidden, false);
   assert.equal(p.byId("menu-rebuildContext").hidden, false);
@@ -4348,28 +4369,25 @@ test("the outcome is announced as text, not as a tick", () => {
 
 // --- UI-V1: what rendering the page found ------------------------------------
 
-test("the run hint stops explaining Run once Run has been pressed", () => {
-  // Advice about a button, sitting directly above the proof of what that button
-  // did. Visible in every post-run screenshot until UI-V1. Since the button
-  // follows the work item, the line explains whatever it now says instead.
+test("beside the shortcut, only a state — Run's explanation is its tooltip (§37.104)", () => {
+  // The line under the button was a sentence about the button; it is the
+  // host's few words now, and Run has none: Ctrl+Enter stands alone.
   const p = load();
   p.send(state());
-  assert.equal(p.byId("run-hint").hidden, false);
-  assert.equal(p.byId("run-hint").textContent, "Run prepares the issue context for AI-assisted fixing.");
+  assert.equal(p.byId("run-hint").hidden, true);
+  assert.equal(p.byId("run-hint").textContent, "");
+  assert.equal(p.byId("run").getAttribute("title"), "Prepare the issue context for AI-assisted fixing");
 
   p.send(prepared());
   assert.equal(p.byId("run-hint").hidden, false);
-  assert.doesNotMatch(p.byId("run-hint").textContent, /Run prepares/);
+  assert.equal(p.byId("run-hint").textContent, "Context ready");
 
-  p.send(state({ runError: { kind: "run", title: "Run failed", message: "It stopped." } }));
+  // A failure card says it better; nothing beside the shortcut.
+  p.send(prepared({}, { runError: { kind: "run", title: "Run failed", message: "It stopped." } }));
   assert.equal(p.byId("run-hint").hidden, true);
 
-  p.send(state({ progress: { state: "done", rows: [], artifacts: [] } }));
-  assert.equal(p.byId("run-hint").hidden, true, "Run was explained again after it had run");
-
-  // And it comes back for the next untouched state.
-  p.send(state());
-  assert.equal(p.byId("run-hint").hidden, false);
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  assert.equal(p.byId("run-hint").hidden, true, "words beside Running…");
 });
 
 // --- Search details, under Code search ---------------------------------------
@@ -7028,6 +7046,9 @@ test("the primary button's tooltip follows its action: only where the label hide
   assert.equal(p.byId("run").getAttribute("title"), "Focus the existing BugPilot AI terminal");
   p.send(state());
   assert.equal(p.byId("run-label").textContent, "Run");
+  // Run's own, since its explanation left the line under it (§37.104).
+  assert.equal(p.byId("run").getAttribute("title"), "Prepare the issue context for AI-assisted fixing");
+  p.send(prepared());
   assert.equal(p.byId("run").getAttribute("title"), undefined, "a stale tooltip outlived its action");
 });
 

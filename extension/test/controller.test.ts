@@ -1388,7 +1388,7 @@ test("leaving it unticked stops after the context is built", async () => {
   // And nothing was even probed: asking "is claude installed" when the answer
   // cannot be used is a spawn for nothing.
   assert.deepEqual(h.probed, []);
-  assert.equal(h.last().overall.text, "Context ready");
+  assert.equal(h.last().overall.text, "Ready");
   // Ready to press, and not the green tick: nothing was handed over.
   assert.equal(h.last().workflow.find((step) => step.id === "fixWithAI")?.status, "ready");
 });
@@ -4238,8 +4238,9 @@ test("a reopened work item's rows name that work item", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-1");
 
-  assert.equal(stepOf(h.last(), "issueDetails").summary, "JR-1 · Jira issue");
-  assert.equal(stepOf(h.last(), "issueDetails").detail, "Title of one");
+  // One line, the issue's own title (§37.104).
+  assert.equal(stepOf(h.last(), "issueDetails").summary, "Title of one");
+  assert.equal(stepOf(h.last(), "issueDetails").detail, undefined);
   assert.equal(codeRow(h.last()).search?.files.length, 2);
 });
 
@@ -4258,8 +4259,8 @@ test("switching work items never shows the previous one's issue or search, even 
   for (const state of pushed) {
     assert.equal(mentionsFirst(state), false, `a push during the switch named JR-1: ${stepOf(state, "issueDetails").summary}`);
   }
-  assert.equal(stepOf(h.last(), "issueDetails").summary, "JR-2 · Jira issue");
-  assert.equal(stepOf(h.last(), "issueDetails").detail, "Title of two");
+  assert.equal(stepOf(h.last(), "issueDetails").summary, "Title of two");
+  assert.equal(stepOf(h.last(), "issueDetails").detail, undefined);
 });
 
 test("an unreadable folder leaves nothing of the previous work item on the rows", async () => {
@@ -7522,7 +7523,8 @@ test("next action 1: with nothing prepared, the one primary action is Run", asyn
   assert.equal(primary.action, "run");
   assert.equal(primary.label, "Run");
   assert.equal(primary.enabled, true);
-  assert.equal(primary.hint, "Run prepares the issue context for AI-assisted fixing.");
+  // Nothing beside the shortcut: what Run does is its tooltip (§37.104).
+  assert.equal(primary.hint, "");
   assert.deepEqual(primary.more, [], "a menu was offered before anything was prepared");
 });
 
@@ -7572,7 +7574,7 @@ test("next action 4: once the handoff starts, the button is Open AI Session, whi
   const primary = h.last().primary;
   assert.equal(primary.action, "openSession");
   assert.equal(primary.label, "Open AI Session");
-  assert.equal(primary.hint, "An AI session was started for this work item. Continue the conversation there.");
+  assert.equal(primary.hint, "AI session started");
   assert.deepEqual(primary.more, ["startNewAttempt", "rebuildContext"]);
 
   await h.controller.handle(next("openSession"));
@@ -7610,7 +7612,7 @@ test("next action 4: an earlier attempt's report makes it Open AI Session too, w
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
   assert.equal(h.last().primary.action, "openSession");
-  assert.match(h.last().primary.hint, /An earlier AI attempt wrote fix_report\.md/);
+  assert.equal(h.last().primary.hint, "Fix report available");
   assert.equal(fixRow(h.last()).summary, "Fix report available");
   assert.notEqual(fixRow(h.last()).status, "success", "a start nobody saw was reported");
 
@@ -7738,7 +7740,8 @@ test("next action 8: a changed preparation input makes the context stale, and Re
     const primary = h.last().primary;
     assert.equal(primary.action, "rebuildContext", `${JSON.stringify(change)} left the context current`);
     assert.equal(primary.label, "Rebuild Context");
-    assert.match(primary.hint, /The form changed since this context was prepared/);
+    assert.equal(primary.hint, "Settings changed");
+    assert.equal(h.last().overall.text, "Needs rebuild", "the header still says the context is ready");
     // Undone: current again, without a run.
     await h.controller.handle({ type: "formChanged", form: jiraForm() });
     assert.equal(h.last().primary.action, "fixWithAI", `undoing ${JSON.stringify(change)} did not make it current`);
@@ -7795,7 +7798,7 @@ test("next action 9: Rebuild Context with Delete previous artifacts ticked asks 
   const h = await preparedHarness({ confirmAnswer: async () => { asked += 1; return false; } });
   const fresh = jiraForm({ hint: "look at the controller", fresh: true });
   await h.controller.handle({ type: "formChanged", form: fresh });
-  assert.match(h.last().primary.hint, /Delete previous artifacts first is on, so it asks before deleting anything\./);
+  assert.equal(h.last().primary.hint, "Settings changed · Asks before deleting artifacts");
   await h.controller.handle(next("rebuildContext", fresh));
   assert.equal(asked, 1, "a Fresh rebuild did not ask");
   assert.equal(h.streamRuns.length, 1, "a declined Fresh rebuild ran anyway");

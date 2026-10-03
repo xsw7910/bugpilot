@@ -4715,7 +4715,6 @@ export class Controller {
       attempted: this.#attempted(),
       sessionKnown: workItemId !== undefined && this.#sessions.has(workItemId),
       fresh: this.#form.fresh,
-      settled: this.#progress.state === "done" || this.#progress.state === "failed",
     });
   }
 
@@ -4863,7 +4862,7 @@ export class Controller {
       problems: this.#problems,
       progress: this.#progress,
       workflow,
-      overall: overallStatus(workflow, this.#progress),
+      overall: overallStatus(workflow, this.#progress, { stale: this.#stale() }),
       // Work-item level, not Build context's: the directory holds every artifact.
       workItemActions: !this.#running && canOpenFolder(this.#artifactNames) ? ["openFolder"] : [],
       artifacts: this.#artifacts,

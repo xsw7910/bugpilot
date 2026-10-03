@@ -2735,6 +2735,60 @@ button is no longer absent when the menu has no next step.
    deleted.*, *Session reset deletion failed: <type>* — an exit code, an errno
    or a refusal reason; never the issue, hint, keywords, a file name or a path.
 
+### Confirmed decisions (Text density)
+
+The main Workflow panel shows controls and state; explanations move to
+placeholders, tooltips and accessible descriptions (§37.104). This revises the
+Issue helper line (UI-A1), "The context-ready hint is short" (Investigation &
+AI Fix visual simplification, decision 7), the Fix Mode and Hint helper lines
+(§37.84), "The helper belongs to the checkbox" (Hint actions, decision 3) and
+§37.102's *Uses the current settings below.* Presentation only: no form value,
+run, staleness, Fix Mode, hint-improvement, Git History, Code Search, Reset
+Session, History or Artifacts behaviour changed.
+
+1. **Three layers.** Always visible: the controls, their labels, the step
+   statuses. Short state: a word or three (*Context ready*, *Settings changed*,
+   *Needs rebuild*, *16 terms · 1 relevant file*). Explanation: never a
+   standing line on the main panel — a tooltip, a placeholder, an accessible
+   description, or the settings page.
+2. **Issue**: placeholder *Enter a Jira ticket or describe the bug*; the key's
+   shape (*A Jira issue ID such as JR-12345, or a description of the problem*)
+   is the tooltip; no helper line. The note saying how the text was read
+   (*Jira issue JR-12345* / *Bug description*) stays — it is state.
+3. **Run**: one centred line under the button, *Ctrl+Enter*, then — only when
+   there is one — the host's state after a dot: *Context ready*, *AI session
+   started*, *Fix report available*, *Settings changed*, and with Delete
+   previous artifacts first ticked *Settings changed · Asks before deleting
+   artifacts* (a warning, kept). Run has none. What each action does is the
+   button's tooltip (`PRIMARY_TOOLTIPS`): *Prepare the issue context for
+   AI-assisted fixing*, *Rebuild the prepared context using the current
+   settings*, *Focus the existing BugPilot AI terminal*; Fix with AI says it in
+   its label. The state line is the button's `aria-describedby`, and the button
+   declares `aria-keyshortcuts="Control+Enter"`.
+4. **Fix Mode**: the label and the selector. The label's tooltip *Choose how
+   BugPilot approaches the fix*; the selector's tooltip *<mode> — <its
+   description>*; the description stays its accessible description, visually
+   hidden unless it changes what happens — a problem with the choice, no
+   catalog, or *Investigation only — no source changes in this pass.*
+5. **Hint**: placeholder *Add technical guidance or suspected areas*, tooltip
+   (label and box) *Add technical guidance, constraints, or suspected areas*;
+   no helper line, no example placeholder.
+6. **Include issue details**: unchanged control; its sentence *Includes only
+   the issue title and description. Repository files and history are not
+   read.* is the label's tooltip and, visually hidden, the checkbox's accessible
+   description.
+7. **Workflow Steps header**: *Not started*, *Running n/m…*, *Ready*, *Needs
+   rebuild* (the context is stale — what the button says too), *Run failed*,
+   *Stopped*, *AI fix started*, *AI fix did not start*, *Fix report available*.
+8. **Rows**: Issue details shows one line — the issue's title, or without one
+   where it came from. Result summaries (*16 terms · 1 relevant file*, *1
+   related commit found*), failure cards, the Build-context-off note, the
+   Fresh warning and the reset dialog's text are untouched.
+9. **Spacing**: the gap the removed note carried is Fix Mode's own (12px);
+   nothing else was compressed. Measured in a real window, Issue → Workflow
+   Steps went from 517px to 361px at a 360px sidebar and from 666px to 399px at
+   200px (Run state).
+
 ---
 
 # 20. Step Secondary Text 状态原则

@@ -990,15 +990,23 @@
       selected && selected.executionKind === "investigate"
         ? "Investigation only — no source changes in this pass. "
         : "";
-    // A narrow panel cuts the selector: the mode's name on hover.
-    select.setAttribute("title", selected ? selected.name || selected.id : "");
+    // The mode's name — which a narrow panel cuts — and what it does, on hover.
+    const about = selected ? selected.description || "" : "";
+    const name = selected ? selected.name || selected.id : "";
+    select.setAttribute("title", about === "" ? name : `${name} — ${about}`);
     note.textContent = problem
       ? problem.message
       : catalog.kind === "unavailable"
         ? catalog.detail || "AI Fix Modes could not be read."
         : selected
-          ? `${investigation}${selected.description || ""}`.trim()
+          ? `${investigation}${about}`.trim()
           : "";
+    // On the panel only when it changes what happens (§37.104): a problem with
+    // the choice, no catalog, or a pass that changes no source. Otherwise the
+    // line is the selector's accessible description and its tooltip, and takes
+    // no room.
+    const shown = Boolean(problem) || catalog.kind === "unavailable" || investigation !== "";
+    note.classList.toggle("visually-hidden", !shown);
     byId("field-fixModeId").classList.toggle(
       "field-invalid",
       Boolean(problem) || catalog.kind === "unavailable",
@@ -2255,11 +2263,11 @@
   }
 
   function renderRunHint(state) {
-    // The host's sentence for the button it labelled: what Run does until it
-    // has been done, then why the button now says Fix with AI, Open AI Session
-    // or Rebuild Context. None while a run is in flight, or after one that
-    // left nothing to do next — advice about a press already made, sitting
-    // above the proof of what it did.
+    // The host's few words beside Ctrl+Enter (§37.104): why the button says
+    // Fix with AI, Open AI Session or Rebuild Context — "Context ready",
+    // "Settings changed". None for Run, while a run is in flight, or beside a
+    // failure card, which says it better. The button names it as its
+    // description, so it is announced with the button.
     const hint = byId("run-hint");
     hint.textContent = state.runError ? "" : primary.hint || "";
     hint.hidden = hint.textContent === "";
@@ -2614,8 +2622,9 @@
     // something is happening.
     const button = byId("run");
     byId("run-label").textContent = primary.label;
-    // Run and Fix with AI say what they do; Open AI Session and Rebuild
-    // Context are shorter than what they mean (§37.90).
+    // Open AI Session and Rebuild Context are shorter than what they mean
+    // (§37.90), and Run's explanation moved here from a line under it
+    // (§37.104); Fix with AI says what it does.
     const title = PRIMARY_TITLES[primary.action] || "";
     if (title) button.setAttribute("title", title);
     else button.removeAttribute("title");
@@ -2642,10 +2651,15 @@
     }
   }
 
-  /** The same words as the ⋯ menu's items, for the button when it is one of them. */
+  /**
+   * What the button does, as its tooltip (§37.104): `PRIMARY_TOOLTIPS` in
+   * `app/nextAction.ts`, which a test compares this copy with, and the same
+   * words as the ⋯ menu's items. Fix with AI says it in its label.
+   */
   const PRIMARY_TITLES = {
+    run: "Prepare the issue context for AI-assisted fixing",
     openSession: "Focus the existing BugPilot AI terminal",
-    rebuildContext: "Rebuild prepared context from the current settings",
+    rebuildContext: "Rebuild the prepared context using the current settings",
   };
 
   function openMoreMenu() {

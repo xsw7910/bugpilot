@@ -181,8 +181,10 @@ test("Issue details says what it is doing, then what it read", () => {
     buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: ["issue.json"], issue: ISSUE })),
     "issueDetails",
   );
-  assert.equal(jira.summary, "JR-12345 · Jira issue");
-  assert.equal(jira.detail, "WidgetController rejects the VDS output type");
+  // One line once read (§37.104): the issue's title, which the developer
+  // recognises — the key is in the Issue field, the source is its note.
+  assert.equal(jira.summary, "WidgetController rejects the VDS output type");
+  assert.equal(jira.detail, undefined);
   assert.equal(jira.artifact, "issue.json");
 
   const manual = stepIn(
@@ -196,8 +198,18 @@ test("Issue details says what it is doing, then what it read", () => {
     ),
     "issueDetails",
   );
-  assert.equal(manual.summary, "Manual bug description");
-  assert.equal(manual.detail, "Crash after reload");
+  assert.equal(manual.summary, "Crash after reload");
+  assert.equal(manual.detail, undefined);
+
+  // No title to show: where the issue came from, still one line.
+  for (const [issue, line] of [
+    [{ id: "JR-12345", source: "jira", title: "" }, "JR-12345 · Jira issue"],
+    [{ id: "local_1", source: "manual", title: "" }, "Manual bug description"],
+  ] as const) {
+    const row = stepIn(buildWorkflow(input({ progress: progress("done", ALL_DONE), artifacts: ["issue.json"], issue })), "issueDetails");
+    assert.equal(row.summary, line);
+    assert.equal(row.detail, undefined);
+  }
 });
 
 test("an issue that could not be read finishes as Completed, not as a guess", () => {
@@ -222,7 +234,7 @@ test("a failed step carries the run's card; the rows before it keep their result
   assert.equal(stepIn(steps, "codeSearch").statusText, "Failed");
   assert.equal(stepIn(steps, "codeSearch").summary, "", "Failed said twice");
   assert.equal(stepIn(steps, "codeSearch").error, card);
-  assert.equal(stepIn(steps, "issueDetails").summary, "JR-12345 · Jira issue");
+  assert.equal(stepIn(steps, "issueDetails").summary, "WidgetController rejects the VDS output type");
   assert.equal(stepIn(steps, "issueDetails").statusText, "Completed");
   assert.equal(stepIn(steps, "issueDetails").error, undefined);
   // Exactly one row owns it.
@@ -425,8 +437,25 @@ test("a context-only run says the context is ready", () => {
   const done = input({ progress: progress("done", { build_context: "done" }) });
   assert.deepEqual(overallStatus(buildWorkflow(done), done.progress), {
     kind: "done",
-    text: "Context ready",
+    text: "Ready",
   });
+});
+
+test("the header is a word or two (§37.104): Not started, Ready, Needs rebuild", () => {
+  assert.deepEqual(overallStatus(buildWorkflow(input()), progress("idle")), { kind: "idle", text: "Not started" });
+  const done = input({ progress: progress("done", ALL_DONE) });
+  assert.equal(overallStatus(buildWorkflow(done), done.progress).text, "Ready");
+  // A context the form no longer describes says so, as the button does.
+  assert.deepEqual(overallStatus(buildWorkflow(done), done.progress, { stale: true }), { kind: "idle", text: "Needs rebuild" });
+  // A run, a failure and a stop are what they were; staleness never hides them.
+  const running = input({ progress: progress("running", { issue_details: "running" }) });
+  assert.match(overallStatus(buildWorkflow(running), running.progress, { stale: true }).text, /^Running 1\/\d…$/);
+  const failed = input({ progress: progress("failed", { issue_details: "done" }) });
+  assert.equal(overallStatus(buildWorkflow(failed), failed.progress, { stale: true }).text, "Run failed");
+  // None of them is a sentence.
+  for (const text of ["Not started", "Ready", "Needs rebuild", "Run failed", "Stopped", "Fix report available", "AI fix started"]) {
+    assert.ok(text.split(" ").length <= 3 && !text.endsWith("."), text);
+  }
 });
 
 test("a handed-over run says the fix started, and never that it is complete", () => {
@@ -582,7 +611,7 @@ test("the header says a report is available, and never that the bug is fixed", (
   assert.deepEqual(overallStatus(restored, progress("idle")), { kind: "done", text: "Fix report available" });
 
   // Without a report the header is what it was.
-  assert.deepEqual(overallStatus(finished(), progress("done", ALL_DONE)), { kind: "done", text: "Context ready" });
+  assert.deepEqual(overallStatus(finished(), progress("done", ALL_DONE)), { kind: "done", text: "Ready" });
 });
 
 test("what this session saw of the handoff outranks the report; a run failure outranks both", () => {

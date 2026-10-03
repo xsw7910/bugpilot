@@ -45,9 +45,9 @@
  * checkbox beside a green tick was one check mark too many.
  */
 
-import { WORKFLOW_STEP_IDS, STEP_LABELS, stepDescription } from "../app/workflow.ts";
+import { OVERALL_IDLE, WORKFLOW_STEP_IDS, STEP_LABELS, stepDescription } from "../app/workflow.ts";
 import type { WorkflowStepId } from "../app/workflow.ts";
-import { NEXT_ACTION_LABELS, RUN_HINT } from "../app/nextAction.ts";
+import { NEXT_ACTION_LABELS, PRIMARY_TOOLTIPS } from "../app/nextAction.ts";
 import { AGENT_CHOICES, AGENT_LABELS } from "../app/agents.ts";
 import type { AgentChoice } from "../app/agents.ts";
 import type { NextActionId } from "../app/nextAction.ts";
@@ -109,6 +109,8 @@ interface TextField {
   readonly tone?: IconTone;
   /** Markup rendered under the control, for a field with its own actions. */
   readonly extra?: string;
+  /** A tooltip for the label and the control: what the field is for, when no helper line says it. */
+  readonly title?: string;
 }
 
 /**
@@ -120,6 +122,17 @@ interface TextField {
  * what keeps that discipline — adding a seventh tone means editing this type.
  */
 export type IconTone = "primary" | "hint" | "danger" | "muted" | "success" | "warning";
+
+/**
+ * What three main-page settings are for, as tooltips (§37.104). They used to
+ * be lines on the panel; the panel now shows the controls and their state, and
+ * these explain on hover — and, for Include issue details, as the checkbox's
+ * accessible description, since what it lets the improver read is the point.
+ */
+const FIX_MODE_HELP = "Choose how BugPilot approaches the fix";
+const HINT_HELP = "Add technical guidance, constraints, or suspected areas";
+const INCLUDE_ISSUE_DETAILS_HELP =
+  "Includes only the issue title and description. Repository files and history are not read.";
 
 /**
  * The input area: one field, and nothing else.
@@ -135,11 +148,14 @@ export type IconTone = "primary" | "hint" | "danger" | "muted" | "success" | "wa
  * Multi-line because the same box now holds a six-character key and a pasted
  * bug report; two rows at rest, growing with what is typed like every other
  * textarea here.
+ *
+ * The placeholder says what goes in, and nothing under the box repeats it
+ * (§37.104); the key's shape is in the tooltip. Once something is typed, the
+ * note says how it was read — a ticket or a bug description.
  */
 const ISSUE_FIELD = `      <div class="field" id="field-issue">
 ${settingHeader({ forId: "issue", label: "Issue" })}
-        <textarea id="issue" name="issue" rows="2" placeholder="Enter a Jira ticket (e.g. JR-12345) or describe the bug" aria-describedby="issue-hint issue-note issue-error"></textarea>
-        <p class="hint" id="issue-hint">Use a Jira issue ID, or describe the problem directly.</p>
+        <textarea id="issue" name="issue" rows="2" placeholder="Enter a Jira ticket or describe the bug" title="A Jira issue ID such as JR-12345, or a description of the problem" aria-describedby="issue-note issue-error"></textarea>
         <p class="muted issue-note" id="issue-note" hidden></p>
         <p class="error" id="issue-error" hidden></p>
       </div>`;
@@ -153,9 +169,10 @@ ${settingHeader({ forId: "issue", label: "Issue" })}
  * something this replaces without being asked.
  *
  * Improve with AI first — the immediate action — then Include issue details,
- * the standing option, with its helper line under it in the same group so it
- * reads as the checkbox's and not the button's (§37.92). The order is the
- * markup's, so the tab order is the reading order.
+ * the standing option (§37.92). The order is the markup's, so the tab order is
+ * the reading order. What the option lets the improver read is its tooltip and
+ * its accessible description, not a line on the panel (§37.104): the sentence
+ * is announced with the checkbox and shown on hover.
  */
 const HINT_IMPROVEMENT = `      <div class="hint-actions">
         <button type="button" id="improve-hint" class="link"
@@ -165,12 +182,12 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
         </button>
         <div class="hint-include">
           <label class="choice" for="useIssueDetails"
-                 title="Include the current issue title and description in the AI guidance">
+                 title="${INCLUDE_ISSUE_DETAILS_HELP}">
             <input type="checkbox" id="useIssueDetails" name="useIssueDetails" checked
                    aria-describedby="useIssueDetails-hint">
             Include issue details
           </label>
-          <p class="hint" id="useIssueDetails-hint">Includes only the issue title and description. Repository files and history are not read.</p>
+          <p class="visually-hidden" id="useIssueDetails-hint">${INCLUDE_ISSUE_DETAILS_HELP}</p>
         </div>
       </div>
       <p class="muted" id="hint-improve-notice" hidden></p>
@@ -193,8 +210,12 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
  * Run. It is a form field like the Issue — every change goes to the host, which
  * alone decides that a prepared context is now stale — and it has no second
  * copy on the settings page. The host still restores and normalizes the
- * selection, and the selected mode's description — including "Investigation
- * only" — stays directly under the selector it describes.
+ * selection.
+ *
+ * Just the label and the selector (§37.104). What the setting is for is the
+ * label's tooltip; what the chosen mode does is the selector's tooltip and its
+ * accessible description. The line under it shows only what changes what
+ * happens: "Investigation only", a problem with the choice, or no catalog.
  *
  * The gear opens Manage Fix Modes (view, duplicate, create, edit, delete),
  * which is why it sits beside the selector rather than anywhere else.
@@ -205,10 +226,10 @@ ${settingHeader({
   label: "Fix Mode",
   icon: "lightbulb",
   tone: "primary",
-  hint: "How the AI works on this bug.",
+  title: FIX_MODE_HELP,
 })}
           <div class="fix-mode-row">
-            <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-hint fixModeId-description">
+            <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-description">
               <option value="">Loading Fix Modes…</option>
             </select>
             <button type="button" id="manage-fix-modes" class="icon" title="Manage Fix Modes" aria-label="Manage Fix Modes">
@@ -240,8 +261,10 @@ const GUIDANCE_FIELDS: readonly TextField[] = [
     rows: 3,
     icon: "lightbulb",
     tone: "hint",
-    hint: "Add technical guidance, constraints, or suspected areas.",
-    placeholder: "e.g. Check initialization logic in the affected component",
+    // What it is for, in the box until something is typed, and in full on
+    // hover (§37.104) — not a line beside the label as well.
+    placeholder: "Add technical guidance or suspected areas",
+    title: HINT_HELP,
     extra: HINT_IMPROVEMENT,
   },
 ];
@@ -538,13 +561,13 @@ const MORE_ACTIONS: readonly { readonly id: NextActionId; readonly icon: string;
   {
     id: "rebuildContext",
     icon: "refresh",
-    title: "Rebuild prepared context from the current settings",
+    title: PRIMARY_TOOLTIPS.rebuildContext,
   },
   {
     id: "openSession",
     icon: "terminal",
     // Focus only: Open AI Session never starts or restarts a session (§37.87).
-    title: "Focus the existing BugPilot AI terminal",
+    title: PRIMARY_TOOLTIPS.openSession,
   },
 ];
 
@@ -679,14 +702,18 @@ ${ISSUE_FIELD}
       -->
       <div class="run">
         <div class="run-buttons">
-          <button type="submit" id="run" class="primary">
+          <button type="submit" id="run" class="primary" title="${PRIMARY_TOOLTIPS.run}" aria-describedby="run-hint" aria-keyshortcuts="Control+Enter">
             <span class="codicon codicon-play" id="run-icon" aria-hidden="true"></span>
             <span id="run-label">Run</span>
           </button>
           <button type="button" id="stop" hidden disabled>Stop</button>
           <button type="button" id="more-actions" class="more-button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu"><span class="codicon codicon-ellipsis" aria-hidden="true"></span><span class="more-label">More</span></button>
         </div>
-        <span class="kbd">Ctrl+Enter</span>
+        <!-- The shortcut, and the host's few words beside it (§37.104):
+             "Ctrl+Enter · Settings changed". A state, never a sentence: what
+             the button does is its tooltip. The words describe the button too,
+             so a screen reader hears why it says Rebuild Context. -->
+        <p class="run-status" id="run-status"><span class="kbd">Ctrl+Enter</span><span class="run-hint" id="run-hint" hidden></span></p>
       </div>
       <!-- What Open AI Session came to (§37.87): a live region that is always in
            the document, empty until the host answers a press, so the answer is
@@ -696,11 +723,6 @@ ${ISSUE_FIELD}
 ${RESET_MENU_ITEM}
 ${MORE_ACTIONS.map(menuItem).join("\n")}
       </div>
-      <p class="hint" id="run-hint">${RUN_HINT}</p>
-      <!-- Says what the controls under Run are: settings this Run uses, not a
-           second step. Static, quiet, and the block's last line, so it sits
-           right above the settings it points at. -->
-      <p class="hint" id="run-settings-note">Uses the current settings below.</p>
 
       <!--
         How the AI should approach the issue, and any guidance for it: optional
@@ -738,7 +760,7 @@ ${GUIDANCE_FIELDS.map(field).join("\n")}
       <details class="group" id="workflow" aria-labelledby="workflow-heading">
         <summary class="workflow-summary">
           <h2 id="workflow-heading">Workflow Steps</h2>
-          <span id="workflow-status" class="workflow-status" role="status">Ready to run</span>
+          <span id="workflow-status" class="workflow-status" role="status">${OVERALL_IDLE}</span>
         </summary>
         <!--
           A run failure no row owns: one before any step started, or one the
@@ -1045,6 +1067,8 @@ function settingHeader(options: {
   readonly labelClass?: string;
   /** Say, beside the label, that changing this setting makes a prepared context stale. */
   readonly rebuild?: boolean;
+  /** The label's tooltip: what the setting is for, where no helper line says it. */
+  readonly title?: string;
 }): string {
   // The tone is a class, never an inline style: the colours belong to the
   // stylesheet, where a theme can be reasoned about in one place.
@@ -1057,9 +1081,10 @@ function settingHeader(options: {
   // an empty paragraph is a gap where the helper text used to be.
   const hint = options.hint ? `<p class="hint" id="${options.forId}-hint">${options.hint}</p>` : "";
   const labelClass = options.labelClass ? ` class="${options.labelClass}"` : "";
+  const title = options.title ? ` title="${options.title}"` : "";
   const rebuild = options.rebuild ? `<span class="rebuild-label" id="${options.forId}-rebuild">${REQUIRES_REBUILD_LABEL}</span>` : "";
   return `      <div class="setting-header">
-        <label${labelClass} for="${options.forId}">${icon}${options.control ?? ""}${options.label}</label>
+        <label${labelClass} for="${options.forId}"${title}>${icon}${options.control ?? ""}${options.label}</label>
         ${rebuild}${hint}
       </div>`;
 }
@@ -1074,9 +1099,12 @@ function field(entry: TextField): string {
   const placeholder = entry.placeholder
     ? ` placeholder="${entry.placeholder.replaceAll("\n", "&#10;")}"`
     : "";
+  // The field's purpose on hover, on the box as well as its label: a tooltip
+  // supplements the label, which stays the accessible name.
+  const title = entry.title ? ` title="${entry.title}"` : "";
   const control =
     entry.kind === "textarea"
-      ? `<textarea id="${entry.id}" name="${entry.id}" rows="${entry.rows ?? 3}"${placeholder} aria-describedby="${described}"></textarea>`
+      ? `<textarea id="${entry.id}" name="${entry.id}" rows="${entry.rows ?? 3}"${placeholder}${title} aria-describedby="${described}"></textarea>`
       : entry.kind === "number"
         ? // `inputmode` rather than `type="number"`: the spinner steals the
           // field's width in a 200px sidebar, and the value still travels as a
@@ -1093,6 +1121,7 @@ ${settingHeader({
     ...(entry.icon === undefined ? {} : { icon: entry.icon }),
     ...(entry.tone === undefined ? {} : { tone: entry.tone }),
     ...(entry.hint === undefined ? {} : { hint: entry.hint }),
+    ...(entry.title === undefined ? {} : { title: entry.title }),
     rebuild: isSettingsField(entry.id) && showsRebuildLabel(entry.id),
   })}
       ${control}

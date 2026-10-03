@@ -15,6 +15,7 @@ import type { PanelMessage } from "../src/panel/messages.ts";
 import { SETTINGS_FIELD_IDS, TEXT_FIELD_IDS, panelHtml } from "../src/panel/html.ts";
 import { DEFAULT_FORM, JIRA_ISSUE_KEY_RE } from "../src/app/form.ts";
 import { WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
+import { PRIMARY_TOOLTIPS } from "../src/app/nextAction.ts";
 import {
   SETTINGS_ACTION_LABELS,
   SETTINGS_SECTION_FIELDS,
@@ -352,7 +353,11 @@ test("the stylesheet keeps the panel usable at sidebar width", () => {
   // produces a horizontal scrollbar there.
   // `max-width` is fine — it keeps the form readable in a wide editor tab. It
   // is a plain pixel `width` that breaks the narrow sidebar.
-  const fixedWidth = /(?<![a-z-])width:\s*\d+px/.exec(CSS);
+  // Except the screen-reader-only utility (§37.104): 1px, absolutely
+  // positioned and clipped, it takes no room at any width.
+  const visuallyHidden = /\.visually-hidden \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  assert.match(visuallyHidden, /position: absolute;[^}]*width: 1px;[^}]*clip-path: inset\(50%\);/s);
+  const fixedWidth = /(?<![a-z-])width:\s*\d+px/.exec(CSS.replace(visuallyHidden, ""));
   assert.equal(fixedWidth, null, `fixed width in panel.css: ${fixedWidth?.[0]}`);
   assert.match(CSS, /box-sizing:\s*border-box/);
   assert.match(CSS, /overflow-wrap:\s*anywhere/);
@@ -764,16 +769,15 @@ test("helper text survives only where a placeholder could not carry it", () => {
   // And what each of them says is the reason it survived.
   assert.match(advanced, /\{prompt\} is replaced with the handoff prompt, already quoted\./);
   assert.match(advanced, /Off by default to avoid accidental data loss/);
-  // And the three group-purpose lines, which are the reason the list grew.
-  assert.match(HTML, /Add technical guidance, constraints, or suspected areas\./);
+  // And the group-purpose lines, which are the reason the list grew.
   assert.match(advanced, /Boost retrieval with known identifiers or technical terms\./);
   assert.match(advanced, /Prioritize files you already suspect are relevant\./);
-  // A checkbox with no input to hang a placeholder on, saying what it lets the
-  // improver read — and, just as importantly, what it does not.
-  assert.match(HTML, /Includes only the issue title and description\. Repository files and history are not read\./);
-  // Fix Mode, Hint and Include issue details keep their helper lines, on the form.
+  // The main form keeps none (§37.104): Issue, Fix Mode, Hint and Include issue
+  // details explain themselves by placeholder, tooltip and accessible
+  // description instead — the panel shows the controls and their state.
   const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
-  for (const id of ["fixModeId", "hint", "useIssueDetails"]) assert.ok(form.includes(`id="${id}-hint"`), id);
+  for (const id of ["issue", "fixModeId", "hint"]) assert.equal(form.includes(`id="${id}-hint"`), false, id);
+  assert.match(form, /<p class="visually-hidden" id="useIssueDetails-hint">Includes only the issue title and description\. Repository files and history are not read\.<\/p>/);
 });
 
 test("a field with nothing to explain says nothing, and points at nothing", () => {
@@ -1180,12 +1184,12 @@ test("Start New Attempt's form: optional feedback, the example, two helpers, Can
 });
 
 test("Run is one prominent button with its shortcut spelled out", () => {
-  assert.match(HTML, /<button type="submit" id="run" class="primary">/);
+  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">/);
   assert.match(HTML, /codicon-play/);
-  assert.match(HTML, /Ctrl\+Enter/);
-  // What Run does, and — since UI-A1 — what it does not: preparing context is
-  // not fixing code, and the sentence has to survive a developer skimming it.
-  assert.match(HTML, /Run prepares the issue context for AI-assisted fixing\./);
+  assert.match(HTML, /<span class="kbd">Ctrl\+Enter<\/span>/);
+  // What Run does — preparing context, which is not fixing code — is its
+  // tooltip now, not a line under it (§37.104), and the shortcut is declared.
+  assert.equal(visibleText(HTML).includes("Run prepares the issue context"), false);
 });
 
 test("issue details is shown as fixed, not as an option that does nothing", () => {
@@ -1367,11 +1371,14 @@ test("the Advanced Settings entry is the button alone: the Fix Mode is on the fo
 
 test("the Fix Mode selector is labelled and described for assistive tech", () => {
   assert.ok(HTML.includes('<label for="fixModeId"'), "the selector has no label");
-  // What the setting is for and what the chosen mode does, both announced.
+  // What the chosen mode does is announced with it; what the setting is for is
+  // the label's tooltip, not a line on the panel (§37.104).
   const described = /<select id="fixModeId"[^>]*aria-describedby="([^"]+)"/.exec(HTML)?.[1] ?? "";
-  assert.deepEqual(described.split(" ").sort(), ["fixModeId-description", "fixModeId-hint"]);
+  assert.deepEqual(described.split(" "), ["fixModeId-description"]);
   assert.ok(HTML.includes('id="fixModeId-description"'));
-  assert.ok(HTML.includes('id="fixModeId-hint"'));
+  assert.equal(HTML.includes('id="fixModeId-hint"'), false);
+  assert.equal(visibleText(HTML).includes("How the AI works on this bug."), false);
+  assert.match(HTML, /<label for="fixModeId" title="Choose how BugPilot approaches the fix">/);
   // The gear names what it does, for a screen reader and for a hover.
   assert.match(HTML, /id="manage-fix-modes"[^>]*title="Manage Fix Modes"[^>]*aria-label="Manage Fix Modes"/);
 });
@@ -1640,11 +1647,15 @@ test("the Issue field is one box that says it takes either kind of input", () =>
   assert.match(HTML, /<label[^>]*for="issue">Issue<\/label>/, "the label is not 'Issue'");
   // Multi-line, because the same box holds a six-character key and a pasted
   // bug report.
-  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*placeholder="Enter a Jira ticket \(e\.g\. JR-12345\) or describe the bug"/);
+  // The placeholder says it, and nothing under the box repeats it (§37.104);
+  // the key's shape is the tooltip.
+  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*placeholder="Enter a Jira ticket or describe the bug"/);
+  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*title="A Jira issue ID such as JR-12345, or a description of the problem"/);
   assert.equal(HTML.includes("Jira ticket or bug description"), false, "the old placeholder is still there");
-  // One quiet line under the box says the same in words, and the box is described by it.
-  assert.match(HTML, /<p class="hint" id="issue-hint">Use a Jira issue ID, or describe the problem directly\.<\/p>/);
-  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*aria-describedby="issue-hint issue-note issue-error"/);
+  assert.equal(HTML.includes('id="issue-hint"'), false);
+  assert.equal(visibleText(HTML).includes("Use a Jira issue ID, or describe the problem directly."), false);
+  // Described by how it was read, and by its problem, once there is one.
+  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*aria-describedby="issue-note issue-error"/);
   // Above Run, the Issue and nothing else (§37.102); between Run's block and
   // Advanced Settings, in tab order, how the AI approaches it and the guidance
   // it carries (§37.84).
@@ -1652,7 +1663,7 @@ test("the Issue field is one box that says it takes either kind of input", () =>
     [...markup.matchAll(/<(?:input|textarea|select|button)[^>]*id="([A-Za-z-]+)"/g)].map((match) => match[1]);
   assert.deepEqual(ids(HTML.slice(0, HTML.indexOf('id="run"'))), ["issue"], "something other than the Issue is above Run");
   assert.deepEqual(
-    ids(HTML.slice(HTML.indexOf('id="run-settings-note"'), HTML.indexOf('id="open-settings"'))),
+    ids(HTML.slice(HTML.indexOf('id="field-fixModeId"'), HTML.indexOf('id="open-settings"'))),
     // Improve with AI before Include issue details: the action, then the option (§37.92).
     ["fixModeId", "manage-fix-modes", "hint", "improve-hint", "useIssueDetails", "hint-use", "hint-keep"],
     "the order under Run is not Fix Mode, Hint",
@@ -2032,7 +2043,7 @@ test("Fix with AI has no button of its own: the row is status, the top button ac
   // the press is the primary action's, whose label the host sets.
   assert.equal(HTML.includes('id="fix-with-ai"'), false);
   assert.equal(HTML.includes('id="actions-fixWithAI"'), false);
-  assert.match(HTML, /<button type="submit" id="run" class="primary">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
+  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
 });
 
 // --- UI-V1: what rendering the page found ------------------------------------
@@ -2648,7 +2659,9 @@ test("Open AI Session's acknowledgement is a live region under the button, alway
   assert.equal(/ hidden/.test(line), false);
   const run = HTML.indexOf('<div class="run">');
   assert.ok(run !== -1 && run < HTML.indexOf('id="session-feedback"'));
-  assert.ok(HTML.indexOf('id="session-feedback"') < HTML.indexOf('id="run-hint"'));
+  // Under the button's own line — Ctrl+Enter and its state — and before the settings.
+  assert.ok(HTML.indexOf('id="run-status"') < HTML.indexOf('id="session-feedback"'));
+  assert.ok(HTML.indexOf('id="session-feedback"') < HTML.indexOf('id="field-fixModeId"'));
 });
 
 test("the acknowledgement wraps in a narrow sidebar and is never styled as an error", () => {
@@ -2693,12 +2706,16 @@ test("the compact next actions say what they really do: Open AI Session focuses,
   assert.equal(session, "Focus the existing BugPilot AI terminal");
   assert.doesNotMatch(session, /start|relaunch|restart|new/i);
   assert.equal(attr(buttonTag("menu-startNewAttempt"), "title"), "Start a new AI session using the current prepared context");
-  assert.equal(attr(buttonTag("menu-rebuildContext"), "title"), "Rebuild prepared context from the current settings");
-  // The primary button uses the same words when it is one of them.
+  assert.equal(attr(buttonTag("menu-rebuildContext"), "title"), "Rebuild the prepared context using the current settings");
+  // The primary button uses the same words when it is one of them — the
+  // host's PRIMARY_TOOLTIPS, which the page copies — and Run's says what it
+  // does, now that no line under it does (§37.104).
   const titles = /const PRIMARY_TITLES = \{([\s\S]*?)\};/.exec(PAGE_JS)?.[1] ?? "";
-  assert.match(titles, /openSession: "Focus the existing BugPilot AI terminal"/);
-  assert.match(titles, /rebuildContext: "Rebuild prepared context from the current settings"/);
-  assert.equal(/\brun:|fixWithAI:/.test(titles), false, "Run and Fix with AI gained a tooltip their labels already say");
+  for (const [action, text] of Object.entries(PRIMARY_TOOLTIPS)) {
+    assert.ok(titles.includes(`${action}: ${JSON.stringify(text)}`), `panel.js disagrees about ${action}`);
+  }
+  assert.equal(attr(buttonTag("run"), "title"), PRIMARY_TOOLTIPS.run);
+  assert.equal(/fixWithAI:/.test(titles), false, "Fix with AI gained a tooltip its label already says");
 });
 
 test("Cancel Review stops the review, and says nothing about the fix", () => {
@@ -2708,11 +2725,13 @@ test("Cancel Review stops the review, and says nothing about the fix", () => {
 });
 
 test("clear text buttons carry no tooltip that only repeats their label", () => {
-  for (const id of ["run", "stop", "hint-use", "hint-keep", "settings-apply", "settings-cancel", "start-attempt", "cancel-attempt", "save-review-result"]) {
+  for (const id of ["stop", "hint-use", "hint-keep", "settings-apply", "settings-cancel", "start-attempt", "cancel-attempt", "save-review-result"]) {
     const tag = buttonTag(id);
     assert.notEqual(tag, "", id);
     assert.equal(attr(tag, "title"), undefined, `${id} has a redundant tooltip`);
   }
+  // Run's tooltip says what Run does, which its label does not (§37.104).
+  assert.notEqual(attr(buttonTag("run"), "title"), "Run");
 });
 
 test("no tooltip names a credential, a token or a command line", () => {
@@ -2812,17 +2831,21 @@ test("the two controls' tooltips and names agree with what they do", () => {
   // Its name is its text, Improve with AI — no aria-label to drift from it.
   assert.equal(button.includes("aria-label"), false);
   const label = /<label class="choice" for="useIssueDetails"[^>]*>/.exec(HINT_ROW)?.[0] ?? "";
-  assert.match(label, /title="Include the current issue title and description in the AI guidance"/);
-  // Nothing wider than the issue text is promised.
-  assert.doesNotMatch(label, /repository|history|attachment|code search|comments/i);
-  // The Hint itself gains no tooltip: its label and helper already explain it.
-  assert.equal(/<textarea[^>]*id="hint"[^>]*title=/.test(HTML), false);
+  // What it lets the improver read — and what it does not — on hover (§37.104).
+  assert.match(label, /title="Includes only the issue title and description\. Repository files and history are not read\."/);
+  // The Hint says what it is for in its placeholder, and in full on hover.
+  assert.match(HTML, /<textarea[^>]*id="hint"[^>]*placeholder="Add technical guidance or suspected areas"[^>]*title="Add technical guidance, constraints, or suspected areas"/);
+  assert.match(HTML, /<label for="hint" title="Add technical guidance, constraints, or suspected areas">/);
+  // Its label is still its name: a tooltip supplements, never labels.
+  assert.match(HTML, /<label for="hint"[^>]*>[\s\S]*?Hint<\/label>/);
 });
 
-test("the helper belongs to Include issue details: in its group, under it, and describing it", () => {
+test("the helper belongs to Include issue details: announced with it, not shown under it", () => {
   const group = /<div class="hint-include">[\s\S]*?<\/div>/.exec(HINT_ROW)?.[0] ?? "";
   assert.notEqual(group, "", "the option is not grouped with its helper");
-  assert.match(group, /<p class="hint" id="useIssueDetails-hint">Includes only the issue title and description\. Repository files and history are not read\.<\/p>/);
+  // Off the screen, not out of the document (§37.104): a screen reader still
+  // hears what is read, with the checkbox.
+  assert.match(group, /<p class="visually-hidden" id="useIssueDetails-hint">Includes only the issue title and description\. Repository files and history are not read\.<\/p>/);
   assert.ok(group.indexOf('id="useIssueDetails"') < group.indexOf('id="useIssueDetails-hint"'));
   assert.equal(group.includes('id="improve-hint"'), false);
   assert.match(group, /aria-describedby="useIssueDetails-hint"/);
@@ -2904,7 +2927,7 @@ test("an attachment row never pushes a narrow sidebar sideways", () => {
 test("Run sits right under the Issue, before Fix Mode, and is the only Run", () => {
   const at = (id: string) => HTML.indexOf(`id="${id}"`);
   // Issue, its own lines, Run's block, then the settings, Advanced Settings, Workflow Steps.
-  const order = ["field-issue", "issue-error", "run", "run-hint", "run-settings-note", "field-fixModeId", "field-hint", "useIssueDetails", "open-settings", "workflow"];
+  const order = ["field-issue", "issue-error", "run", "run-status", "run-hint", "field-fixModeId", "field-hint", "useIssueDetails", "open-settings", "workflow"];
   for (let index = 1; index < order.length; index += 1) {
     assert.ok(at(order[index - 1]!) < at(order[index]!), `${order[index - 1]} is not above ${order[index]}`);
   }
@@ -2914,28 +2937,71 @@ test("Run sits right under the Issue, before Fix Mode, and is the only Run", () 
   assert.equal(HTML.split('<span id="run-label">Run</span>').length - 1, 1);
   // The accessible name is still the visible label, and no tabindex reorders
   // the keyboard away from the reading order.
-  assert.match(HTML, /<button type="submit" id="run" class="primary">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
+  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
   assert.equal(/tabindex="[1-9]/.test(HTML), false, "a positive tabindex reorders the keyboard");
 });
 
-test("under Run, one quiet line says the controls below are the settings it uses", () => {
-  assert.match(HTML, /<p class="hint" id="run-settings-note">Uses the current settings below\.<\/p>/);
-  const note = /<p[^>]*id="run-settings-note"[^>]*>/.exec(HTML)?.[0] ?? "";
-  // Help text, not a status or an error: nothing announces it, nothing colours it.
-  for (const loud of ["role=", "aria-live", "error", "hidden"]) assert.equal(note.includes(loud), false, loud);
-  // Centred under the button like the hint above it, with one field's gap
-  // before Fix Mode; colour, size and wrapping are the shared .hint rule's.
-  const rule = /#run-settings-note \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
-  assert.match(rule, /margin: 0 0 14px;/);
+test("under Run, one quiet line: Ctrl+Enter, and the host's state beside it (§37.104)", () => {
+  const line = /<p class="run-status" id="run-status">[\s\S]*?<\/p>/.exec(HTML)?.[0] ?? "";
+  assert.equal(line, '<p class="run-status" id="run-status"><span class="kbd">Ctrl+Enter</span><span class="run-hint" id="run-hint" hidden></span></p>');
+  // Nothing announces it on its own — it describes the button instead, so the
+  // reason Rebuild Context is there is heard with it.
+  assert.equal(/role=|aria-live/.test(line), false);
+  assert.match(HTML, /id="run"[^>]*aria-describedby="run-hint"/);
+  // The sentences it replaced are not on the page.
+  for (const gone of ["Uses the current settings below.", "The form changed since this context was prepared", "Run prepares the issue context"]) {
+    assert.equal(visibleText(HTML).includes(gone), false, gone);
+  }
+  assert.equal(HTML.includes('id="run-settings-note"'), false);
+  // Centred, quiet, wrapping rather than widening; the dot only with words, and
+  // decoration only — no alternative text.
+  const rule = /\.run-status \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
   assert.match(rule, /text-align: center;/);
-  assert.equal(/color|font|white-space|nowrap/.test(rule), false, "the note restyles itself");
-  assert.match(/\.muted,\s*\.hint \{([^}]*)\}/.exec(CSS)?.[1] ?? "", /overflow-wrap: anywhere;/);
+  assert.match(rule, /color: var\(--vscode-descriptionForeground\);/);
+  assert.match(rule, /overflow-wrap: anywhere;/);
+  assert.match(CSS, /\.run-hint::before \{\s*content: "·" \/ "";/);
+  assert.match(CSS, /\.run-hint\[hidden\] \{\s*display: none;/);
+  // One field's gap before Fix Mode, which the removed note used to carry.
+  assert.match(CSS, /#field-fixModeId \{\s*margin-top: 12px;/);
+});
+
+// --- Text density (§37.104) --------------------------------------------------
+
+/** The main form's on-screen text: comments, attributes and screen-reader-only text aside. */
+const FORM_ON_SCREEN = visibleText(
+  (/<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "").replace(/<p class="visually-hidden"[^>]*>[\s\S]*?<\/p>/g, ""),
+);
+
+test("the main form shows controls and state, not explanations — and keeps every explanation reachable", () => {
+  // The seven explanatory lines, gone from the screen…
+  const moved: readonly (readonly [string, RegExp])[] = [
+    // …each to where it is still found: a placeholder, a tooltip, a description.
+    ["Use a Jira issue ID, or describe the problem directly.", /id="issue"[^>]*placeholder="Enter a Jira ticket or describe the bug"[^>]*title="A Jira issue ID such as JR-12345/],
+    ["The form changed since this context was prepared", /id="run"[^>]*aria-describedby="run-hint"/],
+    ["Uses the current settings below.", /id="run"[^>]*title="Prepare the issue context for AI-assisted fixing"/],
+    ["How the AI works on this bug.", /<label for="fixModeId" title="Choose how BugPilot approaches the fix">/],
+    ["Default workflow for most bugs", /<select id="fixModeId"[^>]*aria-describedby="fixModeId-description"/],
+    ["Add technical guidance, constraints, or suspected areas.", /<label for="hint" title="Add technical guidance, constraints, or suspected areas">/],
+    ["Includes only the issue title and description. Repository files and history are not read.", /<label class="choice" for="useIssueDetails"\s+title="Includes only the issue title and description\. Repository files and history are not read\."/],
+  ];
+  for (const [text, home] of moved) {
+    assert.equal(FORM_ON_SCREEN.includes(text), false, `still on the panel: ${text}`);
+    assert.match(HTML, home, `nowhere to find it any more: ${text}`);
+  }
+  // What is never explanation stays: the problems, the warnings, the cards.
+  for (const id of ["issue-error", "hint-improve-error", "plan-note", "failure", "fixModeId-description"]) {
+    assert.ok(HTML.includes(`id="${id}"`), `${id} went with the explanations`);
+  }
+  assert.match(HTML, /Without Build context, bugpilot only normalizes the report/);
+  // Every control the explanations described still has its own name.
+  for (const id of ["issue", "fixModeId", "hint"]) assert.match(HTML, new RegExp(`<label[^>]*for="${id}"`), id);
+  assert.match(HTML, /<label class="choice" for="useIssueDetails"[\s\S]*?Include issue details\s*<\/label>/);
 });
 
 test("the workflow section is Workflow Steps; Investigation & AI Fix is gone from the page", () => {
   const summary = /<summary class="workflow-summary">[\s\S]*?<\/summary>/.exec(HTML)?.[0] ?? "";
   assert.match(summary, /<h2 id="workflow-heading">Workflow Steps<\/h2>/);
-  assert.match(summary, /<span id="workflow-status" class="workflow-status" role="status">Ready to run<\/span>/);
+  assert.match(summary, /<span id="workflow-status" class="workflow-status" role="status">Not started<\/span>/);
   assert.equal(HTML.includes("Investigation &amp; AI Fix"), false);
   assert.equal(HTML.includes("Investigation & AI Fix"), false);
   assert.equal(PAGE_JS.includes("Investigation & AI Fix"), false);

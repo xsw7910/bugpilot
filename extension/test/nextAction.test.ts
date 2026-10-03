@@ -16,7 +16,7 @@ import {
   EARLIER_ATTEMPT_HINT,
   FIX_HINT,
   FRESH_REBUILD_HINT,
-  RUN_HINT,
+  PRIMARY_TOOLTIPS,
   SESSION_HINT,
   STALE_HINT,
   feedbackFromReview,
@@ -38,21 +38,39 @@ const input = (overrides: Partial<NextActionInput> = {}): NextActionInput => ({
   attempted: false,
   sessionKnown: false,
   fresh: false,
-  settled: false,
   ...overrides,
 });
 
 // --- the primary action ------------------------------------------------------
 
-test("nothing prepared: Run, alone, saying what it does", () => {
+test("nothing prepared: Run, alone, with no words beside the shortcut — what it does is its tooltip", () => {
   const view = primaryView(input());
-  assert.deepEqual(view, { action: "run", label: "Run", enabled: true, busy: false, hint: RUN_HINT, more: [] });
-  // Once it has run and left nothing to hand over, the sentence is old news.
-  assert.equal(primaryView(input({ settled: true })).hint, "");
+  assert.deepEqual(view, { action: "run", label: "Run", enabled: true, busy: false, hint: "", more: [] });
+  assert.equal(PRIMARY_TOOLTIPS.run, "Prepare the issue context for AI-assisted fixing");
+});
+
+test("the words beside the shortcut are states of a word or three, never sentences (§37.104)", () => {
+  assert.equal(FIX_HINT, "Context ready");
+  assert.equal(SESSION_HINT, "AI session started");
+  assert.equal(EARLIER_ATTEMPT_HINT, "Fix report available");
+  assert.equal(STALE_HINT, "Settings changed");
+  for (const hint of [FIX_HINT, SESSION_HINT, EARLIER_ATTEMPT_HINT, STALE_HINT, FRESH_REBUILD_HINT]) {
+    assert.doesNotMatch(hint, /\.$/, `${hint} is a sentence`);
+    assert.ok(hint.split(" ").length <= 4, `${hint} is more than a state`);
+  }
+  // Every hint the model can produce, for every state, is one of those.
+  const seen = new Set<string>();
+  for (const prepared of [false, true]) for (const stale of [false, true]) for (const attempted of [false, true])
+    for (const sessionKnown of [false, true]) for (const fresh of [false, true]) for (const busy of [false, true])
+      seen.add(primaryView(input({ prepared, stale, attempted, sessionKnown, fresh, busy })).hint);
+  assert.deepEqual([...seen].sort(), ["", EARLIER_ATTEMPT_HINT, FIX_HINT, SESSION_HINT, STALE_HINT, `${STALE_HINT} · ${FRESH_REBUILD_HINT}`].sort());
+  // The explanations are the buttons' tooltips, and the rebuild's says what it uses.
+  assert.equal(PRIMARY_TOOLTIPS.rebuildContext, "Rebuild the prepared context using the current settings");
+  assert.equal(PRIMARY_TOOLTIPS.openSession, "Focus the existing BugPilot AI terminal");
 });
 
 test("a prepared task nobody handed over: Fix with AI, with Rebuild Context behind ⋯", () => {
-  const view = primaryView(input({ prepared: true, settled: true }));
+  const view = primaryView(input({ prepared: true }));
   assert.equal(view.action, "fixWithAI");
   assert.equal(view.label, "Fix with AI");
   assert.equal(view.hint, FIX_HINT);
@@ -86,7 +104,9 @@ test("a stale context: Rebuild Context, and never a handoff of it", () => {
   assert.equal(offeredActions(attempted).includes("fixWithAI"), false);
   assert.equal(offeredActions(attempted).includes("startNewAttempt"), false);
   // Fresh ticked: said before the press, not discovered by it.
-  assert.equal(primaryView(input({ prepared: true, stale: true, fresh: true })).hint, `${STALE_HINT} ${FRESH_REBUILD_HINT}`);
+  // Fresh's warning stays beside it: a rebuild with it ticked deletes, after asking.
+  assert.equal(primaryView(input({ prepared: true, stale: true, fresh: true })).hint, `${STALE_HINT} · ${FRESH_REBUILD_HINT}`);
+  assert.equal(FRESH_REBUILD_HINT, "Asks before deleting artifacts");
 });
 
 test("anything in flight: Running…, disabled, with nothing behind ⋯", () => {
