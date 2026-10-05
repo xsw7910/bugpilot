@@ -159,15 +159,47 @@ export function showsRebuildLabel(field: SettingsField): boolean {
   return SETTING_REQUIRES_REBUILD[field] && flags.some((flag) => !flag);
 }
 
+/** How much of a section makes a prepared context stale: all of it, none of it, or some. */
+function rebuildScope(section: WorkflowSettingsSection): "all" | "none" | "some" {
+  const flags = SETTINGS_SECTION_FIELDS[section].map((field) => SETTING_REQUIRES_REBUILD[field]);
+  if (flags.every(Boolean)) return "all";
+  return flags.some(Boolean) ? "some" : "none";
+}
+
 /**
- * The note under a section's heading: whether its changes make a prepared
- * context stale. Derived from the table above, so the words cannot drift from it.
+ * Whether a section's changes make a prepared context stale, as a sentence:
+ * the tooltip of the section's tag. Derived from the table above, so the words
+ * cannot drift from it.
  */
 export function sectionRebuildNote(section: WorkflowSettingsSection): string {
-  const flags = SETTINGS_SECTION_FIELDS[section].map((field) => SETTING_REQUIRES_REBUILD[field]);
-  if (flags.every(Boolean)) return "Changes here require rebuilding context.";
-  if (!flags.some(Boolean)) return "Changes here apply to the next run and do not require rebuilding context.";
-  return `Settings marked “${REQUIRES_REBUILD_LABEL}” change the prepared context; the others do not.`;
+  switch (rebuildScope(section)) {
+    case "all":
+      return "Changes here require rebuilding context.";
+    case "none":
+      return "Changes here apply to the next run and do not require rebuilding context.";
+    case "some":
+      return `Settings marked “${REQUIRES_REBUILD_LABEL}” change the prepared context; the others do not.`;
+  }
+}
+
+/**
+ * The same fact in a few words, beside the section's heading (Advanced Settings
+ * simplification): the sentence above said it under every heading, five times
+ * on one page. The sentence is the tag's tooltip.
+ *
+ * Worded as what a change *needs*, not what the section does: "Rebuilds
+ * context" read as though applying rebuilt it. Nothing rebuilds until the
+ * developer presses Rebuild Context.
+ */
+export function sectionRebuildTag(section: WorkflowSettingsSection): string {
+  switch (rebuildScope(section)) {
+    case "all":
+      return "Requires rebuild";
+    case "none":
+      return "Next run only";
+    case "some":
+      return "Some require rebuild";
+  }
 }
 
 /** What the Fix with AI summary calls each agent choice. Never the custom command itself. */

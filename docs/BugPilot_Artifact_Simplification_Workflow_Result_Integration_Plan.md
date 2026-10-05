@@ -2852,6 +2852,32 @@ the Issue field and the Workflow Steps header are unchanged.
    error states (Issue → Workflow Steps 13px shorter at 360px and 200px); 29px,
    unchanged, under a line.
 
+### Confirmed decisions (Advanced Settings simplification)
+
+Revises Workflow Settings Navigation decision 6's per-section sentence and the
+helper lines kept by UI-A2 and the Git History Settings. Presentation only:
+settings storage, Apply/Cancel/Back, `SETTING_REQUIRES_REBUILD`, staleness,
+Code Search and Git History behaviour, attachments, the agent and Fresh are
+unchanged.
+
+1. **Fields first.** The page lede is the title's tooltip and description. Every
+   field's explanation is its label's (and control's) tooltip and, visually
+   hidden, its `aria-describedby` — the same `<id>-hint` ids.
+2. **Section tags.** *Requires rebuild* / *Next run only* beside each heading
+   (`sectionRebuildTag`, same table as the sentence, which is the tag's tooltip
+   and the heading's description); under the heading when a sidebar is narrow.
+   Worded as what a change needs — not *Rebuilds context*, which read as though
+   the section rebuilt it.
+3. **Labels.** *Keywords*, *Focus files*, *Use shared keywords*, *Use shared
+   focus files*: no "(optional)", sentence case throughout (*AI Agent* kept).
+4. **Kept on screen:** state and problems — the agent's status, an attachment's
+   status, the busy note, field errors — and one rule, the custom command's
+   `{prompt}` line. *Delete previous artifacts first* has a warning glyph.
+5. **Spacing:** fields 10px apart inside a section, headings a step larger.
+   `grow()` adds every box's border back, so empty Focus files and Ignore paths
+   no longer show a scrollbar. Measured in a real window: page height 1816 →
+   1354px at 360px and 2286 → 1600px at 200px; visible explanation lines 16 → 6.
+
 ### Confirmed decisions (Results view)
 
 Revises the Workflow view name decision's *The sidebar reads Workflow,

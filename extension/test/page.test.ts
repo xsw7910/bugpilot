@@ -1689,6 +1689,21 @@ test("a field grows to the height its text needs", () => {
   assert.equal(hint.style["height"], "160px");
 });
 
+test("a growing field counts its border, so an example that fills its rows shows no scrollbar", () => {
+  // Focus files: four rows and a four-line example. Every growing box is
+  // border-box, and 2px short of its own content was a scrollbar on an empty
+  // field (seen in the real window, Advanced Settings simplification).
+  const p = load();
+  const focus = sized(p, "focusFiles", 72, 72);
+  Object.assign(focus, { offsetHeight: 74 });
+  p.byId("workflow-settings-view").dispatch("input", { target: focus });
+  assert.equal(focus.style["height"], "74px");
+  // Grown by typing: the text's height plus the same border.
+  focus.scrollHeight = 120;
+  p.byId("workflow-settings-view").dispatch("input", { target: focus });
+  assert.equal(focus.style["height"], "122px");
+});
+
 test("a field never shrinks below the height its rows ask for", () => {
   // Deleting the text puts the box back where it started, not down to one line.
   const p = load();

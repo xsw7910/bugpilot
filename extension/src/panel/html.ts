@@ -73,6 +73,7 @@ import {
   SETTINGS_SECTION_TITLES,
   WORKFLOW_SETTINGS_SECTIONS,
   sectionRebuildNote,
+  sectionRebuildTag,
   showsRebuildLabel,
   isSettingsField,
 } from "../app/workflowSettings.ts";
@@ -94,7 +95,14 @@ interface TextField {
   readonly id: string;
   readonly label: string;
   readonly kind: "input" | "textarea" | "number";
+  /** A line on screen beside the label: only for a rule that must stay readable while typing. */
   readonly hint?: string;
+  /**
+   * What the field is for, off the screen (Advanced Settings simplification):
+   * the tooltip of the label and the control, and — visually hidden — the
+   * control's accessible description, so a screen reader still hears it.
+   */
+  readonly help?: string;
   readonly rows?: number;
   readonly placeholder?: string;
   /**
@@ -289,12 +297,11 @@ const GUIDANCE_FIELDS: readonly TextField[] = [
 /**
  * Retrieval overrides: expert boosts on a search that already runs itself.
  *
- * The heading and the two "(optional)" labels exist to say the thing the old
- * flat list did not: BugPilot retrieves without either of these, and a blank
- * Keywords box is not a job half done. Both carry helper text for the same
- * reason — "Keywords" alone does not distinguish a required input from a
- * thumb on the scale, and a placeholder cannot say so because it disappears the
- * moment somebody types.
+ * BugPilot retrieves without any of these, and a blank Keywords box is not a
+ * job half done. That used to be said twice — "(optional)" in two labels and a
+ * helper line under each — and is now said by the box being empty and by the
+ * tooltip (Advanced Settings simplification): the label names the field, the
+ * placeholder shows an example, the tooltip says what it is for.
  *
  * Nothing here names a weight, a term budget or a search surface. Those are
  * §33's concepts and the panel has no business teaching them.
@@ -302,7 +309,7 @@ const GUIDANCE_FIELDS: readonly TextField[] = [
 const RETRIEVAL_FIELDS: readonly TextField[] = [
   {
     id: "keywords",
-    label: "Keywords (optional)",
+    label: "Keywords",
     // Multi-line for visibility, plus one reason of its own: `parseKeywords`
     // splits on newlines as well as commas, so a list written one term per line
     // already worked — there was simply nowhere to type it.
@@ -310,17 +317,17 @@ const RETRIEVAL_FIELDS: readonly TextField[] = [
     rows: 2,
     icon: "search",
     tone: "primary",
-    hint: "Boost retrieval with known identifiers or technical terms.",
+    help: "Boost retrieval with known identifiers or technical terms. Separate them with commas or new lines.",
     placeholder: "e.g. VolumeDescriptor, OpenVDS, outputType",
   },
   {
     id: "focusFiles",
-    label: "Focus Files (optional)",
+    label: "Focus files",
     kind: "textarea",
     rows: 4,
     icon: "file",
     tone: "muted",
-    hint: "Prioritize files you already suspect are relevant.",
+    help: "Prioritize files you already suspect are relevant. One path per line.",
     // A multi-line placeholder, which is what makes "one path per line" obvious
     // without a paragraph saying so.
     placeholder: "e.g.\nsrc/core/\nsrc/services/example.cpp\ninclude/example.h",
@@ -332,6 +339,7 @@ const RETRIEVAL_FIELDS: readonly TextField[] = [
     rows: 4,
     icon: "circle-slash",
     tone: "danger",
+    help: "Exclude these files or directories from code search. One path per line.",
     placeholder: "e.g.\nbuild/\nthird_party/\ngenerated/",
   },
 ];
@@ -348,11 +356,11 @@ const RETRIEVAL_FIELDS: readonly TextField[] = [
  * Ignore paths, Max files and Max search lines used to be here. UI-A2c moved
  * them into Retrieval Overrides, which is what they are.
  *
- * The label says what the setting is and the placeholder shows an example, so
- * none of these carries helper text except where a **rule or a consequence**
- * has to stay readable after somebody starts typing — which a placeholder
- * cannot do. Two survive that test: the custom command's `{prompt}`
- * substitution, and the destructive checkbox.
+ * The label says what the setting is, the placeholder shows an example and the
+ * tooltip says what it is for; nothing on the page explains a field except a
+ * **rule** that has to stay readable while somebody types, which a tooltip
+ * cannot do. One survives that test: the custom command's `{prompt}`
+ * substitution. The destructive checkbox keeps a warning mark, not a sentence.
  */
 const RUN_OPTION_FIELDS: readonly TextField[] = [
   {
@@ -361,6 +369,7 @@ const RUN_OPTION_FIELDS: readonly TextField[] = [
     kind: "input",
     icon: "edit",
     tone: "muted",
+    help: "A short title for a bug you describe yourself. A Jira issue brings its own.",
     placeholder: "e.g. Crash when saving with no selection",
   },
 ];
@@ -382,6 +391,7 @@ const LIMIT_FIELDS: readonly TextField[] = [
     kind: "number",
     icon: "file",
     tone: "muted",
+    help: "How many related files to keep. Empty uses the default, 10.",
     placeholder: "10",
   },
   {
@@ -390,6 +400,7 @@ const LIMIT_FIELDS: readonly TextField[] = [
     kind: "number",
     icon: "list-ordered",
     tone: "primary",
+    help: "Line budget for the matched lines in the context. Empty uses the default, 300.",
     placeholder: "300",
   },
 ];
@@ -400,8 +411,9 @@ const LIMIT_FIELDS: readonly TextField[] = [
  * it keeps. Every default is a run's behaviour before these existed, which is
  * why each switch arrives ticked and the two text boxes and the count empty.
  *
- * The helper text says the one thing a developer has to know about each of
- * Git history's own inputs: Code search never reads it.
+ * The one thing a developer has to know about each of Git history's own inputs
+ * — Code search never reads it — is in its tooltip and its accessible
+ * description (Advanced Settings simplification), not a line under it.
  */
 const GIT_HISTORY_TEXT_FIELDS: readonly TextField[] = [
   {
@@ -411,7 +423,7 @@ const GIT_HISTORY_TEXT_FIELDS: readonly TextField[] = [
     rows: 2,
     icon: "search",
     tone: "primary",
-    hint: "Searched in commit messages only. Code search does not use them.",
+    help: "Searched in commit messages only. Code search does not use them.",
     placeholder: "e.g. gather order, StackMerge",
   },
   {
@@ -421,7 +433,7 @@ const GIT_HISTORY_TEXT_FIELDS: readonly TextField[] = [
     rows: 3,
     icon: "file",
     tone: "muted",
-    hint: "File history only. Code search does not use them.",
+    help: "File history only: their history is read too. Code search does not use them. One path per line.",
     placeholder: "e.g.\nsrc/legacy/\nsrc/core/example.cpp",
   },
 ];
@@ -433,49 +445,56 @@ const GIT_MAX_COMMITS_FIELD: TextField = {
   kind: "number",
   icon: "git-commit",
   tone: "muted",
+  help: "How many related commits to keep, from 1 to 25. Empty uses the default, 10.",
   placeholder: "10",
 };
 
 /**
  * One of Git history's switches: a checkbox inside its own label, like Fresh.
- * A helper line only where a consequence needs saying — that turning shared
- * guidance off here leaves Code search as it was; the search switches' labels
- * say everything they do.
+ * What it does — and, for the two shared ones, that Code search is unaffected —
+ * is its tooltip and accessible description, never a line under it.
  */
-function gitHistorySwitch(id: string, label: string, hint?: string): string {
-  const described = hint ? ` aria-describedby="${id}-hint"` : "";
+function gitHistorySwitch(id: string, label: string, help: string): string {
   return `        <div class="field field-check" id="field-${id}">
   ${settingHeader({
     forId: id,
     label,
-    control: `<input type="checkbox" id="${id}"${described} checked> `,
+    control: `<input type="checkbox" id="${id}" aria-describedby="${id}-hint" checked> `,
     labelClass: "choice",
-    ...(hint === undefined ? {} : { hint }),
+    help,
   })}
         </div>`;
 }
 
-/** History Depth: the two depths the backend has, and what the second one means. */
+/** History Depth: the two depths the backend has; what the second one means is the tooltip. */
 const GIT_HISTORY_DEPTH_FIELD = `        <div class="field" id="field-gitHistoryDepth">
   ${settingHeader({
     forId: "gitHistoryDepth",
     label: "History depth",
     icon: "history",
     tone: "muted",
-    hint: "Broader reads three times as far back per file.",
+    help: "How far back Git history reads. Broader reads three times as far back per file.",
   })}
-          <select id="gitHistoryDepth" name="gitHistoryDepth" aria-describedby="gitHistoryDepth-hint">
+          <select id="gitHistoryDepth" name="gitHistoryDepth" title="How far back Git history reads. Broader reads three times as far back per file." aria-describedby="gitHistoryDepth-hint">
             <option value="recent">Recent</option>
             <option value="broader">Broader</option>
           </select>
         </div>`;
 
 const GIT_HISTORY_SECTION = [
-  gitHistorySwitch("gitUseSharedKeywords", "Use shared Keywords", "Code search uses them either way."),
-  gitHistorySwitch("gitUseSharedFocusFiles", "Use shared Focus Files", "Code search uses them either way."),
+  gitHistorySwitch(
+    "gitUseSharedKeywords",
+    "Use shared keywords",
+    "Also search commit history for the Code search keywords. Code search uses them either way.",
+  ),
+  gitHistorySwitch(
+    "gitUseSharedFocusFiles",
+    "Use shared focus files",
+    "Also read the history of the Code search focus files. Code search uses them either way.",
+  ),
   ...GIT_HISTORY_TEXT_FIELDS.map(field),
-  gitHistorySwitch("gitSearchMessages", "Search commit messages"),
-  gitHistorySwitch("gitSearchFileHistory", "Search related file history"),
+  gitHistorySwitch("gitSearchMessages", "Search commit messages", "Search commit messages for the issue key and keywords."),
+  gitHistorySwitch("gitSearchFileHistory", "Search related file history", "Read the history of the files related to the issue."),
   `        <div class="limits">
 ${GIT_HISTORY_DEPTH_FIELD}
   ${field(GIT_MAX_COMMITS_FIELD)}
@@ -956,7 +975,8 @@ const AGENT_OPTION_TEXT: Readonly<Record<AgentChoice, string>> = {
  * The AI Agent picker: one option per adapter in `agents.ts`, and one quiet
  * line under it — what Auto-detect found, or how the chosen agent stands
  * ("Installed · Limited integration"). The host fills the line from
- * `PanelState.agents`; the page never detects anything itself.
+ * `PanelState.agents`; the page never detects anything itself. The line is
+ * state, so it stays on screen; what the picker is for is the label's tooltip.
  */
 const AGENT_FIELD = `        <div class="field" id="field-agent">
   ${settingHeader({
@@ -964,6 +984,7 @@ const AGENT_FIELD = `        <div class="field" id="field-agent">
     label: "AI Agent",
     icon: "hubot",
     tone: "primary",
+    title: "The coding agent Fix with AI hands the prepared task to.",
     rebuild: showsRebuildLabel("agent"),
   })}
           <select id="agent" name="agent" aria-describedby="agent-status">
@@ -972,6 +993,13 @@ ${AGENT_CHOICES.map((choice) => `            <option value="${choice}">${AGENT_O
           <p class="hint agent-status" id="agent-status" aria-live="polite" hidden></p>
         </div>`;
 
+/**
+ * How files get to Attachments — the dialog, a drop, the clipboard. Not
+ * inferable from the label, and there is no box to hang a placeholder on, so it
+ * is the label's and the button's tooltip and the button's description.
+ */
+const ATTACHMENTS_HELP = "Add files, drag and drop while holding Shift, or paste from the clipboard.";
+
 /** Files to copy in beside the issue: a list the page renders, and the dialog's button. */
 const ATTACHMENTS_FIELD = `        <div class="field" id="field-attachments">
   ${settingHeader({
@@ -979,20 +1007,21 @@ const ATTACHMENTS_FIELD = `        <div class="field" id="field-attachments">
     label: "Attachments",
     icon: "attach",
     tone: "muted",
-    hint: "Add files, drag &amp; drop (hold Shift), or paste from clipboard.",
+    help: ATTACHMENTS_HELP,
   })}
           <ul id="attachment-list" class="attachments" hidden></ul>
           <p class="hint attachment-status" id="attachment-status" role="status" hidden></p>
-          <button type="button" id="add-attachment">
+          <button type="button" id="add-attachment" title="${ATTACHMENTS_HELP}" aria-describedby="add-attachment-hint">
             <span class="codicon codicon-add" aria-hidden="true"></span>
             Add files…
           </button>
         </div>`;
 
 /**
- * Delete previous artifacts first — Fresh. Kept with the only helper text in the
- * page that describes a consequence rather than a field: this one deletes an
- * agent's work.
+ * Delete previous artifacts first — Fresh. The one setting on the page that
+ * deletes an agent's work, so it is the one that keeps a mark on screen: a
+ * warning glyph after the label, decorative, with the sentence as its tooltip
+ * and as the checkbox's description rather than as a line under it.
  */
 const FRESH_FIELD = `        <div class="field field-check">
   ${settingHeader({
@@ -1000,7 +1029,8 @@ const FRESH_FIELD = `        <div class="field field-check">
     label: "Delete previous artifacts first",
     control: '<input type="checkbox" id="fresh" aria-describedby="fresh-hint"> ',
     labelClass: "choice",
-    hint: "Removes existing generated artifacts before running. Off by default to avoid accidental data loss.",
+    help: "Removes the work item's existing generated artifacts before running. Off by default to avoid accidental data loss.",
+    warning: true,
   })}
         </div>`;
 
@@ -1030,16 +1060,27 @@ function sectionBody(section: WorkflowSettingsSection): string {
  *
  * A view like the Fix Mode ones, outside the form: Enter in one of its fields
  * must not submit a Run, and nothing typed here is part of the form until
- * Apply. Each section's heading takes focus when a gear lands on it, and its
- * note says — from `SETTING_REQUIRES_REBUILD` — whether its changes make a
- * prepared context stale. Apply is the page's one primary button; Back and
- * Cancel both discard.
+ * Apply. Each section's heading takes focus when a gear lands on it. Apply is
+ * the page's one primary button; Back and Cancel both discard.
+ *
+ * A compact form, not a document (Advanced Settings simplification): fields
+ * and values first, and the explanations in tooltips and accessible
+ * descriptions. What used to be a sentence under every heading — whether the
+ * section's changes make a prepared context stale, from
+ * `SETTING_REQUIRES_REBUILD` — is a short tag beside it, *Requires rebuild* or
+ * *Next run only*, with the sentence as its tooltip; and the page's own lede
+ * (Apply applies, Back and Cancel discard) is the title's tooltip and the
+ * heading's description.
  */
+const SETTINGS_LEDE = "Configure workflow inputs and limits. Changes apply when you press Apply. Back and Cancel discard them.";
+
 function settingsView(): string {
   const sections = WORKFLOW_SETTINGS_SECTIONS.map(
     (section) => `    <section class="settings-section" id="settings-section-${section}" aria-labelledby="settings-title-${section}">
-      <h3 class="settings-section-title" id="settings-title-${section}" tabindex="-1">${SETTINGS_SECTION_TITLES[section]}</h3>
-      <p class="hint settings-rebuild" id="settings-note-${section}">${sectionRebuildNote(section)}</p>
+      <div class="settings-section-head">
+        <h3 class="settings-section-title" id="settings-title-${section}" tabindex="-1" aria-describedby="settings-note-${section}">${SETTINGS_SECTION_TITLES[section]}</h3>
+        <span class="settings-tag" id="settings-note-${section}" title="${sectionRebuildNote(section)}">${sectionRebuildTag(section)}</span>
+      </div>
 ${sectionBody(section)}
     </section>`,
   ).join("\n\n");
@@ -1049,8 +1090,8 @@ ${sectionBody(section)}
         <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
         Back
       </button>
-      <h2 id="settings-heading" class="view-title" tabindex="-1">Advanced Settings</h2>
-      <p class="muted view-lede">What each workflow step uses. Changes take effect when you press Apply; Back and Cancel discard them.</p>
+      <h2 id="settings-heading" class="view-title" tabindex="-1" title="${SETTINGS_LEDE}" aria-describedby="settings-lede">Advanced Settings</h2>
+      <p class="visually-hidden" id="settings-lede">${SETTINGS_LEDE}</p>
     </div>
 
 ${sections}
@@ -1094,6 +1135,13 @@ function settingHeader(options: {
    * it in full. Carries the label's tooltip.
    */
   readonly secondary?: string;
+  /**
+   * What the setting is for, off the screen: the label's tooltip, and a visually
+   * hidden `<forId>-hint` for the control's `aria-describedby` to name.
+   */
+  readonly help?: string;
+  /** A decorative warning mark after the label, for a setting that deletes work. */
+  readonly warning?: boolean;
 }): string {
   // The tone is a class, never an inline style: the colours belong to the
   // stylesheet, where a theme can be reasoned about in one place.
@@ -1104,15 +1152,25 @@ function settingHeader(options: {
     : "";
   // Omitted entirely when there is nothing to say, rather than left hidden:
   // an empty paragraph is a gap where the helper text used to be.
-  const hint = options.hint ? `<p class="hint" id="${options.forId}-hint">${options.hint}</p>` : "";
+  // A visible line, or — for an explanation that moved off the screen — the
+  // same id, visually hidden, so the control's description is unchanged.
+  const hint = options.hint
+    ? `<p class="hint" id="${options.forId}-hint">${options.hint}</p>`
+    : options.help
+      ? `<p class="visually-hidden" id="${options.forId}-hint">${options.help}</p>`
+      : "";
   const labelClass = options.labelClass ? ` class="${options.labelClass}"` : "";
-  const title = options.title ? ` title="${options.title}"` : "";
+  const tooltip = options.title ?? options.help;
+  const title = tooltip ? ` title="${tooltip}"` : "";
   const rebuild = options.rebuild ? `<span class="rebuild-label" id="${options.forId}-rebuild">${REQUIRES_REBUILD_LABEL}</span>` : "";
   const secondary = options.secondary
     ? `<span class="setting-secondary" id="${options.forId}-secondary"${title} aria-hidden="true">${options.secondary}</span>`
     : "";
+  const warning = options.warning
+    ? `<span class="codicon codicon-warning setting-warning icon-warning" aria-hidden="true"></span>`
+    : "";
   return `      <div class="setting-header">
-        <label${labelClass} for="${options.forId}"${title}>${icon}${options.control ?? ""}${options.label}</label>
+        <label${labelClass} for="${options.forId}"${title}>${icon}${options.control ?? ""}${options.label}${warning}</label>
         ${secondary}${rebuild}${hint}
       </div>`;
 }
@@ -1121,7 +1179,7 @@ function field(entry: TextField): string {
   // `aria-describedby` names only descriptions that exist. Most fields now have
   // no helper text, and pointing a screen reader at an element that was never
   // rendered is worse than pointing it at nothing.
-  const described = entry.hint
+  const described = entry.hint || entry.help
     ? `${entry.id}-hint ${entry.id}-error`
     : `${entry.id}-error`;
   const placeholder = entry.placeholder
@@ -1129,7 +1187,8 @@ function field(entry: TextField): string {
     : "";
   // The field's purpose on hover, on the box as well as its label: a tooltip
   // supplements the label, which stays the accessible name.
-  const title = entry.title ? ` title="${entry.title}"` : "";
+  const tooltip = entry.title ?? entry.help;
+  const title = tooltip ? ` title="${tooltip}"` : "";
   const control =
     entry.kind === "textarea"
       ? `<textarea id="${entry.id}" name="${entry.id}" rows="${entry.rows ?? 3}"${placeholder}${title} aria-describedby="${described}"></textarea>`
@@ -1137,8 +1196,8 @@ function field(entry: TextField): string {
         ? // `inputmode` rather than `type="number"`: the spinner steals the
           // field's width in a 200px sidebar, and the value still travels as a
           // string that `buildPrepareArgs` validates either way.
-          `<input type="text" inputmode="numeric" id="${entry.id}" name="${entry.id}"${placeholder} aria-describedby="${described}">`
-        : `<input type="text" id="${entry.id}" name="${entry.id}"${placeholder} aria-describedby="${described}">`;
+          `<input type="text" inputmode="numeric" id="${entry.id}" name="${entry.id}"${placeholder}${title} aria-describedby="${described}">`
+        : `<input type="text" id="${entry.id}" name="${entry.id}"${placeholder}${title} aria-describedby="${described}">`;
   // A field with nothing to explain still carries the hint element, hidden: the
   // control's `aria-describedby` names it, and an empty visible paragraph
   // leaves a gap in the row for no reason.
@@ -1149,6 +1208,7 @@ ${settingHeader({
     ...(entry.icon === undefined ? {} : { icon: entry.icon }),
     ...(entry.tone === undefined ? {} : { tone: entry.tone }),
     ...(entry.hint === undefined ? {} : { hint: entry.hint }),
+    ...(entry.help === undefined ? {} : { help: entry.help }),
     ...(entry.title === undefined ? {} : { title: entry.title }),
     rebuild: isSettingsField(entry.id) && showsRebuildLabel(entry.id),
   })}

@@ -23,6 +23,7 @@ import {
   SETTINGS_SECTION_TITLES,
   WORKFLOW_SETTINGS_SECTIONS,
   sectionRebuildNote,
+  sectionRebuildTag,
 } from "../src/app/workflowSettings.ts";
 
 const HTML = panelHtml({
@@ -686,10 +687,18 @@ test("a row with nothing but its summary is exactly as tall as before", () => {
   assert.match(CSS, /\.attempt-editor\[hidden\] \{\s*display: none;/);
 });
 
-test("Advanced Settings has a heading, a lede that says Apply is the act, and a way back", () => {
+test("Advanced Settings has a heading that says Apply is the act, on hover and to a screen reader, and a way back", () => {
   assert.notEqual(SETTINGS_VIEW, "", "no settings view");
-  assert.match(SETTINGS_VIEW, /<h2 id="settings-heading" class="view-title" tabindex="-1">Advanced Settings<\/h2>/);
-  assert.match(SETTINGS_VIEW, /Changes take effect when you press Apply; Back and Cancel discard them\./);
+  // The lede is the heading's tooltip and description, not a paragraph under it
+  // (Advanced Settings simplification).
+  const lede = "Configure workflow inputs and limits. Changes apply when you press Apply. Back and Cancel discard them.";
+  assert.ok(
+    SETTINGS_VIEW.includes(`<h2 id="settings-heading" class="view-title" tabindex="-1" title="${lede}" aria-describedby="settings-lede">Advanced Settings</h2>`),
+    "the heading lost its tooltip or its description",
+  );
+  assert.ok(SETTINGS_VIEW.includes(`<p class="visually-hidden" id="settings-lede">${lede}</p>`));
+  assert.equal(SETTINGS_VIEW.includes("view-lede"), false, "the lede is still a paragraph on screen");
+  assert.equal(SETTINGS_VIEW.includes("What each workflow step uses."), false);
   assert.match(SETTINGS_VIEW, /<button type="button" id="settings-back" class="link view-back">[\s\S]*?Back\s*<\/button>/);
   // Cancel, then Apply — the page's one primary button, at its foot.
   const actions = /<div class="settings-actions">[\s\S]*?<\/div>/.exec(SETTINGS_VIEW)?.[0] ?? "";
@@ -703,6 +712,120 @@ test("Advanced Settings has a heading, a lede that says Apply is the act, and a 
   assert.match(CSS, /#workflow-settings-view :is\(input, textarea, select\):disabled \{\s*opacity: 0\.6;\s*cursor: default;/);
   // Said while Apply waits on the host, in words.
   assert.match(SETTINGS_VIEW, /<p class="muted settings-busy" id="settings-busy" role="status" hidden>/);
+});
+
+/** The settings page's on-screen text: no comments, attributes or screen-reader-only text. */
+const SETTINGS_ON_SCREEN = (() => {
+  const markup = SETTINGS_VIEW.replace(/<!--[\s\S]*?-->/g, "").replace(/<p class="visually-hidden"[^>]*>[\s\S]*?<\/p>/g, "");
+  return markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+})();
+
+/**
+ * Every explanation that left the settings page (Advanced Settings
+ * simplification), by the control it explains: each is that control's tooltip
+ * and, visually hidden, its accessible description — never a line on screen.
+ */
+const SETTINGS_HELP: Readonly<Record<string, string>> = {
+  title: "A short title for a bug you describe yourself. A Jira issue brings its own.",
+  "add-attachment": "Add files, drag and drop while holding Shift, or paste from the clipboard.",
+  keywords: "Boost retrieval with known identifiers or technical terms. Separate them with commas or new lines.",
+  focusFiles: "Prioritize files you already suspect are relevant. One path per line.",
+  ignorePaths: "Exclude these files or directories from code search. One path per line.",
+  maxFiles: "How many related files to keep. Empty uses the default, 10.",
+  maxSearchLines: "Line budget for the matched lines in the context. Empty uses the default, 300.",
+  gitUseSharedKeywords: "Also search commit history for the Code search keywords. Code search uses them either way.",
+  gitUseSharedFocusFiles: "Also read the history of the Code search focus files. Code search uses them either way.",
+  gitKeywords: "Searched in commit messages only. Code search does not use them.",
+  gitFiles: "File history only: their history is read too. Code search does not use them. One path per line.",
+  gitSearchMessages: "Search commit messages for the issue key and keywords.",
+  gitSearchFileHistory: "Read the history of the files related to the issue.",
+  gitHistoryDepth: "How far back Git history reads. Broader reads three times as far back per file.",
+  gitMaxCommits: "How many related commits to keep, from 1 to 25. Empty uses the default, 10.",
+  fresh: "Removes the work item's existing generated artifacts before running. Off by default to avoid accidental data loss.",
+};
+
+test("every explanation on the settings page is a tooltip and a description, not a line on screen", () => {
+  for (const [id, help] of Object.entries(SETTINGS_HELP)) {
+    const quoted = help.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Off the screen…
+    assert.equal(SETTINGS_ON_SCREEN.includes(help), false, `still on screen: ${id}`);
+    // …on hover over the label…
+    assert.match(SETTINGS_VIEW, new RegExp(`<label[^>]*for="${id}"[^>]*title="${quoted}"`), `${id}: no label tooltip`);
+    // …heard with the control…
+    assert.ok(SETTINGS_VIEW.includes(`<p class="visually-hidden" id="${id}-hint">${help}</p>`), `${id}: no hidden description`);
+    const control = new RegExp(`<(?:input|textarea|select|button)[^>]*id="${id}"[^>]*>`).exec(SETTINGS_VIEW)?.[0] ?? "";
+    assert.notEqual(control, "", id);
+    assert.match(control, new RegExp(`aria-describedby="${id}-hint\\b`), `${id}: not described by its help`);
+  }
+  // The boxes and the select show it on hover too, not only their labels; a
+  // checkbox is inside its label, which has it.
+  for (const id of ["title", "keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines", "gitKeywords", "gitFiles", "gitHistoryDepth", "gitMaxCommits", "add-attachment"]) {
+    const control = new RegExp(`<(?:input|textarea|select|button)[^>]*id="${id}"[^>]*>`).exec(SETTINGS_VIEW)?.[0] ?? "";
+    assert.match(control, new RegExp(`title="${SETTINGS_HELP[id]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`), `${id}: the box has no tooltip`);
+  }
+  // The AI Agent picker: its label says what it is for on hover; the select's
+  // own tooltip is the chosen option (the page sets it), and its status line is
+  // state, so it stays.
+  assert.match(SETTINGS_VIEW, /<label for="agent" title="The coding agent Fix with AI hands the prepared task to\.">/);
+  // The sentences that used to be on screen, word for word, are gone from it.
+  for (const gone of [
+    "What each workflow step uses.",
+    "Changes here require rebuilding context.",
+    "Changes here apply to the next run and do not require rebuilding context.",
+    "Add files, drag & drop (hold Shift), or paste from clipboard.",
+    "Boost retrieval with known identifiers or technical terms.",
+    "Prioritize files you already suspect are relevant.",
+    "Code search uses them either way.",
+    "Searched in commit messages only.",
+    "File history only.",
+    "Broader reads three times as far back per file.",
+    "Removes the work item's existing generated artifacts",
+    "Off by default to avoid accidental data loss.",
+  ]) {
+    assert.equal(SETTINGS_ON_SCREEN.includes(gone), false, `still on screen: ${gone}`);
+  }
+});
+
+test("what stays on the settings page is state, a rule, or a problem", () => {
+  // A visible line only for the custom command's rule — it must stay readable
+  // while the command is typed, and the row is hidden unless Custom is chosen.
+  const visible = [...SETTINGS_VIEW.matchAll(/<p class="hint" id="([a-zA-Z-]+)-hint">/g)].map((match) => match[1]);
+  assert.deepEqual(visible, ["agentCommand"]);
+  assert.match(SETTINGS_VIEW, /<p class="hint" id="agentCommand-hint">\{prompt\} is replaced with the handoff prompt, already quoted\.<\/p>/);
+  // State, said when there is some: the agent's status, an attachment's, the busy note.
+  assert.match(SETTINGS_VIEW, /<p class="hint agent-status" id="agent-status" aria-live="polite" hidden><\/p>/);
+  assert.match(SETTINGS_VIEW, /<p class="hint attachment-status" id="attachment-status" role="status" hidden><\/p>/);
+  assert.match(SETTINGS_VIEW, /<p class="muted settings-busy" id="settings-busy" role="status" hidden>/);
+  // A problem, on every text field, hidden until there is one.
+  for (const id of SETTINGS_FIELD_IDS) {
+    assert.match(SETTINGS_VIEW, new RegExp(`<p class="error" id="${id}-error" hidden></p>`), `${id} has nowhere to show a problem`);
+  }
+  // The one destructive setting keeps a mark on screen: a warning glyph in the
+  // label, decorative, in the warning tone — never a sentence.
+  assert.match(
+    SETTINGS_VIEW,
+    /<label class="choice" for="fresh" title="[^"]+"><input type="checkbox" id="fresh" aria-describedby="fresh-hint"> Delete previous artifacts first<span class="codicon codicon-warning setting-warning icon-warning" aria-hidden="true"><\/span><\/label>/,
+  );
+});
+
+test("the settings page's labels are short, sentence case, and never say optional", () => {
+  const labels = [...SETTINGS_VIEW.matchAll(/<label[^>]*>([\s\S]*?)<\/label>/g)].map((match) =>
+    match[1]!.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
+  );
+  // Title, Attachments; Code search's five; Git history's eight; Fresh; the
+  // agent and its command.
+  assert.equal(labels.length, 18, `${labels.length} labels`);
+  for (const label of labels) {
+    assert.equal(/optional/i.test(label), false, `"${label}" says optional — an empty box already does`);
+    // Sentence case: a capital first, then lower case — except AI, an acronym,
+    // in the product's own name for the agent picker.
+    const rest = label.split(" ").slice(1).filter((word) => word !== "AI" && !(label === "AI Agent" && word === "Agent"));
+    assert.match(label, /^[A-Z]/, label);
+    for (const word of rest) assert.equal(word, word.toLowerCase(), `"${label}" is not sentence case`);
+  }
+  for (const label of ["Keywords", "Focus files", "Use shared keywords", "Use shared focus files"]) {
+    assert.ok(labels.includes(label), `no "${label}" label`);
+  }
 });
 
 test("every setting has a header row with a real label in it", () => {
@@ -730,48 +853,21 @@ test("every setting has a header row with a real label in it", () => {
   }
 });
 
-test("helper text survives only where a placeholder could not carry it", () => {
-  // The rule as it stands after UI-A2. A placeholder disappears the moment
-  // somebody types, so helper text is for what must stay readable: a rule, a
-  // consequence, or — new in UI-A2 — what a whole group of settings is *for*.
+test("helper text survives only where a tooltip could not carry it", () => {
+  // The rule as it stands after the Advanced Settings simplification. A
+  // tooltip is not there while somebody types, so a line on screen is for a
+  // rule that must stay readable then — one survives, the custom command's
+  // `{prompt}` (its own test above). Everything else that used to be a line —
+  // what a field is for, a consequence, how files get attached — is a tooltip
+  // and a visually hidden description, under the same `<id>-hint` id.
   //
-  // The three that were added are the three the grouping is about. "Keywords"
-  // alone does not say whether the search needs them, and a developer who
-  // cannot tell an expert boost from a required field fills it in every time.
-  // The ones that are still bare are the ones whose label and example say
-  // everything: Ignore paths, Max files, Max search lines, Title.
-  const advanced = SETTINGS_VIEW;
-  // `[a-zA-Z-]+`, with the hyphen: the first version of this pattern could not
+  // `[a-zA-Z-]+`, with the hyphen: an earlier version of this pattern could not
   // match `add-attachment-hint`, so a whole row's helper text slipped past the
   // guard unnoticed. A character class is a claim about what ids look like.
-  const withHelper = [...advanced.matchAll(/<p class="hint" id="([a-zA-Z-]+)-hint">/g)].map(
-    (match) => match[1],
-  );
-  assert.deepEqual(
-    [...withHelper].sort(),
-    [
-      // A rule or a consequence.
-      "add-attachment", "agentCommand", "fresh",
-      // What the setting is for, which is what UI-A2's grouping asserts.
-      "focusFiles", "keywords",
-      // Git History Settings. A consequence each: Git history's own inputs
-      // never reach Code search, and turning shared guidance off here leaves
-      // Code search as it was — the one thing a developer must not have to
-      // guess. And what Broader means, which a select cannot hold.
-      "gitKeywords", "gitFiles", "gitUseSharedKeywords", "gitUseSharedFocusFiles", "gitHistoryDepth",
-    ].sort(),
-    "helper text should remain only where a placeholder could not carry it",
-  );
-  // How files get here — the dialog, a drop, the clipboard: not inferable from
-  // "Attachments", and there is no input to hang a placeholder on.
-  assert.match(advanced, /Add files, drag &amp; drop \(hold Shift\), or paste from clipboard\./);
-
-  // And what each of them says is the reason it survived.
-  assert.match(advanced, /\{prompt\} is replaced with the handoff prompt, already quoted\./);
-  assert.match(advanced, /Off by default to avoid accidental data loss/);
-  // And the group-purpose lines, which are the reason the list grew.
-  assert.match(advanced, /Boost retrieval with known identifiers or technical terms\./);
-  assert.match(advanced, /Prioritize files you already suspect are relevant\./);
+  const visible = [...SETTINGS_VIEW.matchAll(/<p class="hint" id="([a-zA-Z-]+)-hint">/g)].map((match) => match[1]);
+  const hidden = [...SETTINGS_VIEW.matchAll(/<p class="visually-hidden" id="([a-zA-Z-]+)-hint">/g)].map((match) => match[1]);
+  assert.deepEqual(visible, ["agentCommand"], "a helper line came back on screen");
+  assert.deepEqual([...hidden].sort(), Object.keys(SETTINGS_HELP).sort(), "an explanation was lost rather than moved");
   // The main form keeps none (§37.104): Issue, Fix Mode, Hint and Include issue
   // details explain themselves by placeholder, tooltip and accessible
   // description instead — the panel shows the controls and their state.
@@ -780,22 +876,19 @@ test("helper text survives only where a placeholder could not carry it", () => {
   assert.match(form, /<p class="visually-hidden" id="useIssueDetails-hint">Includes only the issue title and description\. Repository files and history are not read\.<\/p>/);
 });
 
-test("a field with nothing to explain says nothing, and points at nothing", () => {
-  // Not an empty paragraph left where the helper text was, and not an
-  // `aria-describedby` naming an element that was never rendered.
-  for (const id of ["title", "ignorePaths", "maxFiles", "maxSearchLines"]) {
-    assert.equal(
-      HTML.includes(`id="${id}-hint"`),
-      false,
-      `${id} still carries a helper element`,
-    );
+test("a field points its description only at elements that exist, and keeps its label and example", () => {
+  // Not an `aria-describedby` naming an element that was never rendered: every
+  // id a settings control names is in the document. And the label is still the
+  // accessible name — a placeholder is an example, a tooltip a supplement,
+  // never a label.
+  for (const id of SETTINGS_FIELD_IDS) {
     const control = new RegExp(`<(?:input|textarea)[^>]*id="${id}"[^>]*>`).exec(HTML)?.[0] ?? "";
     assert.notEqual(control, "", id);
-    assert.match(control, new RegExp(`aria-describedby="${id}-error"`), `${id} describedby`);
-    // The label is still the accessible name — a placeholder is an example,
-    // never a label.
+    const described = /aria-describedby="([^"]+)"/.exec(control)?.[1] ?? "";
+    assert.ok(described.split(" ").includes(`${id}-error`), `${id} is not described by its problem`);
+    for (const target of described.split(" ")) assert.ok(HTML.includes(`id="${target}"`), `${id} names a missing #${target}`);
     assert.match(HTML, new RegExp(`<label[^>]*for="${id}"`), `${id} lost its label`);
-    assert.match(control, /placeholder="/, `${id} should show an example instead`);
+    assert.match(control, /placeholder="/, `${id} should show an example`);
   }
 });
 
@@ -1792,7 +1885,7 @@ function advancedGroup(id: string): string {
 }
 
 test("Workflow Settings is one section per step that has settings, in the workflow's order", () => {
-  const sections = [...SETTINGS_VIEW.matchAll(/<h3 class="settings-section-title" id="settings-title-([a-z-]+)" tabindex="-1">([^<]+)</g)];
+  const sections = [...SETTINGS_VIEW.matchAll(/<h3 class="settings-section-title" id="settings-title-([a-z-]+)" tabindex="-1" aria-describedby="settings-note-\1">([^<]+)</g)];
   assert.deepEqual(
     sections.map((match) => [match[1], match[2]]),
     WORKFLOW_SETTINGS_SECTIONS.map((section) => [section, SETTINGS_SECTION_TITLES[section]]),
@@ -1801,10 +1894,18 @@ test("Workflow Settings is one section per step that has settings, in the workfl
   // Similar fixes has nothing to configure beyond its checkbox: no section
   // pretends otherwise. (Git history has had one since its settings.)
   assert.equal(/settings-section-similar-fixes/.test(HTML), false);
-  // Each says whether its changes need a rebuild — the model's sentence.
+  // Each says whether its changes need a rebuild: the model's few words beside
+  // the heading, the model's sentence as their tooltip — and the heading is
+  // described by them, so a gear's arrival on it says it too.
   for (const section of WORKFLOW_SETTINGS_SECTIONS) {
-    assert.match(settingsSection(section), new RegExp(`id="settings-note-${section}">${sectionRebuildNote(section).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</p>`));
+    const tag = `<span class="settings-tag" id="settings-note-${section}" title="${sectionRebuildNote(section)}">${sectionRebuildTag(section)}</span>`;
+    assert.ok(settingsSection(section).includes(tag), `${section}: ${tag}`);
+    const head = /<div class="settings-section-head">[\s\S]*?<\/div>/.exec(settingsSection(section))?.[0] ?? "";
+    assert.ok(head.indexOf(`id="settings-title-${section}"`) < head.indexOf(`id="settings-note-${section}"`), `${section}: the tag is not beside the heading`);
   }
+  // Never the sentence on screen under every heading again.
+  assert.equal(/class="[^"]*settings-rebuild/.test(SETTINGS_VIEW), false);
+  assert.equal(/<p[^>]*id="settings-note-/.test(SETTINGS_VIEW), false);
   // No disclosures and no nested forms: one page, read top to bottom.
   assert.equal(/<details|<form/.test(SETTINGS_VIEW), false);
   assert.equal(/<details[^>]*\bopen\b/.test(HTML), false);
@@ -1817,7 +1918,7 @@ test("Issue details' section is the title and attachments; Build context's is Fr
   assert.equal(SETTINGS_VIEW.includes('id="issue"'), false, "the Issue field moved off the form");
   const build = settingsSection("build-context");
   assert.match(build, /id="fresh"/);
-  assert.match(build, /Changes here apply to the next run and do not require rebuilding context\./);
+  assert.match(build, /title="Changes here apply to the next run and do not require rebuilding context\.">Next run only</);
   for (const id of ["ignorePaths", "maxFiles", "maxSearchLines", "keywords", "focusFiles", "agent", "hint"]) {
     assert.equal(issue.includes(`id="field-${id}"`) || build.includes(`id="field-${id}"`), false, `${id} is in the wrong section`);
   }
@@ -1832,7 +1933,7 @@ test("Fix with AI's section is the agent and its command — Fix Mode and Hint a
   }
   // No mixed section any more: nothing here changes the prepared context.
   assert.equal(fix.includes("rebuild-label"), false);
-  assert.match(fix, /Changes here apply to the next run and do not require rebuilding context\./);
+  assert.match(fix, /title="Changes here apply to the next run and do not require rebuilding context\.">Next run only</);
   // And nothing that steers the search: a retrieval field here would defeat the section.
   for (const id of ["keywords", "focusFiles", "ignorePaths", "title", "maxFiles"]) {
     assert.equal(fix.includes(`id="field-${id}"`), false, `${id} is under Fix with AI`);
@@ -1846,13 +1947,13 @@ test("Code search's section is everything that steers the search", () => {
   const fields = [...search.matchAll(/id="field-([A-Za-z]+)"/g)].map((match) => match[1]);
   assert.deepEqual(fields, ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"]);
 
-  // "(optional)" in the label, not in a helper line: it is the first thing read,
-  // and the point is that a blank box is not a job half done.
-  assert.match(search, /<label[^>]*for="keywords">[\s\S]*?Keywords \(optional\)<\/label>/);
-  assert.match(search, /<label[^>]*for="focusFiles">[\s\S]*?Focus Files \(optional\)<\/label>/);
-  assert.match(search, /Boost retrieval with known identifiers or technical terms\./);
-  assert.match(search, /Prioritize files you already suspect are relevant\./);
-  assert.match(search, /Changes here require rebuilding context\./);
+  // Short labels (Advanced Settings simplification): a blank box already says
+  // it is optional, and what each is for is its tooltip.
+  assert.match(search, /<label[^>]*for="keywords"[^>]*>[\s\S]*?Keywords<\/label>/);
+  assert.match(search, /<label[^>]*for="focusFiles"[^>]*>[\s\S]*?Focus files<\/label>/);
+  assert.match(search, /title="Boost retrieval with known identifiers or technical terms\./);
+  assert.match(search, /title="Prioritize files you already suspect are relevant\./);
+  assert.match(search, /title="Changes here require rebuilding context\.">Requires rebuild</);
 });
 
 test("the panel never teaches the retrieval pipeline's own vocabulary", () => {
@@ -1887,12 +1988,60 @@ test("Improve with AI says it uses AI, with a tooltip that says what it will do"
 
 test("the section headings are a rule, not a card", () => {
   // §12: whitespace and typography, not containers. A border on three sides
-  // would be a box inside a page inside a panel.
-  assert.match(CSS, /\.settings-section-title \{[^}]*border-bottom: 1px solid var\(--vscode-panel-border\)/s);
-  assert.equal(/\.settings-section-title \{[^}]*border-radius/s.test(CSS), false);
-  assert.equal(/\.settings-section-title \{[^}]*background/s.test(CSS), false);
-  // Air between sections.
+  // would be a box inside a page inside a panel. The rule is under the heading
+  // row, so it runs under the tag as well as the name.
+  const head = /\.settings-section-head \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(head, /border-bottom: 1px solid var\(--vscode-panel-border\)/);
+  assert.equal(/\.settings-section-title \{[^}]*border/s.test(CSS), false, "a second rule under the name");
+  for (const rule of [head, /\.settings-section-title \{([^}]*)\}/.exec(CSS)?.[1] ?? ""]) {
+    assert.equal(/border-radius|background/.test(rule), false);
+  }
+  // A step above a field label: the settings editor's own header colour, a touch larger.
+  assert.match(CSS, /\.settings-section-title \{[^}]*font-size: 1\.08em;[^}]*font-weight: 600;[^}]*color: var\(--vscode-settings-headerForeground, var\(--vscode-foreground\)\);/s);
+  // Air between sections; tighter between the fields inside one.
   assert.match(CSS, /\.settings-section \{[^}]*margin: 0 0 18px/s);
+  assert.match(CSS, /#workflow-settings-view \.field \{\s*margin-bottom: 10px;\s*\}/);
+  assert.match(CSS, /#workflow-settings-view \.field-check \{\s*margin-bottom: 4px;\s*\}/);
+  assert.match(CSS, /#workflow-settings-view \.setting-header \{\s*margin-bottom: 4px;\s*\}/);
+});
+
+test("a section's tag is a quiet fact beside its heading, never a badge, and wraps under it", () => {
+  // At the row's end while there is room; under the heading, at its start, in
+  // a narrow sidebar (space-between puts a lone item first) — as a phrase,
+  // never broken, never pushing the page sideways.
+  const head = /\.settings-section-head \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(head, /display: flex;/);
+  assert.match(head, /flex-wrap: wrap;/);
+  assert.match(head, /justify-content: space-between;/);
+  const tag = /\.settings-tag \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.equal(/margin-left: auto/.test(tag), false, "a wrapped tag would be stranded at the right");
+  assert.match(tag, /color: var\(--vscode-descriptionForeground\);/);
+  assert.match(tag, /white-space: nowrap;/);
+  assert.equal(/background|border|border-radius|badge/.test(tag), false, "the tag became a badge");
+  // The heading may shrink and wrap instead.
+  assert.match(CSS, /\.settings-section-title \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;/s);
+  // The few words of each tag, from the one table — and, rendered, each beside
+  // its heading with the full sentence as its tooltip: what a change needs,
+  // never something the section does by itself.
+  const expected: Readonly<Record<string, readonly [string, string]>> = {
+    "issue-details": ["Requires rebuild", "Changes here require rebuilding context."],
+    "code-search": ["Requires rebuild", "Changes here require rebuilding context."],
+    "git-history": ["Requires rebuild", "Changes here require rebuilding context."],
+    "build-context": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
+    "fix-with-ai": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
+  };
+  assert.deepEqual(Object.keys(expected), [...WORKFLOW_SETTINGS_SECTIONS]);
+  for (const [section, [words, sentence]] of Object.entries(expected)) {
+    assert.equal(sectionRebuildTag(section as (typeof WORKFLOW_SETTINGS_SECTIONS)[number]), words, section);
+    assert.ok(
+      settingsSection(section).includes(`<span class="settings-tag" id="settings-note-${section}" title="${sentence}">${words}</span>`),
+      `${section}: not "${words}" with "${sentence}" as its tooltip`,
+    );
+  }
+  // The wording it replaced read as though the section rebuilt the context
+  // itself; it is nowhere on the page, on screen or in a tooltip.
+  assert.equal(SETTINGS_VIEW.includes("Rebuilds context"), false);
+  assert.equal(SETTINGS_ON_SCREEN.includes("Rebuilds context"), false);
 });
 
 test("the hint row lets its two controls stack, Improve with AI first, the option whole on its line", () => {
@@ -2992,14 +3141,22 @@ test("descriptions from the page describe only the files in the same form, and a
   assert.equal(message.form.attachmentDescriptions["/a/one.log"]!.length, MAX_ATTACHMENT_DESCRIPTION);
 });
 
-test("the Attachments field says how files get there, and has a quiet status line", () => {
+test("the Attachments field says how files get there on hover, and has a quiet status line", () => {
   const field = /<div class="field" id="field-attachments">[\s\S]*?<\/button>\s*<\/div>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(field, "");
-  assert.match(field, /Add files, drag &amp; drop \(hold Shift\), or paste from clipboard\./);
+  // On screen, the label and the button and nothing else (Advanced Settings
+  // simplification); the ways in — dialog, drop, clipboard — are the label's and
+  // the button's tooltip and the button's description.
+  const help = "Add files, drag and drop while holding Shift, or paste from the clipboard.";
+  assert.match(field, new RegExp(`<label for="add-attachment" title="${help.replace(/\./g, "\\.")}">`));
+  assert.ok(field.includes(`<button type="button" id="add-attachment" title="${help}" aria-describedby="add-attachment-hint">`));
+  assert.ok(field.includes(`<p class="visually-hidden" id="add-attachment-hint">${help}</p>`));
+  assert.equal(/<p class="hint" id="add-attachment-hint"/.test(field), false, "the helper line is back on screen");
   assert.match(field, /<p class="hint attachment-status" id="attachment-status" role="status" hidden><\/p>/);
   assert.equal(/Jira/.test(field), false);
   // The section still says its changes need a rebuild.
   assert.equal(sectionRebuildNote("issue-details"), "Changes here require rebuilding context.");
+  assert.equal(sectionRebuildTag("issue-details"), "Requires rebuild");
 });
 
 test("an attachment row never pushes a narrow sidebar sideways", () => {

@@ -186,10 +186,12 @@ The page edits a copy: nothing you change there is used until you press
 and the issue, Fix Mode, Hint, the checkboxes and everything else on the main
 page stay as you left them. Fix Mode and Hint are not on this page: they are on
 the main page under the issue, where you define the problem, and each setting
-has exactly one place. Each section says whether its changes **require
-rebuilding context** — after applying one that does, the button at the top
-becomes **Rebuild Context**. Changing the AI Agent or *Delete previous artifacts
-first* does not. While BugPilot is running something, Apply waits until it
+has exactly one place. Each section's heading is tagged **Requires rebuild** or
+**Next run only** — after applying a change in a *Requires rebuild* section, the
+button at the top becomes **Rebuild Context**; nothing is rebuilt until you press
+it. Changing the AI Agent or *Delete
+previous artifacts first* does not. What each setting does is its tooltip:
+hover its label. While BugPilot is running something, Apply waits until it
 finishes.
 
 A row with settings shows a short summary of them under its description — "4

@@ -18,6 +18,7 @@ import {
   WORKFLOW_SETTINGS_SECTIONS,
   sectionOfField,
   sectionRebuildNote,
+  sectionRebuildTag,
   settingsSummaries,
   showsRebuildLabel,
   isSettingsField,
@@ -97,6 +98,20 @@ test("a section says once whether its changes need a rebuild; no section is mixe
   assert.equal(sectionRebuildNote("fix-with-ai"), "Changes here apply to the next run and do not require rebuilding context.");
   const labelled = (Object.keys(CHANGED) as SettingsField[]).filter(showsRebuildLabel);
   assert.deepEqual(labelled, [], `a setting carries its own ${REQUIRES_REBUILD_LABEL} label`);
+});
+
+test("a section's tag says in a few words what its sentence says, from the same table", () => {
+  // The tag beside each heading (Advanced Settings simplification) and the
+  // sentence that is its tooltip can never disagree: both read
+  // SETTING_REQUIRES_REBUILD, and the fingerprint test above holds that table to
+  // what actually makes a context stale.
+  for (const section of WORKFLOW_SETTINGS_SECTIONS) {
+    const rebuilds = SETTINGS_SECTION_FIELDS[section].every((field) => SETTING_REQUIRES_REBUILD[field]);
+    assert.equal(sectionRebuildTag(section), rebuilds ? "Requires rebuild" : "Next run only", section);
+    assert.equal(sectionRebuildNote(section) === "Changes here require rebuilding context.", rebuilds, section);
+    // Short enough to sit beside a heading in a 200px sidebar.
+    assert.ok(sectionRebuildTag(section).length <= 16, sectionRebuildTag(section));
+  }
 });
 
 test("Fix Mode and Hint left the settings page, and still make a prepared context stale exactly as before", () => {

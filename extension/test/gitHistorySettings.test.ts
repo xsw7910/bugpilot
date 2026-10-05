@@ -298,9 +298,10 @@ test("the section holds its eight controls in the model's order, with labels", (
   const controls = [...SECTION.matchAll(/<(?:input|textarea|select) [^>]*?\bid="([A-Za-z]+)"/g)].map((match) => match[1]);
   assert.deepEqual(controls, [...SETTINGS_SECTION_FIELDS["git-history"]]);
   for (const id of controls) assert.match(SECTION, new RegExp(`<label[^>]*for="${id}"`), `${id} has no label`);
+  // Sentence case like every label on the page (Advanced Settings simplification).
   for (const label of [
-    "Use shared Keywords",
-    "Use shared Focus Files",
+    "Use shared keywords",
+    "Use shared focus files",
     "Additional commit keywords",
     "Additional files",
     "Search commit messages",

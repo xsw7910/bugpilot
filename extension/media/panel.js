@@ -492,12 +492,12 @@
     element.style.height = "auto";
     const resting = element.clientHeight;
     if (!resting) return;
-    // A description's box is border-box: its border has to be added back, or
-    // the text sits 2px short and a scrollbar shows (seen in the real window).
-    // The Issue's too: its one resting row is exactly one line of text, so 2px
-    // short is a scrollbar on a field holding a single word.
-    const bordered = describing || element.id === "issue";
-    const border = bordered ? Math.max(0, Number(element.offsetHeight) - element.clientHeight || 0) : 0;
+    // Every box here is border-box, so its border has to be added back, or the
+    // text sits 2px short and a scrollbar shows. Seen in the real window three
+    // times: an attachment's description, the Issue's one resting row, and
+    // Focus files and Ignore paths, whose four-line placeholders fill their
+    // four rows exactly and showed a scrollbar while empty.
+    const border = Math.max(0, Number(element.offsetHeight) - element.clientHeight || 0);
     element.style.height = `${Math.max(resting, element.scrollHeight + border)}px`;
   }
 

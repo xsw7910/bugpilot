@@ -415,7 +415,7 @@ details[open] > summary {
    "what does this step use?" — is answered by the step's name. */
 .settings-section {
   margin: 0 0 18px;
-  padding: 4px 6px 6px;
+  padding: 4px 6px 4px;
   border-radius: 2px;
   /* Outlined, never filled, while a gear's arrival points at it: an outline
      survives a high-contrast theme, and transparent at rest keeps the layout
@@ -437,13 +437,31 @@ details[open] > summary {
   }
 }
 
-.settings-section-title {
-  margin: 0 0 2px;
+/* A section's heading row: its name, and beside it whether its changes rebuild
+   the context (Advanced Settings simplification). The rule under the row, not
+   under the name, so the tag sits above it too. `space-between` puts the tag at
+   the row's end while both fit, and — alone on its line when a narrow sidebar
+   wraps it — at the start, under the name, rather than stranded at the right. */
+.settings-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1px 8px;
+  margin: 0 0 8px;
   padding-bottom: 3px;
   border-bottom: 1px solid var(--vscode-panel-border);
-  font-size: var(--vscode-font-size);
+}
+
+.settings-section-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  /* A step above a field label: the settings editor's own header colour where
+     the theme has one, a touch larger than the 600-weight labels under it. */
+  font-size: 1.08em;
   font-weight: 600;
-  color: var(--vscode-foreground);
+  color: var(--vscode-settings-headerForeground, var(--vscode-foreground));
   overflow-wrap: anywhere;
 }
 
@@ -456,10 +474,35 @@ details[open] > summary {
   outline: none;
 }
 
-/* Whether the section's changes make a prepared context stale: said once, in
-   the quiet helper style, never as a warning. */
-.settings-rebuild {
-  margin: 2px 0 8px;
+/* Whether the section's changes make a prepared context stale, in a few words:
+   quiet like a helper, at the row's end, never a badge or a warning — it is a
+   fact about the section, not a problem. Its sentence is the tooltip. */
+.settings-tag {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+/* Inside a section, a little tighter than the main form: on this page the
+   rhythm is field, field, field, and the air goes between sections instead. */
+#workflow-settings-view .field {
+  margin-bottom: 10px;
+}
+
+/* A run of checkboxes stays a list: the rule above outranks `.field-check`. */
+#workflow-settings-view .field-check {
+  margin-bottom: 4px;
+}
+
+#workflow-settings-view .setting-header {
+  margin-bottom: 4px;
+}
+
+/* The mark after "Delete previous artifacts first": the one setting here that
+   deletes work. Decorative; the sentence is the tooltip and the description. */
+.setting-warning {
+  font-size: 14px;
+  margin-left: 2px;
 }
 
 /* The same fact for one setting, in a section where it is not true of all of
