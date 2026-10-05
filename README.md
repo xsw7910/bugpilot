@@ -452,7 +452,7 @@ docs/agent_team_instructions.md
 
 One core, three entry points, and a bug described by hand is a first-class
 input alongside a Jira issue. See [docs/adapter_design.md](docs/adapter_design.md)
-for the design (written in Chinese).
+for the design.
 
 | Entry | For | Start here |
 | --- | --- | --- |
@@ -467,30 +467,17 @@ that is the only agent you use. See [docs/skill_setup.md](docs/skill_setup.md).
 Status: the CLI is the original prototype and is in use. The MCP server and the
 extension are implemented and tested, but neither has been through its final
 real-world check yet — the MCP server has never been driven by a real Claude
-Code client, and the extension's interface has not been through manual QA. Both
-are tracked in [docs/beta_checklist.md](docs/beta_checklist.md).
+Code client, and the extension's interface has not been through manual QA.
 
 ## Documentation
-- [docs/usage_guide.md](docs/usage_guide.md) — command reference and the
-  recommended end-to-end workflow.
-- [docs/workflow_overview.md](docs/workflow_overview.md) — stage-by-stage narrative.
 - [docs/architecture.md](docs/architecture.md) — layers, orchestrators, module
   reference, and the artifact pipeline.
 - [docs/adapter_design.md](docs/adapter_design.md) — design draft for the
-  CLI / MCP / VS Code multi-entry architecture (Chinese).
+  CLI / MCP / VS Code multi-entry architecture.
 - [docs/mcp_setup.md](docs/mcp_setup.md) — run bugpilot as an MCP server so an
-  AI agent can drive the workflow by calling tools (Chinese).
+  AI agent can drive the workflow by calling tools.
 - [extension/README.md](extension/README.md) — the VS Code extension: install,
   first run in five minutes, commands, and what it deliberately will not do.
 - [docs/skill_setup.md](docs/skill_setup.md) — install the Claude Code skill,
-  and how to compare it against the MCP path (Chinese).
-- [docs/beta_checklist.md](docs/beta_checklist.md) — what still has to be
-  checked by a human before Internal Beta: the install matrix, a new-machine
-  onboarding run, and real MCP client connectivity (Chinese).
-- [docs/manual_qa_phase5.md](docs/manual_qa_phase5.md) — the extension's
-  interface checklist: four themes, three sidebar widths, keyboard-only
-  operation, restart behaviour (Chinese).
-- [docs/phases/](docs/phases/) — what each implementation phase actually delivered,
-  the contracts downstream phases can rely on, and the pitfalls found along the way
-  (Chinese).
+  and how to compare it against the MCP path.
 - [docs/safety.md](docs/safety.md) — what bugpilot will and will not do.

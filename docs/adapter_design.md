@@ -1,27 +1,27 @@
-# BugPilot 多入口与多输入设计 — CLI / MCP / VS Code 扩展
+# BugPilot Multi-Entry and Multi-Input Design — CLI / MCP / VS Code Extension
 
-本文记录把 BugPilot 从「单一 CLI + Jira issue 输入」扩展为「三个入口、多个 bug 输入源
-共用一个内核」的需求、就绪度评估、目标架构和实施计划。第一版的目标是
-Feature-rich Internal Beta，直接供其他程序员试用，而不是仅做技术验证。
+This document records the requirements, readiness assessment, target architecture and implementation plan for extending BugPilot from "a single CLI + Jira issue input" to "three entry points and multiple bug input sources
+sharing one core". The goal of the first version is a
+Feature-rich Internal Beta that other programmers can try directly, rather than a mere technical validation.
 
-- **面向读者**：要改 BugPilot 本身的开发者。
-- **前置阅读**：[architecture.md](architecture.md)（现有分层与产物流水线）、
-  [usage_guide.md](usage_guide.md)（命令语义）、[safety.md](safety.md)（安全边界）。
-- **本文不重复** architecture.md 的内容；只描述**新增的领域模型与 adapter 层**，
-  以及为此需要对现有代码做的改动。
-- **状态**：设计草案，未开始实施。
+- **Audience**: developers who want to change BugPilot itself.
+- **Prerequisites**: [architecture.md](architecture.md) (the existing layering and artifact pipeline),
+  [the README's Main Commands](../README.md#main-commands) (command semantics), [safety.md](safety.md) (safety boundaries).
+- **This document does not repeat** the content of architecture.md; it only describes the **new domain model and adapter layer**,
+  and the changes to existing code that this requires.
+- **Status**: design draft, implementation not started.
 
 ---
 
-## 1. 产品定位
+## 1. Product positioning
 
-长期定位不再是 "Jira bug helper"，而是：
+The long-term positioning is no longer "Jira bug helper", but:
 
 > **BugPilot turns a bug report into focused code context for AI coding agents.**
 
-### 1.1 三个入口的用户心智模型
+### 1.1 The user mental model of the three entry points
 
-这是正式产品原则，应同步写入 [architecture.md](architecture.md)：
+This is a formal product principle and should also be written into [architecture.md](architecture.md):
 
 ```text
 Automation        -> CLI
@@ -29,13 +29,13 @@ Agent-driven      -> MCP
 Developer-driven  -> VS Code Extension
 ```
 
-对外一句话解释：
+The one-sentence explanation for external audiences:
 
 > Use the VS Code Extension when you want to control the investigation.
 > Use MCP when you want the AI agent to drive the investigation.
 > Use the CLI for automation and scripted pipelines.
 
-### 1.2 输入源可扩展
+### 1.2 Extensible input sources
 
 ```text
 Jira issue          -> BugSpec -> workflow
@@ -43,111 +43,111 @@ Manual description  -> BugSpec -> workflow
 Future adapters     -> BugSpec -> workflow
 ```
 
-未来可自然扩展 GitHub Issue、Azure DevOps、clipboard、selected text、log/stack trace，
-而无需重写 core。这个定位是 §2.2 中 R7（Jira 不是核心依赖）的动机。
+In the future this can naturally extend to GitHub Issue, Azure DevOps, clipboard, selected text, log/stack trace,
+without rewriting the core. This positioning is the motivation for R7 (Jira is not a core dependency) in §2.2.
 
-**阶段 7 的结论：暂不新增任何 adapter。** 理由不是成本高——`BugSpec` 与
-`bug_spec_from_description` 已经把成本压到「解析 + 一个 `source` 值」——而是
-**没有证据**。manual 模式已经能吃下任何粘贴进来的文本（包括 stack trace 与
-日志片段），所以新 adapter 的唯一增量价值是「自动取回内容」。触发条件写在这里，
-满足任一条再动手：
+**Phase 7 conclusion: add no adapters for now.** The reason is not high cost — `BugSpec` and
+`bug_spec_from_description` have already pushed the cost down to "parsing + one `source` value" — but rather
+**the lack of evidence**. Manual mode can already take in any pasted text (including stack traces and
+log snippets), so the only incremental value of a new adapter is "fetching the content automatically". The trigger conditions are written here;
+start work only once at least one of them is met:
 
-| 候选 adapter | 该做的信号 |
+| Candidate adapter | Signal that it is worth doing |
 | --- | --- |
-| GitHub Issue / Azure DevOps | 有人**实际**在这些系统里报 bug，且已经出现「手工复制 issue 正文」的重复劳动 |
-| clipboard / selected text | 有人反馈「粘贴到面板」这一步是摩擦点（目前面板就是粘贴板，摩擦未被证实） |
-| log / stack trace | 出现「同一份 stack trace 反复被人工整理成 description」的模式 |
+| GitHub Issue / Azure DevOps | Someone **actually** reports bugs in these systems, and the repetitive work of "manually copying the issue body" has already appeared |
+| clipboard / selected text | Someone reports that the "paste into the panel" step is a friction point (the panel currently is the paste board; the friction is unconfirmed) |
+| log / stack trace | A pattern appears where "the same stack trace is repeatedly turned into a description by hand" |
 
-在此之前，新增 adapter 会增加三个入口都要覆盖的表面积，换来一个假想的便利。
+Until then, a new adapter would add surface area that all three entry points must cover, in exchange for a hypothetical convenience.
 
 ---
 
-## 2. 需求
+## 2. Requirements
 
-### 2.1 背景
+### 2.1 Background
 
-当前 BugPilot 只有一个入口：`bugpilot <command>`，且只接受 Jira issue 输入。
-这带来三类摩擦：
+Currently BugPilot has only one entry point: `bugpilot <command>`, and it only accepts Jira issue input.
+This causes three kinds of friction:
 
-| 摩擦 | 表现 |
+| Friction | Symptom |
 | --- | --- |
-| 命令记忆负担 | 完整流程 9 条命令、25 个子命令，新人需要照着 usage_guide 敲。 |
-| Agent 交接绕路 | `agent_runner.py` 起子进程拉起 `claude`/`copilot`，再塞一句 handoff prompt 让它去读 `agent_task.md` —— 方向是「工具启动 agent」。 |
-| 产物不可见 | `.ai/<issue>/` 下 20 个产物文件只能靠手动打开，工作流进度只在 `workflow_status.json` 里。 |
+| Command memorization burden | The full flow is 9 commands and 25 subcommands; newcomers have to type them in by following usage_guide. |
+| Roundabout agent handoff | `agent_runner.py` starts a subprocess that launches `claude`/`copilot`, then feeds it a handoff prompt telling it to read `agent_task.md` — the direction is "the tool launches the agent". |
+| Invisible artifacts | The 20 artifact files under `.ai/<issue>/` can only be opened manually, and workflow progress exists only in `workflow_status.json`. |
 
-### 2.2 需求条目
+### 2.2 Requirement items
 
-- **R1 — 保留 CLI 作为一等入口。** 现有命令的名称、参数、输出、退出码不得改变。
-  终端用户零感知。这是硬约束，不是兼容性妥协。
-- **R2 — Agent 可直接驱动流程。** 让 VS Code 里的 Claude Code / Copilot Chat 能
-  把调查步骤当工具调用，而不是由 BugPilot 反向拉起 agent。
-- **R3 — 非 CLI 用户可用。** 不熟悉终端的同事能在 VS Code 里完成完整调查：
-  选择输入源、填写描述与 hint、选择调查范围、看到实时进度、浏览产物、交接给 agent。
-- **R4 — 单一内核。** 三个入口共用 `bugpilot/core/`，不允许出现第二份工作流实现，
-  也不允许步骤选择逻辑在三个 adapter 里各写一遍。
-- **R5 — 安全边界不放宽。** 对外动作（Jira 评论、邮件、commit、push）在任何入口
-  下都必须是显式、人工确认的。agent 不得能自主触发。
-- **R6 — 凭据处理不退化。** 新入口不得引入比现状更弱的凭据存储方式。
-- **R7 — Jira 不是核心依赖。** BugPilot 必须支持两类等价输入：Jira issue 与手工 bug
-  描述；两者在进入 workflow 前统一归一化为 `BugSpec`，后续步骤不得依赖 Jira。
-- **R8 — 第一版 VS Code 扩展就做完整且打磨过的 UI。** V1 既不做功能裁剪，也不做
-  界面降级：界面须达到 §5.4 的质量标准（主题适配、窄宽度可用、键盘可达、
-  三态齐备），而不只是「功能点都在」。V1 不做功能裁剪：输入源切换、hint、
-  keywords、focus/ignore、调查范围选择、Run/Stop、实时进度、产物浏览、history、
-  agent handoff、诊断全部做出来。范围风险已知并接受（见 §10）。
-- **R9 — 不依赖目标仓库配置。** BugPilot 在目标仓库没有任何 BugPilot 专用配置
-  （包括 `CLAUDE.md`）的情况下必须完整可用。仓库侧配置只能是可选增强。
+- **R1 — Keep the CLI as a first-class entry point.** The names, arguments, output and exit codes of existing commands must not change.
+  Terminal users notice nothing. This is a hard constraint, not a compatibility compromise.
+- **R2 — Agents can drive the flow directly.** Let Claude Code / Copilot Chat in VS Code
+  treat investigation steps as tool calls, instead of BugPilot launching the agent the other way around.
+- **R3 — Usable by non-CLI users.** Colleagues unfamiliar with the terminal can complete a full investigation in VS Code:
+  choose an input source, fill in the description and hint, choose the investigation scope, see real-time progress, browse artifacts, and hand off to an agent.
+- **R4 — Single core.** All three entry points share `bugpilot/core/`; a second workflow implementation is not allowed,
+  nor is the step selection logic allowed to be written separately in each of the three adapters.
+- **R5 — Safety boundaries are not relaxed.** External actions (Jira comments, emails, commit, push), under any entry point,
+  must be explicit and manually confirmed. The agent must not be able to trigger them autonomously.
+- **R6 — Credential handling does not regress.** New entry points must not introduce a credential storage method weaker than the current one.
+- **R7 — Jira is not a core dependency.** BugPilot must support two equivalent kinds of input: a Jira issue and a manual bug
+  description; both are normalized into a `BugSpec` before entering the workflow, and subsequent steps must not depend on Jira.
+- **R8 — The first version of the VS Code extension ships a complete and polished UI.** V1 neither cuts features nor
+  downgrades the interface: the interface must meet the quality bar in §5.4 (theme adaptation, usable at narrow widths, keyboard-reachable,
+  all three states covered), not merely "all the features are there". V1 does not cut features: input source switching, hint,
+  keywords, focus/ignore, investigation scope selection, Run/Stop, real-time progress, artifact browsing, history,
+  agent handoff, and diagnostics are all built. The scope risk is known and accepted (see §10).
+- **R9 — No dependency on target repository configuration.** BugPilot must be fully usable when the target repository has no BugPilot-specific configuration at all
+  (including `CLAUDE.md`). Repository-side configuration can only be an optional enhancement.
 
-### 2.3 非目标
+### 2.3 Non-goals
 
-- 不做 Web UI、不做服务端部署。
-- 不改变 prepare-only 的产品定位：BugPilot 不自动提交/推送/开 PR。
-- 不要求 bug 必须先存在于 Jira；手工描述、粘贴日志或 stack trace 可以直接作为输入。
-- 不把全部 25 个子命令都暴露给 agent（见 §5.2）。
-- 不支持除 VS Code 之外的编辑器（JetBrains 等）—— MCP 入口天然可移植，扩展入口不做。
-- 不自造设计语言：界面必须看起来像 VS Code 原生的一部分，不引入自有品牌视觉。
-  「打磨」的含义是主题一致、状态完备、可访问，不是视觉上出彩（见 §5.4）。
+- No Web UI and no server-side deployment.
+- No change to the prepare-only product positioning: BugPilot does not automatically commit/push/open PRs.
+- No requirement that the bug exist in Jira first; a manual description, pasted logs or a stack trace can be used directly as input.
+- Not all 25 subcommands are exposed to the agent (see §5.2).
+- No support for editors other than VS Code (JetBrains, etc.) — the MCP entry point is naturally portable; the extension entry point is not built for them.
+- No home-grown design language: the interface must look like a native part of VS Code and introduces no brand visuals of its own.
+  "Polish" means theme consistency, complete states and accessibility, not visual flair (see §5.4).
 
 ---
 
-## 3. 就绪度评估与领域模型
+## 3. Readiness assessment and domain model
 
-### 3.1 已经满足的
+### 3.1 Already satisfied
 
-| adapter 需要的能力 | 现状 | 位置 |
+| Capability the adapter needs | Current state | Location |
 | --- | --- | --- |
-| 可靠退出码 | 是。`main(argv) -> int`，21 条 `return 1` 路径 | `cli.py` |
-| 错误不污染 stdout | 是。39 处 `file=sys.stderr` | `cli.py` |
-| 结构化工作流状态 | 是。`workflow_status.json` 含 `steps` 状态机（24 阶段）+ `generated_files` | `workflow.py` |
-| 数据/展示分离 | 是。`collect_doctor_report() -> dict` 与 `doctor_report_lines()` 已拆开 | `doctor.py` |
-| 非交互 setup | 是。`run_setup(prompt=, prompt_secret=, out=)` 全部可注入 | `setup.py` |
-| step 函数可独立调用 | 是。每个 `*_step(repo_root, issue_key, ...)` 都能单独跑 | `workflow.py` |
-| **逐步进度回调** | 是。`run_bug_workflow(progress=Callable[[str], None])`，在 10 个步骤点已有调用 | `workflow.py:194` |
-| 产物即接口 | 是。步骤间通过文件通信，不互相调用 | architecture.md §1 |
-| 零运行时依赖 | 是。仅标准库 | `pyproject.toml` |
+| Reliable exit codes | Yes. `main(argv) -> int`, 21 `return 1` paths | `cli.py` |
+| Errors do not pollute stdout | Yes. 39 occurrences of `file=sys.stderr` | `cli.py` |
+| Structured workflow status | Yes. `workflow_status.json` contains a `steps` state machine (24 stages) + `generated_files` | `workflow.py` |
+| Data/presentation separation | Yes. `collect_doctor_report() -> dict` and `doctor_report_lines()` are already split | `doctor.py` |
+| Non-interactive setup | Yes. `run_setup(prompt=, prompt_secret=, out=)` are all injectable | `setup.py` |
+| Step functions can be called independently | Yes. Each `*_step(repo_root, issue_key, ...)` can run on its own | `workflow.py` |
+| **Per-step progress callback** | Yes. `run_bug_workflow(progress=Callable[[str], None])`, already called at 10 step points | `workflow.py:194` |
+| Artifacts as the interface | Yes. Steps communicate through files and do not call each other | architecture.md §1 |
+| Zero runtime dependencies | Yes. Standard library only | `pyproject.toml` |
 
-已有的 `progress` 回调是 §5.1 中 `--json-lines` 的天然挂点 —— 不需要新增 hook，
-只需把 CLI 现在传进去的人类可读打印器换成 JSONL 发射器。
+The existing `progress` callback is the natural hook point for `--json-lines` in §5.1 — no new hook is needed;
+we only need to replace the human-readable printer that the CLI currently passes in with a JSONL emitter.
 
-### 3.2 需要处理的
+### 3.2 Needs to be addressed
 
-| 问题 | 细节 | 影响 |
+| Problem | Details | Impact |
 | --- | --- | --- |
-| **core 有 stdout 输出** | 12 处 `print`，集中在 `copilot.py`（10）和 `doctor.py`（2）。都是「打印报告」函数。MCP 走 stdio 时 stdout 是 JSON-RPC 通道，任何 `print` 都会破帧。 | MCP |
-| **无机器可读输出** | 各命令正常输出是人类文本（`print(f"Generated: .ai/...")`）。 | 扩展 |
-| **首个运行时依赖** | MCP server 需要 `mcp` 包，会打破「零依赖」契约。 | MCP |
-| **多份安装并存** | 同一台机器上 pipx 副本（`~/.local/bin/bugpilot.exe`）与 editable 安装（仓库）并存，且 PATH 指向前者。扩展不能硬编码路径。 | 扩展 |
-| **work item 身份混乱** | 三个正则、两份实现，语义未分离。详见 §3.4。 | 领域模型 |
-| **步骤选择无 core 契约** | 现在只有 `WORKFLOW_STEPS`（24 个实现阶段）和各自的 `*_step` 函数，没有面向用户的逻辑调查范围概念。 | 三入口漂移风险 |
+| **core writes to stdout** | 12 `print` calls, concentrated in `copilot.py` (10) and `doctor.py` (2). All are "print a report" functions. When MCP runs over stdio, stdout is the JSON-RPC channel, and any `print` breaks the framing. | MCP |
+| **No machine-readable output** | The normal output of each command is human text (`print(f"Generated: .ai/...")`). | Extension |
+| **First runtime dependency** | The MCP server needs the `mcp` package, which breaks the "zero dependencies" contract. | MCP |
+| **Multiple installations coexist** | On the same machine a pipx copy (`~/.local/bin/bugpilot.exe`) and an editable install (the repository) coexist, and PATH points to the former. The extension must not hardcode paths. | Extension |
+| **Confused work item identity** | Three regexes, two implementations, semantics not separated. See §3.4. | Domain model |
+| **No core contract for step selection** | Currently there is only `WORKFLOW_STEPS` (24 implementation stages) and their respective `*_step` functions, with no user-facing concept of a logical investigation scope. | Risk of drift across the three entry points |
 
-`copilot.py` 曾是唯一没做数据/展示分离的模块。**已拆开**：`collect_agent_status()`
-返回 dict，`agent_status_lines()` / `auto_invocation_guidance()` 负责渲染。
-旧的 `print_copilot_check()` 在无人调用后于阶段 7 的 review 中删除。
+`copilot.py` used to be the only module without data/presentation separation. **Now split**: `collect_agent_status()`
+returns a dict, and `agent_status_lines()` / `auto_invocation_guidance()` handle rendering.
+The old `print_copilot_check()` was deleted in the Phase 7 review once nothing called it any more.
 
-### 3.3 领域模型：InvestigationRequest
+### 3.3 Domain model: InvestigationRequest
 
-三个入口都构造同一个请求对象。它由三个正交部分组成，**不合并成一个不断膨胀的
-`BugSpec`**：
+All three entry points construct the same request object. It consists of three orthogonal parts, **not merged into one ever-growing
+`BugSpec`**:
 
 ```text
              INPUT
@@ -159,7 +159,7 @@ GitHub ─────┘
                 +
 
 Hint / Keywords / Focus / Ignore ──→ InvestigationOptions  (retrieval config)
-调查范围选择 ───────────────────────→ InvestigationPlan     (which capabilities)
+Investigation scope selection ─────→ InvestigationPlan     (which capabilities)
 
                 ↓
 
@@ -174,26 +174,26 @@ Hint / Keywords / Focus / Ignore ──→ InvestigationOptions  (retrieval conf
                 ↓
         InvestigationResult
                 ↓
-      .ai/<work_item>/ 产物
+      .ai/<work_item>/ artifacts
 ```
 
-#### BugSpec —— bug 的身份与内容
+#### BugSpec — the bug's identity and content
 
 ```python
 @dataclass(frozen=True)
 class BugSpec:
-    work_item_id: str            # 目录与产物标识，见 §3.4
+    work_item_id: str            # directory and artifact identifier, see §3.4
     source: str                  # jira | manual
     title: str
     description: str
-    source_ref: str | None = None    # Jira 模式下的 issue key；manual 模式为 None
+    source_ref: str | None = None    # the issue key in Jira mode; None in manual mode
 ```
 
-`work_item_id` 与 `source_ref` **是两个概念**。Jira 模式下两者恰好同值
-（`JR-34567`），manual 模式下 `source_ref` 为 `None`。任何需要「回写到外部系统」
-的代码只能读 `source_ref`，绝不能拿 `work_item_id` 当 Jira key 用。
+`work_item_id` and `source_ref` **are two different concepts**. In Jira mode the two happen to have the same value
+(`JR-34567`); in manual mode `source_ref` is `None`. Any code that needs to "write back to an external system"
+may only read `source_ref`, and must never use `work_item_id` as a Jira key.
 
-#### InvestigationOptions —— 检索配置
+#### InvestigationOptions — retrieval configuration
 
 ```python
 @dataclass
@@ -202,165 +202,165 @@ class InvestigationOptions:
     keywords: list[str] = field(default_factory=list)
     focus_files: list[str] = field(default_factory=list)
     ignore_paths: list[str] = field(default_factory=list)
-    max_files: int = 10              # 现 search.MAX_TOTAL_RELATED_FILES
-    max_search_lines: int = 300      # 现 search.MAX_TOTAL_CODE_SEARCH_LINES
+    max_files: int = 10              # currently search.MAX_TOTAL_RELATED_FILES
+    max_search_lines: int = 300      # currently search.MAX_TOTAL_CODE_SEARCH_LINES
 ```
 
-将来新增的检索配置都进这里，不进 `BugSpec`。
+Any retrieval configuration added in the future goes here, not into `BugSpec`.
 
-`max_files` / `max_search_lines` 只是把 [search.py](../bugpilot/core/search.py) 里
-已有的硬编码常量变成参数，成本极低。**必须成对暴露** —— 文件数不是唯一量纲，
-片段总行数对 agent 上下文的影响更大；只给 `max_files` 会让用户以为能控制产物体积，
-实际控制不了。
+`max_files` / `max_search_lines` merely turn the hardcoded constants that already exist in [search.py](../bugpilot/core/search.py)
+into parameters, at very low cost. **They must be exposed as a pair** — the file count is not the only dimension;
+the total line count of the snippets has a bigger effect on the agent's context; exposing only `max_files` would make users think they can control the artifact size,
+when in fact they cannot.
 
-评审提出的另外三个候选字段**不进 V1**，理由记录在此以免重复讨论：
+The other three candidate fields raised in review **do not go into V1**; the reasons are recorded here to avoid repeating the discussion:
 
-| 候选字段 | 现状 | 不进 V1 的理由 |
+| Candidate field | Current state | Why it is not in V1 |
 | --- | --- | --- |
-| `search_scope` | 无（只有 `_is_included_path` 后缀白名单与 `NOISE_PATH_INDICATORS` 降权） | 与 `focus_files` / `ignore_paths` 语义重叠。「只搜某子树」几乎都能用 `ignore_paths` 反向表达；三个字段表达同一件事会让用户不知道该用哪个。等有真实场景证明不够再加。 |
-| `dependency_depth` | 无。`search.py` 只做 ripgrep 关键词匹配 + 排序，无任何 include 图分析 | 这是**独立特性**而非参数：C++/Qt 仓库要解析 `#include`、区分 `<>` 与 `""`、处理 include 搜索路径与条件编译。不是加一个 int 就完事。 |
-| `token_budget` | 无。只有按行数的段落截断（`_section_excerpt(max_lines=25/12)`） | 需要 token 计数基础设施（`tiktoken` 对 Claude 低估 15–20%，要么调 API 要么接受粗估）；且不如直接控 `max_files` / `max_search_lines` 有效且可解释。 |
+| `search_scope` | None (only the `_is_included_path` suffix allowlist and `NOISE_PATH_INDICATORS` down-weighting) | Semantically overlaps with `focus_files` / `ignore_paths`. "Search only a certain subtree" can almost always be expressed inversely with `ignore_paths`; three fields expressing the same thing would leave users unsure which one to use. Add it once a real scenario proves this insufficient. |
+| `dependency_depth` | None. `search.py` only does ripgrep keyword matching + ranking, with no include-graph analysis at all | This is an **independent feature**, not a parameter: C++/Qt repositories require parsing `#include`, distinguishing `<>` from `""`, and handling include search paths and conditional compilation. Adding an int does not finish the job. |
+| `token_budget` | None. There is only line-based section truncation (`_section_excerpt(max_lines=25/12)`) | Requires token-counting infrastructure (`tiktoken` underestimates Claude by 15–20%; either call the API or accept a rough estimate); and it is less effective and less explainable than directly controlling `max_files` / `max_search_lines`. |
 
-**副作用要记**：`search_quality.json` 的置信度评估是按当前默认值调出来的。
-用户把 `max_files` 调到 3 时质量分的含义会变（候选变少，「高置信」门槛实际被抬高）。
-不影响正确性，但用户文档需提一句。
+**Side effect to keep in mind**: the confidence assessment in `search_quality.json` was tuned against the current defaults.
+When a user lowers `max_files` to 3, the meaning of the quality score changes (fewer candidates, so the "high confidence" threshold is effectively raised).
+This does not affect correctness, but the user documentation should mention it.
 
-#### InvestigationPlan —— 逻辑调查范围（core 契约）
+#### InvestigationPlan — logical investigation scope (core contract)
 
-面向用户的开关是**逻辑能力**，不是实现步骤：
+The user-facing switches are **logical capabilities**, not implementation steps:
 
 ```python
 @dataclass
 class InvestigationPlan:
-    issue_details: bool = True     # 拉取/规范化 bug 描述
-    code_search: bool = True       # 代码检索
-    git_history: bool = True       # git 上下文
-    similar_fixes: bool = True     # 历史 bug 记忆检索
-    build_context: bool = True     # 汇总 bug_context.md + agent_task.md
+    issue_details: bool = True     # fetch/normalize the bug description
+    code_search: bool = True       # code retrieval
+    git_history: bool = True       # git context
+    similar_fixes: bool = True     # historical bug memory retrieval
+    build_context: bool = True     # assemble bug_context.md + agent_task.md
 ```
 
-**core 负责把 plan 展开为 `WORKFLOW_STEPS` 并解析依赖**，adapter 不参与：
+**The core is responsible for expanding the plan into `WORKFLOW_STEPS` and resolving dependencies**; adapters do not take part:
 
-需要**两张表**，不是一张。第一张说「能力贡献哪些步骤」：
+**Two tables** are needed, not one. The first says "which steps a capability contributes":
 
-| 逻辑开关 | 贡献的 `WORKFLOW_STEPS` |
+| Logical switch | Contributed `WORKFLOW_STEPS` |
 | --- | --- |
-| `issue_details` | `fetch`（jira 源；manual 源自动排除）· `parse` |
+| `issue_details` | `fetch` (jira source; automatically excluded for the manual source) · `parse` |
 | `code_search` | `keywords` · `code_search` |
 | `git_history` | `git_context` |
 | `similar_fixes` | `keywords` · `memory_search` |
 | `build_context` | `context` · `prompt` · `memory_add` |
 
-第二张说「步骤读哪些前置产物」（`STEP_PREREQUISITES`），由 core 做**传递闭包**：
+The second says "which prerequisite artifacts a step reads" (`STEP_PREREQUISITES`), and the core computes the **transitive closure**:
 
-| 步骤 | 依赖 | 原因 |
+| Step | Depends on | Reason |
 | --- | --- | --- |
-| `parse` | `fetch` | 读 `jira.json`（manual 源在闭包后被排除） |
-| `keywords` | `parse` | 需要已解析的 issue |
-| `code_search` · `memory_search` | `keywords` | 读 `extracted_keywords.json` |
-| `context` | `keywords` · `parse` | `context_step` **总是**读 `extracted_keywords.json` |
-| `prompt` | `context` | 读 `bug_context.md` |
-| `memory_add` | `parse` | 需要 summary |
+| `parse` | `fetch` | Reads `jira.json` (the manual source is excluded after the closure) |
+| `keywords` | `parse` | Needs the parsed issue |
+| `code_search` · `memory_search` | `keywords` | Reads `extracted_keywords.json` |
+| `context` | `keywords` · `parse` | `context_step` **always** reads `extracted_keywords.json` |
+| `prompt` | `context` | Reads `bug_context.md` |
+| `memory_add` | `parse` | Needs the summary |
 
-**前置步骤即使其所属能力被关闭也会被拉进来。** 跑前置严格优于中途崩溃 ——
-调用方拨的是能力，不是步骤，所以 core 有义务补齐这些能力要读的东西。
-实施阶段验证过：初稿只有第一张表时，`InvestigationPlan(code_search=False,
-similar_fixes=False)` 会因缺 `extracted_keywords.json` 直接 `FileNotFoundError`。
+**Prerequisite steps are pulled in even if the capability they belong to is turned off.** Running prerequisites is strictly better than crashing midway —
+the caller dials capabilities, not steps, so the core is obliged to fill in whatever those capabilities need to read.
+This was verified during implementation: when the first draft had only the first table, `InvestigationPlan(code_search=False,
+similar_fixes=False)` failed outright with `FileNotFoundError` because `extracted_keywords.json` was missing.
 
-`_remove_intermediate_files`（把 `memory_search.md` / `git_context.md` 折进
-`bug_context.md` 后删除它们）必须只在 `context` 实际运行后执行 —— 否则在
-`build_context=False` 的 plan 下会删掉该次运行唯一的产物。
+`_remove_intermediate_files` (which folds `memory_search.md` / `git_context.md` into
+`bug_context.md` and then deletes them) must run only after `context` has actually run — otherwise, under a
+plan with `build_context=False`, it would delete the only artifacts of that run.
 
-这一层是防漂移的关键：UI 里不出现 `☑ fetch ☑ parse ☑ keywords`，
-CLI、MCP、扩展共用同一个 `InvestigationPlan`，依赖解析只有一份实现（不变量 7）。
+This layer is the key to preventing drift: `☑ fetch ☑ parse ☑ keywords` never appears in the UI;
+the CLI, MCP and the extension share the same `InvestigationPlan`, and dependency resolution has only one implementation (invariant 7).
 
-### 3.4 work item identity：彻底分离，不迁就旧正则
+### 3.4 work item identity: fully separated, not bending to the old regexes
 
-上一版为了「零代码改动」让本地 ID 伪装成 Jira 风格 key（`LOCAL-<digits>`）。
-**这个决定作废。** 理由：阶段 1 本来就要合并 key 校验并引入 `BugSpec`，
-让新领域模型迁就旧正则会把技术债带进新架构；而且从语义上说，本地 ID 根本不是
-issue key，让 `looks_like_issue_key("LOCAL-2609010949")` 返回 `True` 是错的。
+The previous version, for the sake of "zero code changes", disguised local IDs as Jira-style keys (`LOCAL-<digits>`).
+**That decision is withdrawn.** Reasons: Phase 1 has to merge key validation and introduce `BugSpec` anyway;
+making the new domain model bend to the old regexes would carry technical debt into the new architecture; and semantically, a local ID is simply not
+an issue key, so having `looks_like_issue_key("LOCAL-2609010949")` return `True` is wrong.
 
-现状（三个正则、两份实现、语义未分离）：
+Current state (three regexes, two implementations, semantics not separated):
 
 ```text
-cleanup.ISSUE_KEY_CLEAN_RE = ^[A-Za-z][A-Za-z0-9_-]*-\d+$    # 实际是「目录安全的 id」
-memory.ISSUE_KEY_RE        = ^[A-Z][A-Z0-9]+-\d+$            # 实际是「Jira issue key」
-workflow.looks_like_issue_key  ─┐  同一段逻辑
-memory._looks_like_issue_key  ─┘  两份拷贝
+cleanup.ISSUE_KEY_CLEAN_RE = ^[A-Za-z][A-Za-z0-9_-]*-\d+$    # actually a "directory-safe id"
+memory.ISSUE_KEY_RE        = ^[A-Z][A-Z0-9]+-\d+$            # actually a "Jira issue key"
+workflow.looks_like_issue_key  ─┐  the same logic
+memory._looks_like_issue_key  ─┘  in two copies
 ```
 
-目标：两个语义清晰、各有单一实现的判定函数。
+Goal: two predicate functions with clear semantics, each with a single implementation.
 
 ```python
-# 是否 Jira issue key —— 仅用于决定能否回写 Jira、能否走 Jira 输入 adapter
+# Whether it is a Jira issue key — used only to decide whether we can write back to Jira and whether the Jira input adapter can be used
 JIRA_ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
 def is_jira_issue_key(value: str) -> bool: ...
 
-# 是否合法 work item id —— 用于目录命名、cleanup containment、memory 查找
+# Whether it is a valid work item id — used for directory naming, cleanup containment, and memory lookup
 WORK_ITEM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*[-_]\d+$")
 def is_work_item_id(value: str) -> bool: ...
 ```
 
-本地 ID 形态：`local_<YYYYMMDDHHMMSS>`（例如 `local_20260901094133`）。
-下划线前缀使它**不可能**被 `JIRA_ISSUE_KEY_RE` 匹配，可读、可排序、目录安全、
-不引入新依赖。若同秒冲突成为问题再换 ULID。
+Local ID shape: `local_<YYYYMMDDHHMMSS>` (for example `local_20260901094133`).
+The underscore prefix makes it **impossible** for `JIRA_ISSUE_KEY_RE` to match it; it is readable, sortable, directory-safe,
+and introduces no new dependencies. If same-second collisions become a problem, switch to ULID.
 
-#### 不给本地 ID 加可读 slug
+#### No readable slug for local IDs
 
-曾考虑把标题生成的后缀拼进目录名（`local_20260901094133_3dview-crashes-after-changing-horizon`），
-以便 `ls .ai/` 时能分辨多个本地 item。**决定不做**，三条理由：
+We considered appending a suffix generated from the title to the directory name (`local_20260901094133_3dview-crashes-after-changing-horizon`),
+so that multiple local items can be told apart when running `ls .ai/`. **Decided against it**, for three reasons:
 
-1. **ID 必须稳定，标题可改。** 用户在扩展表单里改个错别字，ID 要么跟着漂
-   （产生孤儿目录），要么 slug 变成过时的误导信息。对比 `git_ops.branch_name()`
-   ——那里用 slug 完全合理，因为分支名是一次性的人面向标识，不是稳定主键。
-2. **现有 slug 实现对中文无效。** [git_ops.py](../bugpilot/core/git_ops.py) 的
-   `summary_slug()` 第一步是 `re.sub(r"[^a-z0-9]+", "-", ...)`，非 ASCII 全部丢弃。
-   实测：`三维视图切换层位后崩溃` → `''`（空）；`OpenVDS statistics 初始化失败`
-   → `openvds-statistics`。若团队用中文写 bug 描述，可读性收益**时有时无**，
-   比一律没有更糟 —— 用户会困惑为什么有的目录有名字有的没有。要做就得先改
-   `summary_slug` 的非 ASCII 处理（保留 CJK 码点，或引入音译依赖破坏零依赖契约）。
-3. **这是显示问题，不是标识问题。** `BugSpec.title` 已在产物里；扩展的
-   History 与 TreeView 直接显示 title 即可，目录名保持短而稳定。
+1. **The ID must be stable; the title can change.** If a user fixes a typo in the extension form, either the ID drifts along with it
+   (producing orphan directories), or the slug becomes stale, misleading information. Compare `git_ops.branch_name()`
+   — there a slug makes perfect sense, because a branch name is a one-off human-facing identifier, not a stable primary key.
+2. **The existing slug implementation does not work for Chinese.** In [git_ops.py](../bugpilot/core/git_ops.py),
+   the first step of `summary_slug()` is `re.sub(r"[^a-z0-9]+", "-", ...)`, which discards all non-ASCII characters.
+   Measured: a title written entirely in Chinese (meaning "3D view crashes after switching horizon") → `''` (empty); `OpenVDS statistics` followed by Chinese for "initialization failed"
+   → `openvds-statistics`. If the team writes bug descriptions in Chinese, the readability benefit is **hit and miss**,
+   which is worse than consistently having none — users would be confused about why some directories have names and others do not. Doing it would first require changing
+   the non-ASCII handling in `summary_slug` (keep CJK code points, or introduce a transliteration dependency that breaks the zero-dependency contract).
+3. **This is a display problem, not an identity problem.** `BugSpec.title` is already in the artifacts; the extension's
+   History and TreeView can simply display the title, while the directory name stays short and stable.
 
-补上终端侧的可读性缺口：新增 `bugpilot list`（§5.1），列出 work item 的
-id / source / title / 状态。扩展的 History 面板也消费它（走 `--json`），
-不算额外成本。
+To close the readability gap on the terminal side: add `bugpilot list` (§5.1), which lists each work item's
+id / source / title / status. The extension's History panel also consumes it (via `--json`),
+so it adds no extra cost.
 
-`WORK_ITEM_ID_RE` 尾部的 `[-_]\d+` 是实施阶段补上的（初稿只要求「字母开头 + 安全字符」）。
-现有测试 `test_clean_rejects_invalid_issue_keys_without_deleting` 揭示旧的
-`ISSUE_KEY_CLEAN_RE` 还隐含一条性质：**id 必须以数字后缀结尾**，所以裸词 `HR` 不是
-合法删除目标。`JR-12345` 与 `local_20260901094133` 都满足，保留这条性质不增加成本。
+The trailing `[-_]\d+` in `WORK_ITEM_ID_RE` was added during implementation (the first draft only required "starts with a letter + safe characters").
+The existing test `test_clean_rejects_invalid_issue_keys_without_deleting` revealed that the old
+`ISSUE_KEY_CLEAN_RE` also implied a property: **the id must end with a numeric suffix**, so the bare word `HR` is not
+a valid deletion target. Both `JR-12345` and `local_20260901094133` satisfy it, and keeping this property costs nothing.
 
-两个判定函数**都不做 `strip()`**：它们校验的是将要成为路径段的确切字符串，
-`" JR-12345"` 与 `"JR-12345"` 是不同的目录。需要宽松匹配的调用方自己先 strip。
+**Neither** predicate function does `strip()`: they validate the exact string that is going to become a path segment;
+`" JR-12345"` and `"JR-12345"` are different directories. Callers that need lenient matching strip it themselves first.
 
-必须一起改的调用点：
+Call sites that must be changed together:
 
-| 位置 | 现状 | 改为 |
+| Location | Current state | Change to |
 | --- | --- | --- |
 | `cleanup.validate_issue_key` | `ISSUE_KEY_CLEAN_RE` | `validate_work_item_id` → `is_work_item_id` |
-| `memory.ISSUE_KEY_RE` | Jira 形态正则 | 移到统一模块，改名 `JIRA_ISSUE_KEY_RE` |
-| `workflow.looks_like_issue_key` | 拷贝 1 | 删除 |
-| `memory._looks_like_issue_key` | 拷贝 2 | 删除 |
-| `cli.py:395`（`memory search`） | `looks_like_issue_key(query)` | `is_work_item_id(query)` |
-| `memory.py:43`（`search_memory`） | `_looks_like_issue_key(query)` | `is_work_item_id(query)` |
-| `workflow._validate_comment_issue_key` | 比对 `issue_key` | 比对 `spec.source_ref`，且只在 `source == "jira"` 时可达 |
+| `memory.ISSUE_KEY_RE` | Jira-shaped regex | Move to a unified module, rename to `JIRA_ISSUE_KEY_RE` |
+| `workflow.looks_like_issue_key` | Copy 1 | Delete |
+| `memory._looks_like_issue_key` | Copy 2 | Delete |
+| `cli.py:395` (`memory search`) | `looks_like_issue_key(query)` | `is_work_item_id(query)` |
+| `memory.py:43` (`search_memory`) | `_looks_like_issue_key(query)` | `is_work_item_id(query)` |
+| `workflow._validate_comment_issue_key` | Compares `issue_key` | Compares `spec.source_ref`, and is reachable only when `source == "jira"` |
 
 ---
 
-## 4. 目标架构
+## 4. Target architecture
 
-### 4.1 分层
+### 4.1 Layering
 
-在 architecture.md §3 的分层之上，新增一个 **adapter 层**。三个 adapter 构造同一个
-`InvestigationRequest`，依赖方向严格单向。
+On top of the layering in architecture.md §3, a new **adapter layer** is added. The three adapters construct the same
+`InvestigationRequest`, and the dependency direction is strictly one-way.
 
 ```text
 +-------------+------------------+---------------------+
-|  CLI        |  MCP server      |  VS Code 扩展        |
+|  CLI        |  MCP server      |  VS Code extension   |
 |  cli.py     |  mcp_server.py   |  TypeScript          |
-|  (已有)      |  (新增, import)   |  (新增, spawn CLI)   |
+|  (existing) |  (new, import)   |  (new, spawn CLI)    |
 +------+------+--------+---------+----------+----------+
        |               |                    |
        | import        | import             | spawn `bugpilot --json[-lines]`
@@ -371,69 +371,69 @@ id / source / title / 状态。扩展的 History 面板也消费它（走 `--jso
    +-------------------------------+
                 |
                 v
-   +-------------------------------+
-   |   bugpilot/core/              |
-   |   plan 展开 · workflow · 18 模块 |
-   +-------------------------------+
+   +------------------------------------------+
+   |   bugpilot/core/                         |
+   |   plan expansion · workflow · 18 modules |
+   +------------------------------------------+
                 |
                 v
    InvestigationResult  ->  .ai/<work_item>/  ·  .ai_memory/bugs/
 ```
 
-两种接入方式的取舍：
+Trade-offs between the two integration approaches:
 
-- **MCP `import core`** —— 同进程，无序列化开销，能直接拿到 `InvestigationResult`
-  这类 dataclass。代价是必须遵守 stdout 纪律。
-- **扩展 `spawn CLI`** —— 进程隔离，扩展崩溃不影响流程，且天然复用 CLI 已经
-  验证过的参数解析和退出码。代价是要解析 JSON 输出。
+- **MCP `import core`** — same process, no serialization overhead, and it can directly obtain `InvestigationResult`
+  and similar dataclasses. The cost is that it must follow stdout discipline.
+- **Extension `spawn CLI`** — process isolation, so an extension crash does not affect the flow, and it naturally reuses the argument parsing and exit codes the CLI has already
+  validated. The cost is having to parse JSON output.
 
-不让扩展直接 `import core` 是刻意的：那需要在扩展里嵌一个 Python 桥，
-而 spawn CLI 让 R1（CLI 是一等入口）从「约定」变成结构性事实 ——
-扩展坏了 CLI 照常工作，CLI 坏了扩展立刻暴露。
+Not letting the extension `import core` directly is deliberate: that would require embedding a Python bridge in the extension,
+whereas spawning the CLI turns R1 (the CLI is a first-class entry point) from a "convention" into a structural fact —
+if the extension breaks, the CLI keeps working as usual; if the CLI breaks, the extension exposes it immediately.
 
-### 4.2 不变量
+### 4.2 Invariants
 
-1. `core/` 不感知调用方。不得出现 `if running_under_mcp` 之类的分支。
-2. `core/` 的任何函数不向 stdout 写。人类可读输出只在 `cli.py` 里发生。
-3. 每个 `*_step` 返回结构化数据；渲染成文本是 adapter 的职责。
-4. 对外动作一律带 `execute: bool = False`，默认不执行。
-5. Jira 只存在于 input adapter / integration 层，workflow core 接收 `BugSpec`。
-6. **评审规则（非运行时约束）**：MCP 暴露的工具集中不含任何写源码的操作，
-   这由 §5.2 的工具清单保证，没有代码强制。新增 MCP 工具时必须确认其写入范围
-   不超出 `.ai/` 与 `.ai_memory/`；`cleanup._ensure_child` 只守删除路径，不守写入。
-7. **`InvestigationPlan` 到 `WORKFLOW_STEPS` 的展开与依赖解析只在 core 里有一份
-   实现。** adapter 只传 plan，不自己决定跑哪些 step。
-8. `work_item_id` 与 `source_ref` 不得互换使用（§3.4）。
-9. BugPilot 不依赖目标仓库中的任何 BugPilot 专用配置（R9）。
+1. `core/` is unaware of its caller. There must be no branches such as `if running_under_mcp`.
+2. No function in `core/` writes to stdout. Human-readable output happens only in `cli.py`.
+3. Each `*_step` returns structured data; rendering it as text is the adapter's responsibility.
+4. External actions always take `execute: bool = False` and do not execute by default.
+5. Jira exists only in the input adapter / integration layer; the workflow core receives a `BugSpec`.
+6. **Review rule (not a runtime constraint)**: the tool set exposed by MCP contains no operation that writes source code;
+   this is guaranteed by the tool list in §5.2, and no code enforces it. When adding a new MCP tool you must confirm that its write scope
+   does not go beyond `.ai/` and `.ai_memory/`; `cleanup._ensure_child` only guards deletion paths, not writes.
+7. **The expansion of `InvestigationPlan` into `WORKFLOW_STEPS` and the dependency resolution have only one
+   implementation, in core.** Adapters only pass the plan and do not decide on their own which steps to run.
+8. `work_item_id` and `source_ref` must not be used interchangeably (§3.4).
+9. BugPilot does not depend on any BugPilot-specific configuration in the target repository (R9).
 
 ---
 
-## 5. 各入口规格
+## 5. Entry-point specifications
 
-### 5.1 CLI（不变 + 两个加法）
+### 5.1 CLI (unchanged + two additions)
 
-25 个子命令、参数、输出、退出码全部不变。新增两项，都是纯加法。
+All 25 subcommands, their arguments, output and exit codes are unchanged. Two items are new, both pure additions.
 
-#### `--json`：最终结果
+#### `--json`: final result
 
-需要 `--json` 的命令（扩展要消费的）：
+Commands that need `--json` (the ones the extension consumes):
 
 ```text
 bug · fetch · search · context · status · list · check-results
 summarize-results · delivery-check · doctor
 ```
 
-`list` 是新增命令（§3.4）：列出 `.ai/` 下所有 work item，补上本地 ID 不带 slug
-后终端侧的可读性缺口，同时作为扩展 History 面板的数据源。
+`list` is a new command (§3.4): it lists every work item under `.ai/`, closing the terminal-side readability gap left once local IDs
+no longer carry a slug, and it also serves as the data source for the extension's History panel.
 
 ```text
 $ bugpilot list
 JR-34567              jira    Output panel min/max values not converted to dB  prepared
-local_20260901094133  manual  三维视图切换层位后崩溃                             fixed
-local_20260828171205  manual  OpenVDS statistics 初始化失败                     prepared
+local_20260901094133  manual  3D view crashes after switching horizon          fixed
+local_20260828171205  manual  OpenVDS statistics initialization failed         prepared
 ```
 
-`bug` 主入口同时支持两种输入：
+The `bug` main entry point accepts both kinds of input:
 
 ```text
 bugpilot bug JR-12345
@@ -441,20 +441,20 @@ bugpilot bug --description "3D view crashes after changing horizon"
 bugpilot bug --description-file bug.txt
 ```
 
-`InvestigationOptions` 与 `InvestigationPlan` 的对应参数：
+The corresponding parameters of `InvestigationOptions` and `InvestigationPlan`:
 
 ```text
 --hint  --keywords  --focus-file  --ignore-path          # Options
---max-files  --max-search-lines                          # Options（成对，见 §3.3）
---git-keyword  --git-file                                # Options.git_history（只给 Git history）
+--max-files  --max-search-lines                          # Options (paired, see §3.3)
+--git-keyword  --git-file                                # Options.git_history (Git history only)
 --git-no-shared-keywords  --git-no-shared-focus-files    # Options.git_history
---git-no-commit-search  --git-no-file-history            # Options.git_history（两者都关 = 跳过 git_context）
---git-history-depth {recent,broader}  --git-max-commits  # Options.git_history（1–25）
+--git-no-commit-search  --git-no-file-history            # Options.git_history (both off = skip git_context)
+--git-history-depth {recent,broader}  --git-max-commits  # Options.git_history (1–25)
 --skip-code-search  --skip-git-history                   # Plan
 --skip-similar-fixes  --only-issue-details               # Plan
 ```
 
-JSON 是 adapter API，第一版即带版本号。成功：
+JSON is the adapter API and carries a version number from the very first release. On success:
 
 ```json
 {
@@ -470,7 +470,7 @@ JSON 是 adapter API，第一版即带版本号。成功：
 }
 ```
 
-失败时 stdout 仍只输出一个 JSON 对象，stderr 保留人类可读错误：
+On failure, stdout still emits only a single JSON object, and stderr keeps the human-readable error:
 
 ```json
 {
@@ -481,20 +481,20 @@ JSON 是 adapter API，第一版即带版本号。成功：
 }
 ```
 
-扩展不得解析错误文本，只能依赖稳定 `error.code`。
+The extension must not parse the error text; it may rely only on the stable `error.code`.
 
-**`--json` 与 `--json-lines` 从不拉起 agent。** 机器模式的调用方要么自己处理交接，
-要么走 §5.6 的续接路径；在这两种模式下启动一个交互式 agent 会把它的输出混进
-本该只有结构化数据的 stdout。帮助文本里写明了这条。
+**`--json` and `--json-lines` never launch an agent.** A machine-mode caller either handles the handoff itself
+or takes the continuation path in §5.6; starting an interactive agent in either mode would mix its output into
+a stdout that should contain only structured data. The help text states this.
 
-**进度编号按实际会跑的步骤算**，不是固定的 `[N/9]`。manual 少一个 `fetch`，
-部分 plan 更少；数到一个永远不会到达的总数读起来像卡住了。`parse` 的人类文案
-按来源区分（Jira 保留原文案）以满足 R1。
+**Progress numbering counts the steps that will actually run**, not a fixed `[N/9]`. manual has one fewer step (`fetch`),
+and some plans have even fewer; counting toward a total that is never reached reads as if it were stuck. The human-readable text of `parse`
+differs by source (Jira keeps the original text) to satisfy R1.
 
-#### `--json-lines`：实时事件流
+#### `--json-lines`: live event stream
 
-`--json` 只在结束时给一个对象，进度得靠扩展去 watch `workflow_status.json`，
-等于两条通信通道。`--json-lines` 把实时进度也变成 stdout 上的结构化事件：
+`--json` gives only one object at the end, so for progress the extension would have to watch `workflow_status.json`,
+which amounts to two communication channels. `--json-lines` turns live progress into structured events on stdout as well:
 
 ```jsonl
 {"schema_version":1,"type":"started","work_item_id":"JR-34567","source":"jira"}
@@ -506,59 +506,59 @@ JSON 是 adapter API，第一版即带版本号。成功：
 {"schema_version":1,"type":"completed","ok":true}
 ```
 
-职责因此划清：
+This draws a clear line between the responsibilities:
 
 ```text
-JSONL                 = live events（进程存活期间）
-workflow_status.json  = persisted state / recovery（进程结束后仍可读）
+JSONL                 = live events (while the process is alive)
+workflow_status.json  = persisted state / recovery (still readable after the process ends)
 ```
 
-实现代价很小：`run_bug_workflow` 已有 `progress: Callable[[str], None]` 回调，
-在 10 个步骤点调用（`workflow.py:194`）。CLI 只需把现在传进去的人类可读打印器
-换成 JSONL 发射器。`--json-lines` 放**阶段 2**，与 `--json` 同批交付。
+The implementation cost is small: `run_bug_workflow` already has a `progress: Callable[[str], None]` callback,
+called at 10 step points (`workflow.py:194`). The CLI only needs to replace the human-readable printer it passes in today
+with a JSONL emitter. `--json-lines` goes in **Phase 2**, delivered in the same batch as `--json`.
 
-#### manual 模式下 Jira 相关命令的行为
+#### Behaviour of Jira-related commands in manual mode
 
-R7 把 Jira 降级为可选输入，Jira 相关的**出口**必须同步定义：
+R7 downgrades Jira to an optional input, so the Jira-related **exit points** must be defined at the same time:
 
-| 命令 | `source == "manual"` 时 |
+| Command | When `source == "manual"` |
 | --- | --- |
-| `fetch` · `jira-validate` · `parse` | 明确失败，`error.code = "JIRA_ONLY_COMMAND"`。 |
-| `jira-comment-draft` | 明确失败，`error.code = "NO_JIRA_TARGET"`（`source_ref is None`）。 |
-| `jira-comment --execute` | 同上。 |
-| `summarize-results --jira-comment` | 拒绝该 flag（`NO_JIRA_TARGET`）；不带 flag 时正常生成 `result_summary.md`。 |
-| `notify` · `commit-plan` 邮件 | 降级：正文改用 `spec.title` / `spec.description`，不读 `jira_summary.md`（manual 模式下不存在）。 |
-| 其余命令 | 不变，只依赖 `InvestigationRequest` 与 repo。 |
+| `fetch` · `jira-validate` · `parse` | Fail explicitly, `error.code = "JIRA_ONLY_COMMAND"`. |
+| `jira-comment-draft` | Fail explicitly, `error.code = "NO_JIRA_TARGET"` (`source_ref is None`). |
+| `jira-comment --execute` | Same as above. |
+| `summarize-results --jira-comment` | Reject the flag (`NO_JIRA_TARGET`); without the flag, `result_summary.md` is generated normally. |
+| `notify` · `commit-plan` email | Degrade: the body uses `spec.title` / `spec.description` instead and does not read `jira_summary.md` (it does not exist in manual mode). |
+| All other commands | Unchanged; they depend only on `InvestigationRequest` and the repo. |
 
-`source` 的检查发生在 CLI dispatch 层（`cli.py`），不下推到 `core/`，以维持不变量 5。
+The `source` check happens in the CLI dispatch layer (`cli.py`) and is not pushed down into `core/`, to preserve invariant 5.
 
 ### 5.2 MCP server
 
-新增 `bugpilot/mcp_server.py`，用官方 Python SDK 的 `MCPServer`
-（`from mcp.server.mcpserver import MCPServer`），stdio transport。
+Add `bugpilot/mcp_server.py`, using the official Python SDK's `MCPServer`
+(`from mcp.server.mcpserver import MCPServer`), with stdio transport.
 
-初稿写的是 `FastMCP`；那是 mcp 1.x 的名字，2.x 已改名 `MCPServer`，字段也从
-camelCase 改成 snake_case（`inputSchema` → `input_schema`）。选用 2.x 而非
-`pin mcp<2`：为对齐一份文档而钉住一个已被取代的大版本，代价更大。
+The first draft said `FastMCP`; that is the mcp 1.x name — 2.x renamed it `MCPServer`, and the fields also changed from
+camelCase to snake_case (`inputSchema` → `input_schema`). We chose 2.x rather than
+`pin mcp<2`: pinning a superseded major version just to match a document costs more.
 
-**工具必须抛 SDK 自己的 `ToolError`**（`mcp.server.mcpserver.exceptions`）。
-本地定义的同名异常类不被 SDK 识别，会被当成崩溃包成 `UnexpectedToolError`，
-模型只看到 `Error executing tool <name>`，工具里写的可操作提示全部丢失。
+**Tools must raise the SDK's own `ToolError`** (`mcp.server.mcpserver.exceptions`).
+A locally defined exception class with the same name is not recognized by the SDK; it is treated as a crash and wrapped as `UnexpectedToolError`,
+so the model sees only `Error executing tool <name>`, and every actionable hint written into the tool is lost.
 
-**工具粒度是粗的**，且尽量表达**意图**而非实现步骤 —— 工具列表每轮都进模型上下文，
-25 个工具会稀释判断力。暴露 7 个：
+**Tool granularity is coarse**, and tools express **intent** rather than implementation steps wherever possible — the tool list enters the model context on every turn,
+and 25 tools would dilute its judgement. Seven are exposed:
 
-| 工具 | 包装 | 说明 |
+| Tool | Wraps | Notes |
 | --- | --- | --- |
-| `prepare_jira_bug` | Jira input → core | Jira 主入口。description 写明「用户给出 issue key 时用这个」。 |
-| `prepare_bug_description` | Manual input → core | 无 Jira 主入口。description 写明「用户只给出自然语言描述、日志或 stack trace，且没有 issue key 时用这个」。 |
-| `refine_investigation` | Options 更新 → 重跑相关 plan 部分 | **取代 `search_code`。** agent 拿到新线索时表达的是「按这个方向重新调查」，不是「跑一次 grep」。 |
-| `check_results` | `check_result_files` | 返回缺失的结果文件列表。 |
-| `summarize_results` | `summarize_results_step` | Jira comment 默认 false。 |
-| `search_memory` | `search_memory` | 跨 Jira 与本地 work item 找相似历史 bug。 |
-| `get_status` | 读 `workflow_status.json` | 只读。 |
+| `prepare_jira_bug` | Jira input → core | Main Jira entry point. The description states "use this when the user gives an issue key". |
+| `prepare_bug_description` | Manual input → core | Main entry point without Jira. The description states "use this when the user gives only a natural-language description, logs or a stack trace, and no issue key". |
+| `refine_investigation` | Options update → rerun the relevant parts of the plan | **Replaces `search_code`.** When the agent gets a new lead, what it is expressing is "re-investigate in this direction", not "run a grep once". |
+| `check_results` | `check_result_files` | Returns the list of missing result files. |
+| `summarize_results` | `summarize_results_step` | Jira comment defaults to false. |
+| `search_memory` | `search_memory` | Finds similar past bugs across Jira and local work items. |
+| `get_status` | Reads `workflow_status.json` | Read-only. |
 
-`refine_investigation` 的形态：
+The shape of `refine_investigation`:
 
 ```python
 refine_investigation(
@@ -568,69 +568,69 @@ refine_investigation(
 )
 ```
 
-BugPilot 自己决定重跑哪些环节（code search → git history → memory → context 再生成），
-agent 不需要知道内部步骤。
+BugPilot decides for itself which stages to rerun (code search → git history → memory → context regeneration);
+the agent does not need to know the internal steps.
 
-实现上它**不走 `run_investigation`**，而是 core 里独立的 step 序列，从 `keywords` 起跑。
-原因：§3.3 的前置闭包会因 `parse` 依赖 `fetch` 而把 Jira 抓取拉回来，
-使每次 refine 都要联网。issue 数据已在磁盘上（`jira.json` 或 `bug_spec.json`），
-增量重查不该重新获取它。**一个依赖模型服务「从零构建」时正确，
-不代表它服务「增量更新」时也正确。**低层的 `bugpilot search --json` 仍在 CLI 上可用，
-供脚本化场景使用 —— 只是不暴露给 agent。
+In the implementation it **does not go through `run_investigation`**; it is a separate step sequence in core that starts from `keywords`.
+Reason: the prerequisite closure in §3.3 would pull Jira fetching back in, because `parse` depends on `fetch`,
+so every refine would need network access. The issue data is already on disk (`jira.json` or `bug_spec.json`),
+and an incremental re-query should not fetch it again. **A dependency model that is correct when serving "build from scratch"
+is not necessarily correct when serving "incremental update".** The lower-level `bugpilot search --json` remains available on the CLI
+for scripted scenarios — it is just not exposed to the agent.
 
-两个 `prepare_*` 工具的 description 必须**互斥说明**，否则给了 Jira key 的时候
-模型可能调错那个。
+The descriptions of the two `prepare_*` tools must **state that they are mutually exclusive**; otherwise, when given a Jira key,
+the model may call the wrong one.
 
-**不暴露**：`jira-comment --execute`、`notify --execute`、`commit`、`push`、
-`clean`、`setup`。前四个是对外/破坏性动作（R5），后两个不该由模型触发。
+**Not exposed**: `jira-comment --execute`, `notify --execute`, `commit`, `push`,
+`clean`, `setup`. The first four are outward-facing/destructive actions (R5); the last two should not be triggered by the model.
 
-MCP server 默认绑定启动时的 repo/workspace root，允许 server 配置覆盖，
-tool 参数不让模型自由传 `repo_root`。
+By default the MCP server binds to the repo/workspace root at startup, and the server configuration may override it;
+tool parameters do not let the model pass `repo_root` freely.
 
-另外提供一个 MCP prompt（在 Claude Code 里表现为斜杠命令
-`/mcp__bugpilot__fix_bug`），给不想赌模型判断的确定性路径。
+An MCP prompt is also provided (in Claude Code it appears as the slash command
+`/mcp__bugpilot__fix_bug`), as a deterministic path for those who do not want to bet on the model's judgement.
 
-**对 `agent_runner.py` 的影响**：V1 只标记 deprecated，不立即删除，作为内部 Beta
-fallback。MCP 稳定并确认团队完成迁移后再移除。
+**Impact on `agent_runner.py`**: V1 only marks it deprecated and does not delete it right away; it stays as the Internal Beta
+fallback. It will be removed once MCP is stable and the team has confirmed the migration is complete.
 
-**目标仓库 `CLAUDE.md`**：文档中提供推荐片段，提高 agent 调用 BugPilot 的概率，
-但**架构不得依赖它**（R9 / 不变量 9）。推荐片段：
+**Target repository `CLAUDE.md`**: the documentation provides a recommended snippet to raise the likelihood that the agent calls BugPilot,
+but **the architecture must not depend on it** (R9 / invariant 9). Recommended snippet:
 
 ```markdown
 When investigating a bug or Jira issue, use the BugPilot MCP tools to gather
 focused engineering context before performing broad repository searches.
 ```
 
-### 5.3 VS Code 扩展（V1 即完整功能）
+### 5.3 VS Code extension (full functionality in V1)
 
-按 R8，V1 既不做功能裁剪也不做界面降级。扩展仍是薄壳 —— 只负责 UI 和进程调度，
-不含业务逻辑 —— 但界面须达到 §5.4 的质量标准。
+Per R8, V1 neither trims features nor downgrades the UI. The extension is still a thin shell — responsible only for UI and process scheduling,
+with no business logic — but the UI must meet the quality bar in §5.4.
 
-**控件选型**：主输入面板用 **Webview**，产物浏览与 history 用**原生 TreeView**。
-理由：主面板是一个 7 字段表单加 5 个范围勾选，VS Code 原生输入只有
-`showInputBox` / `showQuickPick`（模态、顺序式），对这种表单是糟糕的交互；
-而 TreeView 恰好适合层级只读浏览，用 Webview 反而更差。不要为了统一而全用
-Webview 或全用原生。
+**Choice of controls**: the main input panel uses a **Webview**; artifact browsing and history use a **native TreeView**.
+Rationale: the main panel is a 7-field form plus 5 scope checkboxes, and VS Code's native input offers only
+`showInputBox` / `showQuickPick` (modal, sequential), which makes for a poor interaction with a form like this;
+whereas TreeView is a natural fit for hierarchical read-only browsing, where a Webview would actually be worse. Do not, for the sake of uniformity, use only
+Webview or only native controls.
 
-| 分组 | 能力 | 实现 |
+| Group | Capability | Implementation |
 | --- | --- | --- |
-| 输入 | 输入源切换（Jira Issue / Bug Description） | Sidebar 表单 |
-| 输入 | Issue key · Title · Description | 表单字段 → `BugSpec` |
-| 输入 | Hint · Keywords · Focus files · Ignore paths | 表单字段 → `InvestigationOptions` |
-| 调查范围 | Issue details · Code search · Git history · Similar fixes · Build context | 勾选框 → `InvestigationPlan`。**不暴露 `fetch`/`parse`/`keywords` 等实现步骤**（§3.3） |
-| 运行 | Run · Stop | spawn / kill CLI 子进程 |
-| 运行 | 实时进度 checklist | 消费 `--json-lines` 事件流；`workflow_status.json` 作为重启后的恢复源 |
-| 产物 | Artifact TreeView | 扫 `.ai/*` 列出 Jira 与本地 work item，展开显示产物，点击在编辑器打开 |
-| 产物 | Markdown 预览 | VS Code 内置预览，不自造渲染器 |
-| 历史 | Work item history | 最近条目列表，可重新打开、重跑、查看状态 |
-| 交接 | Open `agent_task.md` · Copy handoff prompt | 一键操作 |
-| 交接 | MCP status / Continue with Claude | 检测到 MCP 时提示 |
-| 诊断 | Doctor · Agent Check · Clean | 命令面板项 → spawn CLI |
-| 诊断 | 安装向导 | 未找到 CLI 时显示 Install Instructions / Choose Executable / Retry |
-| 配置 | `bugpilot.executablePath` | 默认 `"bugpilot"`（走 PATH），支持选择 executable |
-| 配置 | 凭据 | Jira token 存 VS Code `SecretStorage`，运行时以环境变量注入子进程；manual 模式不需要 Jira 凭据 |
+| Input | Input source toggle (Jira Issue / Bug Description) | Sidebar form |
+| Input | Issue key · Title · Description | Form fields → `BugSpec` |
+| Input | Hint · Keywords · Focus files · Ignore paths | Form fields → `InvestigationOptions` |
+| Investigation scope | Issue details · Code search · Git history · Similar fixes · Build context | Checkboxes → `InvestigationPlan`. **Implementation steps such as `fetch`/`parse`/`keywords` are not exposed** (§3.3) |
+| Run | Run · Stop | spawn / kill the CLI child process |
+| Run | Live progress checklist | Consumes the `--json-lines` event stream; `workflow_status.json` serves as the recovery source after a restart |
+| Artifacts | Artifact TreeView | Scans `.ai/*` to list Jira and local work items; expanding one shows its artifacts, and clicking opens one in the editor |
+| Artifacts | Markdown preview | VS Code's built-in preview; no home-made renderer |
+| History | Work item history | List of recent entries, which can be reopened, rerun, or have their status viewed |
+| Handoff | Open `agent_task.md` · Copy handoff prompt | One-click actions |
+| Handoff | MCP status / Continue with Claude | Suggested when MCP is detected |
+| Diagnostics | Doctor · Agent Check · Clean | Command palette items → spawn CLI |
+| Diagnostics | Install wizard | Shows Install Instructions / Choose Executable / Retry when the CLI is not found |
+| Configuration | `bugpilot.executablePath` | Defaults to `"bugpilot"` (resolved via PATH); supports choosing an executable |
+| Configuration | Credentials | The Jira token is stored in VS Code `SecretStorage` and injected into the child process as environment variables at run time; manual mode needs no Jira credentials |
 
-V1 参考布局（信息层级示意，非视觉稿；实际样式由 §5.4 的主题变量决定）：
+V1 reference layout (a sketch of the information hierarchy, not a visual mockup; actual styling is determined by the theme variables in §5.4):
 
 ```text
 BUGPILOT
@@ -659,195 +659,195 @@ Progress
         [ Open agent_task.md ]
 ```
 
-**面板是一条线，不是三个区块**（2026-09-07 重构）。原来同一次运行被描述在三处：
-Investigate 复选框组、Progress checklist（重复同样五个标签）、结束后出现的
-Hand off 卡片。现在合成**一行一步**：复选框（选不选）与状态图标（跑得怎样）
-在同一行上。
+**The panel is a single line, not three blocks** (refactored 2026-09-07). Previously the same run was described in three places:
+the Investigate checkbox group, the Progress checklist (repeating the same five labels), and the Hand off card
+that appeared after the run finished. These are now merged into **one row per step**: the checkbox (selected or not) and the status icon (how it ran)
+sit on the same row.
 
-模型在 `app/workflow.ts`，由 host 每次 push 时算出来。**页面不自己造这些行**——
-行是静态 markup，因为复选框属于页面（是表单状态），状态属于 host（是运行结果），
-静态行是让这两件事同时成立的唯一办法。
+The model lives in `app/workflow.ts` and is computed by the host on every push. **The page does not build these rows itself** —
+the rows are static markup, because the checkbox belongs to the page (it is form state) while the status belongs to the host (it is the run result),
+and static rows are the only way for both of these to hold at once.
 
-三个不对称之处，都是有意的：
+Three asymmetries, all intentional:
 
-- **`fixWithAI` 不是 CLI 能力**，不进 `form.plan`。plan 里每一项都会变成一个 flag，
-  而这一项描述的是**进程退出之后**扩展做什么。有测试断言它一个参数都不产生——
-  否则 `--prepare-only` 就不再对面板发起的每次运行都成立。
-- **它从不报 "Complete"。** agent 跑在扩展并不拥有的终端里，"AI 修完了"在这里
-  不可知。能诚实说的最后一句是「已交接」，写在那一行的 `detail` 里。
-- **行上的图标跟着文件走，不跟着事件走。** 图标出现是因为它要打开的那个文件在。
-  按步骤事件来判断会给一个运行没来得及写的文件配上图标——而且会让从 History
-  恢复的 work item 一个图标都没有（那里根本没有事件流）。
+- **`fixWithAI` is not a CLI capability** and does not go into `form.plan`. Every item in the plan becomes a flag,
+  whereas this item describes what the extension does **after the process exits**. A test asserts that it produces no argument at all —
+  otherwise `--prepare-only` would no longer hold for every run the panel starts.
+- **It never reports "Complete".** The agent runs in a terminal the extension does not own, so "the AI has finished the fix" is
+  unknowable here. The last thing it can honestly say is "handed off", which goes in that row's `detail`.
+- **A row's icon follows the file, not the event.** The icon appears because the file it opens exists.
+  Deciding by step events would give an icon to a file the run never got around to writing — and would leave a work item restored from History
+  without a single icon (there is no event stream there at all).
 
-**「Fix with AI」是工作流的最后一步**。它开一个终端、在**仓库根**跑
-`<agent> "<交接语>"`。四点说明：
+**"Fix with AI" is the last step of the workflow**. It opens a terminal and runs
+`<agent> "<handoff prompt>"` at the **repository root**. Four notes:
 
-- **不违反 R5。** deprecated 掉的是 CLI **默认**自动拉起 agent；一个人勾上的复选框
-  正是 R5 要的那个「独立的决定」——所以它**默认不勾**。运行本身仍然是 prepare-only。
-- **措辞与机制分开。** UI 里没有一处写 Claude（除了 agent 选择器里的那一项，
-  有测试扫描 markup 断言这一点）。机制在 `app/agents.ts`：加一个 provider 是加
-  一行表。表里只有 `claude`，因为只有它的调用方式是在真机上量过的；其余用
-  **自定义命令**（`{prompt}` 占位）——谁在用 Codex/Gemini 就谁知道它的 flag，
-  一句模板胜过我们的猜测。
-- **不往 Claude Code 面板里推文字。** 实测那个扩展（`anthropic.claude-code`
-  2.1.263）贡献 26 个命令，**没有一个接受 prompt** —— 唯一的入口是猜它未公开的
-  参数形状，而那会在它下次升级时静默失效。终端是可验证的机制，
-  也是 `resumeAgentSession` 已经在用的那个。
-- **降级链**：`claude` 不在 PATH → 复制交接语 + 尝试唤起 Claude Code 的视图
-  （`claude-vscode.sidebar.open`，同样读自它的 manifest）→ 都没有则只复制并说明。
-  绝不开一个只会打印 "command not found" 的终端——那看起来像我们的 bug。
+- **It does not violate R5.** What was deprecated is the CLI auto-launching an agent **by default**; a checkbox that a person ticks
+  is exactly the "separate decision" R5 asks for — which is why it is **unticked by default**. The run itself is still prepare-only.
+- **Wording is kept separate from mechanism.** Nowhere in the UI does it say Claude (except for that one entry in the agent picker,
+  and a test scans the markup to assert this). The mechanism lives in `app/agents.ts`: adding a provider means adding
+  one row to a table. The table contains only `claude`, because only its invocation has been measured on a real machine; everything else uses a
+  **custom command** (with a `{prompt}` placeholder) — whoever uses Codex/Gemini knows its flags,
+  and a one-line template beats our guesses.
+- **No pushing text into the Claude Code panel.** When tested, that extension (`anthropic.claude-code`
+  2.1.263) contributes 26 commands, **none of which accepts a prompt** — the only way in would be to guess its undocumented
+  argument shape, and that would silently break the next time it upgrades. The terminal is a verifiable mechanism,
+  and it is the one `resumeAgentSession` already uses.
+- **Degradation chain**: `claude` not on PATH → copy the handoff prompt + try to bring up Claude Code's view
+  (`claude-vscode.sidebar.open`, likewise read from its manifest) → if neither is available, only copy and explain.
+  Never open a terminal that will only print "command not found" — that looks like our bug.
 
-交接语与其他四处同源（`handoff.py`），有测试断言按钮传的与 Copy handoff
-复制的**是同一句**。
+The handoff prompt comes from the same source as the other four places (`handoff.py`); a test asserts that what the button passes and what Copy handoff
+copies **are the same sentence**.
 
-**CLI 可用性是五态，不是布尔**（阶段 4 落地，`extension/src/executable.ts`）。
-判断方式不是「在 PATH 上」而是一次 `doctor --json` 握手：它不需要 work item、不联网，
-且只有实现了阶段 2 信封的版本才会成功。五态各自对应**不同的建议**，这是分开的全部理由：
+**CLI availability has five states, not a boolean** (shipped in Phase 4, `extension/src/executable.ts`).
+It is decided not by "is it on PATH" but by a `doctor --json` handshake: it needs no work item, no network access,
+and only succeeds on versions that implement the Phase 2 envelope. Each of the five states maps to **different advice**, which is the whole reason for keeping them separate:
 
-| 裁决 | 含义 | 该说的话 |
+| Verdict | Meaning | What to say |
 | --- | --- | --- |
-| `ready` | 握手成功 | 无 |
-| `not-found` | 不在 PATH，或配置的路径不存在 / 不可执行 | 装一个，或配 `bugpilot.executablePath` |
-| `incompatible` | 能跑但不认 `--json`——几乎总是版本太旧 | 升级 bugpilot |
-| `unresponsive` | 握手超时。**对版本不作任何断言** | 再试一次（冷启动 / 杀毒扫描） |
-| `unhealthy` | 会说契约，但 `doctor` 自己失败了 | 交给 `error.code` 映射表，不另写解释 |
+| `ready` | Handshake succeeded | Nothing |
+| `not-found` | Not on PATH, or the configured path does not exist / is not executable | Install one, or set `bugpilot.executablePath` |
+| `incompatible` | Runs but does not recognize `--json` — almost always a version that is too old | Upgrade bugpilot |
+| `unresponsive` | Handshake timed out. **Makes no claim at all about the version** | Try again (cold start / antivirus scan) |
+| `unhealthy` | Speaks the contract, but `doctor` itself failed | Defer to the `error.code` mapping table; no separate explanation |
 
-把后两态归入 `incompatible` 会建议用户去升级一个完好的 bugpilot——一个格式正确的
-失败信封恰恰**证明**了二进制实现了契约。
+Lumping the last two states into `incompatible` would advise the user to upgrade a perfectly good bugpilot — a well-formed
+failure envelope is precisely what **proves** that the binary implements the contract.
 
-**凭据在 `SecretStorage` 里只占一个 key**（`bugpilot.jiraCredentials`，值为
-`{email, token}` 的 JSON）。email 与 token 分两个 key 意味着两次顺序写，第二次失败
-会留下新 email 配旧 token——这个状态会被判为「已配置」并照样注入，产出一个指向错误
-原因的 `JIRA_AUTH_FAILED`。一个 key 让保存原子；解析失败读作「未配置」而不是从每条
-命令里抛异常。
+**Credentials take up only one key in `SecretStorage`** (`bugpilot.jiraCredentials`, whose value is the JSON
+`{email, token}`). Keeping email and token in two keys means two sequential writes; if the second one fails,
+a new email is left paired with an old token — a state that would be judged "configured" and injected anyway, producing a `JIRA_AUTH_FAILED` that points to the wrong
+cause. One key makes saving atomic; a parse failure reads as "not configured" instead of throwing an exception from every
+command.
 
-**扩展落地后确定的四件事**（阶段 5，代码为准）：
+**Four things settled after the extension shipped** (Phase 5; the code is authoritative):
 
-1. **没有 bundler，因此「宿主计算、页面渲染」。** Webview 是另一个 JS 上下文，
-   无法 import `form.ts` / `progress.ts` / `artifacts.ts`。页面只拥有「已输入但
-   未运行的表单」，其余全部由宿主算好推过去（一条 `state` 消息）。
-   副产品是校验、进度、产物分组全都在 `node --test` 里可测。
-2. **plan 的五个复选框有一处耦合，因为 CLI 表达不了解耦。** 没有
-   `--skip-build-context`：关掉 Build context 只能用 `--only-issue-details`，
-   而它会同时关掉搜索、历史、相似修复。面板据此把那三项变灰并说明原因——
-   五个独立复选框会显示一个从未运行过的 plan。
-3. **扩展默认 `--resume`，与 CLI 默认相反。** CLI 默认 `--fresh`（删除既有产物），
-   而面板上要删必须显式勾选并通过模态确认。理由见阶段 3：`fresh=True` 删掉过
-   agent 写的 `fix_summary.md`。
-4. **Retry 用 `--json` 而非 `--json-lines`。** CLI 的 retry 分支只认 `--json`；
-   两者都不给会**在终端拉起 agent**。照 Run 的模式传 `--json-lines` 的后果是：
-   人类文本被事件读取器全部丢弃（看起来像崩了），同时背地里起了一个 agent。
+1. **No bundler, hence "the host computes, the page renders".** The Webview is a separate JS context
+   and cannot import `form.ts` / `progress.ts` / `artifacts.ts`. The page owns only "the form that has been filled in but
+   not yet run"; everything else is computed by the host and pushed over (a single `state` message).
+   A by-product is that validation, progress and artifact grouping are all testable under `node --test`.
+2. **The plan's five checkboxes have one coupling, because the CLI cannot express the decoupling.** There is no
+   `--skip-build-context`: Build context can only be turned off with `--only-issue-details`,
+   which also turns off search, history and similar fixes. The panel therefore greys out those three and explains why —
+   five independent checkboxes would display a plan that has never been run.
+3. **The extension defaults to `--resume`, the opposite of the CLI default.** The CLI defaults to `--fresh` (deleting existing artifacts),
+   whereas on the panel deleting requires an explicit tick plus a modal confirmation. For the reason, see Phase 3: `fresh=True` once deleted
+   a `fix_summary.md` written by the agent.
+4. **Retry uses `--json` rather than `--json-lines`.** The CLI's retry branch only recognizes `--json`;
+   passing neither would **launch an agent in the terminal**. Passing `--json-lines` the way Run does would mean:
+   all the human-readable text is discarded by the event reader (it looks like a crash), while an agent is quietly started in the background.
 
-**图标的偏差**：Webview 内用文本字形（✓ ● ○ – ✕）而非 Codicon 字体——后者要引
-`@vscode/codicons` 依赖并放宽 CSP 的 `font-src`。原生 TreeView 仍用 `ThemeIcon`，
-即真 Codicon。§5.4「图标只用 Codicons」的本意是不引第三方图标集，文本字形同样
-满足，且顺带满足「状态不只靠颜色区分」。
+**Icon deviation**: inside the Webview, text glyphs (✓ ● ○ – ✕) are used rather than the Codicon font — the latter would require pulling in
+the `@vscode/codicons` dependency and relaxing the CSP `font-src`. The native TreeView still uses `ThemeIcon`,
+i.e. real Codicons. The intent of §5.4's "icons are Codicons only" is to avoid third-party icon sets; text glyphs
+satisfy that equally well, and incidentally also satisfy "state is not distinguished by colour alone".
 
-**手测清单**：§5.4 里无法自动化的验收项（四主题、三档宽度、纯键盘、重启恢复、
-安全边界）已落成可执行清单：[manual_qa_phase5.md](manual_qa_phase5.md)。
+**Manual testing checklist**: the acceptance criteria in §5.4 that cannot be automated (four themes, three width tiers, keyboard only, restart recovery,
+safety boundaries) were once captured as an executable checklist `manual_qa_phase5.md` (deleted; see git history).
 
 ---
 
-### 5.4 UI 质量标准（V1 验收项）
+### 5.4 UI quality standard (V1 acceptance criteria)
 
-R8 要求第一版界面就打磨到位。「打磨」在这里有明确定义，每条都可验收 ——
-否则界面工作没有边界。
+R8 requires the first version's interface to be polished from the start. "Polish" has an explicit definition here, and every item is acceptance-testable —
+otherwise the interface work has no boundary.
 
-#### 主题与视觉
+#### Theme and visuals
 
-- **只用 VS Code 主题 CSS 变量**（`--vscode-foreground`、`--vscode-input-background`、
-  `--vscode-button-background`、`--vscode-focusBorder` 等）。**禁止硬编码任何颜色值。**
-  验收：在 Light / Dark / High Contrast Dark / High Contrast Light 四种主题下
-  逐一截图，无不可读文本、无失踪边框。
-- **不使用 `@vscode/webview-ui-toolkit`** —— 该组件库已停止维护。用原生 HTML
-  控件加主题变量，样式与 VS Code 表单一致即可。
-- **图标只用 Codicons**，与编辑器其余部分同源；不引入第三方图标集。
-- 不引入自有品牌色、渐变、圆角风格。界面应看起来像 VS Code 的一部分。
+- **Use only VS Code theme CSS variables** (`--vscode-foreground`, `--vscode-input-background`,
+  `--vscode-button-background`, `--vscode-focusBorder`, etc.). **Hardcoding any colour value is forbidden.**
+  Acceptance: under each of the four themes Light / Dark / High Contrast Dark / High Contrast Light,
+  take a screenshot; no unreadable text, no missing borders.
+- **Do not use `@vscode/webview-ui-toolkit`** — that component library is no longer maintained. Use native HTML
+  controls plus theme variables; styling consistent with VS Code forms is enough.
+- **Icons come only from Codicons**, the same source as the rest of the editor; no third-party icon sets.
+- Do not introduce own brand colours, gradients, or rounded-corner styling. The interface should look like part of VS Code.
 
-#### 布局
+#### Layout
 
-- **窄宽度可用**：侧边栏可被拖到约 200px，表单必须在该宽度下不出现横向滚动、
-  标签不截断。验收：200px / 300px / 500px 三档宽度手测。
-- **可在编辑器区打开**：宽布局下允许把主面板作为 editor tab 打开（`ViewColumn`），
-  给多字段输入更多空间。侧边栏与编辑器区共用同一个 Webview 实现。
+- **Usable at narrow widths**: the sidebar can be dragged down to about 200px; at that width the form must not show horizontal scrolling,
+  and labels must not be truncated. Acceptance: manual testing at three widths, 200px / 300px / 500px.
+- **Can be opened in the editor area**: in a wide layout, the main panel may be opened as an editor tab (`ViewColumn`),
+  giving multi-field input more space. The sidebar and the editor area share the same Webview implementation.
 
-#### 状态完备（三态齐备）
+#### Complete states (all three states covered)
 
-每个视图都必须设计三种状态，不能只做 happy path：
+Every view must have all three states designed, not just the happy path:
 
-| 视图 | 空状态 | 加载/运行中 | 错误状态 |
+| View | Empty state | Loading/running | Error state |
 | --- | --- | --- | --- |
-| 主输入面板 | 首次使用引导（选输入源） | Run 后按钮禁用 + 当前 step | `error.code` 映射后的可读提示 + 重试入口 |
-| 进度 checklist | 尚未运行 | 逐步点亮，含每步耗时 | 失败步骤就地标红并展示原因 |
-| Artifact TreeView | 该 work item 无产物 | 扫描中 | `.ai/` 不可读时的提示 |
-| History | 无历史记录 | — | 目录损坏时降级为空列表而非报错 |
-| CLI 未安装 | 安装向导（Install / Choose Executable / Retry） | 检测中 | 检测失败原因 |
+| Main input panel | First-use guidance (choose input source) | Button disabled after Run + current step | Readable message mapped from `error.code` + retry entry point |
+| Progress checklist | Not run yet | Lights up step by step, with each step's duration | Failed step marked red in place, with the reason shown |
+| Artifact TreeView | No artifacts for this work item | Scanning | Message when `.ai/` is unreadable |
+| History | No history records | — | Degrades to an empty list instead of an error when the directory is corrupted |
+| CLI not installed | Install wizard (Install / Choose Executable / Retry) | Detecting | Reason detection failed |
 
-- **失败必须就地可读**：把 `error.code` 映射为用户语言的说明与下一步动作，
-  不把原始 stderr 甩给用户（映射表在阶段 4 交付）。
+- **Failures must be readable in place**: map `error.code` to an explanation in the user's language plus a next action,
+  rather than dumping raw stderr on the user (the mapping table is delivered in Phase 4).
 
-#### 可访问性
+#### Accessibility
 
-- 全部交互控件**键盘可达**，Tab 顺序符合视觉顺序，焦点环使用 `--vscode-focusBorder`。
-- 每个输入有关联 `<label>`；纯图标按钮有 `aria-label`。
-- 进度 checklist 的状态变化通过 `aria-live` 播报，不只靠颜色区分。
-- 验收：仅用键盘完成一次完整调查流程（不碰鼠标）。
+- All interactive controls are **keyboard reachable**, the Tab order follows the visual order, and the focus ring uses `--vscode-focusBorder`.
+- Every input has an associated `<label>`; icon-only buttons have an `aria-label`.
+- State changes in the progress checklist are announced via `aria-live`, not distinguished by colour alone.
+- Acceptance: complete a full investigation flow using only the keyboard (without touching the mouse).
 
-#### 状态保持
+#### State persistence
 
-- 面板隐藏后重新显示，表单内容不丢失。优先用 `getState`/`setState` 持久化，
-  **不要**依赖 `retainContextWhenHidden`（常驻内存代价高）。
-- 扩展重启后，进度视图从 `workflow_status.json` 恢复（JSONL 只覆盖进程存活期间）。
+- When the panel is hidden and shown again, form contents are not lost. Prefer persisting with `getState`/`setState`;
+  **do not** rely on `retainContextWhenHidden` (keeping it resident in memory is expensive).
+- After the extension restarts, the progress view is restored from `workflow_status.json` (JSONL only covers the lifetime of the process).
 
-#### Webview 安全边界
+#### Webview safety boundaries
 
-- Webview 设置严格 CSP，`localResourceRoots` 限定到扩展目录，禁用远程资源。
-- **Jira token 绝不进入 Webview。** 凭据只在扩展宿主进程中从 `SecretStorage` 读取，
-  以环境变量注入 CLI 子进程。Webview 通过 `postMessage` 只传非敏感表单字段。
-- Webview 不直接 spawn 进程；所有执行经由扩展宿主，保持 §4.1 的边界。
+- The Webview sets a strict CSP, `localResourceRoots` is restricted to the extension directory, and remote resources are disabled.
+- **The Jira token never enters the Webview.** Credentials are read from `SecretStorage` only in the extension host process
+  and injected into the CLI child process as environment variables. The Webview passes only non-sensitive form fields via `postMessage`.
+- The Webview does not spawn processes directly; all execution goes through the extension host, keeping the boundary of §4.1.
 
-### 5.5 Claude Code Skill（阶段 7 已落地）
+### 5.5 Claude Code Skill (shipped in Phase 7)
 
-**Skill 不是第四个入口。** 它是 CLI 入口之上的一层触发垫片 —— 一个 `SKILL.md`
-告诉宿主 agent「什么时候该跑 `bugpilot`、跑完读哪些产物」，实际执行仍由宿主
-自己的 Bash 工具完成。§1.1 的三入口心智模型不变。
+**The Skill is not a fourth entry point.** It is a thin trigger shim on top of the CLI entry point — a `SKILL.md`
+tells the host agent "when to run `bugpilot` and which artifacts to read afterwards"; actual execution is still done by the host's
+own Bash tool. The three-entry mental model of §1.1 is unchanged.
 
-#### 与 MCP 的关系
+#### Relationship to MCP
 
 | | Skill | MCP server |
 | --- | --- | --- |
-| 本质 | 文件（`SKILL.md` + 可选参考文档） | 进程 + JSON-RPC（stdio） |
-| 给模型什么 | 指令、流程、触发条件 | 可调用的 tools / prompts |
-| 靠什么执行 | **宿主已有的 Bash / Read** | 自己带的实现与权限 |
-| 上下文成本 | frontmatter 的 `description` 常驻，正文按需读取 | 7 个工具的 schema 每轮常驻 |
-| 对 BugPilot 的改动量 | **零** —— 不需要 `--json`、不需要清理 core stdout、不需要 `mcp` 依赖 | §6 的全部共享前置工作 |
-| 分发 | 放一个目录（`.claude/skills/<name>/`） | 装依赖 + 配 `.mcp.json` + 管进程 |
-| 跨客户端 | 各家格式不通用 | 标准协议，任何 MCP 客户端可接 |
+| Nature | Files (`SKILL.md` + optional reference docs) | Process + JSON-RPC (stdio) |
+| What it gives the model | Instructions, flow, trigger conditions | Callable tools / prompts |
+| What executes it | **The host's existing Bash / Read** | Its own implementation and permissions |
+| Context cost | The frontmatter `description` is always resident; the body is read on demand | The schemas of 7 tools are resident every turn |
+| Amount of change to BugPilot | **Zero** — no `--json` needed, no core stdout cleanup needed, no `mcp` dependency needed | All of the shared groundwork in §6 |
+| Distribution | Drop in a directory (`.claude/skills/<name>/`) | Install dependencies + configure `.mcp.json` + manage the process |
+| Cross-client | Each vendor's format is incompatible with the others | Standard protocol; any MCP client can connect |
 
-MCP 相比 Skill 真正多出来的三样，也正是保留 MCP 阶段的理由：
+The three things MCP genuinely adds over a Skill are exactly the reasons to keep the MCP phase:
 
-1. **在没有 shell 权限的客户端也能用** —— Skill 那条路完全依赖宿主有 Bash。
-2. **结构化返回** —— agent 直接拿到 `generated_files` 列表和 `error.code`，
-   不用去解析 `print` 出来的人类文本。
-3. **跨客户端标准** —— Copilot Chat 与其他 MCP 客户端都能接。
+1. **Usable in clients without shell permission** — the Skill route depends entirely on the host having Bash.
+2. **Structured returns** — the agent gets the `generated_files` list and `error.code` directly,
+   without parsing human-readable text printed by `print`.
+3. **Cross-client standard** — Copilot Chat and other MCP clients can all connect.
 
-#### 决策：延后，但保留在计划里
+#### Decision: deferred, but kept in the plan
 
-如果目标只是「Claude Code 里说 `please fix JR-12345` 能触发准备流程」，Skill 就够了，
-成本是 MCP 的百分之几，且当天可测。但 V1 的目标包含跨客户端与结构化契约（R2 + R4），
-这两条 Skill 给不了，所以 **MCP 仍是 V1 的 agent 入口，Skill 推到 V1 之后**。
+If the goal were only "saying `please fix JR-12345` in Claude Code triggers the preparation flow", a Skill would be enough,
+at a few percent of MCP's cost, and testable the same day. But V1's goals include cross-client support and a structured contract (R2 + R4),
+which a Skill cannot provide, so **MCP remains V1's agent entry point, and the Skill is pushed to after V1**.
 
-延后的代价要记清：阶段 0A 本可以用一个 `SKILL.md` 零改动验证「模型会不会优先调用
-BugPilot 而不是自己 grep」这个假设，改用 MCP 原型验证同一假设成本更高。
-这是明知的取舍，不是遗漏。
+The cost of deferring should be recorded clearly: Phase 0A could have used a single `SKILL.md`, with zero changes, to validate the hypothesis "will the model prefer calling
+BugPilot over grepping on its own"; validating the same hypothesis with an MCP prototype instead costs more.
+This is a deliberate trade-off, not an oversight.
 
-**已落地**（阶段 7）：`skills/bugpilot-investigate/SKILL.md`，安装与对照方法见
-[skill_setup.md](skill_setup.md)。交接文案的漂移问题按下面这段的要求解决了——
-四处（CLI 启动 prompt、MCP `fix_bug`、扩展的 Copy handoff、Skill）现在都从
-`bugpilot/core/handoff.py` 渲染，`tests/test_handoff.py` 双向守着，
-其中扩展那一份由 TS 测试读 Python 源码比对。
+**Shipped** (Phase 7): `skills/bugpilot-investigate/SKILL.md`; for installation and the comparison method see
+[skill_setup.md](skill_setup.md). The drift problem in the handoff text was solved as the paragraph below requires —
+all four places (the CLI startup prompt, MCP `fix_bug`, the extension's Copy handoff, the Skill) now render from
+`bugpilot/core/handoff.py`, guarded in both directions by `tests/test_handoff.py`,
+with the extension's copy checked by a TS test that reads the Python source and compares.
 
-落地时的形态（当时的草稿，实际文件更长，多了 retry 循环与「命令不存在时怎么办」）：
+The shape at the time it shipped (the draft from that time; the actual file is longer, adding a retry loop and "what to do when the command does not exist"):
 
 ```markdown
 ---
@@ -857,425 +857,425 @@ description: Prepare focused code context for a bug before investigating.
   and asks to fix, investigate, or analyze it — before searching the codebase.
 ---
 
-1. 运行 `bugpilot bug <ISSUE>`（或 `bugpilot bug --description "..."`）。
-2. 读 `.ai/<ISSUE>/agent_task.md` 与 `bug_context.md`。
-3. 按 `agent_task.md` 完成分析与修复，在 commit gate 停下。
-4. 不要自行 commit、push 或发 Jira 评论。
+1. Run `bugpilot bug <ISSUE>` (or `bugpilot bug --description "..."`).
+2. Read `.ai/<ISSUE>/agent_task.md` and `bug_context.md`.
+3. Complete the analysis and fix according to `agent_task.md`, and stop at the commit gate.
+4. Do not commit, push, or post Jira comments on your own.
 ```
 
-注意它与 §5.2 的 MCP prompt（`/mcp__bugpilot__fix_bug`）内容高度重叠 ——
-两者都是「交接指令」的载体。Skill 落地时应与 MCP prompt 共用同一份文案来源，
-避免两处漂移。
+Note that its content heavily overlaps with the MCP prompt in §5.2 (`/mcp__bugpilot__fix_bug`) —
+both are carriers of the "handoff instructions". When the Skill ships, it should share a single text source with the MCP prompt,
+to keep the two from drifting apart.
 
-### 5.6 未修复时的续接路径
+### 5.6 Continuation path when not fixed
 
-`bugpilot bug` 跑完、agent 改了代码，但 bug 没修好 —— 这是最常见的真实路径，
-三个入口都必须给出明确的下一步。
+`bugpilot bug` has finished and the agent has changed code, but the bug is not fixed — this is the most common real-world path,
+and all three entry points must offer a clear next step.
 
-#### 现状：机制已存在，可发现性是缺口
+#### Current state: the mechanism exists; discoverability is the gap
 
-`workflow.retry_prompt_step` 已经把续接做完了：
+`workflow.retry_prompt_step` already implements continuation:
 
 ```text
 bugpilot retry-prompt JR-12345
-  → user_feedback.md          （模板，给开发者填「哪里没修好」）
-  → agent_retry_prompt.md，内含：
-       · 必读产物清单（只列实际存在的文件）
-       · 开发者反馈（上限 3000 字符）
-       · 上次尝试摘要（5 个结果文件各截 800 字符）
-       · 重试指令（先解释为何失败、重查实现位置、禁止大范围重构）
-       · delivery block + 必需输出文件 + 交接语
+  → user_feedback.md          (template for the developer to fill in "what was not fixed")
+  → agent_retry_prompt.md, containing:
+       · list of required-reading artifacts (lists only files that actually exist)
+       · developer feedback (capped at 3000 characters)
+       · summary of the previous attempt (each of the 5 result files truncated to 800 characters)
+       · retry instructions (first explain why it failed, re-check where it is implemented, no large-scale refactoring)
+       · delivery block + required output files + handoff prompt
 ```
 
-问题是**没人知道它存在**：`retry-prompt` 只出现在 README 的命令表和
-usage_guide 的命令参考里，[usage_guide.md](usage_guide.md) 的
-「Recommended Real Workflow」**一次都没提**（grep 计数 0）。
-用户跑完发现没修好，流程就断在这里。
+The problem is that **nobody knows it exists**: `retry-prompt` appears only in the README command table and
+the usage_guide command reference, and in `usage_guide.md` (deleted) the
+"Recommended Real Workflow" section **does not mention it even once** (grep count 0).
+When users finish a run and find the bug not fixed, the flow simply breaks off here.
 
-#### 关键前提：信息保留已经不是问题
+#### Key premise: information retention is no longer a problem
 
-因为 core 是 artifact-as-interface 的设计，所有状态都在 `.ai/<work_item>/` 的文件里，
-不在 agent 的会话里。`_previous_attempt_summary` 把 5 个结果文件嵌进重试 prompt，
-`user_feedback.md` 承载人的修正 —— **重启 agent 不丢任何东西**。
+Because the core follows an artifact-as-interface design, all state lives in files under `.ai/<work_item>/`,
+not in the agent's session. `_previous_attempt_summary` embeds the 5 result files into the retry prompt,
+and `user_feedback.md` carries the human's correction — **restarting the agent loses nothing**.
 
-所以选择「重启」还是「留在会话」的标准**不是信息会不会丢，而是上下文对不对**。
+So the criterion for choosing "restart" versus "stay in the session" is **not whether information will be lost, but whether the context is right**.
 
-#### 决策规则
+#### Decision rule
 
-| 情况 | 选择 | 理由 |
+| Situation | Choice | Rationale |
 | --- | --- | --- |
-| Agent 理解对了，执行不到位（漏改一处、测试没跑） | 留在当前会话 | 推理链还有用，重启是浪费 |
-| `bug_context.md` 指错文件、关键词不准、误读了 bug 描述 | **重启 + retry-prompt** | 对话再多也修不好错的输入；失败尝试留在上下文里会**锚定**模型走回同一条错路 |
-| 改了输入（新 hint / keywords / focus files） | **重启** | 输入变了就该重新准备产物 |
+| The agent understood correctly but did not execute fully (missed one change, did not run the tests) | Stay in the current session | The reasoning chain is still useful; restarting is wasteful |
+| `bug_context.md` points to the wrong files, the keywords are inaccurate, the bug description was misread | **Restart + retry-prompt** | No amount of conversation can fix wrong input; a failed attempt left in context **anchors** the model back onto the same wrong path |
+| The input changed (new hint / keywords / focus files) | **Restart** | When the input changes, the artifacts should be prepared again |
 
-**默认重启。** 「没修好」最常见的原因就是上下文不准，而锚定效应会让留在会话里越聊越偏。
-留在会话是显式选项，不是默认。
+**Restart by default.** The most common reason for "not fixed" is inaccurate context, and the anchoring effect makes a session drift further off course the longer it continues.
+Staying in the session is an explicit option, not the default.
 
-#### 各入口如何暴露
+#### How each entry point exposes it
 
-**CLI**（阶段 2）：
+**CLI** (Phase 2):
 
 ```text
-bugpilot bug <ISSUE> --retry                  # 生成 retry prompt + user_feedback.md
-                                              # 首次生成后停下等人填写；填好再跑才拉起 agent
-bugpilot bug <ISSUE> --retry --same-session    # 折中：claude -c 保留推理历史 + 注入修正上下文
-                                              # 锚定问题仍在，默认关闭
+bugpilot bug <ISSUE> --retry                  # generate the retry prompt + user_feedback.md
+                                              # stop after first generation and wait for a human to fill it in; only a rerun after that launches the agent
+bugpilot bug <ISSUE> --retry --same-session    # compromise: claude -c keeps the reasoning history + injects the corrective context
+                                              # the anchoring problem remains; off by default
 ```
 
-现在这是三步手工操作（跑 `retry-prompt` → 编辑反馈 → 复制 prompt 粘给 agent），
-合成一条命令，复用 `agent_runner` 的既有拉起逻辑。
+Today this takes three manual steps (run `retry-prompt` → edit the feedback → copy the prompt and paste it to the agent);
+merge them into one command that reuses the existing launch logic of `agent_runner`.
 
-**首次生成 `user_feedback.md` 后必须停下。** 模板里是占位符，不是开发者对失败的
-描述；直接交给 agent 等于喂一个空的修正 —— 而那正是这个循环唯一存在的理由。
-填好反馈后再跑同一条命令才会拉起 agent。
+**It must stop after generating `user_feedback.md` for the first time.** The template contains placeholders, not the developer's
+description of the failure; handing it straight to the agent amounts to feeding it an empty correction — and that correction is the only reason this loop exists.
+Only running the same command again after the feedback has been filled in launches the agent.
 
-同时补可发现性：`check-results` 与 `delivery-check` 失败时打印下一步命令 ——
+Discoverability is addressed at the same time: `check-results` and `delivery-check` print the next command on failure —
 
 ```text
 Missing result files: fix_summary.md, test_result.md
 Not fixed yet? Run: bugpilot retry-prompt JR-12345
 ```
 
-**Extension**（阶段 5）：Run 旁边一个 `Retry` 按钮 —— 在编辑器打开
-`user_feedback.md`，保存后执行 `bug --retry`。进度 checklist 复用同一套 JSONL 事件。
+**Extension** (Phase 5): a `Retry` button next to Run — it opens
+`user_feedback.md` in the editor and runs `bug --retry` after the file is saved. The progress checklist reuses the same set of JSONL events.
 
-**MCP**：**不暴露 retry 工具。** 理由是 retry 的输入是**人的反馈**，不是模型的判断 ——
-agent 若自己发现没修好，本来就会在会话内继续干，不需要一个工具来「重试」。
-把 retry 做成工具等于让模型自己决定「我失败了，重来」，与 R5 的人在环中相悖。
+**MCP**: **no retry tool is exposed.** The reason is that retry's input is **human feedback**, not the model's judgement —
+if the agent itself finds that the bug is not fixed, it will simply keep working within the session; it does not need a tool to "retry".
+Making retry a tool would amount to letting the model decide on its own "I failed, start over", which contradicts R5's human in the loop.
 
-这也划清了与 `refine_investigation`（§5.2）的边界，两者属于不同循环：
+This also draws the boundary with `refine_investigation` (§5.2); the two belong to different loops:
 
 ```text
-refine_investigation  → 准备阶段，改调查方向，重跑检索          （agent 可自主）
-retry                 → 修复阶段，人给反馈后重来一次            （必须人触发）
+refine_investigation  → preparation phase: change the investigation direction, rerun retrieval   (agent may act autonomously)
+retry                 → fix phase: start over once after a human gives feedback                  (must be human-triggered)
 ```
 
-#### VS Code 会话续接
+#### VS Code session continuation
 
-bugpilot 拉起的 agent 跑在终端里（`run_agent` 用 `cwd=repo_root`）。这个会话能否
-转到 VS Code 的 Claude 扩展，取决于 **cwd**：Claude Code 的会话按 cwd 的 slug 分目录存储，
-终端与扩展读写同一位置。
+The agent launched by bugpilot runs in a terminal (`run_agent` uses `cwd=repo_root`). Whether this session can
+be carried over to the Claude extension in VS Code depends on the **cwd**: Claude Code stores sessions in directories keyed by the cwd slug,
+and the terminal and the extension read and write the same location.
 
 ```text
 ~/.claude/projects/<cwd-slug>/<session-uuid>.jsonl
 ```
 
-- **VS Code workspace root == `repo_root`** → slug 相同，终端会话在扩展的历史里可见、可 resume。
-- **workspace root 不同**（开的是父目录或子目录）→ slug 不同 → 看不到。
+- **VS Code workspace root == `repo_root`** → same slug; the terminal session is visible in the extension's history and can be resumed.
+- **Different workspace root** (a parent or child directory is open) → different slug → not visible.
 
-两个限制：**不是实时接管**（终端会话结束后再 resume；两个活进程写同一份 transcript
-不安全）；终端侧等价操作是 `claude --resume` / `claude -c`。
+Two limitations: **it is not a live takeover** (resume after the terminal session has ended; two live processes writing the same transcript
+is unsafe); the terminal-side equivalent is `claude --resume` / `claude -c`.
 
-可选增强：agent 退出后取 `~/.claude/projects/<slug>/` 下最新修改的 `.jsonl`，
-把 session id 写进 `.ai/<work_item>/agent_session.json`，让 CLI 与扩展都能直接提供
-「resume 上次的 agent 会话」。**标记为脆弱** —— slug 的推导规则是 Claude Code 的
-实现细节而非公开契约，升级可能失效，所以必须能优雅降级（拿不到就不显示该入口）。
+Optional enhancement: after the agent exits, take the most recently modified `.jsonl` under `~/.claude/projects/<slug>/`,
+and write the session id into `.ai/<work_item>/agent_session.json`, so that both the CLI and the extension can directly offer
+"resume the last agent session". **Marked as fragile** — the slug derivation rule is a Claude Code
+implementation detail rather than a public contract and may break on upgrade, so it must degrade gracefully (if the id cannot be obtained, that entry point is not shown).
 
-## 6. 共享前置工作
+## 6. Shared groundwork
 
-MCP、Extension 和无 Jira 输入都依赖这些共享改动，应先完成：
+MCP, the Extension and non-Jira input all depend on these shared changes, which should be completed first:
 
-1. **引入领域模型** —— `BugSpec` / `InvestigationOptions` / `InvestigationPlan` /
-   `InvestigationRequest` / `InvestigationResult`。
-2. **plan 展开与依赖解析** —— 只在 core 里实现一份（不变量 7）。
-3. **统一 work item identity** —— `is_jira_issue_key` / `is_work_item_id`，
-   删除两份 `looks_like_issue_key`，改掉 §3.4 表中全部调用点。
-4. **Jira / Manual input adapter** —— 两类输入归一为 `BugSpec`。
-5. **拆分 `copilot.py`** —— `collect_agent_status() -> dict` + `print_agent_status()`。
-   消除 core 里最后的 stdout 输出。
-6. **加 `--json` 与 `--json-lines`** —— §5.1。纯加法，不改既有输出。
-7. **声明 `mcp` 依赖** —— 放 optional extra
-   （`[project.optional-dependencies] mcp = ["mcp"]`），保持 CLI 与 PyInstaller 零依赖。
+1. **Introduce the domain model** — `BugSpec` / `InvestigationOptions` / `InvestigationPlan` /
+   `InvestigationRequest` / `InvestigationResult`.
+2. **Plan expansion and dependency resolution** — implemented only once, in core (invariant 7).
+3. **Unify work item identity** — `is_jira_issue_key` / `is_work_item_id`,
+   delete both copies of `looks_like_issue_key`, and update every call site in the §3.4 table.
+4. **Jira / Manual input adapter** — normalize both kinds of input into `BugSpec`.
+5. **Split `copilot.py`** — `collect_agent_status() -> dict` + `print_agent_status()`.
+   This removes the last stdout output in core.
+6. **Add `--json` and `--json-lines`** — §5.1. Purely additive; existing output is not changed.
+7. **Declare the `mcp` dependency** — as an optional extra
+   (`[project.optional-dependencies] mcp = ["mcp"]`), keeping the CLI and PyInstaller free of dependencies.
 
 ---
 
-## 7. 安全模型的延伸
+## 7. Extending the safety model
 
-[safety.md](safety.md) 的保证在三入口下逐条如何维持：
+How each guarantee in [safety.md](safety.md) is maintained across the three entry points:
 
-| 现有保证 | 新入口下的处理 |
+| Existing guarantee | Handling under the new entry points |
 | --- | --- |
-| 从不 commit/push/开 PR | MCP 不暴露 `commit`/`push`；扩展的 commit 相关命令只打开 `commit_plan.md`，不执行 git |
-| Jira 只写一条可选评论 | `jira-comment --execute` 不进 MCP 工具列表；扩展需要弹窗确认；manual 模式直接不可用（§5.1） |
-| `cleanup` 不能删 `.ai`/`.ai_memory/bugs` 之外 | 不变（`_ensure_child` 在 core 里），校验函数改名为 `validate_work_item_id` |
-| 出站文本经 `sanitize_comment_text` 脱敏 | 不变。**新增要求**：MCP 工具的返回值也要过一遍 —— 工具结果直接进模型上下文 |
-| 凭据只从 `config.py` 进入 | 扩展通过环境变量注入，仍走 `config.py` 的 env 优先路径，不新增读取点 |
+| Never commit/push/open a PR | MCP does not expose `commit`/`push`; the extension's commit-related commands only open `commit_plan.md` and do not run git |
+| Jira gets only one optional comment | `jira-comment --execute` is not in the MCP tool list; the extension requires a confirmation dialog; simply unavailable in manual mode (§5.1) |
+| `cleanup` cannot delete anything outside `.ai`/`.ai_memory/bugs` | Unchanged (`_ensure_child` lives in core); the validation function is renamed to `validate_work_item_id` |
+| Outbound text is redacted via `sanitize_comment_text` | Unchanged. **New requirement**: MCP tool return values must also pass through it — tool results go straight into the model context |
+| Credentials enter only via `config.py` | The extension injects them via environment variables, still through the env-first path of `config.py`; no new read points are added |
 
-新增的攻击面：MCP 工具的返回值会进模型上下文。
+New attack surface: MCP tool return values enter the model context.
 
-**实施后撤销了「工具返回值过脱敏」这条要求。** `sanitize_comment_text` 是为
-Jira 评论设计的，实测会把 `def load(key, secret_path)` 腐蚀成
-`def load(key, <redacted>`，让模型读到不存在的签名；而它保护不了什么 ——
-agent 对同一仓库有读权限，可以直接打开那份文件。脱敏的正确位置是**离开本机的
-文本**（Jira 评论、邮件），那两处已经在做。
+**The requirement "redact tool return values" was withdrawn after implementation.** `sanitize_comment_text` was designed for
+Jira comments; in practice it corrupts `def load(key, secret_path)` into
+`def load(key, <redacted>`, so the model reads a signature that does not exist; and it protects nothing —
+the agent has read access to the same repository and can open that file directly. The right place for redaction is **text that leaves
+this machine** (Jira comments, email), and both of those already do it.
 
-真正需要的边界是另外两条，都由 §5.2 的工具实现保证并有守护测试：
-**每个模型提供的 work item id 必须过 `validate_work_item_id`**（否则
-`../../elsewhere/evil-1` 会写到绑定仓库之外），以及**每个工具要求 work item
-已存在**（否则一个看似合理的 id 会新建幽灵目录）。
+The boundaries actually needed are two others, both guaranteed by the tool implementation in §5.2 and covered by guard tests:
+**every model-supplied work item id must pass `validate_work_item_id`** (otherwise
+`../../elsewhere/evil-1` would write outside the bound repository), and **every tool requires the work item
+to already exist** (otherwise a plausible-looking id would create a phantom directory).
 
 ---
 
-## 8. 打包与分发影响
+## 8. Packaging and distribution impact
 
-| 产物 | 现状 | 三入口后 |
+| Artifact | Current state | After the three entry points |
 | --- | --- | --- |
-| wheel + pipx | `install.cmd` → `install.ps1` → pipx | 不变；`bugpilot-mcp` 入口点需要重装才生成 |
-| `bugpilot.exe`（PyInstaller） | 单文件，自带 Python | 不变（`mcp` 走 optional extra，不进 exe） |
-| VS Code 扩展 | 无 | 新增 `.vsix`。V1 不内置 exe（要求已有 CLI），扩展负责检测、选择 executable 与给出安装指引 |
+| wheel + pipx | `install.cmd` → `install.ps1` → pipx | Unchanged; the `bugpilot-mcp` entry point is generated only after reinstalling |
+| `bugpilot.exe` (PyInstaller) | Single file, bundles its own Python | Unchanged (`mcp` goes through the optional extra and does not go into the exe) |
+| VS Code extension | None | New `.vsix`. V1 does not bundle the exe (an existing CLI is required); the extension is responsible for detection, choosing the executable and giving installation guidance |
 
-**扩展工具链：零构建步骤**（阶段 4 落地）。用 Node 22.18+ 的原生 TypeScript
-类型剥离直接跑 `.ts`，不引 ts-node / tsx / jest / vitest，测试用内置
-`node --test`。少一层构建就少一处版本地狱，代价是不能写会生成代码的 TS 语法
-（parameter properties、`enum`、`namespace`）——用 `erasableSyntaxOnly: true`
-让这类写法在**编译期**报错，而不是等运行时 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`。
-`engines.node` 因此收紧到 `>= 22.18`。打包 `.vsix` 时类型剥离由 VS Code 自带的
-Node 承担，无需附加运行时依赖（扩展运行时依赖为零）。
+**Extension toolchain: zero build steps** (shipped in Phase 4). Node 22.18+'s native TypeScript
+type stripping runs `.ts` directly, with no ts-node / tsx / jest / vitest; tests use the built-in
+`node --test`. One less build layer means one less source of version hell; the cost is that TS syntax that generates code cannot be used
+(parameter properties, `enum`, `namespace`) — `erasableSyntaxOnly: true` is used
+to make such constructs fail at **compile time** instead of waiting for `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` at runtime.
+`engines.node` is therefore tightened to `>= 22.18`. When the `.vsix` is packaged, type stripping is handled by VS Code's bundled
+Node, so no extra runtime dependencies are needed (the extension has zero runtime dependencies).
 
-**`.vsix` 的实际内容**（阶段 6 落地）：`vsce package --no-dependencies` +
-`.vscodeignore`，产物 29 个文件 / 约 75KB——只有 `out/`（构建后的 CommonJS）、
-`media/`（页面资源与活动栏图标）、`package.json` 与 `README.md`。
-源码、测试、tsconfig 一概不进包。`scripts/check-package.mjs` 用 `vsce ls`
-**双向**校验：扩展跑不起来就缺的文件必须在（`out/extension.js`、
-`media/panel.{css,js}`、manifest 声明的图标），不该进的一个都不许在。
-理由是这类错误在安装之后才暴露：少了 `media/panel.js` 就是一个空白面板，
-而且哪里都不报错。
+**Actual contents of the `.vsix`** (shipped in Phase 6): `vsce package --no-dependencies` +
+`.vscodeignore`; the artifact is 29 files / about 75KB — only `out/` (the built CommonJS),
+`media/` (page assets and the activity bar icon), `package.json` and `README.md`.
+Source, tests and tsconfig are all kept out of the package. `scripts/check-package.mjs` uses `vsce ls`
+to check in **both directions**: files without which the extension cannot run must be present (`out/extension.js`,
+`media/panel.{css,js}`, the icons declared in the manifest), and not a single file that should not be included may be present.
+The reason is that this kind of error only surfaces after installation: a missing `media/panel.js` means a blank panel,
+and nothing reports an error anywhere.
 
-**扩展的 README 就是扩展页面**（`extension/README.md`），同时承担 §9 阶段 6
-「5–10 分钟完成第一次调查」的 onboarding 文档职责。
+**The extension's README is the extension page** (`extension/README.md`), and it also serves as the onboarding document for §9 Phase 6's
+"complete the first investigation in 5–10 minutes".
 
-**`doctor` 报告首字段是 `version`**（阶段 6 落地）。一台机器上同时存在 pipx 副本、
-editable 安装和 exe 是常态（开发机上就是），所以「我现在跑的到底是哪一个」必须
-可见：扩展把版本与解析出的路径一起显示在面板底部。字段可缺——较旧但契约兼容的
-版本不报版本号，缺失不得把一个可用的安装降级。
+**The first field of the `doctor` report is `version`** (shipped in Phase 6). Having a pipx copy,
+an editable install and the exe on one machine at the same time is normal (it is the case on the development machine), so "which one am I actually running right now" must be
+visible: the extension shows the version together with the resolved path at the bottom of the panel. The field may be absent — older but contract-compatible
+versions do not report a version number, and its absence must not downgrade a working installation.
 
-**V1 支持平台**：Windows 10/11 + VS Code。Linux 为 best effort，等 workflow 与
-adapter contract 稳定后再验证。理由：V1 已同时涉及 pipx、`.exe`、`.cmd` shim、
-VS Code、Claude CLI、PATH、SecretStorage、MCP stdio，同步验证 Linux 会显著扩大
-测试矩阵。
+**V1 supported platforms**: Windows 10/11 + VS Code. Linux is best effort, to be validated once the workflow and the
+adapter contract are stable. Rationale: V1 already involves pipx, `.exe`, `.cmd` shims,
+VS Code, Claude CLI, PATH, SecretStorage and MCP stdio all at once; validating Linux at the same time would significantly enlarge the
+test matrix.
 
 ---
 
-## 9. 分阶段计划
+## 9. Phased plan
 
-第一版目标是 **Feature-rich Internal Beta**。实施顺序保持
-「spike → 领域模型 → machine API → MCP → 扩展基础设施 → 扩展 UI → hardening」，
-即先稳定 contract 再做界面。
+The goal for the first version is a **Feature-rich Internal Beta**. The implementation order stays
+"spike → domain model → machine API → MCP → extension infrastructure → extension UI → hardening",
+i.e. stabilize the contract first, then build the interface.
 
-### 阶段 0 —— 两个 spike 验证
+### Phase 0 — two validation spikes
 
-**0A MCP feasibility**：只做 `prepare_jira_bug` 一个工具（直接包现有
-`run_bug_workflow`，不需要任何前置改动），验证 Claude Code 在有 BugPilot tool 时
-会优先调用，而不是自己无约束 grep。`prepare_bug_description` 与
-`refine_investigation` 依赖阶段 1 的领域模型，不放进 spike，否则形成循环依赖。
+**0A MCP feasibility**: build only one tool, `prepare_jira_bug` (wrapping the existing
+`run_bug_workflow` directly, with no prior changes needed), to validate that Claude Code, when a BugPilot tool is available,
+calls it first instead of grepping on its own without constraints. `prepare_bug_description` and
+`refine_investigation` depend on the domain model from Phase 1 and are not part of the spike; otherwise there would be a circular dependency.
 
-**0B VS Code UX / 设计 spike**：做一个只含主输入面板的 Webview 原型，验证
-输入表单、调查范围勾选、进度 checklist 的交互与信息层级，并**当场跑一遍 §5.4 的
-主题矩阵与窄宽度检查**。V1 功能集已由 R8 定下，0B 不决定做哪些功能，
-但它决定布局、信息层级和组件清单 —— 这是把「界面尽量做好」变成有界工作的手段：
-组件清单在 0B 冻结，阶段 5 只实现不再重新设计。
+**0B VS Code UX / design spike**: build a Webview prototype containing only the main input panel, to validate
+the interaction and information hierarchy of the input form, the investigation scope checkboxes and the progress checklist, and **run the §5.4
+theme matrix and narrow-width checks on the spot**. The V1 feature set is already fixed by R8, so 0B does not decide which features to build,
+but it does decide the layout, the information hierarchy and the component inventory — this is the means of turning "make the interface as good as possible" into bounded work:
+the component inventory is frozen in 0B, and Phase 5 only implements it, without redesigning.
 
-这两个 spike 不作为可交付 V1。
+Neither spike is a deliverable V1.
 
-### 阶段 1 —— 领域模型与 core
+### Phase 1 — domain model and core
 
 - `BugSpec` / `InvestigationOptions` / `InvestigationPlan` / `InvestigationRequest` /
-  `InvestigationResult`。
-- plan → `WORKFLOW_STEPS` 展开与依赖解析（core 内单一实现）。
-- work item identity 统一（§3.4 全部调用点）。
-- Jira / Manual input adapter。
-- 后续 workflow 去 Jira 耦合。
-- core stdout 清理。
-- step 返回结构化数据。
-- MCP 写路径限制测试。
+  `InvestigationResult`.
+- plan → `WORKFLOW_STEPS` expansion and dependency resolution (a single implementation inside core).
+- work item identity unification (all call sites in §3.4).
+- Jira / Manual input adapter.
+- Remove the Jira coupling from the downstream workflow.
+- core stdout cleanup.
+- step returns structured data.
+- MCP write-path restriction tests.
 
-验收：
+Acceptance:
 
-1. 同一个 workflow 可分别用 Jira issue 与纯 description 运行，并生成同类
-   `.ai/<work_item>/` 产物。
-2. 本地 work item id 形如 `local_20260901094133`，且 `is_jira_issue_key()` 对它
-   返回 `False`、`is_work_item_id()` 返回 `True`。
-3. 全仓只有一处 Jira key 判定和一处 work item id 判定；
-   `looks_like_issue_key` / `_looks_like_issue_key` 已删除。
-4. `InvestigationPlan` 关掉某项时，`workflow_status.json` 里对应 step 标记为
-   `skipped` 而非 `fail`；依赖项（如 `keywords`）按表自动补齐且只跑一次。
+1. The same workflow can be run with either a Jira issue or a plain description, producing the same kind of
+   `.ai/<work_item>/` artifacts.
+2. A local work item id looks like `local_20260901094133`, and for it `is_jira_issue_key()`
+   returns `False` and `is_work_item_id()` returns `True`.
+3. The whole repository has only one Jira key check and one work item id check;
+   `looks_like_issue_key` / `_looks_like_issue_key` have been deleted.
+4. When `InvestigationPlan` turns an item off, the corresponding step in `workflow_status.json` is marked
+   `skipped` rather than `fail`; dependencies (such as `keywords`) are filled in automatically according to the table and run only once.
 
-### 阶段 2 —— CLI Machine API
+### Phase 2 — CLI Machine API
 
-- 现有 CLI 行为逐字兼容。
-- 9 个关键命令加 `--json`。
-- `--json-lines` 事件流（复用已有 `progress` 回调）。
-- `schema_version = 1`；稳定 `error.code`。
-- manual description / description-file 输入。
-- Options 参数（hint / keywords / focus / ignore / max-files / max-search-lines）
-  与 Plan 参数（skip-*）。
-- 新增 `bugpilot list`（§3.4 / §5.1），同时提供 `--json`。
-- manual 模式下 Jira 相关命令的行为（§5.1 表）。
-- **续接闭环**（§5.6）：`bug --retry` 一条命令走完三步；`--retry --same-session`
-  作为显式选项；`check-results` / `delivery-check` 失败时打印下一步命令。
+- Existing CLI behaviour stays compatible word for word.
+- Add `--json` to 9 key commands.
+- `--json-lines` event stream (reusing the existing `progress` callback).
+- `schema_version = 1`; stable `error.code`.
+- manual description / description-file input.
+- Options parameters (hint / keywords / focus / ignore / max-files / max-search-lines)
+  and Plan parameters (skip-*).
+- New `bugpilot list` (§3.4 / §5.1), with `--json` as well.
+- Behaviour of the Jira-related commands in manual mode (§5.1 table).
+- **Closed continuation loop** (§5.6): `bug --retry` completes the three steps in a single command; `--retry --same-session`
+  as an explicit option; `check-results` / `delivery-check` print the next command on failure.
 
-验收：Extension 不解析人类文本；实时进度只依赖 JSONL，不依赖轮询文件；
-未修复场景下用户能只靠 CLI 输出找到下一步（不必翻文档）。
+Acceptance: the Extension does not parse human-readable text; live progress depends only on JSONL, not on polling files;
+in the not-fixed scenario, users can find the next step from the CLI output alone (without having to consult the docs).
 
-### 阶段 3 —— MCP 完整入口
+### Phase 3 — full MCP entry point
 
-- `prepare_jira_bug`、`prepare_bug_description`、`refine_investigation`、
-  `check_results`、`summarize_results`、`search_memory`、`get_status`。
-- 1 个 deterministic fix-bug prompt。
-- repo-bound server，不让模型自由传 `repo_root`。
-- tool result sanitize。
-- `CLAUDE.md` 推荐片段写进文档（可选增强，不作依赖）。
+- `prepare_jira_bug`, `prepare_bug_description`, `refine_investigation`,
+  `check_results`, `summarize_results`, `search_memory`, `get_status`.
+- 1 deterministic fix-bug prompt.
+- repo-bound server; the model is not allowed to pass `repo_root` freely.
+- tool result sanitize.
+- A recommended `CLAUDE.md` snippet written into the docs (optional enhancement, not a dependency).
 
-验收：Claude Code 能从 Jira 或自然语言 bug 描述进入 workflow；
-`refine_investigation` 能按新 hint 重跑相关环节；MCP 调用不修改 source tree；
-删掉目标仓库的 `CLAUDE.md` 后全部功能仍可用（R9）。
+Acceptance: Claude Code can enter the workflow from Jira or from a natural-language bug description;
+`refine_investigation` can rerun the relevant parts with a new hint; MCP calls do not modify the source tree;
+all features remain usable after the target repository's `CLAUDE.md` is deleted (R9).
 
-### 阶段 4 —— VS Code Extension 基础设施
+### Phase 4 — VS Code Extension infrastructure
 
-- executable discovery / selection。
-- process runner（含 Stop / kill）。
-- JSON 与 JSONL protocol client。
-- SecretStorage。
-- workspace / repo root detection。
-- diagnostics 与 `error.code` → 用户提示的映射。
+- executable discovery / selection.
+- process runner (including Stop / kill).
+- JSON and JSONL protocol client.
+- SecretStorage.
+- workspace / repo root detection.
+- diagnostics and the mapping from `error.code` → user-facing messages.
 
-### 阶段 5 —— Extension 完整 UX（V1）
+### Phase 5 — full Extension UX (V1)
 
-§5.3 表中**全部**能力：输入源切换、title/description、hint、keywords、
-focus/ignore、调查范围勾选、Run/Stop、实时 checklist、artifact TreeView、
-Markdown 预览、history、Open `agent_task.md`、Copy handoff prompt、
-MCP status 提示、Doctor/Agent Check/Clean、安装向导、executable 配置、SecretStorage。
+**All** capabilities in the §5.3 table: input source switching, title/description, hint, keywords,
+focus/ignore, investigation scope checkboxes, Run/Stop, live checklist, artifact TreeView,
+Markdown preview, history, Open `agent_task.md`, Copy handoff prompt,
+MCP status indicator, Doctor/Agent Check/Clean, install wizard, executable configuration, SecretStorage.
 
-加上 §5.4 的界面实现：Webview 主面板（主题变量、窄宽度、三态、a11y、状态保持、CSP）
-与原生 TreeView（产物 / history）。
+Plus the interface implementation from §5.4: the Webview main panel (theme variables, narrow width, three states, a11y, state persistence, CSP)
+and native TreeViews (artifacts / history).
 
-加上 §5.6 的续接 UI：Run 旁的 `Retry` 按钮（打开 `user_feedback.md`，保存后跑
-`bug --retry`），以及会话续接入口（能取到 session id 时显示，取不到则隐藏）。
+Plus the continuation UI from §5.6: the `Retry` button next to Run (opens `user_feedback.md`, and after it is saved runs
+`bug --retry`), and the session continuation entry point (shown when a session id can be obtained, hidden otherwise).
 
-验收（功能）：不打开终端即可完成完整调查流程，并明确知道下一步如何交给 agent。
+Acceptance (functional): a complete investigation flow can be finished without opening a terminal, and the user clearly knows how to hand the next step to the agent.
 
-验收（界面，逐条过 §5.4）：
+Acceptance (interface, going through §5.4 item by item):
 
-1. Light / Dark / High Contrast Dark / High Contrast Light 四主题下截图无问题；
-   代码里 `grep` 不到硬编码颜色值。
-2. 侧边栏 200px / 300px / 500px 三档宽度下无横向滚动、标签不截断。
-3. 仅用键盘完成一次完整调查流程。
-4. §5.4 三态表中每格都有对应实现（含 CLI 未安装的安装向导）。
-5. 面板隐藏再显示后表单内容不丢；扩展重启后进度从 `workflow_status.json` 恢复。
-6. Webview 中不出现任何凭据；CSP 与 `localResourceRoots` 已设置。
+1. Screenshots under the four themes Light / Dark / High Contrast Dark / High Contrast Light show no problems;
+   `grep` finds no hardcoded colour values in the code.
+2. No horizontal scrolling and no truncated labels at the three sidebar widths 200px / 300px / 500px.
+3. A complete investigation flow done using only the keyboard.
+4. Every cell of the §5.4 three-state table has a corresponding implementation (including the install wizard for when the CLI is not installed).
+5. Form contents are not lost after the panel is hidden and shown again; after the extension restarts, progress is restored from `workflow_status.json`.
+6. No credentials appear in the Webview; CSP and `localResourceRoots` are set.
 
-### 阶段 6 —— Internal Beta hardening
+### Phase 6 — Internal Beta hardening
 
-- VSIX 打包与安装说明。
-- pipx / exe / editable 三种安装的兼容测试。
-- 新机器 onboarding 测试。
-- upgrade / version mismatch 提示。
-- CLI JSON / JSONL compatibility 测试。
-- MCP 测试、Extension TS 测试。
-- Windows 10/11 优先；Linux best effort。
+- VSIX packaging and installation instructions.
+- Compatibility tests for the three installation types: pipx / exe / editable.
+- New-machine onboarding test.
+- upgrade / version mismatch notices.
+- CLI JSON / JSONL compatibility tests.
+- MCP tests, Extension TS tests.
+- Windows 10/11 first; Linux best effort.
 
-**V1 验收标准**：一个没参与 BugPilot 开发的程序员，看 README 花 5–10 分钟能在目标
-repo 中完成第一次 Jira 或 manual bug 调查，并成功打开 `agent_task.md`
-交给 Claude/Copilot。
+**V1 acceptance criterion**: a programmer who was not involved in BugPilot development can, after spending 5–10 minutes with the README, in the target
+repo complete a first Jira or manual bug investigation and successfully open `agent_task.md`
+to hand it to Claude/Copilot.
 
-### 阶段 7 —— 迁移清理
+### Phase 7 — migration cleanup
 
-- `agent_runner.py` 在 V1 标记 deprecated，Beta 反馈后删除。
-- **落地 Claude Code Skill（§5.5）**：一个 `SKILL.md`，零 Python 改动，
-  为 Claude Code 提供比 MCP 更轻的触发路径。与 §5.2 的 MCP prompt 共用同一份
-  交接文案。做完后对比两条路径的实际触发率，决定是否两者并存。
-- 根据实际使用决定是否扩展 GitHub Issue / Azure DevOps / clipboard /
-  selected text 等 input adapter。
-
----
-
-## 10. 已知成本
-
-诚实记录，避免事后才发现：
-
-- **V1 扩展范围偏大（已知并接受）。** R8 要求第一版既做完整功能（阶段 5 共 18 项
-  能力）又做打磨过的界面（§5.4 六组标准）。风险有两层：交付周期长；
-  且在真实使用反馈到来前就固化了交互决策。
-  缓解手段有三条 ——（a）阶段顺序不变，contract 先稳定；（b）**组件清单在 0B 冻结**，
-  阶段 5 只实现不重新设计；（c）§5.4 是**清单式验收**而非「好看」这类主观目标，
-  所以界面工作有明确终点。
-- **Webview 带来独立的一套工程成本。** 主面板不再是原生控件，意味着要额外维护
-  HTML/CSS、Webview ↔ 扩展宿主的 `postMessage` 协议、CSP 配置、状态序列化，
-  以及主题矩阵和 a11y 的回归检查。这部分不能复用 CLI 的任何测试。
-- **三层领域模型增加迁移成本。** 现有以 `issue_key` 为中心的函数签名、产物命名和
-  测试需要逐步泛化为 `InvestigationRequest`；阶段 1 是一次集中改动，不宜分批。
-- **每加一个 workflow step**，要决定它属于哪个 `InvestigationPlan` 开关、
-  在三处是否暴露、怎么命名。
-- **入口重叠**：已由 §1.1 的心智模型给出对外答案，但仍需在 README 里重复一次。
-- **文档面扩大**：`docs/` 已有 13 个文件。
-- **测试面扩大**：CLI 有 pytest 覆盖；plan 依赖解析、JSONL 事件、MCP 工具、
-  扩展 TS 都需要新测试。
-- **JSONL 与 `workflow_status.json` 双写**：两者必须语义一致，否则重启前后进度显示
-  会不一致。需要一个测试固定这个约束。
+- `agent_runner.py` is marked deprecated in V1 and deleted after Beta feedback.
+- **Ship the Claude Code Skill (§5.5)**: a single `SKILL.md`, zero Python changes,
+  giving Claude Code a lighter trigger path than MCP. It shares a single source of
+  handoff text with the MCP prompt in §5.2. Once done, compare the actual trigger rates of the two paths and decide whether to keep both.
+- Decide based on actual usage whether to add input adapters such as GitHub Issue / Azure DevOps / clipboard /
+  selected text.
 
 ---
 
-## 11. 已决与待决问题
+## 10. Known costs
 
-### 已决
+Recorded honestly, to avoid discovering them only after the fact:
 
-1. **Extension V1 不内置 `bugpilot.exe`**，要求安装 CLI，扩展负责检测和选择路径。
-2. **MCP 不让模型传 `repo_root`**，server 默认绑定启动 repo/workspace root，可配置覆盖。
-3. **`--json` 第一版即带 `schema_version`**，且扩展只依赖 `error.code`，不解析错误文本。
-4. **`agent_runner.py` V1 只 deprecated，不立即删除**。
-5. **Jira 降级为 input adapter**，manual bug description 是 V1 一等输入。
-6. **领域模型拆成三层**：`BugSpec`（身份/内容）+ `InvestigationOptions`（检索配置）
-   + `InvestigationPlan`（逻辑范围）。不合并成单一膨胀的 `BugSpec`。
-7. **work item identity 彻底分离**：`work_item_id` ≠ `source_ref`；本地 ID
-   `local_<YYYYMMDDHHMMSS>` 不伪装成 Jira key；作废上一版的 `LOCAL-<digits>` 决定。
-8. **`InvestigationPlan` 展开与依赖解析属于 core 契约**，adapter 不重复实现；
-   UI 只呈现逻辑能力，不呈现实现步骤。
-9. **阶段 2 交付 `--json-lines`**：JSONL 为 live events，`workflow_status.json`
-   为 persisted state。
-10. **MCP 用 `refine_investigation` 取代 `search_code`**，表达意图而非实现步骤；
-    低层 `bugpilot search --json` 仍在 CLI 可用。
-11. **V1 扩展做完整功能 + 打磨过的界面**（R8），不划 5a/5b，也不做界面降级；
-    范围风险记入 §10。
-11a. **控件选型混用**：主输入面板用 Webview，产物 / history 用原生 TreeView。
-11b. **不用 `@vscode/webview-ui-toolkit`**（已停止维护）；用原生 HTML +
-    VS Code 主题 CSS 变量，图标只用 Codicons。
-11c. **「打磨」= §5.4 的清单式标准**（主题矩阵、窄宽度、键盘可达、三态齐备、
-    状态保持、CSP），不是视觉出彩；不引入自有品牌视觉。
-11d. **组件清单在阶段 0B 冻结**，阶段 5 只实现不重新设计。
-11e. **凭据绝不进入 Webview**，只在扩展宿主从 `SecretStorage` 读取并注入子进程。
-12. **`CLAUDE.md` 提供推荐片段但不作依赖**（R9 / 不变量 9）。
-13. **V1 仅正式支持 Windows 10/11 + VS Code**，Linux best effort。
-14. **阶段 0A 只做 `prepare_jira_bug`**，避免与阶段 1 循环依赖。
-15. **Claude Code Skill 延后到 V1 之后（阶段 7）**，不进 V1，也不用于阶段 0A 的
-    假设验证。理由：Skill 依赖宿主有 shell 权限、不提供结构化返回、格式不跨客户端，
-    给不了 R2 + R4 要的 agent 契约；但它零改动、成本极低，值得在 V1 之后作为
-    Claude Code 的轻量触发路径补上（§5.5）。
-16. **Skill 不算第四个入口**，是 CLI 入口之上的触发垫片；§1.1 的三入口心智模型不变。
-17. **续接默认重启，不默认留在会话**（§5.6）。信息保留由产物保证，不依赖 agent 会话；
-    选择标准是上下文对不对，不是信息会不会丢。`--same-session` 是显式选项。
-18. **MCP 不暴露 retry 工具**（§5.6）。retry 的输入是人的反馈，做成工具等于让模型
-    自己决定「我失败了，重来」，与 R5 相悖。`refine_investigation`（准备阶段、
-    agent 可自主）与 retry（修复阶段、必须人触发）是两个不同循环。
-19. **会话续接是可选增强，必须能优雅降级**（§5.6）。依赖 Claude Code 的 cwd-slug
-    存储布局，那是实现细节而非公开契约；取不到 session id 时隐藏该入口，不报错。
-20. **`InvestigationOptions` V1 只加 `max_files` + `max_search_lines`**（§3.3），
-    两者成对暴露（只给文件数控制不住产物体积）。`search_scope`（与
-    `focus_files`/`ignore_paths` 语义重叠）、`dependency_depth`（是独立特性，
-    需要 include 图分析）、`token_budget`（需要 token 计数基础设施，且不如直接
-    控文件数/行数有效）都不进 V1，理由已记入 §3.3 表。
-21. **本地 ID 不加可读 slug**（§3.4）。ID 须稳定而标题可改；现有 `summary_slug()`
-    丢弃非 ASCII，中文标题产出空 slug，可读性收益时有时无。可读性改由 display 层
-    解决：新增 `bugpilot list` 命令（§5.1），扩展 History 面板消费其 `--json`。
+- **The V1 extension scope is on the large side (known and accepted).** R8 requires the first version to deliver both complete functionality (18 capabilities
+  in Phase 5) and a polished interface (the six groups of standards in §5.4). The risk has two layers: a long delivery cycle;
+  and interaction decisions get locked in before real usage feedback arrives.
+  There are three mitigations — (a) the phase order is unchanged, and the contract stabilizes first; (b) **the component inventory is frozen in 0B**,
+  and Phase 5 only implements it without redesigning; (c) §5.4 is **checklist-style acceptance** rather than a subjective goal such as "looks good",
+  so the interface work has a clear end point.
+- **The Webview brings a separate set of engineering costs of its own.** The main panel is no longer made of native controls, which means additionally maintaining
+  HTML/CSS, the Webview ↔ extension host `postMessage` protocol, CSP configuration, state serialization,
+  plus regression checks for the theme matrix and a11y. None of this can reuse any of the CLI's tests.
+- **The three-layer domain model adds migration cost.** Existing function signatures, artifact naming and
+  tests centred on `issue_key` need to be generalized step by step to `InvestigationRequest`; Phase 1 is one concentrated change and should not be split into batches.
+- **Every added workflow step** requires deciding which `InvestigationPlan` switch it belongs to,
+  whether it is exposed in the three places, and how to name it.
+- **Entry point overlap**: the external answer is already given by the mental model of §1.1, but it still needs to be repeated once in the README.
+- **Larger documentation surface**: `docs/` already has 13 files.
+- **Larger test surface**: the CLI has pytest coverage; plan dependency resolution, JSONL events, MCP tools
+  and the extension TS all need new tests.
+- **Double writes to JSONL and `workflow_status.json`**: the two must be semantically consistent, otherwise the progress display before and after a restart
+  will disagree. A test is needed to pin down this constraint.
 
-### 待决
+---
 
-1. `Continue with Claude` 在不同 agent 环境下用什么检测方式：MCP prompt、
-   复制 handoff，还是检测 Claude Code CLI？
-2. manual 模式下 `notify` / `commit-plan` 邮件降级后的正文模板由谁定？
-   （§5.1 已定行为，未定模板）
-3. `refine_investigation` 重跑的默认范围：固定为 code search + memory + context，
-   还是根据传入的 options 差异自动推断？
-4. `agent_session.json` 的 session id 抓取方式（§5.6）：取目录下最新 `.jsonl`
-   是否足够可靠？多个 agent 并发跑同一 repo 时会抓错，需要确认是否值得做。
-5. `--retry --same-session` 用什么实现：`claude -c`（最近一个会话）还是
-   `claude --resume <id>`（需要先解决问题 4）？
+## 11. Decided and open questions
+
+### Decided
+
+1. **Extension V1 does not bundle `bugpilot.exe`**; the CLI must be installed, and the extension is responsible for detecting and choosing the path.
+2. **MCP does not let the model pass `repo_root`**; by default the server binds to the repo/workspace root it was started in, which can be overridden by configuration.
+3. **`--json` carries `schema_version` from the first version**, and the extension depends only on `error.code` and does not parse error text.
+4. **`agent_runner.py` is only deprecated in V1, not deleted immediately**.
+5. **Jira is demoted to an input adapter**; the manual bug description is a first-class input in V1.
+6. **The domain model is split into three layers**: `BugSpec` (identity/content) + `InvestigationOptions` (retrieval configuration)
+   + `InvestigationPlan` (logical scope). They are not merged into a single bloated `BugSpec`.
+7. **Work item identity is fully separated**: `work_item_id` ≠ `source_ref`; the local ID
+   `local_<YYYYMMDDHHMMSS>` does not masquerade as a Jira key; this voids the previous version's `LOCAL-<digits>` decision.
+8. **`InvestigationPlan` expansion and dependency resolution belong to the core contract**; adapters do not reimplement them;
+   the UI presents only logical capabilities, not implementation steps.
+9. **Phase 2 delivers `--json-lines`**: JSONL carries live events, `workflow_status.json`
+   carries persisted state.
+10. **MCP replaces `search_code` with `refine_investigation`**, expressing intent rather than implementation steps;
+    the low-level `bugpilot search --json` remains available in the CLI.
+11. **The V1 extension delivers complete functionality + a polished interface** (R8), with no 5a/5b split and no interface downgrade;
+    the scope risk is recorded in §10.
+11a. **Mixed control choices**: the main input panel uses a Webview; artifacts / history use native TreeViews.
+11b. **Do not use `@vscode/webview-ui-toolkit`** (no longer maintained); use native HTML +
+    VS Code theme CSS variables, with icons from Codicons only.
+11c. **"Polish" = the checklist-style standard of §5.4** (theme matrix, narrow width, keyboard reachability, all three states covered,
+    state persistence, CSP), not visual flair; no own-brand visuals are introduced.
+11d. **The component inventory is frozen in Phase 0B**; Phase 5 only implements it without redesigning.
+11e. **Credentials never enter the Webview**; they are read only in the extension host from `SecretStorage` and injected into the child process.
+12. **`CLAUDE.md` gets a recommended snippet but is not a dependency** (R9 / invariant 9).
+13. **V1 officially supports only Windows 10/11 + VS Code**; Linux is best effort.
+14. **Phase 0A builds only `prepare_jira_bug`**, avoiding a circular dependency with Phase 1.
+15. **The Claude Code Skill is deferred until after V1 (Phase 7)**; it is not in V1 and is not used for the hypothesis validation in Phase 0A
+    either. Rationale: the Skill depends on the host having shell permission, provides no structured returns, and its format does not work across clients,
+    so it cannot provide the agent contract that R2 + R4 require; but it needs zero changes and costs very little, so it is worth adding after V1 as
+    a lightweight trigger path for Claude Code (§5.5).
+16. **The Skill does not count as a fourth entry point**; it is a trigger shim on top of the CLI entry point; the three-entry mental model of §1.1 is unchanged.
+17. **Continuation restarts by default, and does not stay in the session by default** (§5.6). Information retention is guaranteed by the artifacts, not by the agent session;
+    the selection criterion is whether the context is right, not whether information will be lost. `--same-session` is an explicit option.
+18. **MCP does not expose a retry tool** (§5.6). Retry's input is human feedback; making it a tool would amount to letting the model
+    decide on its own "I failed, start over", which contradicts R5. `refine_investigation` (preparation phase,
+    agent may act autonomously) and retry (fix phase, must be human-triggered) are two different loops.
+19. **Session continuation is an optional enhancement and must degrade gracefully** (§5.6). It depends on Claude Code's cwd-slug
+    storage layout, which is an implementation detail rather than a public contract; when the session id cannot be obtained, that entry point is hidden without an error.
+20. **`InvestigationOptions` V1 adds only `max_files` + `max_search_lines`** (§3.3),
+    and the two are exposed as a pair (file count alone cannot keep artifact size under control). `search_scope` (semantically overlapping with
+    `focus_files`/`ignore_paths`), `dependency_depth` (an independent feature
+    that needs include-graph analysis) and `token_budget` (needs token-counting infrastructure, and is less effective than directly
+    controlling file/line counts) all stay out of V1; the reasons are recorded in the §3.3 table.
+21. **Local IDs do not get a readable slug** (§3.4). IDs must be stable while titles can change; the existing `summary_slug()`
+    drops non-ASCII characters, so Chinese titles produce an empty slug, and the readability benefit is hit-or-miss. Readability is instead solved in the display
+    layer: a new `bugpilot list` command (§5.1), whose `--json` the extension's History panel consumes.
+
+### Open
+
+1. Which detection approach should `Continue with Claude` use in different agent environments: MCP prompt,
+   copy handoff, or detecting the Claude Code CLI?
+2. In manual mode, who decides the body template for the degraded `notify` / `commit-plan` emails?
+   (§5.1 has decided the behaviour, not the template)
+3. The default scope of a `refine_investigation` rerun: fixed to code search + memory + context,
+   or inferred automatically from the differences in the options passed in?
+4. How the session id for `agent_session.json` is captured (§5.6): is taking the newest `.jsonl` in the directory
+   reliable enough? With multiple agents running concurrently on the same repo it would pick the wrong one; it needs to be confirmed whether this is worth doing.
+5. What should `--retry --same-session` be implemented with: `claude -c` (the most recent session) or
+   `claude --resume <id>` (requires solving question 4 first)?

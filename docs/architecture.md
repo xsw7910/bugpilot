@@ -13,7 +13,8 @@
 This guide explains how the codebase is put together: the layers, the two
 orchestrators, every core module, and the artifact pipeline that flows through
 `.ai/<issue>/`. It is aimed at a developer who needs to change bugpilot itself,
-not at an end user (see [usage_guide.md](usage_guide.md) for that).
+not at an end user (see the [README](../README.md) and
+[extension/README.md](../extension/README.md) for that).
 
 - Package name: `bugpilot` (`pyproject.toml`), version `0.1.0`.
 - Package / import name: `bugpilot` (matches the CLI). Env vars are `BUGPILOT_*`; the artifact dirs stay `.ai/` / `.ai_memory/`.
@@ -85,7 +86,7 @@ Agent-driven      -> MCP
 Developer-driven  -> VS Code Extension
 ```
 
-Not implemented yet. See [adapter_design.md](adapter_design.md) (written in Chinese)
+Not implemented yet. See [adapter_design.md](adapter_design.md)
 for the requirements, domain model (`BugSpec` / `InvestigationOptions` /
 `InvestigationPlan`), JSON contract, and phased plan.
 
@@ -560,8 +561,6 @@ Artifacts *are* the interface between steps. Producer → consumer:
 | `execution.log`, status files | every step | status, debugging |
 | `.ai_memory/bugs/<issue>.md` | `memory_add`/`memory_update` | future `memory_search` |
 
-For the end-to-end stage narrative, see [workflow_overview.md](workflow_overview.md).
-
 ---
 
 ## 7. Configuration reference
@@ -633,8 +632,7 @@ To add a **new pipeline step**:
    order and add a `_progress` tag; otherwise leave it on-demand.
 3. Add the phase name to `config.WORKFLOW_STEPS` if it participates in status.
 4. Register the subcommand in `cli.build_parser` and dispatch it in `cli.main`.
-5. Add a row to the artifact table above and to
-   [workflow_overview.md](workflow_overview.md).
+5. Add a row to the artifact table above.
 
 To add a **new configuration input**: put the env read in `config.py` (in the
 relevant dataclass loader), expose it via a property/`missing_fields`, and

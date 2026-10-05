@@ -24,13 +24,8 @@ in, not at the BugPilot checkout.
 
 ### Claude Code
 
-`.mcp.json` at the target repository root (note: `mcpServers`):
-
-```json
-{
-  "mcpServers": {
-**本仓库已自带一份 `.mcp.json`**（阶段 7 之后补的），用的是「从源码跑」的形态，
-不需要先 `pip install -e ".[mcp]"`：
+**This repository already ships its own `.mcp.json`** (added after Phase 7), using the "run from source" form,
+so you do not need to `pip install -e ".[mcp]"` first:
 
 ```json
 {
@@ -44,9 +39,14 @@ in, not at the BugPilot checkout.
 }
 ```
 
-在**目标仓库**里用则推荐装好之后用 `bugpilot-mcp`（下面第一种），
-因为那时 `PYTHONPATH: "."` 指向的就不是 bugpilot 的源码了。
+For use in the **target repository**, it is recommended to install first and then use `bugpilot-mcp` (the first form below),
+because there `PYTHONPATH: "."` no longer points at the bugpilot source code.
 
+`.mcp.json` at the target repository root (note: `mcpServers`):
+
+```json
+{
+  "mcpServers": {
     "bugpilot": { "command": "bugpilot-mcp", "args": [] }
   }
 }

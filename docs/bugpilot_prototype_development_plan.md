@@ -10731,7 +10731,7 @@ Review with AI's canonical prompt; Jira titles, descriptions and hints only ever
 live in `task.md`. The repository path reaches the terminal only as
 `createTerminal({ cwd })`. The bridges use the clipboard, never a shell. New
 regression tests: a Windows path with spaces, `"task.md" & preserve…`, Unicode
-(`修复这个问题并保持现有行为`), an apostrophe, parentheses, `%PATH%`, `;`, `|`,
+(a prompt written in Chinese script), an apostrophe, parentheses, `%PATH%`, `;`, `|`,
 `>`, `$env:`, backticks, `&&` and a leading `-` are refused by each terminal
 adapter and before any probe for every choice; an allowed prompt with a newline
 and `--yolo` stays one quoted argument; a repository path with spaces,

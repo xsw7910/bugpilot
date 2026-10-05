@@ -41,17 +41,17 @@ param(
 
 # ============================================================================
 # EDIT THESE VALUES ONCE to match your mail provider (ask IT if unsure).
-# Change every line marked "← 改我" below. The Office 365 example is a guess —
+# Change every line marked "<- CHANGE ME" below. The Office 365 example is a guess --
 # confirm the real server / port with IT.
 # ============================================================================
 $Config = @{
-    SMTP_HOST         = 'smtp.office365.com'             # ← 改我：向 IT 确认公司 SMTP 服务器地址
-    SMTP_PORT         = '587'                            # ← 确认：587=STARTTLS(默认) / 465=SSL
-    SMTP_USERNAME     = 'you@example.com'    # ← 改我：发信账号；无需认证的内部中继设为 ''
-    SMTP_USE_STARTTLS = 'true'                           # 一般不用动（用 465 端口时改 false）
-    SMTP_USE_SSL      = 'false'                          # 一般不用动（用 465 端口时改 true）
-    BUGPILOT_EMAIL_FROM = 'you@example.com'    # ← 改我：发件人邮箱
-    BUGPILOT_EMAIL_TO   = 'you@example.com'    # ← 改我：收件人（多个用逗号/分号分隔）
+    SMTP_HOST         = 'smtp.office365.com'             # <- CHANGE ME: ask IT for the company SMTP server address
+    SMTP_PORT         = '587'                            # <- CHECK: 587=STARTTLS (default) / 465=SSL
+    SMTP_USERNAME     = 'you@example.com'    # <- CHANGE ME: sending account; set to '' for an internal relay that needs no auth
+    SMTP_USE_STARTTLS = 'true'                           # Usually leave as is (set to false when using port 465)
+    SMTP_USE_SSL      = 'false'                          # Usually leave as is (set to true when using port 465)
+    BUGPILOT_EMAIL_FROM = 'you@example.com'    # <- CHANGE ME: sender address
+    BUGPILOT_EMAIL_TO   = 'you@example.com'    # <- CHANGE ME: recipients (separate several with commas or semicolons)
 }
 
 $VaultName  = 'bugpilot'

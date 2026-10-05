@@ -333,7 +333,7 @@ export class ProgressTracker {
     const diagnosis = diagnose(code, message);
     // The step that raised is never closed by the CLI, which is what identifies
     // it — so whatever is still running is where the failure belongs (§5.4:
-    // "失败步骤就地标红").
+    // "Failed step marked red in place").
     const capability = this.#openCapability;
     if (capability) this.#set(capability, "failed");
     this.#failure = {

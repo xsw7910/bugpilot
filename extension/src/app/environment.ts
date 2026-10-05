@@ -4,7 +4,7 @@
  * Two questions have to be answered before any UI can do anything useful:
  * which repository to operate on (§5.3 — bugpilot writes `.ai/<work_item>/`
  * into its cwd, so guessing wrong scatters artifacts into the wrong checkout),
- * and whether a usable bugpilot exists (§5.4 — the "CLI 未安装" row of the
+ * and whether a usable bugpilot exists (§5.4 — the "CLI not installed" row of the
  * three-state table).
  *
  * Both answers are computed here as data, not as side effects, so the install

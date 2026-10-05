@@ -183,7 +183,7 @@ export interface RunnerPort {
  * `missing` and `unreadable` are kept apart because they mean opposite things
  * to a developer: the first is the normal state before a run, the second is a
  * permission or filesystem problem they have to fix. Collapsing both into an
- * empty list is what made the "`.ai/` 不可读" state of §5.4 unreachable.
+ * empty list is what made the "`.ai/` is unreadable" state of §5.4 unreachable.
  */
 export type DirectoryListing =
   | { readonly kind: "ok"; readonly names: readonly string[] }
