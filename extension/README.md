@@ -82,8 +82,9 @@ editor and you save them; nothing is written behind your edits.
 
 1. Open the repository you are fixing bugs in. One folder, and ideally a git
    checkout — BugPilot writes `.ai/<work-item>/` next to your code.
-2. Click the BugPilot icon in the activity bar. It has three views:
-   **Workflow** (the panel below), **Artifacts** and **History**.
+2. Click the BugPilot icon in the activity bar. It has two views:
+   **Workflow** (the panel below) and **Results** — the open work item's files
+   under **Current**, and every work item under **History**.
 3. If a Jira issue: run **BugPilot: Set Jira Credentials** once (email plus an
    API token from your Atlassian account settings). They are kept in VS Code's
    SecretStorage and reach the CLI as environment variables — never in a
@@ -312,11 +313,11 @@ is there to read — not that the bug is fixed: an investigation-only pass, a
 no-op and an attempt whose tests still fail all write the same file. BugPilot
 does not watch the agent, but it does watch the work item's folder: when the
 agent — or anything else — writes, changes or deletes a file in `.ai/<work
-item>/`, the panel and the Artifacts view read it again within about a second,
+item>/`, the panel and **Current** read it again within about a second,
 with no reload. Only that folder is watched, not the repository; a refresh only
 reads, it never prepares, searches or runs anything, and nothing you are typing
 in the panel is touched by it. Showing the panel again reads the folder too, and
-**Refresh** on the Artifacts or History view does the same by hand. No report
+**Refresh** on the Results view does the same by hand. No report
 yet does not mean the agent is still working; it only means nothing has been
 written. A re-run that is
 not **Fresh** keeps the last report, so during and after it the row can show the
@@ -455,11 +456,23 @@ History is not changed by it.
 BugPilot never involves a model by itself. A step you tick is the difference:
 preparing context and deciding to involve a model stay two separate acts.
 
-The **Artifacts** view is one flat list of the work item's files, in the order
-the workflow produces them. Each row is the file name and whether it is
-**Written** or **Not written yet**; hover a row for what the file is for (a
-screen reader hears it with the row). Click a written file to open it. The
-eight standard files are always listed, so you can see what is still to come:
+## Results
+
+Below Workflow, **Results** is one view with two groups: **Current**, the files
+of the work item open in the panel, and **History**, every work item in this
+repository. They share one view because VS Code gives every open view the same
+minimum height however little it holds, so two short lists would take that
+space twice. **Refresh** in its title bar reads both again.
+
+### Current
+
+**Current** is one flat list of the open work item's files, in the order the
+workflow produces them; the Current row itself shows which work item that is,
+and with none open it says *No work item selected yet.* Each row is the file
+name and whether it is **Written** or **Not written yet**; hover a row for what
+the file is for (a screen reader hears it with the row). Click a written file to
+open it. The eight standard files are always listed, so you can see what is
+still to come:
 
 | File | What it is for |
 | --- | --- |
@@ -476,10 +489,12 @@ Files a run writes only sometimes — `user_feedback.md`, `agent_retry_prompt.md
 Jira and email drafts — appear after them once they exist, and any other file
 in the folder is listed last as an additional BugPilot artifact.
 
-## History
+### History
 
-The **History** view lists the work items in this repository, most recently
-changed first. Each row's icon says what became of it:
+**History** lists the work items in this repository, most recently changed
+first. It is collapsed each time the window opens — expand it to see them, and
+it stays open until you close it or the window; it is read only while it is
+open. Each row's icon says what became of it:
 
 | Icon | What it means | What to do next |
 | --- | --- | --- |
@@ -492,7 +507,7 @@ changed first. Each row's icon says what became of it:
 
 Hover a row for the source, when it last changed, and that sentence in full.
 **Click** it to reopen the whole investigation in the panel — the six steps come
-back from `run.json` and the Artifacts view follows. A Jira work item's key goes
+back from `run.json` and Current follows. A Jira work item's key goes
 into the Issue field (never over a bug description you are typing), **Fresh** is
 cleared, and its Fix Mode is selected again, so the next Run prepares that item
 as it was prepared before.

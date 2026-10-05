@@ -34,7 +34,8 @@
   "//main": "The extension host requires CommonJS JS, so the packaged entry point is built by tsconfig.build.json. Tests run the TypeScript sources directly instead.",
   "main": "./out/extension.js",
   "activationEvents": [],
-  "//menus": "Comments for contributes.menus live here: VS Code reads every key inside `menus` as a menu id, so a comment there is reported as a submenu that is not an array. commandPalette: bugpilot.openArtifact and bugpilot.showWorkItem are invoked by a tree item with an argument; from the palette they would have nothing to act on. view/item/context: right-clicking a History row acts on that row: the handlers switch the panel to it first, so nothing happens invisibly to a different work item. `viewItem` keeps the menu off the placeholder rows.",
+  "//menus": "Comments for contributes.menus live here: VS Code reads every key inside `menus` as a menu id, so a comment there is reported as a submenu that is not an array. commandPalette: bugpilot.openArtifact and bugpilot.showWorkItem are invoked by a tree item with an argument; from the palette they would have nothing to act on. view/item/context: right-clicking a History row acts on that row: the handlers switch the panel to it first, so nothing happens invisibly to a different work item. `viewItem` keeps the menu off the placeholder rows, the artifact rows and the Current and History group rows.",
+  "//views": "Results is one native tree with two groups, Current (the open work item's artifacts) and History, rather than two views. VS Code gives every expanded view the same minimum height whatever it holds, so a one-line Artifacts and a one-row History cost that twice; one view costs it once.",
   "//capabilities": "Declared rather than left to the default. This extension spawns a process whose path a workspace can override (bugpilot.executablePath), so it has no business running in a folder the developer has not trusted - VS Code already disables it there, and saying so gives the reason instead of silent inaction. It also reads and writes the filesystem and runs a local CLI, none of which exists in a virtual workspace.",
   "capabilities": {
     "untrustedWorkspaces": {
@@ -64,12 +65,8 @@
           "type": "webview"
         },
         {
-          "id": "bugpilot.artifacts",
-          "name": "Artifacts"
-        },
-        {
-          "id": "bugpilot.history",
-          "name": "History"
+          "id": "bugpilot.results",
+          "name": "Results"
         }
       ]
     },
@@ -151,7 +148,7 @@
       },
       {
         "command": "bugpilot.refreshViews",
-        "title": "Refresh Artifacts and History",
+        "title": "Refresh Results",
         "category": "BugPilot",
         "icon": "$(refresh)"
       },
@@ -200,34 +197,34 @@
       "view/item/context": [
         {
           "command": "bugpilot.openAgentTask",
-          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "when": "view == bugpilot.results && viewItem == bugpilot.workItem",
           "group": "1_open@1"
         },
         {
           "command": "bugpilot.copyHandoffPrompt",
-          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "when": "view == bugpilot.results && viewItem == bugpilot.workItem",
           "group": "1_open@2"
         },
         {
           "command": "bugpilot.openArtifactsFolder",
-          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "when": "view == bugpilot.results && viewItem == bugpilot.workItem",
           "group": "1_open@3"
         },
         {
           "command": "bugpilot.retry",
-          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "when": "view == bugpilot.results && viewItem == bugpilot.workItem",
           "group": "2_act@1"
         },
         {
           "command": "bugpilot.clean",
-          "when": "view == bugpilot.history && viewItem == bugpilot.workItem",
+          "when": "view == bugpilot.results && viewItem == bugpilot.workItem",
           "group": "3_destructive@1"
         }
       ],
       "view/title": [
         {
           "command": "bugpilot.refreshViews",
-          "when": "view == bugpilot.artifacts || view == bugpilot.history",
+          "when": "view == bugpilot.results",
           "group": "navigation"
         }
       ]

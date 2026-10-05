@@ -32,7 +32,7 @@ import { Runner } from "./runner.ts";
 import { CredentialStore } from "./secrets.ts";
 import { PanelHost } from "./panel/provider.ts";
 import { reviewedFixStore } from "./app/reviewRun.ts";
-import { ArtifactsTree, HistoryTree } from "./views/trees.ts";
+import { ResultsTree } from "./views/trees.ts";
 import {
   improveHintWithProvider,
   runCapturedReview,
@@ -88,11 +88,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const credentials = new CredentialStore(context.secrets);
   let executable = "bugpilot";
-  let artifactsView: ArtifactsTree | undefined;
-  let historyView: HistoryTree | undefined;
   // Declared here because the UI port closes over it; assigned once the
-  // provider exists. Only ever *called* later, like the controller itself.
-  let artifactsTree: vscode.TreeView<unknown> | undefined;
+  // controller exists. Only ever *called* later, like the controller itself.
+  let results: ResultsTree | undefined;
 
   const panel = new PanelHost(context.extensionUri, (message) => {
     void controller.handle(message).catch((error: unknown) => {
@@ -142,13 +140,7 @@ export function activate(context: vscode.ExtensionContext): void {
           : undefined,
       ui: createUiPort({
         render: (state) => panel.render(state),
-        refreshViews: () => {
-          artifactsView?.refresh();
-          historyView?.refresh();
-          // Otherwise a developer with two work items in history cannot tell
-          // whose artifacts the tree is listing.
-          if (artifactsTree) artifactsTree.description = controller.workItemId ?? "";
-        },
+        refreshViews: () => results?.refresh(),
         editCredentials: (): Promise<void> =>
           setCredentials(credentials, log, () => controller.refreshEnvironment()),
       }),
@@ -273,29 +265,30 @@ export function activate(context: vscode.ExtensionContext): void {
     restoreForm(context.workspaceState.get<FormState>(FORM_STATE_KEY)),
   );
 
-  artifactsView = new ArtifactsTree(() => controller.artifacts);
-  historyView = new HistoryTree(async () => {
-    const root = controller.root;
-    if (!root) return { kind: "empty", detail: "Open the repository you are fixing bugs in." };
-    return loadHistory(root, (args) =>
-      new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
-    );
-  });
+  results = new ResultsTree(
+    {
+      artifacts: () => controller.artifacts,
+      history: async () => {
+        const root = controller.root;
+        if (!root) return { kind: "empty", detail: "Open the repository you are fixing bugs in." };
+        return loadHistory(root, (args) =>
+          new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
+        );
+      },
+      now: Date.now,
+    },
+    () => controller.workItemId,
+  );
 
-  artifactsTree = vscode.window.createTreeView(VIEWS.artifacts, {
-    treeDataProvider: artifactsView,
-  }) as vscode.TreeView<unknown>;
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(VIEWS.panel, panel.provider, {
       // The page restores its own form from setState, so there is nothing to
       // keep resident (§5.4).
       webviewOptions: { retainContextWhenHidden: false },
     }),
-    artifactsTree,
-    vscode.window.createTreeView(VIEWS.history, { treeDataProvider: historyView }),
-    // The tree views own their own disposal, but not the emitters we handed them.
-    artifactsView,
-    historyView,
+    vscode.window.createTreeView(VIEWS.results, { treeDataProvider: results }),
+    // The tree view owns its own disposal, but not the emitter we handed it.
+    results,
     // The artifact watcher and any refresh still scheduled (§37.81).
     { dispose: () => controller.dispose() },
     // A folder opened or removed changes the answer to "which repository", and
@@ -423,7 +416,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // `showWorkItem` refuses while a run is in flight, and says so. Carrying
       // on would apply the action to the previous work item instead.
       if (controller.workItemId !== workItemId) return;
-      artifactsView?.refresh();
+      results?.refreshCurrent();
     }
     await action();
   };
@@ -504,8 +497,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await runText(executable, root, ["clean", workItemId], channel, log);
     });
     if (!cleaned) return;
-    artifactsView?.refresh();
-    historyView?.refresh();
+    results?.refresh();
   });
 
   register(COMMANDS.mcpStatus, async () => {

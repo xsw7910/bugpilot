@@ -260,7 +260,7 @@ export function deletionProblem(deletion: Exclude<ArtifactDeletion, { kind: "del
         return `Session not reset: ${folder} resolves outside this repository's .ai/ folder. Nothing was deleted.`;
     }
   }
-  return `Session not reset: the generated files in ${folder} could not all be deleted. Some may already be gone — the Artifacts view shows what is left. Close any file open from that folder and try again, or keep the files.`;
+  return `Session not reset: the generated files in ${folder} could not all be deleted. Some may already be gone — Current, in Results, shows what is left. Close any file open from that folder and try again, or keep the files.`;
 }
 
 function errorCode(error: unknown): string {

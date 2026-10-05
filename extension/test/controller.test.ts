@@ -36,6 +36,9 @@ import { SESSION_FEEDBACK_MS } from "../src/app/controller.ts";
 import { RESET_WAITS_FOR_HANDOFF } from "../src/app/controller.ts";
 import { RESET_CANCELS_REVIEW, RESET_LEAVES_AGENT, RESET_STOPS_RUN } from "../src/app/sessionReset.ts";
 import type { GitignoreDocument, GitignoreEntry, GitignoreIo } from "../src/app/gitignore.ts";
+import { historyFromPayload } from "../src/app/artifacts.ts";
+import { CURRENT_GROUP, HISTORY_GROUP, resultsChildren, resultsItem } from "../src/app/results.ts";
+import type { ResultsNode, ResultsSources } from "../src/app/results.ts";
 
 /**
  * One workflow row of a pushed state.
@@ -10489,4 +10492,126 @@ test("reset 20: a run that finishes as Reset is pressed hands nothing to an agen
   assert.deepEqual(h.terminals, [], "an agent was started for a session being reset");
   assert.deepEqual(h.clipboard, []);
   assertFresh(h.last());
+});
+
+// --- Results: the one tree follows the controller (§37.106) ----------------------
+
+/**
+ * The Results tree as activation wires it, over this harness's controller:
+ * Current from `controller.artifacts`, its row named by `controller.workItemId`.
+ * History is `bugpilot list`, which the host runs, so here it lists `folders` —
+ * the work item folders on disk, which a Delete reset takes one from.
+ */
+function resultsOver(h: Harness, folders: ReadonlySet<string>) {
+  const sources: ResultsSources = {
+    artifacts: () => h.controller.artifacts,
+    history: async () =>
+      historyFromPayload({ ok: true, work_items: [...folders].map((id) => ({ work_item_id: id, prepared: true })) }),
+    now: () => 0,
+  };
+  const label = (node: ResultsNode) => resultsItem(node, h.controller.workItemId).label;
+  return {
+    root: async () => (await resultsChildren(undefined, sources)).map(label),
+    current: async () => (await resultsChildren(CURRENT_GROUP, sources)).map(label),
+    currentRow: () => resultsItem(CURRENT_GROUP, h.controller.workItemId),
+    history: async () => (await resultsChildren(HISTORY_GROUP, sources)).map(label),
+  };
+}
+
+/** Two work items on disk; deleting one through the port takes its folder away. */
+function resultsHarness() {
+  const folders = new Set(["JR-12345", "JR-1"]);
+  const deletes: string[] = [];
+  const h = harness({
+    ...WITH_FILES,
+    fixModes: CATALOG,
+    deleteArtifacts: async (_root, id) => {
+      deletes.push(id);
+      folders.delete(id);
+      return { kind: "deleted" };
+    },
+  });
+  return { h, folders, deletes, tree: resultsOver(h, folders) };
+}
+
+/** Every canonical file, as WITH_FILES's folder lists them, in the Artifacts order. */
+const CURRENT_FILES = [
+  "issue.json",
+  "context.md",
+  "task.md",
+  "fix_report.md",
+  "review_report.md",
+  "verification_report.md",
+  "retrieval.json",
+  "run.json",
+];
+const NOTHING_OPEN = ["No work item selected yet."];
+
+test("Results 1: nothing open, Current says so; a run fills it with the work item's files and names it", async () => {
+  const { h, tree } = resultsHarness();
+  await h.controller.refreshEnvironment();
+  assert.deepEqual(await tree.root(), ["Current", "History"]);
+  assert.deepEqual(await tree.current(), NOTHING_OPEN);
+  assert.equal(tree.currentRow().description, undefined);
+
+  const refreshes = h.refreshes.count;
+  await h.controller.handle(next("run", SESSION_FORM()));
+
+  assert.ok(h.refreshes.count > refreshes, "Results was not told the run changed .ai/");
+  assert.deepEqual(await tree.current(), CURRENT_FILES);
+  assert.equal(tree.currentRow().description, "JR-12345");
+  assert.deepEqual(await tree.root(), ["Current", "History"]);
+});
+
+test("Results 2: Reset Keep empties Current and leaves History as it was", async () => {
+  const { h, tree, deletes } = resultsHarness();
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+  const history = await tree.history();
+  const refreshes = h.refreshes.count;
+
+  await h.controller.handle(RESET_KEEP);
+
+  assert.ok(h.refreshes.count > refreshes, "Results was not refreshed after the reset");
+  assert.deepEqual(await tree.current(), NOTHING_OPEN);
+  assert.equal(tree.currentRow().description, undefined);
+  assert.deepEqual(deletes, []);
+  assert.deepEqual(await tree.history(), history);
+  assert.ok(history.includes("JR-12345"), history.join());
+});
+
+test("Results 3: Reset Delete empties Current; History loses that work item and only that one", async () => {
+  const { h, tree, deletes } = resultsHarness();
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+  const refreshes = h.refreshes.count;
+
+  await h.controller.handle(RESET_DELETE);
+
+  assert.ok(h.refreshes.count > refreshes, "Results was not refreshed after the reset");
+  assert.deepEqual(deletes, ["JR-12345"]);
+  assert.deepEqual(await tree.current(), NOTHING_OPEN);
+  assert.deepEqual(await tree.history(), ["JR-1"], "History was cleared beyond the deleted work item");
+});
+
+test("Results 4: reopening a work item from History fills Current again — once, and named for it", async () => {
+  const { h, tree } = resultsHarness();
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", SESSION_FORM()));
+  await h.controller.handle(RESET_KEEP);
+  const refreshes = h.refreshes.count;
+
+  await h.controller.showWorkItem("JR-12345");
+
+  assert.ok(h.refreshes.count > refreshes, "Results was not told about the work item just opened");
+  assert.deepEqual(await tree.current(), CURRENT_FILES);
+  assert.equal(tree.currentRow().description, "JR-12345");
+
+  // Another one: Current follows it, and nothing of the first is left over.
+  await h.controller.showWorkItem("JR-1");
+  const current = await tree.current();
+  assert.deepEqual(current, CURRENT_FILES);
+  assert.equal(new Set(current).size, current.length, "a file is listed twice");
+  assert.equal(tree.currentRow().description, "JR-1");
+  assert.deepEqual(await tree.root(), ["Current", "History"]);
 });

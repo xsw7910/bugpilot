@@ -30,11 +30,13 @@ First release. What it does today:
   strongest integration found, and says what it found under the picker; a
   choice you made is never swapped for another agent. Off by default:
   preparing context and involving a model stay two separate decisions.
-- **Artifacts and History views.** Artifacts is one flat list of the work
-  item's files in workflow order — each Written or Not written yet, with what it
-  is for on hover; History
-  says what became of each work item — ready, fixed, retry waiting, retry
-  prepared, failed, unfinished — and reopens any of them in the panel.
+- **Results view.** One native tree with two groups. **Current** is one flat
+  list of the open work item's files in workflow order — each Written or Not
+  written yet, with what it is for on hover. **History**, collapsed until you
+  open it, says what became of each work item — ready, fixed, retry waiting,
+  retry prepared, failed, unfinished — and reopens any of them in the panel.
+  One view rather than separate Artifacts and History views: VS Code gives
+  every open view the same minimum height, and two short lists paid it twice.
 - **Start New Attempt.** A new agent session on the prepared context, with
   optional feedback: empty writes nothing; typed feedback becomes
   `user_feedback.md` and the retry package the CLI builds from it. A saved
@@ -64,7 +66,7 @@ First release. What it does today:
 - **The panel follows the work item's folder.** A `fix_report.md`, a review or
   verification report, or any other file written, changed or deleted in
   `.ai/<work item>/` by an agent or another process shows up in the panel and
-  the Artifacts view within about a second — no reload. A new fix report offers
+  Current within about a second — no reload. A new fix report offers
   Review with AI; the same report written again does not. Only that folder is
   watched; the refresh only reads, and keeps whatever is being typed.
 - Jira credentials live in VS Code's SecretStorage and reach the CLI as

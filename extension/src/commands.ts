@@ -110,9 +110,13 @@ export function workItemFromTree(argument: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
-/** View ids, shared between the manifest and the code that registers them. */
+/**
+ * View ids, shared between the manifest and the code that registers them.
+ *
+ * `results` replaced `bugpilot.artifacts` and `bugpilot.history` (§37.106). The
+ * extension kept no state under either id, so there is nothing to migrate.
+ */
 export const VIEWS = {
   panel: "bugpilot.panel",
-  artifacts: "bugpilot.artifacts",
-  history: "bugpilot.history",
+  results: "bugpilot.results",
 } as const;

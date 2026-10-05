@@ -24,6 +24,8 @@ const handlers = new Map();
 const disposable = { dispose: () => {} };
 
 const views = [];
+/** Each tree view's data provider, by view id. */
+const trees = new Map();
 /** What activation wrote to the BugPilot output channel. */
 const output = [];
 const listeners = [];
@@ -67,8 +69,9 @@ const vscodeStub = {
       });
       return disposable;
     },
-    createTreeView: (id) => {
+    createTreeView: (id, options) => {
       views.push(id);
+      trees.set(id, options.treeDataProvider);
       return { dispose: () => {}, description: undefined };
     },
   },
@@ -172,6 +175,24 @@ assert.deepEqual(
   declaredViews,
   "the views registered at activation are not the ones the manifest declares",
 );
+
+// The built tree, not the sources: Results is Current (expanded) then History
+// (collapsed), and with nothing open Current is the one row that says so.
+// That a collapsed History is never read is test/results.test.ts's to check.
+const results = trees.get("bugpilot.results");
+assert.ok(results, "the Results tree was not registered");
+const groups = await results.getChildren();
+const groupItems = groups.map((node) => results.getTreeItem(node));
+assert.deepEqual(
+  groupItems.map((item) => [item.label, item.collapsibleState, item.id, item.iconPath?.id]),
+  [
+    ["Current", vscodeStub.TreeItemCollapsibleState.Expanded, "bugpilot.results.current", "folder-active"],
+    ["History", vscodeStub.TreeItemCollapsibleState.Collapsed, "bugpilot.results.history", "history"],
+  ],
+  "Results is not Current then History",
+);
+const currentRows = (await results.getChildren(groups[0])).map((node) => results.getTreeItem(node).label);
+assert.deepEqual(currentRows, ["No work item selected yet."]);
 
 // Stale answers are a real failure mode: without these the panel keeps saying
 // "no folder is open" after one is opened, keeps running the old binary after

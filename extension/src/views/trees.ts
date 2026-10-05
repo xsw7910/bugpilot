@@ -1,36 +1,35 @@
 /**
- * The two native tree views: this work item's artifacts, and the history.
+ * The native tree view: Results, with this work item's artifacts (Current) and
+ * the history, as two groups of one view (§37.106).
  *
  * Native rather than more webview, for the reason §5.3 gives: a tree is what
  * VS Code's own TreeView is for, and reimplementing one in HTML would be worse
  * in every way — including the codicons, which come free here.
  *
- * All the shaping happened in `src/app/artifacts.ts`. These classes only turn
- * the resulting values into `TreeItem`s, which is why the three states each
- * view must have (§5.4) show up here as one placeholder row each.
+ * All the shaping happened in `src/app/artifacts.ts` and `src/app/results.ts`.
+ * This class only turns the resulting values into `TreeItem`s.
  */
 
 import * as vscode from "vscode";
 
-import { artifactRow, historyRow } from "../app/artifacts.ts";
-import type { ArtifactEntry, ArtifactList, HistoryList, HistoryRow } from "../app/artifacts.ts";
-import { COMMANDS, HISTORY_ITEM_CONTEXT } from "../commands.ts";
+import { CURRENT_GROUP, resultsChildren, resultsItem } from "../app/results.ts";
+import type { ResultsItem, ResultsNode, ResultsSources } from "../app/results.ts";
 
-/**
- * A file, directly under the view (§37.88) — there are no category nodes to
- * expand — or the one placeholder row a loading, empty or unreadable list shows.
- */
-type ArtifactNode =
-  | { readonly kind: "entry"; readonly entry: ArtifactEntry }
-  | { readonly kind: "message"; readonly text: string };
+const COLLAPSIBLE: Readonly<Record<ResultsItem["collapsible"], vscode.TreeItemCollapsibleState>> = {
+  none: vscode.TreeItemCollapsibleState.None,
+  collapsed: vscode.TreeItemCollapsibleState.Collapsed,
+  expanded: vscode.TreeItemCollapsibleState.Expanded,
+};
 
-export class ArtifactsTree implements vscode.TreeDataProvider<ArtifactNode>, vscode.Disposable {
-  readonly #changed = new vscode.EventEmitter<void>();
+export class ResultsTree implements vscode.TreeDataProvider<ResultsNode>, vscode.Disposable {
+  readonly #changed = new vscode.EventEmitter<ResultsNode | undefined>();
   readonly onDidChangeTreeData = this.#changed.event;
-  readonly #read: () => ArtifactList;
+  readonly #sources: ResultsSources;
+  readonly #workItemId: () => string | undefined;
 
-  constructor(read: () => ArtifactList) {
-    this.#read = read;
+  constructor(sources: ResultsSources, workItemId: () => string | undefined) {
+    this.#sources = sources;
+    this.#workItemId = workItemId;
   }
 
   /** Disposing the tree view does not dispose an emitter we created. */
@@ -38,111 +37,30 @@ export class ArtifactsTree implements vscode.TreeDataProvider<ArtifactNode>, vsc
     this.#changed.dispose();
   }
 
+  /** Both groups. History is read again only if it is expanded. */
   refresh(): void {
-    this.#changed.fire();
+    this.#changed.fire(undefined);
   }
 
-  getChildren(node?: ArtifactNode): ArtifactNode[] {
-    if (!node) {
-      const list = this.#read();
-      if (list.kind === "loading") return [{ kind: "message", text: "Scanning .ai/ …" }];
-      if (list.kind === "empty" || list.kind === "error") {
-        return [{ kind: "message", text: list.detail }];
-      }
-      return list.entries.map((entry) => ({ kind: "entry", entry }));
-    }
-    return [];
+  /** Current alone — its files and the id on its row — without a `bugpilot list`. */
+  refreshCurrent(): void {
+    this.#changed.fire(CURRENT_GROUP);
   }
 
-  getTreeItem(node: ArtifactNode): vscode.TreeItem {
-    if (node.kind === "message") {
-      const item = new vscode.TreeItem(node.text);
-      item.iconPath = new vscode.ThemeIcon("info");
-      return item;
-    }
-    const row = artifactRow(node.entry);
-    const item = new vscode.TreeItem(row.label, vscode.TreeItemCollapsibleState.None);
-    item.description = row.description;
-    item.tooltip = row.tooltip;
-    item.accessibilityInformation = { label: row.accessibleName };
-    item.iconPath = new vscode.ThemeIcon(row.icon);
-    // A file not written yet opens nothing: there is no empty file to make.
-    if (row.opens) {
-      item.command = {
-        command: COMMANDS.openArtifact,
-        title: "Open",
-        arguments: [row.label],
-      };
-    }
-    return item;
-  }
-}
-
-/**
- * A history row.
- *
- * `workItemId` is first because it is also the argument: a context-menu command
- * receives this object, and that field is what it acts on.
- */
-type HistoryNode = { readonly workItemId: string } & HistoryRow;
-
-
-
-export class HistoryTree
-  implements vscode.TreeDataProvider<HistoryNode | { message: string }>, vscode.Disposable
-{
-  readonly #changed = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData = this.#changed.event;
-  readonly #load: () => Promise<HistoryList>;
-  readonly #now: () => number;
-
-  constructor(load: () => Promise<HistoryList>, now: () => number = Date.now) {
-    this.#load = load;
-    this.#now = now;
+  async getChildren(node?: ResultsNode): Promise<ResultsNode[]> {
+    return [...(await resultsChildren(node, this.#sources))];
   }
 
-  dispose(): void {
-    this.#changed.dispose();
-  }
-
-  refresh(): void {
-    this.#changed.fire();
-  }
-
-  async getChildren(node?: HistoryNode | { message: string }): Promise<(HistoryNode | { message: string })[]> {
-    if (node) return [];
-    const list = await this.#load();
-    if (list.kind === "loading") return [{ message: "Loading …" }];
-    if (list.kind === "empty") return [{ message: list.detail }];
-    const now = this.#now();
-    return list.items.map((item) => ({
-      workItemId: item.workItemId,
-      ...historyRow(item, now),
-    }));
-  }
-
-  getTreeItem(node: HistoryNode | { message: string }): vscode.TreeItem {
-    if ("message" in node) {
-      const item = new vscode.TreeItem(node.message);
-      item.iconPath = new vscode.ThemeIcon("info");
-      return item;
-    }
-    const item = new vscode.TreeItem(node.label);
-    item.description = node.description;
-    // The outcome, so a successful investigation, a failed one and a directory
-    // whose run died halfway are three different rows rather than three
-    // identical ones.
-    item.iconPath = new vscode.ThemeIcon(node.icon);
-    // Joined here rather than in the model: the newline is this renderer's
-    // business, and a MarkdownString would make the text a formatting language
-    // that a Jira title has to be escaped for.
-    item.tooltip = node.tooltip.join("\n");
-    item.contextValue = HISTORY_ITEM_CONTEXT;
-    item.command = {
-      command: COMMANDS.showWorkItem,
-      title: "Show",
-      arguments: [node.workItemId],
-    };
+  getTreeItem(node: ResultsNode): vscode.TreeItem {
+    const view = resultsItem(node, this.#workItemId());
+    const item = new vscode.TreeItem(view.label, COLLAPSIBLE[view.collapsible]);
+    if (view.id !== undefined) item.id = view.id;
+    if (view.description !== undefined) item.description = view.description;
+    if (view.tooltip !== undefined) item.tooltip = view.tooltip;
+    if (view.accessibleName !== undefined) item.accessibilityInformation = { label: view.accessibleName };
+    item.iconPath = new vscode.ThemeIcon(view.icon);
+    if (view.contextValue !== undefined) item.contextValue = view.contextValue;
+    if (view.command !== undefined) item.command = { ...view.command, arguments: [...view.command.arguments] };
     return item;
   }
 }

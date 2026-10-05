@@ -2852,6 +2852,34 @@ the Issue field and the Workflow Steps header are unchanged.
    error states (Issue → Workflow Steps 13px shorter at 360px and 200px); 29px,
    unchanged, under a line.
 
+### Confirmed decisions (Results view)
+
+Revises the Workflow view name decision's *The sidebar reads Workflow,
+Artifacts, History* (§37.106). Layout only: artifact generation, the artifact
+list and its order, History's list and outcomes, every command id, the History
+row menu, Reset Session and the Workflow panel are unchanged.
+
+1. **One native tree, Results, replaces the Artifacts and History views**; the
+   sidebar reads Workflow, Results. VS Code gives every expanded view the same
+   minimum height whatever it holds — 148px (a 28px header, a 120px body) in
+   VS Code 1.140, measured — so *No work item selected yet.* and a one-row
+   History paid it twice. Still native, not a webview (§5.3).
+2. **Two groups, always there.** **Current** (`folder-active`), expanded: the
+   open work item's artifacts exactly as Artifacts listed them, with the work
+   item's id as the group row's description. **History** (`history`),
+   collapsed: the rows History listed, as leaves, each reopening its work item
+   on click. Placeholders keep their sentences (*No work item selected yet.*,
+   *No work items yet. The first run creates one.*, and the loading and
+   unreadable states).
+3. **History is read only while it is expanded**: collapsed, no `bugpilot list`
+   runs. VS Code keeps the expansion through refreshes but not across a window
+   restart, so History starts collapsed each time.
+4. **One Refresh**, on the Results title bar — `bugpilot.refreshViews`, now
+   titled *Refresh Results* — reading both groups. The view id is
+   `bugpilot.results`; the History row menu matches `view == bugpilot.results &&
+   viewItem == bugpilot.workItem`; the groups and the artifact rows have no
+   context value. Nothing was stored under the old view ids: no migration.
+
 ---
 
 # 20. Step Secondary Text Status Principles

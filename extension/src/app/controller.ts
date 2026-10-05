@@ -2703,7 +2703,7 @@ export class Controller {
     // would use. A form about another bug still reads as stale: that is decided
     // by which work item it names, not by this.
     this.#preparedWith = preparationFingerprint(this.#form);
-    // The trees too: the Artifacts view follows the shown work item, and
+    // The tree too: Results' Current group follows the shown work item, and
     // without this it kept whatever it last read — "Scanning .ai/ …" if that
     // was mid-load (§37.82, seen in a real window).
     await this.refreshActiveWorkItem();
@@ -4435,8 +4435,8 @@ export class Controller {
     // A deleted folder took what the agent was given; the session record with
     // it. Kept, the folder keeps its record too, for a reopen from History.
     if (deleted !== undefined && workItemId !== undefined) this.#sessions.delete(workItemId);
-    // The Artifacts view follows the work item; History, after a delete, has one
-    // row fewer.
+    // Results' Current group follows the work item; History, after a delete,
+    // has one row fewer.
     this.#ports.ui.refreshViews();
     const message =
       deleted === undefined

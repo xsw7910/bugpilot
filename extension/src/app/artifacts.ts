@@ -1,5 +1,6 @@
 /**
- * What the two TreeViews show: a work item's artifacts, and the history list.
+ * What the Results tree shows (§37.106): a work item's artifacts, under
+ * Current, and the history list, under History.
  *
  * bugpilot produces a handful of files per work item and they are not equally
  * interesting: `task.md` is the one a developer opens, `run.json` is
@@ -203,7 +204,7 @@ export function buildArtifactList(input: ArtifactInput): ArtifactList {
 }
 
 /**
- * One tree row, as the Artifacts view draws it (§37.90): the file name and its
+ * One tree row, as Current draws it (§37.90): the file name and its
  * availability — nothing else on the line, so a narrow sidebar stays readable.
  * What the file is for is in the tooltip, with the full name (which a narrow
  * sidebar may cut) and the status, and in the accessible name, so a screen
@@ -454,7 +455,7 @@ export type HistoryList =
   | { readonly kind: "empty"; readonly detail: string };
 
 /**
- * Turn `bugpilot list --json` into the history view.
+ * Turn `bugpilot list --json` into the History group.
  *
  * There is no error state on purpose: §5.4 requires a corrupt `.ai/` to degrade
  * to an empty list rather than an error, and the CLI already degrades the same

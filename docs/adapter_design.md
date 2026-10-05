@@ -612,6 +612,12 @@ Rationale: the main panel is a 7-field form plus 5 scope checkboxes, and VS Code
 whereas TreeView is a natural fit for hierarchical read-only browsing, where a Webview would actually be worse. Do not, for the sake of uniformity, use only
 Webview or only native controls.
 
+**One tree, not two** (§37.106 of the development plan): artifact browsing and history are the two groups of a single native
+TreeView, **Results** — **Current** (the open work item's artifacts, expanded) and **History** (collapsed until opened). They
+were separate Artifacts and History views; VS Code gives every expanded view the same minimum height whatever it holds
+(148px in VS Code 1.140, measured), so a one-line Artifacts and a one-row History paid it twice. The sidebar is Workflow and
+Results.
+
 | Group | Capability | Implementation |
 | --- | --- | --- |
 | Input | Input source toggle (Jira Issue / Bug Description) | Sidebar form |
@@ -620,9 +626,9 @@ Webview or only native controls.
 | Investigation scope | Issue details · Code search · Git history · Similar fixes · Build context | Checkboxes → `InvestigationPlan`. **Implementation steps such as `fetch`/`parse`/`keywords` are not exposed** (§3.3) |
 | Run | Run · Stop | spawn / kill the CLI child process |
 | Run | Live progress checklist | Consumes the `--json-lines` event stream; `workflow_status.json` serves as the recovery source after a restart |
-| Artifacts | Artifact TreeView | Scans `.ai/*` to list Jira and local work items; expanding one shows its artifacts, and clicking opens one in the editor |
+| Artifacts | Results TreeView, Current group | Lists the open work item's artifacts in workflow order; clicking a written one opens it in the editor |
 | Artifacts | Markdown preview | VS Code's built-in preview; no home-made renderer |
-| History | Work item history | List of recent entries, which can be reopened, rerun, or have their status viewed |
+| History | Results TreeView, History group | List of recent entries, which can be reopened, rerun, or have their status viewed |
 | Handoff | Open `agent_task.md` · Copy handoff prompt | One-click actions |
 | Handoff | MCP status / Continue with Claude | Suggested when MCP is detected |
 | Diagnostics | Doctor · Agent Check · Clean | Command palette items → spawn CLI |
@@ -779,8 +785,8 @@ Every view must have all three states designed, not just the happy path:
 | --- | --- | --- | --- |
 | Main input panel | First-use guidance (choose input source) | Button disabled after Run + current step | Readable message mapped from `error.code` + retry entry point |
 | Progress checklist | Not run yet | Lights up step by step, with each step's duration | Failed step marked red in place, with the reason shown |
-| Artifact TreeView | No artifacts for this work item | Scanning | Message when `.ai/` is unreadable |
-| History | No history records | — | Degrades to an empty list instead of an error when the directory is corrupted |
+| Results: Current | No work item selected · No artifacts for this work item | Scanning | Message when `.ai/` is unreadable |
+| Results: History | No history records | Loading | Degrades to an empty list instead of an error when the directory is corrupted |
 | CLI not installed | Install wizard (Install / Choose Executable / Retry) | Detecting | Reason detection failed |
 
 - **Failures must be readable in place**: map `error.code` to an explanation in the user's language plus a next action,
@@ -1147,7 +1153,7 @@ Markdown preview, history, Open `agent_task.md`, Copy handoff prompt,
 MCP status indicator, Doctor/Agent Check/Clean, install wizard, executable configuration, SecretStorage.
 
 Plus the interface implementation from §5.4: the Webview main panel (theme variables, narrow width, three states, a11y, state persistence, CSP)
-and native TreeViews (artifacts / history).
+and the native Results TreeView (current artifacts / history).
 
 Plus the continuation UI from §5.6: the `Retry` button next to Run (opens `user_feedback.md`, and after it is saved runs
 `bug --retry`), and the session continuation entry point (shown when a session id can be obtained, hidden otherwise).
@@ -1236,7 +1242,7 @@ Recorded honestly, to avoid discovering them only after the fact:
     the low-level `bugpilot search --json` remains available in the CLI.
 11. **The V1 extension delivers complete functionality + a polished interface** (R8), with no 5a/5b split and no interface downgrade;
     the scope risk is recorded in §10.
-11a. **Mixed control choices**: the main input panel uses a Webview; artifacts / history use native TreeViews.
+11a. **Mixed control choices**: the main input panel uses a Webview; artifacts / history use one native TreeView, Results.
 11b. **Do not use `@vscode/webview-ui-toolkit`** (no longer maintained); use native HTML +
     VS Code theme CSS variables, with icons from Codicons only.
 11c. **"Polish" = the checklist-style standard of §5.4** (theme matrix, narrow width, keyboard reachability, all three states covered,

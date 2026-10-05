@@ -106,10 +106,45 @@ test("the views the code registers are the ones the manifest declares", () => {
     declared.map((view) => view.id).sort(),
     Object.values(VIEWS).sort(),
   );
-  // The panel is the webview; the other two are native trees, which is the
-  // split §5.3 settled on.
+  // The panel is the webview; Results is a native tree, which is the split §5.3
+  // settled on. A tree has no stylesheet of ours, so how small it can be dragged
+  // is VS Code's pane minimum and nothing this extension sets.
   assert.equal(declared.find((view) => view.id === VIEWS.panel)?.type, "webview");
-  assert.equal(declared.find((view) => view.id === VIEWS.artifacts)?.type, undefined);
+  assert.equal(declared.find((view) => view.id === VIEWS.results)?.type, undefined);
+});
+
+test("Artifacts and History are groups of Results, not views of their own (§37.106)", () => {
+  // Each expanded view costs VS Code's minimum view height whatever it holds,
+  // so a second tree view brings back the space this merge saved.
+  const declared = manifest.contributes.views["bugpilot"] ?? [];
+  assert.equal(declared.filter((view) => view.type !== "webview").length, 1, "more than one tree view");
+  for (const gone of ["bugpilot.artifacts", "bugpilot.history"]) {
+    assert.equal(declared.some((view) => view.id === gone), false, `${gone} is still declared`);
+  }
+  assert.equal(Object.keys(manifest.contributes.views).join(), "bugpilot", "a view outside the BugPilot container");
+});
+
+test("every view a menu names is a view the manifest declares", () => {
+  // `view == bugpilot.history` after History stopped being a view is a menu
+  // that never shows, and nothing reports it.
+  const declared = new Set((manifest.contributes.views["bugpilot"] ?? []).map((view) => view.id));
+  for (const [menu, entries] of Object.entries(manifest.contributes.menus)) {
+    for (const entry of entries) {
+      for (const [, id] of (entry.when ?? "").matchAll(/\bview == ([\w.]+)/g)) {
+        assert.ok(declared.has(id!), `${menu} → ${entry.command} names ${id}, which is not a declared view`);
+      }
+    }
+  }
+});
+
+test("Results has one Refresh, on its title bar, and it is the existing command", () => {
+  const title = manifest.contributes.menus["view/title"] ?? [];
+  assert.deepEqual(
+    title.map((entry) => [entry.command, entry.when, entry.group]),
+    [[COMMANDS.refreshViews, `view == ${VIEWS.results}`, "navigation"]],
+  );
+  const refresh = manifest.contributes.commands.find((entry) => entry.command === COMMANDS.refreshViews);
+  assert.equal(refresh?.title, "Refresh Results");
 });
 
 test("the activity bar icon exists on disk", () => {
@@ -137,13 +172,14 @@ test("tree-only commands are hidden from the command palette", () => {
 
 test("the History context menu matches the value the tree actually sets", () => {
   // A `when` clause that names a contextValue nothing sets produces no menu and
-  // no error — the failure is a right-click that does nothing.
+  // no error — the failure is a right-click that does nothing. The menu is the
+  // History rows' alone: `viewItem` keeps it off the groups and the artifacts.
   const entries = manifest.contributes.menus["view/item/context"] ?? [];
   assert.ok(entries.length >= 4, `expected a History menu, found ${entries.length} entries`);
   for (const entry of entries) {
     assert.equal(
       entry.when,
-      `view == ${VIEWS.history} && viewItem == ${HISTORY_ITEM_CONTEXT}`,
+      `view == ${VIEWS.results} && viewItem == ${HISTORY_ITEM_CONTEXT}`,
       `${entry.command} targets something else`,
     );
   }
@@ -266,14 +302,13 @@ test("every menu the manifest contributes is a list, so VS Code reports no subme
 
 // --- The main view is Workflow (§37.93) --------------------------------------
 
-test("the main view is called Workflow — its id unchanged — beside Artifacts and History", () => {
+test("the main view is called Workflow — its id unchanged — above Results", () => {
   const views = manifest.contributes.views["bugpilot"] ?? [];
   assert.deepEqual(
     views.map((view) => [view.id, view.name]),
     [
       ["bugpilot.panel", "Workflow"],
-      ["bugpilot.artifacts", "Artifacts"],
-      ["bugpilot.history", "History"],
+      ["bugpilot.results", "Results"],
     ],
   );
   // No view, command or menu title calls it Prepare any more (the word may

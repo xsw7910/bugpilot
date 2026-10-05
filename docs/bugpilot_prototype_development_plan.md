@@ -11731,3 +11731,71 @@ keyshortcuts *Control+Enter*; no live region on the line. The 12px rule was
 tried live (CSS copied into the installed extension, *Reload Webviews*) after
 the first pass measured the Rebuild states 4px taller with 16px everywhere.
 High-contrast themes not checked.
+
+### 37.106 Results: Artifacts and History in one tree (after `b6df90e`, uncommitted)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and a real disposable VS Code window from an installed VSIX; not committed.
+Layout only. Decisions in the canonical plan, "Confirmed decisions (Results
+view)".
+
+**Why.** Measured first, in VS Code 1.140: an expanded view cannot be dragged
+below 148px — a 28px header and a 120px body, VS Code's own pane minimum. It
+was 148px for Artifacts empty or full and for History with 0, 1 or 9 rows, in
+Dark and Light, at 300px and 170px: no CSS of ours was involved (both were
+native trees already) and none could change it. Two short views paid it twice.
+
+- **Manifest:** views `bugpilot.panel` (Workflow) and `bugpilot.results`
+  (Results); `bugpilot.artifacts` and `bugpilot.history` removed. The History
+  row menu's `when` names `bugpilot.results`; the Refresh title button is on
+  Results only and the command is titled *Refresh Results* (id unchanged).
+- **Code:** `src/app/results.ts` (new, pure): the root is the two groups —
+  `CURRENT_GROUP`, `HISTORY_GROUP`, the same objects every time, with stable
+  ids — and `resultsItem` draws every node from `artifactRow` / `historyRow`
+  unchanged. `src/views/trees.ts`: `ResultsTree` replaces `ArtifactsTree` and
+  `HistoryTree`, with `refresh()` (both groups) and `refreshCurrent()` (after a
+  History context-menu command switched the work item). `extension.ts`
+  registers one tree; `ui.refreshViews` refreshes it; the work item's id moved
+  from the Artifacts view's description to the Current row's. The controller
+  is unchanged.
+- **Copy:** the failed-delete reset message said *the Artifacts view shows what
+  is left*; it says *Current, in Results, shows what is left*.
+
+**Tests.** 1795 → 1817, all passing. `test/results.test.ts` (15): the root and
+its order, expanded/collapsed, ids, icons, no context value on a group; Current
+with nothing open, loading, empty and unreadable, and with a work item (the
+Artifacts order, each row `artifactRow`'s, Open Artifact only on a written
+file); History empty (three sentences), loading, one row, several in the list's
+order, the row as its own context-menu argument; a collapsed History is never
+read; and no source file sends anyone to the *Artifacts view* or *History
+view*. `test/manifest.test.ts` (+3): only Results is a tree, no menu names an
+undeclared view, one Refresh. `test/controller.test.ts` (+4): Current over the
+real controller through a run, Reset Keep (History unchanged), Reset Delete
+(History loses that work item only) and a reopen. The smoke test reads the
+built tree: Current expanded, History collapsed, *No work item selected yet.*
+Five mutations — History expanded by default, the root reading History, no
+context value on a History row, a menu still naming `bugpilot.history`, the
+old reset sentence — each fail at least one new test.
+
+**Real window** (disposable profile, the VSIX from this tree installed into an
+empty extensions directory, synthetic workspaces with 0, 1 and 9 work items):
+
+| Scenario | Results |
+| --- | --- |
+| Sidebar | Workflow and Results only |
+| Start, any workspace | Current expanded (*No work item selected yet.*), History collapsed |
+| History expanded, 0 / 1 / 9 items | *No work items yet…* / one row / nine, newest first |
+| Reopen a History row | Current lists its 8 files; the Current row shows its id; the row stays selected |
+| History collapsed, then expanded | Current unchanged; History shows its row again |
+| Right-click another History row → Open task.md | The menu lists its five commands; Current switches to that work item (its id on the row); task.md opens |
+| Reset Keep | Current back to *No work item selected yet.*; History keeps the row |
+| Reset Delete | Current empty; the folder is gone from disk; History *No work items yet…* |
+| Refresh Results | Both groups read again |
+| Restart, same profile | History collapsed again (VS Code does not keep it) |
+
+Minimum height: Results 148px (28 + 120) in every state, against 2 × 148 =
+296px for Artifacts and History before — 148px of sidebar back. At 148px with
+nine work items open the tree scrolls (VS Code's sticky scroll keeps the
+Current row on top); no horizontal scrollbar at 300px or 170px; long titles
+end in an ellipsis; the refresh button sits in the header. Dark Modern and
+Light Modern. High-contrast themes not checked.
