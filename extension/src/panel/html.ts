@@ -47,7 +47,7 @@
 
 import { OVERALL_IDLE, WORKFLOW_STEP_IDS, STEP_LABELS, stepDescription } from "../app/workflow.ts";
 import type { WorkflowStepId } from "../app/workflow.ts";
-import { NEXT_ACTION_LABELS, PRIMARY_TOOLTIPS } from "../app/nextAction.ts";
+import { NEXT_ACTION_LABELS, PRIMARY_SHORTCUT, PRIMARY_TOOLTIPS } from "../app/nextAction.ts";
 import { AGENT_CHOICES, AGENT_LABELS } from "../app/agents.ts";
 import type { AgentChoice } from "../app/agents.ts";
 import type { NextActionId } from "../app/nextAction.ts";
@@ -719,18 +719,20 @@ ${ISSUE_FIELD}
       -->
       <div class="run">
         <div class="run-buttons">
-          <button type="submit" id="run" class="primary" title="${PRIMARY_TOOLTIPS.run}" aria-describedby="run-hint" aria-keyshortcuts="Control+Enter">
+          <button type="submit" id="run" class="primary" title="${PRIMARY_TOOLTIPS.run} (${PRIMARY_SHORTCUT})" aria-describedby="run-hint" aria-keyshortcuts="Control+Enter">
             <span class="codicon codicon-play" id="run-icon" aria-hidden="true"></span>
             <span id="run-label">Run</span>
           </button>
           <button type="button" id="stop" hidden disabled>Stop</button>
           <button type="button" id="more-actions" class="more-button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu"><span class="codicon codicon-ellipsis" aria-hidden="true"></span><span class="more-label">More</span></button>
         </div>
-        <!-- The shortcut, and the host's few words beside it (§37.104):
-             "Ctrl+Enter · Settings changed". A state, never a sentence: what
-             the button does is its tooltip. The words describe the button too,
-             so a screen reader hears why it says Rebuild Context. -->
-        <p class="run-status" id="run-status"><span class="kbd">Ctrl+Enter</span><span class="run-hint" id="run-hint" hidden></span></p>
+        <!-- At most one short line, and usually none (§37.105): the host's
+             state when it says something the button and the header do not —
+             "Settings changed", "AI session started". Never a sentence and
+             never the shortcut: both are the button's tooltip, and Ctrl+Enter
+             its aria-keyshortcuts. The words describe the button, so a screen
+             reader hears why it says Rebuild Context, without an announcement. -->
+        <p class="run-hint" id="run-hint" hidden></p>
       </div>
       <!-- What Open AI Session came to (§37.87): a live region that is always in
            the document, empty until the host answers a press, so the answer is

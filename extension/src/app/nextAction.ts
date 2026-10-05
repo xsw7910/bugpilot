@@ -49,15 +49,21 @@ export const NEXT_ACTION_LABELS: Readonly<Record<NextActionId, string>> = {
 
 /**
  * What each primary action does, as the button's tooltip — and, for the ⋯
- * menu's items, theirs (§37.104). Fix with AI says it in its label. The page
- * keeps a copy (`PRIMARY_TITLES` in panel.js) that a test compares to this one.
+ * menu's items, theirs (§37.104). The only place it is said: nothing under the
+ * button explains it (§37.105). The page keeps a copy (`PRIMARY_TITLES` in
+ * panel.js) that a test compares to this one, and adds the shortcut to the
+ * button's.
  */
 export const PRIMARY_TOOLTIPS = {
   run: "Prepare the issue context for AI-assisted fixing",
+  fixWithAI: "Open the prepared work item in the selected AI agent",
   rebuildContext: "Rebuild the prepared context using the current settings",
   // Focus only: Open AI Session never starts or restarts a session (§37.87).
   openSession: "Focus the existing BugPilot AI terminal",
-} as const satisfies Partial<Record<PrimaryActionId, string>>;
+} as const satisfies Record<PrimaryActionId, string>;
+
+/** The primary button's shortcut: in its tooltip and `aria-keyshortcuts`, never on screen (§37.105). */
+export const PRIMARY_SHORTCUT = "Ctrl+Enter";
 
 /** What the button says while the host is doing something it must not overlap. */
 export const BUSY_LABEL = "Running…";
@@ -70,9 +76,9 @@ export interface PrimaryView {
   /** True while a run, a handoff or an artifact write is in flight. */
   readonly busy: boolean;
   /**
-   * The state beside Ctrl+Enter under the button — a few words saying why it
-   * says what it says (§37.104), never a sentence about what it does: that is
-   * the button's tooltip. Empty to show the shortcut alone.
+   * The one short line under the button (§37.105): a state the button and the
+   * Workflow Steps header do not already say, never a sentence about what it
+   * does — that is the button's tooltip. Empty, as it usually is, for no line.
    */
   readonly hint: string;
   /** The ⋯ menu, in order; empty means no menu. */
@@ -103,14 +109,20 @@ export interface NextActionInput {
   readonly fresh: boolean;
 }
 
-// The state words under the button (§37.104). Run has none: what it does is
-// its tooltip, and an untouched panel needs no sentence to say it.
-export const FIX_HINT = "Context ready";
+// The state under the button (§37.104, §37.105): at most one, of a few words.
+// Run and Fix with AI have none — what they do is their tooltip, and a prepared
+// context is the header's "Ready" already. Neither has Open AI Session over an
+// agent's report from a session this window did not start: the header says
+// "Fix report available" in those words.
+/** Why the button reopens a session rather than handing the task over. */
 export const SESSION_HINT = "AI session started";
-/** An agent wrote fix_report.md, in a session this window did not start. */
-export const EARLIER_ATTEMPT_HINT = "Fix report available";
+/** Why the button says Rebuild Context, and what it will build from. */
 export const STALE_HINT = "Settings changed";
-/** Kept because it is a warning, not an explanation: Fresh deletes, after asking. */
+/**
+ * Kept because it is a warning, not an explanation: with Fresh ticked a
+ * rebuild deletes, after asking. It takes the line — the header's "Needs
+ * rebuild" still says why — so the warning is never the half that wraps.
+ */
 export const FRESH_REBUILD_HINT = "Asks before deleting artifacts";
 
 export function primaryView(input: NextActionInput): PrimaryView {
@@ -146,13 +158,12 @@ export function primaryView(input: NextActionInput): PrimaryView {
 function hintFor(action: PrimaryActionId, input: NextActionInput): string {
   switch (action) {
     case "run":
-      return "";
     case "fixWithAI":
-      return FIX_HINT;
+      return "";
     case "openSession":
-      return input.sessionKnown ? SESSION_HINT : EARLIER_ATTEMPT_HINT;
+      return input.sessionKnown ? SESSION_HINT : "";
     case "rebuildContext":
-      return input.fresh ? `${STALE_HINT} · ${FRESH_REBUILD_HINT}` : STALE_HINT;
+      return input.fresh ? FRESH_REBUILD_HINT : STALE_HINT;
   }
 }
 

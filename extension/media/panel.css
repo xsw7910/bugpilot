@@ -1079,17 +1079,10 @@ button:focus-visible {
   margin-top: 14px;
 }
 
-.kbd {
-  font-size: 0.85em;
-  color: var(--vscode-descriptionForeground);
-  font-variant-numeric: tabular-nums;
-}
-
-/* "Ctrl+Enter · Settings changed" (§37.104): the shortcut and the host's few
-   words, one quiet centred line under the button that wraps rather than
-   widening the panel. The dot only when there are words; it is decoration, so
-   it has no alternative text for a screen reader. */
-.run-status {
+/* "Settings changed" (§37.105): the host's one state, a quiet centred line
+   under the button that wraps rather than widening the panel — and usually
+   absent, taking no height: no shortcut, no sentence. */
+.run-hint {
   margin: 0;
   font-size: 0.85em;
   text-align: center;
@@ -1097,22 +1090,20 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.run-status .kbd {
-  font-size: inherit;
-}
-
-.run-hint::before {
-  content: "·" / "";
-  margin: 0 6px;
-}
-
 .run-hint[hidden] {
   display: none;
 }
 
-/* The settings under Run read as their own group, not as Run's: one field's
-   gap before Fix Mode — after the menu, too, when it is open. */
+/* The settings under Run read as their own group, not as Run's: a little more
+   than a field's gap before Fix Mode — after the menu, too, when it is open —
+   which with no line under the button is all that separates them. Under a
+   line, its own leading makes up the difference: the same gap to the eye, and
+   never taller than the line it replaced (§37.105). */
 #field-fixModeId {
+  margin-top: 16px;
+}
+
+.run:has(> .run-hint:not([hidden])) ~ #field-fixModeId {
   margin-top: 12px;
 }
 

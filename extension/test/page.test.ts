@@ -876,19 +876,19 @@ test("a screen reader hears the Issue's kind once typing pauses, and only when i
 
   // A key typed a character at a time passes through "Bug description"; only
   // where it ends up is said.
-  for (const typed of ["J", "JR", "JR-", "JR-1", "JR-12", "JR-12345"]) type(p, typed);
+  for (const typed of ["J", "JR", "JR-", "JR-9", "JR-99", "JR-9999"]) type(p, typed);
   assert.deepEqual(said, [], "said before typing paused");
   p.flush();
   assert.deepEqual(said, ["Jira issue"]);
 
   // More digits: still a key, nothing new to say.
-  type(p, "JR-123456");
+  type(p, "JR-99999");
   p.flush();
   assert.deepEqual(said, ["Jira issue"]);
 
   // Prose after it: now a description, said once.
-  type(p, "JR-123456 crashes");
-  type(p, "JR-123456 crashes on startup");
+  type(p, "JR-99999 crashes");
+  type(p, "JR-99999 crashes on startup");
   p.flush();
   assert.deepEqual(said, ["Jira issue", "Bug description"]);
 
@@ -911,17 +911,17 @@ test("a form the host writes is read on screen but not announced", () => {
   p.send(state());
   const said = writesTo(p.byId("issue-kind"));
   // A key half-typed when the host replaced the form: its pause is cancelled.
-  type(p, "JR-1");
-  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, issueKey: "JR-12345" } }));
+  type(p, "JR-9");
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, issueKey: "JR-9999" } }));
   p.flush();
-  assert.equal(p.byId("issue-note").textContent, "Jira issue · JR-12345");
+  assert.equal(p.byId("issue-note").textContent, "Jira issue · JR-9999");
   assert.equal(p.byId("issue-kind").textContent, "");
   assert.ok(said.every((words) => words === ""), JSON.stringify(said));
   // And what it wrote is what was last said: the same kind typed on is not news.
-  type(p, "JR-123456");
+  type(p, "JR-99999");
   p.flush();
   assert.equal(p.byId("issue-kind").textContent, "");
-  type(p, "JR-123456 and more");
+  type(p, "JR-99999 and more");
   p.flush();
   assert.equal(p.byId("issue-kind").textContent, "Bug description");
 });
@@ -1442,7 +1442,7 @@ test("the page never labels the button itself: every push's label wins, in order
   assert.equal(p.byId("run-label").textContent, "Rebuild Context");
   assert.match(p.byId("run-icon").className, /codicon-refresh/);
   assert.equal(p.byId("run-hint").textContent, "Settings changed");
-  assert.equal(p.byId("run").getAttribute("title"), "Rebuild the prepared context using the current settings");
+  assert.equal(p.byId("run").getAttribute("title"), "Rebuild the prepared context using the current settings (Ctrl+Enter)");
 
   p.send(prepared());
   assert.equal(p.byId("run-label").textContent, "Fix with AI");
@@ -3617,8 +3617,10 @@ test("a finished run reads as results on the rows, and one next action", () => {
   assert.equal(p.byId("run-label").textContent, "Fix with AI");
   assert.match(p.byId("run-icon").className, /codicon-hubot/);
   assert.equal(p.byId("run").disabled, false);
-  // A state beside the shortcut, no instruction: the button is the next step (§37.104).
-  assert.equal(p.byId("run-hint").textContent, "Context ready");
+  // Nothing under it: the header's Ready says it once, and the button is the
+  // next step (§37.105).
+  assert.equal(p.byId("run-hint").hidden, true);
+  assert.equal(p.byId("workflow-status").textContent, "Ready");
   // Behind ⋯, rebuilding it — and not yet a new attempt: none has started.
   assert.equal(p.byId("more-actions").hidden, false);
   assert.equal(p.byId("menu-rebuildContext").hidden, false);
@@ -3869,7 +3871,10 @@ test("Fix with AI keeps its own state beside a report", () => {
   assert.equal(p.byId("description-fixWithAI").textContent, "Fix report available");
   assert.equal(p.byId("step-fixWithAI").classes.has("step-success"), false, "a start nobody saw wore the tick");
   assert.equal(p.byId("run-label").textContent, "Open AI Session");
-  assert.equal(p.byId("run-hint").textContent, "Fix report available");
+  // Said once, by the header; nothing under the button (§37.105).
+  assert.equal(p.byId("workflow-status").textContent, "Fix report available");
+  assert.equal(p.byId("run-hint").hidden, true);
+  assert.equal(p.byId("run-hint").textContent, "");
   assert.equal(p.byId("menu-startNewAttempt").hidden, false);
   assert.equal(p.byId("description-fixResult").textContent, "Fixed it.");
 
@@ -4176,6 +4181,17 @@ test("the order is the host's, and grouping keeps it inside each group", () => {
 
 const HOSTILE = `<script>alert("x")</script> & 'q' < > — 日本語 ü`;
 
+/**
+ * One function of the page's source, to its own closing brace — with LF or
+ * CRLF line endings, whichever the checkout wrote (`core.autocrlf` on Windows
+ * writes CRLF).
+ */
+const pageFunction = (name: string, source = PAGE_SOURCE): string =>
+  new RegExp(`function ${name}[\\s\\S]*?\\r?\\n  }\\r?\\n`).exec(source)?.[0] ?? "";
+
+/** Writes markup rather than text. */
+const WRITES_HTML = /innerHTML|outerHTML|insertAdjacentHTML/;
+
 /** A Git history record as `gitHistory.ts` reads one, with these commits. */
 function withCommits(
   commits: GitHistoryResult["commits"],
@@ -4250,9 +4266,9 @@ test("a subject, a term or a path that looks like markup is text", () => {
   assert.equal(matched!.textContent, `Matched: ${HOSTILE}`);
   assert.equal(changed!.getAttribute("title"), `src/${HOSTILE}.cpp`);
   // Built with createElement and textContent, as the guard above requires of the whole page.
-  const render = /function renderRelatedCommits[\s\S]*?\n  }\n/.exec(PAGE_SOURCE)?.[0] ?? "";
+  const render = pageFunction("renderRelatedCommits");
   assert.notEqual(render, "");
-  assert.equal(/innerHTML|outerHTML|insertAdjacentHTML/.test(render), false);
+  assert.equal(WRITES_HTML.test(render), false);
 });
 
 test("a later push without commits clears the list", () => {
@@ -4300,9 +4316,32 @@ test("a supporting path that looks like markup is text", () => {
   const [button] = p.byId("supporting-files-list").children[0]!.children;
   assert.equal(button!.children[1]!.textContent, `src/${HOSTILE}.cpp`);
   assert.equal(button!.getAttribute("title"), `src/${HOSTILE}.cpp`);
-  const render = /function renderSupportingFiles[\s\S]*?\n  }\n/.exec(PAGE_SOURCE)?.[0] ?? "";
+  const render = pageFunction("renderSupportingFiles");
   assert.notEqual(render, "");
-  assert.equal(/innerHTML|outerHTML|insertAdjacentHTML/.test(render), false);
+  assert.equal(WRITES_HTML.test(render), false);
+});
+
+test("the markup guards read the page source with LF or CRLF line endings, and still catch an HTML write", () => {
+  const lf = PAGE_SOURCE.replace(/\r\n/g, "\n");
+  const crlf = lf.replace(/\n/g, "\r\n");
+  for (const name of ["renderRelatedCommits", "renderSupportingFiles"]) {
+    const fromLf = pageFunction(name, lf);
+    const fromCrlf = pageFunction(name, crlf);
+    // Found under both, and the same function: up to its own closing brace,
+    // never on into the next one.
+    assert.notEqual(fromLf, "", `${name} not found with LF`);
+    assert.equal(fromCrlf, fromLf.replace(/\n/g, "\r\n"), `${name} read differently with CRLF`);
+    assert.equal((fromLf.match(/\n  }\n/g) ?? []).length, 1, `${name} ran past its closing brace`);
+    assert.equal(WRITES_HTML.test(fromLf), false);
+    // A function that did write markup is caught, whichever the ending.
+    for (const source of [lf, crlf]) {
+      const eol = source === crlf ? "\r\n" : "\n";
+      const opening = new RegExp(`(function ${name}\\([^)]*\\) \\{)`);
+      assert.match(source, opening, `${name} has no opening line to break`);
+      const unsafe = source.replace(opening, `$1${eol}    element.innerHTML = text;`);
+      assert.equal(WRITES_HTML.test(pageFunction(name, unsafe)), true, `an innerHTML in ${name} went unseen`);
+    }
+  }
 });
 
 test("a click asks the host to open exactly the path the artifact gave", () => {
@@ -4632,25 +4671,79 @@ test("the outcome is announced as text, not as a tick", () => {
 
 // --- UI-V1: what rendering the page found ------------------------------------
 
-test("beside the shortcut, only a state — Run's explanation is its tooltip (§37.104)", () => {
-  // The line under the button was a sentence about the button; it is the
-  // host's few words now, and Run has none: Ctrl+Enter stands alone.
+test("under the button, at most one state, and none for Run or Fix with AI — the rest is its tooltip (§37.105)", () => {
+  const p = load();
+  /** What the primary action shows on screen: its label and the line under it. */
+  const onScreen = () => [p.byId("run-label").textContent, p.byId("run-hint").hidden ? "" : p.byId("run-hint").textContent];
+  const line = () => (p.byId("run-hint").hidden ? "" : p.byId("run-hint").textContent);
+  const shows = (label: string, hint: string, title: string) => {
+    assert.deepEqual(onScreen(), [label, hint], label);
+    // Hidden is empty too, so a description never reads a state that went.
+    assert.equal(p.byId("run-hint").hidden, p.byId("run-hint").textContent === "", `${label}: hidden but not empty`);
+    assert.equal(p.byId("run").getAttribute("title"), `${title} (Ctrl+Enter)`, `${label} tooltip`);
+    // The shortcut is the tooltip's and the button's aria-keyshortcuts — never on screen.
+    assert.equal(onScreen().join(" ").includes("Ctrl+Enter"), false, `${label}: the shortcut is on screen`);
+  };
+  // aria-keyshortcuts and aria-describedby are the markup's (panel.test.ts);
+  // no state may take them away.
+  assert.equal(PAGE_SOURCE.includes("aria-keyshortcuts"), false);
+  for (const name of ["renderRun", "renderRunHint"]) {
+    const body = new RegExp(`function ${name}\\(state\\) \\{[\\s\\S]*?\\r?\\n  \\}\\r?\\n`).exec(PAGE_SOURCE)?.[0] ?? "";
+    assert.notEqual(body, "", name);
+    assert.equal(body.includes("aria-describedby"), false, `${name} rewires the button's description`);
+  }
+
+  // Initial: Run, alone. The header says Not started.
+  p.send(state());
+  shows("Run", "", "Prepare the issue context for AI-assisted fixing");
+  assert.equal(p.byId("workflow-status").textContent, "Not started");
+
+  // Prepared: Fix with AI, alone — no "Context ready" under the header's Ready.
+  p.send(prepared());
+  shows("Fix with AI", "", "Open the prepared work item in the selected AI agent");
+  assert.equal(p.byId("workflow-status").textContent, "Ready");
+
+  // Stale: the reason, once.
+  p.send(prepared({}, { primary: primaryOf({ prepared: true, stale: true }) }));
+  shows("Rebuild Context", "Settings changed", "Rebuild the prepared context using the current settings");
+  // Fresh ticked: the warning is the one line.
+  p.send(prepared({}, { primary: primaryOf({ prepared: true, stale: true, fresh: true }) }));
+  shows("Rebuild Context", "Asks before deleting artifacts", "Rebuild the prepared context using the current settings");
+
+  // A session this window started: why the button reopens it.
+  p.send(prepared(STARTED));
+  shows("Open AI Session", "AI session started", "Focus the existing BugPilot AI terminal");
+  assert.equal(p.byId("workflow-status").textContent, "AI fix started");
+  // A report from one it did not: the header says so, and only the header.
+  p.send(reported({ readable: true, summary: "Fixed it." }));
+  shows("Open AI Session", "", "Focus the existing BugPilot AI terminal");
+  assert.equal(p.byId("workflow-status").textContent, "Fix report available");
+
+  // A failure: the card says it, and nothing under the button competes with it.
+  p.send(prepared({}, { runError: { kind: "run", title: "Run failed", message: "It stopped." } }));
+  assert.equal(p.byId("failure").hidden, false, "the failure went with the line");
+  assert.equal(p.byId("failure-title").textContent, "Run failed");
+  assert.equal(line(), "");
+
+  // In flight: Running…, and no words beside it.
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  assert.equal(line(), "", "words beside Running…");
+});
+
+test("Ctrl+Enter still presses whatever the button says, though it is no longer on screen (§37.105)", () => {
   const p = load();
   p.send(state());
-  assert.equal(p.byId("run-hint").hidden, true);
-  assert.equal(p.byId("run-hint").textContent, "");
-  assert.equal(p.byId("run").getAttribute("title"), "Prepare the issue context for AI-assisted fixing");
+  p.byId("issue").value = "JR-12345";
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  assert.equal((p.posted.at(-1) as { action: string }).action, "run");
 
-  p.send(prepared());
-  assert.equal(p.byId("run-hint").hidden, false);
-  assert.equal(p.byId("run-hint").textContent, "Context ready");
+  p.send(prepared({}, { primary: primaryOf({ prepared: true, stale: true }) }));
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  assert.equal((p.posted.at(-1) as { action: string }).action, "rebuildContext");
 
-  // A failure card says it better; nothing beside the shortcut.
-  p.send(prepared({}, { runError: { kind: "run", title: "Run failed", message: "It stopped." } }));
-  assert.equal(p.byId("run-hint").hidden, true);
-
-  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
-  assert.equal(p.byId("run-hint").hidden, true, "words beside Running…");
+  p.send(prepared(STARTED));
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  assert.equal((p.posted.at(-1) as { action: string }).action, "openSession");
 });
 
 // --- Search details, under Code search ---------------------------------------
@@ -7299,20 +7392,21 @@ test("the expansion is the page's alone: never sent, never saved", () => {
 
 // --- Tooltip audit (§37.90) --------------------------------------------------
 
-test("the primary button's tooltip follows its action: only where the label hides what it means", () => {
+test("the primary button's tooltip follows its action, and carries the shortcut", () => {
   const p = load();
   p.send(prepared());
   assert.equal(p.byId("run-label").textContent, "Fix with AI");
-  assert.equal(p.byId("run").getAttribute("title"), undefined, "Fix with AI already says it");
+  // Fix with AI's, since nothing under it says what it does any more (§37.105).
+  assert.equal(p.byId("run").getAttribute("title"), "Open the prepared work item in the selected AI agent (Ctrl+Enter)");
   p.send(prepared({ fix: { status: "success", detail: "Handed to Claude Code in a terminal." } }));
   assert.equal(p.byId("run-label").textContent, "Open AI Session");
-  assert.equal(p.byId("run").getAttribute("title"), "Focus the existing BugPilot AI terminal");
+  assert.equal(p.byId("run").getAttribute("title"), "Focus the existing BugPilot AI terminal (Ctrl+Enter)");
   p.send(state());
   assert.equal(p.byId("run-label").textContent, "Run");
   // Run's own, since its explanation left the line under it (§37.104).
-  assert.equal(p.byId("run").getAttribute("title"), "Prepare the issue context for AI-assisted fixing");
+  assert.equal(p.byId("run").getAttribute("title"), "Prepare the issue context for AI-assisted fixing (Ctrl+Enter)");
   p.send(prepared());
-  assert.equal(p.byId("run").getAttribute("title"), undefined, "a stale tooltip outlived its action");
+  assert.equal(p.byId("run").getAttribute("title"), "Open the prepared work item in the selected AI agent (Ctrl+Enter)", "a stale tooltip outlived its action");
 });
 
 test("the compact controls the page builds get specific tooltips that match their names", () => {

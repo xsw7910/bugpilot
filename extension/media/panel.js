@@ -2291,13 +2291,6 @@
     "open-folder": "openFolder",
   };
 
-  /**
-   * The sentence under Run.
-   *
-   * The Context Ready card that used to sit here is gone (Batch 6, §37.45):
-   * everything it held is on the workflow row that owns it, and the workflow
-   * header's status is the one global "Context ready".
-   */
   /** The press last acknowledged, so a redraw neither repeats nor re-announces it. */
   let shownSessionFeedback = 0;
 
@@ -2317,11 +2310,12 @@
   }
 
   function renderRunHint(state) {
-    // The host's few words beside Ctrl+Enter (§37.104): why the button says
-    // Fix with AI, Open AI Session or Rebuild Context — "Context ready",
-    // "Settings changed". None for Run, while a run is in flight, or beside a
-    // failure card, which says it better. The button names it as its
-    // description, so it is announced with the button.
+    // The one short line under the button (§37.105), and only when the host
+    // has a state the button and the header do not say — "Settings changed",
+    // "AI session started". None for Run or Fix with AI, while a run is in
+    // flight, or beside a failure card, which says it better. The button names
+    // it as its description, so it is heard with the button; hidden, it is
+    // also empty, so nothing stale is.
     const hint = byId("run-hint");
     hint.textContent = state.runError ? "" : primary.hint || "";
     hint.hidden = hint.textContent === "";
@@ -2677,10 +2671,10 @@
     const button = byId("run");
     byId("run-label").textContent = primary.label;
     // Open AI Session and Rebuild Context are shorter than what they mean
-    // (§37.90), and Run's explanation moved here from a line under it
-    // (§37.104); Fix with AI says what it does.
+    // (§37.90); Run's and Fix with AI's explanations moved here from a line
+    // under them (§37.104, §37.105), and so did the shortcut.
     const title = PRIMARY_TITLES[primary.action] || "";
-    if (title) button.setAttribute("title", title);
+    if (title) button.setAttribute("title", `${title} (${PRIMARY_SHORTCUT})`);
     else button.removeAttribute("title");
     byId("run-icon").className = primary.busy
       ? "codicon codicon-loading codicon-spin"
@@ -2706,15 +2700,18 @@
   }
 
   /**
-   * What the button does, as its tooltip (§37.104): `PRIMARY_TOOLTIPS` in
-   * `app/nextAction.ts`, which a test compares this copy with, and the same
-   * words as the ⋯ menu's items. Fix with AI says it in its label.
+   * What the button does, as its tooltip (§37.104, §37.105): `PRIMARY_TOOLTIPS`
+   * in `app/nextAction.ts`, which a test compares this copy with, and the same
+   * words as the ⋯ menu's items. The button's adds its shortcut, which is
+   * nowhere on screen.
    */
   const PRIMARY_TITLES = {
     run: "Prepare the issue context for AI-assisted fixing",
+    fixWithAI: "Open the prepared work item in the selected AI agent",
     openSession: "Focus the existing BugPilot AI terminal",
     rebuildContext: "Rebuild the prepared context using the current settings",
   };
+  const PRIMARY_SHORTCUT = "Ctrl+Enter";
 
   function openMoreMenu() {
     byId("more-menu").hidden = false;

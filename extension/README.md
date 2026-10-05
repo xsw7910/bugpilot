@@ -107,7 +107,6 @@ list of steps.
 Jira issue · JR-12345
 
 [        ▶ Run        ] [ Stop ] [ ⋯ More ]
-         Ctrl+Enter
 
 Fix Mode
 [ Standard Fix                            ▾ ] ⚙
@@ -147,12 +146,17 @@ item — you never need to know what resume, retry or fresh mean to find it:
 | **Rebuild Context** | You changed the issue, hint, keywords, focus files, Fix Mode or another preparation setting since | Prepares it again, keeping what the agent wrote |
 | **Running…** | Something is in flight | Nothing — it waits |
 
-Beside **Ctrl+Enter** under it, a word or two say why it reads what it reads —
-*Context ready*, *AI session started*, *Fix report available*, *Settings
-changed* — and **Workflow Steps** says the same in brief: *Not started*, *Running
-3/6…*, *Ready*, *Needs rebuild*. What a button or a setting does is its
-tooltip: hover **Run**, **Rebuild Context**, **Fix Mode**, **Hint** or
-**Include issue details** (which says exactly what the improver may read).
+Usually nothing is under the button. When something there changes what the
+button will do, one short line says so: *Settings changed* under **Rebuild
+Context** (or *Asks before deleting artifacts*, with **Delete previous
+artifacts first** ticked), *AI session started* under **Open AI Session**
+when this window started the session. **Workflow Steps** gives the overall
+state in brief: *Not started*, *Running 3/6…*, *Ready*, *Needs rebuild*, *Fix
+report available*. What a button or a setting
+does is its tooltip: hover **Run**, **Fix with AI**, **Rebuild Context**, **Fix
+Mode**, **Hint** or **Include issue details** (which says exactly what the
+improver may read). The button's tooltip also names its shortcut,
+`Ctrl+Enter`.
 
 **Stop** joins it while a run is in flight. Beside it, always, is **⋯ More**
 (just **⋯** in a very narrow sidebar). It holds **Reset Session** — see

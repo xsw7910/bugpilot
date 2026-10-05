@@ -11655,4 +11655,79 @@ with AI → Include issue details → Advanced Settings → Workflow Steps →
 Diagnostics. Prepared (*Context ready*, header *Ready*), stale (*Settings
 changed*, *Needs rebuild*) and back again; rows kept *16 terms · 1 relevant
 file* and *1 related commit found*; an invalid Max files still opened Advanced
-Settings with its error. High-contrast themes not checked.
+settings with its error. High-contrast themes not checked.
+
+### 37.105 Primary action status: the button stands on its own (after `400aec5`, uncommitted)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and a real disposable VS Code window; not committed. Presentation only.
+Decisions in the canonical plan, "Confirmed decisions (Primary action status)".
+
+- **Removed from the screen:** *Ctrl+Enter* under the button (every state) and
+  *Context ready* under Fix with AI. `#run-status`, `.kbd` and the
+  `.run-hint::before` dot are gone; `#run-hint` is the one line, hidden (no
+  height) unless the host has a state for it.
+- **Kept, one line each:** *Settings changed* (Rebuild Context), *Asks before
+  deleting artifacts* (Rebuild Context with Fresh — replaces the joined
+  *Settings changed · Asks before deleting artifacts*), *AI session started*
+  (Open AI Session, started in this window). `FIX_HINT` removed.
+- **Also removed (follow-up):** *Fix report available* under Open AI Session
+  when this window did not start the session — the header says it word for
+  word. `EARLIER_ATTEMPT_HINT` removed; report detection, the header, the
+  button's label, tooltip and behaviour unchanged.
+- **Tooltips:** `PRIMARY_TOOLTIPS.fixWithAI` = *Open the prepared work item in
+  the selected AI agent* (now `satisfies Record<PrimaryActionId, string>`);
+  `PRIMARY_SHORTCUT` = *Ctrl+Enter*, appended to the primary button's title in
+  `html.ts` and `renderRun`; the ⋯ menu's titles unchanged.
+- **CSS:** `#field-fixModeId { margin-top: 16px }` (was 12px), and 12px still
+  when a line is under the button (`.run:has(> .run-hint:not([hidden])) ~
+  #field-fixModeId`), so no state grew.
+
+**Tests.** 1792 → 1795, all passing. Updated the copy pins across nextAction,
+panel, page and controller; added one test that the line never repeats the
+Workflow Steps header (*Not started*, *Ready*, *Needs rebuild*, *Fix report
+available*), and one that Ctrl+Enter presses Run, Rebuild Context and Open AI
+Session with the shortcut off screen. The page test that drives each state
+covers Run, Fix with AI, both Rebuild lines, both Open AI Session states, a
+failure card and Running….
+
+**Follow-up cleanup** (same pass, before validation):
+- *CRLF:* the two Git History page tests (*… looks like markup is text*) read
+  `renderRelatedCommits` / `renderSupportingFiles` out of panel.js with
+  `\n  }\n`, which never matched in a CRLF checkout (`core.autocrlf=true`
+  writes CRLF). Both now use `pageFunction(name)`, `\r?\n` at both ends; a new
+  test finds the same function in LF and CRLF copies of the source and catches
+  an `innerHTML` injected into either. Checked by mutation in a scratch copy:
+  `subject.innerHTML = commit.subject` fails the test with LF and with CRLF.
+  No production file was touched.
+- *Synthetic tickets:* the Issue compact-input page tests typed `JR-12345` plus
+  one more digit, a number `tests/test_publishable.py` rejects. A key typed on by one more digit
+  is now `JR-9999` → `JR-99999` (both on `SYNTHETIC_TICKET_NUMBERS`), the
+  half-typed key `JR-9`; the rule is unchanged.
+
+**Real window** (disposable profile, VSIX from HEAD then from this tree, CLI =
+editable install; the only handoff went to a Custom agent `cmd /c echo
+{prompt}`). Dark Modern and Light Modern, 360px and 200px, every state below:
+no *Ctrl+Enter* anywhere in the form's text, at most one line under the button
+(one line also at 200px), no horizontal scroll, `aria-keyshortcuts`
+*Control+Enter* and `aria-describedby` *run-hint* on the button throughout.
+
+| State | Under the button | Header | Button → Fix Mode | Issue → Workflow Steps (360 / 200px) |
+| --- | --- | --- | --- | --- |
+| Run | — (was *Ctrl+Enter*) | Not started | 29 → 16px | 354 → 341 / 407 → 394 |
+| Fix with AI | — (was *Ctrl+Enter · Context ready*) | Ready | 29 → 16px | 392 → 379 / 479 → 466 |
+| Rebuild Context | *Settings changed* | Needs rebuild | 29 → 29px | 392 → 392 / 479 → 479 |
+| … with Fresh | *Asks before deleting artifacts* | Needs rebuild | 29px | 392 / 479 |
+| Open AI Session (started here) | *AI session started* | AI fix started | 29px | 392 / 479 |
+| Open AI Session (report on disk) | *Fix report available* in this pass; none since the follow-up (tested, not re-run in the window) | Fix report available | 29px (16px with no line) | 392 / 479 |
+| Run after *Issue not found* | — | Run failed (row error shown) | 16px | 361 / 414 |
+
+Ctrl+Enter with real keys pressed Run from the Issue field and Rebuild Context
+from the Hint (each ran to Fix with AI). Tooltips read from the DOM (Chromium
+draws title pop-ups outside the page): each action's sentence plus
+*(Ctrl+Enter)*. Chromium's own accessibility node for the button: name *Run* /
+*Rebuild Context* (the visible label), description empty / *Settings changed*,
+keyshortcuts *Control+Enter*; no live region on the line. The 12px rule was
+tried live (CSS copied into the installed extension, *Reload Webviews*) after
+the first pass measured the Rebuild states 4px taller with 16px everywhere.
+High-contrast themes not checked.

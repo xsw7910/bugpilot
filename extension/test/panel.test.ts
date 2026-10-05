@@ -1185,13 +1185,16 @@ test("Start New Attempt's form: optional feedback, the example, two helpers, Can
   }
 });
 
-test("Run is one prominent button with its shortcut spelled out", () => {
-  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">/);
+test("Run is one prominent button whose shortcut is declared, not spelled out (§37.105)", () => {
+  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing \(Ctrl\+Enter\)" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">/);
   assert.match(HTML, /codicon-play/);
-  assert.match(HTML, /<span class="kbd">Ctrl\+Enter<\/span>/);
-  // What Run does — preparing context, which is not fixing code — is its
-  // tooltip now, not a line under it (§37.104), and the shortcut is declared.
+  // What Run does — preparing context, which is not fixing code — and its
+  // shortcut are its tooltip (§37.104, §37.105); Ctrl+Enter is its
+  // aria-keyshortcuts, and nowhere on screen.
   assert.equal(visibleText(HTML).includes("Run prepares the issue context"), false);
+  assert.equal(HTML.includes('class="kbd"'), false);
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  assert.equal(visibleText(form).includes("Ctrl+Enter"), false, "the shortcut is on screen again");
 });
 
 test("issue details is shown as fixed, not as an option that does nothing", () => {
@@ -2123,7 +2126,7 @@ test("Fix with AI has no button of its own: the row is status, the top button ac
   // the press is the primary action's, whose label the host sets.
   assert.equal(HTML.includes('id="fix-with-ai"'), false);
   assert.equal(HTML.includes('id="actions-fixWithAI"'), false);
-  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
+  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing \(Ctrl\+Enter\)" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
 });
 
 // --- UI-V1: what rendering the page found ------------------------------------
@@ -2739,8 +2742,8 @@ test("Open AI Session's acknowledgement is a live region under the button, alway
   assert.equal(/ hidden/.test(line), false);
   const run = HTML.indexOf('<div class="run">');
   assert.ok(run !== -1 && run < HTML.indexOf('id="session-feedback"'));
-  // Under the button's own line — Ctrl+Enter and its state — and before the settings.
-  assert.ok(HTML.indexOf('id="run-status"') < HTML.indexOf('id="session-feedback"'));
+  // Under the button's own state line, when it has one, and before the settings.
+  assert.ok(HTML.indexOf('id="run-hint"') < HTML.indexOf('id="session-feedback"'));
   assert.ok(HTML.indexOf('id="session-feedback"') < HTML.indexOf('id="field-fixModeId"'));
 });
 
@@ -2794,8 +2797,14 @@ test("the compact next actions say what they really do: Open AI Session focuses,
   for (const [action, text] of Object.entries(PRIMARY_TOOLTIPS)) {
     assert.ok(titles.includes(`${action}: ${JSON.stringify(text)}`), `panel.js disagrees about ${action}`);
   }
-  assert.equal(attr(buttonTag("run"), "title"), PRIMARY_TOOLTIPS.run);
-  assert.equal(/fixWithAI:/.test(titles), false, "Fix with AI gained a tooltip its label already says");
+  // Fix with AI's too, now that nothing under it explains it (§37.105) — and
+  // the button's carries the shortcut that left the screen.
+  assert.match(titles, /fixWithAI: "Open the prepared work item in the selected AI agent"/);
+  assert.equal(attr(buttonTag("run"), "title"), `${PRIMARY_TOOLTIPS.run} (Ctrl+Enter)`);
+  assert.match(PAGE_JS, /const PRIMARY_SHORTCUT = "Ctrl\+Enter";/);
+  assert.ok(PAGE_JS.includes('button.setAttribute("title", `${title} (${PRIMARY_SHORTCUT})`)'), "the button's tooltip lost its shortcut");
+  // The ⋯ menu's items are not pressed with Ctrl+Enter, so theirs do not say it.
+  assert.equal(attr(buttonTag("menu-rebuildContext"), "title")?.includes("Ctrl+Enter"), false);
 });
 
 test("Cancel Review stops the review, and says nothing about the fix", () => {
@@ -3007,7 +3016,7 @@ test("an attachment row never pushes a narrow sidebar sideways", () => {
 test("Run sits right under the Issue, before Fix Mode, and is the only Run", () => {
   const at = (id: string) => HTML.indexOf(`id="${id}"`);
   // Issue, its own lines, Run's block, then the settings, Advanced Settings, Workflow Steps.
-  const order = ["field-issue", "issue-error", "run", "run-status", "run-hint", "field-fixModeId", "field-hint", "useIssueDetails", "open-settings", "workflow"];
+  const order = ["field-issue", "issue-error", "run", "run-hint", "field-fixModeId", "field-hint", "useIssueDetails", "open-settings", "workflow"];
   for (let index = 1; index < order.length; index += 1) {
     assert.ok(at(order[index - 1]!) < at(order[index]!), `${order[index - 1]} is not above ${order[index]}`);
   }
@@ -3017,32 +3026,51 @@ test("Run sits right under the Issue, before Fix Mode, and is the only Run", () 
   assert.equal(HTML.split('<span id="run-label">Run</span>').length - 1, 1);
   // The accessible name is still the visible label, and no tabindex reorders
   // the keyboard away from the reading order.
-  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
+  assert.match(HTML, /<button type="submit" id="run" class="primary" title="Prepare the issue context for AI-assisted fixing \(Ctrl\+Enter\)" aria-describedby="run-hint" aria-keyshortcuts="Control\+Enter">\s*<span class="codicon codicon-play" id="run-icon" aria-hidden="true"><\/span>\s*<span id="run-label">Run<\/span>/);
   assert.equal(/tabindex="[1-9]/.test(HTML), false, "a positive tabindex reorders the keyboard");
 });
 
-test("under Run, one quiet line: Ctrl+Enter, and the host's state beside it (§37.104)", () => {
-  const line = /<p class="run-status" id="run-status">[\s\S]*?<\/p>/.exec(HTML)?.[0] ?? "";
-  assert.equal(line, '<p class="run-status" id="run-status"><span class="kbd">Ctrl+Enter</span><span class="run-hint" id="run-hint" hidden></span></p>');
+test("under Run, at most one quiet line — the host's state, never the shortcut or a sentence (§37.105)", () => {
+  // One empty paragraph, hidden until the host has a state for it: nothing
+  // under the button in the Run state, and no shortcut in any.
+  const start = HTML.indexOf('<div class="run">');
+  const run = HTML.slice(start, HTML.indexOf('id="session-feedback"', start));
+  assert.notEqual(start, -1);
+  const lines = run.replace(/<!--[\s\S]*?-->/g, "").match(/<p\b[^>]*>[\s\S]*?<\/p>/g) ?? [];
+  assert.deepEqual(lines, ['<p class="run-hint" id="run-hint" hidden></p>']);
+  assert.equal(HTML.includes('id="run-status"'), false);
   // Nothing announces it on its own — it describes the button instead, so the
-  // reason Rebuild Context is there is heard with it.
-  assert.equal(/role=|aria-live/.test(line), false);
+  // reason Rebuild Context is there is heard with it, without a live region.
+  assert.equal(/role=|aria-live/.test(lines[0]!), false);
   assert.match(HTML, /id="run"[^>]*aria-describedby="run-hint"/);
-  // The sentences it replaced are not on the page.
-  for (const gone of ["Uses the current settings below.", "The form changed since this context was prepared", "Run prepares the issue context"]) {
+  assert.match(HTML, /id="run"[^>]*aria-keyshortcuts="Control\+Enter"/);
+  // The sentences and the shortcut it replaced are not on the page.
+  for (const gone of [
+    "Uses the current settings below.",
+    "The form changed since this context was prepared",
+    "Rebuild Context prepares it again",
+    "Run prepares the issue context",
+    "Open the prepared work item in the selected AI agent",
+  ]) {
     assert.equal(visibleText(HTML).includes(gone), false, gone);
   }
+  assert.equal(visibleText(run).includes("Ctrl+Enter"), false);
   assert.equal(HTML.includes('id="run-settings-note"'), false);
-  // Centred, quiet, wrapping rather than widening; the dot only with words, and
-  // decoration only — no alternative text.
-  const rule = /\.run-status \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  // Centred, quiet, wrapping rather than widening; hidden means no height.
+  const rule = /\.run-hint \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /margin: 0;/);
   assert.match(rule, /text-align: center;/);
   assert.match(rule, /color: var\(--vscode-descriptionForeground\);/);
   assert.match(rule, /overflow-wrap: anywhere;/);
-  assert.match(CSS, /\.run-hint::before \{\s*content: "·" \/ "";/);
+  assert.equal(/white-space: nowrap|text-overflow/.test(rule), false, "a warning cut short");
   assert.match(CSS, /\.run-hint\[hidden\] \{\s*display: none;/);
-  // One field's gap before Fix Mode, which the removed note used to carry.
-  assert.match(CSS, /#field-fixModeId \{\s*margin-top: 12px;/);
+  // The rules for the shortcut and the dot went with them.
+  assert.equal(/\.kbd\b|\.run-status\b|\.run-hint::before/.test(CSS), false);
+  // With no line under the button, Fix Mode's own gap is what sets the
+  // settings apart from Run: a little more than a field's. Under a line, the
+  // line's leading makes up the rest — never taller than before the line went.
+  assert.match(CSS, /#field-fixModeId \{\s*margin-top: 16px;/);
+  assert.match(CSS, /\.run:has\(> \.run-hint:not\(\[hidden\]\)\) ~ #field-fixModeId \{\s*margin-top: 12px;/);
 });
 
 // --- Text density (§37.104) --------------------------------------------------
@@ -3060,7 +3088,7 @@ test("the main form shows controls and state, not explanations — and keeps eve
     // Issue compact input: its own explanation is a tooltip and a description too.
     ["Enter a Jira issue ID such as JR-12345, or describe the bug directly.", /<p class="visually-hidden" id="issue-help">Enter a Jira issue ID such as JR-12345/],
     ["The form changed since this context was prepared", /id="run"[^>]*aria-describedby="run-hint"/],
-    ["Uses the current settings below.", /id="run"[^>]*title="Prepare the issue context for AI-assisted fixing"/],
+    ["Uses the current settings below.", /id="run"[^>]*title="Prepare the issue context for AI-assisted fixing \(Ctrl\+Enter\)"/],
     ["How the AI works on this bug.", /<label for="fixModeId" title="Choose how BugPilot approaches the fix">/],
     ["Default workflow for most bugs", /<select id="fixModeId"[^>]*aria-describedby="fixModeId-description"/],
     ["Add technical guidance, constraints, or suspected areas.", /<label for="hint" title="Add technical guidance, constraints, or suspected areas">/],

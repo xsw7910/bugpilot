@@ -2817,6 +2817,41 @@ unchanged.
    `role="status"` says only the kind, once typing pauses (1s) and only when it
    changes; a restored, reopened or reset form is not announced.
 
+### Confirmed decisions (Primary action status)
+
+Revises Text density decision 3 (§37.105). Presentation only: Run, Rebuild
+Context, Fix with AI and Open AI Session do what they did; the preparation
+fingerprint, staleness, the Ctrl+Enter handler, the ⋯ More menu, Reset Session,
+the Issue field and the Workflow Steps header are unchanged.
+
+1. **The button stands on its own.** Under it, at most one short line — a
+   state, never a sentence and never the shortcut — and usually none. The line
+   is `#run-hint` alone; `#run-status` and its *Ctrl+Enter* are gone.
+2. **Per state:** Run — none. Fix with AI — none (*Context ready* repeated the
+   header's *Ready*). Rebuild Context — *Settings changed*; with Delete previous
+   artifacts first ticked, *Asks before deleting artifacts* instead (one line,
+   and the warning wins; the header's *Needs rebuild* still says why). Open AI
+   Session — *AI session started* when this window started it; none over an
+   agent's report from a session this window did not see, since the header
+   says *Fix report available* word for word. Running…, or a failure card on
+   screen — none.
+3. **Tooltips** (`PRIMARY_TOOLTIPS`, now one per primary action, the page's
+   `PRIMARY_TITLES` copy compared by a test): *Prepare the issue context for
+   AI-assisted fixing*, *Open the prepared work item in the selected AI agent*,
+   *Rebuild the prepared context using the current settings*, *Focus the
+   existing BugPilot AI terminal* — each followed on the primary button by
+   *(Ctrl+Enter)*; the ⋯ menu's items keep theirs without it.
+4. **Accessibility:** the accessible name is still the visible label; the line
+   is the button's `aria-describedby` (empty whenever it is hidden), with no
+   live region; `aria-keyshortcuts="Control+Enter"` stays, as does the handler.
+5. **Spacing:** with no line under the button, Fix Mode's own top margin is what
+   separates the settings from Run: 16px. Under a line it stays 12px
+   (`.run:has(> .run-hint:not([hidden])) ~ #field-fixModeId`), the line's
+   leading making up the rest, so no state is taller than before. Measured in a
+   real window: button → Fix Mode 29px → 16px in the Run, Fix with AI and
+   error states (Issue → Workflow Steps 13px shorter at 360px and 200px); 29px,
+   unchanged, under a line.
+
 ---
 
 # 20. Step Secondary Text 状态原则

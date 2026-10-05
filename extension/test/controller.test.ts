@@ -7523,7 +7523,7 @@ test("next action 1: with nothing prepared, the one primary action is Run", asyn
   assert.equal(primary.action, "run");
   assert.equal(primary.label, "Run");
   assert.equal(primary.enabled, true);
-  // Nothing beside the shortcut: what Run does is its tooltip (§37.104).
+  // No line under it: what Run does is its tooltip (§37.104, §37.105).
   assert.equal(primary.hint, "");
   assert.deepEqual(primary.more, [], "a menu was offered before anything was prepared");
 });
@@ -7537,6 +7537,8 @@ test("next action 2: Build Context alone prepares, launches nothing, and the but
   assert.equal(primary.label, "Fix with AI");
   assert.equal(primary.enabled, true);
   assert.deepEqual(primary.more, ["rebuildContext"]);
+  // No line under it either: the header already says Ready (§37.105).
+  assert.equal(primary.hint, "");
   // The row is the status, and says the task is ready — not started.
   assert.equal(fixRow(h.last()).status, "ready");
   assert.deepEqual(fixRow(h.last()).actions, []);
@@ -7612,7 +7614,9 @@ test("next action 4: an earlier attempt's report makes it Open AI Session too, w
   await h.controller.refreshEnvironment();
   await h.controller.showWorkItem("JR-12345");
   assert.equal(h.last().primary.action, "openSession");
-  assert.equal(h.last().primary.hint, "Fix report available");
+  // The header says it, so nothing under the button does (§37.105).
+  assert.equal(h.last().overall.text, "Fix report available");
+  assert.equal(h.last().primary.hint, "");
   assert.equal(fixRow(h.last()).summary, "Fix report available");
   assert.notEqual(fixRow(h.last()).status, "success", "a start nobody saw was reported");
 
@@ -7798,7 +7802,8 @@ test("next action 9: Rebuild Context with Delete previous artifacts ticked asks 
   const h = await preparedHarness({ confirmAnswer: async () => { asked += 1; return false; } });
   const fresh = jiraForm({ hint: "look at the controller", fresh: true });
   await h.controller.handle({ type: "formChanged", form: fresh });
-  assert.equal(h.last().primary.hint, "Settings changed · Asks before deleting artifacts");
+  // One line, and it is the warning: the header still says Needs rebuild (§37.105).
+  assert.equal(h.last().primary.hint, "Asks before deleting artifacts");
   await h.controller.handle(next("rebuildContext", fresh));
   assert.equal(asked, 1, "a Fresh rebuild did not ask");
   assert.equal(h.streamRuns.length, 1, "a declined Fresh rebuild ran anyway");
