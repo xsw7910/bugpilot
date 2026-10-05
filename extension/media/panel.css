@@ -655,6 +655,19 @@ label {
   display: none;
 }
 
+/* A few words beside a label on what goes in (the Issue's "Jira ID or bug
+   description"): quieter than the label, like a helper. On the label's row
+   while the whole phrase fits there, and under the label when it does not —
+   `flex-basis: auto` moves the phrase, not its last word — and only on a line
+   of its own may it wrap. */
+.setting-header > .setting-secondary {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+
 /*
  * One cell per setting icon, so every label starts on the same left edge
  * whatever glyph precedes it — which is what makes the section scannable.
@@ -764,6 +777,37 @@ button:focus-visible {
   gap: 6px;
   margin: 3px 0;
   overflow-wrap: anywhere;
+}
+
+/*
+ * The Issue (Issue compact input): one row at rest, the height of the panel's
+ * single-line inputs, growing with its text to four lines and scrolling after
+ * that — a pasted bug report must not push Run off a sidebar.
+ *
+ * `rows="1"` is the resting height, so the textarea floor of 2.4em is lifted
+ * here. The line height is set because both heights hang off it: 1.4 lines of
+ * the field's font is the single-line inputs' height, and `lh` is one of those
+ * lines, so the ceiling is exactly four of them plus the padding and border
+ * (2 × 4px + 2 × 1px, `border-box`).
+ */
+#issue {
+  min-height: 0;
+  line-height: 1.4;
+  max-height: calc(4lh + 10px);
+}
+
+/* Empty, it is one row at every width. The placeholder is longer than a 200px
+   sidebar's box, and wrapped it rested the box at two lines and shrank it on
+   the first keystroke (seen in the real window). On one line and clipped, it
+   behaves like the single-line field the box looks like; the label row and the
+   tooltip say it in full. Chromium draws no ellipsis on a textarea's
+   placeholder, so none is asked for. Typed text wraps as before. */
+#issue::placeholder {
+  white-space: nowrap;
+}
+
+#issue:placeholder-shown {
+  overflow: hidden;
 }
 
 /* How the one Issue field was read: a ticket, or prose. It replaced a radio

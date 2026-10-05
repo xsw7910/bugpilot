@@ -2789,6 +2789,34 @@ Session, History or Artifacts behaviour changed.
    Steps went from 517px to 361px at a 360px sidebar and from 666px to 399px at
    200px (Run state).
 
+### Confirmed decisions (Issue compact input)
+
+Revises Text density decision 2. Presentation only: the source rule
+(`JIRA_ISSUE_KEY_RE`, the page's guarded copy), form values, the preparation
+fingerprint, staleness, Run/Rebuild, Jira fetching and Reset Session are
+unchanged.
+
+1. **Label row**: `issues` codicon (primary tone, decorative) + *Issue* + *Jira
+   ID or bug description* in the description colour, beside the label while it
+   fits and under it at 200px. The words are `aria-hidden`; the field's name
+   stays *Issue*.
+2. **Tooltip replaces the explanation**: *Enter a Jira issue ID such as
+   JR-12345, or describe the bug directly. BugPilot will detect which one you
+   entered.* on the label, the words and the box, and as the box's visually
+   hidden description. Placeholder *Describe the bug or enter a Jira ID*.
+3. **One-line default, auto-grow**: `rows="1"`, line height 1.4, growing with
+   the text to four lines (`max-height: calc(4lh + 10px)`), then scrolling;
+   re-measured when the box's width changes. Empty, it is one row at every
+   width: the placeholder stays on one line and is clipped in a narrow sidebar
+   (Chromium draws no ellipsis on a textarea placeholder). Enter is a new line,
+   Ctrl+Enter is Run.
+4. **Classification**: empty → nothing; a whole key → *Jira issue · JR-12345*
+   (uppercased, as the run sends it); anything else → *Bug description*, never
+   the text again. A key inside prose is prose. Updates on every keystroke.
+5. **Screen readers**: the note is the box's description; a visually hidden
+   `role="status"` says only the kind, once typing pauses (1s) and only when it
+   changes; a restored, reopened or reset form is not announced.
+
 ---
 
 # 20. Step Secondary Text 状态原则

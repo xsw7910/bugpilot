@@ -829,6 +829,8 @@ test("each icon carries the tone its kind of setting means", () => {
   // than a drift: blue for general/search/AI, yellow for guidance, grey for
   // ordinary file settings, red for exclusion.
   const expected: Record<string, string> = {
+    // The Issue: neutral blue, not a warning or a danger (Issue compact input).
+    issue: "icon-primary",
     hint: "icon-hint",
     keywords: "icon-primary",
     focusFiles: "icon-muted",
@@ -1643,19 +1645,37 @@ test("the default view is the Issue field, Run, two disclosures and the way into
   assert.equal(/<details[^>]*\bopen\b/.test(form), false, "a disclosure starts open");
 });
 
+/** The Issue field's whole block, as `html.ts` renders it. */
+const ISSUE_BLOCK = /<div class="field" id="field-issue">[\s\S]*?<p class="error" id="issue-error" hidden><\/p>\s*<\/div>/.exec(HTML)?.[0] ?? "";
+const ISSUE_HELP_TEXT =
+  "Enter a Jira issue ID such as JR-12345, or describe the bug directly. BugPilot will detect which one you entered.";
+
 test("the Issue field is one box that says it takes either kind of input", () => {
-  assert.match(HTML, /<label[^>]*for="issue">Issue<\/label>/, "the label is not 'Issue'");
+  assert.notEqual(ISSUE_BLOCK, "", "could not find the Issue field");
+  // Named "Issue" and nothing more: the icon is decoration and the few words
+  // beside it are outside the label.
+  const label = /<label for="issue"[^>]*>([\s\S]*?)<\/label>/.exec(ISSUE_BLOCK)?.[1] ?? "";
+  assert.equal(visibleText(label).trim(), "Issue", "the label is not 'Issue'");
   // Multi-line, because the same box holds a six-character key and a pasted
-  // bug report.
-  // The placeholder says it, and nothing under the box repeats it (§37.104);
-  // the key's shape is the tooltip.
-  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*placeholder="Enter a Jira ticket or describe the bug"/);
-  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*title="A Jira issue ID such as JR-12345, or a description of the problem"/);
-  assert.equal(HTML.includes("Jira ticket or bug description"), false, "the old placeholder is still there");
-  assert.equal(HTML.includes('id="issue-hint"'), false);
+  // bug report — one row at rest (Issue compact input).
+  assert.match(ISSUE_BLOCK, /<textarea id="issue" name="issue" rows="1" /);
+  // The placeholder is short; the example key and the detection are the tooltip.
+  assert.match(ISSUE_BLOCK, /<textarea[^>]*id="issue"[^>]*placeholder="Describe the bug or enter a Jira ID"/);
+  assert.match(ISSUE_BLOCK, new RegExp(`<textarea[^>]*id="issue"[^>]*title="${ISSUE_HELP_TEXT.replaceAll(".", "\\.")}"`));
+  // What came before, all gone: the placeholder, its tooltip, the helper line.
+  for (const gone of [
+    "Enter a Jira ticket or describe the bug",
+    "Jira ticket or bug description",
+    "A Jira issue ID such as JR-12345, or a description of the problem",
+    'id="issue-hint"',
+  ]) {
+    assert.equal(HTML.includes(gone), false, `still there: ${gone}`);
+  }
   assert.equal(visibleText(HTML).includes("Use a Jira issue ID, or describe the problem directly."), false);
-  // Described by how it was read, and by its problem, once there is one.
-  assert.match(HTML, /<textarea[^>]*id="issue"[^>]*aria-describedby="issue-note issue-error"/);
+  // Described by how it was read, by its problem once there is one, and by the
+  // sentence the tooltip shows — visually hidden, so it is heard, not seen.
+  assert.match(ISSUE_BLOCK, /<textarea[^>]*id="issue"[^>]*aria-describedby="issue-note issue-error issue-help"/);
+  assert.ok(ISSUE_BLOCK.includes(`<p class="visually-hidden" id="issue-help">${ISSUE_HELP_TEXT}</p>`));
   // Above Run, the Issue and nothing else (§37.102); between Run's block and
   // Advanced Settings, in tab order, how the AI approaches it and the guidance
   // it carries (§37.84).
@@ -1668,6 +1688,66 @@ test("the Issue field is one box that says it takes either kind of input", () =>
     ["fixModeId", "manage-fix-modes", "hint", "improve-hint", "useIssueDetails", "hint-use", "hint-keep"],
     "the order under Run is not Fix Mode, Hint",
   );
+});
+
+test("the Issue's label row: a neutral icon, the label, and a few quiet words beside it", () => {
+  const header = /<div class="setting-header">([\s\S]*?)<\/div>/.exec(ISSUE_BLOCK)?.[1] ?? "";
+  assert.notEqual(header, "");
+  // The issues glyph, decorative, in the general/AI blue — not Jira's mark, since
+  // the field takes a description too, and neither a warning nor a danger tone.
+  assert.match(
+    header,
+    new RegExp(`<label for="issue" title="${ISSUE_HELP_TEXT.replaceAll(".", "\\.")}"><span class="codicon codicon-issues setting-icon icon-primary" aria-hidden="true"></span>Issue</label>`),
+  );
+  assert.equal(/jira/i.test(/<span class="codicon[^"]*"/.exec(header)?.[0] ?? ""), false, "a Jira icon");
+  // The words beside it: a sibling of the label rather than part of it, so the
+  // field is still named "Issue"; hidden from a screen reader, which hears the
+  // full sentence as the field's description; the same tooltip as the label.
+  assert.match(
+    header,
+    new RegExp(`</label>\\s*<span class="setting-secondary" id="issue-secondary" title="${ISSUE_HELP_TEXT.replaceAll(".", "\\.")}" aria-hidden="true">Jira ID or bug description</span>`),
+  );
+  // Short state, not explanation: the full sentence is never on the panel.
+  assert.equal(FORM_ON_SCREEN.includes(ISSUE_HELP_TEXT), false);
+  assert.ok(FORM_ON_SCREEN.includes("Jira ID or bug description"));
+  // The note and the spoken kind start empty: an untouched panel says nothing.
+  assert.match(ISSUE_BLOCK, /<p class="muted issue-note" id="issue-note" hidden><\/p>/);
+  assert.match(ISSUE_BLOCK, /<p class="visually-hidden" id="issue-kind" role="status"><\/p>/);
+  assert.equal(/aria-live|role=/.test(/<p class="muted issue-note"[^>]*>/.exec(ISSUE_BLOCK)?.[0] ?? ""), false, "the note announces every keystroke");
+});
+
+test("the Issue rests at one row and stops growing at four lines", () => {
+  const rule = /\n#issue \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.notEqual(rule, "", "no rule for the Issue box");
+  // The textarea floor (2.4em) lifted, so `rows="1"` is the height at rest…
+  assert.match(rule, /min-height: 0;/);
+  // …and both heights hang off one line height: four lines plus 2 × 4px padding
+  // and 2 × 1px border, in the theme's own units.
+  assert.match(rule, /line-height: 1\.4;/);
+  assert.match(rule, /max-height: calc\(4lh \+ 10px\);/);
+  // Past the ceiling it scrolls, inheriting the textarea rule; it never scrolls sideways.
+  const textarea = /\ntextarea \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  assert.match(textarea, /overflow-y: auto/);
+  assert.match(CSS, /input\[type="text"\],\s*textarea,\s*select \{[^}]*width: 100%;[^}]*box-sizing: border-box;/s);
+  assert.equal(/overflow-x|white-space: (nowrap|pre)\b|wrap="off"/.test(rule + ISSUE_BLOCK), false);
+  // Empty, still one row in a 200px sidebar: the placeholder is held to one line
+  // and clipped rather than wrapped into a second row that the first keystroke
+  // would take away. Only the placeholder — typed text still wraps.
+  assert.match(CSS, /\n#issue::placeholder \{\s*white-space: nowrap;\s*\}/);
+  assert.match(CSS, /\n#issue:placeholder-shown \{\s*overflow: hidden;\s*\}/);
+});
+
+test("the words beside a label stay beside it while they fit, and wrap under it when not", () => {
+  const rule = /\.setting-header > \.setting-secondary \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.notEqual(rule, "", "no rule for the words beside a label");
+  // Moved as a phrase (basis auto), allowed to shrink and wrap on its own line.
+  assert.match(rule, /flex: 0 1 auto;/);
+  assert.match(rule, /min-width: 0;/);
+  assert.match(rule, /overflow-wrap: anywhere;/);
+  // Quieter than the label: the description colour, a little smaller.
+  assert.match(rule, /color: var\(--vscode-descriptionForeground\);/);
+  assert.match(rule, /font-size: 0\.9em;/);
+  assert.equal(/white-space: nowrap|text-overflow/.test(rule), false);
 });
 
 test("the input source is no longer a question the panel asks", () => {
@@ -2976,7 +3056,9 @@ test("the main form shows controls and state, not explanations — and keeps eve
   // The seven explanatory lines, gone from the screen…
   const moved: readonly (readonly [string, RegExp])[] = [
     // …each to where it is still found: a placeholder, a tooltip, a description.
-    ["Use a Jira issue ID, or describe the problem directly.", /id="issue"[^>]*placeholder="Enter a Jira ticket or describe the bug"[^>]*title="A Jira issue ID such as JR-12345/],
+    ["Use a Jira issue ID, or describe the problem directly.", /id="issue"[^>]*placeholder="Describe the bug or enter a Jira ID"[^>]*title="Enter a Jira issue ID such as JR-12345/],
+    // Issue compact input: its own explanation is a tooltip and a description too.
+    ["Enter a Jira issue ID such as JR-12345, or describe the bug directly.", /<p class="visually-hidden" id="issue-help">Enter a Jira issue ID such as JR-12345/],
     ["The form changed since this context was prepared", /id="run"[^>]*aria-describedby="run-hint"/],
     ["Uses the current settings below.", /id="run"[^>]*title="Prepare the issue context for AI-assisted fixing"/],
     ["How the AI works on this bug.", /<label for="fixModeId" title="Choose how BugPilot approaches the fix">/],

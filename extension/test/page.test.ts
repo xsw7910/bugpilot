@@ -23,7 +23,7 @@ import { parsePanelMessage } from "../src/panel/messages.ts";
 import { Controller } from "../src/app/controller.ts";
 import type { ControllerPorts } from "../src/app/controller.ts";
 import type { FixModeDraft } from "../src/app/fixModes.ts";
-import { DEFAULT_FORM } from "../src/app/form.ts";
+import { DEFAULT_FORM, JIRA_ISSUE_KEY_RE, buildPrepareArgs, workItemScopeOf } from "../src/app/form.ts";
 import type { FormState } from "../src/app/form.ts";
 import { buildWorkflow, overallStatus } from "../src/app/workflow.ts";
 import { primaryView } from "../src/app/nextAction.ts";
@@ -219,7 +219,8 @@ function load(savedState?: unknown): Page {
   const posted: Record<string, unknown>[] = [];
   const stored: unknown[] = [];
   const messageListeners: Listener[] = [];
-  const timers: (() => void)[] = [];
+  const timers = new Map<number, () => void>();
+  let nextTimer = 0;
 
   // What the page builds at runtime (a notice's button), so focus on one of
   // them is reported like focus on anything in the markup.
@@ -252,12 +253,16 @@ function load(savedState?: unknown): Page {
     getState: () => savedState,
   });
   // The page debounces `formChanged`; the test decides when that timer runs.
+  // Handles are never reused, as a browser's are not: clearing one that already
+  // ran clears nothing. (They were array positions once, and a stale one cleared
+  // after a flush left a hole in the array that the next flush tried to call.)
   const setTimeout = (callback: () => void) => {
-    timers.push(callback);
-    return timers.length;
+    nextTimer += 1;
+    timers.set(nextTimer, callback);
+    return nextTimer;
   };
   const clearTimeout = (handle: number) => {
-    if (typeof handle === "number" && handle > 0) timers[handle - 1] = () => {};
+    timers.delete(handle);
   };
   // The elapsed clock's interval and the time it reads, both the test's.
   const clock = { now: 1_000_000 };
@@ -321,8 +326,8 @@ function load(savedState?: unknown): Page {
       for (const listener of messageListeners) listener({ data: { type: "state", state } });
     },
     flush: () => {
-      const pending = [...timers];
-      timers.length = 0;
+      const pending = [...timers.values()];
+      timers.clear();
       for (const callback of pending) callback();
     },
   };
@@ -733,13 +738,271 @@ test("the Issue field says how it was read, once there is something to read", ()
 
   type(p, "jr-12345");
   assert.equal(p.byId("issue-note").hidden, false);
-  assert.equal(p.byId("issue-note").textContent, "Jira issue JR-12345");
+  // The key as a run will send it: uppercased, after a dot (Issue compact input).
+  assert.equal(p.byId("issue-note").textContent, "Jira issue · JR-12345");
 
   type(p, "It crashes on export.");
+  // The kind alone: the box already holds the description, so it is not repeated.
   assert.equal(p.byId("issue-note").textContent, "Bug description");
 
   type(p, "  ");
   assert.equal(p.byId("issue-note").hidden, true);
+  assert.equal(p.byId("issue-note").textContent, "");
+});
+
+// --- Issue compact input ------------------------------------------------------
+
+test("the Issue's reading follows every keystroke, and only a whole key is a ticket", () => {
+  // No Run, no host round trip: the note changes as the text does. A key-like
+  // piece inside a sentence is a sentence, and so is a key that is not finished.
+  const p = load();
+  p.send(state());
+  const readings: readonly (readonly [string, string])[] = [
+    ["J", "Bug description"],
+    ["JR", "Bug description"],
+    ["JR-", "Bug description"],
+    ["JR-1", "Jira issue · JR-1"],
+    ["JR-12345", "Jira issue · JR-12345"],
+    ["JR-12345 test", "Bug description"],
+    ["JR-12345", "Jira issue · JR-12345"],
+    ["JR-12345 crashes on startup", "Bug description"],
+    ["please check JR-12345", "Bug description"],
+    ["JR-12345\nSteps to reproduce", "Bug description"],
+    ["ABC-42", "Jira issue · ABC-42"],
+    ["abc-42", "Jira issue · ABC-42"],
+    ["A1-7", "Jira issue · A1-7"],
+    ["  JR-12345 \n", "Jira issue · JR-12345"],
+    // Short or partial: the rule wants two or more characters of project, a
+    // letter first, one dash and digits only.
+    ["J-1", "Bug description"],
+    ["1R-5", "Bug description"],
+    ["JR12345", "Bug description"],
+    ["JR_12345", "Bug description"],
+    ["JR-12a", "Bug description"],
+    ["JR--1", "Bug description"],
+    ["12345", "Bug description"],
+  ];
+  for (const [input, reading] of readings) {
+    type(p, input);
+    assert.equal(p.byId("issue-note").textContent, reading, JSON.stringify(input));
+    assert.equal(p.byId("issue-note").hidden, false, JSON.stringify(input));
+  }
+});
+
+test("what the Issue's note says is what a run would do with it", () => {
+  // One rule, read twice: the page's copy of the key pattern decides the note,
+  // and `buildPrepareArgs` — the canonical path to the command line — decides
+  // the run. They must never disagree, including on text no keyboard layout
+  // types by accident.
+  const p = load();
+  p.send(state());
+  const inputs = [
+    "JR-12345",
+    " jr-12345 ",
+    "ABC-42",
+    "JR-",
+    "JR-12345 crashes on startup",
+    "please check JR-12345",
+    "JR\u201012345", // a Unicode hyphen, not the ASCII one
+    "\uFF2A\uFF32-12345", // full-width letters
+    "JR-\u0661\u0662\u0663", // Arabic-Indic digits
+    "JR-12345\u200B", // a zero-width space, which trim() keeps
+    "\u00A0JR-12345\u00A0", // no-break spaces, which trim() drops
+    "\u202EJR-12345", // a right-to-left override
+    "j\u0131r-1", // a dotless i, which uppercases to an ASCII I
+    "<img src=x onerror=alert(1)>",
+    "\u{1F41E} Crash when opening an empty volume",
+  ];
+  for (const input of inputs) {
+    type(p, input);
+    p.flush();
+    const form = (p.posted.at(-1) as { form: FormState }).form;
+    const built = buildPrepareArgs(form, { root: "/work/app", platform: "linux" });
+    assert.equal(built.ok, true, JSON.stringify(input));
+    const first = built.ok ? built.args[1] : "";
+    const note = p.byId("issue-note").textContent;
+    if (form.source === "jira") {
+      assert.equal(note, `Jira issue · ${first}`, JSON.stringify(input));
+      assert.equal(workItemScopeOf(form), first, JSON.stringify(input));
+    } else {
+      assert.equal(note, "Bug description", JSON.stringify(input));
+      assert.match(first ?? "", /^--description=/, JSON.stringify(input));
+      assert.equal(workItemScopeOf(form), "manual", JSON.stringify(input));
+    }
+  }
+});
+
+test("unusual text is read as a description and never echoed into the note", () => {
+  // The note is one of two fixed phrases, or a key that passed the pattern —
+  // never the developer's text, so nothing typed or pasted can become markup or
+  // a reordered line there (it is written with textContent besides).
+  const p = load();
+  p.send(state());
+  for (const input of [
+    "<script>alert(1)</script>",
+    "JR-1<b>2</b>",
+    "\u202Egnp.exe",
+    "\u0000\u0007 bell",
+    "\u{1D409}\u{1D411}-12345",
+    "JR-12345 \u{1F41E}",
+    "x".repeat(20_000),
+  ]) {
+    type(p, input);
+    assert.equal(p.byId("issue-note").textContent, "Bug description", JSON.stringify(input.slice(0, 40)));
+  }
+  type(p, "jr-77");
+  const [, key] = /^Jira issue · (.*)$/.exec(p.byId("issue-note").textContent) ?? [];
+  assert.ok(key !== undefined && JIRA_ISSUE_KEY_RE.test(key));
+});
+
+/** Every value written to an element's text, in order: what a live region would announce. */
+function writesTo(element: FakeElement): string[] {
+  const writes: string[] = [];
+  let current = element.textContent;
+  Object.defineProperty(element, "textContent", {
+    get: () => current,
+    set: (value: string) => {
+      current = value;
+      writes.push(value);
+    },
+  });
+  return writes;
+}
+
+test("a screen reader hears the Issue's kind once typing pauses, and only when it changes", () => {
+  const p = load();
+  p.send(state());
+  const said = writesTo(p.byId("issue-kind"));
+
+  // A key typed a character at a time passes through "Bug description"; only
+  // where it ends up is said.
+  for (const typed of ["J", "JR", "JR-", "JR-1", "JR-12", "JR-12345"]) type(p, typed);
+  assert.deepEqual(said, [], "said before typing paused");
+  p.flush();
+  assert.deepEqual(said, ["Jira issue"]);
+
+  // More digits: still a key, nothing new to say.
+  type(p, "JR-123456");
+  p.flush();
+  assert.deepEqual(said, ["Jira issue"]);
+
+  // Prose after it: now a description, said once.
+  type(p, "JR-123456 crashes");
+  type(p, "JR-123456 crashes on startup");
+  p.flush();
+  assert.deepEqual(said, ["Jira issue", "Bug description"]);
+
+  // Emptied: silence, and the next description is news again.
+  type(p, "");
+  p.flush();
+  type(p, "Export fails");
+  p.flush();
+  assert.deepEqual(said, ["Jira issue", "Bug description", "", "Bug description"]);
+  // Words only — never the key or the text, which the developer just typed.
+  for (const words of said) assert.ok(["", "Jira issue", "Bug description"].includes(words), words);
+
+  // The region itself is quiet and polite: a status, visually hidden.
+  assert.match(HTML, /<p class="visually-hidden" id="issue-kind" role="status"><\/p>/);
+});
+
+test("a form the host writes is read on screen but not announced", () => {
+  // A restore, a History reopen or a reset is not the developer's typing.
+  const p = load();
+  p.send(state());
+  const said = writesTo(p.byId("issue-kind"));
+  // A key half-typed when the host replaced the form: its pause is cancelled.
+  type(p, "JR-1");
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, issueKey: "JR-12345" } }));
+  p.flush();
+  assert.equal(p.byId("issue-note").textContent, "Jira issue · JR-12345");
+  assert.equal(p.byId("issue-kind").textContent, "");
+  assert.ok(said.every((words) => words === ""), JSON.stringify(said));
+  // And what it wrote is what was last said: the same kind typed on is not news.
+  type(p, "JR-123456");
+  p.flush();
+  assert.equal(p.byId("issue-kind").textContent, "");
+  type(p, "JR-123456 and more");
+  p.flush();
+  assert.equal(p.byId("issue-kind").textContent, "Bug description");
+});
+
+test("a restored session shows how its Issue was read, from the form and nothing else", () => {
+  // From the webview's own saved state…
+  const jira = load({ form: { ...DEFAULT_FORM, issueKey: "JR-12345" } });
+  assert.equal(jira.byId("issue").value, "JR-12345");
+  assert.equal(jira.byId("issue-note").textContent, "Jira issue · JR-12345");
+  assert.equal(jira.byId("issue-note").hidden, false);
+  const manual = load({ form: { ...DEFAULT_FORM, source: "manual", description: "Crash when opening an empty volume" } });
+  assert.equal(manual.byId("issue-note").textContent, "Bug description");
+  assert.equal(manual.byId("issue-kind").textContent, "", "a restore was announced");
+
+  // …and from the host's saved form on a restart, over whatever the page held.
+  const p = load({ form: { ...DEFAULT_FORM, issueKey: "JR-1" } });
+  p.send(state({ revision: 5, form: { ...DEFAULT_FORM, source: "manual", description: "Export fails" } }));
+  assert.equal(p.byId("issue-note").textContent, "Bug description");
+  p.send(state({ revision: 6, form: { ...DEFAULT_FORM } }));
+  assert.equal(p.byId("issue-note").hidden, true, "an empty restored form kept a reading");
+});
+
+/** The Issue as layout would hand it over: one row tall plus a 1px border each side. */
+function sizedIssue(p: Page, content: number, row = 26): FakeElement {
+  const issue = sized(p, "issue", row, content);
+  Object.assign(issue, { offsetHeight: row + 2 });
+  return issue;
+}
+
+test("the Issue rests one row high, grows with its text, and counts its border", () => {
+  // `rows="1"` is the resting height; the box is border-box, so the 2px of
+  // border go back on or one line of text sits under a scrollbar.
+  const p = load();
+  p.send(state());
+  const issue = sizedIssue(p, 26);
+  type(p, "JR-12345");
+  assert.equal(issue.style["height"], "28px");
+
+  sizedIssue(p, 80);
+  type(p, "A description long enough to wrap onto three lines in a narrow sidebar.");
+  assert.equal(issue.style["height"], "82px");
+
+  // Deleting it puts the box back to one row.
+  sizedIssue(p, 26);
+  type(p, "");
+  assert.equal(issue.style["height"], "28px");
+});
+
+test("a host-written Issue is sized as it arrives, and a narrower sidebar re-measures it", () => {
+  const p = load();
+  p.send(state());
+  const issue = sizedIssue(p, 62);
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, source: "manual", description: "Restored, and long enough to wrap." } }));
+  assert.equal(issue.style["height"], "64px");
+
+  // The sidebar is dragged narrower: the same text now wants another line.
+  Object.assign(issue, { clientWidth: 150 });
+  issue.scrollHeight = 80;
+  p.resize();
+  assert.equal(issue.style["height"], "82px");
+  // A change of height alone — the one `grow` just made — measures nothing.
+  issue.scrollHeight = 120;
+  p.resize();
+  assert.equal(issue.style["height"], "82px");
+});
+
+test("Enter in the Issue is a new line; Ctrl+Enter is Run", () => {
+  // A description is typed in paragraphs, so Enter belongs to the box; the
+  // shortcut is unchanged by the box being one row at rest.
+  const p = load();
+  p.send(state());
+  type(p, "JR-12345");
+  p.flush();
+  const before = p.posted.length;
+  p.byId("form").dispatch("keydown", { key: "Enter", target: p.byId("issue") });
+  assert.deepEqual(p.posted.slice(before), [], "Enter submitted the form");
+  p.byId("form").dispatch("keydown", { key: "Enter", ctrlKey: true, target: p.byId("issue") });
+  const press = p.posted.at(-1) as { type: string; action: string; form: FormState };
+  assert.equal(press.type, "nextAction");
+  assert.equal(press.action, "run");
+  assert.equal(press.form.issueKey, "JR-12345");
 });
 
 test("Title appears only for a bug the developer is writing themselves", () => {
@@ -7542,3 +7805,58 @@ test("reset page 12: Reset Session, pressed on the page, reaches the controller 
   assert.equal(l.page.byId("step-fixResult").hidden, true);
   assert.equal(l.controller.workItemId, undefined);
 });
+
+for (const choice of ["keep", "delete"] as const) {
+  test(`reset page 13 (${choice}): the Issue comes back empty, one row high, with no reading left`, async () => {
+    // Issue compact input. Reset itself is unchanged: the fresh form arrives
+    // with a new revision whichever choice was made, and the Issue is drawn from
+    // it — empty, its box re-measured, nothing left of the last reading.
+    const deletes: string[] = [];
+    const l = loop({
+      deleteArtifacts: async (_root, id) => {
+        deletes.push(id);
+        return { kind: "deleted" };
+      },
+    });
+    await l.drain();
+    await l.controller.refreshEnvironment();
+    await l.controller.showWorkItem("JR-12345");
+    const issue = sizedIssue(l.page, 26);
+    assert.equal(l.page.byId("issue-note").textContent, "Jira issue · JR-12345");
+
+    // A description typed over the key, long enough to have grown the box, and
+    // said to a screen reader.
+    sizedIssue(l.page, 80);
+    type(l.page, "Crash when opening an empty volume, after the second save, with two views open.");
+    l.page.flush();
+    await l.drain();
+    assert.equal(issue.style["height"], "82px");
+    assert.equal(l.page.byId("issue-note").textContent, "Bug description");
+    assert.equal(l.page.byId("issue-kind").textContent, "Bug description");
+
+    l.page.byId("more-actions").dispatch("click");
+    l.page.byId("menu-resetSession").dispatch("click");
+    if (choice === "delete") {
+      l.page.byId("reset-keep").checked = false;
+      l.page.byId("reset-delete").checked = true;
+      l.page.byId("reset-delete").dispatch("change");
+    }
+    // What layout reports for the box once it is empty again.
+    sizedIssue(l.page, 26);
+    l.page.byId("reset-confirm").dispatch("click");
+    await l.drain();
+
+    assert.deepEqual(deletes, choice === "delete" ? ["JR-12345"] : []);
+    assert.equal(l.page.byId("issue").value, "");
+    assert.equal(issue.style["height"], "28px", "the box kept its grown height");
+    assert.equal(l.page.byId("issue-note").hidden, true);
+    assert.equal(l.page.byId("issue-note").textContent, "");
+    assert.equal(l.page.byId("issue-kind").textContent, "", "a stale reading was left for a screen reader");
+    assert.equal(l.page.byId("field-title").hidden, true);
+    // Typing again starts from nothing said.
+    type(l.page, "JR-7");
+    l.page.flush();
+    assert.equal(l.page.byId("issue-note").textContent, "Jira issue · JR-7");
+    assert.equal(l.page.byId("issue-kind").textContent, "Jira issue");
+  });
+}

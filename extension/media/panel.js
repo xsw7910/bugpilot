@@ -68,6 +68,16 @@
   const JIRA_ISSUE_KEY_RE = /^[A-Z][A-Z0-9]+-\d+$/;
 
   /**
+   * How the Issue field was read, in words, by `issueKind()`: nothing while it
+   * is empty. The note under the field adds the key after a dot; the screen
+   * reader hears these alone.
+   */
+  const ISSUE_KIND_WORDS = { "": "", jira: "Jira issue", manual: "Bug description" };
+
+  /** How long typing has to pause before the Issue's kind is said aloud. */
+  const ISSUE_KIND_PAUSE_MS = 1000;
+
+  /**
    * Which `FormState` field a host-reported problem belongs to on screen.
    *
    * The host validates `issueKey` and `description`, because those are what a
@@ -189,6 +199,9 @@
 
   let appliedRevision = -1;
   let running = false;
+  /** The Issue's kind as last said to a screen reader, and the pause before the next. */
+  let issueKindSaid = "";
+  let issueKindTimer;
   /**
    * The settings as last applied — what the form means, whatever the Workflow
    * Settings page shows.
@@ -481,7 +494,10 @@
     if (!resting) return;
     // A description's box is border-box: its border has to be added back, or
     // the text sits 2px short and a scrollbar shows (seen in the real window).
-    const border = describing ? Math.max(0, Number(element.offsetHeight) - element.clientHeight || 0) : 0;
+    // The Issue's too: its one resting row is exactly one line of text, so 2px
+    // short is a scrollbar on a field holding a single word.
+    const bordered = describing || element.id === "issue";
+    const border = bordered ? Math.max(0, Number(element.offsetHeight) - element.clientHeight || 0) : 0;
     element.style.height = `${Math.max(resting, element.scrollHeight + border)}px`;
   }
 
@@ -592,6 +608,7 @@
     // Whichever of the two the stored form actually used, which is also what
     // makes a form saved before the switch was removed restore correctly.
     byId("issue").value = (form.source === "manual" ? form.description : form.issueKey) ?? "";
+    settleIssueKind();
     for (const field of PLAN_FIELDS) {
       byId(`plan-${field}`).checked = form.plan?.[field] !== false;
     }
@@ -639,6 +656,8 @@
    *
    * The note is what the radio pair used to say. It appears only once there is
    * something to classify, so an untouched panel stays as quiet as UI-A1 asks.
+   * A key is shown as a run will send it, uppercased; a description is never
+   * repeated — the box already holds it.
    */
   function applySourceVisibility() {
     const typed = byId("issue").value.trim();
@@ -646,9 +665,44 @@
     byId("field-title").hidden = !manual;
 
     const note = byId("issue-note");
-    note.textContent =
-      typed === "" ? "" : manual ? "Bug description" : `Jira issue ${typed.toUpperCase()}`;
+    const kind = issueKind();
+    note.textContent = kind === "jira" ? `${ISSUE_KIND_WORDS.jira} · ${typed.toUpperCase()}` : ISSUE_KIND_WORDS[kind];
     note.hidden = note.textContent === "";
+  }
+
+  /** What the Issue field holds: `jira`, `manual`, or `""` while it is empty. */
+  function issueKind() {
+    return byId("issue").value.trim() === "" ? "" : issueSource();
+  }
+
+  /**
+   * The kind, said once to a screen reader while the Issue is being typed in.
+   *
+   * The note above is the field's description, so how it was read is heard
+   * whenever the field is reached; this is for the moment it changes. Only the
+   * kind — never the key or the text, which the developer has just typed — only
+   * when it differs from what was last said, and only once typing pauses:
+   * "JR-12345" passes through "Bug description" on its way to being a key, and
+   * nobody needs to hear that.
+   */
+  function sayIssueKindLater() {
+    clearTimeout(issueKindTimer);
+    issueKindTimer = setTimeout(() => {
+      const kind = issueKind();
+      if (kind === issueKindSaid) return;
+      issueKindSaid = kind;
+      byId("issue-kind").textContent = ISSUE_KIND_WORDS[kind];
+    }, ISSUE_KIND_PAUSE_MS);
+  }
+
+  /**
+   * The form was written rather than typed — restored, reopened or reset — so
+   * nothing is said: what the field holds now is simply what was last said.
+   */
+  function settleIssueKind() {
+    clearTimeout(issueKindTimer);
+    issueKindSaid = issueKind();
+    byId("issue-kind").textContent = "";
   }
 
   /**
@@ -3742,9 +3796,29 @@
     // Since UI-A1 the input source is derived from the Issue field rather than
     // chosen with a radio, so it can change on a keystroke — which is why this
     // is here and not only in the `change` handler below.
-    if (event.target && event.target.id === "issue") applySourceVisibility();
+    if (event.target && event.target.id === "issue") {
+      applySourceVisibility();
+      sayIssueKindLater();
+    }
     formChanged();
   });
+
+  // The Issue's height follows its text, and its text wraps by width: dragging
+  // the sidebar narrower can turn one line into three, with nothing typed to
+  // re-measure it. So a change of width re-measures — never a change of height,
+  // which is what `grow` itself makes, and a frame later where frames exist, so
+  // the resize this causes is not one the observer is still delivering.
+  if (typeof ResizeObserver === "function") {
+    let issueWidth = byId("issue").clientWidth;
+    new ResizeObserver(() => {
+      const width = byId("issue").clientWidth;
+      if (width === issueWidth) return;
+      issueWidth = width;
+      const regrow = () => grow(byId("issue"));
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(regrow);
+      else regrow();
+    }).observe(byId("issue"));
+  }
 
   // Workflow Settings: a gear on each row that has settings, the entry under
   // the workflow, and the page's own Back, Cancel and Apply. Opening it asks

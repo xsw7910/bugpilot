@@ -133,6 +133,15 @@ const FIX_MODE_HELP = "Choose how BugPilot approaches the fix";
 const HINT_HELP = "Add technical guidance, constraints, or suspected areas";
 const INCLUDE_ISSUE_DETAILS_HELP =
   "Includes only the issue title and description. Repository files and history are not read.";
+/**
+ * The Issue's two kinds of input, said twice at two lengths (Issue compact
+ * input): a few words beside the label, which stay on screen, and the full
+ * sentence, which is the tooltip and the field's accessible description — the
+ * example key lives here rather than in the placeholder.
+ */
+const ISSUE_KINDS = "Jira ID or bug description";
+const ISSUE_HELP =
+  "Enter a Jira issue ID such as JR-12345, or describe the bug directly. BugPilot will detect which one you entered.";
 
 /**
  * The input area: one field, and nothing else.
@@ -145,18 +154,26 @@ const INCLUDE_ISSUE_DETAILS_HELP =
  * `issueKey` or `description` from this one control, so `FormState`, the
  * message protocol and `buildPrepareArgs` never learn that the switch is gone.
  *
- * Multi-line because the same box now holds a six-character key and a pasted
- * bug report; two rows at rest, growing with what is typed like every other
- * textarea here.
+ * Multi-line because the same box holds a six-character key and a pasted bug
+ * report — but one row at rest (Issue compact input), because most of what goes
+ * in is the key or a sentence, and a tall empty box beside Run says otherwise.
+ * It grows with what is typed like every other textarea here, to four lines,
+ * and scrolls after that.
  *
- * The placeholder says what goes in, and nothing under the box repeats it
- * (§37.104); the key's shape is in the tooltip. Once something is typed, the
- * note says how it was read — a ticket or a bug description.
+ * The label row says what goes in — the label, its icon and a few words beside
+ * it — and nothing under the box explains it (§37.104); the example key and the
+ * fact that BugPilot tells the two apart are the tooltip and the accessible
+ * description. The few words are `aria-hidden`: that description already says
+ * them, and the label stays the name. Once something is typed, the note says
+ * how it was read — *Jira issue · JR-12345* or *Bug description* — and while it
+ * is being typed `#issue-kind` says the kind once, when typing pauses.
  */
 const ISSUE_FIELD = `      <div class="field" id="field-issue">
-${settingHeader({ forId: "issue", label: "Issue" })}
-        <textarea id="issue" name="issue" rows="2" placeholder="Enter a Jira ticket or describe the bug" title="A Jira issue ID such as JR-12345, or a description of the problem" aria-describedby="issue-note issue-error"></textarea>
+${settingHeader({ forId: "issue", label: "Issue", icon: "issues", tone: "primary", title: ISSUE_HELP, secondary: ISSUE_KINDS })}
+        <textarea id="issue" name="issue" rows="1" placeholder="Describe the bug or enter a Jira ID" title="${ISSUE_HELP}" aria-describedby="issue-note issue-error issue-help"></textarea>
         <p class="muted issue-note" id="issue-note" hidden></p>
+        <p class="visually-hidden" id="issue-help">${ISSUE_HELP}</p>
+        <p class="visually-hidden" id="issue-kind" role="status"></p>
         <p class="error" id="issue-error" hidden></p>
       </div>`;
 
@@ -1069,6 +1086,12 @@ function settingHeader(options: {
   readonly rebuild?: boolean;
   /** The label's tooltip: what the setting is for, where no helper line says it. */
   readonly title?: string;
+  /**
+   * A few words beside the label on what goes in — a short label, not a helper
+   * sentence. Shown, never announced: the field's accessible description says
+   * it in full. Carries the label's tooltip.
+   */
+  readonly secondary?: string;
 }): string {
   // The tone is a class, never an inline style: the colours belong to the
   // stylesheet, where a theme can be reasoned about in one place.
@@ -1083,9 +1106,12 @@ function settingHeader(options: {
   const labelClass = options.labelClass ? ` class="${options.labelClass}"` : "";
   const title = options.title ? ` title="${options.title}"` : "";
   const rebuild = options.rebuild ? `<span class="rebuild-label" id="${options.forId}-rebuild">${REQUIRES_REBUILD_LABEL}</span>` : "";
+  const secondary = options.secondary
+    ? `<span class="setting-secondary" id="${options.forId}-secondary"${title} aria-hidden="true">${options.secondary}</span>`
+    : "";
   return `      <div class="setting-header">
         <label${labelClass} for="${options.forId}"${title}>${icon}${options.control ?? ""}${options.label}</label>
-        ${rebuild}${hint}
+        ${secondary}${rebuild}${hint}
       </div>`;
 }
 

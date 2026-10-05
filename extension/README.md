@@ -89,8 +89,10 @@ editor and you save them; nothing is written behind your edits.
    SecretStorage and reach the CLI as environment variables — never in a
    command line, never in the panel.
 4. In the **Issue** field, type an issue key such as `JR-12345`, or describe the
-   problem in your own words. The line under the field says which it read —
-   "Jira issue JR-12345" or "Bug description".
+   problem in your own words. The field is one line until you write more, and
+   grows to about four lines before it scrolls. The line under it says which it
+   read — "Jira issue · JR-12345" or "Bug description"; only a whole key counts,
+   so `JR-12345 crashes on save` is a description.
 5. Press **Run**, directly under it (or `Ctrl+Enter`). Below Run are the
    optional settings it uses: **Fix Mode** says how the AI should approach the
    bug (Standard Fix unless you change it) and **Hint** takes any guidance you
@@ -100,9 +102,9 @@ That is the whole panel: the issue, one button, the settings it uses, and one
 list of steps.
 
 ```
-Issue
-[ Enter a Jira ticket or describe the bug   ]
-Jira issue JR-12345
+⊙ Issue   Jira ID or bug description
+[ Describe the bug or enter a Jira ID       ]
+Jira issue · JR-12345
 
 [        ▶ Run        ] [ Stop ] [ ⋯ More ]
          Ctrl+Enter
