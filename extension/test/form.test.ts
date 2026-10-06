@@ -11,9 +11,7 @@ import {
   WORK_ITEM_ID_RE,
   buildPrepareArgs,
   buildRetryArgs,
-  canFixWithAI,
   isWorkItemId,
-  effectivePlan,
   parseKeywords,
   parsePaths,
   planFlags,
@@ -267,25 +265,46 @@ test("each capability maps to its own skip flag", () => {
   );
 });
 
-test("dropping the context step is only-issue-details, and drops the rest with it", () => {
-  // The CLI has no --skip-build-context: --only-issue-details is the only way
-  // to skip it, and that flag also turns off search, history and similar fixes.
-  // Modelling it as five independent checkboxes would show a plan that never ran.
-  const plan = {
-    issueDetails: true,
-    codeSearch: true,
-    gitHistory: true,
-    similarFixes: true,
-    buildContext: false,
-  } as const;
-  assert.deepEqual(planFlags(plan), ["--only-issue-details"]);
-  assert.deepEqual(effectivePlan(plan), {
+test("Build context always runs: no plan the panel can hold sends --only-issue-details (§37.107)", () => {
+  // Turning the context step off was --only-issue-details, which also dropped
+  // search, history, similar fixes and the AI fix. The row has no box now, so
+  // every combination of the three optional boxes builds the package.
+  for (const codeSearch of [true, false]) {
+    for (const gitHistory of [true, false]) {
+      for (const similarFixes of [true, false]) {
+        const plan = { issueDetails: true, codeSearch, gitHistory, similarFixes, buildContext: true } as const;
+        const flags = planFlags(plan);
+        const what = JSON.stringify(plan);
+        assert.equal(flags.includes("--only-issue-details"), false, what);
+        assert.equal(flags.includes("--skip-code-search"), !codeSearch, what);
+        assert.equal(flags.includes("--skip-git-history"), !gitHistory, what);
+        assert.equal(flags.includes("--skip-similar-fixes"), !similarFixes, what);
+      }
+    }
+  }
+});
+
+test("a form saved while Build context could be unticked comes back with it on", () => {
+  // Saved by an earlier version: Build context unticked, which had cleared the
+  // three optional boxes. The fixed steps are on; the three keep what was
+  // saved, since nobody chose to tick them again.
+  const saved = {
+    ...DEFAULT_FORM,
+    plan: { issueDetails: false, codeSearch: false, gitHistory: false, similarFixes: false, buildContext: false },
+  } as unknown as FormState;
+  assert.deepEqual(restoreForm(saved).plan, {
     issueDetails: true,
     codeSearch: false,
     gitHistory: false,
     similarFixes: false,
-    buildContext: false,
+    buildContext: true,
   });
+  assert.deepEqual(planFlags(restoreForm(saved).plan), ["--skip-code-search", "--skip-git-history", "--skip-similar-fixes"]);
+  // A form saved before the plan existed at all gets the default plan.
+  const { plan: _plan, ...noPlan } = DEFAULT_FORM;
+  assert.deepEqual(restoreForm(noPlan as unknown as FormState).plan, DEFAULT_FORM.plan);
+  // And the ordinary case is unchanged.
+  assert.deepEqual(restoreForm(DEFAULT_FORM).plan, DEFAULT_FORM.plan);
 });
 
 // --- what every run must and must not carry -------------------------------
@@ -322,19 +341,6 @@ test("the AI step contributes no argument at all", () => {
       `${leak} reached the command line`,
     );
   }
-});
-
-test("the AI step needs the package Build context writes", () => {
-  // `--only-issue-details` writes no package, so there would be nothing to hand
-  // over — the row is coupled to Build context exactly as the middle three are.
-  assert.equal(canFixWithAI(form({ fixWithAI: true })), true);
-  assert.equal(
-    canFixWithAI(
-      form({ fixWithAI: true, plan: { ...DEFAULT_FORM.plan, buildContext: false } }),
-    ),
-    false,
-  );
-  assert.equal(canFixWithAI(form({ fixWithAI: false })), false);
 });
 
 test("artifacts are preserved unless the developer asks for a fresh run", () => {

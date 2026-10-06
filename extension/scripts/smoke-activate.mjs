@@ -176,9 +176,10 @@ assert.deepEqual(
   "the views registered at activation are not the ones the manifest declares",
 );
 
-// The built tree, not the sources: Results is Current (expanded) then History
-// (collapsed), and with nothing open Current is the one row that says so.
-// That a collapsed History is never read is test/results.test.ts's to check.
+// The built tree, not the sources: Results is Current (expanded), History and
+// Diagnostics (collapsed, §37.110), and with nothing open Current is the one
+// row that says so. That a collapsed History is never read is
+// test/results.test.ts's to check.
 const results = trees.get("bugpilot.results");
 assert.ok(results, "the Results tree was not registered");
 const groups = await results.getChildren();
@@ -188,11 +189,21 @@ assert.deepEqual(
   [
     ["Current", vscodeStub.TreeItemCollapsibleState.Expanded, "bugpilot.results.current", "folder-active"],
     ["History", vscodeStub.TreeItemCollapsibleState.Collapsed, "bugpilot.results.history", "history"],
+    ["Diagnostics", vscodeStub.TreeItemCollapsibleState.Collapsed, "bugpilot.results.diagnostics", "pulse"],
   ],
-  "Results is not Current then History",
+  "Results is not Current, History, Diagnostics",
 );
 const currentRows = (await results.getChildren(groups[0])).map((node) => results.getTreeItem(node).label);
 assert.deepEqual(currentRows, ["No work item selected yet."]);
+// Diagnostics, built from what activation already holds: every row a label, a
+// value and no command, the Jira row among them.
+const diagnosticItems = (await results.getChildren(groups[2])).map((node) => results.getTreeItem(node));
+assert.ok(diagnosticItems.length > 0, "Diagnostics has no rows");
+assert.ok(diagnosticItems.some((item) => item.label === "Jira"), "Diagnostics has no Jira row");
+for (const item of diagnosticItems) {
+  assert.equal(typeof item.description, "string", `${item.label} has no value`);
+  assert.equal(item.command, undefined, `${item.label} has a command`);
+}
 
 // Stale answers are a real failure mode: without these the panel keeps saying
 // "no folder is open" after one is opened, keeps running the old binary after

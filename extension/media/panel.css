@@ -3,8 +3,8 @@
  *
  * The look is "a VS Code panel", not "a web app in a sidebar": theme variables
  * for every colour, 2px corners, one-pixel borders, compact vertical rhythm,
- * and the editor's own button styles. Nothing here draws a card with a shadow
- * or a rounded pill.
+ * and the editor's own button styles. Nothing here draws a card with a shadow;
+ * the one rounded pill is the workflow's overall status (§37.108).
  *
  * Three rules, all from §5.4, and all mechanical:
  *
@@ -386,6 +386,62 @@ details[open] > summary {
   margin: 2px 0 6px;
 }
 
+/* The Jira row (§37.110), under Advanced Settings and above Workflow Steps:
+   one line — the key, the name, the status, the action — with no card around
+   it. The status is the part that gives way in a narrow sidebar, cut with an
+   ellipsis (the tooltip has it whole); the name and the action never shrink,
+   so Configure / Replace is always on screen. */
+.jira-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 0 10px;
+}
+
+.jira-icon {
+  flex: none;
+  font-size: 14px;
+}
+
+.jira-label {
+  flex: none;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.jira-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.jira-state-icon {
+  flex: none;
+  font-size: 14px;
+}
+
+.jira-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Jira turned the credentials away: the words say so in the error colour, and
+   the mark beside them only echoes them. */
+.jira-authFailed .jira-status-text {
+  color: var(--vscode-errorForeground);
+}
+
+.jira-action {
+  flex: none;
+  white-space: nowrap;
+}
+
 .settings-open {
   display: inline-flex;
   align-items: center;
@@ -552,12 +608,13 @@ html:has(#workflow-settings-view:not([hidden])) {
   cursor: default;
 }
 
-/* A row's gear: the editor's own toolbar button, quieter than the row until it
-   is hovered or focused — and never hidden, so it is there for a keyboard and
-   a touch screen alike. `flex: none` so it never squeezes the label. */
+/* A row's gear: the editor's own toolbar button, a little quieter than the
+   row until it is hovered or focused — clearly a control at rest (§37.108) —
+   and never hidden, so it is there for a keyboard and a touch screen alike.
+   `flex: none` so it never squeezes the label. */
 .step-settings {
   flex: none;
-  opacity: 0.6;
+  opacity: 0.8;
 }
 
 .step:hover .step-settings,
@@ -1542,51 +1599,6 @@ button.icon .codicon {
   overflow-wrap: anywhere;
 }
 
-/*
- * Diagnostics: what BugPilot is configured with.
- *
- * Label above value, both full width, because a two-column table needs a width
- * a 200px sidebar does not have. No dot, no badge, no colour — this is
- * information, not monitoring, and a green dot beside "Credentials configured"
- * would be claiming something nobody checked.
- */
-.diagnostics {
-  margin-top: 2px;
-}
-
-.diagnostics[hidden] {
-  display: none;
-}
-
-#diagnostics-list {
-  margin: 0;
-}
-
-.diagnostic-label {
-  margin: 6px 0 0;
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.9em;
-}
-
-.diagnostic-label:first-child {
-  margin-top: 0;
-}
-
-.diagnostic-value {
-  margin: 0;
-  color: var(--vscode-foreground);
-  overflow-wrap: anywhere;
-}
-
-/* An absolute path, usually. Allowed to wrap anywhere and never truncated:
-   which of two checkouts this is can be the last segment. */
-.diagnostic-detail {
-  margin: 0;
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.9em;
-  overflow-wrap: anywhere;
-}
-
 /* --- the workflow --------------------------------------------------------- */
 
 /* The workflow's summary line, which is the whole section while it is closed.
@@ -1596,30 +1608,95 @@ button.icon .codicon {
    on the summary itself would take the triangle away. */
 .workflow-summary > h2 {
   display: inline;
+  margin-right: 8px;
 }
 
-.workflow-summary > .workflow-status {
-  margin-left: 8px;
+/* A hanging indent the width of the disclosure triangle: when a narrow sidebar
+   puts the status on a line of its own, it starts under the icon rather than
+   under the triangle (§37.108). Not inherited by what is inside. */
+.workflow-summary {
+  padding-left: 16px;
+  text-indent: -16px;
 }
 
+.workflow-summary > * {
+  text-indent: 0;
+}
+
+/* The header's icon (§37.108), in the heading's colour: it marks the section
+   as a heading rather than as one more row. */
+.codicon.workflow-icon {
+  margin: 0 5px 0 2px;
+  vertical-align: -3px;
+  color: var(--vscode-foreground);
+}
+
+/* The one overall status, as a compact pill (§37.108): a hairline border and
+   the faintest fill, both from the foreground so they hold in every theme, and
+   the words in the description colour — readable, never louder than the
+   heading. Running and failed tint the words and the border, never the fill. */
 .workflow-status {
+  display: inline-block;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent);
   color: var(--vscode-descriptionForeground);
   font-size: 0.9em;
+  line-height: 16px;
   white-space: nowrap;
+}
+
+.workflow-status:empty {
+  display: none;
 }
 
 .workflow-status.is-running {
   color: var(--vscode-foreground);
+  border-color: color-mix(in srgb, var(--vscode-progressBar-background, var(--vscode-focusBorder)) 60%, transparent);
 }
 
 .workflow-status.is-failed {
   color: var(--vscode-errorForeground);
+  border-color: color-mix(in srgb, var(--vscode-errorForeground) 55%, transparent);
+}
+
+/* High Contrast: the theme's own border, at full strength, and no fill. */
+body.vscode-high-contrast .workflow-status,
+body.vscode-high-contrast-light .workflow-status {
+  border-color: var(--vscode-contrastBorder, var(--vscode-foreground));
+  background: none;
 }
 
 .steps {
   list-style: none;
   margin: 0;
   padding: 0;
+  /* Every row's first line is the gear's height — a 14px glyph, 2px padding
+     and a 1px border each side — so a name, a box, a status and a gear share
+     one line whichever of them a row has (§37.107). */
+  --step-line: 20px;
+  /* The leading slot every row reserves: the checkbox, or a spacer as wide —
+     the native 13px box and the 3px the browser leaves after it, flush with
+     the row's left edge (§37.108). */
+  --step-lead: 16px;
+  /* Each row's icon, between the slot and the name (§37.108). */
+  --step-icon: 16px;
+  /* The space after the slot, after the icon, and before the metadata. */
+  --step-gap: 6px;
+  /* Where a row's name starts, and so every line under it: the slot, the
+     icon, and a gap after each. */
+  --step-indent: calc(var(--step-lead) + var(--step-icon) + 2 * var(--step-gap));
+  /* The icons' hues (§37.108): one per step, from the theme's categorical
+     chart colours, a fifth of the way to the foreground so they sit with the
+     text instead of shouting over it. Chains of theme tokens, no literals. */
+  --bugpilot-step-blue: color-mix(in srgb, var(--vscode-charts-blue, var(--vscode-textLink-foreground)) 80%, var(--vscode-foreground));
+  --bugpilot-step-green: color-mix(in srgb, var(--vscode-charts-green, var(--vscode-testing-iconPassed, var(--vscode-foreground))) 80%, var(--vscode-foreground));
+  /* Yellow, not charts.orange: Dark Modern defines that one at a third of its
+     opacity, and the amber came out as a muddy brown. */
+  --bugpilot-step-amber: color-mix(in srgb, var(--vscode-charts-yellow, var(--vscode-editorWarning-foreground)) 80%, var(--vscode-foreground));
+  --bugpilot-step-cyan: color-mix(in srgb, var(--vscode-terminal-ansiCyan, var(--vscode-charts-blue, var(--vscode-textLink-foreground))) 80%, var(--vscode-foreground));
+  --bugpilot-step-purple: color-mix(in srgb, var(--vscode-charts-purple, var(--vscode-textLink-foreground)) 80%, var(--vscode-foreground));
 }
 
 /* Rows separated by a light rule and a little air — not a table's lines. */
@@ -1643,20 +1720,25 @@ body.vscode-high-contrast-light .step {
    label taking all of the shrinking it was squeezed to a few pixels and broke
    between every letter — "C o d e s e a r c h", seen in the real window at
    200px. So the head may wrap: the label keeps a floor of 5em, and below it
-   the duration, status and gear move under it, still at the right. */
+   the duration, status and gear move under it, still at the right.
+
+   Aligned to the top of a line that is the same height everywhere, rather than
+   centred: a name that takes two lines (Issue details with its note, at
+   200px) keeps the gear beside its first line, in the column with the others. */
 .step-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 6px;
+  align-items: flex-start;
+  gap: 2px var(--step-gap);
+  line-height: var(--step-line);
 }
 
 /* The right end of the row, in order: what it produced, how long it took, how
    it went. The label takes the space, so all three sit hard right. */
 .step-label {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  gap: var(--step-gap);
   margin: 0;
   /* A floor wide enough for a step's name: below it the metadata moves under
      the name instead of the name breaking a letter at a time. */
@@ -1666,9 +1748,113 @@ body.vscode-high-contrast-light .step {
   cursor: pointer;
 }
 
+/* A row with no checkbox: its name is text, not a control's label. */
+span.step-label {
+  cursor: default;
+}
+
+/* The leading slot (§37.107): the checkbox, or nothing at all — a spacer that
+   is only width. Never shrinks, so a box never moves. */
+.step-lead {
+  flex: 0 0 var(--step-lead);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: var(--step-line);
+}
+
+/* At the slot's left edge, on a whole pixel: the 3px the browser puts after
+   the box is the rest of the slot. */
+.step-lead > input[type="checkbox"] {
+  margin: 0;
+}
+
+/* The step's icon (§37.108): its own fixed place after the slot, centred on
+   the first line, never squeezed. Decoration — the name says what the row is —
+   and tinted with the row's hue, never the label. */
+.codicon.step-icon {
+  flex: 0 0 var(--step-icon);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--step-line);
+}
+
+.step-icon-blue {
+  color: var(--bugpilot-step-blue);
+}
+
+.step-icon-green {
+  color: var(--bugpilot-step-green);
+}
+
+.step-icon-amber {
+  color: var(--bugpilot-step-amber);
+}
+
+.step-icon-cyan {
+  color: var(--bugpilot-step-cyan);
+}
+
+.step-icon-purple {
+  color: var(--bugpilot-step-purple);
+}
+
+/* A step nobody chose, or one the run never reached, is quieter in its icon
+   too, as its name is. */
+.step-off .step-icon,
+.step-skipped .step-icon {
+  opacity: 0.55;
+}
+
+/* High Contrast: the theme's foreground, not a hue — colour is never what
+   tells the rows apart. */
+body.vscode-high-contrast .step-icon,
+body.vscode-high-contrast-light .step-icon {
+  color: var(--vscode-foreground);
+}
+
+/* The name, the row's content column: one line, cut with an ellipsis in a
+   sidebar too narrow for it rather than broken across two. */
+.step-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* The step's name is what a row is scanned by. */
 .step-name {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A narrow sidebar — below about 240px (§37.108). The icon costs a name 22px,
+   and at 200px "Build context" lost its last letters to the ellipsis: tighter
+   gaps and a slimmer card edge give 14px back, so every name fits whole down
+   to about 190px. Below that the ellipsis is the fallback, the gear and the
+   icon keep their places, and the name is still the box's accessible name. */
+@media (max-width: 220px) {
+  #workflow {
+    padding-inline: 6px;
+  }
+
+  .steps {
+    --step-gap: 4px;
+  }
+
+  /* The Jira row's key is decoration — "Jira" names the row — so a narrow
+     sidebar gives its room, and some of the gaps', to the status (§37.110):
+     "Configured" fits whole at 200px; a longer status still ends in an
+     ellipsis, whole in the tooltip, and Configure / Replace never moves off. */
+  .jira-row {
+    gap: 4px;
+  }
+
+  .jira-icon {
+    display: none;
+  }
 }
 
 /* The right side of the first line: duration, status, gear — metadata, in
@@ -1736,14 +1922,6 @@ body.vscode-high-contrast-light .step-dot {
 
 .step-mark:not(.step-dot):not(.codicon) {
   display: none;
-}
-
-/* Fix result has no checkbox: nobody chooses it and no run performs it. Its
-   label starts where the other rows' text does, and it is not clickable. By
-   id, because the page rewrites each row's classes from its status. */
-#step-fixResult .step-label {
-  padding-left: 20px;
-  cursor: default;
 }
 
 /* A report's lines are the agent's and can run long: three lines of summary
@@ -2154,16 +2332,20 @@ body.vscode-high-contrast-light .step-dot {
   cursor: default;
 }
 
-/* Indented to the label, so the second line of a row starts under its text
-   rather than under its checkbox. */
+/* Indented to the name, so the second line of a row starts under its text
+   rather than under its checkbox. State only: what the row is doing or
+   produced — what it does is its name's tooltip (§37.107). */
 .step-foot {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-left: 20px;
+  margin-left: var(--step-indent);
 }
 
-.step-foot[hidden],
+.step-foot[hidden] {
+  display: none;
+}
+
 .step-description[hidden] {
   display: none;
 }
@@ -2175,13 +2357,10 @@ body.vscode-high-contrast-light .step-dot {
   overflow-wrap: anywhere;
 }
 
-/* Right-aligned on the description's own line: it qualifies the row, and a
-   line of its own would read as a second thing the step does. */
-.step-note {
-  margin-left: auto;
-  font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
-  white-space: nowrap;
+/* The gear's place on a row without one, so every row's status ends where the
+   others' do and the gears stand in one column. Only space. */
+.step-settings-spacer {
+  flex: 0 0 var(--step-line);
 }
 
 /*
@@ -2196,7 +2375,7 @@ body.vscode-high-contrast-light .step-dot {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-left: 20px;
+  margin-left: var(--step-indent);
   min-width: 0;
 }
 
@@ -2511,37 +2690,4 @@ body.vscode-high-contrast-light .step-dot {
 .notice-done:focus {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
-}
-
-/* --- footer --------------------------------------------------------------- */
-
-/* Secondary by construction: smaller, dimmer, and below a rule. It answers
-   "which bugpilot, which repository, is Jira set up" and nothing else. */
-.footer {
-  border-top: 1px solid var(--vscode-panel-border);
-  padding-top: 8px;
-  font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
-}
-
-.footer-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: baseline;
-  margin: 0 0 2px;
-  overflow-wrap: anywhere;
-}
-
-.footer-line > .codicon {
-  font-size: 13px;
-  flex: none;
-}
-
-.footer .ok {
-  color: var(--bugpilot-icon-success);
-}
-
-.footer .link {
-  font-size: 1em;
 }

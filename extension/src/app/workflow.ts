@@ -85,6 +85,13 @@ export const WORKFLOW_STEP_IDS: readonly Exclude<WorkflowStepId, "fixResult">[] 
 ];
 
 /**
+ * The steps with no checkbox, which run on every run (§37.107): Issue details
+ * is the input, and Build context the package every later step and the AI fix
+ * work from. Each of the others is optional, with a box on its row.
+ */
+export const ALWAYS_RUNS: readonly WorkflowStepId[] = ["issueDetails", "buildContext"];
+
+/**
  * How a row stands.
  *
  * `ready` exists for one row and one reason: a task on disk that nobody has
@@ -348,10 +355,16 @@ export interface SearchContent {
 export interface WorkflowStepResult {
   readonly id: WorkflowStepId;
   readonly label: string;
-  /** What the step does. Also the markup's text before the first push. */
+  /**
+   * What the step does: the start of the row's tooltip and accessible
+   * description (`stepTooltip`), never a visible line of its own (§37.107).
+   */
   readonly description: string;
   readonly enabled: boolean;
-  /** Runs whichever way the boxes are ticked: it is the input, not an option. */
+  /**
+   * Has no checkbox and runs on every run: Issue details (the input) and Build
+   * context (the package every later step works from, §37.107).
+   */
   readonly required?: boolean;
   readonly status: StepStatus;
   /**
@@ -366,7 +379,8 @@ export interface WorkflowStepResult {
   /**
    * The row's second line: only what `statusText` does not already say.
    *
-   * The description while pending, what it is doing while running ("Searching
+   * State, never the step's purpose: nothing while pending (the purpose is the
+   * row's tooltip, §37.107), what it is doing while running ("Searching
    * repository…"), and what it produced once done (the issue's title, "4 terms
    * · 6 relevant files"). `""` when the only thing to say is the status itself
    * — a row never says Completed twice.
@@ -446,16 +460,16 @@ export const STEP_LABELS: Readonly<Record<WorkflowStepId, string>> = {
 
 const STEP_DESCRIPTIONS: Readonly<Record<WorkflowStepId, string>> = {
   // Source-agnostic: the step reads a Jira issue or the bug typed into the
-  // panel, and the page renders this line before it knows which. What it
+  // panel, and the markup carries this before the page knows which. What it
   // actually read is the row's own result line ("JR-1 · Jira issue", "Manual
   // bug description").
-  issueDetails: "Gather issue information",
-  codeSearch: "Search relevant code in the repository",
-  gitHistory: "Find related commits and file changes",
-  similarFixes: "Search for similar issues and solutions",
-  buildContext: "Prepare structured context for AI",
-  fixWithAI: "Run the prepared context with your AI coding agent",
-  fixResult: "The report the agent wrote in fix_report.md",
+  issueDetails: "Gather issue information.",
+  codeSearch: "Search relevant code in the repository.",
+  gitHistory: "Find related commits and file changes.",
+  similarFixes: "Search for similar issues and solutions.",
+  buildContext: "Prepare structured context for AI.",
+  fixWithAI: "Run the prepared context with your AI coding agent.",
+  fixResult: "The report the agent wrote in fix_report.md.",
 };
 
 /** What a row says while it is the one working. */
@@ -467,14 +481,25 @@ const RUNNING_TEXT: Readonly<Record<Exclude<WorkflowStepId, "issueDetails" | "fi
 };
 
 /**
- * One line under each label, saying what the step does — the same whichever
- * source the work item has.
+ * What each step does, in one sentence — the same whichever source the work
+ * item has.
  *
- * Exported because the markup carries these too: a page built before the first
- * push would otherwise show six labels with nothing under them.
+ * Never a line under the label: six always-visible explanations made the list
+ * twice as tall and said nothing about the run (§37.107). It is the start of
+ * the row's tooltip (`stepTooltip`).
  */
 export function stepDescription(id: WorkflowStepId): string {
   return STEP_DESCRIPTIONS[id];
+}
+
+/**
+ * The row's tooltip and accessible description: what the step does, and — for
+ * a step with no checkbox — that it always runs. *Always runs* was a line of its
+ * own beside the name until §37.108; a row without a box already says it to
+ * the eye, and this says it in words to whoever hovers or listens.
+ */
+export function stepTooltip(id: WorkflowStepId): string {
+  return ALWAYS_RUNS.includes(id) ? `${stepDescription(id)} Always runs.` : stepDescription(id);
 }
 
 /** How the AI step ended, as the controller observed it. */
@@ -607,7 +632,7 @@ export function buildWorkflow(input: WorkflowInput): readonly WorkflowStepResult
   for (const id of WORKFLOW_STEP_IDS) {
     if (id === "fixWithAI") continue;
     const row = rows.get(CAPABILITY_OF[id]);
-    const required = id === "issueDetails";
+    const required = ALWAYS_RUNS.includes(id);
     const status: StepStatus = row ? STATUS_OF_ROW[row.state] : "idle";
     const base = {
       id,
@@ -890,8 +915,8 @@ function resultOf(
   input: WorkflowInput,
   present: ReadonlySet<string>,
 ): Pick<RowDraft, "summary" | "detail" | "artifact" | "actions" | "search" | "gitHistory"> {
-  const description = stepDescription(id);
-  if (status === "idle") return { summary: description, actions: [] };
+  // Pending says nothing: what the step does is the row's tooltip.
+  if (status === "idle") return { summary: "", actions: [] };
   if (status === "running") return { summary: runningText(id, input), actions: [] };
   if (status !== "success") return { summary: FINISHED_TEXT[status], actions: [] };
 
@@ -1082,7 +1107,7 @@ function fixWithAiRow(
     return { ...base, status: "ready", summary: FINISHED_TEXT.ready, ...prepared };
   }
   if (running) return { ...base, status: "idle", summary: "Waiting for task…" };
-  return { ...base, status: "idle", summary: base.description };
+  return { ...base, status: "idle", summary: "" };
 }
 
 /** Whether the work item directory has anything to reveal. */

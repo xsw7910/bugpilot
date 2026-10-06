@@ -37,7 +37,7 @@ import { RESET_WAITS_FOR_HANDOFF } from "../src/app/controller.ts";
 import { RESET_CANCELS_REVIEW, RESET_LEAVES_AGENT, RESET_STOPS_RUN } from "../src/app/sessionReset.ts";
 import type { GitignoreDocument, GitignoreEntry, GitignoreIo } from "../src/app/gitignore.ts";
 import { historyFromPayload } from "../src/app/artifacts.ts";
-import { CURRENT_GROUP, HISTORY_GROUP, resultsChildren, resultsItem } from "../src/app/results.ts";
+import { CURRENT_GROUP, DIAGNOSTICS_GROUP, HISTORY_GROUP, resultsChildren, resultsItem } from "../src/app/results.ts";
 import type { ResultsNode, ResultsSources } from "../src/app/results.ts";
 
 /**
@@ -1416,16 +1416,27 @@ test("a run that failed hands nothing over, and says why the step did not run", 
   assert.match(fix?.summary ?? "", /did not finish/);
 });
 
-test("with Build context off, the AI step is not offered at all", async () => {
-  // `--only-issue-details` writes no package, so there is nothing to hand over.
+test("a page that still says Build context off cannot turn it off (§37.107)", async () => {
+  // Build context had a box, and unticking it ran --only-issue-details and
+  // dropped the AI step with it. It always runs now: a page restored from
+  // before that sends `buildContext: false` still builds the package, and the
+  // ticked AI step still hands it over.
   const h = harness({ events: successfulRun, directory: ["task.md"], agentOnPath: true });
   await h.controller.refreshEnvironment();
-  await h.controller.run(
-    withFix({ plan: { ...DEFAULT_FORM.plan, buildContext: false } }),
-  );
+  const message = parsePanelMessage({
+    type: "run",
+    form: { ...withFix(), plan: { ...DEFAULT_FORM.plan, buildContext: false } },
+  });
+  assert.ok(message && message.type === "run");
+  assert.equal(message.form.plan.buildContext, true);
+  await h.controller.handle(message);
 
-  assert.deepEqual(h.terminals, []);
-  assert.equal(h.last().workflow.find((step) => step.id === "fixWithAI")?.enabled, false);
+  assert.equal(h.streamRuns[0]!.args.includes("--only-issue-details"), false);
+  assert.equal(h.terminals.length, 1, "the ticked AI step did not hand over");
+  const rows = h.last().workflow;
+  assert.equal(rows.find((step) => step.id === "buildContext")?.enabled, true);
+  assert.equal(rows.find((step) => step.id === "buildContext")?.required, true);
+  assert.equal(rows.find((step) => step.id === "fixWithAI")?.enabled, true);
 });
 
 test("without any agent it copies the prompt instead, and brings no agent's panel forward", async () => {
@@ -1514,8 +1525,9 @@ test("the handed-over sentence is the same one Copy Handoff Prompt puts on the c
 });
 
 test("Fix with AI refuses a package with no task.md rather than sending an agent after it", async () => {
-  // --only-issue-details writes a context and no task. A prompt naming a missing
-  // file would send the agent looking for it.
+  // --only-issue-details writes a context and no task — the CLI's flag still,
+  // and a work item the panel prepared with it before §37.107 still exists. A
+  // prompt naming a missing file would send the agent looking for it.
   const h = harness({ events: successfulRun, directory: ["context.md"], agentOnPath: true });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -4041,8 +4053,10 @@ test("the artifact is read once for the counts, the files and the terms", async 
 
 // --- UI-C2: Diagnostics ------------------------------------------------------
 
+// What Results > Diagnostics shows (§37.110): the controller's own getter,
+// which the tree reads; the panel's state no longer carries it.
 const rowOf = (h: Harness, label: string) =>
-  h.last().diagnostics.rows.find((row) => row.label === label);
+  h.controller.diagnostics.rows.find((row) => row.label === label);
 
 test("a ready environment reports itself without being asked anything", async () => {
   const h = harness({ extensionVersion: "0.1.0" });
@@ -4050,7 +4064,7 @@ test("a ready environment reports itself without being asked anything", async ()
 
   assert.equal(rowOf(h, "Repository")?.value, "app");
   assert.equal(rowOf(h, "Repository")?.detail, ROOT);
-  assert.equal(rowOf(h, "Jira")?.value, "Credentials configured");
+  assert.equal(rowOf(h, "Jira")?.value, "Configured");
   assert.equal(rowOf(h, "AI agent")?.value, "Auto-detect");
   assert.equal(rowOf(h, "AI agent")?.detail, "Not checked yet");
   assert.equal(rowOf(h, "Extension")?.value, "0.1.0");
@@ -4074,7 +4088,8 @@ test("opening the panel probes nothing", async () => {
   await h.controller.handle({ type: "ready" });
   await h.controller.handle({ type: "formChanged", form: jiraForm() });
 
-  assert.ok(h.last().diagnostics.rows.length > 0, "Diagnostics reported nothing");
+  assert.ok(h.controller.diagnostics.rows.length > 0, "Diagnostics reported nothing");
+  assert.equal("diagnostics" in h.last(), false, "the panel is sent Diagnostics it no longer shows");
   assert.deepEqual(
     {
       streams: h.streamRuns.length,
@@ -4107,7 +4122,7 @@ test("the agent row follows the selection", async () => {
   assert.equal(rowOf(h, "AI agent")?.value, "Custom command");
   // The command line can carry a path, an argument or a token. None of it is
   // anywhere in the diagnostics model.
-  const text = JSON.stringify(h.last().diagnostics);
+  const text = JSON.stringify(h.controller.diagnostics);
   assert.equal(text.includes("abc123"), false, "a custom command reached Diagnostics");
   assert.equal(text.includes("my-agent"), false);
 });
@@ -4161,7 +4176,7 @@ test("a hand-written bug is named by the id the CLI minted", async () => {
   assert.equal(rowOf(h, "Work item")?.value, "local_20260101120000");
   assert.equal(rowOf(h, "Work item")?.detail, "From a bug description");
   assert.equal(
-    JSON.stringify(h.last().diagnostics).includes("export dialog"),
+    JSON.stringify(h.controller.diagnostics).includes("export dialog"),
     false,
     "the bug's own text reached Diagnostics",
   );
@@ -4171,9 +4186,12 @@ test("Jira follows the credential, and claims nothing more", async () => {
   const h = harness({ credentialsConfigured: false });
   await h.controller.refreshEnvironment();
 
-  assert.equal(rowOf(h, "Jira")?.value, "Credentials not configured");
+  assert.equal(rowOf(h, "Jira")?.value, "Not configured");
+  // The Workflow row says the same, with the action to fix it.
+  assert.equal(h.last().jira.status, "Not configured");
+  assert.equal(h.last().jira.action, "Configure");
   // Never a claim about Jira itself, which nobody has contacted.
-  const text = JSON.stringify(h.last().diagnostics);
+  const text = JSON.stringify(h.controller.diagnostics);
   for (const claim of ["Connected", "Healthy", "Online", "Verified"]) {
     assert.equal(text.includes(claim), false, `Diagnostics claims "${claim}"`);
   }
@@ -4184,10 +4202,92 @@ test("no credential material is anywhere in the model", async () => {
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
 
-  const text = JSON.stringify(h.last().diagnostics);
+  const text = JSON.stringify(h.controller.diagnostics);
   for (const secret of [TOKEN, "JIRA_TOKEN", "JIRA_EMAIL", "me@example.com", "Bearer"]) {
     assert.equal(text.includes(secret), false, `Diagnostics carries ${secret}`);
   }
+});
+
+// --- The Jira row's states (§37.110) -------------------------------------------
+
+const AUTH_REJECTED: readonly StreamEvent[] = [
+  { type: "started", work_item_id: "JR-12345", source: "jira" },
+  { type: "completed", ok: false, error: { code: "JIRA_AUTH_FAILED", message: "401" } },
+];
+
+test("the Jira row: Configured with Replace, Not configured with Configure", async () => {
+  const configured = harness();
+  await configured.controller.refreshEnvironment();
+  assert.deepEqual(
+    [configured.last().jira.state, configured.last().jira.status, configured.last().jira.action],
+    ["configured", "Configured", "Replace"],
+  );
+  const missing = harness({ credentialsConfigured: false });
+  await missing.controller.refreshEnvironment();
+  assert.deepEqual(
+    [missing.last().jira.state, missing.last().jira.status, missing.last().jira.action],
+    ["notConfigured", "Not configured", "Configure"],
+  );
+  // Never the credential itself.
+  const text = JSON.stringify(configured.last().jira);
+  for (const secret of [TOKEN, "me@example.com"]) assert.equal(text.includes(secret), false);
+});
+
+test("Jira turning the credentials away is Authentication failed, until they are saved again", async () => {
+  const h = harness({ events: AUTH_REJECTED });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  assert.equal(h.last().jira.state, "authFailed");
+  assert.equal(h.last().jira.status, "Authentication failed");
+  assert.equal(h.last().jira.action, "Replace");
+  assert.equal(rowOf(h, "Jira")?.value, "Authentication failed", "Diagnostics disagrees with the row");
+  // The run-blocking card stays in Workflow, with its own way to fix it.
+  const card = h.last().workflow.find((step) => step.id === "issueDetails")?.error ?? h.last().runError;
+  assert.equal(card?.title, "Unable to access Jira");
+  assert.equal(card?.action?.command, "bugpilot.setCredentials");
+
+  // The credential prompt saved new ones: what Jira said about the old ones is over.
+  await h.controller.credentialsSaved();
+  assert.equal(h.last().jira.state, "configured");
+  assert.equal(rowOf(h, "Jira")?.value, "Configured");
+});
+
+test("a Jira run that gets its issue clears Authentication failed; one that never asked Jira does not", async () => {
+  const options: { events: readonly StreamEvent[] } = { events: AUTH_REJECTED };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  assert.equal(h.last().jira.state, "authFailed");
+
+  // A hand-written bug asks Jira nothing, so says nothing about the credentials.
+  options.events = [
+    { type: "started", work_item_id: "local_20260101120000", source: "manual" },
+    { type: "completed", ok: false, error: { code: "INTERNAL_ERROR", message: "boom" } },
+  ];
+  await h.controller.run(jiraForm({ source: "manual", issueKey: "", description: "The export dialog crashes." }));
+  assert.equal(h.last().jira.state, "authFailed", "a run that never asked Jira cleared it");
+
+  // A Jira run whose issue came back: the credentials work.
+  options.events = successfulRun;
+  await h.controller.run(jiraForm());
+  assert.equal(h.last().jira.state, "configured");
+});
+
+test("Results > Diagnostics follows the controller, and the panel's Jira row agrees with it", async () => {
+  const h = harness({ ...WITH_FILES, extensionVersion: "0.1.0", events: AUTH_REJECTED });
+  await h.controller.refreshEnvironment();
+  const tree = resultsOver(h, new Set());
+  assert.deepEqual(await tree.root(), ["Current", "History", "Diagnostics"]);
+  const before = await tree.diagnostics();
+  assert.ok(before.includes("Jira: Configured"), JSON.stringify(before));
+  assert.ok(before.includes("Extension: 0.1.0"));
+  assert.ok(before.includes(`Repository: ${nodePath.basename(ROOT)}`));
+
+  await h.controller.run(jiraForm());
+  const after = await tree.diagnostics();
+  assert.ok(after.includes("Jira: Authentication failed"), JSON.stringify(after));
+  assert.ok(after.includes("Work item: JR-12345"));
+  assert.equal(h.last().jira.status, "Authentication failed");
 });
 
 test("both versions are reported, and they are not the same field", async () => {
@@ -10507,6 +10607,7 @@ function resultsOver(h: Harness, folders: ReadonlySet<string>) {
     artifacts: () => h.controller.artifacts,
     history: async () =>
       historyFromPayload({ ok: true, work_items: [...folders].map((id) => ({ work_item_id: id, prepared: true })) }),
+    diagnostics: () => h.controller.diagnostics,
     now: () => 0,
   };
   const label = (node: ResultsNode) => resultsItem(node, h.controller.workItemId).label;
@@ -10515,6 +10616,11 @@ function resultsOver(h: Harness, folders: ReadonlySet<string>) {
     current: async () => (await resultsChildren(CURRENT_GROUP, sources)).map(label),
     currentRow: () => resultsItem(CURRENT_GROUP, h.controller.workItemId),
     history: async () => (await resultsChildren(HISTORY_GROUP, sources)).map(label),
+    diagnostics: async () =>
+      (await resultsChildren(DIAGNOSTICS_GROUP, sources)).map((node) => {
+        const item = resultsItem(node, h.controller.workItemId);
+        return `${item.label}: ${item.description}`;
+      }),
   };
 }
 
@@ -10550,7 +10656,7 @@ const NOTHING_OPEN = ["No work item selected yet."];
 test("Results 1: nothing open, Current says so; a run fills it with the work item's files and names it", async () => {
   const { h, tree } = resultsHarness();
   await h.controller.refreshEnvironment();
-  assert.deepEqual(await tree.root(), ["Current", "History"]);
+  assert.deepEqual(await tree.root(), ["Current", "History", "Diagnostics"]);
   assert.deepEqual(await tree.current(), NOTHING_OPEN);
   assert.equal(tree.currentRow().description, undefined);
 
@@ -10560,7 +10666,7 @@ test("Results 1: nothing open, Current says so; a run fills it with the work ite
   assert.ok(h.refreshes.count > refreshes, "Results was not told the run changed .ai/");
   assert.deepEqual(await tree.current(), CURRENT_FILES);
   assert.equal(tree.currentRow().description, "JR-12345");
-  assert.deepEqual(await tree.root(), ["Current", "History"]);
+  assert.deepEqual(await tree.root(), ["Current", "History", "Diagnostics"]);
 });
 
 test("Results 2: Reset Keep empties Current and leaves History as it was", async () => {
@@ -10613,5 +10719,5 @@ test("Results 4: reopening a work item from History fills Current again — once
   assert.deepEqual(current, CURRENT_FILES);
   assert.equal(new Set(current).size, current.length, "a file is listed twice");
   assert.equal(tree.currentRow().description, "JR-1");
-  assert.deepEqual(await tree.root(), ["Current", "History"]);
+  assert.deepEqual(await tree.root(), ["Current", "History", "Diagnostics"]);
 });

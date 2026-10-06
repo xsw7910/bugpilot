@@ -93,11 +93,21 @@
 .codicon-add:before { content: "\ea60"; }
 .codicon-close:before { content: "\ea76"; }
 
-/* The repository notice, and the footer's two facts. */
+/* The repository notice, and the Jira row (§37.110): its key and its tick. */
 .codicon-warning:before { content: "\ea6c"; }
 .codicon-check:before { content: "\eab2"; }
-.codicon-folder:before { content: "\ea83"; }
 .codicon-key:before { content: "\eb11"; }
+
+/* Workflow Steps (§37.108): the header's icon and each row's. Search and hubot
+   are declared above. Each checked in the vendored codicon.ttf's cmap and
+   glyph names, not remembered — `source-control` is the branch glyph VS Code
+   also draws for `git-branch`, which is not a glyph name in this font. */
+.codicon-list-unordered:before { content: "\eb17"; }
+.codicon-file-text:before { content: "\ec5e"; }
+.codicon-source-control:before { content: "\ea68"; }
+.codicon-database:before { content: "\eace"; }
+.codicon-files:before { content: "\eaf0"; }
+.codicon-output:before { content: "\eb9d"; }
 
 /*
  * The spinner.

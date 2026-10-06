@@ -26,6 +26,8 @@ import type { FixModeDraft } from "../src/app/fixModes.ts";
 import { DEFAULT_FORM, JIRA_ISSUE_KEY_RE, buildPrepareArgs, workItemScopeOf } from "../src/app/form.ts";
 import type { FormState } from "../src/app/form.ts";
 import { buildWorkflow, overallStatus } from "../src/app/workflow.ts";
+import { settingsSummaries } from "../src/app/workflowSettings.ts";
+import { jiraConnection } from "../src/app/jiraConnection.ts";
 import { primaryView } from "../src/app/nextAction.ts";
 import type { NextActionInput } from "../src/app/nextAction.ts";
 import type { SearchContent, WorkflowInput, WorkflowStepResult } from "../src/app/workflow.ts";
@@ -47,16 +49,22 @@ const HTML = panelHtml({
 const IDS = [...HTML.matchAll(/id="([^"]+)"/g)].map((match) => match[1]!);
 
 /**
- * Ids whose markup carries `checked` or `hidden`.
+ * Ids whose markup carries `checked`, `hidden` or — on a `<details>` — `open`.
  *
  * The stub starts from the document's own defaults rather than from all-false:
- * the plan checkboxes are ticked in the markup to match `DEFAULT_FORM`, and a
- * stub that ignored that would test a page state that never exists.
+ * the plan checkboxes are ticked in the markup to match `DEFAULT_FORM`, and
+ * Workflow Steps is open in it (§37.109); a stub that ignored either would test
+ * a page state that never exists. `open` is read only off a `<details>` tag, as
+ * an attribute, so a title that says "open" cannot set it.
  */
-const INITIAL = new Map<string, { checked: boolean; hidden: boolean }>(
+const INITIAL = new Map<string, { checked: boolean; hidden: boolean; open: boolean }>(
   [...HTML.matchAll(/<[^>]*id="([^"]+)"[^>]*>/g)].map((match) => [
     match[1]!,
-    { checked: / checked/.test(match[0]), hidden: / hidden/.test(match[0]) },
+    {
+      checked: / checked/.test(match[0]),
+      hidden: / hidden/.test(match[0]),
+      open: /^<details\b[^>]*\sopen(?=[\s>])/.test(match[0]),
+    },
   ]),
 );
 
@@ -209,6 +217,7 @@ function load(savedState?: unknown): Page {
     const initial = INITIAL.get(id);
     element.checked = initial?.checked ?? false;
     element.hidden = initial?.hidden ?? false;
+    element.open = initial?.open ?? false;
     elements.set(id, element);
   }
   // The stub has no notion of <option>, so the select's default selection has
@@ -394,7 +403,6 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
     readiness: { kind: "ready", executable: "bugpilot", root: "/work/app" },
     // Always present, like the readiness beside it: the question Diagnostics
     // answers is asked most urgently when nothing has run.
-    diagnostics: { rows: [] },
     agents: { lines: {} },
     problems: [],
     progress,
@@ -403,7 +411,7 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
     workItemActions: [],
     artifacts: { kind: "empty", detail: "nothing yet" },
     warnings: [],
-    jiraConfigured: false,
+    jira: jiraConnection(false, false),
     primary: primaryOf({
       busy: progress.state === "running",
     }),
@@ -443,7 +451,8 @@ const step = (overrides: Partial<WorkflowStepResult> = {}): WorkflowStepResult =
   enabled: true,
   status: "idle",
   statusText: "",
-  summary: "Search relevant code in the repository",
+  // Pending says nothing: what the step does is its tooltip (§37.107).
+  summary: "",
   actions: [],
   ...overrides,
 });
@@ -595,12 +604,13 @@ test("a blocked readiness renders one button per offered action", () => {
   });
 });
 
-test("a ready readiness enables the form and names the executable", () => {
+test("a ready readiness enables the form; which executable, and where, is Diagnostics' to say", () => {
   const p = load();
   p.send(state());
   assert.equal(p.byId("run").disabled, false);
   assert.equal(p.byId("issue").disabled, false);
-  assert.match(p.byId("environment").textContent, /bugpilot · \/work\/app/);
+  // The version-and-path line moved to Results > Diagnostics (§37.110).
+  assert.equal(p.elements.has("environment"), false);
 });
 
 // --- field problems --------------------------------------------------------
@@ -642,47 +652,105 @@ test("clearing the problems clears the message and the invalid styling", () => {
   assert.equal(p.byId("field-issue").classes.has("field-invalid"), false);
 });
 
-// --- the plan coupling -----------------------------------------------------
+// --- the plan --------------------------------------------------------------
 
-test("unticking Build context clears and disables everything below it", () => {
-  // Including Fix with AI: with no package written, the handoff prompt would
-  // point an agent at a file that does not exist.
+test("Issue details and Build context have no box, and the form always runs them (§37.107)", () => {
+  // Build context had a box, and unticking it cleared and disabled the four
+  // below it. It always runs now: nothing in the plan is tied to anything else.
   const p = load();
   p.send(state());
-  p.byId("plan-fixWithAI").checked = true;
-  p.byId("plan-buildContext").checked = false;
-  p.byId("form").dispatch("change", { target: p.byId("plan-buildContext") });
-
-  for (const field of [
-    "plan-codeSearch",
-    "plan-gitHistory",
-    "plan-similarFixes",
-    "plan-fixWithAI",
-  ]) {
-    assert.equal(p.byId(field).checked, false, field);
-    assert.equal(p.byId(field).disabled, true, field);
+  for (const id of ["issueDetails", "buildContext"]) {
+    assert.equal(p.elements.has(`plan-${id}`), false, `${id} has a checkbox again`);
   }
-  assert.equal(p.byId("plan-note").hidden, false);
+  p.byId("plan-codeSearch").checked = false;
+  p.byId("form").dispatch("change", { target: p.byId("plan-codeSearch") });
+  p.flush();
+  const change = p.posted.filter((message) => message["type"] === "formChanged").at(-1);
+  assert.deepEqual((change?.["form"] as { plan: unknown }).plan, {
+    codeSearch: false,
+    gitHistory: true,
+    similarFixes: true,
+    issueDetails: true,
+    buildContext: true,
+  });
+  // Unticking one optional step leaves the others as they were.
+  for (const id of ["gitHistory", "similarFixes"]) {
+    assert.equal(p.byId(`plan-${id}`).checked, true, id);
+    assert.equal(p.byId(`plan-${id}`).disabled, false, id);
+  }
 });
 
-test("re-ticking Build context restores the selection it cleared", () => {
-  // Otherwise the next run silently skips search, history and similar fixes —
-  // a plan nobody chose, with three unticked boxes to explain it after the fact.
+test("a form saved while Build context could be unticked restores without touching the boxes", () => {
+  // Saved by an earlier page: Build context off, which had cleared the three.
+  const p = load({
+    form: { ...DEFAULT_FORM, issueKey: "JR-1", plan: { issueDetails: true, codeSearch: false, gitHistory: false, similarFixes: false, buildContext: false } },
+  });
+  for (const id of ["codeSearch", "gitHistory", "similarFixes"]) {
+    assert.equal(p.byId(`plan-${id}`).checked, false, id);
+    assert.equal(p.byId(`plan-${id}`).disabled, false, `${id} is still locked by a Build context box that is gone`);
+  }
+  p.byId("form").dispatch("change", { target: p.byId("plan-codeSearch") });
+  p.flush();
+  const change = p.posted.filter((message) => message["type"] === "formChanged").at(-1);
+  assert.equal((change?.["form"] as { plan: { buildContext: boolean } }).plan.buildContext, true);
+});
+
+test("the step boxes are locked while a run is in flight, and only then", () => {
+  // The run has already read them. Not while the panel is merely blocked: the
+  // plan is still there to change before the next run, as it always was.
   const p = load();
-  p.send(state());
-  p.byId("plan-gitHistory").checked = false;
-  p.byId("form").dispatch("change", { target: p.byId("plan-gitHistory") });
+  const boxes = ["plan-codeSearch", "plan-gitHistory", "plan-similarFixes", "plan-fixWithAI"];
+  p.send(state({ progress: { state: "running", rows: [row("code_search", "running")], artifacts: [] } }));
+  for (const id of boxes) assert.equal(p.byId(id).disabled, true, id);
+  p.send(prepared());
+  for (const id of boxes) assert.equal(p.byId(id).disabled, false, id);
+});
 
-  p.byId("plan-buildContext").checked = false;
-  p.byId("form").dispatch("change", { target: p.byId("plan-buildContext") });
-  p.byId("plan-buildContext").checked = true;
-  p.byId("form").dispatch("change", { target: p.byId("plan-buildContext") });
+/** The workflow the host sends for a form with nothing run, its settings summaries included. */
+const idleWorkflow = (form: FormState = DEFAULT_FORM) =>
+  buildWorkflow({
+    source: "jira",
+    plan: form.plan,
+    fixWithAI: form.fixWithAI,
+    progress: { state: "idle", rows: [], artifacts: [] },
+    artifacts: [],
+    settingsSummaries: settingsSummaries(form),
+  });
 
-  assert.equal(p.byId("plan-codeSearch").checked, true);
-  assert.equal(p.byId("plan-similarFixes").checked, true);
-  // The one the developer had turned off stays off.
-  assert.equal(p.byId("plan-gitHistory").checked, false);
-  assert.equal(p.byId("plan-note").hidden, true);
+test("rows: in the normal state every row is one line — no explanations, no Always runs, no default agent", () => {
+  // §37.107 took the six explanations off the screen; §37.108 the last two
+  // lines of normal-state text: Always runs (the missing box says it, the
+  // tooltip says it in words) and Auto-detected agent (the default).
+  const p = load();
+  p.send(state({ workflow: idleWorkflow() }));
+  for (const id of STEP_IDS) {
+    assert.equal(p.byId(`description-${id}`).textContent, "", id);
+    assert.equal(p.byId(`description-${id}`).hidden, true, id);
+    assert.equal(p.byId(`foot-${id}`).hidden, true, id);
+    if (id !== "similarFixes") assert.equal(p.byId(`settings-summary-${id}`).hidden, true, `${id}: a settings line at the defaults`);
+  }
+  assert.equal(p.elements.has("note-issueDetails"), false, "Always runs is back on the row");
+  assert.equal(p.byId("settings-summary-fixWithAI").textContent, "");
+  // Through a run, too: nothing appears for Always runs to have been.
+  p.send(state({ progress: { state: "running", rows: [row("issue_details", "running")], artifacts: [] } }));
+  assert.equal(p.byId("description-issueDetails").textContent, "Loading the Jira issue…");
+  p.send(prepared());
+  assert.equal(p.byId("settings-summary-fixWithAI").hidden, true);
+});
+
+test("rows: what is worth saying still shows — a chosen agent, a run's text, a failure", () => {
+  const p = load();
+  // An agent the developer chose is a setting away from the default: it shows.
+  p.send(state({ workflow: idleWorkflow({ ...DEFAULT_FORM, agent: "codex-cli" }) }));
+  assert.equal(p.byId("settings-summary-fixWithAI").textContent, "Codex CLI");
+  assert.equal(p.byId("settings-summary-fixWithAI").hidden, false);
+  // What a running step is doing.
+  p.send(state({ progress: { state: "running", rows: [row("issue_details", "done", 40), row("code_search", "running")], artifacts: [] } }));
+  assert.equal(p.byId("description-codeSearch").textContent, "Searching repository…");
+  assert.equal(p.byId("description-codeSearch").hidden, false);
+  // A failure is the row's card.
+  p.send(failedAt("issue_details", JIRA_ERROR));
+  assert.equal(p.byId("error-issueDetails").hidden, false);
 });
 
 // --- input source ----------------------------------------------------------
@@ -1657,19 +1725,54 @@ test("a failure is shown as an alert with its next step", () => {
   assert.ok(p.byId("workflow-status").classes.has("is-failed"));
 });
 
-test("the credential status is shown, and the button asks the host to edit it", () => {
+test("the Jira row: Configured and Replace, and the button asks the host to set credentials (§37.110)", () => {
   // The page only ever learns whether a credential exists, never the token.
   const p = load();
-  p.send(state({ jiraConfigured: true }));
-  assert.equal(p.byId("jira-status").textContent, "Configured");
-  assert.equal(p.byId("jira-ok").hidden, false, "the tick belongs with the word");
+  p.send(state({ jira: jiraConnection(true, false) }));
+  assert.equal(p.byId("jira-status-text").textContent, "Configured");
+  assert.equal(p.byId("jira-state-icon").hidden, false, "the tick belongs with the word");
+  assert.ok(p.byId("jira-state-icon").classes.has("codicon-check"));
+  assert.equal(p.byId("set-credentials").textContent, "Replace");
+  assert.equal(p.byId("set-credentials").getAttribute("aria-label"), "Replace Jira credentials");
+  assert.equal(p.byId("jira-row").getAttribute("title"), "Jira credentials are configured. Replace opens Jira credential setup.");
+  assert.equal(p.byId("jira-row-description").textContent, "Jira credentials are configured. Replace opens Jira credential setup.");
   p.byId("set-credentials").dispatch("click");
   assert.deepEqual(p.posted.at(-1), { type: "action", id: "setCredentials" });
+});
 
-  p.send(state({ jiraConfigured: false }));
-  assert.equal(p.byId("jira-status").textContent, "Not configured");
-  assert.equal(p.byId("jira-ok").hidden, true);
-  assert.equal(p.byId("set-credentials").textContent, "Set Jira credentials");
+test("the Jira row: Not configured and Configure, with no mark (§37.110)", () => {
+  const p = load();
+  p.send(state({ jira: jiraConnection(false, false) }));
+  assert.equal(p.byId("jira-status-text").textContent, "Not configured");
+  assert.equal(p.byId("jira-state-icon").hidden, true);
+  assert.equal(p.byId("set-credentials").textContent, "Configure");
+  assert.equal(p.byId("set-credentials").getAttribute("aria-label"), "Configure Jira credentials");
+  assert.equal(p.byId("jira-row").getAttribute("title"), "Jira credentials are not configured. Configure opens Jira credential setup.");
+  p.byId("set-credentials").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "setCredentials" });
+});
+
+test("the Jira row: Authentication failed says so in words, with Replace (§37.110)", () => {
+  const p = load();
+  p.send(state({ jira: jiraConnection(true, true) }));
+  assert.equal(p.byId("jira-status-text").textContent, "Authentication failed");
+  assert.ok(p.byId("jira-row").classes.has("jira-authFailed"));
+  assert.ok(p.byId("jira-state-icon").classes.has("codicon-error"));
+  assert.equal(p.byId("set-credentials").textContent, "Replace");
+  // And back, when the host says so: the row is the host's words every push.
+  p.send(state({ jira: jiraConnection(true, false) }));
+  assert.equal(p.byId("jira-status-text").textContent, "Configured");
+  assert.equal(p.byId("jira-row").classes.has("jira-authFailed"), false);
+});
+
+test("the Jira row is there whatever the run did, and a Jira failure keeps its card (§37.110)", () => {
+  const p = load();
+  p.send(prepared({}, { jira: jiraConnection(true, false) }));
+  assert.equal(p.byId("jira-status-text").textContent, "Configured");
+  p.send(failedAt("issue_details", JIRA_ERROR));
+  // The run-blocking problem stays where it is acted on, in Workflow.
+  assert.equal(p.byId("error-issueDetails").hidden, false);
+  assert.equal(p.byId("jira-row").hidden, false);
 });
 
 // --- fields that grow ------------------------------------------------------
@@ -1795,8 +1898,9 @@ test("a form the host replaces is not overwritten by a change the page had not y
   assert.equal((p.posted.at(-1)!["form"] as { issueKey: string }).issueKey, "JR-12345");
 });
 
-test("the footer names the version when the CLI reports one", () => {
-  // Which of the machine's several bugpilots is running is otherwise invisible.
+test("the CLI's version and the repository path are not written into Workflow any more", () => {
+  // Which of the machine's several bugpilots is running is Results > Diagnostics'
+  // BugPilot CLI row now (§37.110), with the path in its tooltip.
   const p = load();
   p.send(
     state({
@@ -1808,7 +1912,10 @@ test("the footer names the version when the CLI reports one", () => {
       },
     }),
   );
-  assert.match(p.byId("environment").textContent, /BugPilot 0\.1\.0 · \/work\/app/);
+  const written = [...p.elements.values()].map((element) => element.textContent).join("\n");
+  assert.equal(written.includes("C:/tools/bugpilot.exe"), false);
+  assert.equal(written.includes("/work/app"), false);
+  assert.equal(written.includes("BugPilot 0.1.0"), false);
 });
 
 
@@ -3344,13 +3451,47 @@ test("improving a hint never asks for a run", () => {
 
 // --- UI-A1: the workflow disclosure ----------------------------------------
 
-test("the workflow stays closed until there is a run to watch", () => {
-  // Collapsed is the default in the markup; this is the page agreeing with it.
-  // An untouched panel showing six checked rows was the largest thing on it and
-  // said nothing a developer who has not typed an issue yet needs.
+test("Workflow Steps starts open, its rows in view (§37.109)", () => {
+  // Open is the default in the markup, and the page agrees with it: the rows
+  // are one line each now and are where the plan is chosen.
+  const p = load();
+  assert.equal(p.byId("workflow").open, true, "closed before the first push");
+  p.send(state());
+  assert.equal(p.byId("workflow").open, true, "the first push closed it");
+  for (const id of STEP_IDS) assert.equal(p.byId(`step-${id}`).hidden, false, id);
+  for (const id of ["plan-codeSearch", "plan-gitHistory", "plan-similarFixes", "plan-fixWithAI"]) {
+    assert.equal(p.byId(id).disabled, false, id);
+  }
+  // A panel rebuilt from saved state starts open too: what is saved is the
+  // typed form, never the fold.
+  const restored = load({ form: { ...DEFAULT_FORM, issueKey: "JR-77" } });
+  restored.send(state());
+  assert.equal(restored.byId("workflow").open, true);
+});
+
+test("Workflow Steps folds and unfolds, and what the host pushes does not unfold it (§37.109)", () => {
+  // Open by default means open at the start, not open by force: a developer who
+  // folds it keeps it folded through everything that is not a new event to
+  // show — a status, a checkbox, a refreshed artifact list, a new form, a
+  // setting.
   const p = load();
   p.send(state());
-  assert.equal(p.byId("workflow").open, false);
+  p.byId("workflow").open = false;
+  p.send(state());
+  p.send(state({ overall: { kind: "idle", text: "Needs rebuild" } }));
+  p.byId("plan-gitHistory").checked = false;
+  p.byId("form").dispatch("change", { target: p.byId("plan-gitHistory") });
+  p.flush();
+  p.send(state({ workItemId: "local_1", artifacts: { kind: "empty", detail: "nothing yet" } }));
+  p.send(state({ workItemId: "local_1" }, ["issue.json"]));
+  p.send(state({ revision: 2, form: { ...DEFAULT_FORM, issueKey: "JR-2", agent: "claude-cli" } }));
+  p.send(state({ workflow: buildWorkflow({ source: "jira", plan: DEFAULT_FORM.plan, fixWithAI: false, progress: { state: "idle", rows: [], artifacts: [] }, artifacts: [], settingsSummaries: { codeSearch: "4 keywords" } }) }));
+  assert.equal(p.byId("workflow").open, false, "an ordinary push unfolded it");
+  // And unfolded by hand, it stays unfolded through the same pushes.
+  p.byId("workflow").open = true;
+  p.send(state());
+  p.send(state({ workItemId: "local_1" }, ["issue.json"]));
+  assert.equal(p.byId("workflow").open, true);
 });
 
 test("a run opens the workflow, and it stays open as the run finishes", () => {
@@ -3435,9 +3576,10 @@ test("a reopened work item opens the workflow once, to show its results", () => 
   // A work item from History, or the one a reloaded panel restores, arrives
   // finished: there is no run starting to open it, and its results are on the
   // rows.
+  // Open by default (§37.109), so folded first to see it opened.
   const p = load();
   p.send(state());
-  assert.equal(p.byId("workflow").open, false);
+  p.byId("workflow").open = false;
 
   p.send(prepared());
   assert.equal(p.byId("workflow").open, true);
@@ -3447,8 +3589,9 @@ test("a reopened work item opens the workflow once, to show its results", () => 
   p.send(prepared());
   assert.equal(p.byId("workflow").open, false);
 
-  // A work item with nothing to show does not open it.
+  // A work item with nothing to show does not open a folded workflow.
   const fresh = load();
+  fresh.byId("workflow").open = false;
   fresh.send(state({ workItemId: "JR-12345" }));
   assert.equal(fresh.byId("workflow").open, false);
 });
@@ -3577,10 +3720,14 @@ test("nothing about a result is shown before the first run", () => {
     assert.equal(p.byId(`detail-${id}`).hidden, true, id);
     assert.equal(p.byId(`artifact-${id}`).hidden, true, id);
   }
-  // Each row says what it will do, not what it did.
-  assert.equal(p.byId("description-codeSearch").textContent, "Search relevant code in the repository");
+  // No row has a second line yet: what each step does is its name's tooltip
+  // (§37.107), and there is no state to state.
+  for (const id of STEP_IDS) {
+    assert.equal(p.byId(`description-${id}`).hidden, true, id);
+    assert.equal(p.byId(`foot-${id}`).hidden, true, id);
+  }
   // And the workflow is still the place the plan is chosen.
-  assert.equal(p.byId("plan-buildContext").checked, true);
+  assert.equal(p.byId("plan-codeSearch").checked, true);
   assert.equal(p.byId("plan-fixWithAI").checked, false);
 });
 
@@ -3722,8 +3869,8 @@ test("a failed run keeps its failure on the row that failed, and claims no resul
   assert.equal(p.byId("run-label").textContent, "Run", "a failed run offered something other than running again");
   assert.equal(p.byId("workflow-status").textContent, "Run failed");
   // And the plan is still there to change before trying again.
-  assert.equal(p.byId("plan-buildContext").disabled, false);
-  assert.equal(p.byId("plan-buildContext").checked, true);
+  assert.equal(p.byId("plan-codeSearch").disabled, false);
+  assert.equal(p.byId("plan-codeSearch").checked, true);
 });
 
 test("a later failure never erases the rows that finished before it", () => {
@@ -3918,12 +4065,15 @@ test("a report is a result: it alone makes a work item one worth opening the wor
       }),
     });
 
+  // Folded first: Workflow Steps is open by default (§37.109).
   const without = load();
+  without.byId("workflow").open = false;
   without.send(arrive(PREPARED_FILES));
   assert.equal(without.byId("workflow").open, false);
   assert.equal(without.byId("step-fixResult").hidden, true);
 
   const withReport = load();
+  withReport.byId("workflow").open = false;
   withReport.send(arrive([...PREPARED_FILES, "fix_report.md"], { readable: true, summary: "Fixed it." }));
   assert.equal(withReport.byId("workflow-status").textContent, "Fix report available");
   assert.equal(withReport.byId("workflow").open, true);
@@ -4539,7 +4689,7 @@ test("a failed run shows its card and neither results nor files", () => {
   assert.equal(p.byId("error-fixWithAI").hidden, true);
   assert.equal(p.byId("open-context").hidden, true);
   // The plan is still there to change before trying again.
-  assert.equal(p.byId("plan-buildContext").disabled, false);
+  assert.equal(p.byId("plan-codeSearch").disabled, false);
   assert.equal(p.byId("run").disabled, false);
 });
 
@@ -4911,103 +5061,17 @@ test("a failed run shows no search story", () => {
   assert.equal(p.byId("relevant-files").hidden, true);
 });
 
-// --- UI-C2: Diagnostics ------------------------------------------------------
+// --- Workflow without Diagnostics or a footer (§37.110) ---------------------
 
-const DIAGNOSTICS = {
-  rows: [
-    { label: "Repository", value: "sample-repo", detail: "/work/sample-repo" },
-    { label: "Jira", value: "Credentials configured" },
-    { label: "AI agent", value: "Auto-detect", detail: "Not checked yet" },
-    { label: "Work item", value: "JR-12345", detail: "From a Jira issue" },
-    { label: "Extension", value: "0.1.0" },
-  ],
-};
-
-test("Diagnostics is empty until the host has something to say", () => {
+test("Workflow has no Diagnostics and no version-and-path line; Results has them now", () => {
+  // The page reaches for none of their elements, so a state push with every
+  // field set renders without them.
   const p = load();
-  p.send(state());
-
-  assert.equal(p.byId("diagnostics").hidden, true);
-  assert.equal(p.byId("diagnostics-list").children.length, 0);
-});
-
-test("each diagnostic is a label, a value, and sometimes a quieter line", () => {
-  const p = load();
-  p.send(state({ diagnostics: DIAGNOSTICS }));
-
-  assert.equal(p.byId("diagnostics").hidden, false);
-  const items = p.byId("diagnostics-list").children;
-
-  // A definition list: the pairing is in the markup, not only in the layout.
-  assert.deepEqual(
-    items.map((child) => `${child.className}=${child.textContent}`),
-    [
-      "diagnostic-label=Repository",
-      "diagnostic-value=sample-repo",
-      "diagnostic-detail=/work/sample-repo",
-      "diagnostic-label=Jira",
-      "diagnostic-value=Credentials configured",
-      "diagnostic-label=AI agent",
-      "diagnostic-value=Auto-detect",
-      "diagnostic-detail=Not checked yet",
-      "diagnostic-label=Work item",
-      "diagnostic-value=JR-12345",
-      "diagnostic-detail=From a Jira issue",
-      "diagnostic-label=Extension",
-      "diagnostic-value=0.1.0",
-    ],
-  );
-});
-
-test("Diagnostics is there whether or not a run has happened", () => {
-  // The question it answers — is this the environment I think it is — is asked
-  // most urgently when nothing has run, or when a run has just failed.
-  const p = load();
-
-  p.send(state({ diagnostics: DIAGNOSTICS }));
-  assert.equal(p.byId("diagnostics").hidden, false);
-  assert.equal(p.byId("open-context").hidden, true, "no run has happened");
-
-  p.send(
-    state({
-      progress: { state: "failed", rows: [], artifacts: [] },
-      runError: { kind: "run", title: "Run failed", message: "It stopped." },
-      diagnostics: DIAGNOSTICS,
-    }),
-  );
-  assert.equal(p.byId("diagnostics").hidden, false, "a failed run took Diagnostics with it");
-
-  p.send(prepared({}, { diagnostics: DIAGNOSTICS }));
-  assert.equal(p.byId("diagnostics").hidden, false);
-});
-
-test("the rows are replaced rather than appended as state arrives", () => {
-  const p = load();
-  p.send(state({ diagnostics: DIAGNOSTICS }));
-  p.send(state({ diagnostics: DIAGNOSTICS }));
-
-  assert.equal(p.byId("diagnostics-list").children.length, 13);
-});
-
-test("a diagnostic changes when the state behind it does", () => {
-  const p = load();
-  p.send(state({ diagnostics: { rows: [{ label: "Jira", value: "Credentials not configured" }] } }));
-  assert.equal(p.byId("diagnostics-list").children[1]!.textContent, "Credentials not configured");
-
-  p.send(state({ diagnostics: { rows: [{ label: "Jira", value: "Credentials configured" }] } }));
-  assert.equal(p.byId("diagnostics-list").children[1]!.textContent, "Credentials configured");
-});
-
-test("a hostile diagnostic renders as text", () => {
-  // A repository path and a work item id both come from outside this panel.
-  const hostile = "<script>alert(1)</script>";
-  const p = load();
-  p.send(state({ diagnostics: { rows: [{ label: "Repository", value: hostile, detail: hostile }] } }));
-
-  const items = p.byId("diagnostics-list").children;
-  assert.equal(items[1]!.textContent, hostile);
-  assert.equal(items[1]!.children.length, 0, "the value became markup");
-  assert.equal(items[2]!.textContent, hostile);
+  for (const gone of ["diagnostics", "diagnostics-list", "diagnostics-summary", "environment", "jira-ok", "jira-status"]) {
+    assert.equal(p.elements.has(gone), false, `#${gone} is still in Workflow`);
+  }
+  p.send(prepared({}, { jira: jiraConnection(true, false) }));
+  assert.equal(p.byId("jira-row").hidden, false);
 });
 
 // --- Review with AI, under Fix result (Batch 10) ------------------------------
@@ -6435,8 +6499,9 @@ test("settings 13: each row's summary is the host's line, and absent when there 
   assert.equal(p.byId("settings-summary-fixWithAI").textContent, "Claude Code · Standard Fix");
   assert.equal(p.byId("settings-summary-issueDetails").hidden, true);
   assert.equal(p.byId("settings-summary-buildContext").hidden, true);
-  // And the row still says what it does.
-  assert.equal(p.byId("description-codeSearch").textContent, "Search relevant code in the repository");
+  // The summary is the row's one secondary line before a run: what the step
+  // does is its name's tooltip, not a line above the summary (§37.107).
+  assert.equal(p.byId("description-codeSearch").hidden, true);
 
   p.send(state());
   assert.equal(p.byId("settings-summary-codeSearch").hidden, true, "a summary outlived the settings it described");
@@ -7143,7 +7208,9 @@ test("a completed workflow: each row says Completed or Context ready once, and n
   for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]) {
     const mark = p.byId(`mark-${id}`);
     assert.equal([...mark.classes].some((name) => /pass|check/.test(name)), false, `${id}: ${mark.className}`);
-    // The checkbox is still the row's one check-mark control, untouched.
+    // The checkbox is still the row's one check-mark control, untouched —
+    // on the rows that have one (§37.107).
+    if (id === "issueDetails" || id === "buildContext") continue;
     const box = p.byId(`plan-${id}`);
     assert.equal(box.classes.size, 0, `${id}: the checkbox was restyled`);
   }
@@ -7204,9 +7271,11 @@ test("a running step has one indicator: the spinner and Running, never a dot as 
   // What it is doing is the second line; Running is not repeated there.
   assert.equal(p.byId("description-codeSearch").textContent, "Searching repository…");
   assert.equal(shownTimes(p, "codeSearch", "Running"), 1);
-  // A pending row states no status at all, and keeps its description.
+  // A pending row states no status at all, and has no second line: what it
+  // does is its name's tooltip (§37.107).
   assert.equal(statusOf(p, "gitHistory"), null);
-  assert.equal(p.byId("description-gitHistory").hidden, false);
+  assert.equal(p.byId("description-gitHistory").hidden, true);
+  assert.equal(p.byId("foot-gitHistory").hidden, true);
 });
 
 test("a failed step: Failed once, then the reason — the card still under it", () => {

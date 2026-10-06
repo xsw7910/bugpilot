@@ -35,7 +35,7 @@
   "main": "./out/extension.js",
   "activationEvents": [],
   "//menus": "Comments for contributes.menus live here: VS Code reads every key inside `menus` as a menu id, so a comment there is reported as a submenu that is not an array. commandPalette: bugpilot.openArtifact and bugpilot.showWorkItem are invoked by a tree item with an argument; from the palette they would have nothing to act on. view/item/context: right-clicking a History row acts on that row: the handlers switch the panel to it first, so nothing happens invisibly to a different work item. `viewItem` keeps the menu off the placeholder rows, the artifact rows and the Current and History group rows.",
-  "//views": "Results is one native tree with two groups, Current (the open work item's artifacts) and History, rather than two views. VS Code gives every expanded view the same minimum height whatever it holds, so a one-line Artifacts and a one-row History cost that twice; one view costs it once.",
+  "//views": "Results is one native tree with two groups, Current (the open work item's artifacts) and History, rather than two views. VS Code gives every expanded view the same minimum height whatever it holds, so a one-line Artifacts and a one-row History cost that twice; one view costs it once. `initialSize` is VS Code's weight for a view's first height in a container the same extension owns (each gets height * weight / total): Workflow 3, Results 1, so Workflow starts with three quarters and Results with a quarter, never below VS Code's own minimum (dev plan 37.109). It applies only while the profile has no saved size for the view: once someone drags the sash, VS Code keeps their sizes, and nothing here overrides them. `visibility` is said outright: both views start expanded.",
   "//capabilities": "Declared rather than left to the default. This extension spawns a process whose path a workspace can override (bugpilot.executablePath), so it has no business running in a folder the developer has not trusted - VS Code already disables it there, and saying so gives the reason instead of silent inaction. It also reads and writes the filesystem and runs a local CLI, none of which exists in a virtual workspace.",
   "capabilities": {
     "untrustedWorkspaces": {
@@ -62,11 +62,15 @@
         {
           "id": "bugpilot.panel",
           "name": "Workflow",
-          "type": "webview"
+          "type": "webview",
+          "visibility": "visible",
+          "initialSize": 3
         },
         {
           "id": "bugpilot.results",
-          "name": "Results"
+          "name": "Results",
+          "visibility": "visible",
+          "initialSize": 1
         }
       ]
     },

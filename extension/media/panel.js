@@ -149,23 +149,19 @@
    */
   const GROWING_FIELDS = ["issue", "hint", "keywords", "focusFiles", "ignorePaths", "gitKeywords", "gitFiles"];
 
-  /** The five the CLI runs, which are the ones that go into `form.plan`. */
+  /**
+   * The plan's boxes: the optional steps the CLI runs, which go into
+   * `form.plan`. Issue details and Build context have no box — they run on
+   * every run (§37.107) — and `readForm` says so.
+   */
   const PLAN_FIELDS = [
-    "issueDetails",
     "codeSearch",
     "gitHistory",
     "similarFixes",
-    "buildContext",
   ];
 
-  /**
-   * The three the CLI cannot skip on their own.
-   *
-   * Turning off Build context means `--only-issue-details`, which drops these
-   * as well — and drops the AI fix with them, since there would be no package
-   * to hand over.
-   */
-  const COUPLED_TO_CONTEXT = ["codeSearch", "gitHistory", "similarFixes", "fixWithAI"];
+  /** Every box on the workflow's rows: the plan's, and Fix with AI's. */
+  const STEP_BOXES = [...PLAN_FIELDS, "fixWithAI"];
 
   /**
    * The mark beside a row's status words (§37.86): a small dot in the status's
@@ -282,8 +278,6 @@
   let fixModeCatalog;
   /** The Fix Mode problem already revealed, so the section opens once per problem. */
   let shownFixModeProblem = "";
-  /** The coupled checkboxes as they were before Build context forced them off. */
-  let planBeforeCoupling;
   /**
    * Whether the last render saw a run in flight.
    *
@@ -546,6 +540,7 @@
     form.description = source === "manual" ? issue : "";
     for (const field of PLAN_FIELDS) form.plan[field] = byId(`plan-${field}`).checked;
     form.plan.issueDetails = true;
+    form.plan.buildContext = true;
     // Not part of the plan: it is what happens after the run, not a flag on it.
     form.fixWithAI = byId("plan-fixWithAI").checked;
     // The problem's definition beside the issue: how the AI approaches it and
@@ -612,7 +607,6 @@
     for (const field of PLAN_FIELDS) {
       byId(`plan-${field}`).checked = form.plan?.[field] !== false;
     }
-    byId("plan-issueDetails").checked = true;
     // Opt-in, so an absent field means off — unlike the plan, where absent
     // means the default of on.
     byId("plan-fixWithAI").checked = form.fixWithAI === true;
@@ -633,12 +627,9 @@
     grow(byId("hint"));
     byId("useIssueDetails").checked = form.useIssueDetails !== false;
     renderFixModeNote();
-    // The stored form is the new truth; forget any coupling snapshot from
-    // before it was loaded.
-    planBeforeCoupling = undefined;
     applySourceVisibility();
     applyAgentVisibility();
-    applyPlanCoupling();
+    applyStepBoxes();
     // After the visibility pass, not before: a field the source just hid has no
     // height to measure, and one it just showed had none a moment ago.
     growAll();
@@ -875,34 +866,13 @@
   }
 
   /**
-   * Build context off means `--only-issue-details`, which also skips search,
-   * history, similar fixes and — with no package to hand over — the AI fix.
-   * Leaving those ticked would show a workflow that never ran, so they are
-   * disabled and unticked with the reason spelled out.
+   * The boxes on the workflow's rows can be changed except while a run is in
+   * flight: it has already read them. Not tied to anything else any more —
+   * unticking Build context used to clear and disable the other four, and
+   * Build context always runs since §37.107.
    */
-  function applyPlanCoupling() {
-    const contextOff = !byId("plan-buildContext").checked;
-    if (contextOff) {
-      // Remember the selection before clearing it. Without this, re-ticking
-      // Build context leaves all of them off, and the next run silently skips
-      // search, history and similar fixes — a plan nobody chose.
-      if (!planBeforeCoupling) {
-        planBeforeCoupling = COUPLED_TO_CONTEXT.map((field) => byId(`plan-${field}`).checked);
-      }
-      for (const field of COUPLED_TO_CONTEXT) {
-        const box = byId(`plan-${field}`);
-        box.checked = false;
-        box.disabled = true;
-      }
-    } else {
-      COUPLED_TO_CONTEXT.forEach((field, index) => {
-        const box = byId(`plan-${field}`);
-        if (planBeforeCoupling) box.checked = planBeforeCoupling[index];
-        box.disabled = running;
-      });
-      planBeforeCoupling = undefined;
-    }
-    byId("plan-note").hidden = !contextOff;
+  function applyStepBoxes() {
+    for (const field of STEP_BOXES) byId(`plan-${field}`).disabled = running;
   }
 
   // --- rendering -----------------------------------------------------------
@@ -945,16 +915,13 @@
     renderRun(state);
     renderRunHint(state);
     renderSessionFeedback(state);
-    // Outside the result on purpose: whether this is the environment the
-    // developer thinks it is has nothing to do with whether a run succeeded.
-    renderDiagnostics(state);
     agentLines = (state.agents && state.agents.lines) || {};
     renderAgentStatus();
     renderNotices(state);
     renderManage(state);
     renderSettings(state);
     renderHintImprovement(state);
-    renderFooter(state);
+    renderJira(state);
     // Last: a reset done closes what the renders above may have drawn for the
     // old session's last moment.
     renderSessionReset(state);
@@ -1132,7 +1099,6 @@
     shownProblems = signature;
   }
 
-
   /**
    * One row per step: the icon, the duration, the description, the actions.
    *
@@ -1161,17 +1127,15 @@
       byId(`duration-${step.id}`).textContent =
         typeof step.durationMs === "number" ? formatDuration(step.durationMs) : "";
 
-      // The second line, only for what the status does not say: what it does
-      // while pending, what it is doing while running, what it produced once
-      // done. A finished row with nothing more to say has no second line.
-      const secondLine = step.status === "idle" ? step.summary || step.description || "" : step.summary || "";
+      // The second line is state, and only what the status does not say: what
+      // it is doing while running, what it produced once done. A row with
+      // nothing to say has no second line — what the step does is its name's
+      // tooltip, never this line (§37.107).
+      const secondLine = step.summary || "";
       const description = byId(`description-${step.id}`);
       description.textContent = secondLine;
       description.hidden = secondLine === "";
-      // "Always runs" is plan information: once the row has run, it is noise.
-      const note = document.getElementById(`note-${step.id}`);
-      if (note) note.hidden = step.status !== "idle";
-      byId(`foot-${step.id}`).hidden = description.hidden && (!note || note.hidden);
+      byId(`foot-${step.id}`).hidden = description.hidden;
 
       const detail = byId(`detail-${step.id}`);
       detail.textContent = step.detail || "";
@@ -2322,44 +2286,6 @@
   }
 
   /**
-   * What BugPilot is configured with.
-   *
-   * A definition list, because that is what label-and-value is: the pairing is
-   * in the markup rather than only in the layout, so it survives a screen
-   * reader. Everything goes through `textContent` — a repository path and a
-   * work item id are both text from outside this panel.
-   *
-   * The host decided every word. The page knows nothing about what "Configured"
-   * means and cannot ask.
-   */
-  function renderDiagnostics(state) {
-    const rows = (state.diagnostics || {}).rows || [];
-    const list = byId("diagnostics-list");
-    list.replaceChildren();
-    byId("diagnostics").hidden = rows.length === 0;
-
-    for (const row of rows) {
-      const label = document.createElement("dt");
-      label.className = "diagnostic-label";
-      label.textContent = row.label;
-
-      const value = document.createElement("dd");
-      value.className = "diagnostic-value";
-      value.textContent = row.value;
-      list.append(label, value);
-
-      // A path, or a qualifier. Quieter, and its own `dd` so the pairing stays
-      // one label to one reading.
-      if (row.detail) {
-        const detail = document.createElement("dd");
-        detail.className = "diagnostic-detail";
-        detail.textContent = row.detail;
-        list.append(detail);
-      }
-    }
-  }
-
-  /**
    * Code search's two disclosures, from its row.
    *
    * Present only while the row carries content — a finished search whose
@@ -2975,23 +2901,31 @@
     }
   }
 
-  function renderFooter(state) {
-    const readiness = state.readiness || {};
-    // The version answers "which bugpilot is this?" on a machine that has more
-    // than one, which is the common case once a pipx copy and a checkout exist.
-    byId("environment").textContent =
-      readiness.kind === "ready"
-        ? [
-            readiness.version ? `BugPilot ${readiness.version}` : readiness.executable,
-            readiness.root,
-          ].join(" · ")
-        : "";
-    // A tick and one word, rather than a sentence: this is status, and it sits
-    // below every control in the panel.
-    byId("jira-status").textContent = state.jiraConfigured ? "Configured" : "Not configured";
-    byId("jira-status").className = state.jiraConfigured ? "ok" : "muted";
-    byId("jira-ok").hidden = !state.jiraConfigured;
-    byId("set-credentials").textContent = state.jiraConfigured ? "Replace" : "Set Jira credentials";
+  /**
+   * The Jira row under Advanced Settings (§37.110): the host's words, as they
+   * are. A tick beside Configured and an error mark beside Authentication
+   * failed echo the words; they never replace them. The button stays the one
+   * `setCredentials` action, worded Configure or Replace.
+   */
+  function renderJira(state) {
+    const jira = state.jira;
+    if (!jira) return;
+    const row = byId("jira-row");
+    row.className = `jira-row jira-${jira.state}`;
+    row.setAttribute("title", jira.tooltip);
+    byId("jira-status-text").textContent = jira.status;
+    const mark = byId("jira-state-icon");
+    mark.className =
+      jira.state === "configured"
+        ? "codicon codicon-check jira-state-icon icon-success"
+        : jira.state === "authFailed"
+          ? "codicon codicon-error jira-state-icon icon-danger"
+          : "codicon jira-state-icon";
+    mark.hidden = jira.state === "notConfigured";
+    const action = byId("set-credentials");
+    action.textContent = jira.action;
+    action.setAttribute("aria-label", jira.actionLabel);
+    byId("jira-row-description").textContent = jira.tooltip;
   }
 
   function setFormEnabled(enabled) {
@@ -3003,8 +2937,7 @@
     byId("fresh").disabled = !enabled;
     for (const field of GIT_SWITCHES) byId(field).disabled = !enabled;
     byId("gitHistoryDepth").disabled = !enabled;
-    byId("plan-buildContext").disabled = !enabled;
-    applyPlanCoupling();
+    applyStepBoxes();
   }
 
   function formatDuration(ms) {
@@ -3846,7 +3779,6 @@
   byId("form").addEventListener("change", (event) => {
     if (fromReviewEditor(event)) return;
     const target = event.target;
-    if (target && target.id === "plan-buildContext") applyPlanCoupling();
     if (target && target.id === "agent") applyAgentVisibility();
     if (target && target.id === "fixModeId") renderFixModeNote();
     formChanged();
@@ -4165,7 +4097,7 @@
     renderAttachments();
     applySourceVisibility();
     applyAgentVisibility();
-    applyPlanCoupling();
+    applyStepBoxes();
     growAll();
   }
   vscode.postMessage({ type: "ready" });

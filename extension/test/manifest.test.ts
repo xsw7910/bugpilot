@@ -41,7 +41,7 @@ const manifest = JSON.parse(
   contributes: {
     commands: { command: string; title: string; category?: string }[];
     configuration: { properties: Record<string, { type: string; default?: unknown }> };
-    views: Record<string, { id: string; name: string; type?: string }[]>;
+    views: Record<string, { id: string; name: string; type?: string; visibility?: string; initialSize?: number }[]>;
     viewsContainers: { activitybar: { id: string; title: string; icon: string }[] };
     menus: Record<string, { command: string; when?: string; group?: string }[]>;
   };
@@ -111,6 +111,27 @@ test("the views the code registers are the ones the manifest declares", () => {
   // is VS Code's pane minimum and nothing this extension sets.
   assert.equal(declared.find((view) => view.id === VIEWS.panel)?.type, "webview");
   assert.equal(declared.find((view) => view.id === VIEWS.results)?.type, undefined);
+});
+
+test("Workflow starts with most of the sidebar, Results with the rest, both expanded (§37.109)", () => {
+  // `initialSize` is VS Code's weight for a view's first height — each gets
+  // height × weight / total — and VS Code reads it only for views in a
+  // container the same extension contributes, which `bugpilot` is. Not `size`:
+  // that is no property of a contributed view, and VS Code would ignore it.
+  const declared = manifest.contributes.views["bugpilot"] ?? [];
+  const panel = declared.find((view) => view.id === VIEWS.panel)!;
+  const results = declared.find((view) => view.id === VIEWS.results)!;
+  assert.equal(panel.type, "webview");
+  assert.equal(results.type, undefined, "Results is a native tree");
+  assert.equal(panel.initialSize, 3);
+  assert.equal(results.initialSize, 1);
+  assert.ok(panel.initialSize! > results.initialSize!, "Results starts larger than Workflow");
+  assert.equal(declared.some((view) => "size" in view), false);
+  // The views' container is BugPilot's own, which is what makes the weights count.
+  assert.deepEqual(manifest.contributes.viewsContainers.activitybar.map((container) => container.id), ["bugpilot"]);
+  // Both start expanded: Results is smaller, never collapsed to save room.
+  assert.equal(panel.visibility, "visible");
+  assert.equal(results.visibility, "visible");
 });
 
 test("Artifacts and History are groups of Results, not views of their own (§37.106)", () => {

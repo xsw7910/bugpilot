@@ -6,12 +6,15 @@ import { fileURLToPath } from "node:url";
 
 import { artifactRow, buildArtifactList, historyFromPayload, historyRow } from "../src/app/artifacts.ts";
 import type { ArtifactList, HistoryList } from "../src/app/artifacts.ts";
-import { CURRENT_GROUP, HISTORY_GROUP, resultsChildren, resultsItem } from "../src/app/results.ts";
+import { CURRENT_GROUP, DIAGNOSTICS_GROUP, HISTORY_GROUP, resultsChildren, resultsItem } from "../src/app/results.ts";
 import type { ResultsNode, ResultsSources } from "../src/app/results.ts";
+import { diagnostics } from "../src/app/diagnostics.ts";
+import type { DiagnosticsInput, DiagnosticsView } from "../src/app/diagnostics.ts";
 import { COMMANDS, HISTORY_ITEM_CONTEXT, workItemFromTree } from "../src/commands.ts";
 
 /**
- * The Results tree (§37.106): Current and History as two groups of one view.
+ * The Results tree (§37.106, §37.110): Current, History and Diagnostics as
+ * three groups of one view.
  * The rows themselves are `artifacts.ts`'s, and `test/artifacts.test.ts` pins
  * them; this file pins the tree around them, and that the rows reach it
  * unchanged.
@@ -38,14 +41,30 @@ const THREE = historyFromPayload(
   (id) => ({ "JR-12345": NOW - 3 * HOUR, local_20260904160612: NOW - HOUR, "JR-9999": NOW - 50 * HOUR })[id],
 );
 
-/** Sources that count how often History was read. */
-function sources(artifacts: ArtifactList, history: HistoryList = NO_HISTORY) {
-  const reads = { history: 0 };
+/** The diagnostics a ready, configured environment produces, through the real model. */
+const ENVIRONMENT: DiagnosticsInput = {
+  root: "/work/sample-repo",
+  executable: "/home/dev/.local/bin/bugpilot",
+  cliVersion: "0.1.0",
+  extensionVersion: "0.1.0",
+  jiraConfigured: true,
+  agent: "auto",
+  workItemId: "local_20260904160612",
+  source: "manual",
+};
+
+/** Sources that count how often History and Diagnostics were read. */
+function sources(artifacts: ArtifactList, history: HistoryList = NO_HISTORY, environment: DiagnosticsView = diagnostics(ENVIRONMENT)) {
+  const reads = { history: 0, diagnostics: 0 };
   const value: ResultsSources = {
     artifacts: () => artifacts,
     history: async () => {
       reads.history += 1;
       return history;
+    },
+    diagnostics: () => {
+      reads.diagnostics += 1;
+      return environment;
     },
     now: () => NOW,
   };
@@ -57,15 +76,88 @@ const labels = (nodes: readonly ResultsNode[], workItemId?: string) =>
 
 // --- the root -----------------------------------------------------------------
 
-test("the root is Current then History, always, whatever is open", async () => {
+test("the root is Current, History, then Diagnostics, always, whatever is open", async () => {
   for (const artifacts of [NOTHING_OPEN, buildArtifactList({ names: PREPARED }), { kind: "loading" } as const]) {
     const root = await resultsChildren(undefined, sources(artifacts).sources);
-    assert.deepEqual(labels(root), ["Current", "History"]);
-    // The same two objects every time: VS Code finds the node to refresh by
-    // identity, and `refreshCurrent` names CURRENT_GROUP.
+    assert.deepEqual(labels(root), ["Current", "History", "Diagnostics"]);
+    // The same three objects every time: VS Code finds the node to refresh by
+    // identity — `refreshCurrent` names CURRENT_GROUP, `syncDiagnostics`
+    // DIAGNOSTICS_GROUP.
     assert.equal(root[0], CURRENT_GROUP);
     assert.equal(root[1], HISTORY_GROUP);
+    assert.equal(root[2], DIAGNOSTICS_GROUP);
   }
+});
+
+// --- Diagnostics (§37.110) ------------------------------------------------------
+
+test("Diagnostics is a collapsed group with a stable id, last, offering nothing to press", () => {
+  const group = resultsItem(DIAGNOSTICS_GROUP, undefined);
+  assert.equal(group.label, "Diagnostics");
+  assert.equal(group.collapsible, "collapsed");
+  assert.equal(group.id, "bugpilot.results.diagnostics");
+  assert.equal(group.icon, "pulse");
+  assert.equal(group.contextValue, undefined);
+  assert.equal(group.command, undefined);
+  assert.match(group.tooltip ?? "", /Nothing here checks anything/);
+  assert.deepEqual(resultsItem(DIAGNOSTICS_GROUP, "JR-1"), group, "Diagnostics depends on what is open");
+});
+
+test("Diagnostics' rows: a label, the value beside it, the rest on hover", async () => {
+  const rows = await resultsChildren(DIAGNOSTICS_GROUP, sources(NOTHING_OPEN).sources);
+  const items = rows.map((node) => resultsItem(node, undefined));
+  assert.deepEqual(
+    items.map((item) => [item.label, item.description, item.icon]),
+    [
+      ["Repository", "sample-repo", "repo"],
+      ["Jira", "Configured", "key"],
+      ["AI agent", "Auto-detect", "hubot"],
+      ["Work item", "local_20260904160612", "issues"],
+      ["Extension", "0.1.0", "extensions"],
+      ["BugPilot CLI", "0.1.0", "terminal"],
+    ],
+  );
+  const byLabel = Object.fromEntries(items.map((item) => [item.label, item]));
+  // The path is in the tooltip, never on the row, so it never widens the tree.
+  assert.equal(byLabel["Repository"]!.tooltip, "Repository: sample-repo\nPath: /work/sample-repo");
+  assert.equal(items.some((item) => (item.description ?? "").includes("/work/")), false);
+  assert.equal(byLabel["BugPilot CLI"]!.tooltip, "BugPilot CLI: 0.1.0\nExecutable: /home/dev/.local/bin/bugpilot");
+  assert.equal(byLabel["AI agent"]!.tooltip, "AI agent: Auto-detect\nNot checked yet");
+  assert.equal(byLabel["Work item"]!.tooltip, "Work item: local_20260904160612\nFrom a bug description");
+  // Jira's says where it is set up: the Workflow row, not here.
+  assert.equal(byLabel["Jira"]!.tooltip, "Jira: Configured\nSet up from the Jira row in Workflow");
+  for (const item of items) {
+    assert.equal(item.accessibleName, `${item.label}, ${item.description}`);
+    assert.equal(item.collapsible, "none");
+    // Status only: no command, no menu — Jira's included.
+    assert.equal(item.command, undefined, item.label);
+    assert.equal(item.contextValue, undefined, item.label);
+  }
+  // And nothing under a row.
+  for (const node of rows) assert.deepEqual(await resultsChildren(node, sources(NOTHING_OPEN).sources), []);
+});
+
+test("Diagnostics' Jira mirrors the Workflow row's words", async () => {
+  const jira = async (input: Partial<DiagnosticsInput>) => {
+    const rows = await resultsChildren(DIAGNOSTICS_GROUP, sources(NOTHING_OPEN, NO_HISTORY, diagnostics({ ...ENVIRONMENT, ...input })).sources);
+    return rows.map((node) => resultsItem(node, undefined)).find((item) => item.label === "Jira")!.description;
+  };
+  assert.equal(await jira({ jiraConfigured: true }), "Configured");
+  assert.equal(await jira({ jiraConfigured: false }), "Not configured");
+  assert.equal(await jira({ jiraConfigured: true, jiraRejected: true }), "Authentication failed");
+  // Nothing stored means nothing to have been turned away.
+  assert.equal(await jira({ jiraConfigured: false, jiraRejected: true }), "Not configured");
+});
+
+test("Diagnostics is read only when it is drawn: the root, Current and History never ask", async () => {
+  const { sources: from, reads } = sources(buildArtifactList({ names: PREPARED }), THREE);
+  await resultsChildren(undefined, from);
+  await resultsChildren(CURRENT_GROUP, from);
+  await resultsChildren(HISTORY_GROUP, from);
+  assert.equal(reads.diagnostics, 0);
+  await resultsChildren(DIAGNOSTICS_GROUP, from);
+  assert.equal(reads.diagnostics, 1);
+  assert.equal(reads.history, 1, "Diagnostics read History");
 });
 
 test("Current is expanded and History collapsed, each with a stable id and its own icon", () => {
@@ -216,12 +308,13 @@ test("a History row is still the argument its context menu acts on", async () =>
   const history = await resultsChildren(HISTORY_GROUP, sources(NOTHING_OPEN, THREE).sources);
   assert.deepEqual(history.map(workItemFromTree), ["local_20260904160612", "JR-12345", "JR-9999"]);
   const current = await resultsChildren(CURRENT_GROUP, sources(buildArtifactList({ names: PREPARED })).sources);
-  for (const node of [CURRENT_GROUP, HISTORY_GROUP, ...current, { kind: "message", text: "Loading …" } as const]) {
+  const diagnosticRows = await resultsChildren(DIAGNOSTICS_GROUP, sources(NOTHING_OPEN).sources);
+  for (const node of [CURRENT_GROUP, HISTORY_GROUP, DIAGNOSTICS_GROUP, ...current, ...diagnosticRows, { kind: "message", text: "Loading …" } as const]) {
     assert.equal(workItemFromTree(node), undefined, JSON.stringify(node));
   }
 });
 
-test("rows have no children: only the two groups expand", async () => {
+test("rows have no children: only the groups expand", async () => {
   const { sources: from, reads } = sources(buildArtifactList({ names: PREPARED }), THREE);
   const all = [...(await resultsChildren(CURRENT_GROUP, from)), ...(await resultsChildren(HISTORY_GROUP, from))];
   for (const node of all) assert.deepEqual(await resultsChildren(node, from), []);

@@ -14,7 +14,7 @@ import {
 import type { PanelMessage } from "../src/panel/messages.ts";
 import { SETTINGS_FIELD_IDS, TEXT_FIELD_IDS, panelHtml } from "../src/panel/html.ts";
 import { DEFAULT_FORM, JIRA_ISSUE_KEY_RE } from "../src/app/form.ts";
-import { WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
+import { ALWAYS_RUNS, WORKFLOW_STEP_IDS, stepDescription, stepTooltip } from "../src/app/workflow.ts";
 import { PRIMARY_TOOLTIPS } from "../src/app/nextAction.ts";
 import {
   SETTINGS_ACTION_LABELS,
@@ -407,12 +407,14 @@ test("the one Issue field reads a Jira key the way the argv builder does", () =>
   assert.equal(literal, JIRA_ISSUE_KEY_RE.source);
 });
 
-test("there is one row, with one checkbox, for every workflow step", () => {
+test("there is one row for every workflow step, and one checkbox for every optional one", () => {
   // Both directions. A step in the model with no row can never be chosen, and
   // a row the model does not know about is a checkbox that changes nothing.
+  // Issue details and Build context always run, so they have no box (§37.107).
   for (const id of WORKFLOW_STEP_IDS) {
     assert.match(HTML, new RegExp(`id="step-${id}"`), `no row for ${id}`);
-    assert.match(HTML, new RegExp(`id="plan-${id}"`), `no checkbox for ${id}`);
+    const box = new RegExp(`id="plan-${id}"`).test(HTML);
+    assert.equal(box, !ALWAYS_RUNS.includes(id), `${id}: ${box ? "a checkbox" : "no checkbox"}`);
   }
   // Then Fix result (Batch 8), last, and the one row nobody ticks.
   const rows = [...HTML.matchAll(/id="step-([A-Za-z]+)"/g)].map((match) => match[1]);
@@ -443,7 +445,7 @@ test("the AI step is a workflow row rather than a button, and starts unticked", 
   // what R5 asks not to happen without a decision.
   const row = /<li[^>]*id="step-fixWithAI"[\s\S]*?<\/li>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(row, "", "no Fix with AI row");
-  assert.match(row, /<input type="checkbox" id="plan-fixWithAI">/);
+  assert.match(row, /<input type="checkbox" id="plan-fixWithAI" aria-describedby="purpose-fixWithAI">/);
   assert.equal(/ checked/.test(row), false, "Fix with AI must not arrive ticked");
   assert.match(row, /Fix with AI/);
 });
@@ -563,9 +565,9 @@ test("there is no Context Ready card: the workflow header is the one global stat
 
 test("the workflow has no primary button: the one primary action is at the top", () => {
   // Fix with AI used to be a second primary button inside its row, a competing
-  // answer to "what next?" under a disclosure that starts collapsed. Handing the
+  // answer to "what next?" under a disclosure that started collapsed then. Handing the
   // task over is the top button's job now, in every state that offers it.
-  const workflow = HTML.slice(HTML.indexOf('<details class="group" id="workflow"'), HTML.indexOf('<details class="diagnostics"'));
+  const workflow = HTML.slice(HTML.indexOf('<details class="group" id="workflow"'), HTML.indexOf("</form>"));
   assert.notEqual(workflow, "", "no workflow disclosure");
   assert.deepEqual([...workflow.matchAll(/<button[^>]*class="primary"/g)].length, 0);
   // In the whole main view, exactly one: Run's. (Apply is the settings page's.)
@@ -608,8 +610,10 @@ test("a gear on exactly the rows that have settings, named for its step", () => 
 test("rows with nothing to configure have no gear, and no summary line", () => {
   for (const id of ["similarFixes", "fixResult"]) {
     const row = rowMarkup(id);
-    assert.equal(row.includes("step-settings"), false, `${id} has a gear`);
+    assert.equal(row.includes('class="icon step-settings"'), false, `${id} has a gear`);
     assert.equal(row.includes(`settings-summary-${id}`), false, `${id} has a summary line`);
+    // Only the gear's place, so its status ends where the others' do (§37.107).
+    assert.match(row, /<span class="step-settings-spacer" aria-hidden="true"><\/span>/, `${id}: no place kept for a gear`);
   }
   // Six rows, five gears (Git history has had one since its settings), one
   // Workflow Settings entry: no gear called Settings.
@@ -622,7 +626,8 @@ test("the gear is quieter, never hidden, has a focus ring, and never squeezes it
   // strength on hover or focus.
   const rule = /\.step-settings \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
   assert.match(rule, /flex: none/);
-  assert.match(rule, /opacity: 0\.6/);
+  // Clearly a control at rest (§37.108), still a step quieter than on hover.
+  assert.match(rule, /opacity: 0\.8/);
   assert.equal(/display: none|visibility: hidden|opacity: 0;/.test(rule), false);
   assert.match(CSS, /\.step:hover \.step-settings,\s*\.step-settings:hover,\s*\.step-settings:focus-visible \{\s*opacity: 1;/);
   assert.match(CSS, /\.step-settings:focus-visible \{[^}]*outline: 1px solid var\(--vscode-focusBorder\)/s);
@@ -939,10 +944,13 @@ test("each icon carries the tone its kind of setting means", () => {
     assert.ok(label, `no label for ${id}`);
     assert.match(label, new RegExp(`\\b${tone}\\b`), `${id} should be ${tone}`);
   }
-  // Advanced Settings' gear takes the entry's quiet colour (§37.91); the two
-  // icons the page script creates keep theirs.
+  // Advanced Settings' gear takes the entry's quiet colour (§37.91); the
+  // icons the page script sets keep theirs — the Jira row's tick and error
+  // mark (§37.110), and the notice's warning.
   assert.match(HTML, /<button type="button" id="open-settings"[^>]*>\s*<span class="codicon codicon-settings-gear" aria-hidden="true"><\/span>/);
-  assert.match(HTML, /codicon-check icon-success/);
+  assert.match(PAGE_JS, /codicon codicon-check jira-state-icon icon-success/);
+  assert.match(PAGE_JS, /codicon codicon-error jira-state-icon icon-danger/);
+  assert.match(HTML, /codicon-key jira-icon icon-muted/);
   assert.match(PAGE_JS, /codicon-warning icon-warning/);
 });
 
@@ -1132,22 +1140,74 @@ test("deleting artifacts is described, and is not recommended", () => {
 });
 
 test("the repository notice is a card, not loose footer text", () => {
-  // Its text is host-computed, so the markup only has to provide the container
-  // — and prove the footer no longer carries it.
+  // Its text is host-computed, so the markup only has to provide the container.
   assert.match(HTML, /<section id="notices"[^>]*role="status"[^>]*hidden>/);
-  const footer = /<footer[\s\S]*?<\/footer>/.exec(HTML)?.[0] ?? "";
-  assert.equal(footer.includes('id="warnings"'), false, "the footer still holds the warning");
   assert.match(CSS, /\.notice \{/);
 });
 
-test("the footer is secondary to everything above it", () => {
-  const footer = /<footer[\s\S]*?<\/footer>/.exec(HTML)?.[0] ?? "";
-  assert.match(footer, /id="environment"/);
-  assert.match(footer, /Jira:/);
-  assert.match(footer, /id="set-credentials"/, "the credentials link must stay clickable");
-  // Smaller and dimmer by rule, not by hope.
-  assert.match(CSS, /\.footer \{[^}]*font-size: 0\.9em/s);
-  assert.match(CSS, /\.footer \{[^}]*var\(--vscode-descriptionForeground\)/s);
+// --- The Jira row; no footer, no Diagnostics in Workflow (§37.110) ----------
+
+/** The Jira row, as `html.ts` renders it. */
+const JIRA_ROW = /<div class="jira-row[^"]*" id="jira-row"[\s\S]*?\n {6}<\/div>/.exec(HTML)?.[0] ?? "";
+
+test("the Jira row sits between Advanced Settings and Workflow Steps, on the form", () => {
+  assert.notEqual(JIRA_ROW, "", "no Jira row");
+  const form = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+  const at = (id: string) => form.indexOf(`id="${id}"`);
+  assert.ok(at("open-settings") !== -1 && at("open-settings") < at("jira-row"), "the Jira row is above Advanced Settings");
+  assert.ok(at("jira-row") < at("workflow"), "the Jira row is below Workflow Steps");
+  // Not inside Workflow Steps, and not in a disclosure, a menu or a card.
+  const workflow = form.slice(form.indexOf('<details class="group" id="workflow"'));
+  assert.equal(workflow.includes('id="jira-row"'), false);
+  assert.equal(/<details|class="card|role="menu/.test(JIRA_ROW), false);
+  assert.equal(HTML.split('id="set-credentials"').length - 1, 1, "more than one Jira entry in the panel");
+});
+
+test("the Jira row is one line: the key, the name, the status, the action", () => {
+  const order = ['codicon-key jira-icon', 'id="jira-label">Jira<', 'id="jira-state-icon"', 'id="jira-status-text"', 'id="set-credentials"'].map((part) => JIRA_ROW.indexOf(part));
+  assert.ok(order.every((at) => at !== -1), `a part is missing: ${order}`);
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  // The action is the existing link-style button; the page's click handler
+  // posts the existing setCredentials action.
+  assert.match(JIRA_ROW, /<button type="button" id="set-credentials" class="link jira-action"/);
+  assert.match(PAGE_JS, /byId\("set-credentials"\)\.addEventListener\("click", \(\) =>\s*vscode\.postMessage\(\{ type: "action", id: "setCredentials" \}\)/);
+  // First paint is the host's own starting state, no credential known.
+  assert.match(JIRA_ROW, /id="jira-status-text">Not configured</);
+  assert.match(JIRA_ROW, />Configure<\/button>/);
+  // Named and described: "Jira, Not configured" for the group, "Configure Jira
+  // credentials" for the button, the tooltip's sentences as its description.
+  assert.match(JIRA_ROW, /role="group" aria-labelledby="jira-label jira-status-text"/);
+  assert.match(JIRA_ROW, /aria-label="Configure Jira credentials" aria-describedby="jira-row-description"/);
+  assert.match(JIRA_ROW, /title="Jira credentials are not configured\. Configure opens Jira credential setup\."/);
+  assert.match(JIRA_ROW, /<span class="visually-hidden" id="jira-row-description">Jira credentials are not configured\./);
+  // The marks are decoration: the words carry the state.
+  assert.match(JIRA_ROW, /class="codicon jira-state-icon" id="jira-state-icon" aria-hidden="true" hidden/);
+});
+
+test("the Jira row keeps its action in a narrow sidebar: the status gives way, the rest never shrinks", () => {
+  assert.match(CSS, /\.jira-row \{[^}]*display: flex;[^}]*align-items: center;[^}]*min-width: 0;/s);
+  for (const part of ["jira-icon", "jira-label", "jira-state-icon", "jira-action"]) {
+    assert.match(CSS, new RegExp(`\\.${part} \\{[^}]*flex: none;`, "s"), part);
+  }
+  assert.match(CSS, /\.jira-status \{[^}]*flex: 1 1 auto;[^}]*min-width: 0;/s);
+  assert.match(CSS, /\.jira-status-text \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s);
+  assert.match(CSS, /\.jira-action \{[^}]*white-space: nowrap;/s);
+  // Secondary words; the error colour only for a failure, and from the theme.
+  assert.match(CSS, /\.jira-status \{[^}]*color: var\(--vscode-descriptionForeground\);/s);
+  assert.match(CSS, /\.jira-authFailed \.jira-status-text \{\s*color: var\(--vscode-errorForeground\);/);
+  // No card around it.
+  assert.equal(/\.jira-row \{[^}]*(border|background|box-shadow)/s.test(CSS), false);
+});
+
+test("Workflow has no footer, no version-and-path line and no Diagnostics (§37.110)", () => {
+  assert.equal(/<footer/.test(HTML), false, "a footer is back");
+  for (const gone of ['id="environment"', 'id="diagnostics"', 'id="diagnostics-list"', 'id="jira-ok"', "Jira:<"]) {
+    assert.equal(HTML.includes(gone), false, `${gone} is back in Workflow`);
+  }
+  assert.equal(/\.footer\b|\.diagnostic/.test(CSS), false, "styles for what is gone");
+  // Nor does the page build the line: the version and the path are Results >
+  // Diagnostics' now.
+  assert.equal(/BugPilot \$\{|readiness\.root|renderDiagnostics|renderFooter/.test(PAGE_JS), false);
 });
 
 test("every optional field is on the Workflow Settings page, and none is on the form", () => {
@@ -1291,8 +1351,15 @@ test("Run is one prominent button whose shortcut is declared, not spelled out (�
 });
 
 test("issue details is shown as fixed, not as an option that does nothing", () => {
-  assert.match(HTML, /id="plan-issueDetails"[^>]*checked disabled/);
-  assert.match(HTML, /Always runs/);
+  // No checkbox at all — not a ticked, disabled one, which reads as a setting
+  // somebody locked and is still announced as a checkbox (§37.107).
+  const row = rowMarkup("issueDetails");
+  assert.equal(row.includes('type="checkbox"'), false);
+  assert.equal(row.includes(" disabled"), false);
+  // That it always runs is said in words to whoever hovers or listens, not on
+  // the row (§37.108).
+  assert.match(row, /class="step-label" title="Gather issue information\. Always runs\."/);
+  assert.equal(row.includes("step-note"), false);
 });
 
 test("the live regions announce themselves", () => {
@@ -1326,7 +1393,7 @@ test("every element the page reaches for exists in the document", () => {
   // The per-step ids are built from a template in the page, so the literal
   // scan above cannot see them — and a renamed row would fail silently.
   for (const step of WORKFLOW_STEP_IDS) {
-    ids.add(`plan-${step}`);
+    if (!ALWAYS_RUNS.includes(step)) ids.add(`plan-${step}`);
     ids.add(`step-${step}`);
     ids.add(`status-${step}`);
     ids.add(`duration-${step}`);
@@ -1360,6 +1427,12 @@ test("the markup's defaults are the model's defaults", () => {
   assert.equal(/ checked/.test(fixTag), DEFAULT_FORM.fixWithAI);
   for (const [field, expected] of Object.entries(DEFAULT_FORM.plan)) {
     const tag = new RegExp(`<input[^>]*id="plan-${field}"[^>]*>`).exec(HTML)?.[0] ?? "";
+    // The two that always run are on in the model and have no box to tick.
+    if (ALWAYS_RUNS.includes(field as (typeof ALWAYS_RUNS)[number])) {
+      assert.equal(expected, true, `${field} is not on in the model`);
+      assert.equal(tag, "", `plan-${field} has a checkbox again`);
+      continue;
+    }
     assert.notEqual(tag, "", `no checkbox for plan-${field}`);
     assert.equal(/ checked/.test(tag), expected, `plan-${field} default disagrees with the model`);
   }
@@ -1381,9 +1454,11 @@ test("the page's checkbox list is the document's checkbox list", () => {
   const block = /const PLAN_FIELDS = \[([\s\S]*?)\];/.exec(PAGE_JS);
   assert.ok(block, "could not find PLAN_FIELDS in panel.js");
   const fields = [...block[1]!.matchAll(/"([a-zA-Z]+)"/g)].map((match) => match[1]!);
-  // The page's five are the plan; the sixth row is read separately, because it
-  // is not part of `form.plan` and must not become a CLI flag.
-  assert.deepEqual(fields, WORKFLOW_STEP_IDS.filter((id) => id !== "fixWithAI"));
+  // The page's three are the optional plan; the sixth row is read separately,
+  // because it is not part of `form.plan` and must not become a CLI flag. The
+  // two that always run have no box to read (§37.107).
+  assert.deepEqual(fields, WORKFLOW_STEP_IDS.filter((id) => id !== "fixWithAI" && !ALWAYS_RUNS.includes(id)));
+  assert.match(PAGE_JS, /form\.plan\.issueDetails = true;\s*form\.plan\.buildContext = true;/);
   assert.match(PAGE_JS, /byId\("plan-fixWithAI"\)\.checked/);
 });
 
@@ -1730,15 +1805,16 @@ test("the default view is the Issue field, Run, two disclosures and the way into
   const disclosures = [...topLevel.matchAll(/<details[^>]*id="([a-z-]+)"/g)].map(
     (match) => match[1],
   );
-  // Diagnostics is last and always reachable rather than inside the result,
-  // because "is this the environment I think it is" is asked most urgently when
-  // nothing has run or a run has just failed. Advanced settings was the third;
-  // it is a page now, reached from the entry between the two.
-  assert.deepEqual(disclosures, ["workflow", "diagnostics"]);
+  // Workflow Steps alone: Diagnostics was the second, and is a group of
+  // Results now (§37.110); Advanced settings was the third, and is a page.
+  assert.deepEqual(disclosures, ["workflow"]);
   // The way into Advanced Settings is with the inputs: under Run, above the workflow (§37.91).
   assert.ok(form.indexOf('id="run-hint"') < form.indexOf('id="open-settings"'));
   assert.ok(form.indexOf('id="open-settings"') < form.indexOf('id="workflow"'));
-  assert.equal(/<details[^>]*\bopen\b/.test(form), false, "a disclosure starts open");
+  // Workflow Steps starts open (§37.109); every other disclosure starts shut.
+  const openAtStart = [...form.matchAll(/<details[^>]*\sopen(?=[\s>])[^>]*>/g)].map((match) => /id="([a-z-]+)"/.exec(match[0])?.[1]);
+  assert.deepEqual(openAtStart, ["workflow"], "a disclosure other than Workflow Steps starts open");
+  assert.match(form, /<details class="group" id="workflow" aria-labelledby="workflow-heading" open>/);
 });
 
 /** The Issue field's whole block, as `html.ts` renders it. */
@@ -1908,7 +1984,8 @@ test("Workflow Settings is one section per step that has settings, in the workfl
   assert.equal(/<p[^>]*id="settings-note-/.test(SETTINGS_VIEW), false);
   // No disclosures and no nested forms: one page, read top to bottom.
   assert.equal(/<details|<form/.test(SETTINGS_VIEW), false);
-  assert.equal(/<details[^>]*\bopen\b/.test(HTML), false);
+  // In the whole document only Workflow Steps starts open (§37.109).
+  assert.deepEqual([...HTML.matchAll(/<details[^>]*\sopen(?=[\s>])[^>]*>/g)].length, 1);
 });
 
 test("Issue details' section is the title and attachments; Build context's is Fresh", () => {
@@ -2478,10 +2555,13 @@ test("the checklist's disclosure lets the hidden attribute win, and draws no tic
 });
 
 test("the Fix result label lines up with the other rows' text, and is not clickable", () => {
-  // By id: the page rewrites each row's classes from its status, so a class
-  // on the row in the markup would not survive the first render.
-  assert.match(CSS, /#step-fixResult \.step-label \{[^}]*padding-left: 20px/s);
-  assert.match(CSS, /#step-fixResult \.step-label \{[^}]*cursor: default/s);
+  // The same leading spacer as Issue details and Build context, rather than a
+  // padding of its own that matched the checkbox only by arithmetic (§37.107).
+  const row = rowMarkup("fixResult");
+  assert.match(row, /<span class="step-label" title="[^"]+"><span class="step-lead" aria-hidden="true"><\/span>/);
+  assert.equal(/padding-left: 20px/.test(CSS), false);
+  // A name that is not a control's label does not look clickable.
+  assert.match(CSS, /span\.step-label \{\s*cursor: default;/);
 });
 
 test("a long report line is clamped only while collapsed, and still hidden when there is none", () => {
@@ -2512,9 +2592,9 @@ test("each row reads top to bottom: its line, its detail, what it owns, its card
   const orders: Record<string, string[]> = {
     // The first line (choice, then status), the second line, the detail, then
     // the file on a line of its own, then what the row owns (§37.86).
-    issueDetails: ["plan-issueDetails", "status-issueDetails", "description-issueDetails", "detail-issueDetails", "artifact-issueDetails", "error-issueDetails"],
-    codeSearch: ["plan-codeSearch", "status-codeSearch", "description-codeSearch", "detail-codeSearch", "artifact-codeSearch", "relevant-files", "search-details", "error-codeSearch"],
-    buildContext: ["plan-buildContext", "status-buildContext", "description-buildContext", "detail-buildContext", "artifact-buildContext", "actions-buildContext", "error-buildContext"],
+    issueDetails: ["purpose-issueDetails", "status-issueDetails", "settings-issueDetails", "description-issueDetails", "detail-issueDetails", "artifact-issueDetails", "error-issueDetails"],
+    codeSearch: ["plan-codeSearch", "purpose-codeSearch", "status-codeSearch", "settings-codeSearch", "description-codeSearch", "detail-codeSearch", "artifact-codeSearch", "relevant-files", "search-details", "error-codeSearch"],
+    buildContext: ["purpose-buildContext", "status-buildContext", "settings-buildContext", "description-buildContext", "detail-buildContext", "artifact-buildContext", "actions-buildContext", "error-buildContext"],
   };
   for (const [id, order] of Object.entries(orders)) {
     const row = rowMarkup(id);
@@ -2552,64 +2632,17 @@ test("the panel never names the ranker's own constants", () => {
   }
 });
 
-// --- UI-C2: Diagnostics ------------------------------------------------------
-
-test("Diagnostics is a collapsed disclosure over a definition list", () => {
-  const block = /<details class="diagnostics" id="diagnostics"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  assert.notEqual(block, "", "no Diagnostics section");
-
-  assert.match(block, /<summary id="diagnostics-summary">Diagnostics<\/summary>/);
-  assert.equal(/<details[^>]*id="diagnostics"[^>]*\bopen\b/.test(block), false);
-  assert.match(block, /^<details[^>]*\bhidden\b/);
-  // A `dl`: label-and-value is a pairing, and putting it in the markup is what
-  // makes it survive a screen reader.
-  assert.match(block, /<dl id="diagnostics-list"><\/dl>/);
-});
-
-test("Diagnostics is read-only, and offers nothing to configure", () => {
-  // If something needs changing, the existing Open Settings and Set Jira
-  // Credentials actions are where that happens. A control here would make this
-  // a second settings page over state it only observes.
-  const block = /<details class="diagnostics" id="diagnostics"[\s\S]*?<\/details>/.exec(HTML)?.[0] ?? "";
-  for (const control of ["<button", "<input", "<select", "<textarea", "<a "]) {
-    assert.equal(block.includes(control), false, `Diagnostics contains a ${control}`);
-  }
-});
-
-test("Diagnostics is last, and outside the workflow rather than inside it", () => {
-  // Last in the details hierarchy, as §36 asks — and outside the workflow,
-  // because a panel that can only answer "is this configured correctly" after a
-  // successful run cannot answer it when the run failed.
-  const workflow = HTML.slice(HTML.indexOf('<details class="group" id="workflow"'), HTML.indexOf('<details class="diagnostics"'));
-  assert.notEqual(workflow, "");
-  assert.equal(workflow.includes('id="diagnostics"'), false, "Diagnostics is inside the workflow");
-
-  assert.ok(HTML.indexOf('id="relevant-files"') < HTML.indexOf('id="search-details"'));
-  assert.ok(HTML.indexOf('id="search-details"') < HTML.indexOf('id="diagnostics"'));
-  // Last in the form: never above something it should sit under, and reachable
-  // whether or not a run has happened. Advanced Settings is far above it now.
-  assert.ok(HTML.indexOf('id="open-settings"') < HTML.indexOf('id="workflow"'));
-  assert.match(HTML.slice(HTML.indexOf('id="diagnostics"')), /^[\s\S]*?<\/details>\s*<\/form>/);
-});
-
-
-test("a diagnostic is a label above a value, not a two-column table", () => {
-  // A table needs a width a 200px sidebar does not have.
-  assert.match(CSS, /\.diagnostic-value \{[^}]*overflow-wrap: anywhere/s);
-  assert.match(CSS, /\.diagnostic-detail \{[^}]*overflow-wrap: anywhere/s);
-  assert.equal(/\.diagnostic[^{]*\{[^}]*display: (table|grid|flex)/s.test(CSS), false);
-  // No dot, no badge, no colour: this is information, not monitoring.
-  assert.equal(/\.diagnostic[^{]*\{[^}]*(background|border)/s.test(CSS), false);
-});
+// --- Diagnostics: the host's words (UI-C2, §37.110) ---------------------------
 
 test("the page decides nothing about what a diagnostic means", () => {
   // Every word comes from the host. A webview working out whether Jira is
-  // configured would be inspecting things a webview must not reach.
-  // "Configured" is excluded deliberately: the footer's Jira line has said it
-  // since phase 5, which is frozen §34 code rather than a decision this phase
-  // introduced.
+  // configured would be inspecting things a webview must not reach — the Jira
+  // row's words included, since §37.110 (they were the page's own before).
   for (const smell of [
     "Credentials configured",
+    "Not configured",
+    "Authentication failed",
+    "Set Jira credentials",
     "Not checked",
     "No repository",
     "Auto-detect",
@@ -2868,7 +2901,7 @@ test("gears only where a step has settings, as buttons in the metadata", () => {
     assert.match(row, new RegExp(`<button type="button" class="icon step-settings" id="settings-${id}"`), id);
   }
   for (const id of ["similarFixes"]) {
-    assert.equal(rowMarkup(id).includes("step-settings"), false, `${id} has a gear`);
+    assert.equal(rowMarkup(id).includes('class="icon step-settings"'), false, `${id} has a gear`);
   }
 });
 
@@ -2878,6 +2911,225 @@ test("lighter rows: a soft rule and a little air, at full strength in High Contr
   // Muted metadata: the duration and status are quieter than the name.
   assert.match(CSS, /\.step-duration \{[^}]*color: var\(--vscode-descriptionForeground\)/s);
   assert.match(CSS, /\.step-status \{[^}]*color: var\(--vscode-descriptionForeground\)/s);
+});
+
+// --- Workflow Steps rows: leading slot, tooltips (§37.107) -------------------
+
+/** What each step does: its tooltip and accessible description, never a line on screen. */
+const STEP_PURPOSES = {
+  issueDetails: "Gather issue information.",
+  codeSearch: "Search relevant code in the repository.",
+  gitHistory: "Find related commits and file changes.",
+  similarFixes: "Search for similar issues and solutions.",
+  buildContext: "Prepare structured context for AI.",
+  fixWithAI: "Run the prepared context with your AI coding agent.",
+  fixResult: "The report the agent wrote in fix_report.md.",
+} as const;
+
+/** Each row's icon and tone (§37.108), as the design picked them. */
+const STEP_ICON_OF = {
+  issueDetails: ["file-text", "blue"],
+  codeSearch: ["search", "blue"],
+  gitHistory: ["source-control", "green"],
+  similarFixes: ["database", "amber"],
+  buildContext: ["files", "cyan"],
+  fixWithAI: ["hubot", "purple"],
+  fixResult: ["output", "purple"],
+} as const;
+
+/** A regular expression's text for a literal string. */
+const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const ALL_ROWS = [...WORKFLOW_STEP_IDS, "fixResult"] as const;
+
+/** A row's first line: from its `<li>` to the end of `.step-head`. */
+function rowHead(id: string): string {
+  const head = /<div class="step-head">[\s\S]*?\n {10}<\/div>/.exec(rowMarkup(id))?.[0] ?? "";
+  assert.notEqual(head, "", `${id}: no first line`);
+  return head;
+}
+
+test("rows 1: Issue details and Build context have no checkbox; the four optional steps keep theirs", () => {
+  for (const id of ["issueDetails", "buildContext"]) {
+    const row = rowMarkup(id);
+    assert.equal(row.includes("<input"), false, `${id} has an input`);
+    assert.equal(row.includes(`id="plan-${id}"`), false, `${id} has a checkbox`);
+    assert.equal(/role="checkbox"|aria-checked/.test(row), false, `${id} has checkbox semantics`);
+    // Nothing to click on the name: a span, not a label for anything.
+    assert.equal(rowHead(id).includes("<label"), false, `${id}: the name is a label`);
+  }
+  for (const id of ["codeSearch", "gitHistory", "similarFixes", "fixWithAI"]) {
+    const head = rowHead(id);
+    // A native box, inside the name's label so a click on the name still ticks
+    // it, keyboard-reachable as before: no tabindex, never disabled in markup.
+    assert.match(head, new RegExp(`<label class="step-label" for="plan-${id}" [^>]*><span class="step-lead"><input type="checkbox" id="plan-${id}"`), id);
+    assert.equal(/tabindex|disabled/.test(head), false, `${id}: the box is not an ordinary one`);
+  }
+});
+
+test("rows 2: every row reserves the same leading slot, so every name starts in one column", () => {
+  for (const id of ALL_ROWS) {
+    const head = rowHead(id);
+    // The slot is the label's first child, then the step's icon, then the
+    // shared content container.
+    assert.match(head, /class="step-label"[^>]*><span class="step-lead"[^>]*>[\s\S]*?<\/span><span class="codicon codicon-[a-z-]+ step-icon step-icon-[a-z]+" aria-hidden="true"><\/span><span class="step-main"><span class="step-name">/, id);
+    const fixed = id === "fixResult" || ALWAYS_RUNS.includes(id);
+    const slot = /<span class="step-lead"[^>]*>[\s\S]*?<\/span>/.exec(head)?.[0] ?? "";
+    if (fixed) {
+      // A spacer: presentation only. Hidden from assistive technology, nothing
+      // in it, nothing to focus, no role.
+      assert.equal(slot, '<span class="step-lead" aria-hidden="true"></span>', id);
+    } else {
+      assert.match(slot, /^<span class="step-lead"><input type="checkbox"/, id);
+    }
+  }
+  // The box and the 3px after it, on a whole pixel at the slot's left edge;
+  // never shrinks; then the icon in a fixed place, a gap after each, and every
+  // line under the name indented to the name.
+  const lead = /--step-lead: (\d+)px;/.exec(CSS)?.[1];
+  assert.ok(lead !== undefined && Number(lead) >= 16 && Number(lead) <= 20, `--step-lead: ${lead}px`);
+  assert.match(CSS, /--step-icon: 16px;/);
+  assert.match(CSS, /--step-gap: 6px;/);
+  assert.match(CSS, /--step-indent: calc\(var\(--step-lead\) \+ var\(--step-icon\) \+ 2 \* var\(--step-gap\)\);/);
+  assert.match(CSS, /\.step-lead \{[^}]*flex: 0 0 var\(--step-lead\);[^}]*justify-content: flex-start;/s);
+  assert.match(CSS, /\.step-lead > input\[type="checkbox"\] \{\s*margin: 0;/);
+  assert.match(CSS, /\.codicon\.step-icon \{[^}]*flex: 0 0 var\(--step-icon\);[^}]*height: var\(--step-line\);/s);
+  assert.match(CSS, /\.step-label \{[^}]*gap: var\(--step-gap\);/s);
+  assert.match(CSS, /\.step-head \{[^}]*gap: 2px var\(--step-gap\);/s);
+  assert.match(CSS, /\.step-foot \{[^}]*margin-left: var\(--step-indent\);/s);
+  assert.match(CSS, /\.step-body \{[^}]*margin-left: var\(--step-indent\);/s);
+  assert.equal(/\.step-(foot|body) \{[^}]*margin-left: \d+px/s.test(CSS), false, "a secondary line indented by a number of its own");
+});
+
+test("rows 3: every first line is one height and ends in the gear's column", () => {
+  for (const id of ALL_ROWS) {
+    const head = rowHead(id);
+    // Name, then (visually hidden) purpose, then the metadata: duration, status,
+    // and last the gear — or, on a row with no settings, a spacer as wide.
+    const meta = /<span class="step-meta">([\s\S]*?)\n {12}<\/span>\s*$/.exec(head.replace(/\n {10}<\/div>$/, ""))?.[1] ?? "";
+    assert.notEqual(meta, "", `${id}: no metadata`);
+    const last = meta.trim().split("\n").at(-1)!.trim();
+    const gear = SETTINGS_SECTION_OF_STEP[id as keyof typeof SETTINGS_SECTION_OF_STEP] !== undefined;
+    assert.ok(
+      gear ? last.startsWith(`<button type="button" class="icon step-settings" id="settings-${id}"`) : last === '<span class="step-settings-spacer" aria-hidden="true"></span>',
+      `${id}: the metadata ends in ${last}`,
+    );
+  }
+  assert.match(CSS, /--step-line: 20px;/);
+  assert.match(CSS, /\.step-head \{[^}]*align-items: flex-start;[^}]*line-height: var\(--step-line\);/s);
+  assert.match(CSS, /\.step-lead \{[^}]*height: var\(--step-line\);/s);
+  assert.match(CSS, /\.step-settings-spacer \{\s*flex: 0 0 var\(--step-line\);/);
+  // The metadata keeps its place at the right, and the content takes the rest.
+  assert.match(CSS, /\.step-meta \{[^}]*margin-left: auto;/s);
+  assert.match(CSS, /\.step-main \{[^}]*flex: 1 1 auto;[^}]*min-width: 0;/s);
+  // A name too long for the line is cut with an ellipsis, never broken in two.
+  assert.match(CSS, /\.step-name \{[^}]*min-width: 0;[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s);
+});
+
+test("rows 4: what a step does is its name's tooltip and its accessible description, not a line on screen", () => {
+  const workflow = /<ol class="steps">[\s\S]*?<\/ol>/.exec(HTML)?.[0] ?? "";
+  const onScreen = visibleText(workflow.replace(/<p class="visually-hidden"[^>]*>[\s\S]*?<\/p>/g, ""));
+  for (const id of ALL_ROWS) {
+    const purpose = STEP_PURPOSES[id];
+    assert.equal(stepDescription(id), purpose, `${id}: the model's words changed`);
+    // A row with no box says, in words, that it always runs.
+    const tooltip = id !== "fixResult" && ALWAYS_RUNS.includes(id) ? `${purpose} Always runs.` : purpose;
+    assert.equal(stepTooltip(id), tooltip, id);
+    // Gone from the screen…
+    assert.equal(onScreen.includes(purpose.replace(/\.$/, "")), false, `${id}: "${purpose}" is still a line on the panel`);
+    // …on hover over the name, the box and the free space of the row's first line…
+    assert.match(rowHead(id), new RegExp(`class="step-label"[^>]*title="${literal(tooltip)}"`), `${id}: no tooltip`);
+    // …and for assistive technology, in the row's reading order.
+    assert.match(rowHead(id), new RegExp(`<p class="visually-hidden" id="purpose-${id}">${literal(tooltip)}</p>`), `${id}: no description`);
+    // The second line is for state: empty and hidden until the host has some.
+    assert.match(rowMarkup(id), new RegExp(`<div class="step-foot" id="foot-${id}" hidden>\\s*<p class="step-description" id="description-${id}" hidden></p>\\s*</div>`), id);
+  }
+  // A box carries its step's purpose as its description.
+  for (const id of ["codeSearch", "gitHistory", "similarFixes", "fixWithAI"]) {
+    assert.match(HTML, new RegExp(`<input type="checkbox" id="plan-${id}"[^>]* aria-describedby="purpose-${id}"`), id);
+  }
+  // No info icons standing in for the lines.
+  assert.equal(/codicon-(info|question)/.test(workflow), false);
+});
+
+test("rows 5: Always runs and Auto-detected agent are not on screen; Always runs is in the tooltip (§37.108)", () => {
+  const workflow = /<ol class="steps">[\s\S]*?<\/ol>/.exec(HTML)?.[0] ?? "";
+  const onScreen = visibleText(workflow.replace(/<p class="visually-hidden"[^>]*>[\s\S]*?<\/p>/g, ""));
+  assert.equal(onScreen.includes("Always runs"), false);
+  assert.equal(onScreen.includes("Auto-detected agent"), false);
+  assert.equal(/step-note|note-issueDetails/.test(HTML + CSS + PAGE_JS), false, "the Always runs note is back");
+  for (const id of ["issueDetails", "buildContext"]) {
+    assert.match(rowHead(id), /title="[^"]* Always runs\."/, id);
+  }
+  for (const id of ["codeSearch", "gitHistory", "similarFixes", "fixWithAI"]) {
+    assert.equal(rowHead(id).includes("Always runs"), false, `${id} claims to always run`);
+  }
+});
+
+test("rows 6: each row has one icon, between the slot and the name, decorative and declared (§37.108)", () => {
+  for (const id of ALL_ROWS) {
+    const [glyph, tone] = STEP_ICON_OF[id];
+    const head = rowHead(id);
+    const icons = [...head.matchAll(/<span class="codicon codicon-([a-z-]+) step-icon step-icon-([a-z]+)" aria-hidden="true"><\/span>/g)];
+    assert.equal(icons.length, 1, `${id}: ${icons.length} icons`);
+    assert.deepEqual([icons[0]![1], icons[0]![2]], [glyph, tone], id);
+    // Inside the label, before the name: hovering it shows the row's tooltip.
+    assert.ok(head.indexOf("step-icon") > head.indexOf("step-lead") && head.indexOf("step-icon") < head.indexOf("step-name"), id);
+    assert.match(CODICON_CSS, new RegExp(`\\.codicon-${glyph}:before \\{ content: "\\\\[0-9a-f]{4}"; \\}`), `${glyph} is not declared`);
+  }
+  // Seven rows, six distinct glyphs: Fix result shares Fix with AI's hue, not
+  // Issue details' document.
+  assert.equal(new Set(Object.values(STEP_ICON_OF).map(([glyph]) => glyph)).size, 7);
+  // Every tone is a theme colour, mixed toward the foreground, defined once on
+  // the list — no literals, and not the settings page's six-tone palette.
+  const steps = /\.steps \{[\s\S]*?\n\}/.exec(CSS)?.[0] ?? "";
+  for (const tone of new Set(Object.values(STEP_ICON_OF).map(([, tone]) => tone))) {
+    assert.match(steps, new RegExp(`--bugpilot-step-${tone}: color-mix\\(in srgb, var\\(--vscode-[a-zA-Z-]+[^;]*80%, var\\(--vscode-foreground\\)\\);`), tone);
+    assert.match(CSS, new RegExp(`\\.step-icon-${tone} \\{\\s*color: var\\(--bugpilot-step-${tone}\\);`), tone);
+  }
+  // Not charts.orange, which Dark Modern defines at a third of its opacity.
+  assert.equal(/--bugpilot-step-amber:[^;]*charts-orange/.test(CSS), false);
+  // A step not chosen is quieter in its icon too; High Contrast uses the foreground.
+  assert.match(CSS, /\.step-off \.step-icon,\s*\.step-skipped \.step-icon \{\s*opacity: 0\.55;/);
+  assert.match(CSS, /body\.vscode-high-contrast \.step-icon,\s*body\.vscode-high-contrast-light \.step-icon \{\s*color: var\(--vscode-foreground\);/);
+});
+
+test("rows 7: the header is the disclosure, an icon, the heading and the status as a pill (§37.108)", () => {
+  const summary = /<summary class="workflow-summary">[\s\S]*?<\/summary>/.exec(HTML)?.[0] ?? "";
+  const order = ['class="codicon codicon-list-unordered workflow-icon" aria-hidden="true"', '<h2 id="workflow-heading">Workflow Steps</h2>', 'id="workflow-status" class="workflow-status" role="status"'].map((part) => summary.indexOf(part));
+  assert.ok(order.every((at) => at !== -1), `header parts missing: ${order}`);
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.match(CODICON_CSS, /\.codicon-list-unordered:before \{ content: "\\eb17"; \}/);
+  // The native triangle stays: the summary itself is not given a display.
+  assert.equal(/\.workflow-summary \{[^}]*display:/s.test(CSS), false);
+  // A status on a line of its own starts under the icon, not the triangle.
+  assert.match(CSS, /\.workflow-summary \{\s*padding-left: 16px;\s*text-indent: -16px;/);
+  assert.match(CSS, /\.workflow-summary > \* \{\s*text-indent: 0;/);
+  // The pill: rounded, a hairline border and the faintest fill from the
+  // foreground, the description colour, one line; none at all when empty.
+  const pill = /\.workflow-status \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  for (const rule of ["display: inline-block;", "border-radius: 9px;", "white-space: nowrap;", "color: var(--vscode-descriptionForeground);", "font-size: 0.9em;"]) {
+    assert.ok(pill.includes(rule), `.workflow-status lacks ${rule}`);
+  }
+  assert.match(pill, /border: 1px solid color-mix\(in srgb, var\(--vscode-foreground\) \d+%, transparent\);/);
+  assert.match(pill, /background: color-mix\(in srgb, var\(--vscode-foreground\) \d+%, transparent\);/);
+  assert.match(CSS, /\.workflow-status:empty \{\s*display: none;/);
+  assert.match(CSS, /\.workflow-status\.is-failed \{[^}]*color: var\(--vscode-errorForeground\);[^}]*border-color:/s);
+  assert.match(CSS, /body\.vscode-high-contrast \.workflow-status,\s*body\.vscode-high-contrast-light \.workflow-status \{[^}]*border-color: var\(--vscode-contrastBorder/s);
+});
+
+test("rows 8: a narrow sidebar tightens the gaps and the card's edge, and drops only the Jira key (§37.108, §37.110)", () => {
+  const narrow = /@media \(max-width: 220px\) \{([\s\S]*?)\n\}/.exec(CSS)?.[1] ?? "";
+  assert.notEqual(narrow, "", "no narrow-width rule");
+  assert.match(narrow, /#workflow \{\s*padding-inline: 6px;\s*\}/);
+  assert.match(narrow, /\.steps \{\s*--step-gap: 4px;\s*\}/);
+  // The Jira row's key gives its room to the status (§37.110): decoration,
+  // since "Jira" names the row. Nothing else hidden, nothing given a width.
+  assert.match(narrow, /\.jira-row \{\s*gap: 4px;\s*\}/);
+  assert.match(narrow, /\.jira-icon \{\s*display: none;\s*\}/);
+  const rest = narrow.replace(/\.jira-icon \{\s*display: none;\s*\}/, "");
+  assert.equal(/display: none|visibility|width:/.test(rest), false);
+  assert.equal(/jira-(label|action|status)/.test(narrow), false, "the narrow rule touches the Jira name, status or action");
 });
 
 // --- Open AI Session acknowledgement (§37.87) --------------------------------
@@ -2975,7 +3227,9 @@ test("clear text buttons carry no tooltip that only repeats their label", () => 
 test("no tooltip names a credential, a token or a command line", () => {
   const titles = [...HTML.matchAll(/title="([^"]*)"/g), ...PAGE_JS.matchAll(/setAttribute\("title", ([^)]*)\)/g)].map((match) => match[1]!);
   for (const title of titles) {
-    assert.doesNotMatch(title, /token|password|secret|credential|agentCommand|JIRA_/i, title);
+    // "Jira credentials" is the name of the thing the Jira row sets up
+    // (§37.110), never a value; everything else stays out.
+    assert.doesNotMatch(title.replace(/Jira credentials?/g, ""), /token|password|secret|credential|agentCommand|JIRA_/i, title);
   }
 });
 
@@ -2997,12 +3251,12 @@ test("Advanced Settings sits with the inputs — after Issue, Fix Mode and Hint,
   for (const earlier of ["issue", "fixModeId", "hint", "run", "run-hint"]) {
     assert.ok(at(earlier) < at("open-settings"), `${earlier} is not above Advanced Settings`);
   }
-  // Not in the result area, and not over Diagnostics.
-  for (const later of ["workflow", "step-fixResult", "open-folder", "review-result", "diagnostics"]) {
+  // Not in the result area.
+  for (const later of ["jira-row", "workflow", "step-fixResult", "open-folder", "review-result"]) {
     assert.ok(at("open-settings") < at(later), `Advanced Settings is below ${later}`);
   }
-  const between = HTML.slice(at("open-folder"), at("diagnostics"));
-  assert.equal(between.includes("settings-entry"), false, "a settings entry is left between the results and Diagnostics");
+  const between = HTML.slice(at("open-folder"), HTML.indexOf("</form>"));
+  assert.equal(between.includes("settings-entry"), false, "a settings entry is left after the results");
   assert.equal(HTML.split('class="settings-entry"').length - 1, 1, "more than one way in from the form");
 });
 
@@ -3256,10 +3510,9 @@ test("the main form shows controls and state, not explanations — and keeps eve
     assert.match(HTML, home, `nowhere to find it any more: ${text}`);
   }
   // What is never explanation stays: the problems, the warnings, the cards.
-  for (const id of ["issue-error", "hint-improve-error", "plan-note", "failure", "fixModeId-description"]) {
+  for (const id of ["issue-error", "hint-improve-error", "failure", "fixModeId-description"]) {
     assert.ok(HTML.includes(`id="${id}"`), `${id} went with the explanations`);
   }
-  assert.match(HTML, /Without Build context, bugpilot only normalizes the report/);
   // Every control the explanations described still has its own name.
   for (const id of ["issue", "fixModeId", "hint"]) assert.match(HTML, new RegExp(`<label[^>]*for="${id}"`), id);
   assert.match(HTML, /<label class="choice" for="useIssueDetails"[\s\S]*?Include issue details\s*<\/label>/);

@@ -18,7 +18,7 @@ import path from "node:path";
 
 import { isWithin } from "../workspace.ts";
 
-import { buildPrepareArgs, buildRetryArgs, canFixWithAI, effectivePlan, DEFAULT_FORM, isWorkItemId, preparationFingerprint, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE, JIRA_ISSUE_KEY_RE } from "./form.ts";
+import { buildPrepareArgs, buildRetryArgs, DEFAULT_FORM, isWorkItemId, preparationFingerprint, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE, JIRA_ISSUE_KEY_RE } from "./form.ts";
 import {
   MAX_ATTEMPT_FEEDBACK,
   USER_FEEDBACK_ARTIFACT,
@@ -87,6 +87,7 @@ import type { GitignoreEntry, GitignoreIo } from "./gitignore.ts";
 import { handoffError, reviewHandoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
 import { diagnostics } from "./diagnostics.ts";
+import { JIRA_AUTH_FAILED, jiraConnection } from "./jiraConnection.ts";
 import type { ResolvedAgent } from "./diagnostics.ts";
 import type { RetrievalTerm } from "./retrievalDetails.ts";
 import type { UserFacingError } from "./failures.ts";
@@ -834,6 +835,14 @@ export class Controller {
   #root: string | undefined;
   #jiraConfigured = false;
   /**
+   * Whether the last run this session that asked Jira was turned away with
+   * `JIRA_AUTH_FAILED` (§37.110). The Jira row says "Authentication failed"
+   * while it is; saving credentials, or a Jira run that gets its issue, clears
+   * it. Never read from an old work item's files: it describes this session's
+   * last exchange with Jira, and nothing older.
+   */
+  #jiraRejected = false;
+  /**
    * What a handoff actually resolved, when one has run.
    *
    * Recorded where resolution already happens rather than derived from the
@@ -1004,6 +1013,24 @@ export class Controller {
 
   get workItemId(): string | undefined {
     return this.#workItemId;
+  }
+
+  /**
+   * What BugPilot is configured with, for Results > Diagnostics (§37.110). The
+   * tree asks for it when Diagnostics is drawn, and after each push to see
+   * whether it changed.
+   */
+  get diagnostics(): DiagnosticsView {
+    return this.#diagnostics();
+  }
+
+  /**
+   * Jira credentials were just saved by the credential prompt: whatever Jira
+   * said about the old ones no longer applies. Then the usual re-read.
+   */
+  async credentialsSaved(): Promise<void> {
+    this.#jiraRejected = false;
+    await this.refreshEnvironment();
   }
 
   get root(): string | undefined {
@@ -1464,7 +1491,7 @@ export class Controller {
       return;
     }
     if (this.#refuseRunForMutation()) return;
-    const tracker = new ProgressTracker(effectivePlan(form.plan), this.#ports.now);
+    const tracker = new ProgressTracker(form.plan, this.#ports.now);
     let runWarnings: readonly string[] = [];
     const abort = new AbortController();
     this.#abort = abort;
@@ -1599,6 +1626,7 @@ export class Controller {
         }
       }
       this.#progress = tracker.view();
+      this.#noteJiraOutcome(this.#progress, form);
     } catch (error) {
       // A spawn failure, or output that broke the contract outright.
       tracker.interrupted("crashed");
@@ -1632,7 +1660,7 @@ export class Controller {
     // never wrote would send an agent looking for a missing file. Never while a
     // reset is waiting for this run to end: an agent started now would be
     // working on a session the developer just asked to leave (§37.103).
-    if (options.handOff !== false && canFixWithAI(form) && this.#reset === undefined) {
+    if (options.handOff !== false && form.fixWithAI && this.#reset === undefined) {
       if (this.#progress.state === "done") await this.fixWithAI();
       else {
         this.#fix = {
@@ -3229,6 +3257,21 @@ export class Controller {
    * field of this object — and because a cached copy of "what is configured" is
    * exactly the thing that goes stale when somebody sets a credential.
    */
+  /**
+   * What a finished run said about the Jira credentials (§37.110): turned away
+   * (`JIRA_AUTH_FAILED`) sets the Jira row's Authentication failed; a Jira run
+   * that got its issue through clears it. Anything else — a run that never
+   * asked Jira, a timeout, a missing issue — says nothing about them.
+   */
+  #noteJiraOutcome(progress: ProgressView, form: FormState): void {
+    if (progress.failure?.code === JIRA_AUTH_FAILED) {
+      this.#jiraRejected = true;
+      return;
+    }
+    const issueRead = progress.rows.some((row) => row.capability === "issue_details" && row.state === "done");
+    if (form.source === "jira" && issueRead) this.#jiraRejected = false;
+  }
+
   #diagnostics(): DiagnosticsView {
     const ready = this.#readiness.kind === "ready" ? this.#readiness : undefined;
     return diagnostics({
@@ -3237,6 +3280,7 @@ export class Controller {
       cliVersion: ready?.version,
       extensionVersion: this.#ports.extensionVersion,
       jiraConfigured: this.#jiraConfigured,
+      jiraRejected: this.#jiraRejected,
       agent: this.#form.agent,
       resolvedAgent: this.#resolvedAgent,
       workItemId: this.#workItemId,
@@ -4790,8 +4834,8 @@ export class Controller {
     const session = this.#workItemId === undefined ? undefined : this.#sessions.get(this.#workItemId);
     const workflow = buildWorkflow({
       source: this.#form.source,
-      plan: effectivePlan(this.#form.plan),
-      fixWithAI: canFixWithAI(this.#form),
+      plan: this.#form.plan,
+      fixWithAI: this.#form.fixWithAI,
       progress: this.#progress,
       artifacts: this.#artifactNames,
       ...(this.#fix === undefined ? {} : { fix: this.#fix }),
@@ -4869,11 +4913,10 @@ export class Controller {
       // Classified here, where the code and the operation that produced it are
       // both known. The page receives a rendered card and decides nothing.
       ...(failed === undefined || owned ? {} : { runError: failed }),
-      diagnostics: this.#diagnostics(),
       agents: this.#agents.status(this.#form.agentCommand),
       warnings: this.#notices(),
       ...(this.#noticeStatus === undefined ? {} : { noticeStatus: this.#noticeStatus }),
-      jiraConfigured: this.#jiraConfigured,
+      jira: jiraConnection(this.#jiraConfigured, this.#jiraRejected),
       primary,
       ...(this.#sessionFeedback === undefined
         ? {}

@@ -45,7 +45,8 @@
  * checkbox beside a green tick was one check mark too many.
  */
 
-import { OVERALL_IDLE, WORKFLOW_STEP_IDS, STEP_LABELS, stepDescription } from "../app/workflow.ts";
+import { ALWAYS_RUNS, OVERALL_IDLE, WORKFLOW_STEP_IDS, STEP_LABELS, stepTooltip } from "../app/workflow.ts";
+import { jiraConnection } from "../app/jiraConnection.ts";
 import type { WorkflowStepId } from "../app/workflow.ts";
 import { NEXT_ACTION_LABELS, PRIMARY_SHORTCUT, PRIMARY_TOOLTIPS } from "../app/nextAction.ts";
 import { AGENT_CHOICES, AGENT_LABELS } from "../app/agents.ts";
@@ -785,18 +786,21 @@ ${GUIDANCE_FIELDS.map(field).join("\n")}
           <span class="settings-open-label">Advanced Settings</span>
         </button>
       </div>
+${JIRA_ROW}
 
       <!--
-        A disclosure rather than a section, since UI-A1: the six rows were the
-        largest thing on an untouched panel and said nothing a developer who has
-        not typed an issue yet needs. They carry two different things — the
-        checkboxes that choose what runs, and the statuses of a run in flight —
-        so hiding them until a run starts would take away the only pre-run way
-        to reach Fix with AI. Collapsed instead, and the page script opens it
-        the moment a run begins.
+        A disclosure rather than a section, since UI-A1, so a developer can fold
+        the rows away. Open from the start since §37.109: the rows are one line
+        each now (§37.107, §37.108), and they are where the plan is chosen —
+        including the only pre-run way to Fix with AI — so a closed list hid the
+        panel's second half behind a triangle. Open in the markup and nowhere
+        forced: the page script opens it again only on an event worth showing
+        (a run starting, a new card, a reopened work item with results), never
+        on an ordinary push, so a developer who folds it keeps it folded.
       -->
-      <details class="group" id="workflow" aria-labelledby="workflow-heading">
+      <details class="group" id="workflow" aria-labelledby="workflow-heading" open>
         <summary class="workflow-summary">
+          <span class="codicon codicon-list-unordered workflow-icon" aria-hidden="true"></span>
           <h2 id="workflow-heading">Workflow Steps</h2>
           <span id="workflow-status" class="workflow-status" role="status">${OVERALL_IDLE}</span>
         </summary>
@@ -811,28 +815,9 @@ ${errorCard("failure")}
 ${FIX_RESULT_ROW}
         </ol>
         <p id="activity" class="muted" aria-live="polite"></p>
-        <p id="plan-note" class="muted" hidden>Without Build context, bugpilot only normalizes the report — search, history, similar fixes and the AI fix are skipped too.</p>
         <div class="workflow-foot" id="workflow-foot">
           ${actionButton(OPEN_FOLDER)}
         </div>
-      </details>
-
-      <!--
-        What BugPilot is configured with, for the developer who is not sure
-        which install, which repository or which agent is in play.
-
-        Outside the workflow rather than inside it, a deliberate departure from
-        UI-C2's sketch: the question this answers — is this the environment I
-        think it is — is asked most urgently when nothing has run or when a run
-        has just failed, and it must not depend on a run's results. It reads
-        last in the details.
-
-        Read-only and passive: opening it makes no request and spawns no probe,
-        which is why it is a definition list and not a single control.
-      -->
-      <details class="diagnostics" id="diagnostics" hidden>
-        <summary id="diagnostics-summary">Diagnostics</summary>
-        <dl id="diagnostics-list"></dl>
       </details>
     </form>
 
@@ -943,20 +928,6 @@ ${EDITOR_SECTIONS.map(section).join("\n")}
   </section>
 
 ${RESET_DIALOG}
-
-  <footer class="footer">
-    <p class="footer-line">
-      <span class="codicon codicon-folder" aria-hidden="true"></span>
-      <span id="environment"></span>
-    </p>
-    <p class="footer-line">
-      <span class="codicon codicon-key" aria-hidden="true"></span>
-      <span>Jira:</span>
-      <span class="codicon codicon-check icon-success" id="jira-ok" aria-hidden="true" hidden></span>
-      <span id="jira-status"></span>
-      <button type="button" id="set-credentials" class="link">Set Jira credentials</button>
-    </p>
-  </footer>
 </main>
 <script nonce="${options.nonce}" src="${options.scriptUri}"></script>
 </body>
@@ -1218,53 +1189,148 @@ ${entry.extra ?? ""}    </div>`;
 }
 
 /**
+ * The Jira row (§37.110): whether Jira credentials are set up, and the one way
+ * to set them up — the existing Set Jira Credentials flow, worded Configure or
+ * Replace — between Advanced Settings and Workflow Steps.
+ *
+ * Here and not in Results > Diagnostics, which mirrors the status: a Jira key
+ * cannot run without credentials, so the way to them stays in plain view
+ * rather than under a tree, a menu or the palette. One line: the key, the name,
+ * the status (which gives way first in a narrow sidebar, whole in the tooltip),
+ * the action. The page fills it from the host's `jira` on every push; the
+ * markup starts as the host does, with no credential known.
+ *
+ * The row is a named group — "Jira, Configured" — so the button, named for what
+ * it does ("Replace Jira credentials"), is heard with the state it acts on; the
+ * tooltip's two sentences are its description.
+ */
+const JIRA_INITIAL = jiraConnection(false, false);
+const JIRA_ROW = `      <div class="jira-row jira-${JIRA_INITIAL.state}" id="jira-row" role="group" aria-labelledby="jira-label jira-status-text" title="${JIRA_INITIAL.tooltip}">
+        <span class="codicon codicon-key jira-icon icon-muted" aria-hidden="true"></span>
+        <span class="jira-label" id="jira-label">Jira</span>
+        <span class="jira-status">
+          <span class="codicon jira-state-icon" id="jira-state-icon" aria-hidden="true" hidden></span>
+          <span class="jira-status-text" id="jira-status-text">${JIRA_INITIAL.status}</span>
+        </span>
+        <button type="button" id="set-credentials" class="link jira-action" aria-label="${JIRA_INITIAL.actionLabel}" aria-describedby="jira-row-description">${JIRA_INITIAL.action}</button>
+        <span class="visually-hidden" id="jira-row-description">${JIRA_INITIAL.tooltip}</span>
+      </div>`;
+
+/**
+ * The leading slot of a row with no checkbox: as wide as the checkbox's, so the
+ * name starts where every other row's does. Presentation only — no control, no
+ * role, nothing to focus or announce.
+ */
+const STEP_LEAD_SPACER = `<span class="step-lead" aria-hidden="true"></span>`;
+
+/**
+ * The gear's place on a row with no settings (Similar fixes, Fix result), kept
+ * so that every row's status ends at the same point. Presentation only.
+ */
+const STEP_SETTINGS_SPACER = `<span class="step-settings-spacer" aria-hidden="true"></span>`;
+
+/**
+ * What the step does, for assistive technology: the name's tooltip says it on
+ * hover, and this says it in the row's reading order — and, through the
+ * checkbox's `aria-describedby`, when the box is focused. Visually hidden, like
+ * the settings page's explanations (§37.104); never a visible line (§37.107).
+ * For a row with no box it also says the step always runs (§37.108).
+ */
+function stepPurpose(id: WorkflowStepId): string {
+  return `<p class="visually-hidden" id="purpose-${id}">${stepTooltip(id)}</p>`;
+}
+
+/**
+ * Each row's icon (§37.108), between the leading slot and the name: what the
+ * step works on, at a glance — the issue, the code, the history, past fixes,
+ * the package, the agent. Decoration, never the only way to tell the rows
+ * apart: the name says it, so the icon is hidden from assistive technology.
+ * Fix with AI's is the robot of the Fix with AI button, not the terminal Open
+ * AI Session already uses. The colours are tones the theme supplies
+ * (`panel.css`); the glyphs are declared in `codicons/codicon.css`.
+ */
+const STEP_ICONS: Readonly<Record<WorkflowStepId, { readonly glyph: string; readonly tone: string }>> = {
+  issueDetails: { glyph: "file-text", tone: "blue" },
+  codeSearch: { glyph: "search", tone: "blue" },
+  gitHistory: { glyph: "source-control", tone: "green" },
+  similarFixes: { glyph: "database", tone: "amber" },
+  buildContext: { glyph: "files", tone: "cyan" },
+  fixWithAI: { glyph: "hubot", tone: "purple" },
+  // The agent's report: its own glyph, so it is not mistaken for Issue details.
+  fixResult: { glyph: "output", tone: "purple" },
+};
+
+function stepIcon(id: WorkflowStepId): string {
+  const { glyph, tone } = STEP_ICONS[id];
+  return `<span class="codicon codicon-${glyph} step-icon step-icon-${tone}" aria-hidden="true"></span>`;
+}
+
+/**
  * One workflow row: the choice, the status, and — since Batch 6 — the result.
  *
- * Ticked in the markup — including `fixWithAI`, which is the one exception:
- * it starts unticked because involving a model is a decision of its own (R5),
- * and a box that arrives ticked has made that decision for the developer. The
- * rest match `DEFAULT_FORM`, so a Run that happens before the host's first
- * state push does what the boxes say. `test/panel.test.ts` compares both
- * against the model.
+ * Every row has the same parts on its first line (§37.107, §37.108): a leading
+ * slot — the checkbox, or a spacer as wide — then the step's icon and its
+ * name, then the metadata ending in the gear (or a spacer as wide), so names
+ * start on one line down the list and gears stand in one column. What the step
+ * does is the name's tooltip and, visually hidden, the row's description; the
+ * line under the name is for state only.
  *
- * Every slot below the summary line starts hidden and is filled by the page
- * from the host's `WorkflowStepResult`: a detail line, the owned artifact as a
- * quiet link, whatever the step owns (Code search's two disclosures, Build
- * context's two actions, Fix with AI's button and Strategy line), and the row's
- * own failure card.
+ * The boxes are ticked in the markup — except `fixWithAI`, which starts
+ * unticked because involving a model is a decision of its own (R5), and a box
+ * that arrives ticked has made that decision for the developer. The rest match
+ * `DEFAULT_FORM`, so a Run that happens before the host's first state push
+ * does what the boxes say. `test/panel.test.ts` compares both against the
+ * model.
+ *
+ * Every slot below the first line starts hidden and is filled by the page
+ * from the host's `WorkflowStepResult`: the state line, a detail line, the
+ * owned artifact as a quiet link, whatever the step owns (Code search's two
+ * disclosures, Build context's two actions, Fix with AI's Strategy line), and
+ * the row's own failure card.
  */
 function step(id: WorkflowStepId): string {
-  const required = id === "issueDetails";
+  // Two rows have no checkbox (§37.107): Issue details is the input, and Build
+  // context is the package every later step and the AI fix work from — both
+  // run on every run. Not a disabled box, which reads as a setting somebody
+  // locked and is still announced as a checkbox: the row's leading slot holds
+  // a spacer instead, so its name starts where the others' do. That they
+  // always run is in the tooltip, not on screen (§37.108).
+  const required = ALWAYS_RUNS.includes(id);
   const checked = id === "fixWithAI" ? "" : " checked";
-  const box = `<input type="checkbox" id="plan-${id}"${checked}${required ? " disabled" : ""}>`;
-  const note = required ? `<span class="step-note" id="note-${id}">Always runs</span>` : "";
-  // The Jira wording, because that is the source the form starts on; the host
-  // replaces it with the manual wording on the first push after a switch.
-  const description = stepDescription(id);
+  const lead = required
+    ? STEP_LEAD_SPACER
+    : `<span class="step-lead"><input type="checkbox" id="plan-${id}"${checked} aria-describedby="purpose-${id}"></span>`;
   // A gear only where the step has a settings section: Similar fixes is
   // configured by its checkbox alone. Named for its step — "Configure
   // Code Search" — because six buttons all called Settings are one name read six
   // times. Visible at rest (quieter until hovered or focused), never hover-only.
   const section = SETTINGS_SECTION_OF_STEP[id];
   const gear = section
-    ? `\n            <button type="button" class="icon step-settings" id="settings-${id}" title="${SETTINGS_ACTION_LABELS[section]}" aria-label="${SETTINGS_ACTION_LABELS[section]}"><span class="codicon codicon-settings-gear" aria-hidden="true"></span></button>`
-    : "";
+    ? `<button type="button" class="icon step-settings" id="settings-${id}" title="${SETTINGS_ACTION_LABELS[section]}" aria-label="${SETTINGS_ACTION_LABELS[section]}"><span class="codicon codicon-settings-gear" aria-hidden="true"></span></button>`
+    : STEP_SETTINGS_SPACER;
   const summary = section ? `\n            <p class="step-settings-summary" id="settings-summary-${id}" hidden></p>` : "";
-  // First line: the choice (the checkbox and the name), then the metadata —
-  // how long it took, how it went, its gear. The status is words with a small
-  // dot or the spinner beside them, never a second tick (§37.86). The
-  // artifact link sits under the row's lines, not among the metadata.
+  // First line: the choice (the checkbox, or its empty slot, the icon and the
+  // name), then the metadata — how long it took, how it went, its gear. The
+  // status is words with a small dot or the spinner beside them, never a second
+  // tick (§37.86). The artifact link sits under the row's lines, not among the
+  // metadata. Clicking the name of a row with a box ticks it, as before; the
+  // name of a row without one is plain text.
+  const name = `${lead}${stepIcon(id)}<span class="step-main"><span class="step-name">${STEP_LABELS[id]}</span></span>`;
+  const label = required
+    ? `<span class="step-label" title="${stepTooltip(id)}">${name}</span>`
+    : `<label class="step-label" for="plan-${id}" title="${stepTooltip(id)}">${name}</label>`;
   return `        <li class="step" id="step-${id}">
           <div class="step-head">
-            <label class="step-label" for="plan-${id}">${box}<span class="step-name">${STEP_LABELS[id]}</span></label>
+            ${label}
+            ${stepPurpose(id)}
             <span class="step-meta">
               <span class="step-duration" id="duration-${id}"></span>
-              ${stepStatus(id)}${gear}
+              ${stepStatus(id)}
+              ${gear}
             </span>
           </div>
-          <div class="step-foot" id="foot-${id}">
-            <p class="step-description" id="description-${id}">${description}</p>
-            ${note}
+          <div class="step-foot" id="foot-${id}" hidden>
+            <p class="step-description" id="description-${id}" hidden></p>
           </div>
           <div class="step-body">${summary}
             <p class="step-detail" id="detail-${id}" hidden></p>
@@ -1280,21 +1346,24 @@ ${errorCard(`error-${id}`)}
  *
  * Built like the six so it reads as part of the same list, with two
  * differences that are the point: no checkbox — nobody chooses it and no run
- * performs it — and no row failure card, because a report that cannot be
- * previewed is still a report, not an error. (The one card it has is Review
- * with AI's, about that action.) Hidden in the markup; the page shows it only
- * while the host's workflow includes it.
+ * performs it, so its leading slot is a spacer like Issue details' — and no
+ * row failure card, because a report that cannot be previewed is still a
+ * report, not an error. (The one card it has is Review with AI's, about that
+ * action.) Hidden in the markup; the page shows it only while the host's
+ * workflow includes it.
  */
 const FIX_RESULT_ROW = `        <li class="step" id="step-fixResult" hidden>
           <div class="step-head">
-            <span class="step-label"><span class="step-name">${STEP_LABELS.fixResult}</span></span>
+            <span class="step-label" title="${stepTooltip("fixResult")}">${STEP_LEAD_SPACER}${stepIcon("fixResult")}<span class="step-main"><span class="step-name">${STEP_LABELS.fixResult}</span></span></span>
+            ${stepPurpose("fixResult")}
             <span class="step-meta">
               <span class="step-duration" id="duration-fixResult"></span>
               ${stepStatus("fixResult")}
+              ${STEP_SETTINGS_SPACER}
             </span>
           </div>
-          <div class="step-foot" id="foot-fixResult">
-            <p class="step-description" id="description-fixResult">${stepDescription("fixResult")}</p>
+          <div class="step-foot" id="foot-fixResult" hidden>
+            <p class="step-description" id="description-fixResult" hidden></p>
           </div>
           <div class="step-body">
             <p class="step-detail" id="detail-fixResult" hidden></p>

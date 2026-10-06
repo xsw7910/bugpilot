@@ -1,6 +1,7 @@
 /**
- * The native tree view: Results, with this work item's artifacts (Current) and
- * the history, as two groups of one view (§37.106).
+ * The native tree view: Results, with this work item's artifacts (Current),
+ * the history and the diagnostics, as three groups of one view (§37.106,
+ * §37.110).
  *
  * Native rather than more webview, for the reason §5.3 gives: a tree is what
  * VS Code's own TreeView is for, and reimplementing one in HTML would be worse
@@ -12,7 +13,7 @@
 
 import * as vscode from "vscode";
 
-import { CURRENT_GROUP, resultsChildren, resultsItem } from "../app/results.ts";
+import { CURRENT_GROUP, DIAGNOSTICS_GROUP, resultsChildren, resultsItem } from "../app/results.ts";
 import type { ResultsItem, ResultsNode, ResultsSources } from "../app/results.ts";
 
 const COLLAPSIBLE: Readonly<Record<ResultsItem["collapsible"], vscode.TreeItemCollapsibleState>> = {
@@ -26,6 +27,8 @@ export class ResultsTree implements vscode.TreeDataProvider<ResultsNode>, vscode
   readonly onDidChangeTreeData = this.#changed.event;
   readonly #sources: ResultsSources;
   readonly #workItemId: () => string | undefined;
+  /** The diagnostics last drawn, as JSON, so an unchanged push redraws nothing. */
+  #shownDiagnostics: string | undefined;
 
   constructor(sources: ResultsSources, workItemId: () => string | undefined) {
     this.#sources = sources;
@@ -45,6 +48,21 @@ export class ResultsTree implements vscode.TreeDataProvider<ResultsNode>, vscode
   /** Current alone — its files and the id on its row — without a `bugpilot list`. */
   refreshCurrent(): void {
     this.#changed.fire(CURRENT_GROUP);
+  }
+
+  /**
+   * Diagnostics alone, and only when what it shows has changed (§37.110).
+   *
+   * Called with every panel push, which is when the host's state changes — a
+   * credential saved, a repository found, an agent resolved, a work item
+   * opened. It compares state the host already holds and fires nothing for an
+   * unchanged push: no timer, no request, and never `bugpilot list`.
+   */
+  syncDiagnostics(): void {
+    const next = JSON.stringify(this.#sources.diagnostics());
+    if (next === this.#shownDiagnostics) return;
+    this.#shownDiagnostics = next;
+    this.#changed.fire(DIAGNOSTICS_GROUP);
   }
 
   async getChildren(node?: ResultsNode): Promise<ResultsNode[]> {

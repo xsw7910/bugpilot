@@ -2,8 +2,9 @@
  * What BugPilot says it is configured with.
  *
  * Two rules run through this file. **Nothing is claimed that was not
- * established**: a stored credential is "Credentials configured" and never
- * "Connected", and an agent nobody has tried to resolve is "Not checked yet".
+ * established**: a stored credential is "Configured" — the Jira row's own word
+ * (§37.110) — and never "Connected", and an agent nobody has tried to resolve
+ * is "Not checked yet".
  * And **nothing sensitive reaches the model** — the token, the custom command
  * line and the bug's own text all stay where they are.
  */
@@ -11,7 +12,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { diagnostics } from "../src/app/diagnostics.ts";
+import { diagnosticTooltip, diagnostics } from "../src/app/diagnostics.ts";
+import { jiraConnection } from "../src/app/jiraConnection.ts";
 import type { DiagnosticsInput } from "../src/app/diagnostics.ts";
 
 const input = (overrides: Partial<DiagnosticsInput> = {}): DiagnosticsInput => ({
@@ -20,6 +22,7 @@ const input = (overrides: Partial<DiagnosticsInput> = {}): DiagnosticsInput => (
   cliVersion: "0.1.0",
   extensionVersion: "0.1.0",
   jiraConfigured: true,
+  jiraRejected: false,
   agent: "auto",
   source: "jira",
   ...overrides,
@@ -30,12 +33,12 @@ const rowsOf = (overrides: Partial<DiagnosticsInput> = {}) =>
 
 test("a configured environment reads as one", () => {
   assert.deepEqual([...diagnostics(input({ workItemId: "JR-12345" })).rows], [
-    { label: "Repository", value: "sample-repo", detail: "/work/sample-repo" },
-    { label: "Jira", value: "Credentials configured" },
+    { label: "Repository", value: "sample-repo", detail: "/work/sample-repo", detailLabel: "Path" },
+    { label: "Jira", value: "Configured", detail: "Set up from the Jira row in Workflow" },
     { label: "AI agent", value: "Auto-detect", detail: "Not checked yet" },
     { label: "Work item", value: "JR-12345", detail: "From a Jira issue" },
     { label: "Extension", value: "0.1.0" },
-    { label: "BugPilot CLI", value: "0.1.0", detail: "/home/dev/.local/bin/bugpilot" },
+    { label: "BugPilot CLI", value: "0.1.0", detail: "/home/dev/.local/bin/bugpilot", detailLabel: "Executable" },
   ]);
 });
 
@@ -46,7 +49,10 @@ test("the repository is named, with its path underneath", () => {
     label: "Repository",
     value: "sample-repo",
     detail: "/work/sample-repo",
+    detailLabel: "Path",
   });
+  // In the tree the path is the tooltip's second line, never the row's text.
+  assert.equal(diagnosticTooltip(rowsOf().Repository!), "Repository: sample-repo\nPath: /work/sample-repo");
   // Either separator, whichever platform wrote it.
   assert.equal(rowsOf({ root: "C:\\work\\sample-repo" }).Repository?.value, "sample-repo");
 });
@@ -59,8 +65,17 @@ test("no repository is a state, not a blank", () => {
 
 test("Jira says what is known and not what is hoped", () => {
   // A stored credential. Nobody has asked Jira anything.
-  assert.equal(rowsOf({ jiraConfigured: true }).Jira?.value, "Credentials configured");
-  assert.equal(rowsOf({ jiraConfigured: false }).Jira?.value, "Credentials not configured");
+  assert.equal(rowsOf({ jiraConfigured: true }).Jira?.value, "Configured");
+  assert.equal(rowsOf({ jiraConfigured: false }).Jira?.value, "Not configured");
+  // Turned away on the last run: what Jira actually said, and only then.
+  assert.equal(rowsOf({ jiraConfigured: true, jiraRejected: true }).Jira?.value, "Authentication failed");
+  assert.equal(rowsOf({ jiraConfigured: false, jiraRejected: true }).Jira?.value, "Not configured");
+  // The Workflow row's words, so the two cannot drift apart; and Diagnostics
+  // points there rather than offering a second way in.
+  for (const [configured, rejected] of [[true, false], [false, false], [true, true]] as const) {
+    assert.equal(rowsOf({ jiraConfigured: configured, jiraRejected: rejected }).Jira?.value, jiraConnection(configured, rejected).status);
+  }
+  assert.equal(rowsOf().Jira?.detail, "Set up from the Jira row in Workflow");
 
   for (const claim of ["Connected", "Healthy", "Online", "Verified", "Working"]) {
     const text = diagnostics(input()).rows.map((row) => `${row.value} ${row.detail ?? ""}`).join(" ");
@@ -144,6 +159,7 @@ test("a CLI whose version did not answer still says which one it is", () => {
 
   assert.equal(row?.value, "Version not known");
   assert.equal(row?.detail, "/home/dev/.local/bin/bugpilot");
+  assert.equal(diagnosticTooltip(row!), "BugPilot CLI: Version not known\nExecutable: /home/dev/.local/bin/bugpilot");
 });
 
 test("nothing secret can reach a row", () => {
@@ -159,6 +175,7 @@ test("nothing secret can reach a row", () => {
     "executable",
     "extensionVersion",
     "jiraConfigured",
+    "jiraRejected",
     "resolvedAgent",
     "root",
     "source",

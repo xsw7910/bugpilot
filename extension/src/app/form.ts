@@ -16,10 +16,12 @@
  *  2. **`--retry` ignores `--json-lines`** — only `--json` is honoured on that
  *     path, and without either flag it launches an agent in a terminal. So a
  *     retry is a `--json` run, and a test pins that down.
- *  3. **The CLI cannot express every plan.** There is no `--skip-build-context`:
- *     dropping the context step means `--only-issue-details`, which also drops
- *     search, history and similar fixes. The form models that coupling instead
- *     of offering five independent checkboxes that would silently lie.
+ *  3. **Build context always runs.** The CLI has no `--skip-build-context`:
+ *     dropping the context step meant `--only-issue-details`, which also dropped
+ *     search, history, similar fixes and the AI fix. The panel offered that as
+ *     a Build context checkbox with the other four coupled to it; since §37.107
+ *     the row has no checkbox and the panel never sends the flag. It is still
+ *     the CLI's.
  */
 
 import path from "node:path";
@@ -48,7 +50,12 @@ export interface PlanState {
   readonly codeSearch: boolean;
   readonly gitHistory: boolean;
   readonly similarFixes: boolean;
-  readonly buildContext: boolean;
+  /**
+   * Always on (§37.107): the package is what every later step and the AI fix
+   * work from. Turning it off was `--only-issue-details`, and the panel no
+   * longer offers that.
+   */
+  readonly buildContext: true;
 }
 
 export interface FormState {
@@ -218,6 +225,11 @@ export function restoreForm(saved: FormState | undefined): FormState {
     gitSearchFileHistory: saved.gitSearchFileHistory !== false,
     gitHistoryDepth: gitHistoryDepthOf(saved.gitHistoryDepth),
     gitMaxCommits: typeof saved.gitMaxCommits === "string" ? saved.gitMaxCommits : "",
+    // A form saved while Build context could be unticked may say it was: the
+    // two fixed steps are on whatever it says (§37.107). The three optional
+    // ones keep what was saved — unticking Build context had cleared them, and
+    // ticking them again was never this form's to decide.
+    plan: { ...DEFAULT_FORM.plan, ...saved.plan, issueDetails: true, buildContext: true },
   };
 }
 
@@ -390,43 +402,16 @@ function unique(items: string[]): string[] {
 }
 
 /**
- * The plan as the CLI can actually express it.
+ * The flags for a plan. Empty for the full plan.
  *
- * Turning off the context step means `--only-issue-details`, and that flag also
- * turns off the other three. The panel greys them out for the same reason: a
- * checkbox that stays ticked while the run ignores it is a lie about what ran.
+ * Never `--only-issue-details`: Build context always runs (§37.107), so only the
+ * three optional steps can be skipped.
  */
-export function effectivePlan(plan: PlanState): PlanState {
-  if (plan.buildContext) return plan;
-  return {
-    issueDetails: true,
-    codeSearch: false,
-    gitHistory: false,
-    similarFixes: false,
-    buildContext: false,
-  };
-}
-
-/**
- * Whether the AI step can run at all.
- *
- * It needs a package to hand over, and `--only-issue-details` never writes
- * one — so the last row is coupled to Build context exactly as the middle three
- * are. Offering it anyway would hand an agent a prompt pointing at a file that
- * does not exist.
- */
-export function canFixWithAI(form: FormState): boolean {
-  return form.fixWithAI && form.plan.buildContext;
-}
-
-/** The flags for a plan. Empty for the full plan. */
 export function planFlags(plan: PlanState): string[] {
-  const effective = effectivePlan(plan);
-  if (!effective.buildContext) return ["--only-issue-details"];
   const flags: string[] = [];
-  if (!effective.codeSearch) flags.push("--skip-code-search");
-  if (!effective.gitHistory) flags.push("--skip-git-history");
-  if (!effective.similarFixes) flags.push("--skip-similar-fixes");
+  if (!plan.codeSearch) flags.push("--skip-code-search");
+  if (!plan.gitHistory) flags.push("--skip-git-history");
+  if (!plan.similarFixes) flags.push("--skip-similar-fixes");
   return flags;
 }
 

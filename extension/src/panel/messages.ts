@@ -16,13 +16,13 @@ import type { ProgressView } from "../app/progress.ts";
 import type { FieldProblem, FormState, Source } from "../app/form.ts";
 import { migrateAgentChoice } from "../app/agents.ts";
 import type { AgentStatusView } from "../app/agents.ts";
-import { WORKFLOW_STEP_IDS } from "../app/workflow.ts";
+import { ALWAYS_RUNS, WORKFLOW_STEP_IDS } from "../app/workflow.ts";
 import type { OverallStatus, WorkflowStepResult } from "../app/workflow.ts";
 import type { ArtifactList } from "../app/artifacts.ts";
 import type { CommandAction } from "../app/environment.ts";
 import { FIX_MODE_ID_RE, gitHistoryDepthOf } from "../app/form.ts";
 import type { UserFacingError } from "../app/failures.ts";
-import type { DiagnosticsView } from "../app/diagnostics.ts";
+import type { JiraConnectionView } from "../app/jiraConnection.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
 import { WRITABLE_SCOPES } from "../app/fixModes.ts";
 import { MAX_REVIEW_SECTION } from "../app/reviewCapture.ts";
@@ -157,8 +157,12 @@ export interface PanelState {
    * where the card was (§37.85). Until the next environment check.
    */
   readonly noticeStatus?: string;
-  /** Whether a Jira credential is stored. Never the credential itself. */
-  readonly jiraConfigured: boolean;
+  /**
+   * The Jira row under Advanced Settings (§37.110): whether a credential is
+   * stored — or was turned away on the last run — and the word on its button.
+   * Never the credential itself.
+   */
+  readonly jira: JiraConnectionView;
   /**
    * The one primary action and its ⋯ menu, for the work item and form on
    * screen: Run, Fix with AI, Open AI Session, Rebuild Context, or Running….
@@ -218,13 +222,6 @@ export interface PanelState {
    * extension observed itself.
    */
   readonly runError?: UserFacingError;
-  /**
-   * What BugPilot is configured with.
-   *
-   * Always present, unlike the result: the question it answers — is this the
-   * environment I think it is — is asked most urgently when nothing has run.
-   */
-  readonly diagnostics: DiagnosticsView;
   /**
    * The line under the AI Agent picker, per choice: "Detected: Codex CLI",
    * "Installed · Limited integration". From the host's cached detection; empty
@@ -866,7 +863,9 @@ function parseForm(raw: unknown): FormState | undefined {
       codeSearch: plan["codeSearch"] !== false,
       gitHistory: plan["gitHistory"] !== false,
       similarFixes: plan["similarFixes"] !== false,
-      buildContext: plan["buildContext"] !== false,
+      // Always on as well (§37.107): the page has no box for it, and a page
+      // restored from before saying otherwise does not turn it off.
+      buildContext: true,
     },
     // Opt-in, so an absent or malformed field means "do not involve a model" —
     // the safe reading of a message the host cannot vouch for.
@@ -893,15 +892,16 @@ function parseForm(raw: unknown): FormState | undefined {
 }
 
 /**
- * The checkbox ids the page uses, one per workflow step.
+ * The checkbox ids the page uses, one per optional workflow step — none for
+ * Issue details and Build context, which always run (§37.107).
  *
  * A guard export: `test/panel.test.ts` compares these against the document, so
  * a step added to the model without a row in the markup fails a test instead of
  * silently never appearing.
  */
-export const WORKFLOW_CHECKBOX_IDS: readonly string[] = WORKFLOW_STEP_IDS.map(
-  (id) => `plan-${id}`,
-);
+export const WORKFLOW_CHECKBOX_IDS: readonly string[] = WORKFLOW_STEP_IDS.filter(
+  (id) => !ALWAYS_RUNS.includes(id),
+).map((id) => `plan-${id}`);
 
 /**
  * The attachment paths coming back from the page.

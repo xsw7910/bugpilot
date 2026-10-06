@@ -128,11 +128,15 @@ test("Fix Mode and Hint left the settings page, and still make a prepared contex
   assert.equal(preparationFingerprint({ ...base, useIssueDetails: false }), preparationFingerprint(base));
 });
 
-test("defaults summarize to nothing but Fix with AI's agent — not the mode or the hint, which are on the main page", () => {
-  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, fixModeId: "standard" }), { fixWithAI: "Auto-detected agent" });
-  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, fixModeId: "conservative", hint: "check the reader" }), {
-    fixWithAI: "Auto-detected agent",
+test("defaults summarize to nothing — not the mode or the hint, which are on the main page, nor Auto-detect (§37.108)", () => {
+  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, fixModeId: "standard" }), {});
+  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, fixModeId: "conservative", hint: "check the reader" }), {});
+  // An agent the developer chose is not the default, and is named.
+  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, agent: "claude-cli" }), { fixWithAI: "Claude CLI" });
+  assert.deepEqual(settingsSummaries({ ...DEFAULT_FORM, agent: "custom", agentCommand: "my-agent {prompt}" }), {
+    fixWithAI: "Custom agent command",
   });
+  assert.equal(JSON.stringify(settingsSummaries(DEFAULT_FORM)).includes("Auto-detected"), false);
 });
 
 test("summaries are counts and names, singular or plural, and only for what is set", () => {

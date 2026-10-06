@@ -139,10 +139,15 @@ export function activate(context: vscode.ExtensionContext): void {
           ? context.extension.packageJSON.version
           : undefined,
       ui: createUiPort({
-        render: (state) => panel.render(state),
+        render: (state) => {
+          panel.render(state);
+          // Results > Diagnostics mirrors state the push just carried (§37.110):
+          // redrawn only when it changed.
+          results?.syncDiagnostics();
+        },
         refreshViews: () => results?.refresh(),
         editCredentials: (): Promise<void> =>
-          setCredentials(credentials, log, () => controller.refreshEnvironment()),
+          setCredentials(credentials, log, () => controller.credentialsSaved()),
       }),
       log,
       environment,
@@ -275,6 +280,8 @@ export function activate(context: vscode.ExtensionContext): void {
           new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
         );
       },
+      // State the controller already holds: no probe, no request (§37.110).
+      diagnostics: () => controller.diagnostics,
       now: Date.now,
     },
     () => controller.workItemId,
@@ -375,7 +382,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   register(COMMANDS.setCredentials, () =>
-    setCredentials(credentials, log, () => controller.refreshEnvironment()),
+    setCredentials(credentials, log, () => controller.credentialsSaved()),
   );
 
   register(COMMANDS.openSettings, async () => {

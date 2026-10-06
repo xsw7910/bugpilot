@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildWorkflow, canOpenFolder, overallStatus, REVIEW_NEXT_STEP, stepDescription, WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
+import { ALWAYS_RUNS, buildWorkflow, canOpenFolder, overallStatus, REVIEW_NEXT_STEP, stepDescription, stepTooltip, WORKFLOW_STEP_IDS } from "../src/app/workflow.ts";
 import type { WorkflowInput, WorkflowStepResult } from "../src/app/workflow.ts";
 import { DEFAULT_FORM } from "../src/app/form.ts";
 import { CAPABILITIES, CAPABILITY_LABELS } from "../src/app/progress.ts";
@@ -56,13 +56,39 @@ test("the workflow is the six steps, in order, whatever the run did", () => {
   assert.equal(steps[0]!.enabled, true);
 });
 
+test("Issue details and Build context always run; the other four are the developer's (§37.107)", () => {
+  // Build context could be unticked once, which meant --only-issue-details.
+  // It has no box now: it is on whatever the plan's optional steps say.
+  const off = { ...DEFAULT_FORM.plan, codeSearch: false, gitHistory: false, similarFixes: false };
+  for (const plan of [DEFAULT_FORM.plan, off]) {
+    const rows = buildWorkflow(input({ plan }));
+    for (const row of rows) {
+      const fixed = row.id === "issueDetails" || row.id === "buildContext";
+      assert.equal(row.required === true, fixed, row.id);
+      if (fixed) assert.equal(row.enabled, true, row.id);
+    }
+  }
+  assert.deepEqual([...ALWAYS_RUNS], ["issueDetails", "buildContext"]);
+});
+
+test("a row's tooltip says what the step does, and that it always runs where there is no box (§37.108)", () => {
+  for (const id of WORKFLOW_STEP_IDS) {
+    const expected = ALWAYS_RUNS.includes(id) ? `${stepDescription(id)} Always runs.` : stepDescription(id);
+    assert.equal(stepTooltip(id), expected, id);
+  }
+  assert.equal(stepTooltip("issueDetails"), "Gather issue information. Always runs.");
+  assert.equal(stepTooltip("buildContext"), "Prepare structured context for AI. Always runs.");
+  assert.equal(stepTooltip("codeSearch"), "Search relevant code in the repository.");
+  assert.equal(stepTooltip("fixResult"), "The report the agent wrote in fix_report.md.");
+});
+
 test("issue details says what it does in words true of every source", () => {
   // A work item is a Jira issue or a bug typed into the panel, and the page
   // shows this line before it knows which: no Jira in it.
-  assert.equal(stepDescription("issueDetails"), "Gather issue information");
+  assert.equal(stepDescription("issueDetails"), "Gather issue information.");
   for (const source of ["jira", "manual"] as const) {
     const row = buildWorkflow(input({ source }))[0]!;
-    assert.equal(row.description, "Gather issue information", source);
+    assert.equal(row.description, "Gather issue information.", source);
     assert.equal(/jira/i.test(row.description), false, source);
   }
 });
@@ -163,8 +189,10 @@ test("only Build context and Fix with AI ever offer actions, and never the folde
 const ISSUE = { id: "JR-12345", source: "jira", title: "WidgetController rejects the VDS output type" };
 
 test("Issue details says what it is doing, then what it read", () => {
+  // Pending, nothing: "Gather issue information" is the row's tooltip (§37.107).
   const pending = stepIn(buildWorkflow(input()), "issueDetails");
-  assert.equal(pending.summary, "Gather issue information");
+  assert.equal(pending.summary, "");
+  assert.equal(pending.description, "Gather issue information.");
 
   const running = stepIn(
     buildWorkflow(input({ workItemId: "JR-12345", progress: progress("running", { issue_details: "running" }) })),
@@ -261,7 +289,7 @@ const SEARCH = {
 };
 
 test("Code search reports its two numbers and owns the files and terms", () => {
-  assert.equal(stepIn(buildWorkflow(input()), "codeSearch").summary, "Search relevant code in the repository");
+  assert.equal(stepIn(buildWorkflow(input()), "codeSearch").summary, "");
   const running = stepIn(
     buildWorkflow(input({ progress: progress("running", { code_search: "running" }), search: SEARCH })),
     "codeSearch",
@@ -988,11 +1016,30 @@ test("every row states its status once: the status words never reappear as its s
   }
 });
 
-test("a pending row keeps its description as its only line, and states no status", () => {
+test("a pending row has no second line and states no status; its purpose is its tooltip", () => {
+  // The six explanations were six always-visible lines that said nothing about
+  // the run (§37.107). They stay in the model, for the tooltip and the
+  // accessible description, and the second line is for state only.
+  const descriptions = {
+    issueDetails: "Gather issue information.",
+    codeSearch: "Search relevant code in the repository.",
+    gitHistory: "Find related commits and file changes.",
+    similarFixes: "Search for similar issues and solutions.",
+    buildContext: "Prepare structured context for AI.",
+    fixWithAI: "Run the prepared context with your AI coding agent.",
+  } as const;
   for (const row of buildWorkflow(input())) {
     if (row.id === "fixResult") continue;
     assert.equal(row.statusText, "");
-    assert.equal(row.summary, row.description, row.id);
+    assert.equal(row.summary, "", row.id);
+    assert.equal(row.description, descriptions[row.id], row.id);
+  }
+  // Mid-run, a row that has not started yet says nothing either — except Fix
+  // with AI, whose "Waiting for task…" is state.
+  const running = buildWorkflow(input({ progress: progress("running", { issue_details: "running" }) }));
+  for (const row of running) {
+    if (row.id === "issueDetails") continue;
+    assert.equal(row.summary, row.id === "fixWithAI" ? "Waiting for task…" : "", row.id);
   }
 });
 

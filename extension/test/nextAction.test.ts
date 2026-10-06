@@ -202,7 +202,6 @@ test("every preparation input moves the fingerprint", () => {
     ["attachments", { attachments: ["/logs/crash.txt"] }],
     ["Fix Mode", { fixModeId: "conservative" }],
     ["plan", { plan: { ...DEFAULT_FORM.plan, gitHistory: false } }],
-    ["Build context off", { plan: { ...DEFAULT_FORM.plan, buildContext: false } }],
     ["source", { source: "manual", issueKey: "", description: "The dialog crashes." }],
   ];
   for (const [what, change] of changes) {
@@ -228,12 +227,6 @@ test("what happens after a run, and whitespace a run ignores, leave it alone", (
       `${JSON.stringify(change)} made the context stale`,
     );
   }
-  // Coupled plan boxes that a run ignores anyway: Build context off drops all three.
-  const off = { ...DEFAULT_FORM.plan, buildContext: false };
-  assert.equal(
-    preparationFingerprint(form({ plan: off })),
-    preparationFingerprint(form({ plan: { ...off, codeSearch: false, gitHistory: false } })),
-  );
 });
 
 test("a hand-written bug's title and description count only on the manual path", () => {

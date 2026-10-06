@@ -2906,6 +2906,137 @@ row menu, Reset Session and the Workflow panel are unchanged.
    viewItem == bugpilot.workItem`; the groups and the artifact rows have no
    context value. Nothing was stored under the old view ids: no migration.
 
+### Confirmed decisions (Workflow Steps rows)
+
+Revises §20's pending line and the Build context checkbox (§37.107). Run order,
+which optional steps run, Run/Rebuild, Fix with AI, Advanced Settings,
+staleness, Reset Session, Git History and Results are unchanged. One semantic
+change, chosen explicitly: Build context always runs.
+
+1. **Required steps have no checkbox.** Issue details and Build context
+   (`ALWAYS_RUNS`, `workflow.ts`) show no checkbox — not a disabled one, which
+   reads as a locked setting and is still announced as a checkbox. The panel
+   never sends `--only-issue-details` (still a CLI flag); a page or a saved form
+   that says Build context is off is read as on, and the three optional boxes
+   keep what was saved. The coupling that cleared and disabled the other four
+   boxes, and its note, are gone.
+2. **Optional steps keep their boxes**: Code search, Git history, Similar fixes,
+   Fix with AI — inside the name's label as before (a click on the name ticks
+   it), locked only while a run is in flight.
+3. **One leading slot on every row** (`.step-lead`): 20px, the native box with
+   its own 4px + 3px margins, then 6px to the name. A box, or an `aria-hidden`
+   empty spacer; Fix result uses the spacer too, instead of its own padding.
+   Every line under a name is indented to the name (`--step-indent`). A row with
+   no settings keeps the gear's place (`.step-settings-spacer`), so statuses and
+   gears stand in columns. Every first line is the gear's 20px, top-aligned.
+4. **Generic descriptions are tooltips.** The six phrases (`stepDescription`)
+   are the name label's `title` and a visually hidden `purpose-<id>` paragraph,
+   which the checkbox names in `aria-describedby`. The host sends no summary
+   for a pending row.
+5. **State stays on screen**: what a running step is doing, results, cards,
+   and settings changed from their defaults. (*Always runs* and the
+   Auto-detect agent line were on screen here too; §37.108 took them off.)
+
+### Confirmed decisions (Workflow Steps polish)
+
+Revises decision 3's slot and decision 5 above (§37.108). Run order, which
+steps run, Run/Rebuild, Fix with AI, Advanced Settings, Results, Git History,
+Code Search, Similar fixes and Reset Session are unchanged.
+
+1. **Header:** the native disclosure triangle, a `list-unordered` icon, the
+   heading, and the overall status as a pill — a hairline border and a faint
+   fill from the foreground, rounded, the words in the description colour;
+   running and failed tint the words and the border. The one pill in the panel.
+   A narrow sidebar puts the pill under the heading, starting under the icon.
+2. **One icon per row**, between the leading slot and the name, decorative
+   (`aria-hidden`; the name says what the row is): Issue details `file-text`,
+   Code search `search`, Git history `source-control` (the branch glyph),
+   Similar fixes `database`, Build context `files`, Fix with AI `hubot` — the
+   Fix with AI button's robot, not the reference's terminal, which is Open AI
+   Session's — and Fix result `output`. Hues from the theme's chart colours,
+   mixed a fifth toward the foreground (Similar fixes from `charts.yellow`:
+   Dark Modern's `charts.orange` is translucent); quieter on a step not chosen
+   or skipped; the foreground in High Contrast. Code points read from the
+   vendored font's own cmap.
+3. **Leading slot 16px** (the box and the 3px after it, flush left), then the
+   icon, a 6px gap after each; names cut with an ellipsis, never wrapped. Below
+   about 240px of sidebar the gaps are 4px and the card's side padding 6px, so
+   every name fits whole at 200px.
+4. **Normal state is one line per row.** *Always runs* is gone from the screen
+   — the missing box says it, and the tooltip and accessible description end
+   "Always runs." — and so is *Auto-detected agent*: Auto-detect is the
+   default, and a row at its defaults has no summary. A chosen agent, other
+   non-default settings, running text, results and failures still show.
+   Descriptions are sentences now ("Gather issue information.").
+5. **Gears** are a little clearer at rest (opacity 0.8); same buttons, same
+   place. Similar fixes still has none: it has no settings, and a gear that
+   opened nothing would be a control that lies. No drag handle in the empty
+   slot, though the reference drew one: nothing here can be reordered.
+
+### Confirmed decisions (Initial sidebar layout)
+
+Revises UI-A1's collapsed Workflow Steps (§37.109). The Results tree (Current
+expanded, History collapsed and read only while expanded, refresh, reopen,
+commands, menus), every workflow behaviour and VS Code's own pane minimum are
+unchanged; no CSS or webview work goes near the minimum.
+
+1. **`initialSize` weights, not `size`:** VS Code reads `initialSize` on a
+   contributed view, only in a container the same extension contributes — which
+   `bugpilot` is — and gives each view `height × weight / total` the first time
+   the container is laid out. Workflow 3, Results 1: three quarters and a
+   quarter, with Results never below the 148px minimum (it starts exactly there
+   in a short window).
+2. **Both views start expanded** (`visibility: "visible"`, said outright).
+   Results is smaller, never collapsed to save room.
+3. **VS Code's persistence wins.** A view's size is stored only once the user
+   resizes it; until then the weights apply, also to a profile upgraded from a
+   build without them. Once the user drags the sash, VS Code keeps those sizes
+   across reloads and upgrades. BugPilot stores nothing of its own about pane
+   sizes and overrides nothing.
+4. **Workflow Steps starts open**, in the markup. The fold is not stored: the
+   page keeps only the typed form across a rebuild, so a rebuilt page starts
+   open again. Within a page's life a fold holds through every ordinary push
+   (statuses, checkboxes, settings, refreshes); the existing event opens — a run
+   starting, a new card, a reopened work item with results — still open it.
+
+### Confirmed decisions (Jira row and Results > Diagnostics)
+
+Revises UI-C2's Diagnostics disclosure and the phase 5 footer (§37.110). The
+credential store, the `bugpilot.setCredentials` prompt, token handling, Jira
+auth semantics, run-blocking failure cards, Workflow Steps and Current/History
+are unchanged.
+
+> Jira credential setup stays visible in Workflow because it is an important
+> configuration entry point. Diagnostics moves under Results and mirrors Jira
+> status without becoming the primary setup path.
+
+1. **Final structure.** Workflow: Issue, Run, Fix Mode, Hint, Advanced
+   Settings, **Jira connection**, **Workflow Steps**. Results: **Current**,
+   **History**, **Diagnostics** — still one native view, no third.
+2. **The Jira row** (`jiraConnection.ts`): one line under Advanced Settings and
+   above Workflow Steps — key, *Jira*, status, action. *Configured* with a
+   tick and **Replace**; *Not configured* and **Configure**; *Authentication
+   failed* in the error colour with **Replace**. The action is the existing
+   `setCredentials` message and prompt. A named group ("Jira, Configured"); the
+   button named for what it does ("Replace Jira credentials"); two sentences
+   as tooltip and description. At a narrow sidebar the key drops and the
+   status ellipsizes before the action could move.
+3. **Authentication failed** is no new credential state: it is the last run
+   this session that asked Jira ending in the CLI's `JIRA_AUTH_FAILED`
+   (`#jiraRejected`), cleared when credentials are saved or a Jira run gets its
+   issue; a run that never asked Jira leaves it. Never read from an old work
+   item's files. The failure card with Set Jira Credentials stays in Workflow.
+4. **Results > Diagnostics**, collapsed, last: Repository, Jira, AI agent, Work
+   item, Extension, BugPilot CLI — `diagnostics.ts`'s rows, label and value,
+   with paths ("Path:", "Executable:") only in tooltips. Status only: no
+   command, no context menu; Jira's row uses the Workflow row's words and points
+   at it. Read from the controller's getter when drawn; redrawn only when its
+   rows change, checked on each panel push (no timer, no probe, no Jira call),
+   and with every Results refresh.
+5. **Removed from Workflow**, not hidden: the Diagnostics `<details>`, the
+   footer with "BugPilot <version> · <path>" and its Jira line, their styles,
+   and `diagnostics`/`jiraConfigured` in the panel state (now `jira`).
+
 ---
 
 # 20. Step Secondary Text Status Principles
@@ -2917,7 +3048,8 @@ For example:
 ```text
 PENDING
 Code search
-Search relevant code in the repository
+(no second line: "Search relevant code in the repository" is the name's
+tooltip and accessible description since §37.107)
 ```
 
 ↓

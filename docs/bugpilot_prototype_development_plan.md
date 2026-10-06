@@ -11799,3 +11799,227 @@ nine work items open the tree scrolls (VS Code's sticky scroll keeps the
 Current row on top); no horizontal scrollbar at 300px or 170px; long titles
 end in an ellipsis; the refresh button sits in the header. Dark Modern and
 Light Modern. High-contrast themes not checked.
+
+### 37.107 Workflow Steps rows: no box on required steps, descriptions as tooltips (after `8ef4496`, uncommitted)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and a real disposable VS Code window from an installed VSIX; not committed.
+Presentation, plus one semantic change the user chose: **Build context always
+runs**. Decisions in the canonical plan, "Confirmed decisions (Workflow Steps
+rows)".
+
+- **Rows without a checkbox:** Issue details, Build context (and Fix result, as
+  before). **With one:** Code search, Git history, Similar fixes, Fix with AI.
+  `ALWAYS_RUNS` in `workflow.ts` is the one list; `PlanState.buildContext` is
+  `true`; `effectivePlan` and `canFixWithAI` are gone; `planFlags` never emits
+  `--only-issue-details`; `restoreForm` and `parsePanelMessage` read a stored or
+  sent `buildContext: false` as on. The page lost `COUPLED_TO_CONTEXT`,
+  `applyPlanCoupling` and `#plan-note`; `applyStepBoxes` keeps the boxes locked
+  while a run is in flight, as the coupling function did.
+- **Layout:** `.step-lead` (20px slot, box centred with its native inline
+  margins), `.step-main` (name + note, wrapping the note under the name when
+  narrow), `.step-settings-spacer` on gearless rows; `--step-line` (20px),
+  `--step-lead`, `--step-indent`; `.step-head` top-aligned at a 20px line.
+- **Descriptions:** the label's `title`, `<p class="visually-hidden"
+  id="purpose-<id>">`, the box's `aria-describedby`; pending rows' `summary` is
+  `""`, and the page no longer falls back to the description.
+
+**Tests.** 1823 → 1832, all passing. Updated the coupling, pending-line and
+checkbox-per-step tests; new: no box on the two fixed rows (and no disabled
+one), leading slot and spacer structure, metadata ending in the gear or its
+spacer, tooltip + description per row, *Always runs* on screen and hidden after
+the row runs, the agent summary still visible, boxes locked only while running,
+a saved or sent `buildContext: false` read as on, no plan sends
+`--only-issue-details`. Fifteen mutations (a box back on either fixed row, Code
+search's box removed, the description back on screen three ways, no tooltip, no
+`aria-describedby`, a fake or disabled checkbox in the slot, *Always runs*
+hidden, Build context optional again in the model or the message, a pixel
+indent, no gear spacer) each fail at least one test.
+
+**Real window** (VS Code 1.139.1, disposable profiles, before = the HEAD VSIX,
+after = this tree's; Dark Modern and Light Modern):
+
+| | Before | After |
+| --- | --- | --- |
+| Idle row height, 360px | 46–47px (Fix with AI 67) | 30–31px (Fix with AI 51) |
+| Idle row height, 200px | 62–63px (Issue details 86, Fix with AI 99) | 31px (Issue details 50, Fix with AI 51) |
+| Name x / box x | 49 / 27 | 49 / 27 on every row |
+| Lines under a name | x 43 (6px left of it) | x 49 |
+| Gears | x 299 (360px), x 139 (200px) | unchanged, one column |
+| Similar fixes status, after a run, 360px | ends at 319 | ends at 295, with the others |
+
+No horizontal scroll at 360px or 200px, idle or after a real prepare-only Run.
+At 200px *Always runs* moves under *Issue details* and the gear stays on the
+first line. After a run at 200px the duration/status/gear cluster wraps under
+the name as before (Build context's twice, as before); rows there are 1–5px
+taller from the 20px line. Tooltips resolve on the name, the slot and the free
+space of every first line. Chromium's AX tree: each box is named by its step
+with the purpose as description; the spacers are ignored; the fixed rows'
+names are generic, not focusable. Real Tab order: Issue details' gear → Code
+search box → its gear → Git history box → its gear → Similar fixes box → Build
+context's gear → Fix with AI box → its gear. Space toggles a box; a click on a
+box's name toggles it; a click on Issue details' or Build context's name, or on
+the free space of Build context's line, changes nothing. High-contrast themes
+not checked.
+
+### 37.108 Workflow Steps polish: header icon and status pill, an icon per row (after `8ef4496`, uncommitted, on §37.107)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and a real disposable VS Code window from an installed VSIX; not committed.
+Presentation only. Decisions in the canonical plan, "Confirmed decisions
+(Workflow Steps polish)".
+
+- **Header:** `codicon-list-unordered` before the heading; `#workflow-status`
+  styled as a pill (`border-radius: 9px`, foreground-mixed border and fill,
+  `:empty` hidden, running/failed/High Contrast variants); a 16px hanging
+  indent on the summary so a wrapped pill starts under the icon.
+- **Rows:** `STEP_ICONS` in `html.ts` (glyph + tone per row, Fix result
+  included); `--bugpilot-step-*` hues on `.steps`; `--step-lead` 16px,
+  `--step-icon` 16px, `--step-gap` 6px (4px and `#workflow` padding 6px under
+  `@media (max-width: 220px)`); `.step-name` ellipsis; gear opacity 0.8.
+  Six glyphs added to `codicon.css`, each checked in `codicon.ttf`'s cmap and
+  `post` names (`source-control` U+EA68 for the branch).
+- **Text:** `.step-note` and *Always runs* removed; `stepTooltip()` (the
+  description plus " Always runs." for `ALWAYS_RUNS`) is the label's `title`
+  and the `purpose-<id>` text; descriptions end in a full stop;
+  `settingsSummaries` gives Fix with AI no line on Auto-detect.
+
+**Tests.** 1832 → 1836, all passing. Updated the description, tooltip, Always
+runs, default-agent and slot-geometry tests; new: header icon and pill, one
+declared decorative icon per row with its tone, `stepTooltip`, narrow mode,
+names cut not wrapped, a chosen agent still shown. Seventeen mutations (header
+icon, pill radius, a row's icon, an undeclared glyph, an icon exposed to screen
+readers, a box back on either fixed row or off Fix with AI, Always runs back on
+screen or out of the tooltip, Auto-detected agent back, the helper text back, no
+tooltip, names wrapping, no narrow mode, amber from `charts.orange`, a gear
+removed) each fail at least one test.
+
+**Real window** (VS Code 1.139.1, disposable profile, this tree's VSIX; Dark
+Modern and Light Modern, 360px and 200px). Idle: every row 30–31px; box x 23,
+icon x 45, name x 67 at 360px (19 / 39 / 59 at 200px); gears one column; no
+name cut at 200px ("Build context" ends 9px before its gear); no horizontal
+scroll; the pill on the heading's line at 360px, under the icon at 200px.
+Through a real prepare-only Run the pill read *Running 1/5…* → *Running 5/5…*
+→ *Ready*; afterwards statuses end in one column, and at 200px every row's
+duration/status/gear fits one line under the name (Build context's wrapped
+twice before). Tooltips resolve on the name, slot, icon and free space of every
+first line; in Chromium's AX tree the icons, the header icon and the spacers are
+ignored, each box keeps its name, state and description, and Issue details' and
+Build context's descriptions end "Always runs.". Real Tab order and Space
+unchanged; clicking a box's name or icon ticks it, a fixed row's name or icon
+does nothing; the Issue details, Git history and Fix with AI gears open their
+sections. High-contrast themes not checked in a window.
+
+### 37.109 Initial sidebar layout: Workflow 3, Results 1; Workflow Steps open (after `8ef4496`, uncommitted, on §37.108)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and real disposable VS Code windows with brand-new profiles; not committed.
+Layout defaults only. Decisions in the canonical plan, "Confirmed decisions
+(Initial sidebar layout)".
+
+- **Manifest:** `bugpilot.panel` and `bugpilot.results` get `"initialSize": 3` /
+  `1` and an explicit `"visibility": "visible"`. Read from VS Code 1.139's own
+  bundle first: the property is `initialSize` (there is no `size`), honoured
+  only when the extension owns the container (otherwise a warning is logged),
+  turned into the view's `weight`; `computeInitialSizes` gives each view
+  `height × (weight || 20) / Σ`, and `restoreViewSizes` uses a saved size when
+  the profile has one.
+- **Workflow Steps:** `<details id="workflow" … open>`; the comment says why.
+  `panel.js` is unchanged — it never closed the disclosure and opens it only on
+  transitions. The page-test stub now reads `open` off a `<details>` tag.
+
+**Tests.** 1836 → 1838, all passing. Manifest: weights 3 > 1 under
+`initialSize` (no `size`), both visible, Workflow webview / Results tree, the
+container BugPilot's own. Page: open before and after the first push and on a
+restored page; folded, it stays folded through status, checkbox, artifact,
+form-revision and settings pushes; unfolded likewise; the transition tests
+start from a fold. Panel: only Workflow Steps starts open. Seven mutations
+(closed markup, closed on first push, reopened on every push, swapped or
+renamed weights, Results collapsed, another disclosure open) each fail a test.
+
+**Real window** (VS Code 1.139.1, a new `--user-data-dir` per case, BugPilot
+opened for the first time after the window was sized; panes measured with
+their 28px headers; Dark Modern unless noted):
+
+| Case | Window | Workflow | Results | Share |
+| --- | --- | --- | --- | --- |
+| Previous build | 800px | 340px | 346px | 0.50 |
+| This build | 600px | 338px | 148px (minimum) | 0.70 |
+| This build | 800px | 513px | 173px | 0.75 |
+| This build | 1032px | 687px | 231px | 0.75 |
+| This build, Light Modern | 800px | 513px | 173px | 0.75 |
+
+Every case: Workflow Steps open, Results expanded with Current ▼ and History ▶.
+Dragging the sash down stops Results at 148px; up, it grows (338/348). Each
+top-level view collapses and expands, coming back at the user's size. A window
+reload keeps the dragged 338/348. Old build → user drags to 430/256 → View:
+Close Window → new build: 430/256 kept. Old build never resized → closed →
+new build: 513/173 (no size had been stored). In the webview: open on load and
+after Reload Webviews; a real click folds and unfolds it; folded, it stayed
+folded through typing, an applied setting (three host renders) and Refresh
+Results. At a 200px sidebar the pane heights are unchanged and the webview has
+no horizontal scroll, Dark and Light.
+
+### 37.110 Jira row in Workflow; Diagnostics moves to Results (after `8ef4496`, uncommitted, on §37.109)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and real disposable VS Code windows (fresh profiles, the VSIX from this
+tree); not committed. Decisions in the canonical plan, "Confirmed decisions
+(Jira row and Results > Diagnostics)". *Jira credential setup stays visible in
+Workflow because it is an important configuration entry point. Diagnostics
+moves under Results and mirrors Jira status without becoming the primary setup
+path.*
+
+- **Workflow:** `#jira-row` (`JIRA_ROW` in `html.ts`, `renderJira` in
+  `panel.js`) between `.settings-entry` and `#workflow`; the `<details
+  id="diagnostics">`, the `<footer>` (`#environment`, the old Jira line) and
+  their CSS, `renderDiagnostics` and `renderFooter` are gone; `codicon-folder`
+  undeclared. `PanelState.jira: JiraConnectionView` replaces `jiraConfigured`;
+  `diagnostics` left the panel state.
+- **Model:** `src/app/jiraConnection.ts` — the three states' words, shared by
+  the row and Diagnostics. `diagnostics.ts`: Jira from it, with "Set up from the
+  Jira row in Workflow"; `detailLabel` ("Path", "Executable");
+  `diagnosticTooltip`. Controller: `#jiraRejected`, `#noteJiraOutcome` after a
+  run, `credentialsSaved()` (the credential prompt's callback now), a public
+  `diagnostics` getter.
+- **Results:** `DIAGNOSTICS_GROUP` third and collapsed, `diagnostic` nodes,
+  `ResultsSources.diagnostics`; `ResultsTree.syncDiagnostics()` fires the group
+  only when its JSON changed, called from the UI port's `render`.
+
+**Tests.** 1838 → 1843, all passing; the activation smoke test now builds Results
+with Diagnostics third and collapsed and draws its rows. Workflow: no footer,
+no version/path, no
+Diagnostics; the row's place, parts, first paint, names and narrow CSS; the
+three states on the page; the action posts `setCredentials`. Results: root
+order, Diagnostics collapsed with a stable id, its rows (labels, values,
+icons, tooltips, no command or menu), Jira mirroring all three states, read only
+when drawn. Controller: Configured/Not configured, Authentication failed after a
+401 run and cleared by `credentialsSaved()`, kept by a manual run, cleared by a
+Jira run that gets its issue; the tree over the controller. Fifteen mutations
+(row removed or moved under Workflow Steps, another action, page-decided
+words, the footer back, Diagnostics missing, reordered or expanded, a Configure
+command on its Jira row, the path on a row, the auth flag never set, not cleared
+on save, cleared by any run, Diagnostics' Jira wording drifting, diagnostics
+still sent to the panel) each fail a test.
+
+**Real window** (VS Code 1.139.1; the CLI pointed at a local 401-only fake Jira
+through `JIRA_BASE_URL`, with an empty scratch home so no real Jira URL could
+be read; synthetic credentials only). Before (previous build): a Diagnostics
+disclosure and "BugPilot 0.1.0 · <path>" footer with the Jira line under
+Workflow Steps. After: no footer, no Diagnostics, nothing of the version or
+path in Workflow; the row one line, 6px under Advanced Settings and 10px above
+Workflow Steps. Not configured → **Configure** opened VS Code's email and
+(masked) token prompts → Configured · Replace, Diagnostics' Jira following
+without a refresh → a Jira run: the fake logged the issue GET, the card *Unable
+to access Jira* with Set Jira Credentials stayed in Workflow, the row and
+Diagnostics said *Authentication failed* (group kept expanded through the run's
+refresh) → Replace cancelled: unchanged → Replace completed: Configured in
+both. Diagnostics: Repository, Jira, AI agent, Work item (after a run),
+Extension, BugPilot CLI; VS Code's hover showed "Repository: repo4 / Path: …"
+and "BugPilot CLI: 0.1.0 / Executable: …"; no horizontal scroll in the tree.
+At 200px the key drops: *Configured* and *Not configured* fit whole,
+*Authentication failed* ellipsizes (67 of 119px) with Replace still in the
+row. Dark Modern and Light Modern, 360px and 200px, no horizontal scroll. AX:
+group "Jira Not configured", button "Configure Jira credentials", both
+described by the tooltip; the key ignored. Tab: Advanced Settings → Configure →
+Workflow Steps; Enter opens the prompt. High-contrast themes not checked.

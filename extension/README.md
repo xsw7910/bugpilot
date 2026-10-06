@@ -84,11 +84,15 @@ editor and you save them; nothing is written behind your edits.
    checkout — BugPilot writes `.ai/<work-item>/` next to your code.
 2. Click the BugPilot icon in the activity bar. It has two views:
    **Workflow** (the panel below) and **Results** — the open work item's files
-   under **Current**, and every work item under **History**.
-3. If a Jira issue: run **BugPilot: Set Jira Credentials** once (email plus an
-   API token from your Atlassian account settings). They are kept in VS Code's
-   SecretStorage and reach the CLI as environment variables — never in a
-   command line, never in the panel.
+   under **Current**, every work item under **History**, and what BugPilot is
+   configured with under **Diagnostics**.
+3. If a Jira issue: press **Configure** on the **Jira** row in Workflow, under
+   **Advanced Settings** (or run **BugPilot: Set Jira Credentials**), once —
+   email plus an API token from your Atlassian account settings. They are kept
+   in VS Code's SecretStorage and reach the CLI as environment variables —
+   never in a command line, never in the panel. The row then says
+   **Configured**, and its button **Replace**; if Jira turns the credentials
+   away on a run, it says **Authentication failed** until you replace them.
 4. In the **Issue** field, type an issue key such as `JR-12345`, or describe the
    problem in your own words. The field is one line until you write more, and
    grows to about four lines before it scrolls. The line under it says which it
@@ -116,8 +120,8 @@ Hint
 Improve with AI   ☑ Include issue details
 [ ⚙ Advanced Settings ]
 ──────────────────────────────────────────────
-Workflow Steps                        Running 3/6…
-☑ Issue details         <0.1s  ● Completed  ⚙
+▾ ☰ Workflow Steps                 ( Running 3/6… )
+  Issue details         <0.1s  ● Completed  ⚙
   Widget rejects the output type
   issue.json
 ☑ Code search           32.5s  ● Completed  ⚙
@@ -127,11 +131,8 @@ Workflow Steps                        Running 3/6…
 ☑ Git history                   ◌ Running
   Collecting git history…
 ☑ Similar fixes
-  Search for similar issues and solutions
-☑ Build context                              ⚙
-  Prepare structured context for AI
+  Build context                              ⚙
 ☐ Fix with AI                                ⚙
-  Run the prepared context with your AI coding agent
   Claude CLI
 ──────────────────────────────────────────────
 ```
@@ -274,9 +275,16 @@ how it went, in words — **Completed**, **Skipped**, **Running**, **Failed**,
 **Context ready** — with a small dot beside them (the spinner while it runs),
 after how long it took. The checkbox is the row's only check mark, and the
 status is said once. A step that has not started shows nothing there. Untick
-what you do not need — Issue details always runs, because it is the input
-rather than an option. In a narrow sidebar the duration, status and gear move
-under the step's name rather than squeezing it.
+what you do not need. **Issue details** and **Build context** have no checkbox:
+they always run — Issue details because it is the input, Build context because
+it writes the package every later step and the AI fix work from. Each row has an
+icon for its step between the checkbox and the name; what the step does — and,
+for those two, that it always runs — is its tooltip: hover the name or the icon.
+Under a step there is only state: what it is doing or produced, a setting you
+changed from its default (the agent you chose, say), a failure. The overall
+state is the pill beside **Workflow Steps**. In a narrow sidebar the duration,
+status and gear move under the step's name rather than squeezing it, and a name
+too long for the line ends in an ellipsis.
 
 Once a step finishes, its second line says what it produced, if that is more
 than its status, with the file it wrote as a link under it. **Issue details**
@@ -285,9 +293,12 @@ and the relevant files it found (`retrieval.json`), with **Relevant files** and
 **Search details** folded beneath it. **Git history** and **Similar fixes** say
 only **Completed** — their results are inside `context.md`. **Build context**
 says **Context ready** (`context.md`) and offers **Open Context** and **Copy**. **Open Folder**, at the foot of the list, reveals
-the whole work item. The list stays open after a run, because those rows are
-the result; if a step fails, its card appears on that row and the rows above it
-keep what they found.
+the whole work item. **Workflow Steps** starts open. Fold it with its triangle
+and it stays folded while you work; it opens again only for something worth
+seeing — a run starting, a failure's card, a work item with results being
+opened — and is open again whenever the panel is rebuilt (after the sidebar was
+hidden, or a window reload). If a step fails, its card appears on that row and
+the rows above it keep what they found.
 
 **Fix with AI** is the last step, and it starts unticked. Tick it and Run does
 everything above it and then hands the finished package to your coding agent in
@@ -460,11 +471,27 @@ preparing context and deciding to involve a model stay two separate acts.
 
 ## Results
 
-Below Workflow, **Results** is one view with two groups: **Current**, the files
-of the work item open in the panel, and **History**, every work item in this
-repository. They share one view because VS Code gives every open view the same
-minimum height however little it holds, so two short lists would take that
-space twice. **Refresh** in its title bar reads both again.
+Below Workflow, **Results** is one view with three groups: **Current**, the
+files of the work item open in the panel; **History**, every work item in this
+repository; and **Diagnostics**, what BugPilot is configured with. They share
+one view because VS Code gives every open view the same minimum height however
+little it holds, so short lists would take that space again and again.
+**Refresh** in its title bar reads them all again.
+
+**Diagnostics** starts collapsed: one row each for the **Repository** (its
+name; the full path on hover), **Jira** (Configured, Not configured or
+Authentication failed — the Workflow row's own words), the **AI agent** you
+chose (and, once a handoff has run, what it resolved to), the **Work item**,
+the **Extension**'s version and the **BugPilot CLI**'s (its executable on
+hover). It only reports state the extension already holds: nothing is
+checked, probed or sent when you open it. To set up Jira, use the Jira row in
+Workflow; Diagnostics shows the status and says where that is.
+
+The first time you open BugPilot, Workflow gets about three quarters of the
+sidebar's height and Results a quarter — never less than VS Code's own minimum
+for an open view, so in a short window Results starts at that minimum and
+Workflow takes the rest. Drag the divider between them and VS Code keeps your
+sizes from then on; BugPilot never resets them.
 
 ### Current
 

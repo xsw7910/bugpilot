@@ -202,10 +202,13 @@ export function sectionRebuildTag(section: WorkflowSettingsSection): string {
   }
 }
 
-/** What the Fix with AI summary calls each agent choice. Never the custom command itself. */
-const AGENT_SUMMARY: Readonly<Record<FormState["agent"], string>> = {
+/**
+ * What the Fix with AI summary calls each agent the developer chose. Never the
+ * custom command itself. Auto-detect has none: it is the default, and a row at
+ * its defaults says nothing (§37.108).
+ */
+const AGENT_SUMMARY: Readonly<Record<Exclude<FormState["agent"], "auto">, string>> = {
   ...AGENT_LABELS,
-  auto: "Auto-detected agent",
   custom: "Custom agent command",
 };
 
@@ -216,9 +219,10 @@ const AGENT_SUMMARY: Readonly<Record<FormState["agent"], string>> = {
  * Counts and names only: how many keywords, not which; "Custom agent
  * command", never the command. Nothing typed by the developer, read from Jira
  * or found on disk reaches a summary. A row whose settings are all at their
- * defaults has none, and keeps saying what it does. Fix with AI's is its agent
- * only: Fix Mode and Hint are on the main page, in plain view, and a summary of
- * settings the row's gear does not open would point at the wrong place.
+ * defaults has none — Fix with AI's included, on Auto-detect (§37.108). Fix
+ * with AI's is its agent only: Fix Mode and Hint are on the main page, in plain
+ * view, and a summary of settings the row's gear does not open would point at
+ * the wrong place.
  */
 export function settingsSummaries(form: FormState): Partial<Record<WorkflowStepId, string>> {
   const summaries: Partial<Record<WorkflowStepId, string>> = {};
@@ -251,7 +255,7 @@ export function settingsSummaries(form: FormState): Partial<Record<WorkflowStepI
 
   if (form.fresh) summaries.buildContext = "Deletes previous artifacts first";
 
-  summaries.fixWithAI = AGENT_SUMMARY[form.agent];
+  if (form.agent !== "auto") summaries.fixWithAI = AGENT_SUMMARY[form.agent];
 
   return summaries;
 }

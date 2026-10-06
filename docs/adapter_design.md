@@ -733,10 +733,11 @@ command.
    and cannot import `form.ts` / `progress.ts` / `artifacts.ts`. The page owns only "the form that has been filled in but
    not yet run"; everything else is computed by the host and pushed over (a single `state` message).
    A by-product is that validation, progress and artifact grouping are all testable under `node --test`.
-2. **The plan's five checkboxes have one coupling, because the CLI cannot express the decoupling.** There is no
-   `--skip-build-context`: Build context can only be turned off with `--only-issue-details`,
-   which also turns off search, history and similar fixes. The panel therefore greys out those three and explains why —
-   five independent checkboxes would display a plan that has never been run.
+2. **Only three steps are optional on the panel.** There is no `--skip-build-context`: Build context can only be
+   turned off with `--only-issue-details`, which also turns off search, history and similar fixes. The panel used to
+   offer that as a Build context checkbox and grey out the other three while it was unticked; since §37.107 Issue
+   details and Build context have no checkbox and always run, so the panel never sends `--only-issue-details`
+   (it is still the CLI's), and Code search, Git history and Similar fixes are three independent boxes.
 3. **The extension defaults to `--resume`, the opposite of the CLI default.** The CLI defaults to `--fresh` (deleting existing artifacts),
    whereas on the panel deleting requires an explicit tick plus a modal confirmation. For the reason, see Phase 3: `fresh=True` once deleted
    a `fix_summary.md` written by the agent.
