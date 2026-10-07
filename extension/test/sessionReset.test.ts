@@ -66,20 +66,22 @@ const USED: FormState = {
   similarKeywords: "export crash",
   similarMaxFixes: "2",
   fresh: true,
+  branchPolicy: "ask",
 };
 
 // --- the form ---------------------------------------------------------------
 
-test("every form field is classified, and only the AI Agent preference is kept", () => {
+test("every form field is classified, and only the AI Agent and branch policy preferences are kept", () => {
   // The Record makes a missing field a compile error; this makes an extra one a
-  // test failure, and states the decision in one line.
+  // test failure, and states the decision in one line. The branch policy is how
+  // the developer works with branches, not anything about this issue (§37.127).
   assert.deepEqual(Object.keys(FORM_FIELD_SCOPE).sort(), Object.keys(DEFAULT_FORM).sort());
   assert.deepEqual(
     Object.entries(FORM_FIELD_SCOPE)
       .filter(([, scope]) => scope === "preference")
       .map(([field]) => field)
       .sort(),
-    ["agent", "agentCommand"],
+    ["agent", "agentCommand", "branchPolicy"],
   );
   // The fields this feature names as the session's, by name.
   for (const field of [
@@ -118,6 +120,8 @@ test("a reset form is the product defaults, Fix Mode at the catalog default, the
   assert.equal(fresh.similarUseSharedKeywords, true);
   assert.equal(fresh.similarKeywords, "");
   assert.equal(fresh.similarMaxFixes, "");
+  // The branch policy is how the developer works, and stays (§37.127).
+  assert.equal(fresh.branchPolicy, "ask");
   // Nothing of the old form is shared by reference.
   assert.notEqual(fresh.attachments, USED.attachments);
   // A catalog not read yet: no mode, as `DEFAULT_FORM` says, rather than a guess.

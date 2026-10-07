@@ -10,6 +10,7 @@ from pathlib import Path
 
 from bugpilot import cli_json
 from bugpilot.core import agent_runner, copilot, doctor, errors, setup, workflow
+from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.cleanup import clean_issue_artifacts
 from bugpilot.core.context import build_context
 from bugpilot.core.email_notify import EmailSendError
@@ -357,6 +358,19 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Select the AI fixing workflow (see: bugpilot fix-mode list). "
             "Default: the work item's previous selection, otherwise Standard Fix."
+        ),
+    )
+    bug_parser.add_argument(
+        "--branch-policy",
+        dest="branch_policy",
+        choices=BRANCH_POLICIES,
+        help=(
+            "Which branch the agent works on: 'current' works on the checked-out branch and "
+            "creates a feature branch only after asking, when on main/master or a detached HEAD; "
+            "'per-issue' creates or reuses one branch for the work item; 'ask' asks the "
+            "developer before editing. Preparing again never calls for a new branch, and "
+            "main/master is never edited under any policy. "
+            "Default: the work item's previous choice, otherwise 'current'."
         ),
     )
     bug_mock = bug_parser.add_mutually_exclusive_group()
@@ -1866,17 +1880,20 @@ def _build_bug_request(repo_root: Path, args) -> InvestigationRequest:
     # The id only: core resolves it, once per run, so the CLI never becomes a
     # second place that knows which modes exist or which scope wins.
     fix_mode_id = getattr(args, "fix_mode", None)
+    # Likewise the branch policy: argparse has checked it is one of the three.
+    branch_policy = getattr(args, "branch_policy", None)
 
     if args.issue_key:
         request = workflow.jira_request(args.issue_key, options)
         request.plan = plan
         request.fix_mode_id = fix_mode_id
+        request.branch_policy = branch_policy
         return request
     # repo_root makes the local id collision-safe: ids have one-second
     # granularity and a fresh run would wipe a same-second neighbour.
     spec = bug_spec_from_description(description, title=args.title, repo_root=repo_root)
     return InvestigationRequest(
-        spec=spec, options=options, plan=plan, fix_mode_id=fix_mode_id
+        spec=spec, options=options, plan=plan, fix_mode_id=fix_mode_id, branch_policy=branch_policy
     )
 
 

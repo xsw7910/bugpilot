@@ -13,6 +13,8 @@ keeps the gate; anything that can deliver gets both, in that order.
 
 from __future__ import annotations
 
+from .branch_policy import DEFAULT_BRANCH_POLICY, delivery_branch_checks, delivery_branch_stop
+
 DELIVERY_SAFETY_HEADING = "## BugPilot Delivery Safety"
 
 
@@ -20,19 +22,16 @@ def delivery_safety_block(
     issue_key: str,
     branch: str | None = None,
     jira_comment: bool = True,
+    branch_policy: str = DEFAULT_BRANCH_POLICY,
 ) -> str:
     """Branch and staging rules for any commit, in any Fix Mode.
 
     BugPilot-owned and never editable by a Fix Mode: these are the rules that
     keep a token, a `.ai/` artifact or a commit on `main` out of the developer's
     repository, and they do not become optional because a particular workflow
-    has nothing to commit yet.
+    has nothing to commit yet. Which other branch is right is the developer's
+    branch policy (`branch_policy.py`); `main`/`master` never is, in any policy.
     """
-    branch_line = (
-        f"- If needed, ask whether to create or switch to `{branch}` before editing or delivery.\n"
-        if branch
-        else ""
-    )
     jira_rule = (
         "Do not merge, create PRs, transition Jira, assign Jira, or change Jira fields. "
         "The one status comment (posted before commit) is the only permitted Jira write.\n\n"
@@ -45,9 +44,8 @@ def delivery_safety_block(
         "including a later implementation pass the developer starts from it.\n\n"
         "Before staging anything:\n"
         "- Verify the current branch is not `main` or `master`.\n"
-        "- Verify the current branch starts with `feature/` or another accepted feature prefix.\n"
-        f"- Verify the current branch includes `{issue_key}`.\n"
-        f"{branch_line}"
+        "- Verify HEAD is not detached.\n"
+        f"{delivery_branch_checks(branch_policy, issue_key, branch)}"
         "- Run `git add` only for intended source, test, or documentation files.\n"
         "- Do not add `.ai/`.\n"
         "- Do not add `.ai_memory/`.\n"
@@ -56,13 +54,16 @@ def delivery_safety_block(
         "- Do not add files containing `JIRA_TOKEN`, `password`, `api_key`, `secret`, `access_token`, `refresh_token`, or `key=...`.\n\n"
         "Do not push main/master. Do not force push. Do not use `--force` or `--force-with-lease`. "
         f"{jira_rule}"
-        "If on `main` or `master`, do not commit and do not push. Ask the developer whether to create or switch to the generated feature branch.\n\n"
+        "If on `main` or `master`, or HEAD is detached, do not commit and do not push. "
+        "Ask the developer whether to create or switch to the suggested branch.\n\n"
     )
 
 
 def assisted_delivery_block(
     issue_key: str,
     intro: str = "After completing code changes, focused tests, and the fix report",
+    branch_policy: str = DEFAULT_BRANCH_POLICY,
+    branch: str | None = None,
 ) -> str:
     """The commit/push offer, for a pass that actually produced a fix.
 
@@ -85,7 +86,7 @@ def assisted_delivery_block(
         f"- Apply every rule in {DELIVERY_SAFETY_HEADING.lstrip('# ')} above; stage nothing it excludes.\n"
         "- Run `git commit` with the proposed message.\n"
         "- Run `git push -u origin <current-branch>`.\n\n"
-        f"If {issue_key} is not in the current branch name, stop and ask the developer before committing.\n\n"
+        f"{delivery_branch_stop(branch_policy, issue_key, branch)}"
     )
 
 
@@ -94,11 +95,12 @@ def delivery_instructions_block(
     branch: str | None = None,
     intro: str = "After completing code changes, focused tests, and the fix report",
     jira_comment: bool = True,
+    branch_policy: str = DEFAULT_BRANCH_POLICY,
 ) -> str:
     """Safety gate followed by the assisted-delivery offer.
 
     The composed form, for callers that always deliver a fix.
     """
-    return delivery_safety_block(issue_key, branch, jira_comment) + assisted_delivery_block(
-        issue_key, intro
-    )
+    return delivery_safety_block(
+        issue_key, branch, jira_comment, branch_policy=branch_policy
+    ) + assisted_delivery_block(issue_key, intro, branch_policy=branch_policy, branch=branch)

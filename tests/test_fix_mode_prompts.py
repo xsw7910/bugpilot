@@ -27,6 +27,7 @@ from dataclasses import replace
 
 import pytest
 
+from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.fix_modes import (
     FixModeError,
     FixModeNotFoundError,
@@ -44,7 +45,7 @@ INVARIANT_RULES: tuple[str, ...] = (
     "Do not edit code until after reviewing context and related files.",
     "Ask follow-up questions if context is insufficient.",
     "Do not use the Task tool or spawn any background or sub-agents",
-    "Do not work directly on main/master.",
+    "Never work directly on main/master.",
     "Do not run `git reset --hard`.",
     "Do not run `git clean -fd`.",
     "Do not force push.",
@@ -58,7 +59,10 @@ INVARIANT_RULES: tuple[str, ...] = (
     # to any commit, including the implementation pass a developer starts by
     # answering "yes" to an investigation.
     "Verify the current branch is not `main` or `master`.",
-    "Verify the current branch starts with `feature/` or another accepted feature prefix.",
+    "Verify HEAD is not detached.",
+    # Which branch is right besides is the developer's branch policy
+    # (tests/test_branch_policy.py); the `feature/` prefix check belongs to
+    # `per-issue` only. Never main/master is invariant, under every policy.
     "Run `git add` only for intended source, test, or documentation files.",
     "Do not add `.ai/`.",
     "Do not add `.ai_memory/`.",
@@ -66,7 +70,7 @@ INVARIANT_RULES: tuple[str, ...] = (
     "Do not add `jira_field_report.md`.",
     "Do not add files containing `JIRA_TOKEN`, `password`, `api_key`, `secret`, "
     "`access_token`, `refresh_token`, or `key=...`.",
-    "If on `main` or `master`, do not commit and do not push.",
+    "If on `main` or `master`, or HEAD is detached, do not commit and do not push.",
 )
 
 # The one report every mode requires, and the sections it must carry.
@@ -266,12 +270,13 @@ def test_a_custom_mode_cannot_reorder_the_sections():
 # --- invariants survive every mode ------------------------------------------
 
 
+@pytest.mark.parametrize("branch_policy", BRANCH_POLICIES)
 @pytest.mark.parametrize("mode_id", ALL_MODE_IDS)
-def test_invariant_rules_appear_in_every_mode(mode_id):
-    text = task(mode_id)
+def test_invariant_rules_appear_in_every_mode(mode_id, branch_policy):
+    text = task(mode_id, branch_policy=branch_policy)
 
     for rule in INVARIANT_RULES:
-        assert rule in text, f"{mode_id} lost: {rule}"
+        assert rule in text, f"{mode_id} under {branch_policy} lost: {rule}"
     _assert_report_contract(text)
 
 
@@ -353,7 +358,7 @@ def test_investigate_first_keeps_delivery_safety_while_dropping_the_offer():
     assert "Do not add `jira_field_report.md`." in text
     assert "`JIRA_TOKEN`" in text and "`refresh_token`" in text
     assert "Verify the current branch is not `main` or `master`." in text
-    assert "If on `main` or `master`, do not commit and do not push." in text
+    assert "If on `main` or `master`, or HEAD is detached, do not commit and do not push." in text
     assert "Do not push main/master. Do not force push." in text
     # And the continuation pass is told the gate still applies to it.
     assert "every rule in BugPilot Delivery Safety above still applies" in text

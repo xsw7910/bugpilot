@@ -309,7 +309,10 @@ def test_copilot_task_references_retrieval(tmp_path):
     assert ".ai/JR-12345/` files are relative to the target repo root" in task
     assert "feature/JR-12345-demo-bug-employee-search-returns-stale-results-after" in task
     assert "Check the current branch before editing" in task
-    assert "Create or switch to the feature branch before editing files" in task
+    # The default branch policy: the checked-out branch, a feature branch only
+    # from main/master and only if the developer agrees (tests/test_branch_policy.py).
+    assert "Work on the branch that is currently checked out. Do not create or switch branches." in task
+    assert "Create or switch to `" not in task
     assert ".ai/JR-12345/context.md" in task
     # The team instructions are in the task, not in a file beside it.
     assert "## Team Instructions" in task

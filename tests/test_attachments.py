@@ -325,7 +325,8 @@ def test_without_descriptions_issue_json_is_what_it_always_was(tmp_path):
         fresh=True,
     )
     issue = json.loads((result.issue_dir / "issue.json").read_text(encoding="utf-8"))
-    assert set(issue["guidance"]) == {"hint", "fix_mode"}
+    # Plus the branch policy, which every run records (§37.127).
+    assert set(issue["guidance"]) == {"hint", "fix_mode", "branch_policy"}
 
 
 def test_the_cli_pairs_descriptions_by_position_and_refuses_a_mismatch(tmp_path, monkeypatch, capsys):

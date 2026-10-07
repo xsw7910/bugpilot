@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import subprocess
 from pathlib import Path
+
+from .identity import is_local_work_item_id
 
 
 def command_available(command: str) -> bool:
@@ -92,7 +95,20 @@ def artifact_directories_ignored(repo_root: Path) -> dict[str, bool] | None:
 
 
 def branch_name(issue_key: str, description: str | None = None) -> str:
+    """The branch a work item would get: ``feature/<work-item>-<slug>``.
+
+    A hand-written bug is the exception. Its id is minted afresh on every run
+    (``local_<timestamp>``), so a name built from it named a new branch every
+    time the same bug was prepared again. Its name comes from its title alone
+    — the same bug, the same branch — or, for a title with nothing to slug
+    (one in another script), from a hash of the title.
+    """
     slug = summary_slug(description)
+    if is_local_work_item_id(issue_key):
+        if slug:
+            return f"feature/{slug}"[:120].rstrip("-")
+        seed = (description or "").strip() or issue_key
+        return f"feature/bug-{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:8]}"
     branch = f"feature/{issue_key}-{slug or 'jira-workflow'}"
     return branch[:120].rstrip("-")
 

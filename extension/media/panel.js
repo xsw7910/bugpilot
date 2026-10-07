@@ -64,6 +64,8 @@
 
   /** History Depth's options, as `GIT_HISTORY_DEPTHS` in `form.ts` lists them. */
   const GIT_HISTORY_DEPTHS = ["recent", "broader"];
+  /** The branch policies, as `BRANCH_POLICIES` in `form.ts` lists them; the first is the default. */
+  const BRANCH_POLICIES = ["current", "per-issue", "ask"];
 
   /**
    * A Jira issue key, as `form.ts` and `bugpilot/core/identity.py` spell it.
@@ -134,6 +136,7 @@
     },
     "build-context": { fields: ["fresh"], focus: ["fresh"] },
     "fix-with-ai": { fields: ["agent", "agentCommand"], focus: ["agent"] },
+    branch: { fields: ["branchPolicy"], focus: ["branchPolicy"] },
   };
 
   /** Which workflow row's gear opens which section; a row absent here has none. */
@@ -261,6 +264,7 @@
     similarKeywords: "",
     similarMaxFixes: "",
     similarUseSharedKeywords: true,
+    branchPolicy: "current",
   };
   /**
    * The line under the AI Agent picker per choice, from the host's detection
@@ -468,6 +472,24 @@
   let resetErrorToken;
   let resetRequested = false;
   let resetNotesDrawn = "";
+  // Jira Setup (§37.124): the request the dialog was opened for, the one a
+  // Cancel answered (a push still carrying it does not reopen the dialog), the
+  // last refusal shown, and the control to give the focus back to.
+  let jiraSetupOpenFor;
+  let jiraSetupDismissed;
+  let jiraSetupErrorToken;
+  let jiraSetupReturnFocus;
+  /**
+   * The host's rules for a field Save cannot store, said the host's way — the
+   * page checks first so a missing field is said at once, and the host checks
+   * again. The same three sentences as `JIRA_SETUP_PROBLEMS` (a test compares).
+   */
+  const JIRA_SETUP_PROBLEMS = {
+    emailMissing: "Enter your Atlassian account email.",
+    emailInvalid: "Enter a valid email address.",
+    tokenMissing: "Enter an API token.",
+  };
+  const JIRA_EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   /** The disclosures a fresh session starts with closed. */
   const SESSION_DISCLOSURES = [
     "workflow",
@@ -596,12 +618,18 @@
     settings.fresh = byId("fresh").checked;
     for (const field of SETTINGS_SWITCHES) settings[field] = byId(field).checked;
     settings.gitHistoryDepth = gitHistoryDepthOf(byId("gitHistoryDepth").value);
+    settings.branchPolicy = branchPolicyOf(byId("branchPolicy").value);
     return settings;
   }
 
   /** A History Depth this page offers, else `recent` — never a blank select. */
   function gitHistoryDepthOf(value) {
     return GIT_HISTORY_DEPTHS.includes(value) ? value : "recent";
+  }
+
+  /** A branch policy this page offers, else the default — never a blank select. */
+  function branchPolicyOf(value) {
+    return BRANCH_POLICIES.includes(value) ? value : BRANCH_POLICIES[0];
   }
 
   /** The applied settings, out of a whole form. */
@@ -614,6 +642,7 @@
     settings.fresh = form.fresh === true;
     for (const field of SETTINGS_SWITCHES) settings[field] = form[field] !== false;
     settings.gitHistoryDepth = gitHistoryDepthOf(form.gitHistoryDepth);
+    settings.branchPolicy = branchPolicyOf(form.branchPolicy);
     return settings;
   }
 
@@ -630,6 +659,7 @@
     byId("fresh").checked = settings.fresh === true;
     for (const field of SETTINGS_SWITCHES) byId(field).checked = settings[field] !== false;
     byId("gitHistoryDepth").value = gitHistoryDepthOf(settings.gitHistoryDepth);
+    byId("branchPolicy").value = branchPolicyOf(settings.branchPolicy);
     applyAgentVisibility();
   }
 
@@ -959,6 +989,7 @@
     // Last: a reset done closes what the renders above may have drawn for the
     // old session's last moment.
     renderSessionReset(state);
+    renderJiraSetup(state.jiraSetup);
   }
 
   /**
@@ -2823,6 +2854,144 @@
     renderResetDialog();
   }
 
+  // --- Jira Setup (§37.124) -------------------------------------------------
+
+  /**
+   * The dialog follows the host: open while the push carries `jiraSetup`,
+   * closed when it does not — every way in (the Jira row, a failed run's card,
+   * the palette) opens it there, and a save closes it there, only once the
+   * credentials are stored. Opened afresh it starts with the stored email and
+   * an empty token field; while open, a push only updates Saving and errors.
+   */
+  function renderJiraSetup(view) {
+    const dialog = byId("jira-dialog");
+    if (!view) {
+      // The host closed it (saved, or answered a Cancel): nothing to tell it.
+      jiraSetupDismissed = undefined;
+      jiraSetupOpenFor = undefined;
+      if (dialog.open) closeJiraDialog();
+      return;
+    }
+    if (!dialog.open) {
+      if (view.request === jiraSetupDismissed) return;
+      openJiraDialog(view);
+    }
+    const saving = view.saving === true;
+    const save = byId("jira-save");
+    save.setAttribute("aria-disabled", String(saving));
+    byId("jira-save-label").textContent = saving ? "Saving…" : "Save";
+    byId("jira-cancel").setAttribute("aria-disabled", String(saving));
+    byId("jira-dialog").setAttribute("aria-busy", String(saving));
+    const error = view.error;
+    if (error && error.token !== jiraSetupErrorToken) {
+      jiraSetupErrorToken = error.token;
+      showJiraError(error.field, error.message || "");
+    }
+  }
+
+  function openJiraDialog(view) {
+    const dialog = byId("jira-dialog");
+    jiraSetupOpenFor = view.request;
+    // The token never arrives; the field starts empty and hidden every time.
+    const email = byId("jira-email");
+    const token = byId("jira-token");
+    email.value = view.email || "";
+    token.value = "";
+    showJiraToken(false);
+    byId("jira-token-stored").hidden = view.tokenStored !== true;
+    byId("jira-steps").open = false;
+    jiraSetupErrorToken = view.error ? view.error.token : undefined;
+    showJiraError(undefined, "");
+    // Back to whatever opened it, else the Jira row's button.
+    const active = document.activeElement;
+    jiraSetupReturnFocus = active && active.id && active.id !== "jira-dialog" ? active.id : "set-credentials";
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.open = true;
+    // The first thing still to fill: the email, else the token.
+    (email.value.trim() === "" ? email : token).focus();
+  }
+
+  /** Close it, the token field cleared — the page keeps no draft of a credential. */
+  function closeJiraDialog() {
+    const dialog = byId("jira-dialog");
+    if (!dialog.open) return;
+    if (typeof dialog.close === "function") dialog.close();
+    else dialog.open = false;
+    clearJiraFields();
+    const back = jiraSetupReturnFocus && byId(jiraSetupReturnFocus);
+    jiraSetupReturnFocus = undefined;
+    if (back && !back.hidden && typeof back.focus === "function") back.focus();
+  }
+
+  function clearJiraFields() {
+    byId("jira-token").value = "";
+    byId("jira-email").value = "";
+    showJiraToken(false);
+    showJiraError(undefined, "");
+  }
+
+  /** Cancel, Escape: close and store nothing — not while a save is under way. */
+  function cancelJiraSetup() {
+    if (byId("jira-cancel").getAttribute("aria-disabled") === "true") return;
+    jiraSetupDismissed = jiraSetupOpenFor;
+    closeJiraDialog();
+    vscode.postMessage({ type: "closeJiraSetup" });
+  }
+
+  /** Save: the page's check first, so a missing field is said at once; then the host's. */
+  function saveJiraSetup() {
+    if (!byId("jira-dialog").open || byId("jira-save").getAttribute("aria-disabled") === "true") return;
+    const email = byId("jira-email").value;
+    const token = byId("jira-token").value;
+    const problem = jiraSetupProblem(email, token);
+    if (problem) {
+      showJiraError(problem.field, problem.message);
+      return;
+    }
+    showJiraError(undefined, "");
+    vscode.postMessage({ type: "saveJiraCredentials", email, token });
+  }
+
+  function jiraSetupProblem(email, token) {
+    const address = email.trim();
+    if (address === "") return { field: "email", message: JIRA_SETUP_PROBLEMS.emailMissing };
+    if (!JIRA_EMAIL_SHAPE.test(address)) return { field: "email", message: JIRA_SETUP_PROBLEMS.emailInvalid };
+    if (token.trim() === "") return { field: "token", message: JIRA_SETUP_PROBLEMS.tokenMissing };
+    return undefined;
+  }
+
+  /**
+   * One message at a time: under the field it names, marked invalid and given
+   * the focus, or — a refusal that names no field — above the actions.
+   */
+  function showJiraError(field, message) {
+    for (const [name, id] of [["email", "jira-email"], ["token", "jira-token"]]) {
+      const here = message !== "" && field === name;
+      const text = byId(`${id}-error`);
+      text.hidden = !here;
+      text.textContent = here ? message : "";
+      byId(id).setAttribute("aria-invalid", String(here));
+    }
+    const general = byId("jira-error");
+    const elsewhere = message !== "" && field !== "email" && field !== "token";
+    general.hidden = !elsewhere;
+    general.textContent = elsewhere ? message : "";
+    if (message !== "" && (field === "email" || field === "token")) byId(`jira-${field}`).focus();
+  }
+
+  /** Show or hide what was typed in the token field — never anything stored. */
+  function showJiraToken(shown) {
+    byId("jira-token").type = shown ? "text" : "password";
+    const reveal = byId("jira-token-reveal");
+    const label = shown ? "Hide API token" : "Show API token";
+    // The name says what pressing does now, so no aria-pressed beside it.
+    reveal.setAttribute("aria-label", label);
+    reveal.title = label;
+    const icon = byId("jira-token-reveal-icon");
+    icon.classList.toggle("codicon-eye", !shown);
+    icon.classList.toggle("codicon-eye-closed", shown);
+  }
+
   /**
    * The host reset the session: its disclosures, editors, menu and dialog go —
    * the fresh form arrives the usual way, with a new revision, and no field is
@@ -2971,6 +3140,7 @@
     byId("fresh").disabled = !enabled;
     for (const field of SETTINGS_SWITCHES) byId(field).disabled = !enabled;
     byId("gitHistoryDepth").disabled = !enabled;
+    byId("branchPolicy").disabled = !enabled;
     applyStepBoxes();
   }
 
@@ -4439,6 +4609,67 @@
   // Closed by the browser anyway (it may insist on a second Escape): in step.
   byId("reset-dialog").addEventListener("close", () => {
     resetRequested = false;
+  });
+
+  // Jira Setup (§37.124).
+  byId("jira-save").addEventListener("click", saveJiraSetup);
+  byId("jira-cancel").addEventListener("click", cancelJiraSetup);
+  byId("jira-token-reveal").addEventListener("click", () => {
+    showJiraToken(byId("jira-token").type === "password");
+  });
+  // A fixed page of the host's: the page names no address.
+  byId("jira-token-page").addEventListener("click", () =>
+    vscode.postMessage({ type: "action", id: "openJiraTokenPage" }),
+  );
+  // Enter in the email goes on to the token; Enter in the token saves, through
+  // the same check as the button. Nothing else in the dialog saves on Enter.
+  byId("jira-email").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    byId("jira-token").focus();
+  });
+  byId("jira-token").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    saveJiraSetup();
+  });
+  // Escape is Cancel — not while saving. The key and the browser's own close
+  // request, one path; the focus stays in the dialog while it is open: Tab
+  // from Save comes back to the email, Shift+Tab from the email goes to Save.
+  const cancelJira = (event) => {
+    event.preventDefault();
+    cancelJiraSetup();
+  };
+  byId("jira-dialog").addEventListener("cancel", cancelJira);
+  byId("jira-dialog").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      cancelJira(event);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const stops = [...byId("jira-dialog").querySelectorAll("input, button, summary")].filter(
+      (element) => element.getClientRects().length > 0 && !element.disabled,
+    );
+    if (stops.length === 0) return;
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+  // Closed by the browser anyway (a second Escape it insists on): the host is
+  // told, as for Cancel, and nothing typed survives.
+  byId("jira-dialog").addEventListener("close", () => {
+    if (byId("jira-dialog").open) return;
+    clearJiraFields();
+    if (jiraSetupOpenFor !== undefined && jiraSetupDismissed !== jiraSetupOpenFor) {
+      jiraSetupDismissed = jiraSetupOpenFor;
+      vscode.postMessage({ type: "closeJiraSetup" });
+    }
   });
   for (const id of MORE_ITEMS) {
     byId(`menu-${id}`).addEventListener("click", () => {

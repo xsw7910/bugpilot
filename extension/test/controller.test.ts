@@ -8,6 +8,7 @@ import { COMMANDS } from "../src/commands.ts";
 import { Controller } from "../src/app/controller.ts";
 import type { ControllerPorts, RunOptions } from "../src/app/controller.ts";
 import { DEFAULT_FORM, restoreForm } from "../src/app/form.ts";
+import { JIRA_API_TOKENS_URL } from "../src/app/jiraConnection.ts";
 import type { FormState } from "../src/app/form.ts";
 import type { Environment } from "../src/app/environment.ts";
 import type { Envelope, StreamEvent } from "../src/protocol.ts";
@@ -102,6 +103,10 @@ interface Harness {
   /** Every question asked, with its buttons. */
   readonly confirms: { message: string; confirmLabel: string; keepLabel?: string }[];
   readonly ranCommands: string[];
+  /** Every pair Jira Setup stored through the credential port (§37.124). */
+  readonly storedCredentials: { email: string; token: string }[];
+  /** Every address opened in the browser. */
+  readonly externals: string[];
   readonly terminals: { name: string; cwd: string; commandLine: string }[];
   /** Terminal names still open, newest last: every one the harness opened, less any a test closes. */
   readonly openTerminals: string[];
@@ -127,6 +132,12 @@ interface Harness {
 }
 
 interface HarnessOptions {
+  /** The stored Jira email Jira Setup starts with (§37.124); default `me@example.com`. */
+  readonly jiraEmail?: string;
+  /** Jira Setup's store refuses the save with this. */
+  readonly credentialSaveThrows?: Error;
+  /** Jira Setup's store answers only once this settles. */
+  readonly credentialSaveHold?: () => Promise<void>;
   readonly events?: readonly StreamEvent[];
   readonly terminated?: boolean;
   readonly aborted?: boolean;
@@ -230,6 +241,10 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const confirms: { message: string; confirmLabel: string; keepLabel?: string }[] = [];
   const saved: FormState[] = [];
   const savedWorkItems: (string | undefined)[] = [];
+  const storedCredentials: { email: string; token: string }[] = [];
+  const externals: string[] = [];
+  let jiraStored = options.credentialsConfigured ?? true;
+  let jiraEmail = options.jiraEmail ?? "me@example.com";
   const ranCommands: string[] = [];
   const terminals: { name: string; cwd: string; commandLine: string }[] = [];
   const openTerminals: string[] = [];
@@ -310,8 +325,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       refreshViews: () => {
         refreshes.count += 1;
       },
-      editCredentials: async () => {
-        notices.push({ kind: "info", message: "credentials prompt" });
+      openExternal: async (url) => {
+        externals.push(url);
       },
       runCommand: async (commandId) => {
         ranCommands.push(commandId);
@@ -343,9 +358,20 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       const broken = options.credentialsThrow?.();
       if (broken) throw broken;
       return {
-      configured: options.credentialsConfigured ?? true,
+      configured: jiraStored,
       environment: { JIRA_EMAIL: "me@example.com", JIRA_TOKEN: TOKEN },
       };
+    },
+    // One store behind both ports, as in the host: a save is configured after.
+    jiraCredentials: {
+      status: async () => (jiraStored ? { configured: true, email: jiraEmail } : { configured: false }),
+      save: async (pair) => {
+        if (options.credentialSaveHold) await options.credentialSaveHold();
+        if (options.credentialSaveThrows) throw options.credentialSaveThrows;
+        storedCredentials.push({ email: pair.email, token: pair.token });
+        jiraStored = true;
+        jiraEmail = pair.email;
+      },
     },
     descriptionFilePath: () => "/tmp/bugpilot-description.md",
     ...(options.extensionVersion === undefined
@@ -434,6 +460,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     refreshes,
     confirms,
     ranCommands,
+    storedCredentials,
+    externals,
     terminals,
     openTerminals,
     revealed,
@@ -700,7 +728,7 @@ test("an unusable CLI is re-checked on Run before refusing", async () => {
       confirm: async () => true,
       notify: () => {},
       refreshViews: () => {},
-      editCredentials: async () => {},
+      openExternal: async () => {},
       runCommand: async () => {},
       runInTerminal: () => {},
       revealTerminal: () => false,
@@ -710,6 +738,7 @@ test("an unusable CLI is re-checked on Run before refusing", async () => {
     log: { info: () => {}, error: () => {} },
     environment: async () => environment,
     credentials: async () => ({ configured: false, environment: {} }),
+    jiraCredentials: { status: async () => ({ configured: false }), save: async () => {} },
     descriptionFilePath: () => "/tmp/d.md",
   });
 
@@ -897,11 +926,142 @@ test("the ready message re-pushes state so a reloaded page catches up", async ()
   assert.ok(h.last().revision > 0);
 });
 
-test("the credentials action is delegated to the host, not handled here", async () => {
-  // SecretStorage lives in the host; the controller must not learn the token.
-  const h = harness();
+// --- Jira Setup (§37.124) ------------------------------------------------------
+
+test("Configure opens Jira Setup: no email to start with, no token stored", async () => {
+  const h = harness({ credentialsConfigured: false });
+  await h.controller.refreshEnvironment();
   await h.controller.handle({ type: "action", id: "setCredentials" });
-  assert.equal(h.notices.at(-1)?.message, "credentials prompt");
+  assert.deepEqual(h.last().jiraSetup, { request: 1, tokenStored: false, saving: false });
+  // Nothing stored, nothing logged, no prompt of the host's.
+  assert.deepEqual(h.storedCredentials, []);
+  assert.deepEqual(h.notices, []);
+});
+
+test("Replace opens the same dialog with the stored email — never the token, anywhere in the state", async () => {
+  const h = harness({ jiraEmail: "dev@example.com" });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "action", id: "setCredentials" });
+  assert.deepEqual(h.last().jiraSetup, { request: 1, email: "dev@example.com", tokenStored: true, saving: false });
+  for (const state of h.states) assert.equal(JSON.stringify(state).includes(TOKEN), false, "the stored token reached the page");
+  // Asked again: the same dialog, a new request.
+  await h.controller.openJiraSetup();
+  assert.equal(h.last().jiraSetup?.request, 2);
+});
+
+test("Save stores both through the existing store in one write, closes the dialog, and the row says Configured", async () => {
+  const h = harness({ credentialsConfigured: false });
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().jira.state, "notConfigured");
+  await h.controller.handle({ type: "action", id: "setCredentials" });
+  const token = "ATATT-new-token-value-0123456789";
+  await h.controller.handle({ type: "saveJiraCredentials", email: "  dev@example.com ", token: ` ${token} ` });
+  assert.deepEqual(h.storedCredentials, [{ email: "dev@example.com", token }]);
+  assert.equal(h.last().jiraSetup, undefined, "the dialog stayed open after a save");
+  assert.equal(h.last().jira.state, "configured");
+  assert.ok(h.logged.includes("Jira credentials stored for this machine."), h.logged.join("\n"));
+  // The token is in no log line and in no state the page was sent.
+  for (const line of h.logged) assert.equal(line.includes(token), false, line);
+  for (const state of h.states) assert.equal(JSON.stringify(state).includes(token), false, "the new token reached the page");
+});
+
+test("while saving the dialog waits: a second Save and a Cancel do nothing", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const h = harness({ credentialSaveHold: () => held });
+  await h.controller.openJiraSetup();
+  const saving = h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "first-token-value" });
+  // The push that marks it saving went out before the store answered.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.last().jiraSetup?.saving, true);
+  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "second-token-value" });
+  await h.controller.handle({ type: "closeJiraSetup" });
+  assert.equal(h.last().jiraSetup?.saving, true, "a Cancel closed it mid-save");
+  release();
+  await saving;
+  assert.deepEqual(h.storedCredentials, [{ email: "dev@example.com", token: "first-token-value" }]);
+  assert.equal(h.last().jiraSetup, undefined);
+});
+
+test("Cancel stores nothing and changes nothing: Configured stays Configured", async () => {
+  const h = harness();
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "action", id: "setCredentials" });
+  await h.controller.handle({ type: "closeJiraSetup" });
+  assert.deepEqual(h.storedCredentials, []);
+  assert.equal(h.last().jiraSetup, undefined);
+  assert.equal(h.last().jira.state, "configured");
+});
+
+test("Authentication failed: Cancel keeps it; a successful Save clears it, as a save always did", async () => {
+  const h = harness({ events: AUTH_REJECTED });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  assert.equal(h.last().jira.state, "authFailed");
+  await h.controller.handle({ type: "action", id: "setCredentials" });
+  await h.controller.handle({ type: "closeJiraSetup" });
+  assert.equal(h.last().jira.state, "authFailed", "a Cancel forgot what Jira said");
+  await h.controller.handle({ type: "action", id: "setCredentials" });
+  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "replacement-token-value" });
+  assert.equal(h.last().jira.state, "configured");
+  assert.equal(h.last().jiraSetup, undefined);
+});
+
+test("a field Save cannot store is said in the dialog, by field, once per answer; nothing is stored", async () => {
+  const h = harness();
+  await h.controller.openJiraSetup();
+  const cases = [
+    { email: "  ", token: "t0ken-value", field: "email", message: "Enter your Atlassian account email." },
+    { email: "not an address", token: "t0ken-value", field: "email", message: "Enter a valid email address." },
+    { email: "dev@example.com", token: "   ", field: "token", message: "Enter an API token." },
+  ] as const;
+  const tokens: number[] = [];
+  for (const entry of cases) {
+    await h.controller.handle({ type: "saveJiraCredentials", email: entry.email, token: entry.token });
+    const error = h.last().jiraSetup?.error;
+    assert.equal(error?.field, entry.field);
+    assert.equal(error?.message, entry.message);
+    tokens.push(error!.token);
+    assert.equal(h.last().jiraSetup?.saving, false);
+  }
+  assert.equal(new Set(tokens).size, tokens.length, "an answer reused its token");
+  assert.deepEqual(h.storedCredentials, []);
+  // No length rule for a token: Atlassian's vary.
+  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "x" });
+  assert.deepEqual(h.storedCredentials, [{ email: "dev@example.com", token: "x" }]);
+});
+
+test("a store that refuses says why in the dialog — without the token — and keeps it open", async () => {
+  const token = "ATATT-refused-token-0123456789";
+  const h = harness({ credentialSaveThrows: new Error(`Keychain refused ${token}`) });
+  await h.controller.openJiraSetup();
+  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token });
+  const setup = h.last().jiraSetup;
+  assert.equal(setup?.saving, false);
+  assert.equal(setup?.error?.field, undefined);
+  assert.match(setup?.error?.message ?? "", /^The credentials could not be stored: Keychain refused /);
+  assert.equal(setup?.error?.message.includes(token), false, "the token is in the error");
+  for (const state of h.states) assert.equal(JSON.stringify(state).includes(token), false);
+  for (const line of h.logged) assert.equal(line.includes(token), false, line);
+});
+
+test("a save or a close with no dialog open does nothing", async () => {
+  const h = harness();
+  await h.controller.refreshEnvironment();
+  const before = h.states.length;
+  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "stray-token-value" });
+  await h.controller.handle({ type: "closeJiraSetup" });
+  assert.deepEqual(h.storedCredentials, []);
+  assert.equal(h.states.length, before);
+});
+
+test("Open Atlassian API tokens opens Atlassian's own page in the browser — the host's address, not the page's", async () => {
+  const h = harness();
+  await h.controller.handle({ type: "action", id: "openJiraTokenPage" });
+  assert.deepEqual(h.externals, ["https://id.atlassian.com/manage-profile/security/api-tokens"]);
+  assert.equal(JIRA_API_TOKENS_URL, "https://id.atlassian.com/manage-profile/security/api-tokens");
 });
 
 
@@ -1189,7 +1349,7 @@ test("overlapping environment refreshes share one probe", async () => {
       confirm: async () => true,
       notify: () => {},
       refreshViews: () => {},
-      editCredentials: async () => {},
+      openExternal: async () => {},
       runCommand: async () => {},
       runInTerminal: () => {},
       revealTerminal: () => false,
@@ -1203,6 +1363,7 @@ test("overlapping environment refreshes share one probe", async () => {
       return READY;
     },
     credentials: async () => ({ configured: false, environment: {} }),
+    jiraCredentials: { status: async () => ({ configured: false }), save: async () => {} },
     descriptionFilePath: () => "/tmp/d.md",
   });
 

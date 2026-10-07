@@ -43,6 +43,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from bugpilot.core import errors, handoff, workflow
 from bugpilot.core.artifacts import CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_ARTIFACT
+from bugpilot.core.branch_policy import check_branch_policy
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
 from bugpilot.core.config import issue_dir
 from bugpilot.core.fix_mode_state import fix_mode_metadata, fix_mode_registry
@@ -234,6 +235,14 @@ def _checked_fix_mode_id(mode_id: str | None) -> str | None:
     return candidate or None
 
 
+def _checked_branch_policy(policy: str | None) -> str | None:
+    """A model-supplied branch policy, or nothing; anything else is refused."""
+    try:
+        return check_branch_policy(policy)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+
+
 def _resolve_fix_mode(repo_root: Path, mode_id: str) -> FixMode:
     """Turn an id the model supplied into a mode, or say why it is not one.
 
@@ -282,6 +291,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         focus_files: list[str] | None = None,
         ignore_paths: list[str] | None = None,
         fix_mode_id: str | None = None,
+        branch_policy: str | None = None,
     ) -> dict[str, object]:
         """Fetch a Jira bug and build focused code context for fixing it.
 
@@ -304,6 +314,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             fix_mode_id: Optional Fix Mode id from list_fix_modes, controlling how to
                 approach the work. Omit it to keep the mode this work item was last
                 prepared with, or BugPilot's default for a new one.
+            branch_policy: Optional "current" (work on the checked-out branch; the
+                default), "per-issue" (one branch per work item, created once and reused) or "ask"
+                (ask the developer first). Pass it only when the developer asks;
+                main/master is never edited under any policy.
         """
         key = _checked(issue_key)
         request = workflow.jira_request(
@@ -313,6 +327,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         # the project's — and whether it still exists is core's to decide, once,
         # when the run resolves it.
         request.fix_mode_id = _checked_fix_mode_id(fix_mode_id)
+        request.branch_policy = _checked_branch_policy(branch_policy)
         with bound.lock:
             result = _run(f"prepare {key}", bound.repo_root, request)
         return _package(bound.repo_root, key, result)
@@ -326,6 +341,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         focus_files: list[str] | None = None,
         ignore_paths: list[str] | None = None,
         fix_mode_id: str | None = None,
+        branch_policy: str | None = None,
     ) -> dict[str, object]:
         """Build focused code context from a bug described in prose.
 
@@ -350,6 +366,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             fix_mode_id: Optional Fix Mode id from list_fix_modes, controlling how to
                 approach the work. Omit it to keep the mode this work item was last
                 prepared with, or BugPilot's default for a new one.
+            branch_policy: Optional "current" (work on the checked-out branch; the
+                default), "per-issue" (one branch per work item, created once and reused) or "ask"
+                (ask the developer first). Pass it only when the developer asks;
+                main/master is never edited under any policy.
         """
         try:
             spec = bug_spec_from_description(
@@ -361,6 +381,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             spec=spec,
             options=_options(hint, keywords, focus_files, ignore_paths),
             fix_mode_id=_checked_fix_mode_id(fix_mode_id),
+            branch_policy=_checked_branch_policy(branch_policy),
         )
         with bound.lock:
             result = _run("prepare the bug", bound.repo_root, request)

@@ -297,7 +297,9 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   writes `memory_search.md`.
 - **`git_ops.py` (~122 lines)** — thin git wrappers: `command_available`,
   `run_command`, `inside_git_repo`, `current_branch`, `working_tree_status`,
-  and `branch_name(issue_key, description)` → `feature/<key>-<slug>` used by prompts.
+  and `branch_name(issue_key, description)` → `feature/<key>-<slug>` used by prompts
+  (a hand-written bug's `feature/<title-slug>`: its id is new on every run).
+  Which branch a task tells the agent to use is `branch_policy.py`'s.
 - **`git_history.py`** — Git History v2. `collect_git_history` finds and ranks
   the related commits — commit-message search (issue key, shared Keywords,
   Additional Commit Keywords, extracted identifiers) and file history (Focus

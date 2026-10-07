@@ -67,14 +67,16 @@ export function createFilesPort(): FilesPort {
 export interface UiPortDeps {
   readonly render: (state: PanelState) => void;
   readonly refreshViews: () => void;
-  readonly editCredentials: () => Promise<void>;
 }
 
 export function createUiPort(deps: UiPortDeps): UiPort {
   return {
     render: deps.render,
     refreshViews: deps.refreshViews,
-    editCredentials: deps.editCredentials,
+    openExternal: async (url) => {
+      // The editor's own external-link path: the browser, never the webview.
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    },
     openFile: async (file) => {
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
       await vscode.window.showTextDocument(document, { preview: false });

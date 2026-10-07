@@ -25,6 +25,7 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, ISSUE_ARTIFACT
+from .branch_policy import usable_branch_name
 from .config import issue_dir
 from .input_adapters import manual_issue_payload
 from .jira import parse_issue
@@ -108,6 +109,16 @@ class IssueGuidance:
     # folder. ``None``: never recorded (a work item from before, or only ever
     # prepared additively), and the folder is read as it always was.
     attachment_files: tuple[str, ...] | None = None
+    # Which branch the agent works on (`branch_policy.py`): `current`,
+    # `per-issue` or `ask`. Recorded like the hint so a resume, a standalone
+    # task regeneration and a retry prompt say the same. ``None``: never
+    # recorded (a work item from before), read as the default.
+    branch_policy: str | None = None
+    # The branch the first task named, under a policy that may have the agent
+    # create one (`per-issue`, `ask`): every later task and retry names this
+    # one, so preparing the work item again never calls for another branch —
+    # not even after its Jira summary is reworded. ``None``: not named yet.
+    branch_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -357,6 +368,16 @@ def issue_to_dict(issue: IssueArtifact) -> dict[str, object]:
                 if issue.guidance.attachment_files is not None
                 else {}
             ),
+            **(
+                {"branch_policy": issue.guidance.branch_policy}
+                if issue.guidance.branch_policy is not None
+                else {}
+            ),
+            **(
+                {"branch_name": issue.guidance.branch_name}
+                if issue.guidance.branch_name is not None
+                else {}
+            ),
         },
     }
 
@@ -384,6 +405,8 @@ def issue_from_dict(data: object, work_item_id: str) -> IssueArtifact:
     fix_mode = guidance.get("fix_mode")
     notes = _dict(guidance.get("attachment_notes"))
     files = guidance.get("attachment_files")
+    branch_policy = guidance.get("branch_policy")
+    branch = guidance.get("branch_name")
     return IssueArtifact(
         id=issue_id,
         source=source,
@@ -440,6 +463,8 @@ def issue_from_dict(data: object, work_item_id: str) -> IssueArtifact:
                 if isinstance(files, list)
                 else None
             ),
+            branch_policy=branch_policy if isinstance(branch_policy, str) and branch_policy else None,
+            branch_name=usable_branch_name(branch),
         ),
     )
 

@@ -42,10 +42,11 @@ test("every settings field has exactly one home, and the form's own fields have 
 test("the gears map rows to sections one to one, and a section is titled by its step", () => {
   const steps = Object.keys(SETTINGS_SECTION_OF_STEP);
   for (const step of steps) assert.ok((WORKFLOW_STEP_IDS as readonly string[]).includes(step), step);
-  // Every section but the shared inputs is one step's, in the workflow's order.
+  // Every section but the shared inputs and Branch is one step's, in the
+  // workflow's order.
   assert.deepEqual(
     Object.values(SETTINGS_SECTION_OF_STEP),
-    WORKFLOW_SETTINGS_SECTIONS.filter((section) => section !== "retrieval-inputs"),
+    WORKFLOW_SETTINGS_SECTIONS.filter((section) => section !== "retrieval-inputs" && section !== "branch"),
   );
   // Git history has a gear, and Similar fixes too since §37.113; Fix result
   // has nothing to configure and none.
@@ -60,7 +61,7 @@ test("the gears map rows to sections one to one, and a section is titled by its 
 test("the page's sections, in order: the shared inputs just before the retrieval steps that read them (§37.113)", () => {
   assert.deepEqual(
     [...WORKFLOW_SETTINGS_SECTIONS],
-    ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "build-context", "fix-with-ai"],
+    ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "build-context", "fix-with-ai", "branch"],
   );
   assert.equal(SETTINGS_SECTION_TITLES["retrieval-inputs"], "Retrieval inputs");
   // One Keywords and one Focus files, shared, and no row's gear opens them.
@@ -109,6 +110,7 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   similarUseSharedKeywords: { similarUseSharedKeywords: false },
   similarKeywords: { similarKeywords: "legacyexporter" },
   similarMaxFixes: { similarMaxFixes: "2" },
+  branchPolicy: { branchPolicy: "per-issue" },
 };
 
 test("the page's 'requires rebuild' words are the host's staleness rule, field by field", () => {

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .attachments import ATTACHMENTS_DIR
+from .branch_policy import DEFAULT_BRANCH_POLICY, branch_editing_guardrail, branch_instructions
 from .delivery_instructions import assisted_delivery_block, delivery_safety_block
 from .fix_modes import STANDARD_FIX, FixMode, FixModeError
 from .git_ops import branch_name
@@ -31,6 +32,8 @@ def generate_task(
     attachments: Sequence[str] | None = None,
     fix_mode: FixMode | None = None,
     attachment_notes: Mapping[str, str] | None = None,
+    branch_policy: str = DEFAULT_BRANCH_POLICY,
+    branch: str | None = None,
 ) -> str:
     """``task.md``: the one package BugPilot hands a coding agent.
 
@@ -38,12 +41,17 @@ def generate_task(
     task already said, and a per-work-item copy of the team instructions the task
     told the agent to go and read. Now the team instructions are a section of the
     task, and the handoff is the one sentence that points at it.
+
+    ``branch`` is the branch the work item recorded, if it did; without one the
+    name is derived from the id and ``summary``.
     """
     # The full analysis/fix/review/test workflow lives inside the task, so no
     # standalone per-phase prompt files are generated.
-    branch = branch_name(issue_key, summary)
+    branch = branch or branch_name(issue_key, summary)
     mode = _task_fix_mode(fix_mode)
-    return _copilot_task(issue_key, branch, hint, jira_comment, attachments, mode, attachment_notes)
+    return _copilot_task(
+        issue_key, branch, hint, jira_comment, attachments, mode, attachment_notes, branch_policy
+    )
 
 
 def copilot_team_instructions() -> str:
@@ -182,6 +190,7 @@ def _copilot_task(
     attachments: Sequence[str] | None = None,
     fix_mode: FixMode | None = None,
     attachment_notes: Mapping[str, str] | None = None,
+    branch_policy: str = DEFAULT_BRANCH_POLICY,
 ) -> str:
     mode = _task_fix_mode(fix_mode)
     investigating = mode.is_investigation
@@ -241,7 +250,7 @@ def _copilot_task(
     closing_block = (
         investigation_handoff_block(issue_key)
         if investigating
-        else assisted_delivery_block(issue_key)
+        else assisted_delivery_block(issue_key, branch_policy=branch_policy, branch=branch)
     )
     return (
         f"# BugPilot Task: {issue_key}\n\n"
@@ -257,12 +266,7 @@ def _copilot_task(
         "- Safety rules always apply.\n"
         "- If team instructions and task instructions conflict, choose the safer option and document the conflict in the Review Notes section of `fix_report.md`.\n\n"
         f"{_team_instructions_section()}"
-        "## Branch Instructions\n\n"
-        f"- Branch name: `{branch}`\n"
-        "- Check the current branch before editing.\n"
-        "- Do not work directly on main/master.\n"
-        "- Do not edit files on main/master.\n"
-        "- Create or switch to the feature branch before editing files.\n\n"
+        f"{branch_instructions(branch_policy, branch, issue_key)}"
         f"{_attachments_section(issue_key, attachments, attachment_notes)}"
         "## Required Input Files\n\n"
         f"- Read `.ai/{issue_key}/context.md`.\n"
@@ -295,7 +299,7 @@ def _copilot_task(
         "## BugPilot Editing Guardrails\n\n"
         "These rules apply in every Fix Mode and cannot be relaxed by the selected mode.\n\n"
         "- Investigate inline using Read, Grep, and Glob only. Do not use the Task tool or spawn any background or sub-agents, and never idle waiting on one.\n"
-        "- Edit only on the feature branch named above; never on main/master.\n"
+        f"{branch_editing_guardrail(branch_policy, branch)}"
         "- Do not delete source files.\n"
         "- Do not mass-format unrelated files.\n"
         "- Do not commit or push without explicit developer approval.\n"
@@ -318,7 +322,7 @@ def _copilot_task(
         "- Do not change Jira fields.\n"
         "- Do not create PRs.\n"
         "- Do not mass-format unrelated files.\n\n"
-        f"{delivery_safety_block(issue_key, branch, jira_comment=jira_comment)}"
+        f"{delivery_safety_block(issue_key, branch, jira_comment=jira_comment, branch_policy=branch_policy)}"
         f"{jira_status_block}"
         f"{closing_block}"
     )

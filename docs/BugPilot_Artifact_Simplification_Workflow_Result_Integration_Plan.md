@@ -3023,7 +3023,8 @@ are unchanged.
    above Workflow Steps — key, *Jira*, status, action. *Configured* with a
    tick and **Replace**; *Not configured* and **Configure**; *Authentication
    failed* in the error colour with **Replace**. The action is the existing
-   `setCredentials` message and prompt. A named group ("Jira, Configured"); the
+   `setCredentials` message and prompt (since §37.124 the prompt is Jira
+   Setup, a dialog in the panel; see "Jira Setup"). A named group ("Jira, Configured"); the
    button named for what it does ("Replace Jira credentials"); two sentences
    as tooltip and description. At a narrow sidebar the key drops and the
    status ellipsizes before the action could move. (Since §37.119 the row sits
@@ -3428,7 +3429,13 @@ are unchanged.
    mode's page; the editor opened from the list), *Back to Fix Mode Preview*
    (the editor opened from a mode's page). The `‹` mark and the visible
    destination labels are gone. A toolbar-style button: no fill until hovered,
-   the focus ring on keyboard focus.
+   the focus ring on keyboard focus. (Since §37.125 a highlighted secondary
+   button instead, too easy to miss as text: a tint and a line of the theme's
+   focus colour — 14% fill and 45% border at rest, 26% and 75% pointed at, 34%
+   pressed — 4px radius, the focus ring 2px off it; never the primary
+   button's fill; in High Contrast no fill and the contrast lines. Tokens
+   `--bugpilot-nav-*` on the body. Still the word *Back*, its destination the
+   tooltip.)
 3. **One title, in the header.** A mode's page shows its name there — cut to
    one line, the whole name its tooltip — and no longer in its hero, which
    keeps the glyph, the source badge, the actions and the description. The
@@ -3462,7 +3469,8 @@ description was the target.
    tint laid over it at a few percent; a field is a layer under its group.
 2. **One set of tokens, on the body** — `--bugpilot-group-tint`,
    `-group-bg`, `-group-bg-secondary`, `-group-hover`, `-group-border`,
-   `-group-separator`, `--bugpilot-control-bg` — on the body because VS Code
+   `-group-separator`, `--bugpilot-control-bg` (since §37.122 renamed to the
+   page-neutral section names every page uses; see "One surface system") — on the body because VS Code
    names the theme kind there and each kind's strengths must resolve against
    its own tint. Rules use the tokens; no group is coloured by its id and no
    blend is repeated.
@@ -3491,6 +3499,156 @@ description was the target.
    title's hairline was half strength before), the hover expression as
    before. Its block comes after the others so it wins wherever two kinds'
    classes meet.
+
+### Confirmed decisions (One surface system)
+
+Visual only (§37.122): behaviour, commands, navigation, information
+architecture, control order and field meaning are unchanged. The reference
+was a screenshot of the Workflow panel the user attached: sections gently
+lighter than the page and cool, fields darker than their section, low-contrast
+cool borders. Its navy is that theme's sidebar; BugPilot cannot recolour VS
+Code's own sidebar or the native Results tree, so on Dark Modern the page
+stays `#181818` and the layers keep the reference's relationship to it.
+
+1. **One vocabulary for every page**: §37.121's group tokens grown into
+   page-neutral ones on the body — `--bugpilot-page-bg`,
+   `--bugpilot-surface-tint`, `--bugpilot-section-bg`, `-section-bg-secondary`,
+   `-section-border`, `-section-divider`, `--bugpilot-row-hover`,
+   `--bugpilot-control-bg`, `--bugpilot-dropdown-bg`. Light and High Contrast
+   redefine them; no rule mixes a colour of its own.
+2. **One section**: the Workflow groups, Advanced Settings' sections, a mode
+   page's sections and the editor's Basic info and Workflow instructions — the
+   same surface, border and 4px radius, 10px apart. The compact rows
+   (Advanced Settings, Jira) and nested layers (the AI suggestion, an
+   attachment) are the secondary surface; callouts (blocked, notices) are a
+   section with their accent edge.
+3. **Calmer than before**: a section is 5% of the tint in a dark kind (the
+   Workflow groups were 7%, bluer), 4% in light; the tint is 60/40
+   foreground/focus colour (was 55/45). Dark Modern measured on every page:
+   section `#1d2021` (1.08:1 to the page; the groups were 1.11:1), border
+   `#283036`, compact `#1b1d1e`. Light Modern: section
+   `#f0f1f1` on `#f8f8f8`, border `#dbdee0`.
+4. **Fields are a layer under the section on every page**: in a dark kind a
+   well in the page's colour (the editor's and Advanced Settings' fields were
+   the theme's lighter input colour, which in the editor's tall instruction
+   boxes read as grey slabs); light and High Contrast keep the theme's.
+5. **Headers are quiet rows**: a section's title is its glyph and name on the
+   section's own surface over the divider — the editor's filled strip is gone.
+   Lines inside a section (heading rows, Workflow Steps' rows, the editor's
+   instruction rows, the list's rows, verification checks) are the softer
+   divider.
+6. **Advanced Settings is sections now**, not headings over hairlines
+   (revising the page's earlier "whitespace and typography, not containers"),
+   so it reads as part of the same product; ≤ 220px gives side padding back as
+   the groups do. **Manage Fix Modes stays a list** (§37.114: no card around
+   anything) in the same vocabulary: the divider between rows, the shared row
+   hover, the page as the actions' ground.
+7. **One hover** for a row that answers the pointer (a mode page's or the
+   editor's section line, Advanced Settings' row, a list row): a little more
+   of the tint, not the list's selection-strength fill. Buttons and links keep
+   their native hover.
+8. **Sticky bars belong to the page**: the header, the editor's footer and
+   Advanced Settings' Cancel/Apply sit on the page's colour over a section's
+   line. Popups (the More menu, the Reset Session dialog) keep VS Code's widget
+   colours.
+9. **High Contrast** keeps the theme's system: no fills, the contrast border on
+   every section, divider and bar, native fields; a list row keeps its list
+   hover and dashed outline.
+
+### Confirmed decisions (Issue icon)
+
+1. **The Issue group's label glyph is `bug`** (§37.123), in the same primary
+   blue. `issues` — the requested glyph — was already the one in use, and its
+   circle-and-dot read as a status light or a radio button; `note`, the next
+   fallback, is a sheet like Issue details' `file-text` in Workflow Steps and
+   is already the editor's Description glyph. Issue details keeps
+   `file-text`. Nothing else changed.
+
+### Confirmed decisions (Jira Setup)
+
+Credential UI only (§37.124): the store (`CredentialStore`, one SecretStorage
+key, one atomic write), what reaches the CLI (`JIRA_EMAIL`/`JIRA_TOKEN` in the
+environment, never argv), Jira authentication, and when *Authentication
+failed* clears are unchanged.
+
+1. **One dialog for every way in.** The Jira row's Configure and Replace, a
+   failed run's *Set Jira Credentials* (a command the card offers) and the
+   palette's *BugPilot: Set Jira Credentials* all reach
+   `Controller.openJiraSetup()`; the palette's command first brings the panel
+   forward when no copy of it is showing. The two Quick Input prompts at the
+   top of the window are gone; the palette's generic work-item input box is
+   the only one left.
+2. **In the panel, centred, modal.** A `<dialog>` outside every view, opened
+   with `showModal()`: the browser centres it over the webview and makes the
+   panel behind it inert. Escape is Cancel; a click on the backdrop does
+   nothing, so typed credentials are not thrown away by a stray click. Tab
+   stays in it (Save → email, email ← Save).
+3. **Host-owned open state.** `PanelState.jiraSetup` is present only while it
+   is open (`request`, the stored `email`, `tokenStored`, `saving`, a one-shot
+   `error`), so a webview recreated while it is open reopens it, and a Cancel
+   answered locally is not undone by a push still carrying the same request.
+4. **The token never reaches the page.** The view carries the email and
+   whether a token is stored; the token field is a password field that starts
+   empty every time, with no dots standing for a stored token. Replace says
+   *A token is already stored. Enter a new token to replace it.*; a token is
+   required every time (the store saves the pair together and nothing reads
+   the stored token back). The page keeps no draft — the fields are outside
+   the form, never in `setState`, cleared on close. The token passes once, in
+   `saveJiraCredentials`, to the existing store; it is in no state, log line
+   or error (a store error is redacted of it).
+5. **Save** checks both fields (the same rules and sentences on the page and in
+   the host — *Enter your Atlassian account email.*, *Enter a valid email
+   address.*, *Enter an API token.*; no length rule for a token), says a
+   refusal under the field it names, stores through `CredentialStore.save`,
+   logs *Jira credentials stored for this machine.*, and calls
+   `credentialsSaved()` exactly as the prompt did. The dialog closes only once
+   the store has the pair. While saving, Save says *Saving…* and Save and
+   Cancel do nothing.
+6. **Help, Atlassian's way.** *Need an API token?* in one paragraph, **Open
+   Atlassian API tokens** (the host opens
+   `https://id.atlassian.com/manage-profile/security/api-tokens` with
+   `vscode.env.openExternal`; the page names no address), and a closed *Step
+   by step* list: Create API token — not the one with scopes, since BugPilot
+   sends the email and token to the Jira site's `/rest/api/3/…`, which a
+   scoped token does not open — a name, an expiration date 1 to 365 days
+   away, copy it once.
+7. **Sized to the sidebar.** `min(380px, 100% − 24px)` wide (100% − 16px at ≤
+   220px), the browser's own modal caps lifted; never taller than the panel;
+   the body scrolls and Cancel / Save stay at its foot. The shared surfaces:
+   the editor's widget colour, a section's border, fields on the control
+   colour.
+
+### Confirmed decisions (Branch policy)
+
+Agent instructions only (§37.127): BugPilot still never runs `git branch`,
+`checkout`, `commit` or `push`; what changed is what `task.md` tells the agent.
+
+1. **The developer's choice, three policies.** `current` (default),
+   `per-issue` (the previous rule), `ask`. Chosen with the user: the default is
+   the current branch, because the old rule named a new branch on every run of
+   a hand-written bug and moved developers off branches they were already on.
+2. **`current`**: work on the checked-out branch and never create or switch
+   one; on `main`/`master` or a detached HEAD, stop and ask before creating
+   `feature/<work-item>-<slug>`. Delivery commits on the current branch with
+   no `feature/` or key requirement — only not protected, not detached.
+3. **Protected branches are fixed at `main` and `master`**, under every
+   policy: never edited, committed to or pushed. No setting changes that
+   (chosen with the user: no configurable list for now). No policy commits on
+   a detached HEAD.
+4. **Recorded per work item** in `issue.json` on every run (a work item from
+   before has no record, and no record or an invalid one reads as
+   `current`), resolved explicit > recorded > default, like the Fix Mode;
+   regeneration and retry keep it. The extension always sends it, because its
+   runs are resumes.
+5. **Preparing again is not a reason for a branch.** Run, Rebuild Context,
+   resume, retry and Start New Attempt never call for a new branch; only the
+   policy does. Under `per-issue` and `ask` the first task's branch is
+   recorded (`guidance.branch_name`) and named by every later task and retry;
+   a hand-written bug — a new `local_<timestamp>` id per Run — takes its
+   branch from its title, so the same bug names the same branch.
+6. **Its own settings section, Branch**, wholly *Requires rebuild* (it is
+   written into `task.md`); not in Fix with AI, which stays *Next run only*. A
+   preference: Reset Session keeps it.
 
 
 ---

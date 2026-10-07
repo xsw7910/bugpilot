@@ -87,7 +87,7 @@ import type { GitignoreEntry, GitignoreIo } from "./gitignore.ts";
 import { handoffError, reviewHandoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
 import { diagnostics } from "./diagnostics.ts";
-import { JIRA_AUTH_FAILED, jiraConnection } from "./jiraConnection.ts";
+import { JIRA_API_TOKENS_URL, JIRA_AUTH_FAILED, jiraConnection, jiraSetupProblem } from "./jiraConnection.ts";
 import type { ResolvedAgent } from "./diagnostics.ts";
 import type { RetrievalTerm } from "./retrievalDetails.ts";
 import type { UserFacingError } from "./failures.ts";
@@ -207,8 +207,11 @@ export interface UiPort {
   notify(kind: "info" | "warning" | "error", message: string): void;
   /** Ask the host to re-read the trees, after a run changed `.ai/`. */
   refreshViews(): void;
-  /** Run the credential prompt, which lives in the host with SecretStorage. */
-  editCredentials(): Promise<void>;
+  /**
+   * Open an address in the developer's browser, through the editor (§37.124):
+   * only Jira Setup's fixed Atlassian page, never a URL the page names.
+   */
+  openExternal(url: string): Promise<void>;
   /** Open a terminal in `cwd` and run one command line in it. */
   runInTerminal(name: string, cwd: string, commandLine: string): void;
   /**
@@ -249,6 +252,15 @@ export interface ControllerPorts {
   /** Re-resolved per run: a folder can be added or the setting changed. */
   readonly environment: () => Promise<Environment>;
   readonly credentials: () => Promise<{ configured: boolean; environment: Record<string, string> }>;
+  /**
+   * Jira Setup's store (§37.124): the host's existing credential store, by
+   * its two safe operations — whether a credential is stored and for which
+   * email, and saving a new pair in one write. Nothing here yields a token.
+   */
+  readonly jiraCredentials: {
+    status(): Promise<{ readonly configured: boolean; readonly email?: string }>;
+    save(credentials: { readonly email: string; readonly token: string }): Promise<void>;
+  };
   /** Where a description too long for argv is written. */
   readonly descriptionFilePath: () => string;
   readonly now?: () => number;
@@ -843,6 +855,22 @@ export class Controller {
    */
   #jiraRejected = false;
   /**
+   * Jira Setup's dialog while it is open (§37.124), else undefined. Holds the
+   * stored email and whether a token is stored — the token itself never: it
+   * passes through `saveJiraCredentials` into the store and is not kept.
+   */
+  #jiraSetup:
+    | {
+        readonly request: number;
+        readonly email?: string;
+        readonly tokenStored: boolean;
+        readonly saving: boolean;
+        readonly error?: { readonly token: number; readonly field?: "email" | "token"; readonly message: string };
+      }
+    | undefined;
+  #jiraSetupRequests = 0;
+  #jiraSetupAnswers = 0;
+  /**
    * What a handoff actually resolved, when one has run.
    *
    * Recorded where resolution already happens rather than derived from the
@@ -1031,6 +1059,66 @@ export class Controller {
   async credentialsSaved(): Promise<void> {
     this.#jiraRejected = false;
     await this.refreshEnvironment();
+  }
+
+  /**
+   * Open Jira Setup (§37.124) — the one dialog every way in reaches: the Jira
+   * row's Configure or Replace, a failed run's Set Jira Credentials and the
+   * command palette. It starts with the stored email, if any, and says
+   * whether a token is stored; it is never given the token.
+   */
+  async openJiraSetup(): Promise<void> {
+    const status = await this.#ports.jiraCredentials.status();
+    this.#jiraSetupRequests += 1;
+    this.#jiraSetup = {
+      request: this.#jiraSetupRequests,
+      ...(status.email === undefined ? {} : { email: status.email }),
+      tokenStored: status.configured,
+      saving: false,
+    };
+    this.#push();
+  }
+
+  /**
+   * Jira Setup's Save: both fields checked, then stored by the existing store
+   * in one write, then exactly what a save always did — Authentication failed
+   * forgotten and the environment re-read. The dialog closes only once the
+   * store has them; a refusal is said in it, by field, and stores nothing.
+   * The token is neither kept nor logged, and a store error is redacted of it.
+   */
+  async saveJiraCredentials(email: string, token: string): Promise<void> {
+    const setup = this.#jiraSetup;
+    if (setup === undefined || setup.saving) return;
+    const problem = jiraSetupProblem(email, token);
+    if (problem) {
+      this.#jiraSetup = { ...setup, error: { token: ++this.#jiraSetupAnswers, ...problem } };
+      this.#push();
+      return;
+    }
+    this.#jiraSetup = { request: setup.request, ...(setup.email === undefined ? {} : { email: setup.email }), tokenStored: setup.tokenStored, saving: true };
+    this.#push();
+    try {
+      await this.#ports.jiraCredentials.save({ email: email.trim(), token: token.trim() });
+    } catch (error) {
+      const reason = redactKnown((error as Error).message, [token.trim()]);
+      this.#jiraSetup = {
+        ...this.#jiraSetup,
+        saving: false,
+        error: { token: ++this.#jiraSetupAnswers, message: `The credentials could not be stored: ${reason}` },
+      };
+      this.#push();
+      return;
+    }
+    this.#ports.log.info("Jira credentials stored for this machine.");
+    this.#jiraSetup = undefined;
+    await this.credentialsSaved();
+  }
+
+  /** Jira Setup's Cancel or Escape: closed, nothing stored, nothing else changed. */
+  closeJiraSetup(): void {
+    if (this.#jiraSetup === undefined || this.#jiraSetup.saving) return;
+    this.#jiraSetup = undefined;
+    this.#push();
   }
 
   get root(): string | undefined {
@@ -1294,6 +1382,12 @@ export class Controller {
       case "resetSession":
         await this.resetSession({ deleteGeneratedFiles: message.deleteGeneratedFiles });
         return;
+      case "saveJiraCredentials":
+        await this.saveJiraCredentials(message.email, message.token);
+        return;
+      case "closeJiraSetup":
+        this.closeJiraSetup();
+        return;
       case "parseReviewOutput":
         this.parseReviewOutput(message.text);
         return;
@@ -1331,7 +1425,8 @@ export class Controller {
         else if (message.id === "editVerification") this.editVerification();
         else if (message.id === "useReviewFindings" || message.id === "useVerificationEvidence") {
           await this.useFeedbackHelper(message.id);
-        } else await this.#ports.ui.editCredentials();
+        } else if (message.id === "openJiraTokenPage") await this.#ports.ui.openExternal(JIRA_API_TOKENS_URL);
+        else await this.openJiraSetup();
         return;
       case "command": {
         // Only ids this host is currently offering, and only while the offer
@@ -4921,6 +5016,7 @@ export class Controller {
       warnings: this.#notices(),
       ...(this.#noticeStatus === undefined ? {} : { noticeStatus: this.#noticeStatus }),
       jira: jiraConnection(this.#jiraConfigured, this.#jiraRejected),
+      ...(this.#jiraSetup === undefined ? {} : { jiraSetup: { ...this.#jiraSetup } }),
       primary,
       ...(this.#sessionFeedback === undefined
         ? {}

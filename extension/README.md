@@ -87,12 +87,18 @@ editor and you save them; nothing is written behind your edits.
    under **Current**, every work item under **History**, and what BugPilot is
    configured with under **Diagnostics**.
 3. If a Jira issue: press **Configure** on the **Jira** row in Workflow, under
-   **Advanced Settings** (or run **BugPilot: Set Jira Credentials**), once —
-   email plus an API token from your Atlassian account settings. They are kept
-   in VS Code's SecretStorage and reach the CLI as environment variables —
-   never in a command line, never in the panel. The row then says
-   **Configured**, and its button **Replace**; if Jira turns the credentials
-   away on a run, it says **Authentication failed** until you replace them.
+   **Advanced Settings** (or run **BugPilot: Set Jira Credentials**), once.
+   **Jira Setup** opens over the panel: your Atlassian account email and an API
+   token, together, with **Save** and **Cancel**. To get a token, press **Open
+   Atlassian API tokens** there, select **Create API token**, choose a name and
+   an expiration date, then copy the new token — Atlassian shows it only once —
+   and paste it into the dialog. Saved, they are kept in VS Code's
+   SecretStorage and reach the CLI as environment variables — never in a
+   command line, never in the panel: replacing them starts from your email and
+   an empty token field. The row then says **Configured**, and its button
+   **Replace**; if Jira turns the credentials away on a run, it says
+   **Authentication failed** until you replace them. Cancel or Escape leaves
+   whatever was stored as it was.
 4. In the **Issue** field, type an issue key such as `JR-12345`, or describe the
    problem in your own words. The field is one line until you write more, and
    grows to about four lines before it scrolls. Once you type, the right end of
@@ -106,8 +112,9 @@ editor and you save them; nothing is written behind your edits.
 
 That is the whole panel: the issue, one button, the settings it uses, and one
 list of steps — six quietly outlined groups, one under the other: **Issue**
-(with Run and More), **Fix Mode**, **Hint** (with Improve with AI and Include
-issue details), **Advanced Settings**, **Jira** and **Workflow Steps**.
+(with Run and More), **Fix Mode**, **Hint** (with *Improve with AI ☑ using
+Issue details*; unticked, *using Issue details* is greyed),
+**Advanced Settings**, **Jira** and **Workflow Steps**.
 
 ```
 ┌ ⊙ Issue               Jira issue · JR-12345 ┐
@@ -119,7 +126,7 @@ issue details), **Advanced Settings**, **Jira** and **Workflow Steps**.
 └─────────────────────────────────────────────┘
 ┌ Hint                                        ┐
 │ [ Add technical guidance or suspected areas ]
-│ Improve with AI   ☑ Include issue details   │
+│ Improve with AI ☑ using Issue details       │
 └─────────────────────────────────────────────┘
 ┌ ⚙ Advanced Settings                       › ┐
 ┌ 🔑 Jira  ✓ Configured               Replace ┐
@@ -159,8 +166,8 @@ when this window started the session. **Workflow Steps** gives the overall
 state in brief: *Not started*, *Running 3/6…*, *Ready*, *Needs rebuild*, *Fix
 report available*. What a button or a setting
 does is its tooltip: hover **Run**, **Fix with AI**, **Rebuild Context**, **Fix
-Mode**, **Hint** or **Include issue details** (which says exactly what the
-improver may read). The button's tooltip also names its shortcut,
+Mode**, **Hint** or **Issue details** (which says exactly what the improver
+may read). The button's tooltip also names its shortcut,
 `Ctrl+Enter`.
 
 **Stop** joins it while a run is in flight. Beside it, always, is **⋯ More**
@@ -379,6 +386,24 @@ means only that: BugPilot does not watch the agent, so it never says the fix
 worked, tests passed or files changed. Which agent it hands to is **Advanced
 Settings → Fix with AI → AI Agent**: Auto-detect, Codex CLI, Claude CLI, the
 Codex or Claude extension, or a custom command of your own (see below).
+
+Which branch the agent works on is **Advanced Settings → Branch → Branch
+policy**. BugPilot
+never runs `git branch` itself; it tells the agent:
+
+- **Use current branch** (the default): stay on the branch that is checked out
+  — no new branch for every run. Only on `main`/`master` or a detached HEAD
+  does the agent stop and ask before creating `feature/<work-item>-<summary>`.
+- **One branch per issue**: one branch for the work item, created once and
+  reused. A bug you describe yourself gets a new id on every Run, so its
+  branch is named from its title instead: the same bug, the same branch.
+- **Ask before editing**: the agent shows the current and the suggested branch
+  and asks which to use — never staying on `main`/`master`.
+
+Run, Rebuild Context, a retry and Start New Attempt never call for a new branch
+by themselves; only this setting decides. Under every choice `main` and
+`master` are never edited, committed to or pushed. The setting is written into
+`task.md`, so changing it needs **Rebuild Context**; Reset Session keeps it.
 
 After the handoff the button is **Open AI Session**: keep talking to the agent
 in its terminal. It brings that terminal forward and says **AI session

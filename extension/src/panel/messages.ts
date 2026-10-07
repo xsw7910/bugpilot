@@ -20,7 +20,7 @@ import { ALWAYS_RUNS, WORKFLOW_STEP_IDS } from "../app/workflow.ts";
 import type { OverallStatus, WorkflowStepResult } from "../app/workflow.ts";
 import type { ArtifactList } from "../app/artifacts.ts";
 import type { CommandAction } from "../app/environment.ts";
-import { FIX_MODE_ID_RE, gitHistoryDepthOf } from "../app/form.ts";
+import { FIX_MODE_ID_RE, branchPolicyOf, gitHistoryDepthOf } from "../app/form.ts";
 import type { UserFacingError } from "../app/failures.ts";
 import type { JiraConnectionView } from "../app/jiraConnection.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
@@ -84,6 +84,7 @@ type FormTextFields = Omit<
   | "gitSearchFileHistory"
   | "gitHistoryDepth"
   | "similarUseSharedKeywords"
+  | "branchPolicy"
 >;
 
 /**
@@ -236,6 +237,37 @@ export interface PanelState {
    * page is showing. Always present: the ⋯ More menu always offers it.
    */
   readonly sessionReset: SessionResetView;
+  /**
+   * Jira Setup (§37.124), present only while its dialog is open: every way in
+   * — the Jira row's Configure or Replace, a failed run's Set Jira
+   * Credentials, the command palette — opens this one dialog through the host.
+   */
+  readonly jiraSetup?: JiraSetupView;
+}
+
+/**
+ * Jira Setup's dialog, as the host sees it. It carries the stored email and
+ * whether a token is stored — never the token, which no message to the page
+ * ever holds: the dialog's token field starts empty every time.
+ */
+export interface JiraSetupView {
+  /**
+   * Bumped by every request to open: a page that has just been cancelled out
+   * of request N does not reopen for a push that still carries N.
+   */
+  readonly request: number;
+  /** The stored Atlassian account email, to start the field with. */
+  readonly email?: string;
+  /** A token is stored: a saved one replaces it, and the dialog says so. */
+  readonly tokenStored: boolean;
+  /** A save is under way: the dialog waits. */
+  readonly saving: boolean;
+  /** Why the last Save stored nothing, sent once: `token` changes per answer. */
+  readonly error?: {
+    readonly token: number;
+    readonly field?: "email" | "token";
+    readonly message: string;
+  };
 }
 
 /**
@@ -338,6 +370,9 @@ export const PANEL_ACTIONS = [
   "openFolder",
   "fixWithAI",
   "setCredentials",
+  // Jira Setup's link (§37.124): the host opens Atlassian's API token page, a
+  // fixed address of its own — the page names no URL.
+  "openJiraTokenPage",
   // Fix result's two review aids (Batch 9). Accepted only while a report is on
   // screen: the controller checks, the page merely asks.
   "copyReviewPrompt",
@@ -477,6 +512,14 @@ export type PanelMessage =
    */
   | { readonly type: "resetSession"; readonly deleteGeneratedFiles: boolean }
   /**
+   * Jira Setup's Save (§37.124): the two fields as typed. The host checks them
+   * and stores them with the existing credential store; the page keeps the
+   * token only while the dialog is open and never persists it.
+   */
+  | { readonly type: "saveJiraCredentials"; readonly email: string; readonly token: string }
+  /** Jira Setup's Cancel, or Escape: close it and store nothing. */
+  | { readonly type: "closeJiraSetup" }
+  /**
    * "Read this pasted review into the form" (Paste Review Output): the text as
    * pasted, bounded. The host answers once with the sections or the reason it
    * could not read them; nothing is saved.
@@ -546,6 +589,8 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   saveFixMode: true,
   recordReview: true,
   resetSession: true,
+  saveJiraCredentials: true,
+  closeJiraSetup: true,
   parseReviewOutput: true,
   discardReviewDraft: true,
   verificationDraft: true,
@@ -627,6 +672,18 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       const deleteGeneratedFiles = message?.["deleteGeneratedFiles"];
       return typeof deleteGeneratedFiles === "boolean" ? { type, deleteGeneratedFiles } : undefined;
     }
+    case "saveJiraCredentials": {
+      // Refused, never clamped, past the caps: a token cut short would be
+      // stored and fail at Jira as though the developer had mistyped it. Far
+      // above anything real (an Atlassian token is a few hundred characters).
+      const email = message?.["email"];
+      const token = message?.["token"];
+      if (typeof email !== "string" || email.length > JIRA_EMAIL_CAP) return undefined;
+      if (typeof token !== "string" || token.length > JIRA_TOKEN_CAP) return undefined;
+      return { type, email, token };
+    }
+    case "closeJiraSetup":
+      return { type };
     case "parseReviewOutput": {
       // Clamped one past the cap, so a paste that is too long is refused by the
       // parser with a reason, never cut short and read as if that were all.
@@ -896,6 +953,8 @@ function parseForm(raw: unknown): FormState | undefined {
     similarUseSharedKeywords: record["similarUseSharedKeywords"] !== false,
     similarKeywords: text("similarKeywords"),
     similarMaxFixes: text("similarMaxFixes"),
+    // One of three, or the default: the value becomes a command-line flag.
+    branchPolicy: branchPolicyOf(record["branchPolicy"]),
   };
 }
 
@@ -974,6 +1033,10 @@ function parseAttachmentDescriptions(value: unknown, attachments: readonly strin
   }
   return descriptions;
 }
+
+/** Jira Setup's fields' caps (§37.124): an email's RFC limit, and room for any token. */
+const JIRA_EMAIL_CAP = 320;
+const JIRA_TOKEN_CAP = 4096;
 
 function asString(value: unknown, cap: number): string | undefined {
   if (typeof value !== "string") return undefined;

@@ -339,6 +339,7 @@ bugpilot push-plan JR-12345
 - `bugpilot jira-comment <ISSUE> --execute`: post exactly one Jira comment from the local draft.
 - `bugpilot retry-prompt <ISSUE>`: generate a second-attempt agent prompt from local artifacts and developer feedback.
 - `bugpilot bug <ISSUE> --fix-mode <id>`: prepare the package under a chosen AI Fix Mode (see below). Persists for `--resume` and regeneration; a fresh run returns to Standard Fix.
+- `bugpilot bug <ISSUE> --branch-policy current|per-issue|ask`: which branch the agent works on (see Branch policy below). Persists for `--resume` and regeneration; the default is `current`.
 - `bugpilot fix-mode list`: the AI Fix Modes this repository can run; `--all-scopes` shows every definition on disk, including shadowed ones.
 - `bugpilot fix-mode show <id>`: one mode in full, including its six instruction sections.
 - `bugpilot fix-mode duplicate|create|update|delete ... --scope user|project`: manage custom modes (`--expected-version N` guards `update` and `delete`; `--json` on every subcommand).
@@ -380,6 +381,17 @@ A Fix Mode decides *how* the agent approaches a bug — how far to investigate, 
 - Select one per run with `--fix-mode <id>`. The choice is recorded in `.ai/<issue>/issue.json` (`guidance.fix_mode`) and reused by `--resume`, `prompt`, `agent-task` and `retry-prompt`; a fresh run starts from Standard Fix again.
 - Custom modes are JSON files: yours in `~/.bugpilot/fix_modes/<id>.json`, the project's in `<repo>/.bugpilot/fix_modes/<id>.json` (commit that directory to share them). A project mode shadows a user mode with the same id; built-in ids cannot be overridden. Start from `bugpilot fix-mode duplicate <builtin> <new-id> --scope user|project`.
 - The VS Code extension selects a mode under **Advanced settings → Strategy** and edits custom ones under **Manage Fix Modes**. The MCP server can list, inspect and select modes (`list_fix_modes`, `show_fix_mode`, `fix_mode_id` on the prepare tools) but cannot create, change or delete them — that stays with the developer.
+
+## Branch policy
+bugpilot never creates or switches branches itself; `task.md` tells the agent which branch to work on, and that rule is yours to choose with `--branch-policy` (the VS Code extension's **Advanced Settings → Branch → Branch policy**, the MCP prepare tools' `branch_policy`):
+
+- **`current`** (default): work on the branch that is checked out — no new branch per run or per bug. Only when you are on `main`/`master` or a detached HEAD does the agent stop and ask "You are on a protected branch / detached HEAD. Create `feature/<work-item>-<summary>` and continue?". Commits go on the current branch, whatever it is named.
+- **`per-issue`**: one branch for the work item, created once and reused: the agent creates or switches to it before editing (from a detached HEAD too), and for a Jira issue an existing branch whose name contains the key counts as it. Commits go only on that branch.
+- **`ask`**: before editing, the agent tells you the current branch and the suggested one and asks which to use. On `main`/`master` or a detached HEAD, staying is not an option.
+
+Preparing a work item again — Run, Rebuild Context, `--resume`, a retry, Start New Attempt — never calls for a new branch: only the policy decides when one is created or switched. The policy is recorded in `.ai/<issue>/issue.json` (`guidance.branch_policy`; a work item from before it has none, which reads as `current`, and so does a value that is not a policy) and reused by `--resume`, `prompt`, `agent-task` and `retry-prompt`; an explicit `--branch-policy` wins over the record. Under `per-issue` and `ask` the branch the first task named is recorded as well (`guidance.branch_name`), so a later task names the same one even if the Jira summary has been reworded since. A hand-written bug gets a new `local_<timestamp>` id on every run, so its branch is named from its title instead (`feature/<title-slug>`, or `feature/bug-<hash>` for a title with no ASCII letters or digits): the same bug, the same branch.
+
+Under every policy `main` and `master` are never edited, committed to or pushed, and nothing is committed on a detached HEAD.
 
 ## Safety Rules
 - bugpilot does not automatically modify product source code.

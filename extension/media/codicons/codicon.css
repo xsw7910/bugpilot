@@ -32,11 +32,12 @@
 /* Run. */
 .codicon-play:before { content: "\eb2c"; }
 
-/* The Issue field's label (Issue compact input): neutral, not Jira's mark,
-   because the field takes a description too. Checked in the vendored
-   codicon.ttf's cmap and glyph names (U+EB0C, "issues"), and equal to VS Code's
-   own code point for the name. */
-.codicon-issues:before { content: "\eb0c"; }
+/* The Issue field's label: neutral, not Jira's mark, because the field takes a
+   description too. A bug, not "issues" (U+EB0C), whose circle and dot read as
+   a status light or a radio button; and not "note", a sheet like Issue
+   details' file-text in Workflow Steps. Checked in the vendored codicon.ttf's
+   cmap and glyph names (U+EAAF, "bug"). */
+.codicon-bug:before { content: "\eaaf"; }
 
 /*
  * The step states: running, done, failed, skipped. (Not started shows nothing.)
@@ -174,3 +175,10 @@
 .codicon-target:before { content: "\ebf8"; }
 .codicon-tools:before { content: "\eb6d"; }
 .codicon-check-all:before { content: "\ebb1"; }
+
+/* Jira Setup (§37.124): the token's Hide (Show is the eye above) and the
+   external-link mark on Open Atlassian API tokens. Each checked in the
+   vendored codicon.ttf's cmap and glyph names (U+EAE7 "eye-closed", U+EB14
+   "link-external"). */
+.codicon-eye-closed:before { content: "\eae7"; }
+.codicon-link-external:before { content: "\eb14"; }

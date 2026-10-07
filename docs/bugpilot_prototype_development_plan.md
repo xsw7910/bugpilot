@@ -12692,3 +12692,286 @@ stay darker. Light Modern: page `#f8f8f8`, groups `#edeeef`, compact
 `#6fc3df` contrast border on every group and row line, native fields. Every
 element's position and size identical to the old build at all three widths
 (Dark and Light), no horizontal overflow. Run was not pressed.
+
+### 37.122 One surface system for every page (after `39a5c56`, uncommitted)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (Dark Modern, Light Modern, Default High Contrast; an
+installed VSIX, an isolated HOME); not committed. The canonical plan has a
+new "Confirmed decisions (One surface system)" and a note on §37.121's token
+names. Visual only: `media/panel.css` and `test/panel.test.ts`. The user
+attached a reference screenshot mid-task (the Workflow panel: cool sections
+gently lighter than the page, fields darker than their section); it decided
+the field layering.
+
+- **Before**: three card languages. The Workflow groups were a 7% cool tint
+  (`#1e2225`) with dark field wells; the detail page's sections 3% of the
+  foreground; the editor's 2% with a 4% filled title strip and the theme's
+  lighter input colour (`#313131`, grey slabs in the instruction boxes);
+  Advanced Settings had no sections, only headings over full-strength
+  hairlines; Manage Fix Modes' rows had 55% panel-border rules and the list's
+  hover. Borders were 70%/50%/55% mixes of three different theme colours.
+- **Tokens**: on the body, page-neutral — page, surface tint (60/40
+  foreground/focus colour in dark kinds, 80/20 light), section (5% / 4%),
+  secondary (3.5% / 2.5%), border (12% / 11%), divider (8% / 7.5%), row hover,
+  control and dropdown (the page's colour in dark kinds, the theme's
+  elsewhere). High Contrast: no fills, the contrast border, native fields.
+- **Applied**: the Workflow groups; Advanced Settings' sections (now the
+  shared section, 10px 12px, 10px apart, the last field flush); the detail
+  page's sections (10px apart); the editor's Basic info and Workflow
+  instructions (10px apart, no title strip); every divider inside a section;
+  Manage Fix Modes' rows (divider, hover, the actions' ground); the AI
+  suggestion and attachments (secondary); the blocked and notice callouts;
+  every field; the sticky header and both sticky footers (page colour, a
+  section's line). Popups, buttons, badges and the Results view unchanged.
+
+**Tests.** 1921, all passing: the shared-system test replaces §37.121's —
+the tokens on the body for each theme kind, no literal, the four section
+rules on the same surface/border/radius with no colour of their own, the
+secondary layers, the dividers, no filled title, one row hover, the sticky
+bars on the page, every field on the control token, no section coloured by
+id, step rows without a surface, the primary buttons. Advanced Settings'
+"a rule, not a card" test is now "the shared sections, each headed by a
+quiet rule"; tests that pinned the old header, footer, list and hover
+expressions pin the tokens. Nine mutations (an editor section's own blend,
+the title strip back, Advanced Settings without the section, the list hover
+on a detail line, the header on the sidebar colour, native dark fields, an
+ad-hoc list divider, the suggestion as a widget, Light on dark strengths)
+each fail a test. Typecheck, activation smoke, package check, publishability
+(15) and `git diff --check` pass; `package-lock.json` untouched.
+
+**Real window** (VS Code 1.139.1), pixels measured from screenshots. Dark
+Modern on the Workflow page, Advanced Settings, Manage Fix Modes, a mode's
+page and New/Edit Fix Mode: page `#181818`, section `#1d2021` on every page,
+border `#283036`, fields `#181818`, header and footers on `#181818` over a
+section's line; Run `#0078d4`, 3.6:1 against a section.
+Workflow page geometry identical to before §37.121 at 360/280/200px; every
+page at 360/280/200px with no horizontal overflow, the header pinned at rest,
+middle and end, each Back to its destination; Advanced Settings Tab and
+Shift+Tab at 200px with every control clear of the bars. Light Modern: section
+`#f0f1f1` on `#f8f8f8`, border `#dbdee0`, fields white, on every page. High
+Contrast: black, no fills, `#6fc3df` on every section, divider and bar, native
+fields; a list row's hover the theme's list fill with the dashed outline (on
+the packaged VSIX). Run was not pressed.
+
+### 37.123 The Issue group's icon (after `39a5c56`, uncommitted)
+
+The Issue label's glyph is now `bug` (U+EAAF) in the same primary blue,
+replacing `issues` (U+EB0C), whose circle and dot read as a status light or a
+radio button. `issues` was the requested glyph and already the one in use, so
+a fallback was taken; `note` was skipped because it is a sheet like Issue
+details' `file-text` in Workflow Steps and already the editor's Description
+glyph. `src/panel/html.ts`, `media/codicons/codicon.css` (bug declared,
+issues dropped as unused), one test. Verified in the real window, Dark and
+Light, at 360/280/200px: centred on the label, the same 6px gap, every
+position unchanged.
+
+### 37.124 Jira Setup: one dialog for the email and the token (after `39a5c56`, uncommitted)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (Dark Modern and Light Modern, an installed VSIX, isolated
+profiles and HOME, fake credentials only); not committed. The canonical plan
+has "Confirmed decisions (Jira Setup)" and a note on §37.110's prompt.
+
+- **Before**: `bugpilot.setCredentials` ran two `showInputBox` prompts at the
+  top of the window, one after the other — the email, then a masked token —
+  with one line of help between them. Reached from the Jira row (via the
+  controller's `ui.editCredentials`), a failed run's card (the command) and
+  the palette.
+- **Now**: `Controller.openJiraSetup()` from every entry point; a modal
+  `<dialog>` in the panel (`JIRA_SETUP_DIALOG` in `html.ts`, the words in
+  `JIRA_SETUP_TEXT`) with the email, a password token field with Show / Hide,
+  the help and the link, Cancel and Save. `PanelState.jiraSetup` carries the
+  open state, the stored email and whether a token is stored; the page sends
+  `saveJiraCredentials` and `closeJiraSetup`, and the `openJiraTokenPage`
+  action. A new `jiraCredentials` port exposes the existing
+  `CredentialStore.status()` and `save()`; `UiPort.editCredentials` became
+  `openExternal`. The prompt function and its two input boxes are removed.
+- **Security**: the token is never sent to the page, never in a state, a log
+  line or an error message (store errors are redacted of it); the dialog's
+  fields are outside the form and never persisted; the message parser refuses
+  (never clamps) an over-long email or token.
+
+**Tests.** 1946 (1921 + 25), all passing: the controller's open, Replace,
+Save (one write, trimmed, closed, Configured, logged without the token),
+saving waits, Cancel, Authentication failed kept by Cancel and cleared by
+Save, field refusals once per answer, a store refusal redacted, stray
+messages ignored, the official page opened; the page's open state, focus,
+validation, Enter, Cancel/Escape/close, host close and focus return, saving,
+refusals, Show/Hide, the link, no draft kept; the markup, tab order, help and
+steps, the shared validation rules, the CSS, the host's wiring (one input box
+left, no password prompt), and that the page's view type has no token field.
+Typecheck, activation smoke, package check, publishability (15) and
+`git diff --check` pass; `package-lock.json` untouched.
+
+**Real window** (VS Code 1.139.1), fake `dev@example.com` and a fake token:
+Configure, Replace and the palette open the dialog centred over the panel, no
+Quick Input; Tab runs email, token, Show, the link, Step by step, Cancel,
+Save and back to the email, Shift+Tab from the email to Save; Enter in the
+email moves to the token; the token is masked and Show / Hide toggles it; the
+link raises VS Code's external-link question for the Atlassian page
+(answered Cancel, no browser opened); Escape stores nothing and gives the
+focus back to Configure; Save with nothing typed says so under the email;
+Save stores, closes and the row says Configured; Replace starts with the
+email, an empty token and the stored-token note; Cancel keeps Configured.
+At 280 and 200px the dialog is 238 and 166px wide in the panel, no sideways
+scroll, the link wrapped with its mark, Save in view with the steps open
+(the body scrolls). Dark and Light. Afterwards the fake token appeared in
+none of the 594 files of the disposable profiles and homes (plain or UTF-16),
+logs and state databases included. The real error card was not raised: that
+needs a run against Jira, and Run was not pressed; its button runs the same
+command the palette check exercised.
+
+### 37.125 Back as a highlighted button (after `39a5c56`, uncommitted)
+
+Back, in the shared sticky page header (§37.120) on Advanced Settings, Manage
+Fix Modes, a mode's page and New/Edit Fix Mode, was a text-style control with
+no fill until hovered, and easy to miss. It is now a compact secondary
+button: the arrow and *Back* (600 weight), a 1px border and a tint of the
+theme's focus colour (`--bugpilot-nav-bg` 14%, `--bugpilot-nav-border` 45%),
+stronger pointed at (26% / 75%) and pressed (34%), a 4px radius, the focus
+ring 2px off it so it shows beside its own tinted line. Never the primary
+button's colour. High Contrast: no fill, the contrast border, the active
+contrast border pointed at. Only `media/panel.css` and `test/panel.test.ts`;
+the markup, the label, the tooltips and every Back's destination are
+unchanged. The header is 36px (57px when the title wraps at 200px), inside
+the 4.5rem scroll padding.
+
+**Tests.** The page-header test pins the new rule; a new test checks the one
+`page-back` per page with a way back, the tokens rising from rest to pointed
+at to pressed, the focus ring's offset, no primary colour, no literal, and
+High Contrast's tokens. Focused page and panel tests 681/681, typecheck and
+`git diff --check` pass.
+
+**Real window** (VS Code 1.139.1, an installed VSIX), Dark and Light: every
+page at 360/280/200px — no horizontal overflow, the header pinned at rest,
+middle and end, Back the topmost element and each Back to its destination;
+Back 66×23px, its word whole; Shift+Tab from the title focuses it with the
+ring; pointed at, the tint and border deepen; Enter on it navigates as a
+click does (Manage Fix Modes → Workflow, focus on its gear; the editor → the
+manager). Tab and Shift+Tab through New Fix Mode at 200px keep every control
+clear of the header and footer.
+
+### 37.126 "Improve with AI using ☑ Issue details" (after `39a5c56`, uncommitted)
+
+The Hint card's action and the option that shapes it read as one phrase: the
+checkbox's label is *Issue details* (was *Include issue details*), with a
+muted *using* between it and *Improve with AI*. Its tooltip and accessible
+description lead with "Use the current issue details as context when
+improving the hint." and keep what is and is not read. One line at 360px;
+*using ☑ Issue details* wraps whole under the action at 280 and 200px. The
+checkbox, its default and every behaviour are unchanged. Real window, Dark
+and Light, 360/280/200px: no horizontal overflow, the Hint card's height
+unchanged, Tab order Hint → Improve with AI → Issue details.
+
+### 37.127 Branch policy (after `39a5c56`, uncommitted)
+
+**Why.** BugPilot never runs `git branch`; `task.md` told the agent to
+"create or switch to the feature branch before editing files" every time,
+`feature/<work-item>-<slug>`. A hand-written bug gets a new `local_<timestamp>`
+id on every Run and every Rebuild Context, so each run named — and the agent
+made — a new branch; a developer already on a branch of their own was moved
+off it, and delivery then refused a branch without `feature/` and the key.
+
+**Now.** A per-work-item branch policy (`bugpilot/core/branch_policy.py`):
+`current` (default) — work on the checked-out branch, never create or switch
+one, and on `main`/`master` or a detached HEAD stop and ask "You are on a
+protected branch / detached HEAD. Create `<branch>` and continue?";
+`per-issue` — one branch for the work item, created once and reused (from a
+detached HEAD too; for a Jira issue an existing branch containing the key
+counts); `ask` — the agent shows the current and the suggested branch and asks
+which, staying not being an option on `main`/`master` or a detached HEAD.
+`main`/`master` stay protected under every policy (never edited, committed or
+pushed), and every policy's delivery checks also refuse a detached HEAD. The
+policy writes `task.md`'s Branch Instructions, its editing guardrail and the
+delivery safety checks (`current` drops the `feature/` prefix and key
+checks; `per-issue` checks the recorded branch; `ask` the chosen one), and
+the retry prompt's new Branch section. CLI `--branch-policy`, MCP
+`branch_policy` on both prepare tools, `InvestigationRequest.branch_policy`;
+recorded in `issue.json` (`guidance.branch_policy`, on every run; a work item
+from before has none, and none — or a value that is not a policy — reads as
+`current`) and resolved explicit > recorded > default, so `--resume`,
+`prompt`, `agent-task` and `retry-prompt` keep it.
+
+**The lifecycle rule.** Run, Rebuild Context, `--resume`, a retry and Start
+New Attempt never call for a new branch; only the policy does. Every task
+says so. Under `per-issue` and `ask` the first task's branch is recorded
+(`guidance.branch_name`, carried by `--resume`, checked to be a plain ref
+before it is quoted) and every later task and retry names it, even after the
+Jira summary is reworded. A hand-written bug gets a new `local_<timestamp>` id
+on every Run, so its branch comes from its title — `feature/<title-slug>`, or
+`feature/bug-<sha1[:8]>` when the title has nothing to slug — and the same bug
+prepared again names the same branch under every policy.
+
+**Extension.** `FormState.branchPolicy`, always sent as `--branch-policy=…`
+(a run is a `--resume`, as for `--fix-mode`, so an unsent default would let the
+recorded policy win) — which needs a CLI with the flag. A new last settings
+section, **Branch** (no row's gear, like Retrieval inputs), wholly *Requires
+rebuild* (it is in `task.md`, as the Fix Mode is) and kept out of Fix with
+AI, whose agent settings are *Next run only*, so no section mixes the two. The
+select: *Use current branch (Recommended)*, *One branch per issue*, *Ask before
+editing*, what each means as its tooltip and description. In the
+preparation fingerprint; a preference Reset Session keeps; the Fix with AI
+row's summary names a non-default policy.
+
+**Help text.** Off the screen, as every settings explanation is: the field
+says "Choose which branch the AI agent edits and commits on. Main and master
+are always protected.", and each option what it means ("Work on the
+checked-out branch and do not create or switch branches." / "Create or reuse
+one branch for the issue." / "Ask whether to stay on the current branch or
+create/switch before editing.") — each option's tooltip, and all of it the
+label's and the select's tooltip and the select's description.
+
+**Tests.** Python: `tests/test_branch_policy.py` (27) — the three texts, the
+protected and detached-HEAD rules under every policy, the lifecycle line, the
+delivery checks per policy, resolution and an invalid record, branch names
+(Jira, a hand-written bug's title, a title in another script), the recorded
+name's shape check, the issue.json round trip, record → resume → regenerate →
+retry, a recorded branch outliving a reworded summary, a hand-written bug
+prepared twice naming one branch under every policy, the CLI's choices, the
+MCP parameter; the Fix Mode invariants run under every policy, and the
+`feature/` prefix rule moved from them to `per-issue`. Extension:
+`test/branchPolicy.test.ts` (9) — the three, the same as the Python module and
+the page's copy, the flag always sent, old forms and page messages read as the
+default, staleness, the Branch section, its markup and help, its narrow-width
+structure, the summary, Reset Session; nine settings-page tests updated for
+the new section and field.
+
+### 37.128 "Improve with AI ☑ using Issue details" (after `39a5c56`, uncommitted, on §37.126)
+
+The checkbox moved before *using*: the row reads *Improve with AI ☑ using
+Issue details*, and the box and *using Issue details* are one label (a click
+on the words toggles it; §37.126's separate muted *using* connector is gone).
+Ticked, the words are the panel's foreground; unticked, only the words go
+quiet — the box, the action and the row are untouched, and the box stays the
+state. The rule is `.hint-include input:not(:checked) + .hint-include-text`,
+from `:checked` rather than a class the script sets, so a state the host
+restores (which fires no change event) is painted as a click is. Its colour
+is a new body token, `--bugpilot-text-off`: the theme's
+`descriptionForeground`; in a light theme the foreground at 75%, because
+Light Modern's `descriptionForeground` is its foreground (`#3B3B3B`) and an
+unticked option would not look it; High Contrast keeps the theme's
+description colour. The checkbox is named `aria-labelledby="improve-hint-label
+useIssueDetails-text"` — "Improve with AI using Issue details", read from the
+page, so a screen reader hears what it modifies, the name contains the words
+on screen (speech input), and nothing drifts; the tooltip and description are
+unchanged. Markup order, tab order, wrapping (one line at 360px, the option
+whole under the action at 280/200px) and every behaviour are unchanged.
+
+**Tests.** Panel tests: the new markup and order, the accessible name, the
+one muting rule and that nothing else colours or dims the words, the box or
+the row, no script-set class, the token per theme kind, §37.126's connector
+gone. Extension suite 1957/1957, typecheck passes.
+
+**Real window** (VS Code 1.139.1, an installed VSIX), Dark Modern and Light
+Modern at 360/280/200px: the box before the words, on one line with them; no
+horizontal overflow, everything inside the Hint group; ticked `#CCCCCC`
+(10.3:1) / `#3B3B3B` (9.9:1), unticked `#9D9D9D` (6.1:1) / `#686869`
+(4.9:1), changed on the click itself and kept after the host's push; a real
+click on the words toggles the box; Tab Hint → Improve with AI → the box →
+Advanced Settings, Space toggles it with the focus ring shown; Chromium's AX
+node: checkbox, "Improve with AI using Issue details", the description, the
+checked state. Not measured, computed: Light+ (`#616161` foreground) mutes
+to about 3.2:1, below AA, in a theme whose own description colour is about
+4.2:1 on the same section; no single strength both mutes Light Modern visibly
+and keeps Light+ at AA.

@@ -66,3 +66,72 @@ export function jiraConnection(configured: boolean, rejected: boolean): JiraConn
     tooltip: "Jira credentials are configured. Replace opens Jira credential setup.",
   };
 }
+
+/**
+ * Jira Setup (§37.124): one dialog in the panel for the email and the token,
+ * replacing the two Quick Input prompts at the top of the window.
+ *
+ * Atlassian's own page for API tokens. Opened by the host with the editor's
+ * external-link mechanism; the page never names a URL. BugPilot sends the
+ * email and token to the configured Jira site's `/rest/api/3/...` — the
+ * classic API token, not one "with scopes", which works only through
+ * Atlassian's API gateway — so the help says Create API token.
+ */
+export const JIRA_API_TOKENS_URL = "https://id.atlassian.com/manage-profile/security/api-tokens";
+
+/** The dialog's words, one table: the markup renders them and the tests read them. */
+export const JIRA_SETUP_TEXT = {
+  title: "Jira Setup",
+  intro: "Connect BugPilot to Jira using your Atlassian account email and API token.",
+  emailLabel: "Jira email",
+  emailPlaceholder: "Atlassian account email",
+  emailDescription: "Email address for the Atlassian account that created the API token.",
+  tokenLabel: "API token",
+  tokenStored: "A token is already stored. Enter a new token to replace it.",
+  showToken: "Show API token",
+  hideToken: "Hide API token",
+  helpTitle: "Need an API token?",
+  help: "Open Atlassian API tokens, select Create API token, choose a name and an expiration date, then copy the new token and paste it here.",
+  link: "Open Atlassian API tokens",
+  linkTitle: "Opens Atlassian's API token page in your browser",
+  stepsTitle: "Step by step",
+  steps: [
+    "Open Atlassian API tokens.",
+    "Select Create API token — not the one with scopes.",
+    "Enter a name you will recognize.",
+    "Choose an expiration date, 1 to 365 days away.",
+    "Select Create, then copy the token: Atlassian shows it only once.",
+    "Paste it into API token above.",
+  ],
+  save: "Save",
+  saving: "Saving…",
+  cancel: "Cancel",
+} as const;
+
+/** What the dialog says about a field that cannot be saved, the host's and the page's alike. */
+export const JIRA_SETUP_PROBLEMS = {
+  emailMissing: "Enter your Atlassian account email.",
+  emailInvalid: "Enter a valid email address.",
+  tokenMissing: "Enter an API token.",
+} as const;
+
+/** An address with one `@`, something before it, and a dotted domain after; no spaces. */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * The first field Save cannot store, or undefined when both can be.
+ *
+ * A token is required every time — on Replace too: the store keeps the two
+ * together in one write, and nothing reads the stored token back to keep it.
+ * No length rule for the token: Atlassian's tokens vary.
+ */
+export function jiraSetupProblem(
+  email: string,
+  token: string,
+): { readonly field: "email" | "token"; readonly message: string } | undefined {
+  const address = email.trim();
+  if (address === "") return { field: "email", message: JIRA_SETUP_PROBLEMS.emailMissing };
+  if (!EMAIL_SHAPE.test(address)) return { field: "email", message: JIRA_SETUP_PROBLEMS.emailInvalid };
+  if (token.trim() === "") return { field: "token", message: JIRA_SETUP_PROBLEMS.tokenMissing };
+  return undefined;
+}

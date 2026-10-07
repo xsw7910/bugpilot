@@ -14,6 +14,12 @@ from .cleanup import clean_issue_artifacts, validate_issue_key
 from .config import WORKFLOW_STEPS, EmailConfig, GraphConfig, issue_dir, load_email_config, load_graph_config
 from .email_notify import EmailSendError, EmailSendResult, build_email_draft, render_eml, send_notification, send_via_graph
 from .context import build_context
+from .branch_policy import (
+    PROTECTED_BRANCHES,
+    records_branch_name,
+    resolve_branch_policy,
+    retry_branch_section,
+)
 from .delivery_instructions import delivery_instructions_block, delivery_safety_block
 from .doctor import collect_doctor_report
 from .handoff import handoff_prompt
@@ -25,7 +31,7 @@ from .git_history import (
     focus_files_from_retrieval,
     select_extracted_terms,
 )
-from .git_ops import current_branch, inside_git_repo, run_command, working_tree_status
+from .git_ops import branch_name, current_branch, inside_git_repo, run_command, working_tree_status
 from .jira import JiraCommentPostError, JiraCommentPostResult, JiraFetchError, JiraFetchResult, enrich_issue, fetch_issue, jira_field_report_markdown, post_jira_comment, prepare_jira_comment_text, sanitize_comment_text
 from .keywords import extract_keywords
 from .logging_utils import log
@@ -379,7 +385,18 @@ def run_investigation(
     # The issue this run works from, carried in memory from here on. A
     # hand-written bug is complete already; a Jira one is a stub until fetched,
     # or the previous run's copy on --resume until the fetch refreshes it.
-    guidance = IssueGuidance(hint=effective_hint)
+    # The branch policy likewise: the request's, else what the work item
+    # recorded (so --resume and every regeneration keep it), else the default —
+    # and recorded, whichever it is. The branch an earlier task named is kept
+    # with it: preparing the work item again never calls for a new one.
+    branch_policy = resolve_branch_policy(
+        request.branch_policy, previous.guidance.branch_policy if previous is not None else None
+    )
+    guidance = IssueGuidance(
+        hint=effective_hint,
+        branch_policy=branch_policy,
+        branch_name=previous.guidance.branch_name if previous is not None else None,
+    )
     if request.spec.source == SOURCE_MANUAL:
         issue = issue_from_spec(request.spec, guidance)
     elif previous is not None:
@@ -440,6 +457,7 @@ def run_investigation(
     log(target, f"[INFO] fix mode: {selection.mode.id} ({selection.origin})")
     for warning in selection.warnings:
         log(target, f"[WARN] {warning}")
+    log(target, f"[INFO] branch policy: {branch_policy}")
     command = f"bugpilot bug {issue_key}"
     if not fresh:
         command += " --resume"
@@ -449,6 +467,8 @@ def run_investigation(
         command += " --allow-mock"
     if jira_comment:
         command += " --jira-comment"
+    if request.branch_policy is not None:
+        command += f" --branch-policy {branch_policy}"
     log(target, f"[START] command: {command}")
     log(target, f"[INFO] effective mode: fresh={str(fresh).lower()}, allow_mock={str(allow_mock).lower()}")
     if allow_mock:
@@ -1104,6 +1124,23 @@ def _selected_fix_mode(
     return selection.mode
 
 
+def _task_branch(repo_root: Path, issue: IssueArtifact) -> tuple[str, str]:
+    """The branch policy a task is written under, and the branch it names.
+
+    Under a policy that may have the agent create a branch, the first task's
+    name is recorded and every later one reuses it — a rebuild, a resume, a
+    retry and a regenerated task all name the branch the work item already has
+    (§37.127). Under ``current`` the name is only the suggestion for main/master
+    and is derived each time. The title names it; a hand-written bug's name
+    comes from the title alone (see ``branch_name``).
+    """
+    policy = resolve_branch_policy(None, issue.guidance.branch_policy)
+    branch = issue.guidance.branch_name or branch_name(issue.id, issue.title or None)
+    if records_branch_name(policy) and issue.guidance.branch_name is None:
+        save_issue(repo_root, issue.with_guidance(replace(issue.guidance, branch_name=branch)))
+    return policy, branch
+
+
 def prompt_step(
     repo_root: Path,
     issue_key: str,
@@ -1117,22 +1154,22 @@ def prompt_step(
     log(target, "[START] prompt")
     try:
         issue = issue or _require_issue(repo_root, issue_key)
-        # The title names the branch; without one it degrades to
-        # `feature/<id>-jira-workflow`.
-        summary = issue.title or None
         hint = issue.guidance.hint
         jira_comment = _jira_comment_enabled(target)
         # The recorded selection, not whatever is in the folder (§37.99).
         attached = listed_attachments(target, issue.guidance.attachment_files)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
+        branch_policy, branch = _task_branch(repo_root, issue)
         task = generate_task(
             issue_key,
-            summary,
+            issue.title or None,
             hint=hint,
             jira_comment=jira_comment,
             attachments=attached,
             fix_mode=mode,
             attachment_notes=issue.guidance.attachment_notes,
+            branch_policy=branch_policy,
+            branch=branch,
         )
         atomic_write_text(target / TASK_ARTIFACT, task)
         _mark_step(repo_root, issue_key, "prompt", "pass")
@@ -1158,19 +1195,21 @@ def copilot_task_step(
     log(target, "[START] copilot_task")
     try:
         issue = _require_issue(repo_root, issue_key)
-        summary = issue.title or None
         hint = issue.guidance.hint
         jira_comment = _jira_comment_enabled(target)
         attached = listed_attachments(target, issue.guidance.attachment_files)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
+        branch_policy, branch = _task_branch(repo_root, issue)
         task = generate_task(
             issue_key,
-            summary,
+            issue.title or None,
             hint=hint,
             jira_comment=jira_comment,
             attachments=attached,
             fix_mode=mode,
             attachment_notes=issue.guidance.attachment_notes,
+            branch_policy=branch_policy,
+            branch=branch,
         )
         atomic_write_text(target / TASK_ARTIFACT, task)
         log(target, "[END] copilot_task: pass")
@@ -1696,6 +1735,13 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
     """
     mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
     target = issue_dir(repo_root, issue_key)
+    # The branch rules the first pass was given, and the branch it named: a
+    # retry is the same work item. An unreadable record falls back to the
+    # default, which is the safe one.
+    recorded_issue = read_issue_quietly(repo_root, issue_key)
+    recorded = recorded_issue.guidance if recorded_issue is not None else IssueGuidance()
+    branch_policy = resolve_branch_policy(None, recorded.branch_policy)
+    branch = recorded.branch_name
     reading_files = [
         CONTEXT_ARTIFACT,
         RETRIEVAL_ARTIFACT,
@@ -1746,10 +1792,14 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
             f"- Update {FIX_REPORT_ARTIFACT}.\n\n"
         )
     closing = (
-        delivery_safety_block(issue_key) + investigation_handoff_block(issue_key)
+        delivery_safety_block(issue_key, branch, branch_policy=branch_policy)
+        + investigation_handoff_block(issue_key)
         if investigating
         else delivery_instructions_block(
-            issue_key, intro="After completing the retry and updating the fix report"
+            issue_key,
+            branch,
+            intro="After completing the retry and updating the fix report",
+            branch_policy=branch_policy,
         )
     )
     return (
@@ -1771,6 +1821,7 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
         f"{previous}\n\n"
         "## Retry Instructions\n\n"
         f"{retry_instructions}"
+        f"{retry_branch_section(branch_policy, branch)}"
         f"{closing}"
         "## Required Output Files\n\n"
         f"- .ai/{issue_key}/{FIX_REPORT_ARTIFACT} — update every section for this attempt: "
@@ -2074,7 +2125,7 @@ def _delivery_warnings(repo_root: Path, issue_key: str) -> list[str]:
     branch = current_branch(repo_root)
     if not branch:
         warnings.append("Current branch is unavailable.")
-    elif branch in {"main", "master"}:
+    elif branch in PROTECTED_BRANCHES:
         warnings.append(f"Current branch is {branch}; do not deliver directly from main/master.")
     status = working_tree_status(repo_root)
     if status in {None, "clean"}:

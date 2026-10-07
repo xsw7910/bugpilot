@@ -39,7 +39,8 @@ export interface ResetSessionOptions {
  * steps, every Code Search, Git History and Similar Fixes setting, Fix Mode,
  * Fresh — back to its default.
  * `preference`: the developer's standing choice of AI agent and its custom
- * command, which says nothing about this issue and is kept.
+ * command, and of branch policy — how they work with branches — which say
+ * nothing about this issue and are kept.
  *
  * A `Record` over `keyof FormState`, so a field added to the form without being
  * classified here fails to compile — the decision cannot be skipped.
@@ -77,6 +78,7 @@ export const FORM_FIELD_SCOPE: Readonly<Record<keyof FormState, "session" | "pre
   similarKeywords: "session",
   similarMaxFixes: "session",
   fresh: "session",
+  branchPolicy: "preference",
 };
 
 /**

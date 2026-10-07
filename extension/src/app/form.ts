@@ -185,6 +185,23 @@ export interface FormState {
    * extension asks for it explicitly or does not do it.
    */
   readonly fresh: boolean;
+  /**
+   * Which branch the agent works on, written into task.md: the checked-out
+   * one (the default — a feature branch only from main/master or a detached
+   * HEAD, and only if the developer agrees), one branch per work item created
+   * once and reused, or ask first. main/master is never edited under any of
+   * them, and preparing again never calls for a new branch.
+   */
+  readonly branchPolicy: BranchPolicy;
+}
+
+/** The CLI's `--branch-policy` values, in the order the settings page lists them. */
+export const BRANCH_POLICIES = ["current", "per-issue", "ask"] as const;
+export type BranchPolicy = (typeof BRANCH_POLICIES)[number];
+
+/** A branch policy from anywhere outside this module: an unknown value is `current`. */
+export function branchPolicyOf(value: unknown): BranchPolicy {
+  return (BRANCH_POLICIES as readonly unknown[]).includes(value) ? (value as BranchPolicy) : "current";
 }
 
 export const DEFAULT_FORM: FormState = {
@@ -224,6 +241,7 @@ export const DEFAULT_FORM: FormState = {
   similarKeywords: "",
   similarMaxFixes: "",
   fresh: false,
+  branchPolicy: "current",
 };
 
 /** A History Depth from anywhere outside this module: an unknown value is `recent`. */
@@ -262,6 +280,8 @@ export function restoreForm(saved: FormState | undefined): FormState {
     similarUseSharedKeywords: saved.similarUseSharedKeywords !== false,
     similarKeywords: typeof saved.similarKeywords === "string" ? saved.similarKeywords : "",
     similarMaxFixes: typeof saved.similarMaxFixes === "string" ? saved.similarMaxFixes : "",
+    // A form saved before the branch policy existed gets the default.
+    branchPolicy: branchPolicyOf(saved.branchPolicy),
     // A form saved while Build context could be unticked may say it was: the
     // two fixed steps are on whatever it says (§37.107). The three optional
     // ones keep what was saved — unticking Build context had cleared them, and
@@ -582,6 +602,11 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
     }
   }
 
+  // Always explicit, for the Fix Mode's reason: a run is a --resume, the CLI's
+  // precedence is explicit > recorded > default, and a choice left unsent
+  // would let the work item's last policy win over the one on screen.
+  args.push(flag("--branch-policy", branchPolicyOf(form.branchPolicy)));
+
   args.push(...planFlags(form.plan));
 
   // `fixWithAI`, `agent` and `agentCommand` deliberately contribute nothing.
@@ -721,6 +746,8 @@ export function preparationFingerprint(form: FormState): string {
       keywords: parseKeywords(form.similarKeywords),
       maxFixes: form.similarMaxFixes.trim(),
     },
+    // The branch policy is written into task.md, as the Fix Mode is.
+    branchPolicy: branchPolicyOf(form.branchPolicy),
   });
 }
 

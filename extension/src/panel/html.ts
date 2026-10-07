@@ -46,13 +46,14 @@
  */
 
 import { ALWAYS_RUNS, OVERALL_IDLE, WORKFLOW_STEP_IDS, STEP_LABELS, stepTooltip } from "../app/workflow.ts";
-import { jiraConnection } from "../app/jiraConnection.ts";
+import { JIRA_SETUP_TEXT, jiraConnection } from "../app/jiraConnection.ts";
 import type { WorkflowStepId } from "../app/workflow.ts";
 import { NEXT_ACTION_LABELS, PRIMARY_SHORTCUT, PRIMARY_TOOLTIPS } from "../app/nextAction.ts";
 import { AGENT_CHOICES, AGENT_LABELS } from "../app/agents.ts";
 import type { AgentChoice } from "../app/agents.ts";
 import type { NextActionId } from "../app/nextAction.ts";
-import { SIMILAR_MAX_FIXES_DEFAULT, SIMILAR_MAX_FIXES_LIMIT } from "../app/form.ts";
+import { BRANCH_POLICIES, SIMILAR_MAX_FIXES_DEFAULT, SIMILAR_MAX_FIXES_LIMIT } from "../app/form.ts";
+import type { BranchPolicy } from "../app/form.ts";
 import {
   DELETE_FILES_HELPER,
   DELETE_FILES_HISTORY,
@@ -144,7 +145,7 @@ export type IconTone = "primary" | "hint" | "danger" | "muted" | "success" | "wa
 const FIX_MODE_HELP = "Choose how BugPilot approaches the fix";
 const HINT_HELP = "Add technical guidance, constraints, or suspected areas";
 const INCLUDE_ISSUE_DETAILS_HELP =
-  "Includes only the issue title and description. Repository files and history are not read.";
+  "Use the current issue details as context when improving the hint. Only the issue title and description are read; repository files and history are not.";
 /**
  * The Issue's two kinds of input, in one sentence: the tooltip and the field's
  * accessible description — the example key lives here rather than in the
@@ -183,7 +184,7 @@ const ISSUE_HELP =
  * description (§37.104).
  */
 const ISSUE_FIELD = `      <div class="field" id="field-issue">
-${settingHeader({ forId: "issue", label: "Issue", icon: "issues", tone: "primary", title: ISSUE_HELP, note: true, labelId: "issue-label" })}
+${settingHeader({ forId: "issue", label: "Issue", icon: "bug", tone: "primary", title: ISSUE_HELP, note: true, labelId: "issue-label" })}
         <textarea id="issue" name="issue" rows="1" placeholder="Describe the bug or enter a Jira ID" title="${ISSUE_HELP}" aria-describedby="issue-note issue-error issue-help"></textarea>
         <p class="visually-hidden" id="issue-help">${ISSUE_HELP}</p>
         <p class="visually-hidden" id="issue-kind" role="status"></p>
@@ -198,11 +199,18 @@ ${settingHeader({ forId: "issue", label: "Issue", icon: "issues", tone: "primary
  * beside the field and never in it — the developer's own words are not
  * something this replaces without being asked.
  *
- * Improve with AI first — the immediate action — then Include issue details,
- * the standing option (§37.92). The order is the markup's, so the tab order is
- * the reading order. What the option lets the improver read is its tooltip and
- * its accessible description, not a line on the panel (§37.104): the sentence
- * is announced with the checkbox and shown on hover.
+ * Improve with AI first — the immediate action — then the option that shapes
+ * it (§37.92), read as one phrase: "Improve with AI ☑ using Issue details"
+ * (§37.128; §37.126 had the box after "using"). The box and its words are one
+ * label, so a click on the words toggles it; unticked, the words go quiet
+ * (panel.css), and the box stays the state. The checkbox is named by the
+ * action's label and its own words — "Improve with AI using Issue details",
+ * read from the page so neither drifts — so a screen reader hears what it
+ * modifies, and speech input finds the words on screen. What it lets the
+ * improver read is its tooltip and its accessible description, not a line on
+ * the panel (§37.104). The order is the markup's, so the tab order is the
+ * reading order. The box and its words wrap together, under the action, when
+ * the sidebar is narrow.
  */
 const HINT_IMPROVEMENT = `      <div class="hint-actions">
         <button type="button" id="improve-hint" class="link"
@@ -214,8 +222,9 @@ const HINT_IMPROVEMENT = `      <div class="hint-actions">
           <label class="choice" for="useIssueDetails"
                  title="${INCLUDE_ISSUE_DETAILS_HELP}">
             <input type="checkbox" id="useIssueDetails" name="useIssueDetails" checked
+                   aria-labelledby="improve-hint-label useIssueDetails-text"
                    aria-describedby="useIssueDetails-hint">
-            Include issue details
+            <span class="hint-include-text" id="useIssueDetails-text">using Issue details</span>
           </label>
           <p class="visually-hidden" id="useIssueDetails-hint">${INCLUDE_ISSUE_DETAILS_HELP}</p>
         </div>
@@ -441,7 +450,7 @@ const GIT_HISTORY_TEXT_FIELDS: readonly TextField[] = [
     icon: "search",
     tone: "primary",
     help: "Searched in commit messages only. Code search does not use them.",
-    placeholder: "e.g. gather order, StackMerge",
+    placeholder: "Enter terms to match in commit messages only",
   },
   {
     id: "gitFiles",
@@ -539,7 +548,7 @@ const SIMILAR_FIXES_FIELDS: readonly TextField[] = [
     icon: "search",
     tone: "primary",
     help: "Extra terms used only for Similar Fixes. Separate them with commas or new lines.",
-    placeholder: "e.g. export crash, LegacyExporter",
+    placeholder: "Enter extra terms to find related past fixes",
   },
   {
     id: "similarMaxFixes",
@@ -703,6 +712,64 @@ const RESET_DIALOG = `  <dialog class="reset-dialog" id="reset-dialog" aria-labe
     <div class="reset-actions">
       <button type="button" id="reset-cancel">Cancel</button>
       <button type="button" id="reset-confirm" class="primary" aria-describedby="reset-keep-hint"><span id="reset-confirm-keep">${RESET_SESSION_LABEL}</span><span id="reset-confirm-delete" hidden>${RESET_AND_DELETE_LABEL}</span><span id="reset-confirm-busy" hidden>${RESETTING_LABEL}</span></button>
+    </div>
+  </dialog>`;
+
+/**
+ * Jira Setup (§37.124): the email and the API token in one dialog in the
+ * panel, with how to get a token and a way to Atlassian's page for it —
+ * replacing two Quick Input prompts at the top of the window, one after the
+ * other, that said nothing about where a token comes from.
+ *
+ * A modal `<dialog>` outside every view, like Reset Session's: centred over
+ * the panel, the panel behind it inert, Escape is Cancel, a click on the
+ * backdrop does nothing (typed credentials are not thrown away by a stray
+ * click). Not a `<form>`, so nothing is submitted by the browser; Enter in the
+ * token field saves, through the same check as the button.
+ *
+ * The token field is a password field that starts empty every time: the page
+ * is never given the stored token, so there is nothing to show — not even
+ * dots standing for it. Its describedby is the stored-token note and its
+ * error, not the help: the instructions are read once, as their own region,
+ * not on every visit to the field.
+ */
+const JIRA_SETUP_DIALOG = `  <dialog class="jira-dialog" id="jira-dialog" role="dialog" aria-modal="true" aria-labelledby="jira-title" aria-describedby="jira-intro">
+    <div class="jira-dialog-head">
+      <h2 class="jira-title" id="jira-title"><span class="codicon codicon-key jira-title-icon icon-muted" aria-hidden="true"></span>${JIRA_SETUP_TEXT.title}</h2>
+      <p class="muted jira-intro" id="jira-intro">${JIRA_SETUP_TEXT.intro}</p>
+    </div>
+    <div class="jira-dialog-body" id="jira-dialog-body">
+      <div class="jira-field">
+        <label class="jira-label" for="jira-email">${JIRA_SETUP_TEXT.emailLabel}</label>
+        <input type="email" id="jira-email" placeholder="${JIRA_SETUP_TEXT.emailPlaceholder}" autocomplete="off" spellcheck="false" aria-describedby="jira-email-description jira-email-error">
+        <p class="visually-hidden" id="jira-email-description">${JIRA_SETUP_TEXT.emailDescription}</p>
+        <p class="error jira-field-error" id="jira-email-error" role="alert" hidden></p>
+      </div>
+      <div class="jira-field">
+        <label class="jira-label" for="jira-token">${JIRA_SETUP_TEXT.tokenLabel}</label>
+        <div class="jira-token-row">
+          <input type="password" id="jira-token" autocomplete="off" spellcheck="false" aria-describedby="jira-token-stored jira-token-error">
+          <button type="button" class="icon jira-reveal" id="jira-token-reveal" aria-label="${JIRA_SETUP_TEXT.showToken}" title="${JIRA_SETUP_TEXT.showToken}"><span class="codicon codicon-eye" id="jira-token-reveal-icon" aria-hidden="true"></span></button>
+        </div>
+        <p class="muted jira-token-stored" id="jira-token-stored" hidden>${JIRA_SETUP_TEXT.tokenStored}</p>
+        <p class="error jira-field-error" id="jira-token-error" role="alert" hidden></p>
+      </div>
+      <section class="jira-help" aria-labelledby="jira-help-title">
+        <h3 class="jira-help-title" id="jira-help-title">${JIRA_SETUP_TEXT.helpTitle}</h3>
+        <p class="jira-help-text">${JIRA_SETUP_TEXT.help}</p>
+        <button type="button" class="link jira-link" id="jira-token-page" title="${JIRA_SETUP_TEXT.linkTitle}"><span>${JIRA_SETUP_TEXT.link}</span><span class="codicon codicon-link-external" aria-hidden="true"></span></button>
+        <details class="jira-steps" id="jira-steps">
+          <summary>${JIRA_SETUP_TEXT.stepsTitle}</summary>
+          <ol class="jira-steps-list">
+${JIRA_SETUP_TEXT.steps.map((step) => `            <li>${step}</li>`).join("\n")}
+          </ol>
+        </details>
+      </section>
+      <p class="error" id="jira-error" role="alert" hidden></p>
+    </div>
+    <div class="jira-dialog-actions">
+      <button type="button" id="jira-cancel">${JIRA_SETUP_TEXT.cancel}</button>
+      <button type="button" id="jira-save" class="primary"><span id="jira-save-label">${JIRA_SETUP_TEXT.save}</span></button>
     </div>
   </dialog>`;
 
@@ -973,6 +1040,8 @@ ${pageHeader({ backId: "preview-back", backTitle: "Back to Fix Mode Manager", ti
 ${EDITOR_VIEW}
 
 ${RESET_DIALOG}
+
+${JIRA_SETUP_DIALOG}
 </main>
 <script nonce="${options.nonce}" src="${options.scriptUri}"></script>
 </body>
@@ -1007,6 +1076,49 @@ const AGENT_FIELD = `        <div class="field" id="field-agent">
 ${AGENT_CHOICES.map((choice) => `            <option value="${choice}">${AGENT_OPTION_TEXT[choice]}</option>`).join("\n")}
           </select>
           <p class="hint agent-status" id="agent-status" aria-live="polite" hidden></p>
+        </div>`;
+
+/**
+ * Branch (§37.127): which branch the AI agent works and commits on, written
+ * into task.md. Use current branch, the default, is the checked-out branch —
+ * no branch per run — with a feature branch only from main/master or a
+ * detached HEAD, and only after the agent asks; One branch per issue is one
+ * branch made once for the work item and reused; Ask before editing has the
+ * agent ask which. main and master are never edited under any of them. The
+ * option names say which; what each means is its tooltip, and with the
+ * field's sentence the select's tooltip and description.
+ */
+const BRANCH_POLICY_LABELS: Readonly<Record<BranchPolicy, string>> = {
+  current: "Use current branch (Recommended)",
+  "per-issue": "One branch per issue",
+  ask: "Ask before editing",
+};
+
+const BRANCH_POLICY_MEANING: Readonly<Record<BranchPolicy, string>> = {
+  current: "Work on the checked-out branch and do not create or switch branches.",
+  "per-issue": "Create or reuse one branch for the issue.",
+  ask: "Ask whether to stay on the current branch or create/switch before editing.",
+};
+
+const BRANCH_POLICY_HELP = [
+  "Choose which branch the AI agent edits and commits on. Main and master are always protected.",
+  ...BRANCH_POLICIES.map(
+    (policy) => `${BRANCH_POLICY_LABELS[policy].replace(" (Recommended)", "")}: ${BRANCH_POLICY_MEANING[policy]}`,
+  ),
+].join(" ");
+
+const BRANCH_POLICY_FIELD = `        <div class="field" id="field-branchPolicy">
+  ${settingHeader({
+    forId: "branchPolicy",
+    label: "Branch policy",
+    icon: "source-control",
+    tone: "muted",
+    help: BRANCH_POLICY_HELP,
+    rebuild: showsRebuildLabel("branchPolicy"),
+  })}
+          <select id="branchPolicy" name="branchPolicy" title="${BRANCH_POLICY_HELP}" aria-describedby="branchPolicy-hint">
+${BRANCH_POLICIES.map((policy) => `            <option value="${policy}" title="${BRANCH_POLICY_MEANING[policy]}">${BRANCH_POLICY_LABELS[policy]}</option>`).join("\n")}
+          </select>
         </div>`;
 
 /**
@@ -1070,6 +1182,8 @@ function sectionBody(section: WorkflowSettingsSection): string {
       return FRESH_FIELD;
     case "fix-with-ai":
       return `${AGENT_FIELD}\n${field(AGENT_COMMAND_FIELD)}`;
+    case "branch":
+      return BRANCH_POLICY_FIELD;
   }
 }
 

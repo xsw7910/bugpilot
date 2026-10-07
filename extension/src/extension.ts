@@ -146,8 +146,6 @@ export function activate(context: vscode.ExtensionContext): void {
           results?.syncDiagnostics();
         },
         refreshViews: () => results?.refresh(),
-        editCredentials: (): Promise<void> =>
-          setCredentials(credentials, log, () => controller.credentialsSaved()),
       }),
       log,
       environment,
@@ -155,6 +153,12 @@ export function activate(context: vscode.ExtensionContext): void {
         configured: (await credentials.status()).configured,
         environment: await credentials.environment(),
       }),
+      // Jira Setup (§37.124) stores through the same CredentialStore, and can
+      // only ask whether one is stored and for which email — never the token.
+      jiraCredentials: {
+        status: () => credentials.status(),
+        save: (pair) => credentials.save(pair),
+      },
       // Kept out of the repository: a scratch file for a description too long
       // for a command line is the extension's business, not the project's.
       descriptionFilePath: () =>
@@ -381,9 +385,13 @@ export function activate(context: vscode.ExtensionContext): void {
     await controller.refreshEnvironment();
   });
 
-  register(COMMANDS.setCredentials, () =>
-    setCredentials(credentials, log, () => controller.credentialsSaved()),
-  );
+  // Jira Setup (§37.124), from the palette or a failed run's card: the panel's
+  // own dialog, so the panel is brought forward first when no copy of it is
+  // showing — a dialog in a hidden view would be a command that did nothing.
+  register(COMMANDS.setCredentials, async () => {
+    if (!panel.visible) await vscode.commands.executeCommand(`${PanelHost.viewType}.focus`);
+    await controller.openJiraSetup();
+  });
 
   register(COMMANDS.openSettings, async () => {
     // Filtered to this extension's own section rather than the whole settings
@@ -615,39 +623,6 @@ let stopRunInFlight: (() => void) | undefined;
 export function deactivate(): void {
   stopRunInFlight?.();
   stopRunInFlight = undefined;
-}
-
-/** Prompt for the Jira email and token, then store them in SecretStorage. */
-async function setCredentials(
-  credentials: CredentialStore,
-  log: { info: (message: string) => void },
-  refresh: () => Promise<void>,
-): Promise<void> {
-  const status = await credentials.status();
-  const email = await vscode.window.showInputBox({
-    title: "Jira email",
-    value: status.email ?? "",
-    ignoreFocusOut: true,
-    prompt: "The account the API token belongs to.",
-  });
-  if (email === undefined) return;
-  const token = await vscode.window.showInputBox({
-    title: "Jira API token",
-    // Masked, and never read back out: `CredentialStore` only ever yields the
-    // token as a spawn environment.
-    password: true,
-    ignoreFocusOut: true,
-    prompt: "Created in your Atlassian account settings.",
-  });
-  if (token === undefined) return;
-  try {
-    await credentials.save({ email, token });
-  } catch (error) {
-    vscode.window.showErrorMessage((error as Error).message);
-    return;
-  }
-  log.info("Jira credentials stored for this machine.");
-  await refresh();
 }
 
 /** The repository root, resolving the environment first if necessary. */

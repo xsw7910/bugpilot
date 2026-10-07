@@ -74,6 +74,11 @@ export class PanelHost {
     });
   }
 
+  /** Whether a copy of the panel is on screen — the sidebar view or the editor tab. */
+  get visible(): boolean {
+    return this.#view?.visible === true || this.#editor?.visible === true;
+  }
+
   /** Send a state to every open copy of the panel. */
   render(state: PanelState): void {
     this.#last = state;

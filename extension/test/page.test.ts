@@ -1767,6 +1767,185 @@ test("the Jira row: Authentication failed says so in words, with Replace (§37.1
   assert.equal(p.byId("jira-row").classes.has("jira-authFailed"), false);
 });
 
+// --- Jira Setup (§37.124) -------------------------------------------------------
+
+const JIRA_SETUP_REPLACE = { request: 1, email: "dev@example.com", tokenStored: true, saving: false } as const;
+
+test("Jira Setup opens when the host says so: the stored email, an empty hidden token, focus on the token", () => {
+  const p = load();
+  p.byId("set-credentials").focus();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  assert.equal(p.byId("jira-dialog").open, true);
+  assert.equal(p.byId("jira-email").value, "dev@example.com");
+  assert.equal(p.byId("jira-token").value, "", "a token was put in the field");
+  assert.equal(p.byId("jira-token").type, "password");
+  assert.equal(p.byId("jira-token-stored").hidden, false, "Replace does not say a token is stored");
+  assert.equal(p.focused, "jira-token");
+  // The page posts nothing on opening: the host opened it.
+  assert.equal(p.posted.some((message) => String(message["type"]).includes("Jira")), false);
+});
+
+test("Configure: an empty email takes the focus, and there is no stored-token note", () => {
+  const p = load();
+  p.send(state({ jiraSetup: { request: 1, tokenStored: false, saving: false } }));
+  assert.equal(p.byId("jira-dialog").open, true);
+  assert.equal(p.byId("jira-email").value, "");
+  assert.equal(p.byId("jira-token-stored").hidden, true);
+  assert.equal(p.focused, "jira-email");
+});
+
+test("Save posts both fields as typed; a missing field is said under it and nothing is posted", () => {
+  const p = load();
+  p.send(state({ jiraSetup: { request: 1, tokenStored: false, saving: false } }));
+  const before = p.posted.length;
+  p.byId("jira-save").dispatch("click");
+  assert.equal(p.posted.length, before, "Save posted with no email");
+  assert.equal(p.byId("jira-email-error").hidden, false);
+  assert.equal(p.byId("jira-email-error").textContent, "Enter your Atlassian account email.");
+  assert.equal(p.byId("jira-email").getAttribute("aria-invalid"), "true");
+  assert.equal(p.focused, "jira-email");
+
+  p.byId("jira-email").value = "dev@example";
+  p.byId("jira-save").dispatch("click");
+  assert.equal(p.byId("jira-email-error").textContent, "Enter a valid email address.");
+
+  p.byId("jira-email").value = "dev@example.com";
+  p.byId("jira-save").dispatch("click");
+  assert.equal(p.byId("jira-email-error").hidden, true);
+  assert.equal(p.byId("jira-token-error").textContent, "Enter an API token.");
+  assert.equal(p.focused, "jira-token");
+  assert.equal(p.posted.length, before);
+
+  p.byId("jira-token").value = "typed-token-value";
+  p.byId("jira-save").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "saveJiraCredentials", email: "dev@example.com", token: "typed-token-value" });
+  assert.equal(p.byId("jira-token-error").hidden, true);
+});
+
+test("Enter in the email goes on to the token; Enter in the token saves through the same check", () => {
+  const p = load();
+  p.send(state({ jiraSetup: { request: 1, tokenStored: false, saving: false } }));
+  p.byId("jira-email").value = "dev@example.com";
+  p.byId("jira-email").dispatch("keydown", { key: "Enter" });
+  assert.equal(p.focused, "jira-token");
+  assert.equal(p.posted.some((message) => message["type"] === "saveJiraCredentials"), false, "Enter in the email saved");
+  p.byId("jira-token").dispatch("keydown", { key: "Enter" });
+  assert.equal(p.byId("jira-token-error").textContent, "Enter an API token.");
+  p.byId("jira-token").value = "typed-token-value";
+  p.byId("jira-token").dispatch("keydown", { key: "Enter" });
+  assert.deepEqual(p.posted.at(-1), { type: "saveJiraCredentials", email: "dev@example.com", token: "typed-token-value" });
+});
+
+test("Cancel and Escape close it and tell the host, the token cleared; the same request does not reopen it", () => {
+  const p = load();
+  p.byId("set-credentials").focus();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  p.byId("jira-token").value = "half-typed-token";
+  p.byId("jira-cancel").dispatch("click");
+  assert.equal(p.byId("jira-dialog").open, false);
+  assert.deepEqual(p.posted.at(-1), { type: "closeJiraSetup" });
+  assert.equal(p.byId("jira-token").value, "", "the typed token outlived the dialog");
+  assert.equal(p.focused, "set-credentials", "the focus did not go back to Replace");
+  // A push the host sent before it had the Cancel: still request 1, stays shut.
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  assert.equal(p.byId("jira-dialog").open, false);
+  // The host's answer, then a new request: open again.
+  p.send(state({}));
+  p.send(state({ jiraSetup: { ...JIRA_SETUP_REPLACE, request: 2 } }));
+  assert.equal(p.byId("jira-dialog").open, true);
+  // Escape is Cancel.
+  p.byId("jira-dialog").dispatch("keydown", { key: "Escape" });
+  assert.equal(p.byId("jira-dialog").open, false);
+  assert.deepEqual(p.posted.at(-1), { type: "closeJiraSetup" });
+  // So is the browser's own close request.
+  p.send(state({}));
+  p.send(state({ jiraSetup: { ...JIRA_SETUP_REPLACE, request: 3 } }));
+  p.byId("jira-dialog").dispatch("cancel");
+  assert.equal(p.byId("jira-dialog").open, false);
+});
+
+test("the host closes it once the credentials are stored: the fields cleared, the focus back on the row", () => {
+  const p = load();
+  p.byId("set-credentials").focus();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  p.byId("jira-token").value = "typed-token-value";
+  p.byId("jira-save").dispatch("click");
+  // Saving: the dialog waits, Save says so and Cancel does nothing.
+  p.send(state({ jiraSetup: { ...JIRA_SETUP_REPLACE, saving: true } }));
+  assert.equal(p.byId("jira-dialog").open, true);
+  assert.equal(p.byId("jira-save-label").textContent, "Saving…");
+  assert.equal(p.byId("jira-save").getAttribute("aria-disabled"), "true");
+  const posted = p.posted.length;
+  p.byId("jira-cancel").dispatch("click");
+  p.byId("jira-save").dispatch("click");
+  assert.equal(p.posted.length, posted, "a press while saving was sent");
+  assert.equal(p.byId("jira-dialog").open, true);
+  // Stored: the host's push without it.
+  p.send(state({}));
+  assert.equal(p.byId("jira-dialog").open, false);
+  assert.equal(p.byId("jira-token").value, "");
+  assert.equal(p.byId("jira-email").value, "");
+  assert.equal(p.focused, "set-credentials");
+  assert.equal(p.posted.some((message) => message["type"] === "closeJiraSetup"), false, "a save was reported as a Cancel");
+});
+
+test("the host's refusal is said in the dialog once per answer, under the field it names or above the actions", () => {
+  const p = load();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  const refused = { ...JIRA_SETUP_REPLACE, error: { token: 1, field: "token" as const, message: "Enter an API token." } };
+  p.send(state({ jiraSetup: refused }));
+  assert.equal(p.byId("jira-token-error").textContent, "Enter an API token.");
+  assert.equal(p.focused, "jira-token");
+  // The same answer redrawn is not said again: the developer may be typing.
+  p.byId("jira-email").focus();
+  p.send(state({ jiraSetup: refused }));
+  assert.equal(p.focused, "jira-email");
+  // One that names no field: above the actions.
+  p.send(state({ jiraSetup: { ...JIRA_SETUP_REPLACE, error: { token: 2, message: "The credentials could not be stored: locked" } } }));
+  assert.equal(p.byId("jira-error").hidden, false);
+  assert.equal(p.byId("jira-error").textContent, "The credentials could not be stored: locked");
+  assert.equal(p.byId("jira-token-error").hidden, true);
+});
+
+test("Show and Hide change only what the token field shows, and say which", () => {
+  const p = load();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  const reveal = p.byId("jira-token-reveal");
+  assert.equal(reveal.getAttribute("aria-label"), "Show API token");
+  reveal.dispatch("click");
+  assert.equal(p.byId("jira-token").type, "text");
+  assert.equal(reveal.getAttribute("aria-label"), "Hide API token");
+  assert.ok(p.byId("jira-token-reveal-icon").classes.has("codicon-eye-closed"));
+  reveal.dispatch("click");
+  assert.equal(p.byId("jira-token").type, "password");
+  assert.equal(reveal.getAttribute("aria-label"), "Show API token");
+  // Closed shown, reopened hidden.
+  reveal.dispatch("click");
+  p.send(state({}));
+  p.send(state({ jiraSetup: { ...JIRA_SETUP_REPLACE, request: 2 } }));
+  assert.equal(p.byId("jira-token").type, "password");
+});
+
+test("Open Atlassian API tokens asks the host, naming no address", () => {
+  const p = load();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  p.byId("jira-token-page").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "action", id: "openJiraTokenPage" });
+});
+
+test("nothing typed in Jira Setup is kept: not in the saved page state, not in a form message", () => {
+  const p = load();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  p.byId("jira-email").value = "typed@example.com";
+  p.byId("jira-token").value = "typed-token-value";
+  p.byId("jira-token").dispatch("input");
+  p.byId("jira-email").dispatch("input");
+  p.flush();
+  const kept = JSON.stringify([...p.stored, ...p.posted]);
+  assert.equal(kept.includes("typed-token-value"), false, "the token was persisted or sent");
+  assert.equal(kept.includes("typed@example.com"), false, "a draft email was persisted or sent");
+});
+
 test("the Jira row is there whatever the run did, and a Jira failure keeps its card (§37.110)", () => {
   const p = load();
   p.send(prepared({}, { jira: jiraConnection(true, false) }));
@@ -6298,7 +6477,7 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
       confirm: async () => true,
       notify: () => {},
       refreshViews: () => {},
-      editCredentials: async () => {},
+      openExternal: async () => {},
       runInTerminal: (name, _cwd, commandLine) => {
         terminals.push(commandLine);
         terminalNames.push(name);
@@ -6315,6 +6494,7 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
     log: { info: () => {}, error: () => {} },
     environment: async () => ({ kind: "ready", root: "/work/app", executable: "bugpilot", report: { python_ok: true } }),
     credentials: async () => ({ configured: true, environment: {} }),
+    jiraCredentials: { status: async () => ({ configured: true, email: "me@example.com" }), save: async () => {} },
     descriptionFilePath: () => "/tmp/bugpilot-description.md",
     canRun: async () => true,
     improveHint: async (request) => {

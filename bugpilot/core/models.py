@@ -301,6 +301,10 @@ class InvestigationRequest:
     # caller expressed no preference: the work item's persisted choice, or
     # Standard Fix.
     fix_mode_id: str | None = None
+    # Which branch the agent works on (`branch_policy.py`), execution policy
+    # like the Fix Mode. `None`: no preference — the work item's recorded
+    # policy, else the default (the current branch).
+    branch_policy: str | None = None
 
     @property
     def work_item_id(self) -> str:

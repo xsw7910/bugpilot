@@ -26,13 +26,16 @@
  */
 
 import { AGENT_LABELS } from "./agents.ts";
-import { parseKeywords, parsePaths } from "./form.ts";
-import type { FormState } from "./form.ts";
+import { branchPolicyOf, parseKeywords, parsePaths } from "./form.ts";
+import type { BranchPolicy, FormState } from "./form.ts";
 import type { WorkflowStepId } from "./workflow.ts";
 
 /**
  * The settings page's sections, top to bottom — the workflow's own order, with
- * the shared Retrieval inputs before the retrieval steps that read them.
+ * the shared Retrieval inputs before the retrieval steps that read them, and
+ * Branch last (§37.127): which branch the agent works on, belonging to no one
+ * step, and its own section because it changes task.md where Fix with AI's
+ * agent settings do not — no section mixes the two.
  */
 export const WORKFLOW_SETTINGS_SECTIONS = [
   "issue-details",
@@ -42,11 +45,12 @@ export const WORKFLOW_SETTINGS_SECTIONS = [
   "similar-fixes",
   "build-context",
   "fix-with-ai",
+  "branch",
 ] as const;
 export type WorkflowSettingsSection = (typeof WORKFLOW_SETTINGS_SECTIONS)[number];
 
-/** The sections that belong to one step: every one but the shared inputs. */
-export type StepSettingsSection = Exclude<WorkflowSettingsSection, "retrieval-inputs">;
+/** The sections that belong to one step: every one but the shared inputs and Branch. */
+export type StepSettingsSection = Exclude<WorkflowSettingsSection, "retrieval-inputs" | "branch">;
 
 /**
  * Which row's gear opens which section. A row absent here has no gear, and
@@ -71,6 +75,7 @@ export const SETTINGS_SECTION_TITLES: Readonly<Record<WorkflowSettingsSection, s
   "similar-fixes": "Similar fixes",
   "build-context": "Build context",
   "fix-with-ai": "Fix with AI",
+  branch: "Branch",
 };
 
 /**
@@ -123,6 +128,8 @@ export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, r
   // Who the task goes to. How it is approached, and the hint it carries, are
   // on the main page, under the issue.
   "fix-with-ai": ["agent", "agentCommand"],
+  // Which branch the agent edits and commits on.
+  branch: ["branchPolicy"],
 };
 
 /**
@@ -160,6 +167,8 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
   fresh: false,
   agent: false,
   agentCommand: false,
+  // Written into task.md, as the Fix Mode is.
+  branchPolicy: true,
 };
 
 /**
@@ -297,10 +306,22 @@ export function settingsSummaries(form: FormState): Partial<Record<WorkflowStepI
 
   if (form.fresh) summaries.buildContext = "Deletes previous artifacts first";
 
-  if (form.agent !== "auto") summaries.fixWithAI = AGENT_SUMMARY[form.agent];
+  const fix = [
+    form.agent !== "auto" ? AGENT_SUMMARY[form.agent] : "",
+    // At its default, the current branch, the row says nothing.
+    BRANCH_POLICY_SUMMARY[branchPolicyOf(form.branchPolicy)],
+  ].filter((part) => part !== "");
+  if (fix.length > 0) summaries.fixWithAI = fix.join(" · ");
 
   return summaries;
 }
+
+/** What the Fix with AI summary says of a branch policy that is not the default. */
+const BRANCH_POLICY_SUMMARY: Readonly<Record<BranchPolicy, string>> = {
+  current: "",
+  "per-issue": "one branch per issue",
+  ask: "asks which branch",
+};
 
 function counted(count: number, noun: string): string {
   return count === 0 ? "" : plural(count, noun);
