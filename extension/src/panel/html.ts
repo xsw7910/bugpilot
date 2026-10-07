@@ -327,7 +327,7 @@ const RETRIEVAL_INPUT_FIELDS: readonly TextField[] = [
     icon: "search",
     tone: "primary",
     help: "Shared search terms used by Code Search and optionally reused by Git History and Similar Fixes. Separate them with commas or new lines.",
-    placeholder: "e.g. VolumeDescriptor, OpenVDS, outputType",
+    placeholder: "Enter names, identifiers, or technical terms related to the issue",
   },
   {
     id: "focusFiles",
