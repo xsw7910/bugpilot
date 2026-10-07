@@ -203,16 +203,457 @@ h2 {
  * The instructions are prose an agent is given, so they are set as prose —
  * wrapped, selectable, and without the box-per-field rhythm that would make a
  * read look like an edit that is refusing to take input.
+ *
+ * Its facts — id, version, source, kind, origin — are a short list of terms
+ * and values (§37.114): the list leaves them out, so they are said here.
  */
-.preview-meta {
-  margin: 0;
+.preview-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1px 12px;
+  margin: 4px 0 0;
+}
+
+.preview-facts dt {
   color: var(--vscode-descriptionForeground);
+}
+
+.preview-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .preview-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* --- the Fix Mode detail page (§37.115) ----------------------------------- */
+
+/* Back, with the editor's own arrow, the whole line a target. */
+.preview-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+/* The header: the mode's glyph, its name with its source beside it, and its
+   action at the right on one line — the action wrapping onto a line of its
+   own, still at the right, when the sidebar is too narrow for both (no
+   breakpoint: the row decides) — then the description under them, the full
+   width from where the name starts, never squeezed beside the action. */
+.preview-hero {
+  margin-top: 8px;
+}
+
+.preview-hero-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 10px;
+}
+
+.codicon.preview-icon {
+  flex: none;
+  font-size: 22px;
+  margin-top: 2px;
+  color: var(--vscode-textLink-foreground);
+}
+
+.preview-title-row {
+  flex: 1 1 8em;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+/* The page's heading: the strongest text on it, and never cut. */
+.view-title.preview-title {
+  font-size: 1.3em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Built-in, User or Project: a quiet pill, the list's badge. */
+.preview-source {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+  border-radius: 9px;
+  font-size: 0.85em;
+  line-height: 15px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.preview-source:empty {
+  display: none;
+}
+
+.preview-description {
+  margin: 4px 0 0;
+  padding-left: 32px;
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+
+.preview-description[hidden] {
+  display: none;
+}
+
+/* The list row's actions, all here (§37.116): one for a built-in, three for a
+   custom mode, which wrap among themselves, at the right, rather than push
+   the page sideways. */
+.preview-actions {
+  flex: 0 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.preview-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* Delete: its glyph in the danger tone, its words the button's own — and
+   described to a screen reader as permanent. */
+.preview-danger .codicon {
+  color: var(--bugpilot-icon-danger);
+}
+
+/* The sections, a little apart, each a quiet rounded container: the theme's
+   widget border at half strength, the faintest fill. Their glyphs take the
+   Workflow Steps' hues — the theme's chart colours, a fifth of the way to the
+   foreground — defined here too, since those are the rows' own. The editor's
+   Workflow instructions are the same sections, so they get the same hues
+   (§37.118). */
+.preview-sections {
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.preview-sections,
+.editor-instructions {
+  --preview-cyan: color-mix(in srgb, var(--vscode-terminal-ansiCyan, var(--vscode-charts-blue, var(--vscode-textLink-foreground))) 80%, var(--vscode-foreground));
+  --preview-purple: color-mix(in srgb, var(--vscode-charts-purple, var(--vscode-textLink-foreground)) 80%, var(--vscode-foreground));
+  --preview-green: color-mix(in srgb, var(--vscode-charts-green, var(--vscode-testing-iconPassed, var(--vscode-foreground))) 80%, var(--vscode-foreground));
+  --preview-blue: color-mix(in srgb, var(--vscode-charts-blue, var(--vscode-textLink-foreground)) 80%, var(--vscode-foreground));
+  --preview-amber: color-mix(in srgb, var(--vscode-charts-yellow, var(--vscode-editorWarning-foreground)) 80%, var(--vscode-foreground));
+}
+
+.preview-section {
+  border: 1px solid color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+}
+
+body.vscode-high-contrast .preview-section,
+body.vscode-high-contrast-light .preview-section {
+  border-color: var(--vscode-contrastBorder, var(--vscode-panel-border));
+  background: none;
+}
+
+/* The section's line: glyph, title, chevron — and, closed, one line of its
+   text under the title. Its own chevron, so the native triangle goes. */
+.preview-section-head {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 16px;
+  column-gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--vscode-foreground);
+  border-radius: 4px;
+}
+
+.preview-section-head::-webkit-details-marker {
+  display: none;
+}
+
+details[open] > .preview-section-head {
+  margin-bottom: 0;
+}
+
+.preview-section-head:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.preview-section-head:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.preview-section-title {
+  grid-column: 2;
+  margin: 0;
+  font-size: 1em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.preview-chevron {
+  grid-column: 3;
+  grid-row: 1;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+}
+
+.preview-section[open] .preview-chevron {
+  transform: rotate(180deg);
+}
+
+.preview-snippet {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+.preview-section[open] .preview-snippet,
+.preview-snippet:empty {
+  display: none;
+}
+
+.preview-tone-cyan { color: var(--preview-cyan); }
+.preview-tone-purple { color: var(--preview-purple); }
+.preview-tone-green { color: var(--preview-green); }
+.preview-tone-blue { color: var(--preview-blue); }
+.preview-tone-amber { color: var(--preview-amber); }
+
+body.vscode-high-contrast .preview-section-icon,
+body.vscode-high-contrast-light .preview-section-icon {
+  color: var(--vscode-foreground);
+}
+
+/* The text under the title, where the title starts: the head's padding, the
+   glyph and the gap. */
+.preview-section-body {
+  padding: 0 10px 8px 34px;
+}
+
+.preview-section-body .preview-text {
+  margin: 0;
+}
+
+.preview-list {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.preview-list li {
+  overflow-wrap: anywhere;
+}
+
+.preview-list li + li {
+  margin-top: 2px;
+}
+
+/* --- the Fix Mode editor (§37.118) ----------------------------------------- */
+
+/* New Fix Mode and Edit Fix Mode: one form. A compact head — the title, what is
+   being edited (a new mode's line says what the page is for) and where it came
+   from — then two quiet containers, Basic info and Workflow instructions, then
+   the actions in a footer at the panel's foot. VS Code's own idiom: the
+   theme's widget border at part strength, the faintest fill, no shadow. */
+.editor-subject {
+  margin: 2px 0 0;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+.editor-subject.editor-subject-lede {
+  font-weight: normal;
+  color: var(--vscode-descriptionForeground);
+}
+
+.editor-origin {
+  margin: 0;
+}
+
+.editor-section {
+  min-width: 0;
+  margin-top: 6px;
+  border: 1px solid color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--vscode-foreground) 2%, transparent);
+}
+
+/* The section's name on a slightly stronger strip, its glyph first. */
+.editor-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
+  border-radius: 4px 4px 0 0;
+  background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.editor-section-icon {
+  flex: none;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+}
+
+body.vscode-high-contrast .editor-section,
+body.vscode-high-contrast-light .editor-section {
+  border-color: var(--vscode-contrastBorder, var(--vscode-panel-border));
+  background: none;
+}
+
+body.vscode-high-contrast .editor-section-title,
+body.vscode-high-contrast-light .editor-section-title {
+  border-bottom-color: var(--vscode-contrastBorder, var(--vscode-panel-border));
+  background: none;
+}
+
+/* Basic info's fields, the Workflow Settings rows: label with its glyph, the
+   helper at its right while there is room, the control the full width. */
+.editor-section-body {
+  min-width: 0;
+  padding: 10px 10px 0;
+}
+
+/* Execution kind and Scope side by side once each can have 15em — wide enough
+   for "Fix — change source code" and "User — your home directory" whole, which
+   at 14em ran under the select's arrow (measured at a 440px sidebar) — and one
+   above the other below that, which at 360px and less is every sidebar. The
+   row decides, not a breakpoint: the panel is a sidebar or an editor tab at
+   any width, and the fonts are the theme's. */
+.editor-pair {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
+}
+
+.editor-pair > .field {
+  flex: 1 1 15em;
+  min-width: 0;
+}
+
+/* A choice too long for its box — "Investigate — diagnose first, …" beside
+   Scope — ends in an ellipsis clear of the arrow, not under it. The arrow's
+   room is the select's own; padding added for it was counted twice and cut
+   "User — your home directory" by a pixel at 280px (measured). */
+.editor-section select {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Workflow instructions: the detail page's section disclosures (§37.115),
+   reused — glyph in its tone, title, chevron, one line while closed — without
+   a box each, since the section around them is the box; a hairline between. */
+.preview-section.editor-instruction {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.editor-instruction + .editor-instruction {
+  border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 50%, transparent);
+}
+
+.editor-instruction .preview-section-head {
+  border-radius: 0;
+}
+
+/* The box under its title, the section's whole width: a 200px sidebar has no
+   indent to spare. Prose, so the UI font rather than the paths' monospace;
+   it grows with its text (panel.js), up to a ceiling generous enough that a
+   built-in's section never scrolls inside the page — at 24em, Investigation
+   did at 200px (measured) — so the page scrolls, and only text far longer
+   than any built-in's scrolls inside its box. */
+.editor-instruction .preview-section-body {
+  padding: 0 10px 10px;
+}
+
+.editor-instruction textarea {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  max-height: 48em;
+}
+
+.editor-instruction .preview-section-body > .error {
+  margin-top: 4px;
+}
+
+/* A field that is fixed — an edited mode's ID and Scope — looks it, as a
+   disabled setting does on the settings page: the ID box read as editable. */
+.fix-mode-editor :is(input, select):disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* An empty section's line says it is empty, in the description's voice. */
+.preview-snippet.editor-snippet-empty {
+  font-style: italic;
+}
+
+/* The actions, at the panel's foot while the page scrolls — Workflow
+   Settings' Cancel and Apply, the same idea. Create or Save first and primary;
+   Preview and Cancel together after it, wrapping under it as a pair in a
+   narrow sidebar, and one under the other only when even the pair does not
+   fit. In the flow, so at the end of the page it sits after the last section
+   and covers nothing. */
+.editor-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+.editor-footer-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.editor-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.editor-footer .codicon {
+  flex: none;
+  font-size: 14px;
+}
+
+/* What the footer covers, the browser must not scroll to — a Tab, a focused
+   error, Preview's own heading — as on the settings page. More room than
+   there: in a narrow sidebar the footer is two rows. */
+html:has(#fix-mode-editor-view:not([hidden])) {
+  scroll-padding-bottom: 6rem;
+}
+
+.preview-details {
+  margin-top: 12px;
 }
 
 .preview-text {
@@ -274,31 +715,296 @@ h2 {
   display: none;
 }
 
-/* Manage Fix Modes: the panel's own list idiom, not a second visual language. */
+/* Manage Fix Modes (§37.114): the panel's own list idiom, not a second visual
+   language — the Workflow Steps' soft rules and quiet metadata, a disclosure
+   per group, each row's actions on the row (§37.116). No card around
+   anything. */
 
-.manage-group {
-  margin-top: 10px;
+.manage-list {
+  margin-top: 6px;
 }
 
+.manage-group {
+  margin-top: 6px;
+}
+
+/* The group's own line: its name and count, and — while there is room — a
+   word saying whose it is, at the right. The full sentence is the tooltip. No
+   `display` on the summary: that takes the native disclosure triangle away,
+   and the triangle is what says the group folds (as on Workflow Steps). */
+.manage-group-head {
+  padding: 3px 0;
+}
+
+details[open] > .manage-group-head {
+  margin-bottom: 2px;
+}
+
+.manage-group-title {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.manage-group-note {
+  float: right;
+  margin-left: 8px;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.manage-group-head:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.manage-empty {
+  margin: 0 0 4px;
+  padding-left: 16px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* One mode (§37.116): a glyph, then its text — the name with Current or
+   Overridden beside it; what it is for, cut to one line, with the actions at
+   its right; Investigation only under them, when it is. A grid whose text
+   column may shrink to nothing, so nothing pushes the sidebar sideways. The
+   row lights up as a list row does, under the pointer or the keyboard focus —
+   the sign that it has actions (§37.117); only colours change, so nothing
+   moves. The lit colour and the ground under it are named once: the actions'
+   backdrop is the same two. */
 .manage-row {
+  --manage-row-lit: var(--vscode-list-hoverBackground, transparent);
+  --manage-ground: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
+  margin: 0 -4px;
+  padding: 5px 4px;
+  border-top: 1px solid color-mix(in srgb, var(--vscode-panel-border) 55%, transparent);
+}
+
+.manage-row:hover,
+.manage-row:focus-within {
+  background: var(--manage-row-lit);
+}
+
+/* High Contrast lists light a row with a dashed outline, not a fill. */
+body.vscode-high-contrast .manage-row:hover,
+body.vscode-high-contrast .manage-row:focus-within,
+body.vscode-high-contrast-light .manage-row:hover,
+body.vscode-high-contrast-light .manage-row:focus-within {
+  outline: 1px dashed var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+  outline-offset: -1px;
+}
+
+.manage-icon {
+  margin-top: 1px;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+}
+
+.manage-text {
+  min-width: 0;
+}
+
+/* The name and its badges on one line; at a narrow width the badges wrap
+   under the name, which is never cut: it wraps whole. */
+.manage-title {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
   align-items: baseline;
-  justify-content: space-between;
-  padding: 4px 0;
-  border-top: 1px solid var(--vscode-panel-border);
+  gap: 2px 6px;
+  min-width: 0;
 }
 
 .manage-name {
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
-.manage-actions {
+/* What it is for and the actions, on one line while there is room for both:
+   the description gives way to an ellipsis down to 8em, and below that the
+   actions wrap under it, still at the right — the row decides, as on the
+   detail page's header. */
+.manage-line {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  min-width: 0;
+}
+
+/* What it is for, on one line cut with an ellipsis: the whole text is the
+   tooltip, and the preview's. */
+.manage-description {
+  flex: 1 1 8em;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* A fact that changes what the mode does — Investigation only, Current,
+   Overridden by … — as the Workflow Steps' status pill says its state. */
+.manage-badge {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+  border-radius: 9px;
+  font-size: 0.85em;
+  line-height: 15px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+body.vscode-high-contrast .manage-badge,
+body.vscode-high-contrast-light .manage-badge {
+  border-color: var(--vscode-contrastBorder, var(--vscode-foreground));
+}
+
+/* An empty description still keeps its line: the actions are laid over it. */
+.manage-description:empty::before {
+  content: "\200b";
+}
+
+/* Investigation only changes what the agent may do, so it is on the row, on
+   a line of its own under what the mode is for. */
+.manage-kind {
+  display: flex;
+  margin-top: 2px;
+}
+
+/* The row's actions, every one on the row (§37.116): words with no box, so
+   the name stays the strongest thing on the line. Customize copy and Edit in
+   the link colour, View and Duplicate in the description's — the foreground
+   once the row is lit — and Delete in the error colour and no larger. These
+   rules are the whole story where nothing can hover (touch): the actions sit
+   in the description's line, always shown, wrapping under it when narrow.
+   Where a pointer can hover they are revealed instead — the block below.
+   `button.` and the parent, because the base `button` rules come later in
+   this file and would win a tie. */
+.manage-actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0 2px;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.manage-actions > button.manage-action {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.manage-actions > button.manage-action-strong {
+  color: var(--vscode-textLink-foreground);
+}
+
+.manage-actions > button.manage-action-danger {
+  color: var(--vscode-errorForeground);
+}
+
+.manage-row:hover .manage-actions > button.manage-action-quiet,
+.manage-row:focus-within .manage-actions > button.manage-action-quiet {
+  color: var(--vscode-foreground);
+}
+
+.manage-actions > button.manage-action:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+/* Duplicate's and Delete's glyphs, for a narrow row — below. */
+.codicon.manage-action-glyph {
+  display: none;
+  font-size: 14px;
+}
+
+/* Revealed, not shown, where a pointer can hover (§37.117). At rest the
+   actions are transparent and out of the flow: laid over the end of the
+   description's line rather than beside it, so the description has the
+   row's whole width and a row is its name, its badges and what it is for.
+   The pointer over the row, or the keyboard focus anywhere in it, brings them
+   up over a backdrop of the row's own lit colour (on the ground, for a theme
+   whose lit colour is translucent) that fades in from the left over the
+   words beneath. Opacity and pointer-events only — never display or
+   visibility — so the buttons stay rendered, named, focusable and in the tab
+   order, and nothing else on the row moves, grows or re-wraps when they
+   appear: the name, Current, the description and Investigation only are
+   outside the group. Not clickable while unseen: a tap where they will be
+   lights the row first. */
+@media (hover: hover) {
+  .manage-line {
+    position: relative;
+  }
+
+  .manage-actions {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    flex-wrap: nowrap;
+    padding-left: 24px;
+    background:
+      linear-gradient(to right, transparent, var(--manage-row-lit) 20px),
+      linear-gradient(to right, transparent, var(--manage-ground) 20px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 100ms ease-out;
+  }
+
+  .manage-row:hover .manage-actions,
+  .manage-row:focus-within .manage-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .manage-actions {
+    transition: none;
+  }
+}
+
+/* A Fix Mode's glyph, on its row and its page (§37.116): each built-in's in
+   its own hue — Standard blue, Conservative green, Investigate First purple,
+   Test-Driven amber, Deep Analysis magenta — and a copy's in its origin's.
+   The theme's chart colours a fifth of the way to the foreground, the detail
+   page's sections' recipe, so Light and Dark both keep them legible. Keyed
+   by glyph: the page's table names a glyph and nothing else. A mode with no
+   known origin keeps its kind's glyph in the icon colour (an investigation's
+   search is purple as Investigate First's is); High Contrast, the foreground. */
+.mode-icon {
+  --mode-blue: color-mix(in srgb, var(--vscode-charts-blue, var(--vscode-textLink-foreground)) 80%, var(--vscode-foreground));
+  --mode-green: color-mix(in srgb, var(--vscode-charts-green, var(--vscode-testing-iconPassed, var(--vscode-foreground))) 80%, var(--vscode-foreground));
+  --mode-purple: color-mix(in srgb, var(--vscode-charts-purple, var(--vscode-textLink-foreground)) 80%, var(--vscode-foreground));
+  --mode-amber: color-mix(in srgb, var(--vscode-charts-yellow, var(--vscode-editorWarning-foreground)) 80%, var(--vscode-foreground));
+  --mode-magenta: color-mix(in srgb, var(--vscode-terminal-ansiMagenta, var(--vscode-charts-purple, var(--vscode-textLink-foreground))) 80%, var(--vscode-foreground));
+}
+
+.mode-icon.codicon-tasklist { color: var(--mode-blue); }
+.mode-icon.codicon-shield { color: var(--mode-green); }
+.mode-icon.codicon-search { color: var(--mode-purple); }
+.mode-icon.codicon-beaker { color: var(--mode-amber); }
+.mode-icon.codicon-graph { color: var(--mode-magenta); }
+
+body.vscode-high-contrast .mode-icon,
+body.vscode-high-contrast-light .mode-icon {
+  color: var(--vscode-foreground);
 }
 
 /*
@@ -755,17 +1461,26 @@ label {
   display: none;
 }
 
-/* A few words beside a label on what goes in (the Issue's "Jira ID or bug
-   description"): quieter than the label, like a helper. On the label's row
-   while the whole phrase fits there, and under the label when it does not —
-   `flex-basis: auto` moves the phrase, not its last word — and only on a line
-   of its own may it wrap. */
-.setting-header > .setting-secondary {
+/* How a field read what was typed — the Issue's "Jira issue · JR-12345" or
+   "Bug description" (§37.112): on the label's row, at its right, quieter than
+   the label. Only once there is input, so an untouched panel stays quiet. In a
+   sidebar too narrow for both it moves under the label as a whole phrase —
+   `flex-basis: auto` moves the phrase, not its last word — still at the right,
+   and only on a line of its own may it wrap. Line height 1, so its arrival on
+   the first keystroke does not make the row taller and nudge the box down
+   (1.5px with the default, measured; 0.2px with this). */
+.setting-header > .setting-note {
   flex: 0 1 auto;
   min-width: 0;
+  margin-left: auto;
   font-size: 0.9em;
+  line-height: 1;
   color: var(--vscode-descriptionForeground);
   overflow-wrap: anywhere;
+}
+
+.setting-note[hidden] {
+  display: none;
 }
 
 /*
@@ -908,18 +1623,6 @@ button:focus-visible {
 
 #issue:placeholder-shown {
   overflow: hidden;
-}
-
-/* How the one Issue field was read: a ticket, or prose. It replaced a radio
-   pair, so it says the same thing in the same place — but only once there is
-   something to say, which is what keeps an untouched panel quiet. */
-.issue-note {
-  font-size: 0.9em;
-  margin-top: 4px;
-}
-
-.issue-note[hidden] {
-  display: none;
 }
 
 /* --- run ------------------------------------------------------------------ */
@@ -1854,6 +2557,52 @@ body.vscode-high-contrast-light .step-icon {
 
   .jira-icon {
     display: none;
+  }
+}
+
+/* Manage Fix Modes in a narrow sidebar (§37.116): below about 300px a row's
+   Customize copy, Duplicate and Delete show their glyphs in place of their
+   words — each still named in full to a screen reader and in its tooltip —
+   so the revealed actions cover less of the description (§37.117), or, where
+   nothing hovers, keep their place beside it a little longer; View and Edit
+   keep their words. Nothing goes behind a menu. */
+@media (max-width: 300px) {
+  .codicon.manage-action-glyph {
+    display: inline-block;
+  }
+
+  .manage-action-glyph + .manage-action-label {
+    display: none;
+  }
+}
+
+/* Manage Fix Modes in a very narrow sidebar (§37.114): each row keeps its
+   name and every action — revealed over the description's end where a
+   pointer hovers (§37.117), else under the description, at the right, once
+   the line is too narrow for both (§37.116); the group's word gives way to
+   its tooltip. Its own block, after the rows' above.
+   The detail page's sections give their titles a little more room there
+   (§37.115): at 200px "Implementation" broke between its last two letters
+   with the usual padding and gaps — measured in the real window. Both glyphs
+   stay. The editor's Preview and Cancel give up their decorative glyphs
+   there (§37.118), which is what lets them share a row under Create or Save:
+   with them the footer took three rows at 200px, measured. */
+@media (max-width: 220px) {
+  .manage-group-note {
+    display: none;
+  }
+
+  .editor-footer-more .codicon {
+    display: none;
+  }
+
+  .preview-section-head {
+    column-gap: 6px;
+    padding-inline: 6px;
+  }
+
+  .preview-section-body {
+    padding: 0 6px 8px 28px;
   }
 }
 

@@ -323,15 +323,18 @@ test("the markup's defaults are the model's: switches ticked, recent first, 10 a
 });
 
 test("the page's copies of the switches and depths are the model's", () => {
-  const switches = /const GIT_SWITCHES = \[([^\]]*)\]/.exec(PAGE_JS)?.[1] ?? "";
-  assert.deepEqual([...switches.matchAll(/"([A-Za-z]+)"/g)].map((match) => match[1]), [...GIT_SWITCH_FIELDS]);
+  // One list of the settings page's switches: Git history's four, then
+  // Similar fixes' one (§37.113).
+  const switches = /const SETTINGS_SWITCHES = \[([^\]]*)\]/.exec(PAGE_JS)?.[1] ?? "";
+  assert.deepEqual([...switches.matchAll(/"([A-Za-z]+)"/g)].map((match) => match[1]), [...GIT_SWITCH_FIELDS, "similarUseSharedKeywords"]);
   const depths = /const GIT_HISTORY_DEPTHS = \[([^\]]*)\]/.exec(PAGE_JS)?.[1] ?? "";
   assert.deepEqual([...depths.matchAll(/"([a-z]+)"/g)].map((match) => match[1]), [...GIT_HISTORY_DEPTHS]);
   // Read, written and disabled with the rest of the settings.
   for (const pattern of [
-    /for \(const field of GIT_SWITCHES\) settings\[field\] = byId\(field\)\.checked;/,
-    /for \(const field of GIT_SWITCHES\) byId\(field\)\.checked = settings\[field\] !== false;/,
-    /for \(const field of GIT_SWITCHES\) byId\(field\)\.disabled = !enabled;/,
+    /for \(const field of SETTINGS_SWITCHES\) settings\[field\] = byId\(field\)\.checked;/,
+    /for \(const field of SETTINGS_SWITCHES\) settings\[field\] = form\[field\] !== false;/,
+    /for \(const field of SETTINGS_SWITCHES\) byId\(field\)\.checked = settings\[field\] !== false;/,
+    /for \(const field of SETTINGS_SWITCHES\) byId\(field\)\.disabled = !enabled;/,
     /byId\("gitHistoryDepth"\)\.disabled = !enabled;/,
   ]) {
     assert.match(PAGE_JS, pattern);

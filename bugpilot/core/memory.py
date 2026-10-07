@@ -10,6 +10,7 @@ from .artifacts import RETRIEVAL_ARTIFACT
 from .config import memory_dir
 from .identity import is_known_work_item_id
 from .issue import IssueArtifact
+from .models import DEFAULT_MAX_SIMILAR_FIXES
 
 
 def build_memory_entry(issue_key: str, issue: IssueArtifact, context_path: str) -> str:
@@ -42,6 +43,9 @@ def search_memory(
     repo_root: Path,
     query: str,
     extracted: dict[str, object] | None = None,
+    *,
+    terms: list[str] | None = None,
+    max_results: int = DEFAULT_MAX_SIMILAR_FIXES,
 ) -> tuple[str | None, str, list[dict[str, object]]]:
     """Score stored memories against a query. Read-only: nothing is written.
 
@@ -50,15 +54,25 @@ def search_memory(
     memory; it is never written beside it, and a caller merely answering a
     question cannot create a work item directory for an id never prepared.
 
+    ``terms`` are the words to score, already composed by the caller — the
+    Similar fixes step's issue terms, shared Keywords and Additional Keywords
+    (``workflow.similar_fixes_terms``) — and used as given. Without them,
     ``extracted`` is the work item's keyword extraction, handed over by the
-    caller that holds it. Without it the query's own words are scored.
+    caller that holds it; without that too, the query's own words are scored.
+
+    ``max_results`` is how many of the best matches are kept: Max Similar
+    Fixes. A count below one keeps the default rather than nothing.
     """
     # Only a Jira key or a local id counts as a work item lookup; everything
     # else is free text scored against stored memories. The permissive
     # directory-name check would misread terms like `utf-8` as an id.
     candidate = query.strip()
     issue_key = candidate if is_known_work_item_id(candidate) else None
-    keywords = _query_keywords(query, issue_key, extracted)
+    keywords = list(terms) if terms is not None else _query_keywords(query, issue_key, extracted)
+    if isinstance(max_results, bool) or not isinstance(max_results, int) or max_results < 1:
+        max_results = DEFAULT_MAX_SIMILAR_FIXES
+    # No memory folder, or an empty one: nothing to read and nothing to say
+    # beyond the report's own "none found" — no error, no file.
     memories = sorted(memory_dir(repo_root).glob("*.md")) if memory_dir(repo_root).exists() else []
     results = []
 
@@ -78,7 +92,7 @@ def search_memory(
             }
         )
 
-    results = sorted(results, key=lambda item: (-int(item["score"]), str(item["file"])))[:5]
+    results = sorted(results, key=lambda item: (-int(item["score"]), str(item["file"])))[:max_results]
     markdown = _render_memory_search(issue_key or query, keywords, results)
     return issue_key, markdown, results
 

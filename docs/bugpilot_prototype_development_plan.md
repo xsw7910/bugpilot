@@ -12023,3 +12023,502 @@ row. Dark Modern and Light Modern, 360px and 200px, no horizontal scroll. AX:
 group "Jira Not configured", button "Configure Jira credentials", both
 described by the tooltip; the key ignored. Tab: Advanced Settings → Configure →
 Workflow Steps; Enter opens the prompt. High-contrast themes not checked.
+
+### 37.111 Results starts at its minimum: Workflow 100, Results 1 (after `f309e62`, uncommitted)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and real disposable VS Code windows with brand-new profiles; not committed.
+Manifest weights only; the canonical plan's "Confirmed decisions (Initial
+sidebar layout)" decision 1 is revised.
+
+- **Manifest:** `bugpilot.panel` `initialSize` 3 → 100; `bugpilot.results`
+  stays 1, `visibility: "visible"` both. (VS Code's property is `initialSize`;
+  there is no `size`.) VS Code gives a view `panes × weight / total` once, at
+  the container's first layout, and never less than its minimum; Results'
+  share is now under 148px for any pane area below about 14,800px.
+- **Tried first, 10 to 1:** Results 148px at 800 and 1032px windows, but 181px
+  in a 2100px window — 1986px of panes / 11 — so it holds only up to about
+  1700px. 100 to 1 was the next step.
+
+**Tests.** 1843, all passing. The manifest test now asserts the relationship:
+exactly the two views, Workflow a webview and Results a tree, both visible,
+whole positive weights, Results' weight 1, and Results' weighted share of a
+4000px pane area at or under 148px. Six mutations (Workflow 10, Workflow 3,
+Results 2, Results collapsed, `size` for `initialSize`, a fractional weight)
+each fail it.
+
+**Real window** (VS Code 1.139.1, a new `--user-data-dir` per case, BugPilot
+opened for the first time after the window was sized; Dark Modern unless
+noted):
+
+| Weights | Window | Sidebar | Workflow | Results |
+| --- | --- | --- | --- | --- |
+| 10 : 1 | 800px | 725px | 538px | 148px |
+| 10 : 1 | 1032px | 957px | 770px | 148px |
+| 10 : 1 | 2100px | 2025px | 1805px | 181px |
+| 100 : 1 | 600px | 525px | 338px | 148px |
+| 100 : 1 | 800px | 725px | 538px | 148px |
+| 100 : 1 | 1032px | 957px | 770px | 148px |
+| 100 : 1, Light Modern | 1032px | 957px | 770px | 148px |
+| 100 : 1 | 2100px | 2025px | 1838px | 148px |
+
+Every case: Workflow expanded with Workflow Steps open; Results expanded,
+Current ▼, History ▶, Diagnostics ▶. (3 to 1 had given 173px at 800 and 231px
+at 1032.) Results cannot be dragged below 148px; dragged up to 348px, it stayed
+there through collapsing and expanding either view, a window reload, and View:
+Close Window and a reopen — nothing resets it. A 200px sidebar keeps the
+heights, with no horizontal scroll, Dark and Light.
+
+### 37.112 The Issue's reading moves into its label row (after `f309e62`, uncommitted, on §37.111)
+
+**Status:** implemented, verified in the extension suite, the activation smoke
+test and real disposable VS Code windows (fresh profiles, Dark Modern and Light
+Modern); not committed. The canonical plan has a new "Confirmed decisions
+(Issue reading in the label row)" revising Issue compact input decision 1.
+
+- **Removed:** *Jira ID or bug description* beside the Issue label (the
+  `secondary` option of `settingHeader` and `ISSUE_KINDS` with it), and the
+  `<p class="muted issue-note">` under the box with its CSS.
+- **Moved:** the reading — *Jira issue · JR-12345* or *Bug description* — is a
+  `<span class="setting-note" id="issue-note" hidden>` in the label's row
+  (`settingHeader({ note: true })`), `margin-left: auto`, description colour,
+  0.9em, line height 1. Empty input: hidden, nothing shown. `media/panel.js`
+  is unchanged: it fills the same id with the same words.
+- **Unchanged:** detection (`JIRA_ISSUE_KEY_RE`), the words, the placeholder
+  *Describe the bug or enter a Jira ID*, the tooltip, validation and errors,
+  `aria-describedby="issue-note issue-error issue-help"`, and `#issue-kind`.
+
+**Tests.** 1843, all passing (two panel tests rewritten, none added): the old
+words are absent; the reading sits right after the label inside the header,
+exactly once, nothing after the header names it, no `issue-note` class; no
+live region or `aria-hidden` on it; the CSS rule right-aligns it, lets it wrap
+only on its own line, and leaves no `.issue-note`/`.setting-secondary`. The
+page tests for every key/prose case, the uppercased key, the pause
+announcement and a restored form pass unchanged. Eight mutations (old words
+back, the reading back under the box, duplicated, `aria-hidden`,
+`role="status"`, not right-aligned, the key not uppercased, prose read as a
+key) each fail a test.
+
+**Real window** (VS Code 1.139.1, a new profile per theme):
+
+| Theme | Sidebar | Empty | A lowercase key | Prose |
+| --- | --- | --- | --- | --- |
+| Dark | 360px | nothing | *Jira issue ·* the key uppercased, label's row, right | *Bug description*, same |
+| Dark | 200px | nothing | label's row, right | label's row, right |
+| Light | 360px | nothing | label's row, right | label's row, right |
+| Light | 200px | nothing | label's row, right | label's row, right |
+| Light | 170px | nothing | own line under the label, right | same |
+
+Nothing under the box and no horizontal scroll in any case; the old words are
+not on screen. The reading's arrival makes the row 0.2px taller (1.5px before
+line height 1). Accessibility tree: the box is named *Issue* and described
+*Jira issue · <the key> Enter a Jira issue ID such as JR-12345, …*; the
+reading is not ignored.
+
+### 37.113 Retrieval inputs and Similar Fixes Settings (after `f309e62`, uncommitted, on §37.112)
+
+**Status:** implemented, verified in both suites, the activation smoke test, a
+real CLI run per scenario and real disposable VS Code windows (fresh profiles,
+Dark Modern and Light Modern, an installed VSIX); not committed. The canonical
+plan has a new "Confirmed decisions (Retrieval inputs and Similar Fixes
+Settings)".
+
+- **Advanced Settings**, top to bottom: Issue details; **Retrieval inputs**
+  (Keywords, Focus files — the existing `keywords`/`focusFiles`, moved, not
+  copied); Code search (Ignore paths, Max files, Max search lines); Git
+  history (unchanged, including its two route switches); **Similar fixes**
+  (Use shared keywords, Additional keywords, Max similar fixes); Build
+  context; Fix with AI. Every retrieval section is *Requires rebuild*, from
+  `SETTING_REQUIRES_REBUILD`. The Similar fixes row has a gear now; Retrieval
+  inputs is no row's, and Code search's gear focuses Ignore paths.
+- **Semantics.** Code search always uses the shared Keywords and Focus files.
+  Git history and Similar fixes each opt out inside their own step
+  (`_git_history_query`, `similar_fixes_terms`); `--keywords` still goes out
+  once. Similar fixes never reads Focus files. Its terms are the issue's own
+  extracted terms (recorded by `extract_issue_keywords` as `issue_terms`) +
+  the shared Keywords if on + Additional keywords, deduplicated without case,
+  each scored once.
+- **Core and CLI.** `SimilarFixesOptions` on `InvestigationOptions`
+  (`DEFAULT_MAX_SIMILAR_FIXES = 5`, `MAX_SIMILAR_FIXES_LIMIT = 20`);
+  `memory_search_step(…, options=)`; `search_memory(…, terms=,
+  max_results=)` replaces the hard-coded `[:5]`. `bug` gains
+  `--similar-fixes-keyword`, `--similar-fixes-no-shared-keywords` and
+  `--max-similar-fixes` (refused outside 1–20). The trace logs the settings'
+  shape only. No new artifact.
+- **Extension.** `FormState.similarUseSharedKeywords / similarKeywords /
+  similarMaxFixes`; flags only when not at the default; in the fingerprint,
+  `FORM_FIELD_SCOPE` (session), `restoreForm`, `parseForm` (capped),
+  summaries ("1 additional keyword · shared keywords off · max 2 similar
+  fixes"); the page's switch list is `SETTINGS_SWITCHES` now.
+  `--max-similar-fixes` keeps its value in the log; the keywords are redacted.
+- **Wording.** Tooltips as suggested, except Max similar fixes: "How many
+  similar past fixes to include, from 1 to 20. Empty uses the default, 5." — a
+  panel test keeps "Maximum number of…" off the page, since it restates the
+  label.
+
+**Tests.** Extension 1872 (1843 + 29), all passing; Python 1493
+(30 new in `tests/test_similar_fixes_settings.py`), all passing. Twenty
+mutations each fail a test: Similar fixes reading Focus files, shared Keywords
+still searched when off, an issue word dropped with them, Additional keywords
+ignored, an Additional keyword reaching Code search (Python) or `--keywords`
+(extension), no deduplication, the count hard-coded to 5, the step ignoring
+its settings, the CLI switch or range unwired, Reset keeping Additional
+keywords, Keywords back under Code search (markup or model), the off flag not
+sent, the count unchecked, the fingerprint missing a setting, the page's
+switch list, the row's gear, an old saved form read as off.
+
+**Real CLI** (seeded `.ai_memory`, a hand-written bug that matches some of it,
+`--keywords=OpenVdsBrick`): on — the shared-keyword memory is found; off — it
+is gone and the issue's own matches stay; `--similar-fixes-keyword` — the
+memory only it names is found; `--max-similar-fixes=2` — two; with
+`--skip-similar-fixes` — `memory_search: skipped` and no Similar Fixes list;
+a Focus file only a memory names — not found.
+
+**Real window** (VS Code 1.139.1, ext installed from the VSIX, isolated
+HOME): the seven sections in order with their tags beside the heading at
+360px and under it at 200px, no horizontal scroll, no label clipped, no
+helper line on screen, Dark and Light. Tooltips and accessible descriptions
+read "Also use Retrieval inputs > Keywords when searching similar past
+fixes." and the rest. Cancel and Back discard a draft. The five runs through
+the panel matched the CLI's; applying a setting turned the button to Rebuild
+Context with *Settings changed*; 21 opened Similar fixes with the error on
+the field, `aria-invalid`, focus there, and no run; the unticked row said
+*Skipped* and kept "max 2 similar fixes". Found on the way: every
+hand-written Run mints a new work item and its memory entry then matches later
+runs, so the window's third scenario was repeated on seeds only.
+
+### 37.114 Manage Fix Modes, simplified (after `f309e62`, uncommitted, on §37.113)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (fresh profiles, Dark Modern and Light Modern, an installed
+VSIX, an isolated HOME); not committed. The canonical plan has a new
+"Confirmed decisions (Manage Fix Modes list)". UI only: `media/panel.js`,
+`media/panel.css`, `media/codicons/codicon.css` (eye, trash),
+`src/panel/html.ts` (lede, the list's container, Delete's description, the
+preview's facts as a `<dl>`).
+
+- **Removed from the list**: the id and the version beside every name
+  ("Standard Fix — standard (v1)"), the helper line under each group heading,
+  and the two to four buttons per row. **Moved**: the id, the version, the
+  source, the kind and the origin to View's term list; the helper sentences to
+  the group headings' tooltips.
+- **Added**: folding groups with counts and a word, a kind glyph, badges
+  (*Current*, *Investigation only*, *Overridden by …*), one visible action and
+  a ⋯ menu per row, Delete destructive and described. (Revised by §37.116:
+  every action is on the row and the ⋯ menu is gone; a glyph per built-in.)
+- **Found in the real window and fixed**: a summary given `display: flex`
+  loses its disclosure triangle (back to the native marker, the word floated);
+  badges on the description line cut it to a few words (moved beside the
+  name); `.menu-item-danger` lost to the later `.menu-item { color: inherit }`
+  (now two classes); a ⋯ menu left open was still open on the next visit
+  (closed on leaving the list).
+
+**Tests.** 1885 (1872 + 13), all passing: names without ids or versions,
+three groups with counts, words and tooltips, the open defaults, Project (0)
+closed with its one line, folding kept across a refresh, each kind's actions,
+Delete only in ⋯ and described, the menu's keys and focus, a refresh keeping
+it, leaving closing it, names on the actions, kind glyphs, Current on the
+definition that runs, a created mode's group opening, View's facts, the
+lede, the narrow and no-overflow CSS. Twenty-seven mutations each fail a
+test. The existing manager tests now press Duplicate & Customize through ⋯.
+
+**Real window** (VS Code 1.139.1): at 360px the list is 316px against the old
+build's 603px (five built-ins, the old one with ten buttons and "(v1)" on
+every row); no id or version on screen; overflow 0 at 360 and 200px, Dark and
+Light. ⋯ opens under its row with View / Duplicate & Customize, ArrowDown
+moves, Escape returns to ⋯; a group folds from its heading; Project (0) opens
+to "No project Fix Modes yet." View showed ID standard, Version 1, Source
+Built-in, Kind Fix. Duplicate & Customize → Create made "Conservative Fix
+(copy)" in User, which opened with the row marked; Edit saved a new
+description; Delete went through VS Code's "Delete Fix Mode" confirmation
+and User was empty again — twice in Dark, once in Light. At 200px each row is
+its name, its ⋯ and a wrapped badge. Harness note: the first CDP screenshot
+of a session made the next synthetic click miss (reproduced on purpose; never
+without a screenshot) — not something a person's click can hit.
+
+### 37.115 The Fix Mode detail page (after `f309e62`, uncommitted, on §37.114)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (fresh profiles, Dark Modern and Light Modern, an installed
+VSIX, an isolated HOME); not committed. The canonical plan has a new
+"Confirmed decisions (Fix Mode detail page)". Files: `media/panel.js`,
+`media/panel.css`, `media/codicons/codicon.css` (arrow-left, chevron-down,
+target, tools, check-all), `src/panel/html.ts` (the page's header, sections
+container, closed Details), `src/app/controller.ts` (one line: a deleted
+mode's view closes).
+
+- **Removed from the page's face**: "Built-in · v1 · fix" under the title and
+  the action row at the foot. **Moved**: id, version, type, source and origin
+  to Details, closed; the action to the header.
+- **Added**: the kind glyph, the source badge, *Customize copy* (also the
+  list's wording now), Edit and ⋯ for a custom mode, six disclosure sections
+  with glyphs, chevrons and a closed section's first line, requirements as a
+  list along the text's own lines or sentences.
+- **Found in the real window and fixed**: the description squeezed beside the
+  action (now under the title row, full width); a copy cancelled from the page
+  returned to the list, because the page spent its way back on the first of
+  the host's two pushes (it now holds until the page is left; Back clears it);
+  a mode deleted from its page stayed on screen (the host closes the view; the
+  page drops a preview whose mode left the catalog); *Implementation* broke
+  between its last two letters at 200px (narrow padding and gaps).
+- **Not done, deliberately**: a mode-specific header icon (beaker for
+  Test-Driven Fix, and so on) — the extension may not key on built-in ids
+  (§37.114's decision 7); the glyph is by kind. (Done in §37.116, through one
+  glyph table the narrowed guard allows; a custom mode's Duplicate and Delete
+  left the ⋯ for the header too.)
+
+**Tests.** 1897 (1885 + 12), all passing: the header (glyph by kind, heading,
+badge per source, description, Customize copy in the header with its label
+and message), nothing of id, version or type on the face, Details closed with
+the facts, the six sections' defaults, glyphs, tones, chevrons and one
+lines, full text on opening, lists only along the text's own seams, folds
+across a refresh and per mode, a custom mode's Edit and ⋯ with its keys,
+focus back on Customize copy, the way back through two pushes, a deleted
+mode leaving the page, the host closing a deleted mode's view, the markup and
+the no-overflow CSS. Twenty-five mutations each fail a test; the list's
+mutations were run again after its menu keys moved to a shared helper.
+
+**Real window** (VS Code 1.139.1): Test-Driven Fix at 360px — glyph, title,
+*Built-in*, *Customize copy* on one line, the description in two full-width
+lines, the four sections open, Constraints and Completion requirements closed
+to a cut line, Details closed; at 200px the action under the title, every
+section title whole. No id, version or type on the page and no horizontal
+scroll, Dark and Light. Enter on Constraints opens it (the accessibility tree:
+a disclosure named "Constraints", expanded) to its three sentences as
+bullets, Enter again closes it; Details shows ID test-driven, Version 1, Type
+Fix, Source Built-in. Customize copy → New Fix Mode (*Back to Fix Mode
+Preview*) → Cancel → the page, focus on Customize copy; Back → the list. A
+user copy: *User*, Edit → Edit Fix Mode, ⋯ → Duplicate (→ New Fix Mode,
+Cancel → the page, focus on ⋯) and Delete (red) → VS Code's confirmation →
+the list, empty; View → Delete straight away → the list too.
+
+### 37.116 Fix Mode rows: inline actions and a glyph per mode (after `f309e62`, uncommitted, on §37.115)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (fresh profiles, Dark Modern and Light Modern, an installed
+VSIX, an isolated HOME); not committed. The canonical plan has a new
+"Confirmed decisions (Fix Mode inline actions and glyphs)". Presentation and
+action placement only: `media/panel.js`, `media/panel.css`,
+`media/codicons/codicon.css` (tasklist, shield, beaker, graph in; eye out),
+`src/panel/html.ts` (the detail page's menu container gone), and
+`test/fixModes.test.ts` (the id guard narrowed to one table). Loading, ids,
+schema, built-in definitions, storage, the `fixModeAction` messages, Delete's
+confirmation, the selected mode and the CLI are unchanged.
+
+- **Removed**: the ⋯ button and its menu on every row and on a custom mode's
+  detail page, with their state (`openModeMenuKey`, `manageMenus`,
+  `previewMore`), handlers (`openModeMenu`, `closeModeMenu`,
+  `closePreviewMenu`, `menuKeys`), markup (`#preview-menu`) and CSS
+  (`.manage-menu`, `.manage-more`, `.manage-primary`, `.menu-item-danger`,
+  `.preview-menu`). View on a custom row: Edit shows every field and Cancel
+  leaves it unchanged, so the read-only page is now the built-ins' (it still
+  renders a custom mode the host hands it, with the same inline actions).
+  ⋯ More beside Run and its shared menu styles are untouched.
+- **Added**: every action on the row — *View · Customize copy* on a built-in,
+  *Edit · Duplicate · Delete* on a user or project mode (the same
+  permissions). Words with no box: Customize copy and Edit in the link
+  colour, View and Duplicate in the description's, Delete in the error colour
+  at the same size. The description and the actions share a line while the
+  description keeps 8em, then the actions wrap under it at the right (no
+  breakpoint). At 300px and below, Customize copy, Duplicate and Delete show
+  the copy or trash glyph in place of the word; View and Edit keep theirs.
+  Hover and keyboard focus (`:focus-within`) light the row and bring View and
+  Duplicate up to the foreground — colours only, so nothing moves. (Revised
+  by §37.117: hidden at rest and revealed over the description's end.)
+  *Investigation only* has a line of its own under the description; *Current*
+  stays beside the name and is now in the row's accessible name and
+  `aria-current` as well.
+- **Glyphs**: `BUILTIN_MODE_ICONS` in `panel.js` — standard tasklist (blue),
+  conservative shield (green), investigate-first search (purple), test-driven
+  beaker (amber), deep-analysis graph (magenta). The tints are CSS keyed by
+  glyph: theme chart colours 80% toward the foreground, the foreground in High
+  Contrast. A copy takes its origin's glyph through `basedOn`, through copies
+  of copies, built-ins first; anything else gets its kind's (lightbulb, or
+  search for an investigation). The detail page uses the same function.
+  Tasklist rather than checklist, because Standard Fix's own page shows the
+  checklist on Completion requirements.
+- **The guard, narrowed** (the user's choice over keeping kind glyphs or adding
+  an icon hint to core): built-in ids may appear only inside that table; its
+  entries must be `"id": "codicon-…"` and nothing else; only `modeIcon` reads
+  it; no other file has one. An omission costs a glyph, never behaviour.
+
+**Tests.** 1899 (1897 − 1 + 3), all passing. The menu tests became row-action
+tests: each row's actions and the messages they send, for built-in, user and
+project; no ⋯, menu or popup in the list; Delete destructive, described,
+confirmed by the host; reading order and focus kept across a refresh; names
+and tooltips per action, the glyphs a narrow row shows, the tones. A catalog
+of all five built-ins, one the table does not know, copies, a copy of a copy,
+a cross-scope copy, a missing origin, a copy cycle, and a project mode reusing
+a built-in id pins every glyph. The detail page: the same glyph, Edit /
+Duplicate / Delete in the header, focus back on Duplicate. CSS: the grid, the
+wrapping line, no hiding at rest, hover and focus changing colours only, the
+300px swap, the tints and High Contrast. Thirty-nine mutations each fail a
+test.
+
+**Real window** (VS Code 1.139.1, Dark Modern and Light Modern): no ⋯, menu
+or horizontal overflow at 360, 260 and 200px. At 360px every row is two lines
+with *View · Customize copy* beside the description (Investigate First adds
+its badge line); at 260px Customize copy becomes the copy glyph and stays on
+the line; at 200px the actions wrap under the description, at the right. The
+five glyphs in five hues in both themes. Hover and Tab both light the row
+(and, in Dark, brighten View); icon, name, description and actions keep their
+exact boxes. Tab walks View then Customize copy, row by row, each with the
+focus ring; Enter opens a preview (beaker), Space on Customize copy opens New
+Fix Mode, Cancel returns there with focus on Customize copy. Customize copy →
+Create gave *Conservative Fix (copy)* with the shield, a project copy of Deep
+Analysis the graph, and a Duplicate of the copy (named *Careful Twice*) the
+shield again. Edit saved a new description. Delete brought VS Code's "Delete
+Fix Mode" dialog: Cancel kept the row, confirming removed it, for the user and
+the project row alike. This ran at 360px in Dark and through the glyph-only
+buttons at 200px in Light. Chromium's accessibility tree: "Customize a copy of
+Standard Fix", "Duplicate Conservative Fix (copy)", "Delete Conservative Fix
+(copy)" with the confirm-first description, and the row named "Standard Fix
+Current". Writes went to the scratch HOME and repo only.
+
+### 37.117 Fix Mode actions revealed on hover or focus (after `f309e62`, uncommitted, on §37.116)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (Dark Modern and Light Modern, an installed VSIX, an isolated
+HOME); not committed. The canonical plan has a new "Confirmed decisions (Fix
+Mode hover actions)". CSS only: `media/panel.css`. No change to `panel.js`,
+the markup, the icons, the commands, the grouping or the badges.
+
+- **Why §37.116 was still crowded**: its actions were always painted and
+  always took a share of the description's line — 140 px of words at 360 px
+  — so the description kept about half the row (160 px at 360, 158 at 280),
+  and below the 8em floor they took a line of their own (rows 66 px at
+  200 px instead of 49).
+- **Now, where a pointer can hover** (`@media (hover: hover)`): the action
+  group is absolutely positioned over the right end of the description's
+  line, `opacity: 0` and `pointer-events: none` at rest; `.manage-row:hover`
+  and `:focus-within` bring it to `opacity: 1` and `pointer-events: auto`
+  (100 ms, none under reduced motion). It lies on a backdrop of the row's lit
+  colour (`--manage-row-lit`, the list hover colour) over the ground
+  (`--manage-ground`, sideBar then editor background, the sticky Settings
+  footer's), fading in over 20 px from the left. The row's hover fill is the
+  cue; High Contrast gets a dashed outline instead. An empty description
+  keeps its line (a zero-width space), so the group always has one to sit on.
+- **Unchanged where nothing can hover**: the §37.116 rules are the base, so a
+  touch device keeps the actions shown in the line.
+- **Resting opacity 0, not 0.1–0.2**: over the description, faint words would
+  sit on top of its text (seen in the real window's layout, not tried).
+
+**Tests.** 1901 (1899 + 2), all passing: every row renders exactly one
+action group with its buttons, never hidden, disabled, `aria-hidden`, styled
+inline or out of the tab order, and no badge inside it; the `(hover: hover)`
+block hides with opacity and pointer-events only, positions the group over
+the line, reveals on `:hover` and `:focus-within`, carries the backdrop and
+touches nothing but the actions; outside it nothing hides them; hover and
+focus rules change paint only; the reduced-motion and High Contrast rules;
+nowhere `display: none` or `visibility: hidden` on an action except the
+narrow word/glyph swap. The §37.116 CSS test now allows opacity,
+pointer-events and outline in the lit rules. Seventeen mutations each fail a
+test.
+
+**Real window** (VS Code 1.139.1, `(hover: hover)` true), at 360, 280 and
+200 px, Dark Modern and Light Modern: rows at rest are icon, name, badges and
+description — 45 px (Investigate First 64), no action words; the description
+is 309 px wide at 360 (160 before), 229 at 280 (158), 149 at 200 (134).
+Hovering Standard Fix, Investigate First and a user copy: opacity 0 → 1,
+the row lit, the action topmost at its place, and the icon, name, badges,
+description and Investigation only exactly where they were, row height
+unchanged; moving off, opacity back to 0. No horizontal overflow, no ⋯.
+Keyboard: Tab from the Built-in heading lands on View (invisible until
+focused), the group appears with the focus ring and the row lit; focus
+leaving hides it; Enter on View opens the preview; Tab to a user row's
+Delete (the red trash at 200 and 280 px) and Enter brings VS Code's "Delete
+Fix Mode" confirmation, Cancel keeps the mode. Pointer: Customize copy,
+Duplicate, Edit and Delete each opened what they always did (a project copy
+created, duplicated, edited and deleted through the confirmation); a press
+at Customize copy's place with no hover first did nothing.
+
+### 37.118 The Fix Mode editor, New and Edit (after `f309e62`, uncommitted, on §37.117)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (Dark Modern, Light Modern, a High Contrast smoke check, an
+installed VSIX, an isolated HOME); not committed. The canonical plan has a
+new "Confirmed decisions (Fix Mode editor)". **New Fix Mode and Edit Fix Mode
+use the same responsive Fix Mode editor UI** — they always shared one form;
+now they share one designed layout, written per intent. Files:
+`src/panel/html.ts` (`EDITOR_SECTIONS` with glyph, tone, default fold and
+rows; the editor view as one `EDITOR_VIEW`), `media/panel.js` (`renderEditor`
+by intent, folds, snippets, growing boxes, field errors), `media/panel.css`,
+`media/codicons/codicon.css` (settings, tag, note, folder, save, eye). No
+schema, storage, validation or message change; core untouched.
+
+- **Removed from the face**: *Based on standard version 1 · Current version
+  3* (now *Based on Standard Fix*; ids and versions as tooltips), one long
+  column of eleven fields, *Preview Generated Instructions* (now *Preview*),
+  three buttons at the very end of a long page.
+- **Added**: the head line (*Create a custom AI fixing workflow.* or the
+  mode's name); **Basic info** and **Workflow instructions** as two quiet
+  containers with glyphs; label glyphs (Name edit, ID tag, Description note,
+  Execution kind play, Scope folder) through the Workflow Settings header;
+  Execution kind and Scope side by side once each keeps 15em; the six
+  sections as the detail page's disclosures (glyphs and tones held equal to
+  its by a test), Constraints and Completion Requirements folded with their
+  first line or *No … yet*; boxes that grow (and re-measure on a width
+  change), ceiling 48em; a sticky footer — *Create Fix Mode*/*Save Fix Mode*
+  primary with add/save glyph, *Preview* with eye and tooltip, *Cancel* with
+  close; per-field errors for a refused save that names a field, its section
+  opened; fixed fields dimmed.
+- **New vs Edit**: New — editable ID and Scope, *Lowercase letters, digits
+  and hyphens.*, the ID's and Scope's permanence only as tooltips (Scope's as
+  its description, no visible helper), *Create Fix Mode*. Edit — ID and Scope
+  disabled and dimmed, *Fixed once the mode exists.* beside both, *Save Fix
+  Mode*. New is still opened only by Customize copy or Duplicate.
+- **A decision reversed**: the editor's boxes used to be deliberately not
+  grown (a test said so); they grow now, by the editor's own listener and
+  never through `GROWING_FIELDS` — the trap that test recorded still holds.
+- **Found in the real window and fixed**: at 200px Investigation hit a 24em
+  ceiling and scrolled inside the page (ceiling 48em); the footer took three
+  rows at 200px (Preview and Cancel drop their glyphs at ≤ 220px — two rows);
+  at 14em per column "User — your home directory" ran under the select's
+  arrow at a 440px sidebar (15em, and an ellipsis); a 26px right padding meant
+  to clear the arrow was counted twice and cut that text by a pixel at 280px
+  (removed — the arrow's room is the select's own); dragging the sidebar with
+  the editor open left boxes sized for the old width, up to 238px of text
+  behind a box's scrollbar at 200px and 102px blank at 400px (a
+  ResizeObserver on the view, by width, as the Issue field has); a disabled
+  ID read as editable (dimmed).
+
+**Tests.** 1910 (1901 + 9), all passing: the editor's markup (one view; the
+head; the two sections and their glyphs; the five Basic info fields in
+order with their label glyphs, errors and descriptions; the pair; the six
+disclosures with glyph, tone, fold, label and error; the footer last, after
+Preview's pane, with Save's glyph and label span and Preview's short label
+and tooltip; no *Preview Generated Instructions*); the glyph/tone/fold
+equality with the detail page; the CSS (wrapping pair, min-width 0,
+full-width controls, sticky wrapping footer, its scroll padding, the narrow
+glyph rule, select ellipsis, disabled dimming, High Contrast, no fixed width
+or colour); New and Edit each (head, origin, helpers, locks, primary action
+and glyph); folds (defaults, toggling by header, kept through a push, reset
+on the next visit, never an edit); Save and Preview reading folded sections;
+a refused save under its field, opened, focused, scrolled once, the id's, and
+one naming no field at the top; growth by typing, on opening a section and
+on a width change. The labelling test accepts an `aria-labelledby` that names
+visible text; the base textarea ceiling test reads the base rule; "only
+Workflow Steps starts open" now lists the editor's four. Twenty-seven
+mutations each fail a test.
+
+**Real window** (VS Code 1.139.1; the window 618px tall): New (Customize copy
+of Conservative Fix, and of Deep Analysis into Project) and Edit (a user copy,
+and the project copy), at 360, 280 and 200px, Dark and Light: no horizontal
+overflow; Execution kind and Scope stacked (side by side from 480px, checked
+to 520px); no box scrolling inside itself; the footer at the panel's foot
+when scrolled to the middle (one row for Edit at 360px, else the primary
+over Preview and Cancel) and after the last section at the end. Folded
+sections show their first line. Keyboard: arrival on the title (heading
+level 2, described by its line); Basic info a level-3 heading; Constraints a
+disclosure, *expanded* false → Enter → true → Space → false, with its focus
+ring; Tab from Verification through the two folded headers to Create/Save,
+Preview, Cancel, each above the panel's bottom with its ring; Enter on Preview
+shows the six sections with its heading focused; Cancel creates nothing.
+Accessible names: Preview "Preview" described "Preview the generated AI
+instructions."; a new mode's Scope described by the creation note. A
+project mode created, then edited: Constraints emptied and folded (*No
+constraints yet*), Save → core's "Fix Mode field 'constraints' must not be
+empty." under Constraints, the section open, the box invalid and focused,
+above the footer, no banner; text restored → saved; deleted through VS Code's
+confirmation. High Contrast (280px): borders, glyphs in the foreground, no
+overflow, the footer sticky.

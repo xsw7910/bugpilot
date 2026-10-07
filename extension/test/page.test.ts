@@ -82,6 +82,8 @@ class FakeElement {
   value = "";
   checked = false;
   type = "";
+  /** A tooltip the page sets as a property, as it does on the Fix Mode list's rows. */
+  title = "";
   #disabled = false;
 
   get disabled(): boolean {
@@ -2019,6 +2021,33 @@ test("a validation problem in a settings field opens Workflow Settings there", (
   assert.equal(p.focused, "maxFiles");
 });
 
+test("an invalid Max similar fixes opens Similar fixes, on the field, marked and described (§37.113)", () => {
+  const p = load();
+  const message = "Enter a whole number from 1 to 20, or leave it empty.";
+  p.send(state({ problems: [{ field: "similarMaxFixes", message }] }));
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  assert.ok(p.byId("settings-section-similar-fixes").classes.has("settings-section-target"));
+  assert.equal(p.byId("settings-section-code-search").classes.has("settings-section-target"), false);
+  assert.equal(p.byId("similarMaxFixes-error").textContent, message);
+  assert.equal(p.byId("similarMaxFixes-error").hidden, false);
+  // Invalid, and said with the field: the error is part of its description.
+  assert.equal(p.byId("similarMaxFixes").getAttribute("aria-invalid"), "true");
+  assert.equal(p.focused, "similarMaxFixes");
+  // Fixed: the mark and the message go.
+  p.send(state({ problems: [] }));
+  assert.equal(p.byId("similarMaxFixes-error").hidden, true);
+  assert.equal(p.byId("similarMaxFixes").getAttribute("aria-invalid"), "false");
+});
+
+test("a Keywords problem opens Retrieval inputs, where the shared Keywords live (§37.113)", () => {
+  const p = load();
+  p.send(state({ problems: [{ field: "keywords", message: "Too long." }] }));
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  assert.ok(p.byId("settings-section-retrieval-inputs").classes.has("settings-section-target"));
+  assert.equal(p.byId("settings-section-code-search").classes.has("settings-section-target"), false);
+  assert.equal(p.focused, "keywords");
+});
+
 /** An attachment row's parts: the line with the icon, name and ×; then the description. */
 const attachmentName = (row: FakeElement) => row.children[0]!.children[1]!;
 const attachmentRemove = (row: FakeElement) => row.children[0]!.children[2]!;
@@ -2622,8 +2651,26 @@ test("both definitions of a shadowed id are listed, and which one runs is said i
   const text = JSON.stringify(page.byId("manage-list"));
   assert.ok(text.includes("My Safe Fix"), "the user's own copy is missing");
   assert.ok(text.includes("Team Safe Fix"), "the project copy is missing");
-  assert.ok(text.includes("overridden by project"), "nothing says which one runs");
-  assert.ok(text.includes("investigation only"), "the investigation kind is not shown");
+  // Badges on the shadowed and the investigating rows (§37.114).
+  assert.deepEqual(badgesOf(page, "My Safe Fix"), ["Overridden by project"], "nothing says which one runs");
+  assert.ok(badgesOf(page, "Team Safe Fix").includes("Investigation only"), "the investigation kind is not shown");
+  // The description shares its line with the actions only, so no badge ever
+  // cuts it short (found in the real window, §37.114); Investigation only is
+  // on a line of its own under it, and Overridden beside the name (§37.116).
+  const textBox = flatten(rowFor(page, "Team Safe Fix")).find((node) => node.classes.has("manage-text"))!;
+  const [head, line, kind] = textBox.children;
+  assert.ok(head!.classes.has("manage-title"));
+  assert.deepEqual(head!.children.map((node) => node.textContent), ["Team Safe Fix"]);
+  assert.ok(line!.classes.has("manage-line"));
+  const [description, actions] = line!.children;
+  assert.ok(description!.classes.has("manage-description"));
+  assert.equal(description!.children.length, 0);
+  assert.ok(actions!.classes.has("manage-actions"));
+  assert.ok(kind!.classes.has("manage-kind"));
+  assert.deepEqual(kind!.children.map((node) => node.textContent), ["Investigation only"]);
+  const mine = flatten(rowFor(page, "My Safe Fix")).find((node) => node.classes.has("manage-title"))!;
+  assert.deepEqual(mine.children.map((node) => node.textContent), ["My Safe Fix", "Overridden by project"]);
+  assert.equal(flatten(rowFor(page, "My Safe Fix")).some((node) => node.classes.has("manage-kind")), false);
 });
 
 test("a built-in offers view and duplicate, a custom mode offers edit and delete", () => {
@@ -2631,7 +2678,7 @@ test("a built-in offers view and duplicate, a custom mode offers edit and delete
   page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY } }));
 
   const labels = JSON.stringify(page.byId("manage-list"));
-  assert.ok(labels.includes("Duplicate & Customize"));
+  assert.ok(labels.includes("Customize copy"));
   assert.ok(labels.includes("Edit"));
   assert.ok(labels.includes("Delete"));
 });
@@ -2649,8 +2696,15 @@ test("the editor fills every section and fixes what may not change", () => {
   assert.equal(page.byId("editor-id").disabled, true);
   assert.equal(page.byId("editor-scope").disabled, true);
   assert.equal(page.byId("editor-name").disabled, false);
-  assert.match(page.byId("editor-origin").textContent, /Based on standard version 1/);
-  assert.match(page.byId("editor-origin").textContent, /Current version 3/);
+  // The head says what is edited and where it came from, by name (§37.118);
+  // the ids and versions stay in the model, as the lines' tooltips.
+  assert.equal(page.byId("editor-subject").textContent, "My Safe Fix");
+  assert.equal(page.byId("editor-subject").title, "my-safe, version 3");
+  assert.equal(page.byId("editor-origin").textContent, "Based on Standard Fix");
+  assert.equal(page.byId("editor-origin").title, "standard, version 1");
+  assert.equal(page.byId("editor-origin").hidden, false);
+  const head = ["editor-title", "editor-subject", "editor-origin"].map((id) => page.byId(id).textContent).join(" ");
+  assert.equal(/version|\bv\d|standard\b|my-safe/.test(head), false, head);
 });
 
 test("a new mode may choose its id and scope", () => {
@@ -2664,7 +2718,7 @@ test("a new mode may choose its id and scope", () => {
 
   assert.equal(page.byId("editor-id").disabled, false);
   assert.equal(page.byId("editor-scope").disabled, false);
-  assert.equal(page.byId("editor-save").textContent, "Create Fix Mode");
+  assert.equal(page.byId("editor-save-label").textContent, "Create Fix Mode");
 });
 
 test("a built-in is shown as something to read, not a form to fail to type into", () => {
@@ -2684,16 +2738,25 @@ test("a built-in is shown as something to read, not a form to fail to type into"
   assert.equal(page.byId("fix-mode-preview-view").hidden, false);
   assert.equal(page.byId("fix-mode-editor-view").hidden, true);
   assert.equal(page.byId("preview-heading").textContent, "Standard Fix");
-  assert.match(page.byId("preview-meta").textContent, /Built-in/);
+  // The facts the page leaves off its face are in Details, closed (§37.115).
+  assert.equal(page.byId("preview-details").open, false);
+  assert.deepEqual(facts(page), [
+    ["ID", "my-safe"],
+    ["Version", "3"],
+    ["Type", "Fix"],
+    ["Source", "Built-in"],
+    ["Based on", "standard, version 1"],
+  ]);
   const body = JSON.stringify(page.byId("preview-body"));
   assert.ok(body.includes("Objective"), "the preview does not show the instructions");
   assert.ok(body.includes("Objective."), "the preview does not show the mode's own text");
 
   // A built-in is copied, never written.
   const actions = JSON.stringify(page.byId("preview-actions"));
-  assert.ok(actions.includes("Duplicate & Customize"));
+  assert.ok(actions.includes("Customize copy"));
   assert.ok(!actions.includes("Edit"), "a built-in offers an edit");
   assert.ok(!actions.includes("Delete"), "a built-in offers a delete");
+  assert.deepEqual(page.byId("preview-actions").children.map((node) => node.id), ["preview-customize"]);
 });
 
 test("saving sends what the editor holds, not what it was opened with", () => {
@@ -2985,22 +3048,61 @@ function flatten(node: FakeElement): FakeElement[] {
   return [node, ...node.children.flatMap(flatten)];
 }
 
-/** The button a developer would press on the row for `mode`. */
+/** What a control says on screen: its own text and its parts', in order. */
+function words(node: FakeElement): string {
+  return node.textContent + node.children.map(words).join("");
+}
+
+/** The row's action buttons, in order (§37.116: every one is on the row). */
+function rowActions(page: Page, mode: string): FakeElement[] {
+  return flatten(rowFor(page, mode)).filter((node) => node.classes.has("manage-action"));
+}
+
+/** The row's action with these words. */
 function rowAction(page: Page, mode: string, label: string): FakeElement {
-  const rows = flatten(page.byId("manage-list")).filter((node) => node.classes.has("manage-row"));
-  const row = rows.find((candidate) =>
-    flatten(candidate).some((node) => node.textContent.includes(mode)),
-  );
-  assert.ok(row, `the manager has no row for ${mode}`);
-  const button = flatten(row).find((node) => node.textContent === label);
+  const button = rowActions(page, mode).find((node) => words(node) === label);
   assert.ok(button, `the row for ${mode} has no ${label}`);
   return button;
 }
 
+/** The codicon a glyph element draws. */
+function glyphOf(node: FakeElement | undefined): string | undefined {
+  return node ? [...node.classes].find((name) => name.startsWith("codicon-")) : undefined;
+}
+
+/** The badges on the row for `mode`. */
+function badgesOf(page: Page, mode: string): string[] {
+  return flatten(rowFor(page, mode)).filter((node) => node.classes.has("manage-badge")).map((node) => node.textContent);
+}
+
+/** The preview's facts as term/value pairs. */
+function facts(page: Page): string[][] {
+  const children = page.byId("preview-meta").children;
+  const pairs: string[][] = [];
+  for (let index = 0; index + 1 < children.length; index += 2) pairs.push([children[index]!.textContent, children[index + 1]!.textContent]);
+  return pairs;
+}
+
+/** A group of the list: its disclosure, the heading's words and its rows. */
+function groupOf(page: Page, scope: string) {
+  const section = page.byId("manage-list").children.find((node) => node.id === `manage-group-${scope}`);
+  assert.ok(section, `no ${scope} group`);
+  const summary = section.children[0]!;
+  return {
+    section,
+    summary,
+    title: summary.children[0]!.textContent,
+    note: summary.children[1]!.textContent,
+    rows: flatten(section).filter((node) => node.classes.has("manage-row")),
+    empty: section.children.find((node) => node.classes.has("manage-empty"))?.textContent,
+  };
+}
+
+/** The detail page's action with these words: a header button (§37.115), every one of them (§37.116). */
 function previewAction(page: Page, label: string): FakeElement {
-  const button = flatten(page.byId("preview-actions")).find((node) => node.textContent === label);
-  assert.ok(button, `the preview has no ${label}`);
-  return button;
+  const header = page.byId("preview-actions").children.find((node) => words(node) === label);
+  assert.ok(header, `the preview has no ${label}`);
+  return header;
 }
 
 const manager = () => state({ fixModes: MODES, manage: { catalog: MANAGED_READY } });
@@ -3018,7 +3120,7 @@ const BUILTIN_VIEW = {
   source: "builtin",
 };
 const CUSTOM_VIEW = { ...DRAFT, intent: "view" as const, source: "user" };
-/** What the controller builds for Duplicate & Customize on a built-in. */
+/** What the controller builds for Customize copy on a built-in. */
 const COPY = {
   ...DRAFT,
   intent: "create" as const,
@@ -3037,14 +3139,339 @@ test("the manager opens with no preview and no editor behind it", () => {
   assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
 });
 
-test("a built-in row offers reading and copying; a custom row offers all four", () => {
+test("every action is on its row: View and Customize copy on a built-in; Edit, Duplicate and Delete on a user or project mode (§37.116)", () => {
   const page = load();
   page.send(manager());
 
-  for (const label of ["View", "Duplicate & Customize"]) rowAction(page, "Standard Fix", label);
-  for (const label of ["View", "Edit", "Duplicate", "Delete"]) {
-    rowAction(page, "My Safe Fix", label);
+  const labels = (mode: string) => rowActions(page, mode).map(words);
+  assert.deepEqual(labels("Standard Fix"), ["View", "Customize copy"]);
+  assert.deepEqual(labels("My Safe Fix"), ["Edit", "Duplicate", "Delete"]);
+  // A project mode has a user mode's permissions.
+  assert.deepEqual(labels("Team Safe Fix"), ["Edit", "Duplicate", "Delete"]);
+  // A built-in is never edited or deleted, from anywhere.
+  assert.equal(JSON.stringify(rowFor(page, "Standard Fix")).includes("Delete"), false);
+  assert.equal(JSON.stringify(rowFor(page, "Standard Fix")).includes('"Edit"'), false);
+  // No ⋯ and no menu anywhere in the list: nothing to open first.
+  const list = flatten(page.byId("manage-list"));
+  assert.equal(list.some((node) => node.classes.has("codicon-ellipsis")), false, "a ⋯ glyph is back");
+  assert.equal(list.some((node) => /^menu/.test(node.getAttribute("role") ?? "")), false, "a menu is back");
+  assert.equal(list.some((node) => node.getAttribute("aria-haspopup") !== undefined), false, "something opens a popup");
+  // Each is a plain button that sends the message the row always sent.
+  for (const [mode, label, action, id, scope] of [
+    ["Standard Fix", "View", "view", "standard", "builtin"],
+    ["Standard Fix", "Customize copy", "duplicate", "standard", "builtin"],
+    ["My Safe Fix", "Edit", "edit", "my-safe", "user"],
+    ["My Safe Fix", "Duplicate", "duplicate", "my-safe", "user"],
+    ["My Safe Fix", "Delete", "delete", "my-safe", "user"],
+    ["Team Safe Fix", "Edit", "edit", "my-safe", "project"],
+    ["Team Safe Fix", "Duplicate", "duplicate", "my-safe", "project"],
+    ["Team Safe Fix", "Delete", "delete", "my-safe", "project"],
+  ] as const) {
+    const button = rowAction(page, mode, label);
+    assert.equal(button.type, "button");
+    assert.equal(button.hidden, false);
+    assert.equal(button.disabled, false);
+    button.dispatch("click");
+    assert.deepEqual(page.posted.at(-1), { type: "fixModeAction", action, id, scope }, `${mode}: ${label}`);
   }
+});
+
+test("the list shows names, not ids or versions (§37.114)", () => {
+  const page = load();
+  page.send(manager());
+
+  const names = flatten(page.byId("manage-list"))
+    .filter((node) => node.classes.has("manage-name"))
+    .map((node) => node.textContent);
+  assert.deepEqual(names, ["Standard Fix", "My Safe Fix", "Team Safe Fix"]);
+  // No text on the list carries a version or an id: not "(v1)", not "v3",
+  // not "— standard", not "my-safe".
+  const words = flatten(page.byId("manage-list")).map((node) => node.textContent).join(" | ");
+  assert.equal(/\bv\d+\b|\(v\d|—\s*[a-z-]+ \(|\bmy-safe\b|\bstandard\b/.test(words), false, words);
+  // One line of description under each name: the mode's own words.
+  const descriptions = flatten(page.byId("manage-list"))
+    .filter((node) => node.classes.has("manage-description"))
+    .map((node) => [node.textContent, node.title]);
+  assert.deepEqual(descriptions, [["Default.", "Default."], ["Mine.", "Mine."], ["Ours.", "Ours."]]);
+});
+
+test("Built-in, User and Project are three disclosures with a count and a word (§37.114)", () => {
+  const page = load();
+  page.send(manager());
+
+  const groups = ["builtin", "user", "project"].map((scope) => groupOf(page, scope));
+  assert.deepEqual(groups.map((group) => [group.title, group.note]), [
+    ["Built-in (1)", "Read-only"],
+    ["User (1)", "Personal"],
+    ["Project (1)", "Shared"],
+  ]);
+  // The sentences that were a line under each heading are their tooltips now.
+  assert.deepEqual(groups.map((group) => group.summary.title), [
+    "Packaged with BugPilot. Read-only.",
+    "Yours, in your home directory.",
+    "This repository's, shareable with the team.",
+  ]);
+  // Each holds its own rows, and every group with modes starts open.
+  assert.deepEqual(groups.map((group) => group.rows.length), [1, 1, 1]);
+  assert.deepEqual(groups.map((group) => group.section.open), [true, true, true]);
+  // No permanent helper line under a heading any more.
+  assert.equal(JSON.stringify(page.byId("manage-list")).includes("None yet"), false);
+});
+
+test("an empty group starts closed and says one small thing when opened (§37.114)", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: { ...MANAGED_READY, user: [], project: [] } } }));
+
+  const builtin = groupOf(page, "builtin");
+  const user = groupOf(page, "user");
+  const project = groupOf(page, "project");
+  assert.equal(builtin.section.open, true, "Built-in starts open");
+  assert.equal(user.section.open, false, "an empty User starts open");
+  assert.equal(project.section.open, false, "an empty Project starts open");
+  assert.equal(project.title, "Project (0)");
+  assert.equal(project.empty, "No project Fix Modes yet.");
+  assert.equal(user.empty, "No user Fix Modes yet.");
+  assert.equal(project.rows.length, 0);
+});
+
+test("a group folds and unfolds from its heading, and stays as left across a refresh (§37.114)", () => {
+  const page = load();
+  page.send(manager());
+
+  let prevented = false;
+  groupOf(page, "builtin").summary.dispatch("click", { preventDefault: () => (prevented = true) });
+  assert.equal(prevented, true, "the element's own toggle also ran");
+  assert.equal(groupOf(page, "builtin").section.open, false);
+  // A catalog refresh rebuilds the list; the fold is the developer's.
+  page.send(manager());
+  assert.equal(groupOf(page, "builtin").section.open, false, "a refresh reopened Built-in");
+  groupOf(page, "builtin").summary.dispatch("click");
+  assert.equal(groupOf(page, "builtin").section.open, true);
+  // The heading is the disclosure's summary: a native, focusable control.
+  assert.equal(groupOf(page, "project").summary.id, "manage-group-head-project");
+});
+
+test("Delete is on the row, destructive in colour and in words, and still asks the host (§37.116)", () => {
+  const page = load();
+  page.send(manager());
+
+  const remove = rowAction(page, "My Safe Fix", "Delete");
+  assert.ok(remove.classes.has("manage-action-danger"));
+  assert.equal(remove.getAttribute("aria-describedby"), "manage-delete-help");
+  assert.equal(remove.getAttribute("aria-label"), "Delete My Safe Fix");
+  // No bigger than its neighbours: the same kind of button, only its tone differs.
+  for (const button of rowActions(page, "My Safe Fix")) assert.ok(button.classes.has("manage-action"));
+  remove.dispatch("click");
+  // The same message as before: the host asks for confirmation and deletes.
+  assert.deepEqual(page.posted.at(-1), { type: "fixModeAction", action: "delete", id: "my-safe", scope: "user" });
+  // Nothing here deletes: the row stays until the host's catalog drops it.
+  assert.deepEqual(rowActions(page, "My Safe Fix").map(words), ["Edit", "Duplicate", "Delete"]);
+});
+
+test("every action is a button in reading order, and a refresh keeps the focus on it (§37.116)", () => {
+  const page = load();
+  page.send(manager());
+
+  // Plain buttons, none disabled or taken out of the tab order: Tab reaches
+  // each in turn and Enter or Space presses it — the browser's own keys.
+  const buttons = flatten(page.byId("manage-list")).filter((node) => node.classes.has("manage-action"));
+  assert.deepEqual(buttons.map((node) => node.id), [
+    "manage-view-builtin-standard",
+    "manage-duplicate-builtin-standard",
+    "manage-edit-user-my-safe",
+    "manage-duplicate-user-my-safe",
+    "manage-delete-user-my-safe",
+    "manage-edit-project-my-safe",
+    "manage-duplicate-project-my-safe",
+    "manage-delete-project-my-safe",
+  ]);
+  for (const button of buttons) {
+    assert.equal(button.getAttribute("tabindex"), undefined, `${button.id} is out of the tab order`);
+    assert.equal(button.disabled, false);
+  }
+
+  // A push rebuilds the list: the focus comes back to the same action, on the
+  // new element, since the old one left the document with it (the stub does
+  // not drop focus on removal; a real webview does).
+  rowAction(page, "My Safe Fix", "Duplicate").focus();
+  page.send(manager());
+  const rebuilt = rowAction(page, "My Safe Fix", "Duplicate");
+  assert.equal(rebuilt.focused, true, "a refresh dropped the focus");
+  assert.equal(page.focused, "manage-duplicate-user-my-safe");
+});
+
+test("every row always renders its action group — the stylesheet only reveals it — with no badge inside (§37.117)", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  page.send(manager());
+
+  for (const [mode, count] of [["Standard Fix", 2], ["My Safe Fix", 3], ["Team Safe Fix", 3]] as const) {
+    const groups = flatten(rowFor(page, mode)).filter((node) => node.classes.has("manage-actions"));
+    assert.equal(groups.length, 1, `${mode} has ${groups.length} action groups`);
+    const group = groups[0]!;
+    // There from the first render, and never hidden, disabled, taken out of
+    // the tab order or out of the accessibility tree: hover and focus only
+    // change how it is painted.
+    assert.equal(group.hidden, false);
+    assert.equal(group.getAttribute("aria-hidden"), undefined);
+    assert.equal(Object.keys(group.style).length, 0, "the page styles the group inline");
+    assert.equal(group.children.length, count);
+    for (const button of group.children) {
+      assert.ok(button.classes.has("manage-action"));
+      assert.equal(button.hidden, false);
+      assert.equal(button.disabled, false);
+      assert.equal(button.getAttribute("tabindex"), undefined);
+      assert.equal(button.getAttribute("aria-hidden"), undefined);
+    }
+    // Current and Investigation only are the row's facts, not actions: they
+    // never fade with the group.
+    assert.equal(flatten(group).some((node) => node.classes.has("manage-badge")), false, `${mode} has a badge among its actions`);
+  }
+  assert.ok(flatten(rowFor(page, "Standard Fix")).find((node) => node.classes.has("manage-title"))!.children.some((node) => node.textContent === "Current"));
+  assert.ok(flatten(rowFor(page, "Team Safe Fix")).find((node) => node.classes.has("manage-kind"))!.children.some((node) => node.textContent === "Investigation only"));
+  // Still no ⋯ anywhere.
+  assert.equal(flatten(page.byId("manage-list")).some((node) => node.classes.has("codicon-ellipsis") || node.getAttribute("aria-haspopup") !== undefined), false);
+});
+
+test("every action is named with what it does and to which mode, for a screen reader and on hover (§37.116)", () => {
+  const page = load();
+  page.send(manager());
+
+  const names = (mode: string) => rowActions(page, mode).map((node) => [node.getAttribute("aria-label"), node.title]);
+  assert.deepEqual(names("Standard Fix"), [
+    ["View Standard Fix", "View Standard Fix"],
+    ["Customize a copy of Standard Fix", "Customize a copy of Standard Fix"],
+  ]);
+  assert.deepEqual(names("My Safe Fix"), [
+    ["Edit My Safe Fix", "Edit My Safe Fix"],
+    ["Duplicate My Safe Fix", "Duplicate My Safe Fix"],
+    ["Delete My Safe Fix", "Delete My Safe Fix"],
+  ]);
+  // Customize copy, Duplicate and Delete carry the glyph a narrow row shows
+  // instead of their words — decorative, the name above is what is heard and
+  // the tooltip what is seen. View and Edit keep their words, so carry none.
+  const narrowGlyphs = (mode: string) =>
+    rowActions(page, mode).map((node) => glyphOf(node.children.find((part) => part.classes.has("manage-action-glyph"))) ?? null);
+  assert.deepEqual(narrowGlyphs("Standard Fix"), [null, "codicon-copy"]);
+  assert.deepEqual(narrowGlyphs("My Safe Fix"), [null, "codicon-copy", "codicon-trash"]);
+  for (const glyph of flatten(page.byId("manage-list")).filter((node) => node.classes.has("manage-action-glyph"))) {
+    assert.equal(glyph.getAttribute("aria-hidden"), "true");
+  }
+  // Each word is its own part, after the glyph, so the stylesheet can drop it.
+  for (const button of rowActions(page, "My Safe Fix")) {
+    assert.ok(button.children.at(-1)!.classes.has("manage-action-label"));
+  }
+  // What a row is for, quieter, destructive — never three equal buttons.
+  const tones = (mode: string) => rowActions(page, mode).map((node) => [...node.classes].find((name) => /^manage-action-(strong|quiet|danger)$/.test(name)));
+  assert.deepEqual(tones("Standard Fix"), ["manage-action-quiet", "manage-action-strong"]);
+  assert.deepEqual(tones("My Safe Fix"), ["manage-action-strong", "manage-action-quiet", "manage-action-danger"]);
+  // The row is labelled by the mode's name.
+  const row = rowFor(page, "My Safe Fix");
+  assert.equal(row.getAttribute("role"), "listitem");
+  assert.equal(row.getAttribute("aria-labelledby"), "manage-name-user-my-safe");
+});
+
+/** One entry of a managed catalog, from Standard Fix's with these fields over it. */
+const managedMode = (fields: Record<string, unknown>) => ({ ...MANAGED_READY.builtin[0]!, effective: true, ...fields });
+
+/**
+ * Every built-in as the CLI lists them, one the page has no glyph for, and
+ * custom modes copied from them, from each other, and from nothing.
+ */
+const ICON_CATALOG = {
+  ...MANAGED_READY,
+  builtin: [
+    managedMode({ id: "standard", name: "Standard Fix" }),
+    managedMode({ id: "conservative", name: "Conservative Fix" }),
+    managedMode({ id: "investigate-first", name: "Investigate First", executionKind: "investigate" }),
+    managedMode({ id: "test-driven", name: "Test-Driven Fix" }),
+    managedMode({ id: "deep-analysis", name: "Deep Analysis" }),
+    managedMode({ id: "added-later", name: "Added Later" }),
+  ],
+  user: [
+    managedMode({ id: "my-conservative", name: "Conservative Fix (copy)", source: "user", scope: "user", basedOn: "conservative" }),
+    managedMode({ id: "my-standard", name: "Standard Fix (copy)", source: "user", scope: "user", basedOn: "standard" }),
+    managedMode({ id: "my-deep", name: "Deep Analysis (copy)", source: "user", scope: "user", basedOn: "deep-analysis" }),
+    managedMode({ id: "my-again", name: "Copied Twice", source: "user", scope: "user", basedOn: "my-conservative" }),
+    managedMode({ id: "from-scratch", name: "From Scratch", source: "user", scope: "user" }),
+    managedMode({ id: "lookout", name: "Lookout", source: "user", scope: "user", executionKind: "investigate" }),
+    managedMode({ id: "orphan", name: "Orphan", source: "user", scope: "user", basedOn: "deleted-since" }),
+    managedMode({ id: "loop-a", name: "Loop A", source: "user", scope: "user", basedOn: "loop-b" }),
+    managedMode({ id: "loop-b", name: "Loop B", source: "user", scope: "user", basedOn: "loop-a" }),
+  ],
+  project: [
+    // A project's own definition under a built-in's id is not a copy of it.
+    managedMode({ id: "standard", name: "Team Standard", source: "project", scope: "project" }),
+    managedMode({ id: "team-careful", name: "Team Careful", source: "project", scope: "project", basedOn: "my-conservative" }),
+  ],
+};
+
+test("each built-in has its own glyph, a copy its origin's, anything else its kind's (§37.116)", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: ICON_CATALOG } }));
+
+  const glyph = (mode: string) => {
+    const icon = flatten(rowFor(page, mode)).find((node) => node.classes.has("manage-icon"))!;
+    // Decorative, and tinted by the stylesheet through this class.
+    assert.equal(icon.getAttribute("aria-hidden"), "true");
+    assert.ok(icon.classes.has("mode-icon"));
+    return glyphOf(icon);
+  };
+  assert.deepEqual(
+    ["Standard Fix", "Conservative Fix", "Investigate First", "Test-Driven Fix", "Deep Analysis"].map(glyph),
+    ["codicon-tasklist", "codicon-shield", "codicon-search", "codicon-beaker", "codicon-graph"],
+  );
+  // A built-in the table does not know yet: its kind's, which is all an
+  // omission can cost.
+  assert.equal(glyph("Added Later"), "codicon-lightbulb");
+  // Copies, from a built-in, from a copy, and across scopes.
+  assert.equal(glyph("Conservative Fix (copy)"), "codicon-shield");
+  assert.equal(glyph("Deep Analysis (copy)"), "codicon-graph");
+  assert.equal(glyph("Copied Twice"), "codicon-shield");
+  assert.equal(glyph("Team Careful"), "codicon-shield");
+  // `basedOn` has no scope: the built-in is its origin, though Team Standard
+  // reuses the id in the project.
+  assert.equal(glyph("Standard Fix (copy)"), "codicon-tasklist");
+  // No origin, or none the catalog still has: the kind's — never a guess.
+  assert.equal(glyph("From Scratch"), "codicon-lightbulb");
+  assert.equal(glyph("Lookout"), "codicon-search");
+  assert.equal(glyph("Orphan"), "codicon-lightbulb");
+  assert.equal(glyph("Loop A"), "codicon-lightbulb", "a copy cycle");
+  assert.equal(glyph("Team Standard"), "codicon-lightbulb", "a built-in's id is not its glyph on another scope");
+});
+
+test("the mode the form has chosen is marked Current beside its name, on the definition that runs (§37.114)", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, form: { ...DEFAULT_FORM, fixModeId: "standard" } }));
+  page.send(manager());
+  assert.deepEqual(badgesOf(page, "Standard Fix"), ["Current"]);
+  assert.deepEqual(badgesOf(page, "My Safe Fix"), ["Overridden by project"]);
+  // Beside the name, away from the actions; and said with the row (§37.116).
+  const head = flatten(rowFor(page, "Standard Fix")).find((node) => node.classes.has("manage-title"))!;
+  assert.deepEqual(head.children.map((node) => node.textContent), ["Standard Fix", "Current"]);
+  assert.equal(rowFor(page, "Standard Fix").getAttribute("aria-current"), "true");
+  assert.equal(head.children[1]!.id, "manage-current-builtin-standard");
+  assert.equal(rowFor(page, "Standard Fix").getAttribute("aria-labelledby"), "manage-name-builtin-standard manage-current-builtin-standard");
+  assert.equal(rowFor(page, "My Safe Fix").getAttribute("aria-current"), undefined);
+  assert.equal(rowFor(page, "My Safe Fix").getAttribute("aria-labelledby"), "manage-name-user-my-safe");
+
+  // A shadowed id: only the definition that runs is current.
+  const shadowed = load();
+  shadowed.send(state({ fixModes: { ...MODES, modes: [...MODES.modes, { ...MODES.modes[0]!, id: "my-safe", name: "Team Safe Fix" }] }, form: { ...DEFAULT_FORM, fixModeId: "my-safe" } }));
+  shadowed.send(state({ fixModes: { ...MODES, modes: [...MODES.modes, { ...MODES.modes[0]!, id: "my-safe", name: "Team Safe Fix" }] }, manage: { catalog: MANAGED_READY } }));
+  assert.ok(badgesOf(shadowed, "Team Safe Fix").includes("Current"));
+  assert.equal(badgesOf(shadowed, "My Safe Fix").includes("Current"), false);
+  assert.equal(rowFor(shadowed, "My Safe Fix").getAttribute("aria-current"), undefined);
+});
+
+test("a created mode's group opens, so its row can be found (§37.114)", () => {
+  const page = load();
+  page.send(state({ fixModes: MODES, manage: { catalog: { ...MANAGED_READY, project: [] } } }));
+  assert.equal(groupOf(page, "project").section.open, false);
+
+  page.send(state({ fixModes: MODES, manage: { catalog: MANAGED_READY, created: CREATED } }));
+  assert.equal(groupOf(page, "project").section.open, true);
+  assert.ok(rowFor(page, "Team Safe Fix").classes.has("recently-created"));
 });
 
 test("View opens the preview on its own", () => {
@@ -3064,14 +3491,201 @@ test("View opens the preview on its own", () => {
   assert.equal(page.focused, "preview-heading");
 });
 
+// --- the detail page (§37.115) ------------------------------------------------
+
+/** A built-in as the host hands it over to be read: Test-Driven Fix's own text. */
+const { basedOn: _basedOn, basedOnVersion: _basedOnVersion, ...UNBASED_DRAFT } = DRAFT;
+const TEST_DRIVEN_VIEW = {
+  ...UNBASED_DRAFT,
+  intent: "view" as const,
+  id: "test-driven",
+  name: "Test-Driven Fix",
+  description: "Reproduce with a focused test, fix the cause, then rerun verification.",
+  objective: "Turn the reported behavior into a focused regression check and make that check pass.",
+  investigation: "Confirm the expected behavior from the supplied context and find the narrowest practical test level that can reproduce the failure. Understand the root cause before broad changes.",
+  implementation: "Add or update a focused failing regression test when practical, then implement the smallest production-code change that makes the test pass without weakening existing assertions.",
+  verification: "Run the new or updated regression test before and after the fix when practical, then run the nearest relevant existing tests. Record commands and results accurately.",
+  constraints: "Do not rewrite large test areas just to enable the fix. Do not weaken tests to make a failure disappear. If a reliable automated reproduction is not practical, explain that and use the best focused verification available.",
+  completion: "Summarize the reproduced failure, root cause, test change, production fix, verification results, and remaining regression risk.",
+  source: "builtin",
+  version: 1,
+};
+
+const SECTION_IDS = ["objective", "investigation", "implementation", "verification", "constraints", "completion"] as const;
+const sectionOf = (page: Page, id: string) => page.byId("preview-body").children.find((node) => node.id === `preview-section-${id}`)!;
+const sectionHead = (page: Page, id: string) => sectionOf(page, id).children[0]!;
+const sectionBody = (page: Page, id: string) => sectionOf(page, id).children[1]!;
+
+test("the detail header: a glyph, the name as the heading, its source and description, its action at the right (§37.115)", () => {
+  const page = load();
+  page.send(opened(TEST_DRIVEN_VIEW));
+
+  assert.deepEqual(visible(page), ["fix-mode-preview-view"]);
+  assert.equal(page.byId("preview-heading").textContent, "Test-Driven Fix");
+  // The list's glyph for the same mode (§37.116), tinted the same way.
+  assert.ok(page.byId("preview-icon").classes.has("codicon-beaker"), "not Test-Driven Fix's glyph");
+  assert.ok(page.byId("preview-icon").classes.has("mode-icon"));
+  assert.equal(page.byId("preview-source").textContent, "Built-in");
+  assert.equal(page.byId("preview-description").textContent, TEST_DRIVEN_VIEW.description);
+  // One action, in the header: Customize copy, with its glyph, named with the mode.
+  const [customize, ...others] = page.byId("preview-actions").children;
+  assert.deepEqual(others, []);
+  assert.equal(customize!.id, "preview-customize");
+  assert.deepEqual(customize!.children.map((part) => part.textContent), ["", "Customize copy"]);
+  assert.ok(customize!.children[0]!.classes.has("codicon-copy"));
+  assert.equal(customize!.children[0]!.getAttribute("aria-hidden"), "true");
+  assert.equal(customize!.getAttribute("aria-label"), "Customize a copy of Test-Driven Fix");
+  customize!.dispatch("click");
+  assert.deepEqual(page.posted.at(-1), { type: "fixModeAction", action: "duplicate", id: "test-driven", scope: "builtin" });
+
+  // A copy's glyph is its origin's, as on its row; one with no origin has its
+  // kind's; and a custom mode's source.
+  const copy = load();
+  copy.send(opened(CUSTOM_VIEW));
+  assert.ok(copy.byId("preview-icon").classes.has("codicon-tasklist"), "a copy of Standard Fix lost its glyph");
+  const other = load();
+  other.send(opened({ ...UNBASED_DRAFT, intent: "view", source: "user", executionKind: "investigate" }));
+  assert.ok(other.byId("preview-icon").classes.has("codicon-search"));
+  assert.equal(other.byId("preview-source").textContent, "User");
+  const project = load();
+  project.send(opened({ ...CUSTOM_VIEW, source: "project" }));
+  assert.equal(project.byId("preview-source").textContent, "Project");
+});
+
+test("the page's face says no id, no version and no type; Details does, closed (§37.115)", () => {
+  const page = load();
+  page.send(opened(TEST_DRIVEN_VIEW));
+
+  const face = ["preview-heading", "preview-source", "preview-description", "preview-actions", "preview-body"]
+    .flatMap((id) => flatten(page.byId(id)))
+    .map((node) => `${node.textContent} ${node.title}`)
+    .join(" | ");
+  assert.equal(face.includes("test-driven"), false, "the id is on the page");
+  assert.equal(/\bv\d|Version|Type\b|· fix|\bfix\b ·/.test(face), false, face);
+  assert.equal(page.byId("preview-details").open, false);
+  assert.deepEqual(facts(page), [["ID", "test-driven"], ["Version", "1"], ["Type", "Fix"], ["Source", "Built-in"]]);
+});
+
+test("six sections with their glyphs: four open, Constraints and Completion requirements closed to one line (§37.115)", () => {
+  const page = load();
+  page.send(opened(TEST_DRIVEN_VIEW));
+
+  assert.deepEqual(page.byId("preview-body").children.map((node) => node.id), SECTION_IDS.map((id) => `preview-section-${id}`));
+  assert.deepEqual(SECTION_IDS.map((id) => sectionOf(page, id).open), [true, true, true, true, false, false]);
+  const heads = SECTION_IDS.map((id) => sectionHead(page, id));
+  // Glyph, heading, chevron, one line — the glyph and chevron decorative.
+  assert.deepEqual(heads.map((head) => head.children[1]!.textContent), [
+    "Objective", "Investigation", "Implementation", "Verification", "Constraints", "Completion requirements",
+  ]);
+  assert.deepEqual(heads.map((head) => [...head.children[0]!.classes].filter((name) => name.startsWith("codicon-") || name.startsWith("preview-tone-"))), [
+    ["codicon-target", "preview-tone-cyan"],
+    ["codicon-search", "preview-tone-purple"],
+    ["codicon-tools", "preview-tone-green"],
+    ["codicon-check-all", "preview-tone-blue"],
+    ["codicon-warning", "preview-tone-amber"],
+    ["codicon-checklist", "preview-tone-purple"],
+  ]);
+  for (const head of heads) {
+    assert.equal(head.children[0]!.getAttribute("aria-hidden"), "true");
+    assert.ok(head.children[2]!.classes.has("codicon-chevron-down"));
+    assert.equal(head.children[2]!.getAttribute("aria-hidden"), "true");
+    // The one line is for the eye; the heading is what is heard.
+    assert.equal(head.children[3]!.getAttribute("aria-hidden"), "true");
+  }
+  assert.equal(sectionHead(page, "constraints").children[3]!.textContent, TEST_DRIVEN_VIEW.constraints);
+  assert.equal(sectionHead(page, "completion").children[3]!.textContent, TEST_DRIVEN_VIEW.completion);
+});
+
+test("opened, a section shows its whole text unchanged; requirements split only at their own sentences or lines (§37.115)", () => {
+  const page = load();
+  page.send(opened(TEST_DRIVEN_VIEW));
+
+  for (const id of ["objective", "investigation", "implementation", "verification"] as const) {
+    assert.equal(sectionBody(page, id).children[0]!.textContent, TEST_DRIVEN_VIEW[id], id);
+  }
+  // Constraints: three sentences, three bullets — each a sentence as written.
+  sectionHead(page, "constraints").dispatch("click");
+  assert.equal(sectionOf(page, "constraints").open, true);
+  const bullets = sectionBody(page, "constraints").children[0]!.children.map((item) => item.textContent);
+  assert.deepEqual(bullets, [
+    "Do not rewrite large test areas just to enable the fix.",
+    "Do not weaken tests to make a failure disappear.",
+    "If a reliable automated reproduction is not practical, explain that and use the best focused verification available.",
+  ]);
+  assert.equal(bullets.join(" "), TEST_DRIVEN_VIEW.constraints);
+  // Completion requirements: one sentence, so prose — nothing invented.
+  sectionHead(page, "completion").dispatch("click");
+  assert.equal(sectionBody(page, "completion").children[0]!.textContent, TEST_DRIVEN_VIEW.completion);
+  // Closed again, and Enter / Space reach the summary as the same click.
+  sectionHead(page, "constraints").dispatch("click");
+  assert.equal(sectionOf(page, "constraints").open, false);
+
+  // A custom mode's own lines are its items, their list marks dropped.
+  const custom = load();
+  custom.send(opened({ ...CUSTOM_VIEW, constraints: "- Keep the public API.\n- No new dependencies.", completion: "One line only" }));
+  assert.deepEqual(sectionBody(custom, "constraints").children[0]!.children.map((item) => item.textContent), ["Keep the public API.", "No new dependencies."]);
+  assert.equal(sectionBody(custom, "completion").children[0]!.textContent, "One line only");
+});
+
+test("a section's fold holds through a refresh of the same mode and resets for another (§37.115)", () => {
+  const page = load();
+  page.send(opened(TEST_DRIVEN_VIEW));
+  sectionHead(page, "objective").dispatch("click");
+  sectionHead(page, "constraints").dispatch("click");
+  page.send(opened(TEST_DRIVEN_VIEW));
+  assert.equal(sectionOf(page, "objective").open, false);
+  assert.equal(sectionOf(page, "constraints").open, true);
+  // The same mode, redrawn with something changed (a save elsewhere): the
+  // folds are still the developer's.
+  page.send(opened({ ...TEST_DRIVEN_VIEW, description: "Changed elsewhere." }));
+  assert.equal(page.byId("preview-description").textContent, "Changed elsewhere.");
+  assert.equal(sectionOf(page, "objective").open, false, "a redraw reopened Objective");
+  assert.equal(sectionOf(page, "constraints").open, true, "a redraw closed Constraints");
+
+  page.send(opened({ ...TEST_DRIVEN_VIEW, id: "conservative", name: "Conservative Fix" }));
+  assert.deepEqual(SECTION_IDS.map((id) => sectionOf(page, id).open), [true, true, true, true, false, false]);
+});
+
+test("a custom mode's detail: Edit, Duplicate and Delete in the header, no ⋯ (§37.116)", () => {
+  const page = load();
+  page.send(opened(CUSTOM_VIEW));
+
+  const actions = page.byId("preview-actions").children;
+  assert.deepEqual(actions.map((node) => node.id), ["preview-edit", "preview-duplicate", "preview-delete"]);
+  assert.deepEqual(actions.map(words), ["Edit", "Duplicate", "Delete"]);
+  assert.deepEqual(actions.map((node) => node.getAttribute("aria-label")), ["Edit My Safe Fix", "Duplicate My Safe Fix", "Delete My Safe Fix"]);
+  assert.deepEqual(actions.map((node) => glyphOf(node.children[0])), ["codicon-edit", "codicon-copy", "codicon-trash"]);
+  for (const action of actions) {
+    assert.equal(action.children[0]!.getAttribute("aria-hidden"), "true");
+    assert.equal(action.getAttribute("aria-haspopup"), undefined, `${action.id} opens a menu`);
+  }
+  const remove = actions[2]!;
+  assert.ok(remove.classes.has("preview-danger"));
+  assert.equal(remove.getAttribute("aria-describedby"), "manage-delete-help");
+  // Delete asks the host, which confirms, as from the list.
+  remove.dispatch("click");
+  assert.deepEqual(page.posted.at(-1), { type: "fixModeAction", action: "delete", id: "my-safe", scope: "user" });
+});
+
+test("back from a copy made on the detail page lands on Customize copy (§37.115)", () => {
+  const page = load();
+  page.send(opened(TEST_DRIVEN_VIEW));
+  previewAction(page, "Customize copy").dispatch("click");
+  page.send(opened(COPY));
+  page.byId("editor-cancel").dispatch("click");
+  // The real catalog lists every built-in; this one has Test-Driven Fix too.
+  const builtin = [...MANAGED_READY.builtin, { ...MANAGED_READY.builtin[0]!, id: "test-driven", name: "Test-Driven Fix" }];
+  page.send(state({ fixModes: MODES, manage: { catalog: { ...MANAGED_READY, builtin } } }));
+  assert.deepEqual(visible(page), ["fix-mode-preview-view"]);
+  assert.equal(page.focused, "preview-customize");
+});
+
 test("a custom mode's preview offers edit, duplicate and delete", () => {
   const page = load();
   page.send(opened(CUSTOM_VIEW));
 
-  const actions = JSON.stringify(page.byId("preview-actions"));
-  for (const label of ["Edit", "Duplicate", "Delete"]) {
-    assert.ok(actions.includes(label), `the custom preview has no ${label}`);
-  }
+  // All three in the header (§37.116).
+  for (const label of ["Edit", "Duplicate", "Delete"]) previewAction(page, label);
   // Addressed by the scope that owns it, which on a draft is `source`: `scope`
   // is where a save would go and is never "builtin".
   previewAction(page, "Edit").dispatch("click");
@@ -3086,7 +3700,8 @@ test("a custom mode's preview offers edit, duplicate and delete", () => {
 test("duplicating from the manager opens New Fix Mode and comes back to the manager", () => {
   const page = load();
   page.send(manager());
-  rowAction(page, "Standard Fix", "Duplicate & Customize").dispatch("click");
+  rowAction(page, "Standard Fix", "Customize copy").dispatch("click");
+  assert.deepEqual(page.posted.at(-1), { type: "fixModeAction", action: "duplicate", id: "standard", scope: "builtin" });
 
   page.send(opened(COPY));
   assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
@@ -3106,7 +3721,7 @@ test("duplicating from a preview comes back to the preview, not the list", () =>
   rowAction(page, "Standard Fix", "View").dispatch("click");
   page.send(opened(BUILTIN_VIEW));
 
-  previewAction(page, "Duplicate & Customize").dispatch("click");
+  previewAction(page, "Customize copy").dispatch("click");
   page.send(opened(COPY));
   assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
   assert.equal(page.byId("editor-back-label").textContent, "Back to Fix Mode Preview");
@@ -3120,7 +3735,7 @@ test("duplicating from a preview comes back to the preview, not the list", () =>
 test("Back out of a preview-born duplicate also returns to the preview", () => {
   const page = load();
   page.send(opened(BUILTIN_VIEW));
-  previewAction(page, "Duplicate & Customize").dispatch("click");
+  previewAction(page, "Customize copy").dispatch("click");
   page.send(opened(COPY));
 
   page.byId("editor-back").dispatch("click");
@@ -3129,17 +3744,56 @@ test("Back out of a preview-born duplicate also returns to the preview", () => {
   assert.deepEqual(visible(page), ["fix-mode-preview-view"]);
 });
 
+test("back from a preview-born copy stays on the preview through the host's two pushes (§37.115)", () => {
+  // The host answers a closed editor by opening the list: one push while the
+  // catalog loads, one when it is read. The way back must outlive the first.
+  const loading = () => state({ fixModes: MODES, manage: { catalog: { kind: "loading" } } });
+  for (const leave of ["editor-cancel", "editor-back"]) {
+    const page = load();
+    page.send(opened(BUILTIN_VIEW));
+    previewAction(page, "Customize copy").dispatch("click");
+    page.send(opened(COPY));
+    page.byId(leave).dispatch("click");
+    page.send(loading());
+    assert.deepEqual(visible(page), ["fix-mode-preview-view"], `${leave}: the first push left the preview`);
+    page.send(manager());
+    assert.deepEqual(visible(page), ["fix-mode-preview-view"], `${leave}: the second push left the preview`);
+    assert.equal(page.byId("preview-heading").textContent, "Standard Fix");
+    // And the preview's own Back, through the same two pushes, is the list.
+    page.byId("preview-back").dispatch("click");
+    assert.deepEqual(page.posted.at(-1), { type: "manageFixModes" });
+    page.send(loading());
+    page.send(manager());
+    assert.deepEqual(visible(page), ["fix-mode-manager-view"], `${leave}: Back did not reach the list`);
+  }
+});
+
+test("a preview the page came back to is left for the list once its mode is deleted (§37.115)", () => {
+  const page = load();
+  page.send(opened(CUSTOM_VIEW));
+  previewAction(page, "Duplicate").dispatch("click");
+  page.send(opened({ ...COPY, name: "My Safe Fix (copy)", basedOn: "my-safe" }));
+  page.byId("editor-cancel").dispatch("click");
+  page.send(manager());
+  assert.deepEqual(visible(page), ["fix-mode-preview-view"]);
+  // Back on the action the copy was made with — Duplicate itself, no ⋯ now (§37.116).
+  assert.equal(page.focused, "preview-duplicate");
+  // Deleted from here: the catalog no longer has it, so the list.
+  page.send(state({ fixModes: MODES, manage: { catalog: { ...MANAGED_READY, user: [] } } }));
+  assert.deepEqual(visible(page), ["fix-mode-manager-view"]);
+});
+
 test("both ways into New Fix Mode are the same editor", () => {
   // One editor, or the two routes drift and only one of them keeps based_on.
   const fromManager = load();
   fromManager.send(manager());
-  rowAction(fromManager, "Standard Fix", "Duplicate & Customize").dispatch("click");
+  rowAction(fromManager, "Standard Fix", "Customize copy").dispatch("click");
   fromManager.send(opened(COPY));
   fromManager.byId("editor-save").dispatch("click");
 
   const fromPreview = load();
   fromPreview.send(opened(BUILTIN_VIEW));
-  previewAction(fromPreview, "Duplicate & Customize").dispatch("click");
+  previewAction(fromPreview, "Customize copy").dispatch("click");
   fromPreview.send(opened(COPY));
   fromPreview.byId("editor-save").dispatch("click");
 
@@ -3156,7 +3810,8 @@ test("Edit opens Edit Fix Mode, and never New", () => {
   assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
   assert.equal(page.byId("editor-title").textContent, "Edit Fix Mode");
   assert.equal(page.byId("editor-back-label").textContent, "Back to Fix Mode Manager");
-  assert.match(page.byId("editor-origin").textContent, /My Safe Fix/);
+  assert.equal(page.byId("editor-subject").textContent, "My Safe Fix");
+  assert.equal(page.byId("editor-save-label").textContent, "Save Fix Mode");
 
   page.byId("editor-save").dispatch("click");
   page.send(manager());
@@ -3166,7 +3821,7 @@ test("Edit opens Edit Fix Mode, and never New", () => {
 test("a refused create keeps New Fix Mode up, and still remembers the preview", () => {
   const page = load();
   page.send(opened(BUILTIN_VIEW));
-  previewAction(page, "Duplicate & Customize").dispatch("click");
+  previewAction(page, "Customize copy").dispatch("click");
   page.send(opened(COPY));
 
   page.byId("editor-objective").value = "Edited before saving.";
@@ -3268,7 +3923,7 @@ test("nothing is marked or scrolled when no mode was created", () => {
 test("a refused create says nothing about success", () => {
   const page = load();
   page.send(opened(BUILTIN_VIEW));
-  previewAction(page, "Duplicate & Customize").dispatch("click");
+  previewAction(page, "Customize copy").dispatch("click");
   page.send(opened(COPY));
   page.byId("editor-objective").value = "Typed before the refusal.";
   page.byId("editor-save").dispatch("click");
@@ -3287,7 +3942,7 @@ test("a create made from a preview is confirmed there, and says where it went", 
   // preview — so the confirmation has to carry the route to the new mode.
   const page = load();
   page.send(opened(BUILTIN_VIEW));
-  previewAction(page, "Duplicate & Customize").dispatch("click");
+  previewAction(page, "Customize copy").dispatch("click");
   page.send(opened(COPY));
   page.byId("editor-save").dispatch("click");
 
@@ -3301,7 +3956,7 @@ test("a create made from a preview is confirmed there, and says where it went", 
 
 // --- previewing what the editor holds ---------------------------------------
 
-test("Preview Generated Instructions brings its own output into view", () => {
+test("Preview brings its own output into view", () => {
   const page = load();
   page.send(opened(DRAFT));
   assert.equal(page.byId("editor-preview-pane").hidden, true);
@@ -3331,6 +3986,217 @@ test("previewing the instructions changes nothing about the editor", () => {
   assert.deepEqual(page.posted.slice(before), [], "previewing told the host something");
   // And it previews what is in the boxes now, not what was loaded.
   assert.match(JSON.stringify(page.byId("editor-preview-body")), /Unsaved text\./);
+});
+
+// --- the editor, New and Edit (§37.118) ---------------------------------------
+
+const EDITOR_SECTION_IDS = ["objective", "investigation", "implementation", "verification", "constraints", "completion"] as const;
+const editorOpen = (page: Page) => EDITOR_SECTION_IDS.map((id) => page.byId(`field-editor-${id}`).open);
+/**
+ * A New Fix Mode with nothing in it. The product opens New only from Customize
+ * copy or Duplicate, prefilled; this is the form's floor — every field empty,
+ * as a developer may leave one — not a second way in.
+ */
+const BLANK_NEW = {
+  ...UNBASED_DRAFT,
+  intent: "create" as const,
+  id: "",
+  name: "",
+  description: "",
+  objective: "",
+  investigation: "",
+  implementation: "",
+  verification: "",
+  constraints: "",
+  completion: "",
+  version: 0,
+};
+
+test("New Fix Mode: what the page is for, nothing fixed yet, and Create (§37.118)", () => {
+  const page = load();
+  page.send(opened(BLANK_NEW));
+
+  assert.equal(page.byId("editor-title").textContent, "New Fix Mode");
+  assert.equal(page.byId("editor-subject").textContent, "Create a custom AI fixing workflow.");
+  assert.ok(page.byId("editor-subject").classes.has("editor-subject-lede"));
+  assert.equal(page.byId("editor-subject").title, "");
+  // A blank mode came from nothing.
+  assert.equal(page.byId("editor-origin").hidden, true);
+  // Id and Scope are the developer's to choose; no helper says they are fixed.
+  assert.equal(page.byId("editor-id").disabled, false);
+  assert.equal(page.byId("editor-scope").disabled, false);
+  assert.equal(page.byId("editor-id-hint").textContent, "Lowercase letters, digits and hyphens.");
+  assert.equal(page.byId("editor-id-hint").title, "The ID can't be changed after the Fix Mode is created.");
+  const note = "Scope can't be changed after creation. Duplicate the mode to move it later.";
+  assert.equal(page.byId("editor-scope-hint").hidden, true, "a new mode's Scope looks fixed");
+  assert.equal(page.byId("editor-scope-hint").textContent, note, "its description says it is fixed");
+  assert.equal(page.byId("editor-scope").title, note);
+  assert.equal(/Fixed once/.test(page.byId("editor-id-hint").textContent + page.byId("editor-scope-hint").textContent), false);
+  assert.equal(page.byId("editor-save-label").textContent, "Create Fix Mode");
+  assert.ok(page.byId("editor-save-icon").classes.has("codicon-add"));
+  // Empty sections, folded, say so — never a preview of text they do not have.
+  assert.deepEqual(editorOpen(page), [true, true, true, true, false, false]);
+  assert.equal(page.byId("editor-constraints-snippet").textContent, "No constraints yet");
+  assert.equal(page.byId("editor-completion-snippet").textContent, "No completion requirements yet");
+  assert.ok(page.byId("editor-constraints-snippet").classes.has("editor-snippet-empty"));
+
+  // A copy of a built-in is a New Fix Mode too: its origin by name.
+  const copy = load();
+  copy.send(opened(COPY));
+  assert.equal(copy.byId("editor-title").textContent, "New Fix Mode");
+  assert.equal(copy.byId("editor-origin").textContent, "Based on Standard Fix");
+  assert.equal(copy.byId("editor-origin").hidden, false);
+  assert.equal(copy.byId("editor-id").value, "my-standard");
+  assert.equal(copy.byId("editor-id").disabled, false);
+  assert.equal(copy.byId("editor-save-label").textContent, "Create Fix Mode");
+});
+
+test("Edit Fix Mode: the mode's name, its fixed fields said so, and Save (§37.118)", () => {
+  const page = load();
+  page.send(opened(DRAFT));
+
+  assert.equal(page.byId("editor-title").textContent, "Edit Fix Mode");
+  assert.equal(page.byId("editor-subject").textContent, "My Safe Fix");
+  assert.equal(page.byId("editor-subject").classes.has("editor-subject-lede"), false);
+  assert.equal(page.byId("editor-id").disabled, true);
+  assert.equal(page.byId("editor-scope").disabled, true);
+  assert.equal(page.byId("editor-id-hint").textContent, "Fixed once the mode exists.");
+  assert.match(page.byId("editor-id-hint").title, /Lowercase letters, digits and hyphens\./);
+  assert.equal(page.byId("editor-scope-hint").hidden, false);
+  assert.equal(page.byId("editor-scope-hint").textContent, "Fixed once the mode exists. Duplicate it to move it.");
+  assert.equal(page.byId("editor-scope").title, "");
+  assert.equal(page.byId("editor-save-label").textContent, "Save Fix Mode");
+  assert.ok(page.byId("editor-save-icon").classes.has("codicon-save"));
+  // Same folds as New; a folded section with text shows its first line.
+  assert.deepEqual(editorOpen(page), [true, true, true, true, false, false]);
+  assert.equal(page.byId("editor-constraints-snippet").textContent, "Constraints.");
+  assert.equal(page.byId("editor-constraints-snippet").classes.has("editor-snippet-empty"), false);
+});
+
+test("a section folds from its header, keeps the developer's choice through a push, and starts over on the next visit (§37.118)", () => {
+  const page = load();
+  page.send(opened(DRAFT));
+
+  // Enter and Space reach a summary as a click; the page toggles it itself.
+  let prevented = false;
+  page.byId("editor-investigation-head").dispatch("click", { preventDefault: () => (prevented = true) });
+  assert.equal(prevented, true, "the element's own toggle also ran");
+  page.byId("editor-constraints-head").dispatch("click");
+  assert.deepEqual(editorOpen(page), [true, false, true, true, true, false]);
+  // Folding shows what the box now holds, typed or not.
+  page.byId("editor-objective").value = "Typed just now.\nSecond line.";
+  page.byId("editor-objective-head").dispatch("click");
+  assert.equal(page.byId("field-editor-objective").open, false);
+  assert.equal(page.byId("editor-objective-snippet").textContent, "Typed just now.");
+
+  // A push while the editor is open — a refused save — keeps every fold.
+  page.send(opened(DRAFT, "Version 3 was expected."));
+  assert.deepEqual(editorOpen(page), [false, false, true, true, true, false]);
+
+  // Folding is not editing: nothing went to the host.
+  assert.equal(page.posted.some((message) => message["type"] === "saveFixMode"), false);
+
+  // Away and back: the defaults again.
+  page.send(manager());
+  page.send(opened(DRAFT));
+  assert.deepEqual(editorOpen(page), [true, true, true, true, false, false]);
+});
+
+test("Save and Preview read every section, folded or not (§37.118)", () => {
+  const page = load();
+  page.send(opened(DRAFT));
+  assert.equal(page.byId("field-editor-constraints").open, false);
+  page.byId("editor-constraints").value = "Edited while folded.";
+  page.byId("editor-completion").value = "Also folded.";
+
+  page.byId("editor-preview").dispatch("click");
+  const preview = JSON.stringify(page.byId("editor-preview-body"));
+  assert.match(preview, /Edited while folded\./);
+  assert.match(preview, /Also folded\./);
+
+  page.byId("editor-save").dispatch("click");
+  const draft = page.posted.at(-1)!["draft"] as Record<string, string>;
+  assert.equal(draft["constraints"], "Edited while folded.");
+  assert.equal(draft["completion"], "Also folded.");
+  assert.equal(draft["objective"], "Objective.");
+  // The folds stayed as they were.
+  assert.deepEqual(editorOpen(page), [true, true, true, true, false, false]);
+});
+
+test("a refused save that names a field is shown under it, its folded section opened (§37.118)", () => {
+  const page = load();
+  page.send(opened(DRAFT));
+  page.byId("editor-save").dispatch("click");
+  const message = "Fix Mode field 'constraints' must not be empty.";
+  page.send(opened({ ...DRAFT, constraints: "" }, message));
+
+  // Under the field, as core wrote it; not twice.
+  assert.equal(page.byId("editor-constraints-error").textContent, message);
+  assert.equal(page.byId("editor-constraints-error").hidden, false);
+  assert.equal(page.byId("editor-error").hidden, true);
+  assert.ok(page.byId("field-editor-constraints").classes.has("field-invalid"));
+  assert.equal(page.byId("editor-constraints").getAttribute("aria-invalid"), "true");
+  // Never left inside a folded section: opened, focused, brought into view.
+  assert.equal(page.byId("field-editor-constraints").open, true);
+  assert.equal(page.focused, "editor-constraints");
+  assert.equal(page.byId("editor-constraints-error").scrolledIntoView?.["block"], "center");
+  // Every other field is clean.
+  for (const id of ["name", "id", "description", "objective", "completion", "scope", "executionKind"]) {
+    assert.equal(page.byId(`editor-${id}-error`).hidden, true, id);
+    assert.equal(page.byId(`editor-${id}`).getAttribute("aria-invalid"), "false", id);
+  }
+
+  // The same message pushed again does not move the developer a second time.
+  page.byId("editor-objective").focus();
+  page.send(opened({ ...DRAFT, constraints: "" }, message));
+  assert.equal(page.focused, "editor-objective");
+
+  // An id core refused is the id's.
+  const taken = load();
+  taken.send(opened(COPY));
+  taken.send(opened(COPY, "A user Fix Mode 'my-standard' already exists. Choose another id, or edit that one."));
+  assert.equal(taken.byId("editor-id-error").hidden, false);
+  assert.ok(taken.byId("field-editor-id").classes.has("field-invalid"));
+  assert.equal(taken.focused, "editor-id");
+
+  // One that names no field stays at the top, as before.
+  const stale = load();
+  stale.send(opened(DRAFT, "Version 3 was expected."));
+  assert.equal(stale.byId("editor-error").hidden, false);
+  assert.equal(stale.byId("editor-error").scrolledIntoView?.["block"], "center");
+  assert.equal(EDITOR_SECTION_IDS.some((id) => !stale.byId(`editor-${id}-error`).hidden), false);
+
+  // Saved, or left: the marks go with the message.
+  page.send(opened(DRAFT));
+  assert.equal(page.byId("editor-constraints-error").hidden, true);
+  assert.equal(page.byId("field-editor-constraints").classes.has("field-invalid"), false);
+});
+
+test("the instruction boxes grow with their text, by the editor's own listener (§37.118)", () => {
+  const page = load();
+  page.send(opened(DRAFT));
+  const box = sized(page, "editor-investigation", 72, 190);
+  page.byId("fix-mode-editor-view").dispatch("input", { target: box });
+  assert.equal(box.style["height"], "190px");
+  // The name is a one-line input: nothing to grow.
+  const name = sized(page, "editor-name", 20, 60);
+  page.byId("fix-mode-editor-view").dispatch("input", { target: name });
+  assert.equal(name.style["height"], undefined);
+  // A folded section's box has no layout; opening it is its first measurable moment.
+  const folded = sized(page, "editor-constraints", 54, 120);
+  page.byId("editor-constraints-head").dispatch("click");
+  assert.equal(folded.style["height"], "120px");
+
+  // The sidebar dragged narrower with the editor open: the text wraps onto
+  // more lines and every box is measured again — by a change of width only.
+  const view = page.byId("fix-mode-editor-view");
+  Object.assign(view, { clientWidth: 150 });
+  box.scrollHeight = 320;
+  page.resize();
+  assert.equal(box.style["height"], "320px");
+  box.scrollHeight = 400;
+  page.resize();
+  assert.equal(box.style["height"], "320px", "a change of height alone re-measured");
 });
 
 // --- improving the hint ------------------------------------------------------
@@ -6297,7 +7163,7 @@ const settingsPage = (overrides: Partial<PanelState> = {}) => {
   return p;
 };
 
-test("settings 3: Code search's gear opens Workflow Settings at Code search, highlighted, on Keywords", () => {
+test("settings 3: Code search's gear opens Workflow Settings at Code search, highlighted, on Ignore paths", () => {
   const p = settingsPage();
   const before = p.posted.length;
   p.byId("settings-codeSearch").dispatch("click");
@@ -6308,13 +7174,92 @@ test("settings 3: Code search's gear opens Workflow Settings at Code search, hig
   assert.deepEqual(section.scrolledIntoView, { behavior: "smooth", block: "start" });
   assert.ok(section.classes.has("settings-section-target"));
   assert.equal(p.byId("settings-section-fix-with-ai").classes.has("settings-section-target"), false);
-  assert.equal(p.focused, "keywords");
+  // Its own first setting: Keywords is Retrieval inputs' now, the section
+  // just above, shared with Git history and Similar fixes (§37.113).
+  assert.equal(p.byId("settings-section-retrieval-inputs").classes.has("settings-section-target"), false);
+  assert.equal(p.focused, "ignorePaths");
   // Opening the page starts nothing: its one question is which AI agents are
   // here, for the picker's status line — answered from the host's cache.
   assert.deepEqual(p.posted.slice(before), [{ type: "detectAgents" }]);
   // The emphasis is brief.
   p.flush();
   assert.equal(section.classes.has("settings-section-target"), false);
+});
+
+test("settings 3b: Similar fixes' gear lands on Similar fixes, at Use shared keywords (§37.113)", () => {
+  const p = settingsPage();
+  p.byId("settings-similarFixes").dispatch("click");
+  const section = p.byId("settings-section-similar-fixes");
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  assert.deepEqual(section.scrolledIntoView, { behavior: "smooth", block: "start" });
+  assert.ok(section.classes.has("settings-section-target"));
+  assert.equal(p.focused, "similarUseSharedKeywords");
+  // The page shows the defaults: ticked, empty, empty (five in grey).
+  assert.equal(p.byId("similarUseSharedKeywords").checked, true);
+  assert.equal(p.byId("similarKeywords").value, "");
+  assert.equal(p.byId("similarMaxFixes").value, "");
+});
+
+test("settings 8b: Apply carries the Similar Fixes Settings, and leaves the shared inputs as they were", () => {
+  const p = settingsPage();
+  p.byId("settings-similarFixes").dispatch("click");
+  p.byId("similarUseSharedKeywords").checked = false;
+  p.byId("similarKeywords").value = "legacyexporter, export crash";
+  p.byId("similarMaxFixes").value = "2";
+  p.byId("settings-apply").dispatch("click");
+
+  assert.equal(p.posted.at(-1)!["type"], "applySettings");
+  const form = p.posted.at(-1)!["form"] as FormState;
+  assert.equal(form.similarUseSharedKeywords, false);
+  assert.equal(form.similarKeywords, "legacyexporter, export crash");
+  assert.equal(form.similarMaxFixes, "2");
+  // Similar fixes' own: the shared Keywords, and Git history's switch, untouched.
+  assert.equal(form.keywords, "applied");
+  assert.equal(form.gitUseSharedKeywords, true);
+  // And a press after it carries them too.
+  p.byId("form").dispatch("submit");
+  assert.equal((p.posted.at(-1)!["form"] as FormState).similarKeywords, "legacyexporter, export crash");
+});
+
+test("settings 7b: Cancel and Back discard a Similar fixes draft", () => {
+  const p = settingsPage({ form: { ...DEFAULT_FORM, issueKey: "JR-12345", similarKeywords: "applied", similarMaxFixes: "3" } });
+  for (const leave of ["settings-cancel", "settings-back"]) {
+    p.byId("settings-similarFixes").dispatch("click");
+    p.byId("similarUseSharedKeywords").checked = false;
+    p.byId("similarKeywords").value = "draft";
+    p.byId("similarMaxFixes").value = "9";
+    const before = p.posted.length;
+    p.byId(leave).dispatch("click");
+    assert.deepEqual(p.posted.slice(before), [], `${leave} told the host something`);
+    assert.equal(p.byId("similarUseSharedKeywords").checked, true, leave);
+    assert.equal(p.byId("similarKeywords").value, "applied", leave);
+    assert.equal(p.byId("similarMaxFixes").value, "3", leave);
+  }
+});
+
+test("an unticked Similar fixes keeps its settings: on the page, editable, and in the form a run sends", () => {
+  const p = settingsPage({
+    form: { ...DEFAULT_FORM, issueKey: "JR-12345", similarUseSharedKeywords: false, similarKeywords: "legacyexporter", similarMaxFixes: "2" },
+  });
+  p.byId("plan-similarFixes").checked = false;
+  p.byId("form").dispatch("submit");
+  const sent = p.posted.at(-1)!["form"] as FormState;
+  assert.equal(sent.plan.similarFixes, false);
+  assert.equal(sent.similarUseSharedKeywords, false);
+  assert.equal(sent.similarKeywords, "legacyexporter");
+  assert.equal(sent.similarMaxFixes, "2");
+  // The gear still opens them, and they are still editable.
+  p.byId("settings-similarFixes").dispatch("click");
+  assert.equal(p.byId("similarKeywords").disabled, false);
+  assert.equal(p.byId("similarKeywords").value, "legacyexporter");
+});
+
+test("during a run the Similar fixes settings are held like the rest", () => {
+  const p = load();
+  p.send(state({ progress: { state: "running", rows: [], artifacts: [] } }));
+  for (const id of ["similarUseSharedKeywords", "similarKeywords", "similarMaxFixes"]) {
+    assert.equal(p.byId(id).disabled, true, id);
+  }
 });
 
 test("settings 4: Fix with AI's gear lands on Fix with AI, at the AI agent", () => {

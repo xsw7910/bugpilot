@@ -45,13 +45,22 @@
     "gitKeywords",
     "gitFiles",
     "gitMaxCommits",
+    "similarKeywords",
+    "similarMaxFixes",
   ];
 
   /**
-   * Git History Settings' four switches, which ship ticked: an absent value is
-   * on, as `restoreForm` and the host's `parseForm` read it.
+   * The settings page's switches — Git History Settings' four and Similar Fixes
+   * Settings' one — which all ship ticked: an absent value is on, as
+   * `restoreForm` and the host's `parseForm` read it.
    */
-  const GIT_SWITCHES = ["gitUseSharedKeywords", "gitUseSharedFocusFiles", "gitSearchMessages", "gitSearchFileHistory"];
+  const SETTINGS_SWITCHES = [
+    "gitUseSharedKeywords",
+    "gitUseSharedFocusFiles",
+    "gitSearchMessages",
+    "gitSearchFileHistory",
+    "similarUseSharedKeywords",
+  ];
 
   /** History Depth's options, as `GIT_HISTORY_DEPTHS` in `form.ts` lists them. */
   const GIT_HISTORY_DEPTHS = ["recent", "broader"];
@@ -104,10 +113,8 @@
    */
   const SETTINGS_SECTIONS = {
     "issue-details": { fields: ["title", "attachments", "attachmentDescriptions"], focus: ["title", "add-attachment"] },
-    "code-search": {
-      fields: ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"],
-      focus: ["keywords"],
-    },
+    "retrieval-inputs": { fields: ["keywords", "focusFiles"], focus: ["keywords"] },
+    "code-search": { fields: ["ignorePaths", "maxFiles", "maxSearchLines"], focus: ["ignorePaths"] },
     "git-history": {
       fields: [
         "gitUseSharedKeywords",
@@ -121,6 +128,10 @@
       ],
       focus: ["gitUseSharedKeywords"],
     },
+    "similar-fixes": {
+      fields: ["similarUseSharedKeywords", "similarKeywords", "similarMaxFixes"],
+      focus: ["similarUseSharedKeywords"],
+    },
     "build-context": { fields: ["fresh"], focus: ["fresh"] },
     "fix-with-ai": { fields: ["agent", "agentCommand"], focus: ["agent"] },
   };
@@ -130,6 +141,7 @@
     issueDetails: "issue-details",
     codeSearch: "code-search",
     gitHistory: "git-history",
+    similarFixes: "similar-fixes",
     buildContext: "build-context",
     fixWithAI: "fix-with-ai",
   };
@@ -147,7 +159,26 @@
    * the developer has to discover. `rows` in the markup is the height each one
    * starts at; `max-height` in `panel.css` is where growing stops.
    */
-  const GROWING_FIELDS = ["issue", "hint", "keywords", "focusFiles", "ignorePaths", "gitKeywords", "gitFiles"];
+  const GROWING_FIELDS = ["issue", "hint", "keywords", "focusFiles", "ignorePaths", "gitKeywords", "gitFiles", "similarKeywords"];
+
+  /** The Fix Mode editor's six instruction sections, named exactly as the draft names them. */
+  const EDITOR_SECTIONS = [
+    "objective",
+    "investigation",
+    "implementation",
+    "verification",
+    "constraints",
+    "completion",
+  ];
+  const EDITOR_TEXT = ["name", "id", "description", ...EDITOR_SECTIONS];
+
+  /**
+   * The editor's instruction boxes grow too (§37.118), but by their own
+   * listener on the editor view, never through GROWING_FIELDS: those are
+   * resized by the run form's `input` listener and by `growAll`, which runs
+   * while the editor is hidden. Here, so `grow` can name them during start-up.
+   */
+  const EDITOR_GROWING = EDITOR_SECTIONS.map((section) => `editor-${section}`);
 
   /**
    * The plan's boxes: the optional steps the CLI runs, which go into
@@ -227,6 +258,9 @@
     gitSearchMessages: true,
     gitSearchFileHistory: true,
     gitHistoryDepth: "recent",
+    similarKeywords: "",
+    similarMaxFixes: "",
+    similarUseSharedKeywords: true,
   };
   /**
    * The line under the AI Agent picker per choice, from the host's detection
@@ -482,7 +516,7 @@
     // The fixed fields by id; an attachment's description by its class, since
     // those are built per row and have none.
     const describing = Boolean(element) && String(element.className || "").split(/\s+/).includes("attachment-description");
-    if (!element || !(GROWING_FIELDS.includes(element.id) || describing)) return;
+    if (!element || !(GROWING_FIELDS.includes(element.id) || EDITOR_GROWING.includes(element.id) || describing)) return;
     element.style.height = "auto";
     const resting = element.clientHeight;
     if (!resting) return;
@@ -560,7 +594,7 @@
     settings.attachments = [...attachments];
     settings.attachmentDescriptions = describedOnly(attachments, attachmentDescriptions);
     settings.fresh = byId("fresh").checked;
-    for (const field of GIT_SWITCHES) settings[field] = byId(field).checked;
+    for (const field of SETTINGS_SWITCHES) settings[field] = byId(field).checked;
     settings.gitHistoryDepth = gitHistoryDepthOf(byId("gitHistoryDepth").value);
     return settings;
   }
@@ -578,7 +612,7 @@
     settings.attachments = Array.isArray(form.attachments) ? [...form.attachments] : [];
     settings.attachmentDescriptions = describedOnly(settings.attachments, form.attachmentDescriptions || {});
     settings.fresh = form.fresh === true;
-    for (const field of GIT_SWITCHES) settings[field] = form[field] !== false;
+    for (const field of SETTINGS_SWITCHES) settings[field] = form[field] !== false;
     settings.gitHistoryDepth = gitHistoryDepthOf(form.gitHistoryDepth);
     return settings;
   }
@@ -594,7 +628,7 @@
     attachmentDescriptions = { ...(settings.attachmentDescriptions || {}) };
     renderAttachments();
     byId("fresh").checked = settings.fresh === true;
-    for (const field of GIT_SWITCHES) byId(field).checked = settings[field] !== false;
+    for (const field of SETTINGS_SWITCHES) byId(field).checked = settings[field] !== false;
     byId("gitHistoryDepth").value = gitHistoryDepthOf(settings.gitHistoryDepth);
     applyAgentVisibility();
   }
@@ -2935,7 +2969,7 @@
     // in it invites a choice that does not exist.
     byId("fixModeId").disabled = !enabled || !fixModesReady;
     byId("fresh").disabled = !enabled;
-    for (const field of GIT_SWITCHES) byId(field).disabled = !enabled;
+    for (const field of SETTINGS_SWITCHES) byId(field).disabled = !enabled;
     byId("gitHistoryDepth").disabled = !enabled;
     applyStepBoxes();
   }
@@ -3037,8 +3071,9 @@
    * turn: un-hiding it lays it out, so the scroll lands on a section that has a
    * position rather than racing the render that gives it one. The section is
    * highlighted for a moment, and focus goes to its first control on screen — a
-   * hand-written bug's Title, otherwise Attachments; Keywords; the Fresh box;
-   * the AI agent — or to `focusId` when a problem names the field.
+   * hand-written bug's Title, otherwise Attachments; Ignore paths; a step's
+   * first switch; the Fresh box; the AI agent — or to `focusId` when a problem
+   * names the field (Keywords, say, in Retrieval inputs, which no gear opens).
    */
   function openSettings(section, origin, focusId) {
     settingsOpen = true;
@@ -3219,9 +3254,16 @@
       return editor.intent === "create" ? "fix-mode-new" : "fix-mode-edit";
     }
     // The editor closed — saved, cancelled or backed out of. A create that
-    // started from a preview returns to it; everything else to the list.
-    if (pendingReturn === "preview" && previewMode) return "fix-mode-preview";
+    // started from a preview returns to it — while the mode is still there to
+    // read; everything else to the list.
+    if (pendingReturn === "preview" && previewMode && stillListed(state.manage.catalog, previewMode)) return "fix-mode-preview";
     return "fix-mode-manager";
+  }
+
+  /** Whether the mode a preview shows is still on disk, as far as the catalog has said. */
+  function stillListed(catalog, draft) {
+    if (!catalog || catalog.kind !== "ready") return true;
+    return (catalog[draft.source] || []).some((mode) => mode.id === draft.id);
   }
 
   /** Show exactly one view, and move the developer with it — unless the caller will. */
@@ -3240,6 +3282,7 @@
     // height read from a hidden box is zero. Arriving is their first
     // measurable moment.
     if (view === "main" || view === "settings") growAll();
+    if (view === "fix-mode-new" || view === "fix-mode-edit") growEditor();
     if (options && options.focus === false) return;
     // Coming back to a mode the developer was reading, put them back on the
     // button they left from rather than at the top of it again.
@@ -3276,16 +3319,6 @@
 
   // --- managing custom Fix Modes -------------------------------------------
 
-  /** The editor's fields, named exactly as the draft names them. */
-  const EDITOR_SECTIONS = [
-    "objective",
-    "investigation",
-    "implementation",
-    "verification",
-    "constraints",
-    "completion",
-  ];
-  const EDITOR_TEXT = ["name", "id", "description", ...EDITOR_SECTIONS];
   /** How a mode's own scope reads in the preview's one-line summary. */
   const SOURCE_LABELS = {
     builtin: "Built-in",
@@ -3357,18 +3390,29 @@
       renderManageList(catalog, created);
     }
 
-    renderEditor(editor && editor.intent !== "view" ? editor : undefined);
-    if (view === "fix-mode-preview") renderPreviewView(previewMode);
+    // Arriving in the editor from anywhere else is a fresh visit: its sections
+    // start as they do. A push while it is open — a refused save — keeps them.
+    const editing = activeView === "fix-mode-new" || activeView === "fix-mode-edit";
+    renderEditor(editor && editor.intent !== "view" ? editor : undefined, {
+      catalog: manage ? manage.catalog : undefined,
+      message,
+      fresh: !editing,
+    });
+    if (view === "fix-mode-preview") renderPreviewView(previewMode, manage && manage.catalog);
 
     // Whatever the state meant has now been read, so the context that got us
     // here is spent: an editor left behind, and a preview left for the list.
-    if (view !== "fix-mode-new" && view !== "fix-mode-edit") {
-      duplicateOrigin = undefined;
-      pendingReturn = undefined;
-    }
+    // The way back to a preview holds until the preview is left, not for one
+    // push: the host answers a closed editor twice — the list loading, then
+    // the list — and the second push used to land on the list (seen in the
+    // real window, §37.115).
+    if (view !== "fix-mode-new" && view !== "fix-mode-edit") duplicateOrigin = undefined;
+    if (view === "fix-mode-manager" || view === "main") pendingReturn = undefined;
     if (view === "fix-mode-manager" || view === "main") {
       previewMode = undefined;
       previewDuplicate = undefined;
+      // The next mode read is drawn afresh, its sections at their defaults.
+      previewSignature = undefined;
     }
 
     // Last: the content each view holds is in place before one is shown and
@@ -3388,96 +3432,370 @@
   }
 
   /**
-   * One Fix Mode, read rather than edited.
+   * One Fix Mode, read rather than edited (§37.115).
    *
-   * Text, not a form full of disabled boxes: a greyed-out textarea reads as
-   * something the developer is failing to type into. Everything shown comes
-   * from the object the host supplied — no second lookup, no precedence rule.
+   * A header — the mode's glyph, its name, its source, its description, and
+   * its action at the right — then its six sections, each a disclosure with a
+   * glyph of its own: the four that say how the work goes open, Constraints
+   * and Completion requirements closed to one line. Text, not a form full of
+   * disabled boxes: a greyed-out textarea reads as something the developer is
+   * failing to type into. Everything comes from the object the host supplied —
+   * no second lookup, no precedence rule — and every word of it is shown as
+   * written. The id, the version and the type are in Details, closed.
    */
-  function renderPreviewView(draft) {
+  const PREVIEW_SECTIONS = [
+    { id: "objective", title: "Objective", glyph: "codicon-target", tone: "cyan", open: true },
+    { id: "investigation", title: "Investigation", glyph: "codicon-search", tone: "purple", open: true },
+    { id: "implementation", title: "Implementation", glyph: "codicon-tools", tone: "green", open: true },
+    { id: "verification", title: "Verification", glyph: "codicon-check-all", tone: "blue", open: true },
+    { id: "constraints", title: "Constraints", glyph: "codicon-warning", tone: "amber", open: false, list: true },
+    { id: "completion", title: "Completion requirements", glyph: "codicon-checklist", tone: "purple", open: false, list: true },
+  ];
+
+  /** The draft on screen, as last drawn: a push of the same one changes nothing. */
+  let previewSignature;
+  /** Sections the developer opened or closed, for the mode being read. */
+  let previewSectionsOpen = {};
+
+  function renderPreviewView(draft, catalog) {
     if (!draft) return;
+    // The list's glyph for the same mode (§37.116). Outside the signature: a
+    // copy's comes from its origin, which a catalog refresh can bring.
+    byId("preview-icon").className = `codicon ${modeIcon(draft, draft.source, catalog)} preview-icon mode-icon`;
+    const signature = JSON.stringify(draft);
+    if (signature === previewSignature) return;
+    const sameMode = previewSignature !== undefined && JSON.parse(previewSignature).id === draft.id && JSON.parse(previewSignature).source === draft.source;
+    if (!sameMode) previewSectionsOpen = {};
+    previewSignature = signature;
+
     byId("preview-heading").textContent = draft.name || draft.id;
+    // Who it belongs to, in a word beside the name: the only fact about it on
+    // the page's face. A built-in is read-only, and its action says so.
+    byId("preview-source").textContent = SOURCE_LABELS[draft.source] || draft.source || "";
     const description = byId("preview-description");
     description.textContent = draft.description || "";
     description.hidden = description.textContent === "";
 
-    const meta = [SOURCE_LABELS[draft.source] || draft.source || "", `v${draft.version}`];
-    meta.push(draft.executionKind === "investigate" ? "investigation only" : "fix");
+    // What the page leaves out, closed at its foot: the id every prepared work
+    // item records, the version a save is checked against, the type of work it
+    // asks for, where the definition lives, and what it was copied from.
+    const facts = [
+      ["ID", draft.id],
+      ["Version", draft.version === undefined ? "" : String(draft.version)],
+      ["Type", draft.executionKind === "investigate" ? "Investigation only" : "Fix"],
+      ["Source", SOURCE_LABELS[draft.source] || draft.source || ""],
+    ];
     if (draft.basedOn) {
-      meta.push(
-        `based on ${draft.basedOn}${draft.basedOnVersion ? ` v${draft.basedOnVersion}` : ""}`,
-      );
+      facts.push([
+        "Based on",
+        `${draft.basedOn}${draft.basedOnVersion ? `, version ${draft.basedOnVersion}` : ""}`,
+      ]);
     }
-    byId("preview-meta").textContent = meta.filter(Boolean).join(" · ");
+    const meta = byId("preview-meta");
+    meta.replaceChildren();
+    for (const [term, value] of facts) {
+      if (!value) continue;
+      const name = document.createElement("dt");
+      name.textContent = term;
+      const text = document.createElement("dd");
+      text.textContent = value;
+      meta.append(name, text);
+    }
+    if (!sameMode) byId("preview-details").open = false;
 
     const body = byId("preview-body");
     body.replaceChildren();
-    for (const section of EDITOR_SECTIONS) {
-      const heading = document.createElement("p");
-      heading.className = "manage-name";
-      heading.textContent = SECTION_LABELS[section] || section;
-      const text = document.createElement("p");
-      text.className = "preview-text";
-      text.textContent = draft[section] || "";
-      body.append(heading, text);
-    }
+    for (const spec of PREVIEW_SECTIONS) body.append(previewSection(spec, draft[spec.id] || ""));
     renderPreviewActions(draft);
   }
 
   /**
-   * What can be done to the mode being read.
+   * One section: a disclosure whose summary is its glyph, its title (a heading)
+   * and a chevron — and, while closed, one line of what it says. Opening it
+   * shows all of it, exactly as written.
+   */
+  function previewSection(spec, text) {
+    const section = document.createElement("details");
+    section.className = "preview-section";
+    section.id = `preview-section-${spec.id}`;
+    section.open = spec.id in previewSectionsOpen ? previewSectionsOpen[spec.id] : spec.open;
+
+    const summary = document.createElement("summary");
+    summary.className = "preview-section-head";
+    summary.id = `preview-section-head-${spec.id}`;
+    const glyph = document.createElement("span");
+    glyph.className = `codicon ${spec.glyph} preview-section-icon preview-tone-${spec.tone}`;
+    glyph.setAttribute("aria-hidden", "true");
+    const title = document.createElement("h3");
+    title.className = "preview-section-title";
+    title.textContent = spec.title;
+    const chevron = document.createElement("span");
+    chevron.className = "codicon codicon-chevron-down preview-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    // One line of a closed section, for the eye: a screen reader hears the
+    // heading and "collapsed", and reads the whole text once it is opened.
+    const snippet = document.createElement("span");
+    snippet.className = "preview-snippet";
+    snippet.setAttribute("aria-hidden", "true");
+    snippet.textContent = firstLine(text);
+    summary.append(glyph, title, chevron, snippet);
+    // Toggled here, so the choice is remembered across a refresh of the same
+    // mode; Enter and Space reach the summary as a click.
+    summary.addEventListener("click", (event) => {
+      event.preventDefault();
+      section.open = !section.open;
+      previewSectionsOpen[spec.id] = section.open;
+    });
+
+    const content = document.createElement("div");
+    content.className = "preview-section-body";
+    const items = spec.list ? requirementItems(text) : [];
+    if (items.length > 1) {
+      const list = document.createElement("ul");
+      list.className = "preview-list";
+      for (const item of items) {
+        const entry = document.createElement("li");
+        entry.textContent = item;
+        list.append(entry);
+      }
+      content.append(list);
+    } else {
+      const prose = document.createElement("p");
+      prose.className = "preview-text";
+      prose.textContent = text;
+      content.append(prose);
+    }
+    section.append(summary, content);
+    return section;
+  }
+
+  /** The start of a text, for a closed section's one line: its first line, cut by the stylesheet. */
+  function firstLine(text) {
+    const line = text.split(/\r?\n/).map((part) => part.trim()).find((part) => part !== "") || "";
+    return line.length > 240 ? line.slice(0, 240) : line;
+  }
+
+  /**
+   * A requirements text as its separate requirements, without changing a word:
+   * its own lines when it has several (a leading "-", "*" or "•" dropped, as a
+   * list item's mark), else its sentences when there are several, else nothing
+   * — one sentence stays prose. Joined back, the items are the text.
+   */
+  function requirementItems(text) {
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
+    if (lines.length > 1) return lines.map((line) => line.replace(/^[-*•]\s+/, ""));
+    const sentences = text.trim().split(/(?<=[.!?])\s+(?=[A-Z0-9"'(])/);
+    return sentences.length > 1 ? sentences : [];
+  }
+
+  /**
+   * What can be done to the mode being read, in the header at its right.
    *
-   * The same permissions the list gives: a built-in is copied, never written.
-   * Addressed by `source` — the scope that actually owns the definition —
-   * because `scope` on a draft is where a *save* would go and is never
-   * `builtin`.
+   * The list row's actions, all on the page — no ⋯ (§37.116): a built-in is
+   * copied, never written — Customize copy; a custom mode is edited,
+   * duplicated or deleted. Addressed by `source` — the scope that actually
+   * owns the definition — because `scope` on a draft is where a *save* would
+   * go and is never `builtin`.
    */
   function renderPreviewActions(draft) {
     const actions = byId("preview-actions");
     actions.replaceChildren();
     previewDuplicate = undefined;
     const scope = draft.source;
-    const available =
-      scope === "builtin"
-        ? [["duplicate", "Duplicate & Customize"]]
-        : [["edit", "Edit"], ["duplicate", "Duplicate"], ["delete", "Delete"]];
-    for (const [action, label] of available) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = label;
-      button.addEventListener("click", () => {
-        if (action === "duplicate") duplicateOrigin = "preview";
-        vscode.postMessage({ type: "fixModeAction", action, id: draft.id, scope });
-      });
-      if (action === "duplicate") previewDuplicate = button;
-      actions.append(button);
+    const name = draft.name || draft.id;
+    // The page is already the view, so View is the one action it leaves out.
+    for (const action of modeActions(scope).filter((entry) => entry !== "view")) {
+      const element = document.createElement("button");
+      element.type = "button";
+      element.id = action === "duplicate" && scope === "builtin" ? "preview-customize" : `preview-${action}`;
+      element.className = action === "delete" ? "preview-primary preview-danger" : "preview-primary";
+      element.title = modeActionName(action, scope, name);
+      element.setAttribute("aria-label", modeActionName(action, scope, name));
+      // Destructive, and said so to a screen reader as well as by its glyph.
+      if (action === "delete") element.setAttribute("aria-describedby", "manage-delete-help");
+      const icon = document.createElement("span");
+      icon.className = `codicon ${MODE_ACTION_ICONS[action]}`;
+      icon.setAttribute("aria-hidden", "true");
+      const words = document.createElement("span");
+      words.textContent = modeActionLabel(action, scope);
+      element.append(icon, words);
+      element.addEventListener("click", () => runModeAction(action, scope, draft.id, "preview"));
+      // Back from a copy made here lands on the action that made it.
+      if (action === "duplicate") previewDuplicate = element;
+      actions.append(element);
     }
   }
 
+  /**
+   * The list's three groups, in order (§37.114). The note is a word on the
+   * group's own line; the sentence it stands for is the heading's tooltip.
+   */
+  const MANAGE_GROUPS = [
+    { scope: "builtin", label: "Built-in", note: "Read-only", help: "Packaged with BugPilot. Read-only.", empty: "No built-in Fix Modes." },
+    { scope: "user", label: "User", note: "Personal", help: "Yours, in your home directory.", empty: "No user Fix Modes yet." },
+    { scope: "project", label: "Project", note: "Shared", help: "This repository's, shareable with the team.", empty: "No project Fix Modes yet." },
+  ];
+
+  /**
+   * Each built-in mode's glyph, by its id (§37.116) — the one place the
+   * extension names built-in modes, and only to draw them. A value here is a
+   * codicon and nothing else, so the table can mark a row but never decide
+   * what a mode does or which modes exist. A mode it does not know — a
+   * project's own, or a built-in added later — gets its kind's glyph, which is
+   * the worst an omission can do. test/fixModes.test.ts allows this table and
+   * no other list of ids. Each glyph's tint is the stylesheet's.
+   */
+  const BUILTIN_MODE_ICONS = {
+    "standard": "codicon-tasklist",
+    "conservative": "codicon-shield",
+    "investigate-first": "codicon-search",
+    "test-driven": "codicon-beaker",
+    "deep-analysis": "codicon-graph",
+  };
+
+  /**
+   * A mode with no known origin: its kind's glyph — the search an
+   * investigation shares with Investigate First, a lightbulb for any other.
+   * Full class names, so the declared-glyphs test sees each one.
+   */
+  const MODE_KIND_ICONS = { fix: "codicon-lightbulb", investigate: "codicon-search" };
+
+  /**
+   * A mode's glyph: a built-in's own; a copy's, its origin's — through copies
+   * of copies, as far as the catalog knows them; otherwise its kind's. Nothing
+   * is guessed from a name. `basedOn` is an id without a scope, so an origin is
+   * looked for among the built-ins first: a copy of Conservative Fix keeps the
+   * shield even where a user mode reuses that id.
+   */
+  function modeIcon(mode, scope, catalog) {
+    const seen = new Set();
+    let at = { mode, scope };
+    while (at && !seen.has(`${at.scope}/${at.mode.id}`)) {
+      seen.add(`${at.scope}/${at.mode.id}`);
+      if (at.scope === "builtin") {
+        if (Object.prototype.hasOwnProperty.call(BUILTIN_MODE_ICONS, at.mode.id)) return BUILTIN_MODE_ICONS[at.mode.id];
+        break;
+      }
+      at = modeOrigin(at.mode.basedOn, catalog);
+    }
+    return MODE_KIND_ICONS[mode.executionKind] || MODE_KIND_ICONS.fix;
+  }
+
+  /** The mode a copy was made from, if the catalog still has one with that id. */
+  function modeOrigin(id, catalog) {
+    if (!id || !catalog || catalog.kind !== "ready") return undefined;
+    for (const scope of ["builtin", "project", "user"]) {
+      const mode = (catalog[scope] || []).find((entry) => entry.id === id);
+      if (mode) return { mode, scope };
+    }
+    return undefined;
+  }
+
+  /**
+   * What each row offers, every action on the row itself (§37.116): a built-in
+   * is read and copied; a custom mode — user or project, the same permissions —
+   * is edited, copied and deleted. A custom mode is read through Edit, which
+   * shows every field, and Cancel leaves it as it was.
+   */
+  const MODE_ACTIONS = { builtin: ["view", "duplicate"], custom: ["edit", "duplicate", "delete"] };
+
+  function modeActions(scope) {
+    return MODE_ACTIONS[scope === "builtin" ? "builtin" : "custom"];
+  }
+
+  /** The glyph an action keeps when a narrow row drops its word, and has on a mode's page. */
+  const MODE_ACTION_ICONS = { edit: "codicon-edit", duplicate: "codicon-copy", delete: "codicon-trash" };
+
+  /**
+   * An action's weight on the row: Customize copy and Edit are what a row is
+   * for; View and Duplicate are quieter; Delete is destructive, and no larger.
+   */
+  function modeActionTone(action, scope) {
+    if (action === "delete") return "danger";
+    if (action === "edit" || (action === "duplicate" && scope === "builtin")) return "strong";
+    return "quiet";
+  }
+
+  function modeActionLabel(action, scope) {
+    // A built-in is never changed, only copied: the copy is what is customized (§37.115).
+    if (action === "duplicate") return scope === "builtin" ? "Customize copy" : "Duplicate";
+    return { view: "View", edit: "Edit", delete: "Delete" }[action];
+  }
+
+  /** An action's name for a screen reader and its tooltip: what it does, to which mode. */
+  function modeActionName(action, scope, name) {
+    if (action === "duplicate" && scope === "builtin") return `Customize a copy of ${name}`;
+    return `${modeActionLabel(action, scope)} ${name}`;
+  }
+
+  /**
+   * Which groups are open, by scope — only once the developer has opened or
+   * closed one. Until then a group's default holds: Built-in open, User and
+   * Project open while they have modes. Kept while the page lives, like the
+   * Workflow Steps fold, so a catalog refresh does not undo it.
+   */
+  const manageGroupOpen = {};
+  /** The list's own controls by key, for putting focus back after a rebuild. */
+  let manageFocusables = new Map();
+
   function renderManageList(catalog, created) {
     const container = byId("manage-list");
+    // A rebuild replaces every control, so whichever one had the focus is
+    // found again by its key once the new one exists.
+    const active = document.activeElement;
+    const focusKey = active && active.getAttribute ? active.getAttribute("data-focus-key") : undefined;
     container.replaceChildren();
     createdRow = undefined;
+    manageFocusables = new Map();
     if (catalog.kind !== "ready") return;
-    for (const [scope, label, hint] of [
-      ["builtin", "Built-in", "Packaged with BugPilot. Read-only."],
-      ["user", "User", "Yours, in your home directory."],
-      ["project", "Project", "This repository's, shareable with the team."],
-    ]) {
-      const modes = catalog[scope] || [];
-      const group = document.createElement("div");
-      group.className = "manage-group";
+    const current = byId("fixModeId").value || "";
+    for (const group of MANAGE_GROUPS) {
+      const modes = catalog[group.scope] || [];
+      const holdsCreated = Boolean(created && created.scope === group.scope && modes.some((mode) => mode.id === created.id));
+      // A created mode's group opens, or the row it lands on could not be shown.
+      if (holdsCreated) manageGroupOpen[group.scope] = true;
+      const section = document.createElement("details");
+      section.className = "manage-group";
+      section.id = `manage-group-${group.scope}`;
+      section.open =
+        group.scope in manageGroupOpen ? manageGroupOpen[group.scope] : group.scope === "builtin" || modes.length > 0;
 
-      const heading = document.createElement("p");
-      heading.className = "card-title";
-      heading.textContent = `${label} (${modes.length})`;
-      const note = document.createElement("p");
-      note.className = "muted";
-      note.textContent = modes.length === 0 ? `${hint} None yet.` : hint;
-      group.append(heading, note);
+      const summary = document.createElement("summary");
+      summary.className = "manage-group-head";
+      summary.id = `manage-group-head-${group.scope}`;
+      summary.title = group.help;
+      summary.setAttribute("data-focus-key", `group:${group.scope}`);
+      manageFocusables.set(`group:${group.scope}`, summary);
+      const title = document.createElement("span");
+      title.className = "manage-group-title";
+      title.textContent = `${group.label} (${modes.length})`;
+      const note = document.createElement("span");
+      note.className = "manage-group-note";
+      note.textContent = group.note;
+      summary.append(title, note);
+      // Toggled here rather than left to the element, so the state that is
+      // remembered is the one that was chosen, never one a render set.
+      summary.addEventListener("click", (event) => {
+        event.preventDefault();
+        section.open = !section.open;
+        manageGroupOpen[group.scope] = section.open;
+      });
+      section.append(summary);
 
-      for (const mode of modes) group.append(manageRow(scope, mode, created));
-      container.append(group);
+      if (modes.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "manage-empty";
+        empty.textContent = group.empty;
+        section.append(empty);
+      } else {
+        const list = document.createElement("div");
+        list.className = "manage-rows";
+        list.setAttribute("role", "list");
+        list.setAttribute("aria-labelledby", `manage-group-head-${group.scope}`);
+        for (const mode of modes) list.append(manageRow(group.scope, mode, created, current, catalog));
+        section.append(list);
+      }
+      container.append(section);
     }
     for (const issue of catalog.issues || []) {
       const card = document.createElement("p");
@@ -3486,60 +3804,175 @@
       card.textContent = `${issue.scope}: ${issue.path} — ${issue.message}`;
       container.append(card);
     }
+    if (focusKey && manageFocusables.has(focusKey)) focusElement(manageFocusables.get(focusKey));
   }
 
-  function manageRow(scope, mode, created) {
+  /**
+   * Which scope's definition of `mode.id` runs instead of this one: the
+   * project's over the user's over a built-in, as the registry resolves them.
+   */
+  function overriddenBy(scope, mode, catalog) {
+    if (mode.effective) return undefined;
+    for (const other of ["project", "user"]) {
+      if (other === scope) break;
+      if ((catalog[other] || []).some((entry) => entry.id === mode.id && entry.effective)) return other;
+    }
+    return undefined;
+  }
+
+  /**
+   * One mode (§37.116): its glyph; its name, with Current or Overridden beside
+   * it; one line of what it is for with the row's actions at its right — under
+   * it, still at the right, when the row is too narrow for both; then
+   * Investigation only, when it is.
+   *
+   * The name is the row's label. The id and the version are not on the row —
+   * neither helps choose a mode, and both are in the preview.
+   */
+  function manageRow(scope, mode, created, current, catalog) {
+    const key = `${scope}/${mode.id}`;
     const row = document.createElement("div");
     row.className = "manage-row";
+    row.setAttribute("role", "listitem");
     // Id *and* scope: the same id can exist in both the user and the project
     // scope, and only the pair says which of the two rows is the new one.
     if (created && created.id === mode.id && created.scope === scope) {
       row.className = "manage-row recently-created";
       createdRow = row;
     }
+    const nameId = `manage-name-${scope}-${mode.id}`;
+    row.setAttribute("aria-labelledby", nameId);
+
+    const icon = document.createElement("span");
+    icon.className = `codicon ${modeIcon(mode, scope, catalog)} manage-icon mode-icon`;
+    icon.setAttribute("aria-hidden", "true");
 
     const text = document.createElement("div");
+    text.className = "manage-text";
+    const head = document.createElement("div");
+    head.className = "manage-title";
     const title = document.createElement("p");
     title.className = "manage-name";
-    // Said in words, not by position or colour: two modes can share an id
-    // across scopes, and which one runs is the thing that is easy to get wrong.
-    const badges = [`v${mode.version}`];
-    if (mode.executionKind === "investigate") badges.push("investigation only");
-    if (!mode.effective) badges.push("overridden by project");
-    title.textContent = `${mode.name} — ${mode.id} (${badges.join(", ")})`;
-    const description = document.createElement("p");
-    description.className = "muted";
-    description.textContent = mode.description || "";
-    text.append(title, description);
+    title.id = nameId;
+    title.textContent = mode.name || mode.id;
+    head.append(title);
+    // Words, not colour or position: which mode runs is the thing that is
+    // easy to get wrong when two scopes share an id. Beside the name, away
+    // from the actions, so neither competes with the other.
+    if (current && mode.id === current && mode.effective) {
+      const badge = manageBadge("Current");
+      badge.id = `manage-current-${scope}-${mode.id}`;
+      head.append(badge);
+      // Announced with the row, not only read inside it: in its name, and as
+      // its state for a reader that knows aria-current.
+      row.setAttribute("aria-labelledby", `${nameId} ${badge.id}`);
+      row.setAttribute("aria-current", "true");
+    }
+    const winner = overriddenBy(scope, mode, catalog);
+    if (winner) head.append(manageBadge(`Overridden by ${winner}`));
 
-    const actions = document.createElement("div");
-    actions.className = "manage-actions";
-    const available =
-      scope === "builtin"
-        ? [["view", "View"], ["duplicate", "Duplicate & Customize"]]
-        : [["view", "View"], ["edit", "Edit"], ["duplicate", "Duplicate"], ["delete", "Delete"]];
-    for (const [action, label] of available) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = label;
-      button.addEventListener("click", () => {
-        // Remembered before the message goes out, so the New Fix Mode this
-        // opens knows the list is what it has to come back to.
-        if (action === "duplicate") duplicateOrigin = "manager";
-        vscode.postMessage({ type: "fixModeAction", action, id: mode.id, scope });
-      });
-      actions.append(button);
+    const line = document.createElement("div");
+    line.className = "manage-line";
+    const description = document.createElement("p");
+    description.className = "manage-description";
+    // The mode's own words, built-in or the developer's, never rewritten: one
+    // line here, whole on hover and in the preview.
+    description.textContent = mode.description || "";
+    if (mode.description) description.title = mode.description;
+    line.append(description, manageActions(scope, mode, key));
+    text.append(head, line);
+    // A kind that changes what the agent may do gets a line of its own, under
+    // what the mode is for: on the row, never only in a tooltip.
+    if (mode.executionKind === "investigate") {
+      const kind = document.createElement("div");
+      kind.className = "manage-kind";
+      kind.append(manageBadge("Investigation only"));
+      text.append(kind);
     }
 
-    row.append(text, actions);
+    row.append(icon, text);
     return row;
   }
 
-  function renderEditor(draft) {
+  function manageBadge(words) {
+    const badge = document.createElement("span");
+    badge.className = "manage-badge";
+    badge.textContent = words;
+    return badge;
+  }
+
+  /**
+   * A row's actions, each a button of its own in the tab order — no menu to
+   * open first (§37.116). Each is named with its mode. Duplicate and Delete
+   * carry a glyph that a narrow row shows in place of the word.
+   */
+  function manageActions(scope, mode, key) {
+    const actions = document.createElement("div");
+    actions.className = "manage-actions";
+    const name = mode.name || mode.id;
+    for (const action of modeActions(scope)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.id = `manage-${action}-${scope}-${mode.id}`;
+      button.className = `manage-action manage-action-${modeActionTone(action, scope)}`;
+      button.setAttribute("data-action", action);
+      button.setAttribute("aria-label", modeActionName(action, scope, name));
+      button.title = modeActionName(action, scope, name);
+      // Destructive, and said so to a screen reader as well as in colour.
+      if (action === "delete") button.setAttribute("aria-describedby", "manage-delete-help");
+      button.setAttribute("data-focus-key", `${key}:${action}`);
+      manageFocusables.set(`${key}:${action}`, button);
+      if (action === "duplicate" || action === "delete") {
+        const glyph = document.createElement("span");
+        glyph.className = `codicon ${MODE_ACTION_ICONS[action]} manage-action-glyph`;
+        glyph.setAttribute("aria-hidden", "true");
+        button.append(glyph);
+      }
+      const label = document.createElement("span");
+      label.className = "manage-action-label";
+      label.textContent = modeActionLabel(action, scope);
+      button.append(label);
+      button.addEventListener("click", () => runModeAction(action, scope, mode.id, "manager"));
+      actions.append(button);
+    }
+    return actions;
+  }
+
+  /** What an action asks the host for: the same message from the list and from a mode's page. */
+  function runModeAction(action, scope, id, origin) {
+    // Remembered before the message goes out, so the New Fix Mode this opens
+    // knows which of the two places it has to come back to.
+    if (action === "duplicate") duplicateOrigin = origin;
+    vscode.postMessage({ type: "fixModeAction", action, id, scope });
+  }
+
+  /**
+   * Which instruction sections the developer opened or closed, for the mode
+   * being edited — kept through a refused save's push, dropped on the next
+   * visit, which starts from the markup's defaults (§37.118).
+   */
+  let editorSectionsOpen = {};
+  /** The refused save's message last brought into view, so a re-push does not move the page again. */
+  let shownEditorError;
+
+  /**
+   * New Fix Mode and Edit Fix Mode (§37.118): one form, written for what is
+   * being done. The title, the line under it, the helpers, which fields are
+   * fixed and the primary action's words are the only differences; everything
+   * else — the sections, the glyphs, the folds, the footer — is the same
+   * markup. `fresh` is a visit's first render; later pushes keep its folds.
+   */
+  function renderEditor(draft, options) {
     byId("editor-preview-pane").hidden = true;
     if (!draft) {
       openDraft = undefined;
+      shownEditorError = undefined;
       return;
+    }
+    const { catalog, message, fresh } = options || {};
+    if (fresh) {
+      editorSectionsOpen = {};
+      shownEditorError = undefined;
     }
     openDraft = draft;
     // Two views, one form: the title and the way back are what tell them apart,
@@ -3549,17 +3982,20 @@
     byId("editor-back-label").textContent =
       duplicateOrigin === "preview" ? "Back to Fix Mode Preview" : "Back to Fix Mode Manager";
 
-    const origin = [];
-    if (!creating) origin.push(draft.name);
-    if (draft.basedOn) {
-      origin.push(
-        `Based on ${draft.basedOn}${
-          draft.basedOnVersion ? ` version ${draft.basedOnVersion}` : ""
-        }`,
-      );
-    }
-    if (!creating) origin.push(`Current version ${draft.version}`);
-    byId("editor-origin").textContent = origin.join(" · ");
+    // What is being edited — or, for a new mode, what the page is for — and
+    // where it came from, by name. The ids and the versions a save is checked
+    // against stay in the model and are the lines' tooltips, not their text.
+    const subject = byId("editor-subject");
+    subject.textContent = creating ? "Create a custom AI fixing workflow." : draft.name;
+    subject.classList.toggle("editor-subject-lede", creating);
+    subject.title = creating ? "" : `${draft.id}, version ${draft.version}`;
+    const origin = byId("editor-origin");
+    const from = draft.basedOn ? modeOrigin(draft.basedOn, catalog) : undefined;
+    origin.textContent = draft.basedOn ? `Based on ${(from && from.mode.name) || draft.basedOn}` : "";
+    origin.title = draft.basedOn
+      ? `${draft.basedOn}${draft.basedOnVersion ? `, version ${draft.basedOnVersion}` : ""}`
+      : "";
+    origin.hidden = !draft.basedOn;
 
     for (const field of EDITOR_TEXT) byId(`editor-${field}`).value = draft[field] ?? "";
     byId("editor-executionKind").value = draft.executionKind || "fix";
@@ -3567,10 +4003,101 @@
 
     // An id names the mode every prepared work item recorded, and a scope is
     // which directory the file lives in. Both are fixed once the mode exists;
-    // changing either is a new mode, which is what Duplicate is for.
+    // changing either is a new mode, which is what Duplicate is for. A new
+    // mode is not fixed yet, so its helpers say what to type and, as a
+    // tooltip, what will become fixed — never that it already is.
     byId("editor-id").disabled = !creating;
     byId("editor-scope").disabled = !creating;
-    byId("editor-save").textContent = creating ? "Create Fix Mode" : "Save Fix Mode";
+    const idHint = byId("editor-id-hint");
+    idHint.textContent = creating ? "Lowercase letters, digits and hyphens." : "Fixed once the mode exists.";
+    idHint.title = creating
+      ? "The ID can't be changed after the Fix Mode is created."
+      : "Lowercase letters, digits and hyphens. Duplicate the mode to use another ID.";
+    const scopeNote = creating
+      ? "Scope can't be changed after creation. Duplicate the mode to move it later."
+      : "Fixed once the mode exists. Duplicate it to move it.";
+    const scopeHint = byId("editor-scope-hint");
+    scopeHint.textContent = scopeNote;
+    // Still the select's description when hidden; only an edit shows it.
+    scopeHint.hidden = creating;
+    byId("editor-scope").title = creating ? scopeNote : "";
+    byId("editor-save-label").textContent = creating ? "Create Fix Mode" : "Save Fix Mode";
+    byId("editor-save-icon").className = `codicon ${creating ? "codicon-add" : "codicon-save"}`;
+
+    for (const section of EDITOR_SECTIONS) {
+      byId(`field-editor-${section}`).open =
+        section in editorSectionsOpen ? editorSectionsOpen[section] : EDITOR_OPEN_DEFAULTS[section];
+      editorSnippet(section);
+    }
+    renderEditorError(message || "");
+    growEditor();
+  }
+
+  /** Whether each section starts open, as the markup says (§37.118). */
+  const EDITOR_OPEN_DEFAULTS = Object.fromEntries(
+    EDITOR_SECTIONS.map((section) => [section, Boolean(byId(`field-editor-${section}`).open)]),
+  );
+
+  /**
+   * A closed section's one line: the start of what it says, cut by the
+   * stylesheet — or, empty, that it is empty, so a closed section never looks
+   * like a header with nothing behind it and never shows text it does not have.
+   */
+  function editorSnippet(section) {
+    const snippet = byId(`editor-${section}-snippet`);
+    const line = firstLine(byId(`editor-${section}`).value || "");
+    snippet.textContent = line || `No ${SECTION_LABELS[section].toLowerCase()} yet`;
+    snippet.classList.toggle("editor-snippet-empty", !line);
+  }
+
+  function growEditor() {
+    for (const id of EDITOR_GROWING) grow(byId(id));
+  }
+
+  /**
+   * The field a refused save was about, when core's message names one —
+   * "Fix Mode field 'constraints' must not be empty.", "Invalid Fix Mode id
+   * …", "A user Fix Mode 'x' already exists". Read, never rewritten: the
+   * message is shown as core wrote it.
+   */
+  function editorFieldOf(message) {
+    const named = /Fix Mode field '([A-Za-z_]+)'/.exec(message);
+    if (named && EDITOR_TEXT.includes(named[1])) return named[1];
+    if (/Fix Mode id\b|Fix Mode '[^']*' already exists/.test(message)) return "id";
+    return undefined;
+  }
+
+  /**
+   * A refused save, where the developer can act on it (§37.118): under the
+   * field it names — marked invalid, its section opened if it was folded, the
+   * focus on it and the page scrolled to it once per new message — or, naming
+   * none, at the top as before. Validation itself is core's, unchanged.
+   */
+  function renderEditorError(message) {
+    const field = message ? editorFieldOf(message) : undefined;
+    for (const id of [...EDITOR_TEXT, "executionKind", "scope"]) {
+      const mine = id === field;
+      const error = byId(`editor-${id}-error`);
+      error.textContent = mine ? message : "";
+      error.hidden = !mine;
+      byId(`field-editor-${id}`).classList.toggle("field-invalid", mine);
+      byId(`editor-${id}`).setAttribute("aria-invalid", mine ? "true" : "false");
+    }
+    if (field) byId("editor-error").hidden = true;
+    if (field && EDITOR_SECTIONS.includes(field)) {
+      byId(`field-editor-${field}`).open = true;
+      editorSectionsOpen[field] = true;
+    }
+    if (message && message !== shownEditorError) {
+      if (field) {
+        const control = byId(`editor-${field}`);
+        if (typeof control.focus === "function") control.focus({ preventScroll: true });
+        scrollIntoView(byId(`editor-${field}-error`), "center");
+      } else {
+        scrollIntoView(byId("editor-error"), "center");
+      }
+    }
+    shownEditorError = message || undefined;
   }
 
   /** What the editor currently holds, on top of the draft it was opened with. */
@@ -3632,9 +4159,11 @@
   byId("manage-back").addEventListener("click", () =>
     vscode.postMessage({ type: "closeFixModes" }),
   );
-  byId("preview-back").addEventListener("click", () =>
-    vscode.postMessage({ type: "manageFixModes" }),
-  );
+  byId("preview-back").addEventListener("click", () => {
+    // The same message an editor's Cancel sends; this one means the list.
+    pendingReturn = undefined;
+    vscode.postMessage({ type: "manageFixModes" });
+  });
   byId("editor-back").addEventListener("click", leaveEditor);
   byId("editor-cancel").addEventListener("click", leaveEditor);
   byId("editor-preview").addEventListener("click", renderPreview);
@@ -3644,6 +4173,23 @@
     if (duplicateOrigin === "preview") pendingReturn = "preview";
     vscode.postMessage({ type: "saveFixMode", draft: readDraft() });
   });
+  // A section folds from its header, Enter and Space included (they reach the
+  // summary as a click). Toggled here, not by the element, so the choice is the
+  // one remembered; folding is presentation only — the box keeps its text, and
+  // Save and Preview read every section whether open or not.
+  for (const section of EDITOR_SECTIONS) {
+    const details = byId(`field-editor-${section}`);
+    byId(`editor-${section}-head`).addEventListener("click", (event) => {
+      event.preventDefault();
+      details.open = !details.open;
+      editorSectionsOpen[section] = details.open;
+      // Opened, the box has a layout to grow to at last; closed, its one line
+      // says what it now holds.
+      if (details.open) grow(byId(`editor-${section}`));
+      else editorSnippet(section);
+    });
+  }
+  byId("fix-mode-editor-view").addEventListener("input", (event) => grow(event.target));
 
   // --- wiring --------------------------------------------------------------
 
@@ -3748,6 +4294,21 @@
       if (typeof requestAnimationFrame === "function") requestAnimationFrame(regrow);
       else regrow();
     }).observe(byId("issue"));
+  }
+
+  // The same for the Fix Mode editor's boxes (§37.118): dragging the sidebar
+  // with the editor open left them sized for the old width — text hidden
+  // behind a box's own scrollbar when narrower, blank lines when wider
+  // (measured in the real window). One observer on the view, by width alone.
+  if (typeof ResizeObserver === "function") {
+    let editorWidth = byId("fix-mode-editor-view").clientWidth;
+    new ResizeObserver(() => {
+      const width = byId("fix-mode-editor-view").clientWidth;
+      if (width === editorWidth) return;
+      editorWidth = width;
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(growEditor);
+      else growEditor();
+    }).observe(byId("fix-mode-editor-view"));
   }
 
   // Workflow Settings: a gear on each row that has settings, the entry under

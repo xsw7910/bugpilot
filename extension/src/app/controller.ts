@@ -3041,6 +3041,10 @@ export class Controller {
       return;
     }
     this.#manageError = undefined;
+    // Deleted from its own detail page: the page is closed with it, so the
+    // panel returns to the list rather than showing a definition that no
+    // longer exists (seen in the real window, §37.115).
+    if (this.#editor && this.#editor.id === id && this.#editor.source === scope) this.#editor = undefined;
     await this.#refreshAfterFixModeChange();
   }
 

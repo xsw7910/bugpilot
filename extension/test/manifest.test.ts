@@ -113,19 +113,31 @@ test("the views the code registers are the ones the manifest declares", () => {
   assert.equal(declared.find((view) => view.id === VIEWS.results)?.type, undefined);
 });
 
-test("Workflow starts with most of the sidebar, Results with the rest, both expanded (§37.109)", () => {
+/** VS Code's minimum for an open view, measured (§37.106): a 28px header and a 120px body. */
+const VIEW_MINIMUM_PX = 148;
+
+test("Workflow starts with all but Results' minimum, Results expanded at its minimum (§37.109, §37.111)", () => {
   // `initialSize` is VS Code's weight for a view's first height — each gets
-  // height × weight / total — and VS Code reads it only for views in a
-  // container the same extension contributes, which `bugpilot` is. Not `size`:
-  // that is no property of a contributed view, and VS Code would ignore it.
+  // height × weight / total, and a view never gets less than its minimum — and
+  // VS Code reads it only for views in a container the same extension
+  // contributes, which `bugpilot` is. Not `size`: that is no property of a
+  // contributed view, and VS Code would ignore it.
   const declared = manifest.contributes.views["bugpilot"] ?? [];
+  assert.deepEqual(declared.map((view) => view.id), [VIEWS.panel, VIEWS.results], "a third top-level view");
   const panel = declared.find((view) => view.id === VIEWS.panel)!;
   const results = declared.find((view) => view.id === VIEWS.results)!;
   assert.equal(panel.type, "webview");
   assert.equal(results.type, undefined, "Results is a native tree");
-  assert.equal(panel.initialSize, 3);
   assert.equal(results.initialSize, 1);
-  assert.ok(panel.initialSize! > results.initialSize!, "Results starts larger than Workflow");
+  for (const weight of [panel.initialSize, results.initialSize]) {
+    assert.ok(Number.isInteger(weight) && weight! > 0, `initialSize ${weight} is not a positive whole number`);
+  }
+  // Results' weighted share of the two panes stays under its minimum for any
+  // pane area up to 4000px — a 4K display at 100% is about 2000 — so VS Code
+  // gives it exactly the minimum and Workflow the rest. 10 to 1 was not
+  // enough: 181px in a 2100px window, measured.
+  const resultsShare = (paneArea: number) => (paneArea * results.initialSize!) / (panel.initialSize! + results.initialSize!);
+  assert.ok(resultsShare(4000) <= VIEW_MINIMUM_PX, `Results would start at ${resultsShare(4000)}px in a 4000px sidebar`);
   assert.equal(declared.some((view) => "size" in view), false);
   // The views' container is BugPilot's own, which is what makes the weights count.
   assert.deepEqual(manifest.contributes.viewsContainers.activitybar.map((container) => container.id), ["bugpilot"]);

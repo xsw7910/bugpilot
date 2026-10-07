@@ -137,3 +137,36 @@
     animation: none;
   }
 }
+
+/* Manage Fix Modes (§37.114, §37.116): Delete's trash, and each built-in
+   mode's glyph — Standard's tasklist, Conservative's shield, Test-Driven's
+   beaker, Deep Analysis's graph (Investigate First's search, and the
+   lightbulb a mode with no known origin falls back to, are above). Each
+   checked in the vendored codicon.ttf's cmap and glyph names. */
+.codicon-trash:before { content: "\ea81"; }
+.codicon-tasklist:before { content: "\eb67"; }
+.codicon-shield:before { content: "\eb53"; }
+.codicon-beaker:before { content: "\ea79"; }
+.codicon-graph:before { content: "\eb03"; }
+
+/* The Fix Mode detail page (§37.115): Back's arrow, the sections' chevron,
+   and their glyphs — Objective's target, Implementation's tools,
+   Verification's check-all (Investigation's search, Constraints' warning and
+   Completion's checklist are above). Each checked in the vendored
+   codicon.ttf's cmap and glyph names. */
+.codicon-arrow-left:before { content: "\ea9b"; }
+
+/* The Fix Mode editor (§37.118): Basic info's settings glyph, ID's tag,
+   Description's note, Scope's folder, and the footer's save and eye (edit,
+   play, list-ordered, add and close are above). Each checked in the vendored
+   codicon.ttf's cmap and glyph names. */
+.codicon-settings:before { content: "\eb52"; }
+.codicon-tag:before { content: "\ea66"; }
+.codicon-note:before { content: "\eb26"; }
+.codicon-folder:before { content: "\ea83"; }
+.codicon-save:before { content: "\eb4b"; }
+.codicon-eye:before { content: "\ea70"; }
+.codicon-chevron-down:before { content: "\eab4"; }
+.codicon-target:before { content: "\ebf8"; }
+.codicon-tools:before { content: "\eb6d"; }
+.codicon-check-all:before { content: "\ebb1"; }

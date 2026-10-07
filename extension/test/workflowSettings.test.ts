@@ -42,13 +42,47 @@ test("every settings field has exactly one home, and the form's own fields have 
 test("the gears map rows to sections one to one, and a section is titled by its step", () => {
   const steps = Object.keys(SETTINGS_SECTION_OF_STEP);
   for (const step of steps) assert.ok((WORKFLOW_STEP_IDS as readonly string[]).includes(step), step);
-  assert.deepEqual(Object.values(SETTINGS_SECTION_OF_STEP), [...WORKFLOW_SETTINGS_SECTIONS]);
-  // No gear where there is nothing to configure. Git history has one now.
+  // Every section but the shared inputs is one step's, in the workflow's order.
+  assert.deepEqual(
+    Object.values(SETTINGS_SECTION_OF_STEP),
+    WORKFLOW_SETTINGS_SECTIONS.filter((section) => section !== "retrieval-inputs"),
+  );
+  // Git history has a gear, and Similar fixes too since §37.113; Fix result
+  // has nothing to configure and none.
   assert.equal(SETTINGS_SECTION_OF_STEP.gitHistory, "git-history");
-  assert.equal(SETTINGS_SECTION_OF_STEP.similarFixes, undefined);
+  assert.equal(SETTINGS_SECTION_OF_STEP.similarFixes, "similar-fixes");
+  assert.equal(SETTINGS_SECTION_OF_STEP.fixResult, undefined);
   for (const [step, section] of Object.entries(SETTINGS_SECTION_OF_STEP)) {
     assert.equal(SETTINGS_SECTION_TITLES[section], STEP_LABELS[step as keyof typeof STEP_LABELS]);
   }
+});
+
+test("the page's sections, in order: the shared inputs just before the retrieval steps that read them (§37.113)", () => {
+  assert.deepEqual(
+    [...WORKFLOW_SETTINGS_SECTIONS],
+    ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "build-context", "fix-with-ai"],
+  );
+  assert.equal(SETTINGS_SECTION_TITLES["retrieval-inputs"], "Retrieval inputs");
+  // One Keywords and one Focus files, shared, and no row's gear opens them.
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS["retrieval-inputs"]], ["keywords", "focusFiles"]);
+  assert.equal(Object.values(SETTINGS_SECTION_OF_STEP).includes("retrieval-inputs" as never), false);
+  // Code search keeps only its own: no Keywords, no Focus files, no switch for them.
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS["code-search"]], ["ignorePaths", "maxFiles", "maxSearchLines"]);
+  assert.equal(sectionOfField("keywords"), "retrieval-inputs");
+  assert.equal(sectionOfField("focusFiles"), "retrieval-inputs");
+  // Git history's structure is unchanged.
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS["git-history"]], [
+    "gitUseSharedKeywords",
+    "gitUseSharedFocusFiles",
+    "gitKeywords",
+    "gitFiles",
+    "gitSearchMessages",
+    "gitSearchFileHistory",
+    "gitHistoryDepth",
+    "gitMaxCommits",
+  ]);
+  // Similar fixes: exactly its three, and no Focus files switch.
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS["similar-fixes"]], ["similarUseSharedKeywords", "similarKeywords", "similarMaxFixes"]);
 });
 
 /** A changed value for each settings field. */
@@ -72,6 +106,9 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   gitSearchFileHistory: { gitSearchFileHistory: false },
   gitHistoryDepth: { gitHistoryDepth: "broader" },
   gitMaxCommits: { gitMaxCommits: "5" },
+  similarUseSharedKeywords: { similarUseSharedKeywords: false },
+  similarKeywords: { similarKeywords: "legacyexporter" },
+  similarMaxFixes: { similarMaxFixes: "2" },
 };
 
 test("the page's 'requires rebuild' words are the host's staleness rule, field by field", () => {
@@ -91,8 +128,10 @@ test("the page's 'requires rebuild' words are the host's staleness rule, field b
 
 test("a section says once whether its changes need a rebuild; no section is mixed any more", () => {
   assert.equal(sectionRebuildNote("issue-details"), "Changes here require rebuilding context.");
+  assert.equal(sectionRebuildNote("retrieval-inputs"), "Changes here require rebuilding context.");
   assert.equal(sectionRebuildNote("code-search"), "Changes here require rebuilding context.");
   assert.equal(sectionRebuildNote("git-history"), "Changes here require rebuilding context.");
+  assert.equal(sectionRebuildNote("similar-fixes"), "Changes here require rebuilding context.");
   assert.equal(sectionRebuildNote("build-context"), "Changes here apply to the next run and do not require rebuilding context.");
   // The agent and its command: which agent, never what it is given.
   assert.equal(sectionRebuildNote("fix-with-ai"), "Changes here apply to the next run and do not require rebuilding context.");
@@ -163,6 +202,24 @@ test("summaries are counts and names, singular or plural, and only for what is s
   });
   // A limit the run would reject is not reported as one.
   assert.equal(settingsSummaries({ ...DEFAULT_FORM, maxFiles: "abc", maxSearchLines: "0" }).codeSearch, undefined);
+});
+
+test("Similar fixes' summary: its own keywords counted, the switch when off, the count when set", () => {
+  assert.equal(settingsSummaries(DEFAULT_FORM).similarFixes, undefined);
+  assert.equal(
+    settingsSummaries({ ...DEFAULT_FORM, similarKeywords: "LegacyExporter, export crash, LegacyExporter", similarUseSharedKeywords: false, similarMaxFixes: "2" })
+      .similarFixes,
+    "2 additional keywords · shared keywords off · max 2 similar fixes",
+  );
+  assert.equal(settingsSummaries({ ...DEFAULT_FORM, similarMaxFixes: "1" }).similarFixes, "max 1 similar fix");
+  // A count the run would reject is not reported as one.
+  assert.equal(settingsSummaries({ ...DEFAULT_FORM, similarMaxFixes: "abc" }).similarFixes, undefined);
+  // The shared Keywords are counted where they are always used, Code search,
+  // and never a second time on Similar fixes' row; its words are never shown.
+  const shared = settingsSummaries({ ...DEFAULT_FORM, keywords: "OpenVDS", similarKeywords: "s3cretTerm" });
+  assert.equal(shared.codeSearch, "1 keyword");
+  assert.equal(shared.similarFixes, "1 additional keyword");
+  assert.doesNotMatch(JSON.stringify(shared), /OpenVDS|s3cretTerm/);
 });
 
 test("a custom agent is summarized by kind, never by its command", () => {

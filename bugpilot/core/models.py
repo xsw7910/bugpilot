@@ -156,6 +156,48 @@ class GitHistoryOptions:
         )
 
 
+#: How many similar past fixes the Similar fixes step keeps (Similar Fixes Settings).
+#: Five is what the step always kept, so a run that sets nothing finds what it did.
+DEFAULT_MAX_SIMILAR_FIXES = 5
+#: Max Similar Fixes' ceiling. Each one is a past investigation the agent is
+#: pointed at; twenty is already more than it reads closely.
+MAX_SIMILAR_FIXES_LIMIT = 20
+
+
+@dataclass(frozen=True)
+class SimilarFixesOptions:
+    """Similar Fixes Settings: how the Similar fixes step searches past fixes.
+
+    The step scores ``.ai_memory`` entries against the issue's own extracted
+    terms, which always take part. On top of them come the shared Keywords
+    (``InvestigationOptions.keywords``) unless ``use_shared_keywords`` is off, and
+    ``keywords`` — Additional Keywords, Similar Fixes' own, which neither Code
+    Search nor Git History ever reads. The shared Focus Files are never used:
+    a memory entry is scored by its words, not by the files it names.
+
+    The defaults are the step's behaviour before these existed.
+    """
+
+    use_shared_keywords: bool = True
+    keywords: tuple[str, ...] = ()
+    max_results: int = DEFAULT_MAX_SIMILAR_FIXES
+
+    def normalized(self) -> SimilarFixesOptions:
+        """These options with an out-of-range count replaced by the default.
+
+        For a library caller; the CLI refuses such a count instead. A count
+        outside 1–20 reads as five, the safe reading — never "everything".
+        """
+        count = self.max_results
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_SIMILAR_FIXES_LIMIT:
+            count = DEFAULT_MAX_SIMILAR_FIXES
+        return SimilarFixesOptions(
+            use_shared_keywords=self.use_shared_keywords is not False,
+            keywords=tuple(str(item) for item in self.keywords),
+            max_results=count,
+        )
+
+
 def effective_plan(plan: InvestigationPlan, options: InvestigationOptions) -> InvestigationPlan:
     """The plan once the options have had their say.
 
@@ -198,6 +240,9 @@ class InvestigationOptions:
     # How Git history searches (Git History Settings). Code Search reads
     # `keywords` and `focus_files` above and never this.
     git_history: GitHistoryOptions = field(default_factory=GitHistoryOptions)
+    # How Similar fixes searches past fixes (Similar Fixes Settings). Neither
+    # Code Search nor Git History reads it.
+    similar_fixes: SimilarFixesOptions = field(default_factory=SimilarFixesOptions)
 
 
 @dataclass

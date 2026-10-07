@@ -10,10 +10,15 @@
  * change, so "what does Code search use?" had no one place to look. The
  * controls moved; none was added, renamed or given a second copy.
  *
- * A section exists only where a step has settings. Similar fixes has none
- * beyond its checkbox on the row, so it gets no gear and no section — a gear
- * that opens an empty page is a control that lies. Git history has had one since
- * the Git History Settings (Git History Retrieval v2, Batch 2).
+ * A section exists where a step has settings — Git history since the Git
+ * History Settings (Git History Retrieval v2, Batch 2), Similar fixes since the
+ * Similar Fixes Settings (§37.113) — and one more holds what several steps
+ * share: Retrieval inputs, the Keywords and Focus files. Code search always
+ * uses them, Git history and Similar fixes may (each by its own *Use shared…*
+ * switch), so they are no one step's settings and no row's gear opens them;
+ * they sit just above Code search, the step that always reads them. A step
+ * with no settings has no gear — a gear that opens an empty page is a control
+ * that lies.
  *
  * Everything here is data the host and the markup both read: the page cannot
  * import it (no bundler, see `panel/messages.ts`), so `media/panel.js` carries a
@@ -25,26 +30,45 @@ import { parseKeywords, parsePaths } from "./form.ts";
 import type { FormState } from "./form.ts";
 import type { WorkflowStepId } from "./workflow.ts";
 
-/** The settings page's sections, top to bottom — the workflow's own order. */
-export const WORKFLOW_SETTINGS_SECTIONS = ["issue-details", "code-search", "git-history", "build-context", "fix-with-ai"] as const;
+/**
+ * The settings page's sections, top to bottom — the workflow's own order, with
+ * the shared Retrieval inputs before the retrieval steps that read them.
+ */
+export const WORKFLOW_SETTINGS_SECTIONS = [
+  "issue-details",
+  "retrieval-inputs",
+  "code-search",
+  "git-history",
+  "similar-fixes",
+  "build-context",
+  "fix-with-ai",
+] as const;
 export type WorkflowSettingsSection = (typeof WORKFLOW_SETTINGS_SECTIONS)[number];
 
+/** The sections that belong to one step: every one but the shared inputs. */
+export type StepSettingsSection = Exclude<WorkflowSettingsSection, "retrieval-inputs">;
+
 /**
- * Which row's gear opens which section. A row absent here has no gear.
+ * Which row's gear opens which section. A row absent here has no gear, and
+ * Retrieval inputs is no row's: Code search's gear opens Code search, whose own
+ * settings are Ignore paths and the limits.
  */
-export const SETTINGS_SECTION_OF_STEP: Readonly<Partial<Record<WorkflowStepId, WorkflowSettingsSection>>> = {
+export const SETTINGS_SECTION_OF_STEP: Readonly<Partial<Record<WorkflowStepId, StepSettingsSection>>> = {
   issueDetails: "issue-details",
   codeSearch: "code-search",
   gitHistory: "git-history",
+  similarFixes: "similar-fixes",
   buildContext: "build-context",
   fixWithAI: "fix-with-ai",
 };
 
-/** A section's heading: the name of the step it configures. */
+/** A section's heading: the name of the step it configures, or of what the steps share. */
 export const SETTINGS_SECTION_TITLES: Readonly<Record<WorkflowSettingsSection, string>> = {
   "issue-details": "Issue details",
+  "retrieval-inputs": "Retrieval inputs",
   "code-search": "Code search",
   "git-history": "Git history",
+  "similar-fixes": "Similar fixes",
   "build-context": "Build context",
   "fix-with-ai": "Fix with AI",
 };
@@ -74,9 +98,12 @@ export function isSettingsField(field: string): field is SettingsField {
 export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, readonly SettingsField[]>> = {
   // A hand-written bug's title, and files to copy in beside the issue.
   "issue-details": ["title", "attachments", "attachmentDescriptions"],
-  // What the search boosts, prefers, skips, and how much it returns.
-  "code-search": ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"],
-  // Which shared guidance Git history follows, what it adds of its own, which
+  // What the retrieval steps share: the terms they search for and the files
+  // they prefer. One copy each — no step has a second.
+  "retrieval-inputs": ["keywords", "focusFiles"],
+  // Code search's own: what it skips, and how much it returns.
+  "code-search": ["ignorePaths", "maxFiles", "maxSearchLines"],
+  // Which shared inputs Git history follows, what it adds of its own, which
   // routes it searches, how far back, and how many commits it keeps.
   "git-history": [
     "gitUseSharedKeywords",
@@ -88,6 +115,9 @@ export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, r
     "gitHistoryDepth",
     "gitMaxCommits",
   ],
+  // Whether Similar fixes follows the shared Keywords, what it adds of its own,
+  // and how many past fixes it keeps. Never the Focus files.
+  "similar-fixes": ["similarUseSharedKeywords", "similarKeywords", "similarMaxFixes"],
   // How a preparation treats the work item's previous folder.
   "build-context": ["fresh"],
   // Who the task goes to. How it is approached, and the hint it carries, are
@@ -123,6 +153,10 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
   gitSearchFileHistory: true,
   gitHistoryDepth: true,
   gitMaxCommits: true,
+  // Each one can change the Similar Fixes section of context.md.
+  similarUseSharedKeywords: true,
+  similarKeywords: true,
+  similarMaxFixes: true,
   fresh: false,
   agent: false,
   agentCommand: false,
@@ -132,10 +166,11 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
  * A row gear's name, for its tooltip and its accessible name: "Configure Code
  * Search", never six buttons all called Settings.
  */
-export const SETTINGS_ACTION_LABELS: Readonly<Record<WorkflowSettingsSection, string>> = {
+export const SETTINGS_ACTION_LABELS: Readonly<Record<StepSettingsSection, string>> = {
   "issue-details": "Configure Issue Details",
   "code-search": "Configure Code Search",
   "git-history": "Configure Git History",
+  "similar-fixes": "Configure Similar Fixes",
   "build-context": "Configure Build Context",
   // Fix Mode and Hint are on the main page (§37.84): this gear is the agent's.
   "fix-with-ai": "Configure AI Agent",
@@ -253,6 +288,13 @@ export function settingsSummaries(form: FormState): Partial<Record<WorkflowStepI
   ].filter((part) => part !== "");
   if (history.length > 0) summaries.gitHistory = history.join(" · ");
 
+  const similar = [
+    counted(parseKeywords(form.similarKeywords).length, "additional keyword"),
+    form.similarUseSharedKeywords ? "" : "shared keywords off",
+    limit(form.similarMaxFixes, "similar fix", "similar fixes"),
+  ].filter((part) => part !== "");
+  if (similar.length > 0) summaries.similarFixes = similar.join(" · ");
+
   if (form.fresh) summaries.buildContext = "Deletes previous artifacts first";
 
   if (form.agent !== "auto") summaries.fixWithAI = AGENT_SUMMARY[form.agent];
@@ -265,10 +307,10 @@ function counted(count: number, noun: string): string {
 }
 
 /** "max 10 files", for a limit that is set; an empty or malformed one says nothing. */
-function limit(raw: string, noun: string): string {
+function limit(raw: string, noun: string, nouns = `${noun}s`): string {
   const text = raw.trim();
   if (!/^\d+$/.test(text) || Number(text) < 1) return "";
-  return `max ${Number(text)} ${noun}${Number(text) === 1 ? "" : "s"}`;
+  return `max ${Number(text)} ${Number(text) === 1 ? noun : nouns}`;
 }
 
 function plural(count: number, noun: string): string {

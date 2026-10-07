@@ -64,6 +64,8 @@ const CAPS: Readonly<Record<keyof FormTextFields, number>> = {
   gitKeywords: 8_000,
   gitFiles: 16_000,
   gitMaxCommits: 16,
+  similarKeywords: 8_000,
+  similarMaxFixes: 16,
 };
 
 type FormTextFields = Omit<
@@ -81,6 +83,7 @@ type FormTextFields = Omit<
   | "gitSearchMessages"
   | "gitSearchFileHistory"
   | "gitHistoryDepth"
+  | "similarUseSharedKeywords"
 >;
 
 /**
@@ -888,6 +891,11 @@ function parseForm(raw: unknown): FormState | undefined {
     gitSearchFileHistory: record["gitSearchFileHistory"] !== false,
     gitHistoryDepth: gitHistoryDepthOf(record["gitHistoryDepth"]),
     gitMaxCommits: text("gitMaxCommits"),
+    // Similar Fixes Settings, read the same way: the switch ships on and absent
+    // means on; the text is capped like the rest.
+    similarUseSharedKeywords: record["similarUseSharedKeywords"] !== false,
+    similarKeywords: text("similarKeywords"),
+    similarMaxFixes: text("similarMaxFixes"),
   };
 }
 

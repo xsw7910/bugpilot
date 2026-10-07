@@ -52,6 +52,7 @@ import { NEXT_ACTION_LABELS, PRIMARY_SHORTCUT, PRIMARY_TOOLTIPS } from "../app/n
 import { AGENT_CHOICES, AGENT_LABELS } from "../app/agents.ts";
 import type { AgentChoice } from "../app/agents.ts";
 import type { NextActionId } from "../app/nextAction.ts";
+import { SIMILAR_MAX_FIXES_DEFAULT, SIMILAR_MAX_FIXES_LIMIT } from "../app/form.ts";
 import {
   DELETE_FILES_HELPER,
   DELETE_FILES_HISTORY,
@@ -143,12 +144,12 @@ const HINT_HELP = "Add technical guidance, constraints, or suspected areas";
 const INCLUDE_ISSUE_DETAILS_HELP =
   "Includes only the issue title and description. Repository files and history are not read.";
 /**
- * The Issue's two kinds of input, said twice at two lengths (Issue compact
- * input): a few words beside the label, which stay on screen, and the full
- * sentence, which is the tooltip and the field's accessible description — the
- * example key lives here rather than in the placeholder.
+ * The Issue's two kinds of input, in one sentence: the tooltip and the field's
+ * accessible description — the example key lives here rather than in the
+ * placeholder. "Jira ID or bug description", beside the label, said a shorter
+ * version on screen until §37.112; the row shows how the input was read
+ * instead, once there is input.
  */
-const ISSUE_KINDS = "Jira ID or bug description";
 const ISSUE_HELP =
   "Enter a Jira issue ID such as JR-12345, or describe the bug directly. BugPilot will detect which one you entered.";
 
@@ -169,18 +170,19 @@ const ISSUE_HELP =
  * It grows with what is typed like every other textarea here, to four lines,
  * and scrolls after that.
  *
- * The label row says what goes in — the label, its icon and a few words beside
- * it — and nothing under the box explains it (§37.104); the example key and the
+ * The label row is the label, its icon and — once something is typed — how it
+ * was read: *Jira issue · JR-12345* or *Bug description*, at the row's right
+ * (§37.112). It was a line under the box, with "Jira ID or bug description"
+ * beside the label; now the row says what the input is rather than what it may
+ * be, and nothing is under the box. The note stays the box's description, so it
+ * is heard when the field is reached, and while the field is being typed in
+ * `#issue-kind` says the kind once, when typing pauses. The example key and the
  * fact that BugPilot tells the two apart are the tooltip and the accessible
- * description. The few words are `aria-hidden`: that description already says
- * them, and the label stays the name. Once something is typed, the note says
- * how it was read — *Jira issue · JR-12345* or *Bug description* — and while it
- * is being typed `#issue-kind` says the kind once, when typing pauses.
+ * description (§37.104).
  */
 const ISSUE_FIELD = `      <div class="field" id="field-issue">
-${settingHeader({ forId: "issue", label: "Issue", icon: "issues", tone: "primary", title: ISSUE_HELP, secondary: ISSUE_KINDS })}
+${settingHeader({ forId: "issue", label: "Issue", icon: "issues", tone: "primary", title: ISSUE_HELP, note: true })}
         <textarea id="issue" name="issue" rows="1" placeholder="Describe the bug or enter a Jira ID" title="${ISSUE_HELP}" aria-describedby="issue-note issue-error issue-help"></textarea>
-        <p class="muted issue-note" id="issue-note" hidden></p>
         <p class="visually-hidden" id="issue-help">${ISSUE_HELP}</p>
         <p class="visually-hidden" id="issue-kind" role="status"></p>
         <p class="error" id="issue-error" hidden></p>
@@ -296,18 +298,24 @@ const GUIDANCE_FIELDS: readonly TextField[] = [
 ];
 
 /**
- * Retrieval overrides: expert boosts on a search that already runs itself.
+ * Retrieval inputs (§37.113): what the retrieval steps share — expert boosts
+ * on searches that already run themselves.
+ *
+ * One Keywords and one Focus files, not a copy per step: Code search always
+ * uses them, Git history and Similar fixes may, by their own *Use shared…*
+ * switches (Similar fixes never reads a Focus file). They used to head the Code
+ * search section, which made them look like Code search's alone.
  *
  * BugPilot retrieves without any of these, and a blank Keywords box is not a
  * job half done. That used to be said twice — "(optional)" in two labels and a
  * helper line under each — and is now said by the box being empty and by the
  * tooltip (Advanced Settings simplification): the label names the field, the
- * placeholder shows an example, the tooltip says what it is for.
+ * placeholder shows an example, the tooltip says what it is for and who uses it.
  *
  * Nothing here names a weight, a term budget or a search surface. Those are
  * §33's concepts and the panel has no business teaching them.
  */
-const RETRIEVAL_FIELDS: readonly TextField[] = [
+const RETRIEVAL_INPUT_FIELDS: readonly TextField[] = [
   {
     id: "keywords",
     label: "Keywords",
@@ -318,7 +326,7 @@ const RETRIEVAL_FIELDS: readonly TextField[] = [
     rows: 2,
     icon: "search",
     tone: "primary",
-    help: "Boost retrieval with known identifiers or technical terms. Separate them with commas or new lines.",
+    help: "Shared search terms used by Code Search and optionally reused by Git History and Similar Fixes. Separate them with commas or new lines.",
     placeholder: "e.g. VolumeDescriptor, OpenVDS, outputType",
   },
   {
@@ -328,11 +336,15 @@ const RETRIEVAL_FIELDS: readonly TextField[] = [
     rows: 4,
     icon: "file",
     tone: "muted",
-    help: "Prioritize files you already suspect are relevant. One path per line.",
+    help: "Files to prioritize in Code Search and optionally reuse for Git History. One path per line.",
     // A multi-line placeholder, which is what makes "one path per line" obvious
     // without a paragraph saying so.
     placeholder: "e.g.\nsrc/core/\nsrc/services/example.cpp\ninclude/example.h",
   },
+];
+
+/** Code search's own: what it skips. The limits follow it. */
+const CODE_SEARCH_FIELDS: readonly TextField[] = [
   {
     id: "ignorePaths",
     label: "Ignore paths",
@@ -451,11 +463,11 @@ const GIT_MAX_COMMITS_FIELD: TextField = {
 };
 
 /**
- * One of Git history's switches: a checkbox inside its own label, like Fresh.
- * What it does — and, for the two shared ones, that Code search is unaffected —
- * is its tooltip and accessible description, never a line under it.
+ * One of a step's switches — Git history's, Similar fixes' — a checkbox inside
+ * its own label, like Fresh. What it does is its tooltip and accessible
+ * description, never a line under it.
  */
-function gitHistorySwitch(id: string, label: string, help: string): string {
+function settingSwitch(id: string, label: string, help: string): string {
   return `        <div class="field field-check" id="field-${id}">
   ${settingHeader({
     forId: id,
@@ -483,23 +495,69 @@ const GIT_HISTORY_DEPTH_FIELD = `        <div class="field" id="field-gitHistory
         </div>`;
 
 const GIT_HISTORY_SECTION = [
-  gitHistorySwitch(
+  // The shared inputs are named where they live: Retrieval inputs, a section
+  // of their own since §37.113. `&gt;` because the words are markup here.
+  settingSwitch(
     "gitUseSharedKeywords",
     "Use shared keywords",
-    "Also search commit history for the Code search keywords. Code search uses them either way.",
+    "Also use Retrieval inputs &gt; Keywords when searching related commits.",
   ),
-  gitHistorySwitch(
+  settingSwitch(
     "gitUseSharedFocusFiles",
     "Use shared focus files",
-    "Also read the history of the Code search focus files. Code search uses them either way.",
+    "Also use Retrieval inputs &gt; Focus files when searching file history.",
   ),
   ...GIT_HISTORY_TEXT_FIELDS.map(field),
-  gitHistorySwitch("gitSearchMessages", "Search commit messages", "Search commit messages for the issue key and keywords."),
-  gitHistorySwitch("gitSearchFileHistory", "Search related file history", "Read the history of the files related to the issue."),
+  settingSwitch("gitSearchMessages", "Search commit messages", "Search commit messages for the issue key and keywords."),
+  settingSwitch("gitSearchFileHistory", "Search related file history", "Read the history of the files related to the issue."),
   `        <div class="limits">
 ${GIT_HISTORY_DEPTH_FIELD}
   ${field(GIT_MAX_COMMITS_FIELD)}
         </div>`,
+].join("\n");
+
+/**
+ * Similar Fixes Settings (§37.113): whether Similar fixes follows the shared
+ * Keywords, what it adds of its own, and how many past fixes it keeps. Never
+ * the Focus files — a past fix is found by its words — so there is no switch
+ * for them. Each default is the step's behaviour before these existed: the
+ * switch ticked, the keywords empty, the count empty, which is five.
+ *
+ * The settings stay here, editable and kept, while the row's box is unticked:
+ * the box decides whether the step runs, not what it would search with.
+ */
+const SIMILAR_FIXES_FIELDS: readonly TextField[] = [
+  {
+    id: "similarKeywords",
+    label: "Additional keywords",
+    kind: "textarea",
+    rows: 2,
+    icon: "search",
+    tone: "primary",
+    help: "Extra terms used only for Similar Fixes. Separate them with commas or new lines.",
+    placeholder: "e.g. export crash, LegacyExporter",
+  },
+  {
+    id: "similarMaxFixes",
+    label: "Max similar fixes",
+    kind: "number",
+    icon: "database",
+    tone: "muted",
+    // The range and the default are the ones the run is checked against.
+    // Worded like Max related commits: "How many…", not "Maximum number of…",
+    // which restates the label.
+    help: `How many similar past fixes to include, from 1 to ${SIMILAR_MAX_FIXES_LIMIT}. Empty uses the default, ${SIMILAR_MAX_FIXES_DEFAULT}.`,
+    placeholder: String(SIMILAR_MAX_FIXES_DEFAULT),
+  },
+];
+
+const SIMILAR_FIXES_SECTION = [
+  settingSwitch(
+    "similarUseSharedKeywords",
+    "Use shared keywords",
+    "Also use Retrieval inputs &gt; Keywords when searching similar past fixes.",
+  ),
+  ...SIMILAR_FIXES_FIELDS.map(field),
 ].join("\n");
 
 const AGENT_COMMAND_FIELD: TextField = {
@@ -836,24 +894,47 @@ ${settingsView()}
         <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
         Back
       </button>
-      <h2 id="manage-heading" class="view-title" tabindex="-1">Manage Fix Modes</h2>
-      <p class="muted view-lede">The AI workflows available to this repository.</p>
+      <h2 id="manage-heading" class="view-title" tabindex="-1" aria-describedby="manage-lede">Manage Fix Modes</h2>
+      <p class="muted view-lede" id="manage-lede">Choose and customize AI fix workflows.</p>
     </div>
     <p id="manage-error" class="error" role="alert" hidden></p>
     <p id="manage-success" class="success" role="status" hidden></p>
     <p id="manage-detail" class="muted" hidden></p>
-    <div id="manage-list"></div>
+    <!--
+      Built-in, User and Project, each a disclosure the page builds from the
+      host's catalog (§37.114): a row is the mode's glyph, its name, one line
+      of description and the badges that change what it does, and every
+      action it has, on the row (§37.116). The id and the version are the
+      preview's.
+    -->
+    <div id="manage-list" class="manage-list"></div>
+    <!-- Every Delete button's description: what it removes, and that it asks first. -->
+    <p class="visually-hidden" id="manage-delete-help">Permanently deletes this Fix Mode's file. BugPilot asks you to confirm first.</p>
   </section>
 
+  <!--
+    One Fix Mode, read (§37.115): a header with the mode's glyph, its name, its
+    source and description, and its action at the right; then its six sections,
+    each a disclosure. The page fills all of it from the host's draft. The id,
+    the version and the type are in Details, closed, at the foot.
+  -->
   <section id="fix-mode-preview-view" class="view" aria-labelledby="preview-heading" hidden>
-    <div class="view-head">
-      <button type="button" id="preview-back" class="link view-back">
-        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
-        Back to Fix Mode Manager
+    <div class="view-head preview-head">
+      <button type="button" id="preview-back" class="link view-back preview-back">
+        <span class="codicon codicon-arrow-left" aria-hidden="true"></span>
+        <span>Back to Fix Mode Manager</span>
       </button>
-      <h2 id="preview-heading" class="view-title" tabindex="-1"></h2>
-      <p id="preview-description" class="muted"></p>
-      <p id="preview-meta" class="preview-meta"></p>
+      <div class="preview-hero">
+        <div class="preview-hero-top">
+          <span class="codicon codicon-lightbulb preview-icon" id="preview-icon" aria-hidden="true"></span>
+          <div class="preview-title-row">
+            <h2 id="preview-heading" class="view-title preview-title" tabindex="-1"></h2>
+            <span class="preview-source" id="preview-source"></span>
+          </div>
+          <div class="preview-actions" id="preview-actions"></div>
+        </div>
+        <p id="preview-description" class="preview-description"></p>
+      </div>
     </div>
     <p id="preview-error" class="error" role="alert" hidden></p>
     <p id="preview-success" class="success" role="status" hidden></p>
@@ -861,71 +942,16 @@ ${settingsView()}
       Rendered text, not disabled inputs: this is a mode being read, and a form
       full of greyed-out boxes reads as one the developer is failing to edit.
     -->
-    <div id="preview-body" class="preview-body"></div>
-    <div class="run-buttons" id="preview-actions"></div>
+    <div id="preview-body" class="preview-body preview-sections"></div>
+    <!-- What a mode is beyond its name — id, version, type, source, origin —
+         for whoever needs it, closed: none of it helps read the workflow. -->
+    <details class="preview-details" id="preview-details">
+      <summary id="preview-details-head">Details</summary>
+      <dl id="preview-meta" class="preview-facts"></dl>
+    </details>
   </section>
 
-  <section id="fix-mode-editor-view" class="view" aria-labelledby="editor-title" hidden>
-    <div class="view-head">
-      <button type="button" id="editor-back" class="link view-back">
-        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
-        <span id="editor-back-label">Back to Fix Mode Manager</span>
-      </button>
-      <h2 id="editor-title" class="view-title" tabindex="-1"></h2>
-      <p id="editor-origin" class="muted"></p>
-    </div>
-    <!--
-      The same message the manager shows, rendered again here: a refused save
-      keeps the editor open, and an error left behind in the manager would be on
-      a view the developer cannot see.
-    -->
-    <p id="editor-error" class="error" role="alert" hidden></p>
-
-    <div class="field">
-      <label for="editor-name">Name</label>
-      <input type="text" id="editor-name">
-    </div>
-    <div class="field">
-      <label for="editor-id">ID</label>
-      <input type="text" id="editor-id">
-      <p class="hint" id="editor-id-hint">Lowercase letters, digits and hyphens. Fixed once the mode exists.</p>
-    </div>
-    <div class="field">
-      <label for="editor-description">Description</label>
-      <input type="text" id="editor-description">
-    </div>
-    <div class="field">
-      <label for="editor-executionKind">Execution kind</label>
-      <select id="editor-executionKind">
-        <option value="fix">Fix — change source code</option>
-        <option value="investigate">Investigate — diagnose first, no source changes</option>
-      </select>
-    </div>
-    <div class="field">
-      <label for="editor-scope">Scope</label>
-      <select id="editor-scope">
-        <option value="user">User — your home directory</option>
-        <option value="project">Project — this repository, shareable</option>
-      </select>
-      <p class="hint" id="editor-scope-hint">Fixed once the mode exists. Duplicate it to move it.</p>
-    </div>
-
-${EDITOR_SECTIONS.map(section).join("\n")}
-
-    <div class="run-buttons">
-      <button type="button" id="editor-save" class="primary">Save Fix Mode</button>
-      <button type="button" id="editor-preview">Preview Generated Instructions</button>
-      <button type="button" id="editor-cancel">Cancel</button>
-    </div>
-    <div id="editor-preview-pane" hidden>
-      <p id="editor-preview-heading" class="card-title" tabindex="-1">Instruction Preview</p>
-      <p class="muted">
-        What this mode tells the agent. BugPilot's own evidence, branch, Jira and
-        delivery rules are added around it and are not editable here.
-      </p>
-      <div id="editor-preview-body"></div>
-    </div>
-  </section>
+${EDITOR_VIEW}
 
 ${RESET_DIALOG}
 </main>
@@ -1010,13 +1036,17 @@ function sectionBody(section: WorkflowSettingsSection): string {
   switch (section) {
     case "issue-details":
       return `${RUN_OPTION_FIELDS.map(field).join("\n")}\n${ATTACHMENTS_FIELD}`;
+    case "retrieval-inputs":
+      return RETRIEVAL_INPUT_FIELDS.map(field).join("\n");
     case "code-search":
-      return `${RETRIEVAL_FIELDS.map(field).join("\n")}
+      return `${CODE_SEARCH_FIELDS.map(field).join("\n")}
         <div class="limits">
   ${LIMIT_FIELDS.map(field).join("\n")}
         </div>`;
     case "git-history":
       return GIT_HISTORY_SECTION;
+    case "similar-fixes":
+      return SIMILAR_FIXES_SECTION;
     case "build-context":
       return FRESH_FIELD;
     case "fix-with-ai":
@@ -1101,11 +1131,12 @@ function settingHeader(options: {
   /** The label's tooltip: what the setting is for, where no helper line says it. */
   readonly title?: string;
   /**
-   * A few words beside the label on what goes in — a short label, not a helper
-   * sentence. Shown, never announced: the field's accessible description says
-   * it in full. Carries the label's tooltip.
+   * How the page read what was typed, on the label's row at its right: an
+   * empty, hidden `<forId>-note` the page fills (§37.112). Not a live region —
+   * the control's `aria-describedby` names it, so it is heard when the field is
+   * reached, not on every keystroke. Carries the label's tooltip.
    */
-  readonly secondary?: string;
+  readonly note?: boolean;
   /**
    * What the setting is for, off the screen: the label's tooltip, and a visually
    * hidden `<forId>-hint` for the control's `aria-describedby` to name.
@@ -1134,15 +1165,13 @@ function settingHeader(options: {
   const tooltip = options.title ?? options.help;
   const title = tooltip ? ` title="${tooltip}"` : "";
   const rebuild = options.rebuild ? `<span class="rebuild-label" id="${options.forId}-rebuild">${REQUIRES_REBUILD_LABEL}</span>` : "";
-  const secondary = options.secondary
-    ? `<span class="setting-secondary" id="${options.forId}-secondary"${title} aria-hidden="true">${options.secondary}</span>`
-    : "";
+  const note = options.note ? `<span class="setting-note" id="${options.forId}-note"${title} hidden></span>` : "";
   const warning = options.warning
     ? `<span class="codicon codicon-warning setting-warning icon-warning" aria-hidden="true"></span>`
     : "";
   return `      <div class="setting-header">
         <label${labelClass} for="${options.forId}"${title}>${icon}${options.control ?? ""}${options.label}${warning}</label>
-        ${secondary}${rebuild}${hint}
+        ${note}${rebuild}${hint}
       </div>`;
 }
 
@@ -1224,8 +1253,8 @@ const JIRA_ROW = `      <div class="jira-row jira-${JIRA_INITIAL.state}" id="jir
 const STEP_LEAD_SPACER = `<span class="step-lead" aria-hidden="true"></span>`;
 
 /**
- * The gear's place on a row with no settings (Similar fixes, Fix result), kept
- * so that every row's status ends at the same point. Presentation only.
+ * The gear's place on a row with no settings (Fix result), kept so that every
+ * row's status ends at the same point. Presentation only.
  */
 const STEP_SETTINGS_SPACER = `<span class="step-settings-spacer" aria-hidden="true"></span>`;
 
@@ -1300,8 +1329,8 @@ function step(id: WorkflowStepId): string {
   const lead = required
     ? STEP_LEAD_SPACER
     : `<span class="step-lead"><input type="checkbox" id="plan-${id}"${checked} aria-describedby="purpose-${id}"></span>`;
-  // A gear only where the step has a settings section: Similar fixes is
-  // configured by its checkbox alone. Named for its step — "Configure
+  // A gear only where the step has a settings section — every step but Fix
+  // result, Similar fixes since §37.113. Named for its step — "Configure
   // Code Search" — because six buttons all called Settings are one name read six
   // times. Visible at rest (quieter until hovered or focused), never hover-only.
   const section = SETTINGS_SECTION_OF_STEP[id];
@@ -1598,34 +1627,167 @@ ${errorCard("review-error")}
   return "";
 }
 
+/** One of the editor's six instruction sections (§37.118). */
+export interface EditorSection {
+  readonly id: string;
+  readonly label: string;
+  /** Its glyph and tone: the detail page's for the same section, which a test holds them to. */
+  readonly glyph: string;
+  readonly tone: "cyan" | "purple" | "green" | "blue" | "amber";
+  /** Open when the editor opens: the four that say how the work goes. */
+  readonly open: boolean;
+  /** The box's resting height, by how much a section usually says; it grows from there. */
+  readonly rows: number;
+}
+
 /**
  * The six editable sections, as the editor shows them.
  *
  * The ids match `FixModeDraft`'s fields exactly, so the page reads and writes
- * them by name rather than keeping a second mapping that could drift.
+ * them by name rather than keeping a second mapping that could drift. New Fix
+ * Mode and Edit Fix Mode are one form, so this is the only list (§37.118).
  */
-export const EDITOR_SECTIONS: readonly { readonly id: string; readonly label: string }[] = [
-  { id: "objective", label: "Objective" },
-  { id: "investigation", label: "Investigation" },
-  { id: "implementation", label: "Implementation" },
-  { id: "verification", label: "Verification" },
-  { id: "constraints", label: "Constraints" },
-  { id: "completion", label: "Completion Requirements" },
+export const EDITOR_SECTIONS: readonly EditorSection[] = [
+  { id: "objective", label: "Objective", glyph: "target", tone: "cyan", open: true, rows: 2 },
+  { id: "investigation", label: "Investigation", glyph: "search", tone: "purple", open: true, rows: 4 },
+  { id: "implementation", label: "Implementation", glyph: "tools", tone: "green", open: true, rows: 3 },
+  { id: "verification", label: "Verification", glyph: "check-all", tone: "blue", open: true, rows: 3 },
+  { id: "constraints", label: "Constraints", glyph: "warning", tone: "amber", open: false, rows: 3 },
+  { id: "completion", label: "Completion Requirements", glyph: "checklist", tone: "purple", open: false, rows: 3 },
 ];
 
-function section(entry: { readonly id: string; readonly label: string }): string {
-  return `    <div class="field">
-      <label for="editor-${entry.id}">${entry.label}</label>
-      <textarea id="editor-${entry.id}" rows="4"></textarea>
-    </div>`;
+/**
+ * One instruction section: the detail page's disclosure (§37.115) — glyph,
+ * title, chevron and, closed, one line of what it says — with the box to edit
+ * it in. The title names the box; the one line is for the eye only. Each has
+ * its own error line, for a save core refused because of this section.
+ */
+function section(entry: EditorSection): string {
+  return `        <details class="preview-section editor-instruction" id="field-editor-${entry.id}"${entry.open ? " open" : ""}>
+          <summary class="preview-section-head" id="editor-${entry.id}-head">
+            <span class="codicon codicon-${entry.glyph} preview-section-icon preview-tone-${entry.tone}" aria-hidden="true"></span>
+            <h4 class="preview-section-title" id="editor-${entry.id}-label">${entry.label}</h4>
+            <span class="codicon codicon-chevron-down preview-chevron" aria-hidden="true"></span>
+            <span class="preview-snippet" id="editor-${entry.id}-snippet" aria-hidden="true"></span>
+          </summary>
+          <div class="preview-section-body">
+            <textarea id="editor-${entry.id}" rows="${entry.rows}" aria-labelledby="editor-${entry.id}-label" aria-describedby="editor-${entry.id}-error"></textarea>
+            <p class="error" id="editor-${entry.id}-error" hidden></p>
+          </div>
+        </details>`;
 }
+
+/**
+ * One Basic info field: the Workflow Settings header (label, glyph, helper at
+ * its right while there is room), the control, and its error line.
+ */
+function editorField(options: {
+  readonly id: string;
+  readonly label: string;
+  readonly icon: string;
+  readonly control: string;
+  readonly hint?: string;
+}): string {
+  return `        <div class="field" id="field-editor-${options.id}">
+${settingHeader({ forId: `editor-${options.id}`, label: options.label, icon: options.icon, ...(options.hint ? { hint: options.hint } : {}) })}
+          ${options.control}
+          <p class="error" id="editor-${options.id}-error" hidden></p>
+        </div>`;
+}
+
+/** What a field's control points a screen reader at: its helper, if any, and its error. */
+function editorDescribed(id: string, hint: boolean): string {
+  return hint ? `editor-${id}-hint editor-${id}-error` : `editor-${id}-error`;
+}
+
+/**
+ * The Fix Mode editor (§37.118): one form for New Fix Mode and Edit Fix Mode,
+ * which differ only in what the page writes into it — the title, the line
+ * under it, the helpers, which fields are fixed and the primary action's
+ * words. Basic info, then Workflow instructions, then the actions in a footer
+ * that stays at the bottom of the panel while the page scrolls.
+ */
+const EDITOR_VIEW = `  <section id="fix-mode-editor-view" class="view fix-mode-editor" aria-labelledby="editor-title" hidden>
+    <div class="view-head editor-head">
+      <button type="button" id="editor-back" class="link view-back">
+        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
+        <span id="editor-back-label">Back to Fix Mode Manager</span>
+      </button>
+      <h2 id="editor-title" class="view-title" tabindex="-1" aria-describedby="editor-subject"></h2>
+      <p id="editor-subject" class="editor-subject"></p>
+      <p id="editor-origin" class="muted editor-origin" hidden></p>
+    </div>
+    <!--
+      The same message the manager shows, rendered again here: a refused save
+      keeps the editor open, and an error left behind in the manager would be on
+      a view the developer cannot see. When it names a field, the page shows it
+      under that field instead.
+    -->
+    <p id="editor-error" class="error" role="alert" hidden></p>
+
+    <section class="editor-section" aria-labelledby="editor-basic-title">
+      <h3 class="editor-section-title" id="editor-basic-title"><span class="codicon codicon-settings editor-section-icon" aria-hidden="true"></span>Basic info</h3>
+      <div class="editor-section-body">
+${editorField({ id: "name", label: "Name", icon: "edit", control: `<input type="text" id="editor-name" aria-describedby="${editorDescribed("name", false)}">` })}
+${editorField({ id: "id", label: "ID", icon: "tag", hint: "Lowercase letters, digits and hyphens.", control: `<input type="text" id="editor-id" aria-describedby="${editorDescribed("id", true)}">` })}
+${editorField({ id: "description", label: "Description", icon: "note", control: `<input type="text" id="editor-description" aria-describedby="${editorDescribed("description", false)}">` })}
+        <div class="editor-pair">
+${editorField({
+  id: "executionKind",
+  label: "Execution kind",
+  icon: "play",
+  control: `<select id="editor-executionKind" aria-describedby="${editorDescribed("executionKind", false)}">
+            <option value="fix">Fix — change source code</option>
+            <option value="investigate">Investigate — diagnose first, no source changes</option>
+          </select>`,
+})}
+${editorField({
+  id: "scope",
+  label: "Scope",
+  icon: "folder",
+  hint: "Fixed once the mode exists. Duplicate it to move it.",
+  control: `<select id="editor-scope" aria-describedby="${editorDescribed("scope", true)}">
+            <option value="user">User — your home directory</option>
+            <option value="project">Project — this repository, shareable</option>
+          </select>`,
+})}
+        </div>
+      </div>
+    </section>
+
+    <section class="editor-section" aria-labelledby="editor-workflow-title">
+      <h3 class="editor-section-title" id="editor-workflow-title"><span class="codicon codicon-list-ordered editor-section-icon" aria-hidden="true"></span>Workflow instructions</h3>
+      <div class="editor-instructions">
+${EDITOR_SECTIONS.map(section).join("\n")}
+      </div>
+    </section>
+
+    <div id="editor-preview-pane" hidden>
+      <p id="editor-preview-heading" class="card-title" tabindex="-1">Instruction Preview</p>
+      <p class="muted">
+        What this mode tells the agent. BugPilot's own evidence, branch, Jira and
+        delivery rules are added around it and are not editable here.
+      </p>
+      <div id="editor-preview-body"></div>
+    </div>
+
+    <div class="editor-footer">
+      <button type="button" id="editor-save" class="primary"><span class="codicon codicon-save" id="editor-save-icon" aria-hidden="true"></span><span id="editor-save-label">Save Fix Mode</span></button>
+      <div class="editor-footer-more">
+        <button type="button" id="editor-preview" title="Preview the generated AI instructions."><span class="codicon codicon-eye" aria-hidden="true"></span><span>Preview</span></button>
+        <button type="button" id="editor-cancel"><span class="codicon codicon-close" aria-hidden="true"></span><span>Cancel</span></button>
+      </div>
+    </div>
+  </section>`;
 
 /** The ids of the text fields the Workflow Settings page holds, so a test can check it holds them. */
 export const SETTINGS_FIELD_IDS: readonly string[] = [
-  ...RETRIEVAL_FIELDS,
+  ...RETRIEVAL_INPUT_FIELDS,
+  ...CODE_SEARCH_FIELDS,
   ...LIMIT_FIELDS,
   ...GIT_HISTORY_TEXT_FIELDS,
   GIT_MAX_COMMITS_FIELD,
+  ...SIMILAR_FIXES_FIELDS,
   ...RUN_OPTION_FIELDS,
   AGENT_COMMAND_FIELD,
 ].map((entry) => entry.id);

@@ -450,6 +450,8 @@ The corresponding parameters of `InvestigationOptions` and `InvestigationPlan`:
 --git-no-shared-keywords  --git-no-shared-focus-files    # Options.git_history
 --git-no-commit-search  --git-no-file-history            # Options.git_history (both off = skip git_context)
 --git-history-depth {recent,broader}  --git-max-commits  # Options.git_history (1–25)
+--similar-fixes-keyword  --similar-fixes-no-shared-keywords  # Options.similar_fixes (Similar fixes only)
+--max-similar-fixes                                      # Options.similar_fixes (1–20, default 5)
 --skip-code-search  --skip-git-history                   # Plan
 --skip-similar-fixes  --only-issue-details               # Plan
 ```

@@ -2799,7 +2799,8 @@ unchanged.
 1. **Label row**: `issues` codicon (primary tone, decorative) + *Issue* + *Jira
    ID or bug description* in the description colour, beside the label while it
    fits and under it at 200px. The words are `aria-hidden`; the field's name
-   stays *Issue*.
+   stays *Issue*. (Revised by "Issue reading in the label row", §37.112: the
+   words are gone and the reading takes their place.)
 2. **Tooltip replaces the explanation**: *Enter a Jira issue ID such as
    JR-12345, or describe the bug directly. BugPilot will detect which one you
    entered.* on the label, the words and the box, and as the box's visually
@@ -2970,7 +2971,8 @@ Code Search, Similar fixes and Reset Session are unchanged.
    Descriptions are sentences now ("Gather issue information.").
 5. **Gears** are a little clearer at rest (opacity 0.8); same buttons, same
    place. Similar fixes still has none: it has no settings, and a gear that
-   opened nothing would be a control that lies. No drag handle in the empty
+   opened nothing would be a control that lies. (Revised by "Retrieval inputs
+   and Similar Fixes Settings", §37.113: it has settings now, and a gear.) No drag handle in the empty
    slot, though the reference drew one: nothing here can be reordered.
 
 ### Confirmed decisions (Initial sidebar layout)
@@ -2983,9 +2985,11 @@ unchanged; no CSS or webview work goes near the minimum.
 1. **`initialSize` weights, not `size`:** VS Code reads `initialSize` on a
    contributed view, only in a container the same extension contributes — which
    `bugpilot` is — and gives each view `height × weight / total` the first time
-   the container is laid out. Workflow 3, Results 1: three quarters and a
-   quarter, with Results never below the 148px minimum (it starts exactly there
-   in a short window).
+   the container is laid out, never less than a view's minimum. Workflow 100,
+   Results 1 (§37.111; 3 to 1 before): Results' share is below its 148px minimum
+   in any window, so it starts exactly at the minimum — expanded — and Workflow
+   gets everything else. 10 to 1 held only up to about 1700px and left Results
+   181px in a 2100px window (a 4K display at 100%), measured.
 2. **Both views start expanded** (`visibility: "visible"`, said outright).
    Results is smaller, never collapsed to save room.
 3. **VS Code's persistence wins.** A view's size is stored only once the user
@@ -3036,6 +3040,329 @@ are unchanged.
 5. **Removed from Workflow**, not hidden: the Diagnostics `<details>`, the
    footer with "BugPilot <version> · <path>" and its Jira line, their styles,
    and `diagnostics`/`jiraConfigured` in the panel state (now `jira`).
+
+### Confirmed decisions (Issue reading in the label row)
+
+Revises Issue compact input decision 1 and where decision 4's note is shown
+(§37.112). Presentation only: `JIRA_ISSUE_KEY_RE` and the page's copy, the
+classification and its words, the placeholder, the tooltip, validation, form
+values, the preparation fingerprint and Run are unchanged.
+
+1. **No standing words beside the label.** *Jira ID or bug description* is
+   gone; what the field accepts is the placeholder and the tooltip.
+2. **The reading takes their place**: *Jira issue · JR-12345* (the key
+   uppercased, as the run sends it) or *Bug description*, at the right end of
+   the label's row, in the description colour at 0.9em. Empty → nothing, and
+   the row is the icon and *Issue* alone.
+3. **One reading, not two.** The line under the box is removed, not hidden:
+   `#issue-note` is now the header's `.setting-note`, the only element with
+   that id; `.issue-note` and `.setting-secondary` have no styles left.
+4. **Narrow sidebar**: when the row cannot hold both, the reading moves under
+   the label as one phrase, still right-aligned and still above the box; only
+   on that line of its own may it wrap. No horizontal scroll at any width.
+   Line height 1, so its arrival on the first keystroke does not push the box
+   down (0.2px, measured, against 1.5px with the default).
+5. **Screen readers**: unchanged — the reading is still the box's
+   `aria-describedby`, never a live region and never `aria-hidden`; the field's
+   name is *Issue*; the visually hidden `#issue-kind` still says the kind once
+   typing pauses.
+
+### Confirmed decisions (Retrieval inputs and Similar Fixes Settings)
+
+Revises the Workflow Settings Navigation's "Git history and Similar fixes have
+nothing beyond their checkbox" and Workflow Steps polish decision 5 (§37.113).
+Keywords and Focus files keep their one copy each in `FormState` and their one
+flag each (`--keywords`, `--focus-file`); Git History v2's query, ranking
+weights and search bounds are unchanged; no artifact is added.
+
+1. **The final retrieval settings model.**
+
+   | Section | Settings | Tag |
+   | --- | --- | --- |
+   | Retrieval inputs (shared) | Keywords, Focus files | Requires rebuild |
+   | Code search | Ignore paths, Max files, Max search lines | Requires rebuild |
+   | Git history | Use shared keywords, Use shared focus files, Additional commit keywords, Additional files, Search commit messages, Search related file history, History depth, Max related commits | Requires rebuild |
+   | Similar fixes | Use shared keywords, Additional keywords, Max similar fixes | Requires rebuild |
+
+   In page order between Issue details and Build context. The tags come from
+   `SETTING_REQUIRES_REBUILD` like every other section's.
+2. **Shared inputs, and who reads them.** Code search always uses the shared
+   Keywords and Focus files — it has no *Use shared…* switch. Git history uses
+   each unless its switch is off. Similar fixes uses the Keywords unless its
+   switch is off and **never uses the Focus files**: a past fix is matched by
+   its words, so it has no Focus files switch either. Retrieval inputs belongs
+   to no step, so no row's gear opens it; Code search's gear opens Code search
+   (focus on Ignore paths).
+3. **Each opt-out acts inside its step.** The shared Keywords go to the CLI
+   once, as `--keywords`; Git history drops them in `_git_history_query`,
+   Similar fixes in `similar_fixes_terms`. Nothing mutates the shared list.
+4. **Similar Fixes' terms**: the issue's own extracted terms (always; the
+   extraction records them as `issue_terms` before the developer's words are
+   put at its head) + the shared Keywords (if on) + Additional Keywords,
+   deduplicated case-insensitively in that order — developer's words first —
+   and scored once each, with no weight for appearing in several inputs.
+   Switching the shared Keywords off never removes a word the issue itself
+   names. Never a Focus file, a Git History keyword or file, an Ignore Path or
+   a Code Search limit.
+5. **Defaults are the old behaviour**: Use shared keywords on, Additional
+   keywords empty, Max similar fixes empty = 5. A form at the defaults sends no
+   new flag. `search_memory(…, max_results=5)` replaces the hard-coded 5.
+6. **CLI** (`bug`): `--similar-fixes-keyword WORD` (repeatable),
+   `--similar-fixes-no-shared-keywords`, `--max-similar-fixes N` (1–20, refused
+   outside it, as `--git-max-commits` is). Carried as
+   `InvestigationOptions.similar_fixes` (`SimilarFixesOptions`). The execution
+   trace records the settings' shape only (`sharedKeywords`,
+   `additionalKeywords` count, `maxResults`).
+7. **Validation**: Max similar fixes outside 1–20 blocks the run like Max
+   related commits — the field's inline error, `aria-invalid`, the page opened
+   at Similar fixes with focus on the field. Apply stores the draft as for any
+   setting; the run is what is refused.
+8. **Staleness, reset, persistence**: every new setting is in
+   `preparationFingerprint` (Rebuild Context after Apply), in
+   `FORM_FIELD_SCOPE` as session (Reset Session → on, empty, empty), and in
+   the saved form; a form saved before reads the defaults. No VS Code setting,
+   no new store. Unticking Similar fixes skips the step and keeps its settings.
+9. **No new artifact.** The results still go only into `context.md`'s Similar
+   Fixes section; there is no `memory_search.*` or `similar_fixes.json`, and
+   `run.json` records no retrieval options (it never did).
+10. **Deferred**: relevance and scoring settings — term weights, a minimum
+    score, recency, which memory folders to read — stay out of the panel.
+
+### Confirmed decisions (Manage Fix Modes list)
+
+Presentation only (§37.114): the Fix Mode file format, loading, built-in
+definitions, user/project storage, duplicate/edit/delete semantics (Delete's
+host confirmation included), source precedence, the selected mode and the CLI
+are unchanged. The `fixModeAction` messages are the ones the list always sent.
+
+1. **Three folding groups**: Built-in, User, Project, each a `<details>` whose
+   summary says *Built-in (5)* with a word at its right — *Read-only*,
+   *Personal*, *Shared* — and the old helper sentence as its tooltip. Built-in
+   starts open; User and Project start open only when they hold modes. A fold
+   the developer makes is kept while the page lives (not stored), like
+   Workflow Steps'; a created mode's group opens. The summary keeps its native
+   triangle (no `display` on it). An empty group, opened, says *No project Fix
+   Modes yet.*
+2. **A row**: the kind glyph, the name with its badges beside it, then one line
+   of description cut with an ellipsis (whole as the tooltip and in View). No
+   id and no version on the row. Badges only where they change something:
+   *Current* (the form's selected id, on the definition that runs),
+   *Investigation only*, *Overridden by project / user*.
+3. **Actions**: one visible button — View on a built-in, Edit on a custom mode,
+   named with the mode ("Edit My Safe Fix") — and ⋯, a menu in the flow under
+   the row like ⋯ More: View and Duplicate & Customize (built-in); View, Edit,
+   Duplicate, Delete (custom). Delete only there, in the error colour with a
+   trash glyph and an `aria-describedby` saying it is permanent and asks
+   first. One menu open at a time; arrows, Home, End, Escape (back to ⋯); a
+   refresh keeps it open and the focus where it was; leaving the list closes
+   it. (Replaced by "Fix Mode inline actions and glyphs", §37.116: every
+   action on the row, no ⋯.)
+4. **View** shows what the row leaves out as a term list: ID, Version, Source,
+   Kind, Based on. Edit keeps its id field and *Current version N*. (Revised by
+   "Fix Mode detail page", §37.115: the list is under Details, closed; the
+   built-in action is *Customize copy*, in the list's menu as well.)
+5. **Narrow (≤ 220px)**: the visible button and the group's word go — ⋯ and
+   the tooltip hold them — the badges wrap under the name, the name wraps
+   whole. The row is a grid whose text column is `minmax(0, 1fr)`, so nothing
+   pushes the page sideways. (Revised by §37.116: only the group's word goes;
+   every action stays, as a glyph where it can.)
+6. **Lede**: *Choose and customize AI fix workflows.*
+7. **Not done, deliberately**: an icon per built-in mode and shorter built-in
+   descriptions. Both need the extension to key on built-in ids, which a
+   standing test forbids (the CLI's registry owns which modes exist; a project
+   can add its own), and §22's "do not change built-in definitions" rules out
+   rewording them in core. The glyph is by kind instead: lightbulb for a fix,
+   search for investigation only. (The icons were done in §37.116, through
+   one glyph table the narrowed test allows; the descriptions are still the
+   definitions' own.)
+
+### Confirmed decisions (Fix Mode detail page)
+
+Presentation and navigation only (§37.115): the Fix Mode schema, storage,
+loading, built-in definitions and every word of a mode's text are unchanged;
+View, Edit, Duplicate and Delete send the messages they always sent.
+
+1. **The page shows the workflow, not its bookkeeping.** Header: the kind
+   glyph (lightbulb, or search for investigation only — never keyed on an id,
+   as for the list; since §37.116 the list's glyph for the mode), the name as the page's `h2`, one source badge (*Built-in*,
+   *User*, *Project*), the description under them at full width. ID, Version,
+   Type, Source and Based on are a term list under *Details*, closed, at the
+   foot — not on the page's face.
+2. **The action is in the header, at the right**: *Customize copy* (with the
+   copy glyph, named "Customize a copy of <mode>") for a built-in; *Edit* and
+   ⋯ (Duplicate, Delete — Delete destructive and described, as in the list)
+   for a custom mode (since §37.116 *Edit*, *Duplicate* and *Delete* side by
+   side, no ⋯). It wraps under the title when the sidebar is too narrow.
+   No action row at the foot. *Customize copy* replaces "Duplicate &
+   Customize" in the list's menu too, so the action has one name.
+3. **Sections**: six disclosures, each a quiet rounded container with a
+   coloured glyph (Objective target, Investigation search, Implementation
+   tools, Verification check-all, Constraints warning, Completion requirements
+   checklist — theme chart hues mixed toward the foreground, the foreground in
+   High Contrast), an `h3` title and a chevron. Objective, Investigation,
+   Implementation and Verification open; Constraints and Completion
+   requirements closed, showing their first line cut with an ellipsis
+   (decorative, `aria-hidden`). Folds hold through a refresh of the same mode
+   and reset for another.
+4. **Text exactly as written.** Prose sections are their text. Constraints and
+   Completion requirements become a list only along the text's own seams —
+   its lines, else its sentences — and stay prose when there is one; joined
+   back, the items are the text. Nothing is reworded or invented.
+5. **Back** is *Back to Fix Mode Manager* with the arrow glyph. A copy started
+   here returns here, also through the host's two pushes (list loading, list
+   ready), with focus on the action it came from.
+6. **Delete from the page returns to the list**: the host closes a view of the
+   mode it deleted, and the page leaves a preview whose mode is no longer in
+   the catalog.
+7. **Narrow (≤ 220px)**: the sections' padding and gaps tighten so a title such
+   as *Implementation* fits whole at 200px; both glyphs stay; nothing scrolls
+   sideways.
+
+### Confirmed decisions (Fix Mode inline actions and glyphs)
+
+Presentation and action placement only (§37.116): Fix Mode loading, ids,
+schema and versions, built-in definitions, user/project storage, the
+`fixModeAction` messages, Duplicate / Customize copy / Edit / Delete
+behaviour, Delete's host confirmation, the selected mode and the CLI are
+unchanged.
+
+1. **No ⋯ on a Fix Mode, anywhere.** A built-in row has *View* and *Customize
+   copy*; a user or project row has *Edit*, *Duplicate* and *Delete* (the same
+   permissions for both scopes). A custom mode's detail page has the same
+   three in its header. No menu to open first; a narrow width never brings one
+   back.
+2. **A custom mode is read through Edit.** Its row has no View: Edit shows
+   every field, id and version included, and Cancel changes nothing. The
+   read-only detail page is the built-ins'.
+3. **Actions are words, not buttons.** No box or fill. *Customize copy* and
+   *Edit* are in the link colour; *View* and *Duplicate* in the description's;
+   *Delete* in the error colour, the same size as the rest, and described as
+   permanent and confirmed first. Each is named with its mode: "View
+   <mode>", "Customize a copy of <mode>", "Edit / Duplicate / Delete <mode>",
+   the same words as its tooltip.
+4. **Quiet at rest, never hidden.** Hover or keyboard focus anywhere in a row
+   lights it as a list row and brings the quiet actions up to the foreground.
+   Only colours change: no layout shift, no DOM inserted. (Revised by "Fix
+   Mode hover actions", §37.117: hidden at rest where a pointer can hover.)
+5. **Layout.** Glyph | name with *Current* (or *Overridden by …*) beside it |
+   the description, cut to one line, with the actions at its right |
+   *Investigation only* on its own line. The actions wrap under the
+   description, at the right, once it would have less than 8em. No id,
+   version or type on the row. (Since §37.117 that is the layout only where
+   nothing can hover; elsewhere the actions are laid over the description's
+   end and the description has the whole width.)
+6. **Narrow (≤ 300px)**: *Customize copy*, *Duplicate* and *Delete* show
+   their glyph (copy, copy, trash) in place of the word; *View* and *Edit*
+   keep theirs. At 200px every action is still on the row.
+7. **A glyph per built-in, by id**: Standard Fix tasklist (blue), Conservative
+   Fix shield (green), Investigate First search (purple), Test-Driven Fix
+   beaker (amber), Deep Analysis graph (magenta). Hues are theme chart
+   colours mixed toward the foreground (the foreground in High Contrast),
+   decorative to a screen reader, and the same on the detail page.
+8. **A copy keeps its origin's glyph**, through `basedOn` (copies of copies
+   too, a built-in origin first). With no origin the catalog knows, a mode has
+   its kind's glyph: lightbulb, or search for an investigation. Nothing is
+   guessed from a name, and the file format is unchanged.
+9. **The one exception to "the extension names no mode"**: `BUILTIN_MODE_ICONS`
+   in `panel.js`, chosen over keeping kind glyphs or adding an icon hint to
+   core. The guard test allows ids there and nowhere else, only codicon
+   classes as values, and only `modeIcon` reading it. An omission costs a
+   glyph, never behaviour.
+10. ***Current*** is in the row's accessible name and `aria-current`, as well
+    as on screen.
+
+### Confirmed decisions (Fix Mode hover actions)
+
+Action visibility only (§37.117): the icons, the commands and messages,
+the grouping, the badges, Delete's confirmation and the no-⋯ rule of "Fix
+Mode inline actions and glyphs" are unchanged. CSS only.
+
+1. **At rest a row is its icon, name, badges and description.** Where a
+   pointer can hover (`@media (hover: hover)`) the action group is fully
+   transparent and takes no clicks. *Current* and *Investigation only* are
+   outside it and never fade or move.
+2. **Hover or keyboard focus reveals it.** `:hover` and `:focus-within` on the
+   row bring the group to full opacity (100 ms; none under reduced motion)
+   and light the row with the list hover colour (a dashed outline in High
+   Contrast) — the sign that the row has actions.
+3. **Zero layout shift.** The group is rendered all the time and is laid
+   absolutely over the right end of the description's line, so it never takes
+   width from the description or adds a line. Revealing it changes opacity
+   and pointer-events only: never `display` or `visibility`. It sits on a
+   backdrop of the row's lit colour over the sidebar ground, fading in from
+   the left over the words beneath.
+4. **The description gets the room.** Measured at rest: 309 px at a 360 px
+   sidebar (160 before), 229 at 280 (158), 149 at 200 (134); rows are 45 px
+   (49, or 66 at 200 px where the actions took a line of their own).
+5. **Keyboard.** Every action stays a button in the tab order: Tab reaches it
+   while it is invisible, and the focus itself reveals the group with the
+   focus ring; Enter and Space press it.
+6. **Fully transparent, not faint.** Over the description, a faint resting
+   group would put ghost words on top of its text. Discovery is the row's
+   hover fill.
+7. **Not clickable while unseen.** A press where an action will appear, with
+   no hover first (a tap), lights the row instead of running the action.
+8. **Where nothing can hover** (touch), the §37.116 layout stands: actions
+   always shown in the description's line, wrapping under it when narrow.
+9. **Narrow**: the ≤ 300 px swap of Customize copy, Duplicate and Delete for
+   their glyphs keeps the revealed group small; still direct actions, still
+   no menu.
+
+### Confirmed decisions (Fix Mode editor)
+
+Presentation only (§37.118): the Fix Mode schema, storage, validation (core's,
+unchanged), id and scope locking, execution kind, the `saveFixMode` and
+`manageFixModes` messages, what Customize copy and Duplicate prefill, Preview's
+content and Cancel/Back are unchanged. No dirty-state tracking existed and
+none is added.
+
+1. **New Fix Mode and Edit Fix Mode use the same responsive Fix Mode editor
+   UI** — one view, one set of ids, one stylesheet. They differ only in what
+   the page writes into it: the title, the line under it, the helpers, which
+   fields are fixed, and the primary action (*Create Fix Mode* with an add
+   glyph, *Save Fix Mode* with a save glyph). New Fix Mode is still opened
+   only by Customize copy or Duplicate, prefilled.
+2. **Head**: Back, the title, then *Create a custom AI fixing workflow.* (new)
+   or the mode's name (edit), then *Based on <origin's name>* when there is
+   one. Ids and versions are tooltips (`my-safe, version 3`; `standard,
+   version 1`), not text; the model keeps them.
+3. **Basic info** — a quiet container with a settings glyph — holds Name
+   (edit), ID (tag), Description (note), Execution kind (play) and Scope
+   (folder), each with the Workflow Settings label row. Helpers say what is
+   true now: new — *Lowercase letters, digits and hyphens.*, the ID's
+   permanence as its tooltip, Scope's as its tooltip and description with no
+   visible helper; edit — *Fixed once the mode exists.* beside ID, *Fixed once
+   the mode exists. Duplicate it to move it.* beside Scope, the fixed fields
+   dimmed.
+4. **Execution kind and Scope** sit side by side once each column keeps 15em,
+   which is from about a 480 px sidebar (or an editor tab); at 200, 280 and
+   360 px they stack. Narrower columns would cut every option's explanation;
+   a choice too long for its box ends in an ellipsis clear of the arrow.
+5. **Workflow instructions** — a second container, ordered-list glyph — holds
+   the six sections as the detail page's disclosures without a box each:
+   Objective target (cyan), Investigation search (purple), Implementation
+   tools (green), Verification check-all (blue), Constraints warning (amber),
+   Completion Requirements checklist (purple), held to the detail page's by a
+   test. The first four start open, Constraints and Completion Requirements
+   folded with their first line (or *No constraints yet* in italics). Folds
+   hold through a push while the editor is open and reset on the next visit;
+   folding is never an edit, and Save and Preview read every section.
+6. **Boxes grow** with their text (resting heights by role: Objective 2 rows,
+   Investigation 4, the rest 3), by the editor's own `input` listener, when a
+   section opens, and when the sidebar's width changes; the ceiling is 48em,
+   so the page scrolls and a box only scrolls inside itself for text far
+   longer than a built-in's. The UI font, not monospace.
+7. **The footer** — *Create/Save*, *Preview* (eye glyph, tooltip *Preview the
+   generated AI instructions.*), *Cancel* (close glyph) — is sticky at the
+   panel's foot, after Preview's pane in the flow so it never covers the end
+   of the page; one row when it fits, else the primary action over the
+   Preview/Cancel pair; at ≤ 220 px the pair drops its glyphs to stay a pair.
+   What the footer covers is outside the scroll target (`scroll-padding-bottom`).
+8. **A refused save** whose message names a field (`Fix Mode field '<x>'`,
+   an id refusal) is shown under that field, verbatim, instead of at the top:
+   the field marked invalid, its folded section opened, the focus on it and
+   the page scrolled to it once per new message — the run form's problem
+   pattern. A message naming no field stays at the top, as before.
 
 ---
 

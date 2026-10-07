@@ -35,8 +35,9 @@ export interface ResetSessionOptions {
  * What each form field is to Reset Session.
  *
  * `session`: about the issue on screen or how this run prepares it — the issue,
- * the hint, Keywords, Focus Files, attachments, the workflow steps, every Code
- * Search and Git History setting, Fix Mode, Fresh — back to its default.
+ * the hint, the shared Keywords and Focus Files, attachments, the workflow
+ * steps, every Code Search, Git History and Similar Fixes setting, Fix Mode,
+ * Fresh — back to its default.
  * `preference`: the developer's standing choice of AI agent and its custom
  * command, which says nothing about this issue and is kept.
  *
@@ -72,6 +73,9 @@ export const FORM_FIELD_SCOPE: Readonly<Record<keyof FormState, "session" | "pre
   gitSearchFileHistory: "session",
   gitHistoryDepth: "session",
   gitMaxCommits: "session",
+  similarUseSharedKeywords: "session",
+  similarKeywords: "session",
+  similarMaxFixes: "session",
   fresh: "session",
 };
 

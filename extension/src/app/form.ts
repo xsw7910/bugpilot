@@ -43,6 +43,14 @@ export type GitHistoryDepth = (typeof GIT_HISTORY_DEPTHS)[number];
 /** Max Related Commits' range, as `MAX_RELATED_COMMITS_LIMIT` in `models.py`. */
 export const GIT_MAX_COMMITS_LIMIT = 25;
 
+/**
+ * Max Similar Fixes' range and default, as `MAX_SIMILAR_FIXES_LIMIT` and
+ * `DEFAULT_MAX_SIMILAR_FIXES` in `models.py` (`test/similarFixesSettings.test.ts`
+ * compares them). Five is what the step always kept.
+ */
+export const SIMILAR_MAX_FIXES_LIMIT = 20;
+export const SIMILAR_MAX_FIXES_DEFAULT = 5;
+
 /** The five logical capabilities of §3.3, as the panel shows them. */
 export interface PlanState {
   /** Always on: this is the input, not an option. Kept for display. */
@@ -73,9 +81,18 @@ export interface FormState {
    * the files.
    */
   readonly useIssueDetails: boolean;
-  /** Free text; comma- or newline-separated. */
+  /**
+   * The shared Keywords (Retrieval inputs): free text, comma- or
+   * newline-separated. Code Search always uses them; Git history and Similar
+   * fixes use them too unless their own *Use shared keywords* is off. One list,
+   * sent once as `--keywords` — each step's opt-out acts inside that step.
+   */
   readonly keywords: string;
-  /** Free text; newline-separated, because a path may contain a comma. */
+  /**
+   * The shared Focus files (Retrieval inputs): newline-separated, because a
+   * path may contain a comma. Code Search always uses them; Git history unless
+   * *Use shared focus files* is off; Similar fixes never.
+   */
   readonly focusFiles: string;
   readonly ignorePaths: string;
   readonly maxFiles: string;
@@ -148,6 +165,18 @@ export interface FormState {
   readonly gitHistoryDepth: GitHistoryDepth;
   /** Max Related Commits; empty means the CLI's default, as Max files does. */
   readonly gitMaxCommits: string;
+  // Similar Fixes Settings: how the Similar fixes step searches past fixes.
+  // Similar fixes' alone — neither Code Search nor Git history reads them, and
+  // Similar fixes never reads `focusFiles`. Each default is the step's
+  // behaviour before they existed, and a form at the defaults sends no flag for
+  // them. Kept, like Git history's, while the step's box is unticked.
+
+  /** Similar fixes also scores past fixes against `keywords`. */
+  readonly similarUseSharedKeywords: boolean;
+  /** Additional Keywords: comma- or newline-separated, like `keywords`. */
+  readonly similarKeywords: string;
+  /** Max Similar Fixes; empty means the CLI's default, five. */
+  readonly similarMaxFixes: string;
   /**
    * Delete `.ai/<work_item>/` before running.
    *
@@ -191,6 +220,9 @@ export const DEFAULT_FORM: FormState = {
   gitSearchFileHistory: true,
   gitHistoryDepth: "recent",
   gitMaxCommits: "",
+  similarUseSharedKeywords: true,
+  similarKeywords: "",
+  similarMaxFixes: "",
   fresh: false,
 };
 
@@ -225,6 +257,11 @@ export function restoreForm(saved: FormState | undefined): FormState {
     gitSearchFileHistory: saved.gitSearchFileHistory !== false,
     gitHistoryDepth: gitHistoryDepthOf(saved.gitHistoryDepth),
     gitMaxCommits: typeof saved.gitMaxCommits === "string" ? saved.gitMaxCommits : "",
+    // Likewise the Similar Fixes Settings: absent is the default, and the
+    // default is on for the switch.
+    similarUseSharedKeywords: saved.similarUseSharedKeywords !== false,
+    similarKeywords: typeof saved.similarKeywords === "string" ? saved.similarKeywords : "",
+    similarMaxFixes: typeof saved.similarMaxFixes === "string" ? saved.similarMaxFixes : "",
     // A form saved while Build context could be unticked may say it was: the
     // two fixed steps are on whatever it says (§37.107). The three optional
     // ones keep what was saved — unticking Build context had cleared them, and
@@ -255,7 +292,9 @@ export type FormField =
   | "fixModeId"
   | "gitKeywords"
   | "gitFiles"
-  | "gitMaxCommits";
+  | "gitMaxCommits"
+  | "similarKeywords"
+  | "similarMaxFixes";
 
 /** A problem attached to the field that caused it, so the UI can show it there. */
 export interface FieldProblem {
@@ -507,6 +546,7 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   pushNumber(form.maxSearchLines, "maxSearchLines", "--max-search-lines", problems, args);
 
   args.push(...gitHistoryFlags(form, problems));
+  args.push(...similarFixesFlags(form, problems));
 
   // One flag per file. Not validated for existence here: the file was chosen
   // from the editor's own dialog moments ago, and the CLI reports anything
@@ -589,6 +629,31 @@ function gitHistoryFlags(form: FormState, problems: FieldProblem[]): string[] {
   return flags;
 }
 
+/**
+ * The Similar Fixes Settings as flags, the same way: only what differs from the
+ * defaults, an off-switch for the shared Keywords — which still go out once, as
+ * `--keywords`, for Code Search and Git history. Sent whether or not the step's
+ * box is ticked, like Git history's; `--skip-similar-fixes` is what decides
+ * whether it runs.
+ */
+function similarFixesFlags(form: FormState, problems: FieldProblem[]): string[] {
+  const flags: string[] = [];
+  for (const keyword of parseKeywords(form.similarKeywords)) flags.push(flag("--similar-fixes-keyword", keyword));
+  if (!form.similarUseSharedKeywords) flags.push("--similar-fixes-no-shared-keywords");
+  const count = form.similarMaxFixes.trim();
+  if (count !== "") {
+    if (!/^\d+$/.test(count) || Number(count) < 1 || Number(count) > SIMILAR_MAX_FIXES_LIMIT) {
+      problems.push({
+        field: "similarMaxFixes",
+        message: `Enter a whole number from 1 to ${SIMILAR_MAX_FIXES_LIMIT}, or leave it empty.`,
+      });
+    } else {
+      flags.push(flag("--max-similar-fixes", String(Number(count))));
+    }
+  }
+  return flags;
+}
+
 function pushNumber(
   raw: string,
   field: FormField,
@@ -649,6 +714,12 @@ export function preparationFingerprint(form: FormState): string {
       fileHistory: form.gitSearchFileHistory,
       depth: gitHistoryDepthOf(form.gitHistoryDepth),
       maxCommits: form.gitMaxCommits.trim(),
+    },
+    // And every Similar Fixes Setting can change its section of context.md.
+    similar: {
+      sharedKeywords: form.similarUseSharedKeywords,
+      keywords: parseKeywords(form.similarKeywords),
+      maxFixes: form.similarMaxFixes.trim(),
     },
   });
 }

@@ -260,26 +260,62 @@ test("a catalog that could not be read leaves availability unknown", () => {
 
 // --- the negative rule -----------------------------------------------------
 
+/** The page script, which holds the one exception. */
+const PAGE_SCRIPT = new URL("../media/panel.js", import.meta.url);
+
+/** The page's glyph-per-built-in table (§37.116), as declared. */
+const ICON_TABLE = /const BUILTIN_MODE_ICONS = \{([^}]*)\};/g;
+
 test("no source file in the extension contains a list of Fix Mode ids", () => {
   // The guard for the rule this whole module exists to keep. A list here would
   // work today and be wrong the moment a project defines its own mode — and it
   // would fail silently, by omission.
+  //
+  // One exception, and only one (§37.116): the page's glyph per built-in,
+  // `BUILTIN_MODE_ICONS`. An omission there costs a glyph — a mode it does not
+  // know is drawn with its kind's — never behaviour, and the next test holds
+  // the table to that.
   const builtins = ["conservative", "investigate-first", "test-driven", "deep-analysis"];
   for (const file of sourceFiles()) {
-    const text = code(readFileSync(file, "utf8"));
+    const text = withoutIconTable(code(readFileSync(file, "utf8")));
     const named = builtins.filter((id) => text.includes(`"${id}"`));
     assert.deepEqual(named, [], `${file} names built-in Fix Modes: ${named.join(", ")}`);
+  }
+});
+
+test("the one table that names built-in modes draws them and does nothing else (§37.116)", () => {
+  const page = code(readFileSync(PAGE_SCRIPT, "utf8"));
+  const tables = [...page.matchAll(ICON_TABLE)];
+  assert.equal(tables.length, 1, "BUILTIN_MODE_ICONS is missing, or declared twice");
+  // Every entry is an id and a codicon class, and nothing else is in it: no
+  // kind, no default, no order — nothing a caller could decide anything by.
+  const body = tables[0]![1]!;
+  assert.equal(body.replace(/\s*"[a-z0-9-]+": "codicon-[a-z-]+",/g, "").trim(), "", `not only glyphs: ${body}`);
+  assert.ok([...body.matchAll(/"codicon-/g)].length >= 1);
+  // Read by `modeIcon` alone, which only ever turns it into a class name.
+  const modeIcon = /\n {2}function modeIcon\([^)]*\) \{[\s\S]*?\n {2}\}\r?\n/.exec(page)?.[0] ?? "";
+  assert.notEqual(modeIcon, "", "modeIcon is gone");
+  const elsewhere = page.replace(ICON_TABLE, "").replace(modeIcon, "");
+  assert.equal(elsewhere.includes("BUILTIN_MODE_ICONS"), false, "something besides modeIcon reads the table");
+  // And no other file has one.
+  for (const file of sourceFiles().filter((file) => file !== fileURLToPath(PAGE_SCRIPT))) {
+    assert.equal(readFileSync(file, "utf8").includes("BUILTIN_MODE_ICONS"), false, `${file} has the icon table`);
   }
 });
 
 test("no source file decides that standard is the default", () => {
   for (const file of sourceFiles()) {
     assert.ok(
-      !code(readFileSync(file, "utf8")).includes('"standard"'),
+      !withoutIconTable(code(readFileSync(file, "utf8"))).includes('"standard"'),
       `${file} hard-codes the default Fix Mode id; the CLI reports default_mode_id`,
     );
   }
 });
+
+/** Source with the icon table taken out — the only place an id may stand. */
+function withoutIconTable(text: string): string {
+  return text.replace(ICON_TABLE, "");
+}
 
 /**
  * Source with comments removed.

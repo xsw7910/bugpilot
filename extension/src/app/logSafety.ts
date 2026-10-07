@@ -29,6 +29,8 @@ const SAFE_VALUE_FLAGS: ReadonlySet<string> = new Set([
   // A choice and a count: neither is anything the developer typed in prose.
   "--git-history-depth",
   "--git-max-commits",
+  // A count, checked from 1 to 20 before it is sent (§37.113).
+  "--max-similar-fixes",
   "--description-file",
 ]);
 

@@ -2395,6 +2395,27 @@ test("deleting asks first, and says what it costs", async () => {
   ]);
 });
 
+test("deleting the mode being read closes it, so the panel returns to the list (§37.115)", async () => {
+  const h = manageHarness({ confirm: true, envelopes: [DEFINITION_ENVELOPE, { ok: true, command: "fix-mode", warnings: [] }] });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "manageFixModes" });
+  await h.controller.handle({ type: "fixModeAction", action: "view", id: "my-safe", scope: "user" });
+  assert.equal(h.last().manage!.editor?.intent, "view");
+
+  await h.controller.handle({ type: "fixModeAction", action: "delete", id: "my-safe", scope: "user" });
+
+  assert.equal(h.requests.at(-1)!.args[1], "delete");
+  assert.equal(h.last().manage!.editor, undefined, "the deleted mode is still on screen");
+
+  // Declined: the mode stays, and so does its page.
+  const kept = manageHarness({ confirm: false, envelopes: [DEFINITION_ENVELOPE] });
+  await kept.controller.refreshEnvironment();
+  await kept.controller.handle({ type: "manageFixModes" });
+  await kept.controller.handle({ type: "fixModeAction", action: "view", id: "my-safe", scope: "user" });
+  await kept.controller.handle({ type: "fixModeAction", action: "delete", id: "my-safe", scope: "user" });
+  assert.equal(kept.last().manage!.editor?.intent, "view");
+});
+
 test("a declined delete changes nothing", async () => {
   const h = manageHarness({ confirm: false });
   await h.controller.refreshEnvironment();
@@ -8214,6 +8235,84 @@ test("settings 9e: a shared Keyword change is stale whether or not Git history u
   assert.equal(h.last().primary.action, "rebuildContext");
 });
 
+const similarRow = (state: PanelState) => stepOf(state, "similarFixes");
+
+test("settings 9f: every applied Similar Fixes Setting makes the context stale, and none starts a run (§37.113)", async () => {
+  for (const change of [{ similarUseSharedKeywords: false }, { similarKeywords: "legacyexporter" }, { similarMaxFixes: "2" }]) {
+    const h = await preparedHarness();
+    assert.equal(h.last().primary.action, "fixWithAI");
+    assert.equal(similarRow(h.last()).settingsSummary, undefined, "a Similar fixes row at its defaults said something");
+    await h.controller.handle(applySettings(jiraForm(change)));
+    assert.equal(h.last().primary.action, "rebuildContext", `${JSON.stringify(change)} left the context current`);
+    assert.notEqual(similarRow(h.last()).settingsSummary, undefined, `${JSON.stringify(change)} has no summary`);
+    const key = Object.keys(change)[0] as keyof FormState;
+    assert.deepEqual(h.saved.at(-1)?.[key], change[key as keyof typeof change]);
+    assert.equal(h.streamRuns.length, 1, `${JSON.stringify(change)} started a run`);
+    assert.equal(h.terminals.length, 0);
+  }
+});
+
+test("settings 9g: Rebuild Context runs with the applied Similar Fixes Settings; the shared inputs go out once, as before", async () => {
+  const h = await preparedHarness();
+  const edited = jiraForm({
+    keywords: "poststack",
+    focusFiles: "src/Focus.cpp",
+    similarUseSharedKeywords: false,
+    similarKeywords: "legacyexporter, export crash",
+    similarMaxFixes: "2",
+  });
+  await h.controller.handle(applySettings(edited));
+  await h.controller.handle(next("rebuildContext", edited));
+
+  assert.equal(h.streamRuns.length, 2);
+  const args = h.streamRuns[1]!.args;
+  for (const expected of [
+    "--similar-fixes-keyword=legacyexporter",
+    "--similar-fixes-keyword=export crash",
+    "--similar-fixes-no-shared-keywords",
+    "--max-similar-fixes=2",
+    "--resume",
+  ]) {
+    assert.ok(args.includes(expected), `${expected} missing from the rebuild`);
+  }
+  // Off for Similar fixes is not off for everybody: the shared Keywords and
+  // Focus files still go out, once, for Code search and Git history.
+  assert.deepEqual(args.filter((arg) => arg.startsWith("--keywords=")), ["--keywords=poststack"]);
+  assert.deepEqual(args.filter((arg) => arg.startsWith("--focus-file=")), ["--focus-file=src/Focus.cpp"]);
+  assert.equal(args.some((arg) => arg.startsWith("--git-keyword=") || arg.startsWith("--git-no-shared")), false);
+});
+
+test("settings 9h: an unticked Similar fixes skips the step and keeps its settings for the next run", async () => {
+  const h = await preparedHarness();
+  const off = jiraForm({ similarKeywords: "legacyexporter", similarMaxFixes: "3", plan: { ...DEFAULT_FORM.plan, similarFixes: false } });
+  await h.controller.handle(applySettings(off));
+  await h.controller.handle(next("rebuildContext", off));
+  const skipped = h.streamRuns[1]!.args;
+  assert.ok(skipped.includes("--skip-similar-fixes"));
+  // Kept, and said: unticking the box is not clearing the settings.
+  assert.equal(h.saved.at(-1)?.similarKeywords, "legacyexporter");
+  assert.equal(h.saved.at(-1)?.similarMaxFixes, "3");
+  // Ticked again, the next run searches with them.
+  const on = jiraForm({ similarKeywords: "legacyexporter", similarMaxFixes: "3" });
+  await h.controller.handle(applySettings(on));
+  await h.controller.handle(next("rebuildContext", on));
+  const back = h.streamRuns[2]!.args;
+  assert.equal(back.includes("--skip-similar-fixes"), false);
+  assert.ok(back.includes("--similar-fixes-keyword=legacyexporter"));
+  assert.ok(back.includes("--max-similar-fixes=3"));
+});
+
+test("settings 9i: an invalid Max similar fixes blocks the run and names the field", async () => {
+  const h = await preparedHarness();
+  await h.controller.handle(next("rebuildContext", jiraForm({ similarMaxFixes: "21" })));
+  assert.equal(h.streamRuns.length, 1, "a run started with an invalid count");
+  assert.deepEqual(
+    h.last().problems.map((problem) => problem.field),
+    ["similarMaxFixes"],
+  );
+  assert.match(h.last().problems[0]!.message, /whole number from 1 to 20/);
+});
+
 test("settings 10: an applied agent, Fresh or hint-reading choice leaves the context current", async () => {
   const h = await preparedHarness();
   await h.controller.handle(applySettings(jiraForm({ agent: "claude-cli", fresh: true, useIssueDetails: false })));
@@ -10046,6 +10145,9 @@ const SESSION_FORM = (overrides: Partial<FormState> = {}): FormState => ({
   gitSearchFileHistory: false,
   gitHistoryDepth: "broader",
   gitMaxCommits: "20",
+  similarUseSharedKeywords: false,
+  similarKeywords: "SECRET_SIMILAR_KEYWORD_7731",
+  similarMaxFixes: "2",
   ...overrides,
 });
 
@@ -10134,9 +10236,14 @@ test("reset 1: Keep puts every session field back, keeps the AI Agent, detaches 
   assert.ok(h.notices.some((notice) => notice.kind === "info" && notice.message === "Session reset."));
   assert.ok(h.logged.includes("Session reset."), h.logged.join("\n"));
   // Nothing typed reaches the log.
-  for (const secret of ["SECRET_HINT_9917", "SECRET_KEYWORD_4403"]) {
+  for (const secret of ["SECRET_HINT_9917", "SECRET_KEYWORD_4403", "SECRET_SIMILAR_KEYWORD_7731"]) {
     assert.equal(h.logged.some((line) => line.includes(secret)), false, `${secret} reached the log`);
   }
+  // The Similar Fixes Settings came back to theirs (§37.113): shared Keywords
+  // on, no keywords of its own, the default count.
+  assert.equal(h.saved.at(-1)?.similarUseSharedKeywords, true);
+  assert.equal(h.saved.at(-1)?.similarKeywords, "");
+  assert.equal(h.saved.at(-1)?.similarMaxFixes, "");
 });
 
 test("reset 2: the next Run after a reset prepares from the fresh form, with no old flag", async () => {

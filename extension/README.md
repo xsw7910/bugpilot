@@ -95,9 +95,10 @@ editor and you save them; nothing is written behind your edits.
    away on a run, it says **Authentication failed** until you replace them.
 4. In the **Issue** field, type an issue key such as `JR-12345`, or describe the
    problem in your own words. The field is one line until you write more, and
-   grows to about four lines before it scrolls. The line under it says which it
-   read — "Jira issue · JR-12345" or "Bug description"; only a whole key counts,
-   so `JR-12345 crashes on save` is a description.
+   grows to about four lines before it scrolls. Once you type, the right end of
+   the Issue label's row says which it read — "Jira issue · JR-12345" or "Bug
+   description"; only a whole key counts, so `JR-12345 crashes on save` is a
+   description. An empty field says nothing there.
 5. Press **Run**, directly under it (or `Ctrl+Enter`). Below Run are the
    optional settings it uses: **Fix Mode** says how the AI should approach the
    bug (Standard Fix unless you change it) and **Hint** takes any guidance you
@@ -107,9 +108,8 @@ That is the whole panel: the issue, one button, the settings it uses, and one
 list of steps.
 
 ```
-⊙ Issue   Jira ID or bug description
-[ Describe the bug or enter a Jira ID       ]
-Jira issue · JR-12345
+⊙ Issue                 Jira issue · JR-12345
+[ jr-12345                                  ]
 
 [        ▶ Run        ] [ Stop ] [ ⋯ More ]
 
@@ -128,9 +128,9 @@ Improve with AI   ☑ Include issue details
   11 terms · 6 relevant files
   4 keywords · 2 focus paths · max 10 files
   retrieval.json
-☑ Git history                   ◌ Running
+☑ Git history                   ◌ Running  ⚙
   Collecting git history…
-☑ Similar fixes
+☑ Similar fixes                              ⚙
   Build context                              ⚙
 ☐ Fix with AI                                ⚙
   Claude CLI
@@ -169,18 +169,36 @@ what is not the next step: **Rebuild Context**, and — once an attempt exists �
 ## Advanced Settings
 
 Every step that has settings has a **⚙** at the end of its row — **Configure
-Issue Details**, **Configure Code Search**, **Configure Build Context**,
-**Configure AI Agent**. Each opens the same **Advanced Settings** page and
-scrolls straight to that step's section; **⚙ Advanced Settings** under Run
-opens it at the top. Git history and Similar fixes have nothing to set beyond
-their checkbox, so they have no gear.
+Issue Details**, **Configure Code Search**, **Configure Git History**,
+**Configure Similar Fixes**, **Configure Build Context**, **Configure AI
+Agent**. Each opens the same **Advanced Settings** page and scrolls straight to
+that step's section; **⚙ Advanced Settings** under Run opens it at the top.
 
 | Section | Settings |
 | --- | --- |
 | Issue details | Title (a bug you describe), Attachments |
-| Code search | Keywords, Focus files, Ignore paths, Max files, Max search lines |
+| Retrieval inputs | Keywords, Focus files — shared by the retrieval steps |
+| Code search | Ignore paths, Max files, Max search lines |
+| Git history | Use shared keywords, Use shared focus files, Additional commit keywords, Additional files, Search commit messages, Search related file history, History depth, Max related commits |
+| Similar fixes | Use shared keywords, Additional keywords, Max similar fixes |
 | Build context | Delete previous artifacts first |
 | Fix with AI | AI Agent, custom agent command |
+
+**Keywords** and **Focus files** are entered once, under **Retrieval inputs**,
+and shared:
+
+- **Code search** always uses both.
+- **Git history** uses them too, unless you untick its **Use shared keywords**
+  or **Use shared focus files**.
+- **Similar fixes** uses the Keywords unless you untick its **Use shared
+  keywords**, and never the Focus files — a past fix is found by its words.
+
+Each step's own additions — Git history's **Additional commit keywords** and
+**Additional files**, Similar fixes' **Additional keywords** — are used by that
+step alone and never change the shared lists. **Max similar fixes** is how many
+past fixes go into the context, 1 to 20; empty means 5. Retrieval inputs
+belongs to no single step, so no row's gear opens it: it is the section just
+above Code search.
 
 The page edits a copy: nothing you change there is used until you press
 **Apply** (or Ctrl+Enter). **Cancel**, **Back** and Escape discard the changes,
@@ -196,8 +214,10 @@ hover its label. While BugPilot is running something, Apply waits until it
 finishes.
 
 A row with settings shows a short summary of them under its description — "4
-keywords · 2 focus paths · max 10 files", "Claude CLI" — as counts and names
-only, never what you typed or a path.
+keywords · 2 focus paths · max 10 files", "shared keywords off · max 3 similar
+fixes", "Claude CLI" — as counts and names only, never what you typed or a
+path. Unticking Similar fixes (or Git history) skips the step and keeps its
+settings for the next run.
 
 ## Fix Mode
 
@@ -227,11 +247,54 @@ prepared with, before you hand it over.
 ### Manage Fix Modes
 
 The gear beside the dropdown opens **Manage Fix Modes**, which takes over the
-panel; **‹ Back** returns you to the form with your selection intact. You
-cannot edit a built-in mode, but **View** reads any of them in full, and
-**Duplicate & Customize** — from the list or from what you are reading — opens a
-new mode prefilled from it: its name, its description and the six instruction
-sections an agent reads. Each custom mode lives in one of two scopes:
+panel; **‹ Back** returns you to the form with your selection intact. The list
+has three folding groups — **Built-in**, **User** and **Project** — and each
+mode is one row: its icon, its name, one line of description, and a badge only
+where it changes something (*Current* for the mode the form has selected,
+*Investigation only*, *Overridden by project*). The mode's id and version are
+not on the row.
+
+Each built-in has its own icon — a task list for Standard Fix, a shield for
+Conservative Fix, a magnifier for Investigate First, a beaker for Test-Driven
+Fix, a chart for Deep Analysis — and a copy keeps the icon of the mode it was
+copied from. A mode written from scratch shows a lightbulb (a magnifier if it
+only investigates).
+
+Every action is on the row, with no menu to open: **View** and **Customize
+copy** for a built-in; **Edit**, **Duplicate** and **Delete** for a user or
+project mode. Delete asks before it removes anything. At rest a row is just
+its name, its badges and its description; point at the row, or tab into it,
+and it lights up with its actions at the right end of the description line —
+nothing on the row moves. In a narrow sidebar Customize copy, Duplicate and
+Delete show as icons (hover one for its name). On a touch screen, where
+nothing can hover, the actions are always shown.
+
+**View** opens the mode's page: its name with a *Built-in*, *User* or
+*Project* badge and its description, its action at the right — **Customize
+copy** for a built-in, **Edit**, **Duplicate** and **Delete** for your own —
+and its six instruction sections. Objective, Investigation, Implementation and
+Verification are open; Constraints and Completion requirements start closed,
+each showing its first line, and open to the full text (separate
+requirements as a list). The id, version and type are under **Details**, at
+the foot. You cannot edit a built-in mode, but **Customize copy** — from its
+row or from its page — opens a new mode prefilled from it: its name, its
+description and the six instruction sections an agent reads.
+
+**New Fix Mode** and **Edit Fix Mode** are the same editor. Under the title it
+says what you are editing (or, for a new mode, *Create a custom AI fixing
+workflow.*) and which mode it was based on. **Basic info** holds the name, ID,
+description, execution kind and scope; **Workflow instructions** holds the six
+sections, each with its icon. Objective, Investigation, Implementation and
+Verification start open; Constraints and Completion Requirements start
+folded, showing their first line, and open from their header. The boxes grow
+with their text. **Create Fix Mode** (new) or **Save Fix Mode** (edit),
+**Preview** and **Cancel** stay at the bottom of the panel while you scroll.
+A mode's ID and scope can't change once it exists, so editing shows them as
+fixed; duplicate a mode to use another ID or scope. If BugPilot refuses a save
+because of one field, the message appears under that field, and a folded
+section holding it opens.
+
+Each custom mode lives in one of two scopes:
 
 | Scope | Where it lives | Who sees it |
 | --- | --- | --- |
@@ -487,11 +550,10 @@ hover). It only reports state the extension already holds: nothing is
 checked, probed or sent when you open it. To set up Jira, use the Jira row in
 Workflow; Diagnostics shows the status and says where that is.
 
-The first time you open BugPilot, Workflow gets about three quarters of the
-sidebar's height and Results a quarter — never less than VS Code's own minimum
-for an open view, so in a short window Results starts at that minimum and
-Workflow takes the rest. Drag the divider between them and VS Code keeps your
-sizes from then on; BugPilot never resets them.
+The first time you open BugPilot, Results starts open at VS Code's own
+minimum for an open view — its title and about five rows — and Workflow takes
+the rest of the sidebar, however tall the window. Drag the divider between
+them and VS Code keeps your sizes from then on; BugPilot never resets them.
 
 ### Current
 

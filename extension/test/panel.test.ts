@@ -12,7 +12,7 @@ import {
   parsePanelMessage,
 } from "../src/panel/messages.ts";
 import type { PanelMessage } from "../src/panel/messages.ts";
-import { SETTINGS_FIELD_IDS, TEXT_FIELD_IDS, panelHtml } from "../src/panel/html.ts";
+import { EDITOR_SECTIONS, SETTINGS_FIELD_IDS, TEXT_FIELD_IDS, panelHtml } from "../src/panel/html.ts";
 import { DEFAULT_FORM, JIRA_ISSUE_KEY_RE } from "../src/app/form.ts";
 import { ALWAYS_RUNS, WORKFLOW_STEP_IDS, stepDescription, stepTooltip } from "../src/app/workflow.ts";
 import { PRIMARY_TOOLTIPS } from "../src/app/nextAction.ts";
@@ -90,6 +90,8 @@ const MODEL_TEXT_FIELDS = Object.keys(DEFAULT_FORM).filter(
       "gitSearchMessages",
       "gitSearchFileHistory",
       "gitHistoryDepth",
+      // Similar Fixes Settings' switch.
+      "similarUseSharedKeywords",
     ].includes(key),
 );
 
@@ -372,10 +374,16 @@ test("every control has a label a screen reader can read", () => {
   const controls = [...HTML.matchAll(/<(input|textarea|select)\b[^>]*id="([^"]+)"[^>]*>/g)];
   assert.ok(controls.length > 10, "expected the full form to be present");
   for (const [, , id] of controls) {
+    // Named by visible text elsewhere: the Fix Mode editor's instruction boxes
+    // are named by their section's heading (§37.118) — an element that exists
+    // and says something.
+    const labelledBy = new RegExp(`<(?:input|textarea|select)\\b[^>]*id="${id}"[^>]*aria-labelledby="([^"]+)"`).exec(HTML)?.[1];
+    const named = labelledBy !== undefined && new RegExp(`id="${labelledBy}"[^>]*>[^<]+<`).test(HTML);
     const labelled =
       new RegExp(`<label[^>]*for="${id}"`).test(HTML) ||
       // A wrapping label: `<label class="choice"><input id="x"> Text</label>`
-      new RegExp(`<label[^>]*>\\s*<input[^>]*id="${id}"[^>]*>\\s*[^<]`).test(HTML);
+      new RegExp(`<label[^>]*>\\s*<input[^>]*id="${id}"[^>]*>\\s*[^<]`).test(HTML) ||
+      named;
     assert.ok(labelled, `${id} has no associated label`);
   }
 });
@@ -580,7 +588,7 @@ test("the workflow has no primary button: the one primary action is at the top",
 
 test("a gear on exactly the rows that have settings, named for its step", () => {
   const withGear = WORKFLOW_STEP_IDS.filter((id) => SETTINGS_SECTION_OF_STEP[id] !== undefined);
-  assert.deepEqual(withGear, ["issueDetails", "codeSearch", "gitHistory", "buildContext", "fixWithAI"]);
+  assert.deepEqual(withGear, ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]);
   for (const id of withGear) {
     const section = SETTINGS_SECTION_OF_STEP[id]!;
     const head = /<div class="step-head">[\s\S]*?<\/div>/.exec(rowMarkup(id))?.[0] ?? "";
@@ -601,6 +609,8 @@ test("a gear on exactly the rows that have settings, named for its step", () => 
     "Configure Code Search",
     // Git History Settings (Git History Retrieval v2, Batch 2).
     "Configure Git History",
+    // Similar Fixes Settings (§37.113).
+    "Configure Similar Fixes",
     "Configure Build Context",
     // Fix Mode and Hint moved to the main page: this gear is the agent's (§37.90).
     "Configure AI Agent",
@@ -608,16 +618,16 @@ test("a gear on exactly the rows that have settings, named for its step", () => 
 });
 
 test("rows with nothing to configure have no gear, and no summary line", () => {
-  for (const id of ["similarFixes", "fixResult"]) {
+  for (const id of ["fixResult"]) {
     const row = rowMarkup(id);
     assert.equal(row.includes('class="icon step-settings"'), false, `${id} has a gear`);
     assert.equal(row.includes(`settings-summary-${id}`), false, `${id} has a summary line`);
     // Only the gear's place, so its status ends where the others' do (§37.107).
     assert.match(row, /<span class="step-settings-spacer" aria-hidden="true"><\/span>/, `${id}: no place kept for a gear`);
   }
-  // Six rows, five gears (Git history has had one since its settings), one
-  // Workflow Settings entry: no gear called Settings.
-  assert.equal([...HTML.matchAll(/class="icon step-settings"/g)].length, 5);
+  // Seven rows, six gears (Git history has had one since its settings, Similar
+  // fixes since §37.113), one Workflow Settings entry: no gear called Settings.
+  assert.equal([...HTML.matchAll(/class="icon step-settings"/g)].length, 6);
   assert.equal(/aria-label="Settings"|title="Settings"/.test(HTML), false);
 });
 
@@ -733,19 +743,24 @@ const SETTINGS_ON_SCREEN = (() => {
 const SETTINGS_HELP: Readonly<Record<string, string>> = {
   title: "A short title for a bug you describe yourself. A Jira issue brings its own.",
   "add-attachment": "Add files, drag and drop while holding Shift, or paste from the clipboard.",
-  keywords: "Boost retrieval with known identifiers or technical terms. Separate them with commas or new lines.",
-  focusFiles: "Prioritize files you already suspect are relevant. One path per line.",
+  // The shared Retrieval inputs say who uses them (§37.113).
+  keywords: "Shared search terms used by Code Search and optionally reused by Git History and Similar Fixes. Separate them with commas or new lines.",
+  focusFiles: "Files to prioritize in Code Search and optionally reuse for Git History. One path per line.",
   ignorePaths: "Exclude these files or directories from code search. One path per line.",
   maxFiles: "How many related files to keep. Empty uses the default, 10.",
   maxSearchLines: "Line budget for the matched lines in the context. Empty uses the default, 300.",
-  gitUseSharedKeywords: "Also search commit history for the Code search keywords. Code search uses them either way.",
-  gitUseSharedFocusFiles: "Also read the history of the Code search focus files. Code search uses them either way.",
+  // Named where they live; `&gt;` is how the markup spells ">".
+  gitUseSharedKeywords: "Also use Retrieval inputs &gt; Keywords when searching related commits.",
+  gitUseSharedFocusFiles: "Also use Retrieval inputs &gt; Focus files when searching file history.",
   gitKeywords: "Searched in commit messages only. Code search does not use them.",
   gitFiles: "File history only: their history is read too. Code search does not use them. One path per line.",
   gitSearchMessages: "Search commit messages for the issue key and keywords.",
   gitSearchFileHistory: "Read the history of the files related to the issue.",
   gitHistoryDepth: "How far back Git history reads. Broader reads three times as far back per file.",
   gitMaxCommits: "How many related commits to keep, from 1 to 25. Empty uses the default, 10.",
+  similarUseSharedKeywords: "Also use Retrieval inputs &gt; Keywords when searching similar past fixes.",
+  similarKeywords: "Extra terms used only for Similar Fixes. Separate them with commas or new lines.",
+  similarMaxFixes: "How many similar past fixes to include, from 1 to 20. Empty uses the default, 5.",
   fresh: "Removes the work item's existing generated artifacts before running. Off by default to avoid accidental data loss.",
 };
 
@@ -764,7 +779,7 @@ test("every explanation on the settings page is a tooltip and a description, not
   }
   // The boxes and the select show it on hover too, not only their labels; a
   // checkbox is inside its label, which has it.
-  for (const id of ["title", "keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines", "gitKeywords", "gitFiles", "gitHistoryDepth", "gitMaxCommits", "add-attachment"]) {
+  for (const id of ["title", "keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines", "gitKeywords", "gitFiles", "gitHistoryDepth", "gitMaxCommits", "similarKeywords", "similarMaxFixes", "add-attachment"]) {
     const control = new RegExp(`<(?:input|textarea|select|button)[^>]*id="${id}"[^>]*>`).exec(SETTINGS_VIEW)?.[0] ?? "";
     assert.match(control, new RegExp(`title="${SETTINGS_HELP[id]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`), `${id}: the box has no tooltip`);
   }
@@ -817,9 +832,9 @@ test("the settings page's labels are short, sentence case, and never say optiona
   const labels = [...SETTINGS_VIEW.matchAll(/<label[^>]*>([\s\S]*?)<\/label>/g)].map((match) =>
     match[1]!.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
   );
-  // Title, Attachments; Code search's five; Git history's eight; Fresh; the
-  // agent and its command.
-  assert.equal(labels.length, 18, `${labels.length} labels`);
+  // Title, Attachments; Retrieval inputs' two; Code search's three; Git
+  // history's eight; Similar fixes' three; Fresh; the agent and its command.
+  assert.equal(labels.length, 21, `${labels.length} labels`);
   for (const label of labels) {
     assert.equal(/optional/i.test(label), false, `"${label}" says optional — an empty box already does`);
     // Sentence case: a capital first, then lower case — except AI, an acronym,
@@ -828,9 +843,11 @@ test("the settings page's labels are short, sentence case, and never say optiona
     assert.match(label, /^[A-Z]/, label);
     for (const word of rest) assert.equal(word, word.toLowerCase(), `"${label}" is not sentence case`);
   }
-  for (const label of ["Keywords", "Focus files", "Use shared keywords", "Use shared focus files"]) {
+  for (const label of ["Keywords", "Focus files", "Use shared keywords", "Use shared focus files", "Additional keywords", "Max similar fixes"]) {
     assert.ok(labels.includes(label), `no "${label}" label`);
   }
+  // Both shared switches say the same thing in both sections, in the same words.
+  assert.equal(labels.filter((label) => label === "Use shared keywords").length, 2);
 });
 
 test("every setting has a header row with a real label in it", () => {
@@ -841,10 +858,10 @@ test("every setting has a header row with a real label in it", () => {
     (match) => match[1]!,
   );
   // The text fields, plus the rows that are not text fields: the agent
-  // picker, the attachment list and the Fresh checkbox, and Git history's four
-  // switches and its depth select. (Fix Mode and Hint are the main page's now,
-  // §37.84.)
-  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 5, "a row is missing the pattern");
+  // picker, the attachment list and the Fresh checkbox, Git history's four
+  // switches and its depth select, and Similar fixes' switch. (Fix Mode and
+  // Hint are the main page's now, §37.84.)
+  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 6, "a row is missing the pattern");
 
   for (const row of rows) {
     const label = /<label[^>]*for="([^"]+)"/.exec(row);
@@ -1030,7 +1047,9 @@ test("the limits show their defaults without pretending to hold them", () => {
   // changing.
   assert.match(HTML, /id="maxFiles"[^>]*placeholder="10"/);
   assert.match(HTML, /id="maxSearchLines"[^>]*placeholder="300"/);
-  assert.equal(/value="10"|value="300"/.test(HTML), false, "a real value would reach argv");
+  // Max similar fixes the same way (§37.113): five in grey, never a value.
+  assert.match(HTML, /<input type="text" inputmode="numeric" id="similarMaxFixes" name="similarMaxFixes" placeholder="5"/);
+  assert.equal(/value="10"|value="300"|value="5"/.test(HTML), false, "a real value would reach argv");
   // Neither the old "Default: 10" chip nor a sentence restating the label.
   assert.equal(/Default: ?10|Default: ?300/.test(HTML), false, "the default chips are gone");
   assert.equal(/Maximum number of/.test(HTML), false, "the number in the box says this already");
@@ -1066,29 +1085,136 @@ test("the page grows exactly the form fields the markup made multi-line", () => 
   assert.deepEqual(grown.sort(), textareas.sort());
 });
 
-test("the Fix Mode editor's section boxes are deliberately not grown", () => {
-  // Recorded as a decision rather than left looking like an oversight. The
-  // growing fields are typed into while composing a run; the editor is a
-  // different surface with its own preview, and its boxes stay the size `rows`
-  // asks for. They still inherit the ceiling from the stylesheet.
-  //
-  // It is also a trap worth guarding: `grow` is driven by the form's `input`
-  // listener, so an editor id added to GROWING_FIELDS would be resized by
-  // `growAll` and then never again while it was being typed into.
-  const editors = [...HTML.matchAll(/<textarea[^>]*id="(editor-[^"]+)"/g)].map(
-    (match) => match[1]!,
-  );
-  assert.ok(editors.length > 0, "expected the Fix Mode editor to have section boxes");
+test("the Fix Mode editor's section boxes grow, by the editor's own listener (§37.118)", () => {
+  // They used to stay the size `rows` asks for, which gave a built-in's
+  // longer sections a scrollbar inside the scrolling page. They grow now — but
+  // never through GROWING_FIELDS, a trap worth guarding: those are driven by
+  // the run form's `input` listener and by `growAll`, which runs while the
+  // editor is hidden, so an editor id there would be resized once and then
+  // never again while it was being typed into.
+  const editors = [...HTML.matchAll(/<textarea[^>]*id="(editor-[^"]+)"/g)].map((match) => match[1]!);
+  assert.equal(editors.length, 6, "expected the Fix Mode editor's six section boxes");
   const declared = /const GROWING_FIELDS = \[([^\]]*)\]/.exec(PAGE_JS)?.[1] ?? "";
   for (const id of editors) {
-    assert.equal(declared.includes(`"${id}"`), false, `${id} grows but nothing resizes it`);
+    assert.equal(declared.includes(`"${id}"`), false, `${id} is in the run form's growing list`);
   }
+  assert.match(PAGE_JS, /const EDITOR_GROWING = EDITOR_SECTIONS\.map\(\(section\) => `editor-\$\{section\}`\);/);
+  assert.match(PAGE_JS, /byId\("fix-mode-editor-view"\)\.addEventListener\("input", \(event\) => grow\(event\.target\)\);/);
+  // A ceiling of their own, generous for prose, and the box scrolls past it.
+  assert.match(CSS, /\.editor-instruction textarea \{[^}]*max-height: [\d.]+em;/s);
+  // Resting heights by role: Objective the shortest, Investigation the tallest.
+  const rows = Object.fromEntries([...HTML.matchAll(/<textarea id="editor-([a-z]+)" rows="(\d)"/g)].map((match) => [match[1]!, Number(match[2])]));
+  assert.deepEqual(rows, { objective: 2, investigation: 4, implementation: 3, verification: 3, constraints: 3, completion: 3 });
+});
+
+/** The editor view's markup, whole. */
+const EDITOR_HTML = /<section id="fix-mode-editor-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
+
+test("the Fix Mode editor: Basic info, then Workflow instructions, then a footer (§37.118)", () => {
+  assert.notEqual(EDITOR_HTML, "");
+  // One editor for New and Edit: one view, one set of ids.
+  assert.equal([...HTML.matchAll(/id="fix-mode-editor-view"/g)].length, 1);
+  assert.equal([...HTML.matchAll(/id="editor-save"/g)].length, 1);
+  // The head: Back, the title, what is edited, where it came from.
+  assert.match(EDITOR_HTML, /<h2 id="editor-title" class="view-title" tabindex="-1" aria-describedby="editor-subject"><\/h2>\s*<p id="editor-subject" class="editor-subject"><\/p>\s*<p id="editor-origin" class="muted editor-origin" hidden><\/p>/);
+  // Two sections, each a heading with its glyph, in this order.
+  const basic = EDITOR_HTML.indexOf('id="editor-basic-title"');
+  const workflow = EDITOR_HTML.indexOf('id="editor-workflow-title"');
+  assert.ok(basic > 0 && basic < workflow);
+  assert.match(EDITOR_HTML, /<section class="editor-section" aria-labelledby="editor-basic-title">\s*<h3 class="editor-section-title" id="editor-basic-title"><span class="codicon codicon-settings editor-section-icon" aria-hidden="true"><\/span>Basic info<\/h3>/);
+  assert.match(EDITOR_HTML, /<section class="editor-section" aria-labelledby="editor-workflow-title">\s*<h3 class="editor-section-title" id="editor-workflow-title"><span class="codicon codicon-list-ordered editor-section-icon" aria-hidden="true"><\/span>Workflow instructions<\/h3>/);
+  // Basic info holds the five fields, in order, Execution kind and Scope as a pair.
+  const basicHtml = EDITOR_HTML.slice(basic, workflow);
+  assert.deepEqual([...basicHtml.matchAll(/id="field-editor-([A-Za-z]+)"/g)].map((match) => match[1]), ["name", "id", "description", "executionKind", "scope"]);
+  assert.match(basicHtml, /<div class="editor-pair">\s*<div class="field" id="field-editor-executionKind">[\s\S]*<div class="field" id="field-editor-scope">/);
+  // Each with the Workflow Settings label row, its glyph decorative.
+  for (const [id, glyph] of [["name", "edit"], ["id", "tag"], ["description", "note"], ["executionKind", "play"], ["scope", "folder"]] as const) {
+    assert.match(basicHtml, new RegExp(`<label for="editor-${id}"><span class="codicon codicon-${glyph} setting-icon icon-muted" aria-hidden="true"></span>`), id);
+    assert.match(basicHtml, new RegExp(`id="editor-${id}"[^>]*aria-describedby="[^"]*editor-${id}-error"`), `${id} is not described by its error`);
+    assert.match(basicHtml, new RegExp(`<p class="error" id="editor-${id}-error" hidden></p>`), id);
+  }
+  // The two helpers stay, beside their labels, describing their controls.
+  assert.match(basicHtml, /<p class="hint" id="editor-id-hint">Lowercase letters, digits and hyphens\.<\/p>/);
+  assert.match(basicHtml, /<p class="hint" id="editor-scope-hint">Fixed once the mode exists\. Duplicate it to move it\.<\/p>/);
+  assert.match(basicHtml, /id="editor-id" aria-describedby="editor-id-hint editor-id-error"/);
+  assert.match(basicHtml, /id="editor-scope" aria-describedby="editor-scope-hint editor-scope-error"/);
+  // Workflow instructions: six disclosures, the detail page's, each naming its box.
+  const workflowHtml = EDITOR_HTML.slice(workflow);
+  const sections = [...workflowHtml.matchAll(/<details class="preview-section editor-instruction" id="field-editor-([a-z]+)"( open)?>\s*<summary class="preview-section-head" id="editor-\1-head">\s*<span class="codicon codicon-([a-z-]+) preview-section-icon preview-tone-([a-z]+)" aria-hidden="true"><\/span>\s*<h4 class="preview-section-title" id="editor-\1-label">([^<]+)<\/h4>\s*<span class="codicon codicon-chevron-down preview-chevron" aria-hidden="true"><\/span>\s*<span class="preview-snippet" id="editor-\1-snippet" aria-hidden="true"><\/span>\s*<\/summary>\s*<div class="preview-section-body">\s*<textarea id="editor-\1" rows="\d" aria-labelledby="editor-\1-label" aria-describedby="editor-\1-error"><\/textarea>\s*<p class="error" id="editor-\1-error" hidden><\/p>/g)];
+  assert.deepEqual(sections.map((match) => [match[1], match[3], match[4], Boolean(match[2]), match[5]]), [
+    ["objective", "target", "cyan", true, "Objective"],
+    ["investigation", "search", "purple", true, "Investigation"],
+    ["implementation", "tools", "green", true, "Implementation"],
+    ["verification", "check-all", "blue", true, "Verification"],
+    ["constraints", "warning", "amber", false, "Constraints"],
+    ["completion", "checklist", "purple", false, "Completion Requirements"],
+  ]);
+  // The footer: last in the view, after Preview's own pane; Save primary with
+  // its glyph and its words in their own span; Preview short, with its tooltip.
+  assert.ok(EDITOR_HTML.indexOf('id="editor-preview-pane"') < EDITOR_HTML.indexOf('class="editor-footer"'));
+  assert.match(EDITOR_HTML, /<div class="editor-footer">\s*<button type="button" id="editor-save" class="primary"><span class="codicon codicon-save" id="editor-save-icon" aria-hidden="true"><\/span><span id="editor-save-label">Save Fix Mode<\/span><\/button>\s*<div class="editor-footer-more">\s*<button type="button" id="editor-preview" title="Preview the generated AI instructions\."><span class="codicon codicon-eye" aria-hidden="true"><\/span><span>Preview<\/span><\/button>\s*<button type="button" id="editor-cancel"><span class="codicon codicon-close" aria-hidden="true"><\/span><span>Cancel<\/span><\/button>\s*<\/div>\s*<\/div>\s*<\/section>$/);
+  assert.equal(HTML.includes("Preview Generated Instructions"), false, "the long Preview label is back");
+  // No version and no "Current version" in the markup's own text.
+  assert.equal(/Current version|Based on [a-z]/.test(EDITOR_HTML), false);
+});
+
+test("the editor's instruction sections carry the detail page's glyphs, tones and folds (§37.118)", () => {
+  // Two descriptions of the same six sections — the detail page builds its
+  // own at runtime — held to each other, so the two pages cannot drift.
+  const preview = /const PREVIEW_SECTIONS = \[([\s\S]*?)\];/.exec(PAGE_JS)?.[1] ?? "";
+  const fromPreview = [...preview.matchAll(/\{ id: "([a-z]+)", title: "[^"]+", glyph: "codicon-([a-z-]+)", tone: "([a-z]+)", open: (true|false)/g)].map((match) => [match[1], match[2], match[3], match[4] === "true"]);
+  assert.equal(fromPreview.length, 6);
+  assert.deepEqual(EDITOR_SECTIONS.map((entry) => [entry.id, entry.glyph, entry.tone, entry.open]), fromPreview);
+});
+
+test("the Fix Mode editor wraps rather than scrolling sideways, with its footer always at hand (§37.118)", () => {
+  // Execution kind and Scope: side by side only while each keeps 15em, else
+  // stacked; a choice too long for its box ends in an ellipsis, clear of the arrow.
+  assert.match(CSS, /\.editor-pair \{\s*display: flex;\s*flex-wrap: wrap;/);
+  assert.match(CSS, /\.editor-pair > \.field \{\s*flex: 1 1 15em;\s*min-width: 0;/);
+  assert.match(CSS, /\.editor-section select \{\s*overflow: hidden;\s*text-overflow: ellipsis;\s*white-space: nowrap;\s*\}/);
+  // The containers may shrink to the sidebar; the controls fill them.
+  assert.match(CSS, /\.editor-section \{\s*min-width: 0;/);
+  assert.match(CSS, /\.editor-section-body \{\s*min-width: 0;/);
+  assert.match(CSS, /(?:^|\n)input\[type="text"\],\s*textarea,\s*select \{\s*width: 100%;\s*box-sizing: border-box;/);
+  assert.match(CSS, /\.editor-section-title \{[^}]*overflow-wrap: anywhere;/s);
+  assert.match(CSS, /\.editor-subject \{[^}]*overflow-wrap: anywhere;/s);
+  // The instruction sections: the detail page's glyph | title | chevron row,
+  // without a box each, the box the section's whole width.
+  assert.match(CSS, /\.preview-section-head \{[^}]*grid-template-columns: 16px minmax\(0, 1fr\) 16px;/s);
+  assert.match(CSS, /\.preview-section\.editor-instruction \{\s*border: 0;\s*border-radius: 0;\s*background: none;/);
+  assert.match(CSS, /\.editor-instruction \.preview-section-body \{\s*padding: 0 10px 10px;/);
+  // The footer: at the panel's foot, wrapping — Save, then Preview and Cancel as a pair.
+  const footer = /\.editor-footer \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  for (const rule of [/position: sticky;/, /bottom: 0;/, /flex-wrap: wrap;/, /border-top: 1px solid var\(--vscode-panel-border\);/, /background: var\(--vscode-sideBar-background, var\(--vscode-editor-background\)\);/]) assert.match(footer, rule);
+  assert.match(CSS, /\.editor-footer-more \{\s*display: flex;\s*flex-wrap: wrap;/);
+  assert.match(CSS, /\.editor-footer button \{[^}]*max-width: 100%;/s);
+  // In a very narrow sidebar Preview and Cancel drop their glyphs to stay a
+  // pair under the primary action, which keeps its own.
+  const narrow = [...CSS.matchAll(/@media \(max-width: 220px\) \{([\s\S]*?)\n\}/g)].map((match) => match[1]!).join("\n");
+  assert.match(narrow, /\.editor-footer-more \.codicon \{\s*display: none;/);
+  assert.equal(/editor-save|editor-footer \.codicon|\.editor-footer button/.test(narrow), false, "the narrow rule hides more than the pair's glyphs");
+  // What the footer covers, the browser does not scroll to.
+  assert.match(CSS, /html:has\(#fix-mode-editor-view:not\(\[hidden\]\)\) \{\s*scroll-padding-bottom: [\d.]+rem;/);
+  // A fixed field looks fixed.
+  assert.match(CSS, /\.fix-mode-editor :is\(input, select\):disabled \{\s*opacity: 0\.6;\s*cursor: default;/);
+  // The boxes are measured again when the sidebar's width changes.
+  assert.match(PAGE_JS, /\}\)\.observe\(byId\("fix-mode-editor-view"\)\);/);
+  // High Contrast: borders, no fills.
+  assert.match(CSS, /body\.vscode-high-contrast \.editor-section,\s*body\.vscode-high-contrast-light \.editor-section \{\s*border-color: var\(--vscode-contrastBorder, var\(--vscode-panel-border\)\);\s*background: none;/);
+  // The tones are the detail page's, defined for both.
+  assert.match(CSS, /\.preview-sections,\s*\.editor-instructions \{\s*--preview-cyan:/);
+  // Nothing in the editor fixes a width or names a colour.
+  const rules = [...CSS.matchAll(/(?:\.editor-[a-z-]+|\.fix-mode-editor)[^{]*\{([^}]*)\}/g)].map((match) => match[1]!).join("\n");
+  assert.equal(/(^|[^-])width:\s*\d/m.test(rules), false, "an editor rule fixes a width");
+  assert.equal(COLOUR_LITERAL.test(rules), false, "a colour literal in the editor");
 });
 
 test("growing has a ceiling, in the theme's own units", () => {
   // Without one, a pasted stack trace pushes Run off the bottom of the sidebar.
   // In em rather than px so it follows the font the theme chose.
-  const rule = /textarea \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  // The base rule, at the start of a line, not a scoped one such as the editor's.
+  const rule = /(?:^|\n)textarea \{[^}]*\}/.exec(CSS)?.[0] ?? "";
   assert.match(rule, /max-height: [\d.]+em/, "nothing stops a field from growing");
   assert.match(rule, /overflow-y: auto/, "a capped field with no scrollbar hides its own text");
 });
@@ -1763,6 +1889,225 @@ test("the management and editor controls live in their own views", () => {
   }
 });
 
+test("Manage Fix Modes: a short lede, the list, and Delete's description (§37.114)", () => {
+  const view = /<section id="fix-mode-manager-view"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(view, "");
+  assert.match(view, /<h2 id="manage-heading" class="view-title" tabindex="-1" aria-describedby="manage-lede">Manage Fix Modes<\/h2>/);
+  assert.match(view, /<p class="muted view-lede" id="manage-lede">Choose and customize AI fix workflows\.<\/p>/);
+  assert.equal(HTML.includes("The AI workflows available to this repository."), false);
+  assert.match(view, /<div id="manage-list" class="manage-list"><\/div>/);
+  // Every Delete item points at this: permanent, and confirmed first.
+  assert.match(view, /<p class="visually-hidden" id="manage-delete-help">Permanently deletes this Fix Mode's file\. BugPilot asks you to confirm first\.<\/p>/);
+  // The preview's facts are a term list: where the id and the version went.
+  assert.match(HTML, /<dl id="preview-meta" class="preview-facts"><\/dl>/);
+  assert.match(CSS, /\.preview-facts \{[^}]*display: grid;[^}]*grid-template-columns: auto minmax\(0, 1fr\);/s);
+  assert.match(CSS, /\.preview-facts dd \{[^}]*overflow-wrap: anywhere;/s);
+});
+
+test("the Fix Mode detail page: a header with its action, sections, and Details closed at the foot (§37.115)", () => {
+  const view = /<section id="fix-mode-preview-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(view, "");
+  // Back, with the arrow glyph, the whole line one control.
+  assert.match(view, /<button type="button" id="preview-back" class="link view-back preview-back">\s*<span class="codicon codicon-arrow-left" aria-hidden="true"><\/span>\s*<span>Back to Fix Mode Manager<\/span>\s*<\/button>/);
+  // The header: glyph, heading and source, and the action on the top line;
+  // the description under them, the whole width.
+  const top = /<div class="preview-hero-top">[\s\S]*?<div class="preview-actions" id="preview-actions"><\/div>\s*<\/div>/.exec(view)?.[0] ?? "";
+  assert.notEqual(top, "", "the action is not in the header");
+  assert.match(top, /<span class="codicon codicon-lightbulb preview-icon" id="preview-icon" aria-hidden="true"><\/span>/);
+  assert.match(top, /<h2 id="preview-heading" class="view-title preview-title" tabindex="-1"><\/h2>\s*<span class="preview-source" id="preview-source"><\/span>/);
+  assert.match(view, /<\/div>\s*<p id="preview-description" class="preview-description"><\/p>\s*<\/div>/);
+  // No ⋯ menu on the page: every action is in the header (§37.116).
+  assert.equal(/preview-menu|role="menu"|more-menu/.test(view), false, "the detail page has a menu again");
+  // No action row left at the foot: the one action area is the header's.
+  assert.equal([...view.matchAll(/id="preview-actions"/g)].length, 1);
+  assert.equal(/class="run-buttons"/.test(view), false, "the old bottom action row is back");
+  // The facts in Details, closed, after the sections.
+  assert.match(view, /<details class="preview-details" id="preview-details">\s*<summary id="preview-details-head">Details<\/summary>\s*<dl id="preview-meta" class="preview-facts"><\/dl>\s*<\/details>/);
+  assert.ok(view.indexOf('id="preview-body"') < view.indexOf('id="preview-details"'));
+  assert.equal(/<details class="preview-details"[^>]*\sopen/.test(view), false);
+});
+
+test("the Fix Mode detail page wraps rather than scrolling sideways (§37.115)", () => {
+  // The header is a wrapping row: the text column may shrink, the action keeps
+  // its width and moves to a line of its own, at the right.
+  assert.match(CSS, /\.preview-hero-top \{[^}]*display: flex;[^}]*flex-wrap: wrap;/s);
+  assert.match(CSS, /\.preview-title-row \{[^}]*flex: 1 1 8em;[^}]*min-width: 0;[^}]*flex-wrap: wrap;/s);
+  assert.match(CSS, /\.preview-actions \{[^}]*margin-left: auto;/s);
+  assert.match(CSS, /\.preview-description \{[^}]*overflow-wrap: anywhere;/s);
+  assert.match(CSS, /\.view-title\.preview-title \{[^}]*overflow-wrap: anywhere;/s);
+  // A section's line: glyph, title, chevron, the title the column that gives;
+  // its own chevron, so the native marker goes; a closed one's line cut short.
+  assert.match(CSS, /\.preview-section-head \{[^}]*display: grid;[^}]*grid-template-columns: 16px minmax\(0, 1fr\) 16px;[^}]*list-style: none;/s);
+  assert.match(CSS, /\.preview-section-head::-webkit-details-marker \{\s*display: none;/);
+  assert.match(CSS, /\.preview-snippet \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s);
+  assert.match(CSS, /\.preview-section\[open\] \.preview-snippet,\s*\.preview-snippet:empty \{\s*display: none;/);
+  assert.match(CSS, /\.preview-section\[open\] \.preview-chevron \{\s*transform: rotate\(180deg\);/);
+  assert.match(CSS, /\.preview-list li \{\s*overflow-wrap: anywhere;/);
+  // Hover and focus from the theme; High Contrast keeps its own borders and colours.
+  assert.match(CSS, /\.preview-section-head:hover \{\s*background: var\(--vscode-list-hoverBackground\);/);
+  assert.match(CSS, /\.preview-section-head:focus-visible \{[^}]*outline: 1px solid var\(--vscode-focusBorder\)/s);
+  assert.match(CSS, /body\.vscode-high-contrast \.preview-section,\s*body\.vscode-high-contrast-light \.preview-section \{/);
+  assert.match(CSS, /body\.vscode-high-contrast \.preview-section-icon,\s*body\.vscode-high-contrast-light \.preview-section-icon \{\s*color: var\(--vscode-foreground\);/);
+  // Every hue is a theme colour mixed toward the foreground — no literals —
+  // and nothing on the page fixes a width.
+  const rules = [...CSS.matchAll(/\.preview-[a-z-]+[^{]*\{([^}]*)\}/g)].map((match) => match[1]!).join("\n");
+  assert.equal(COLOUR_LITERAL.test(rules), false, "a colour literal on the detail page");
+  assert.equal(/(^|[^-])width:/m.test(rules), false, "a detail rule sets a width");
+  for (const tone of ["cyan", "purple", "green", "blue", "amber"]) {
+    assert.match(CSS, new RegExp(`--preview-${tone}: color-mix\\(in srgb, var\\(--vscode-[a-zA-Z-]+[^;]*80%, var\\(--vscode-foreground\\)\\);`), tone);
+    assert.match(CSS, new RegExp(`\\.preview-tone-${tone} \\{ color: var\\(--preview-${tone}\\); \\}`), tone);
+  }
+});
+
+test("Manage Fix Modes rows never force the sidebar wider (§37.114, §37.116)", () => {
+  // A grid whose text column may shrink to nothing: the name, the
+  // description and the actions all live in it, and give.
+  const row = /\.manage-row \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(row, /display: grid;/);
+  assert.match(row, /grid-template-columns: 16px minmax\(0, 1fr\);/);
+  assert.match(CSS, /\.manage-text \{\s*min-width: 0;/);
+  // The name wraps whole, its badges beside it wrap under it; the
+  // description is one line, cut with an ellipsis, and shares that line with
+  // the actions only while it keeps 8em — then they wrap under it, at the right.
+  assert.match(CSS, /\.manage-name \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/s);
+  assert.match(CSS, /\.manage-title \{[^}]*flex-wrap: wrap;/s);
+  assert.match(CSS, /\.manage-line \{[^}]*display: flex;[^}]*flex-wrap: wrap;[^}]*min-width: 0;/s);
+  const description = /\.manage-description \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  for (const rule of [/flex: 1 1 8em;/, /min-width: 0;/, /overflow: hidden;/, /text-overflow: ellipsis;/, /white-space: nowrap;/]) assert.match(description, rule);
+  // The actions wrap among themselves too, never wider than the row.
+  const actions = /\.manage-actions \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  for (const rule of [/flex-wrap: wrap;/, /justify-content: flex-end;/, /max-width: 100%;/, /margin-left: auto;/]) assert.match(actions, rule);
+  assert.equal(/white-space: nowrap/.test(/\.manage-title \{([^}]*)\}/.exec(CSS)?.[1] ?? ""), false, "the title line is forced onto one line");
+  // The group heading keeps the native disclosure triangle: no `display` on it.
+  assert.equal(/\.manage-group-head \{[^}]*display:/s.test(CSS), false, "the summary lost its triangle");
+  assert.match(CSS, /\.manage-group-note \{[^}]*float: right;/s);
+  // Nothing in the list fixes a width.
+  const rules = [...CSS.matchAll(/\.manage-[a-z-]+[^{]*\{([^}]*)\}/g)].map((match) => match[1]!).join("\n");
+  assert.equal(/(^|[^-])width:/m.test(rules), false, "a manage rule sets a width");
+  // In a very narrow sidebar the row keeps its name and every action; only
+  // the group's word goes, to its tooltip.
+  const narrow = [...CSS.matchAll(/@media \(max-width: 220px\) \{([\s\S]*?)\n\}/g)].map((match) => match[1]!).find((block) => block.includes("manage-"));
+  assert.ok(narrow, "no narrow rule for the list");
+  assert.match(narrow, /\.manage-group-note \{\s*display: none;/);
+  // The detail page's sections tighten there, keeping both glyphs (§37.115).
+  assert.match(narrow, /\.preview-section-head \{\s*column-gap: 6px;\s*padding-inline: 6px;/);
+  assert.equal(/preview-section-icon|preview-chevron/.test(narrow), false, "the narrow rule hides a glyph");
+  assert.equal(/manage-action|manage-name/.test(narrow), false, "the narrow rule hides the name or an action");
+  // A focus ring on the group heading.
+  assert.match(CSS, /\.manage-group-head:focus-visible \{[^}]*outline: 1px solid var\(--vscode-focusBorder\)/s);
+  // Badges are the Workflow Steps' quiet pill, with a High Contrast border.
+  assert.match(CSS, /\.manage-badge \{[^}]*border-radius: 9px;[^}]*white-space: nowrap;/s);
+  assert.match(CSS, /body\.vscode-high-contrast \.manage-badge,\s*body\.vscode-high-contrast-light \.manage-badge \{/);
+});
+
+test("Fix Mode actions are words on the row, quiet at rest, and nothing is behind a menu (§37.116)", () => {
+  // No box: words in the link, description or error colour, beating the base
+  // `button` rules (which come later) by their parent and `button.`.
+  const action = /\.manage-actions > button\.manage-action \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  for (const rule of [/background: none;/, /border: 1px solid transparent;/, /color: var\(--vscode-descriptionForeground\);/, /white-space: nowrap;/]) assert.match(action, rule);
+  assert.match(CSS, /\.manage-actions > button\.manage-action-strong \{\s*color: var\(--vscode-textLink-foreground\);/);
+  assert.match(CSS, /\.manage-actions > button\.manage-action-danger \{\s*color: var\(--vscode-errorForeground\);/);
+  // Delete is no larger than the others: no rule gives one tone a size.
+  const toned = [...CSS.matchAll(/manage-action-(?:strong|quiet|danger)[^{]*\{([^}]*)\}/g)].map((match) => match[1]!).join("\n");
+  assert.equal(/padding|font-size|font-weight|border:/.test(toned), false, "a tone changes an action's size");
+  // The pointer and the keyboard focus light a row the same way, and change
+  // only paint — colour, fill, opacity, whether it takes clicks, a High
+  // Contrast outline: nothing moves when an action comes forward (§37.117).
+  assert.match(CSS, /\.manage-row:hover,\s*\.manage-row:focus-within \{\s*background: var\(--manage-row-lit\);/);
+  assert.match(CSS, /--manage-row-lit: var\(--vscode-list-hoverBackground, transparent\);/);
+  assert.match(CSS, /\.manage-row:hover \.manage-actions > button\.manage-action-quiet,\s*\.manage-row:focus-within \.manage-actions > button\.manage-action-quiet \{\s*color: var\(--vscode-foreground\);/);
+  const lit = [...CSS.matchAll(/([^{}]*(?::hover|:focus-within)[^{}]*)\{([^}]*)\}/g)].filter((match) => match[1]!.includes("manage-"));
+  assert.ok(lit.length >= 4);
+  const paint = new Set(["color", "background", "opacity", "pointer-events", "outline", "outline-offset"]);
+  for (const [, selector, body] of lit) {
+    const properties = [...body!.matchAll(/([a-z-]+):/g)].map((match) => match[1]!);
+    assert.deepEqual(properties.filter((name) => !paint.has(name)), [], `${selector!.trim()} changes more than paint`);
+  }
+  // Where nothing can hover, the actions are simply shown: outside the
+  // `(hover: hover)` block no rule fades or hides them.
+  const unhovered = CSS.replace(/@media \(hover: hover\) \{[\s\S]*?\n\}/, "");
+  const rest = [...unhovered.matchAll(/((?:\.manage-actions|button\.manage-action(?:-strong|-quiet|-danger)?)\s*)\{([^}]*)\}/g)]
+    .filter((match) => !/:hover|:focus/.test(match[1]!))
+    .map((match) => match[2]!);
+  assert.ok(rest.length >= 3);
+  assert.equal(/opacity: 0|visibility: hidden|display: none|pointer-events: none/.test(rest.join("\n")), false, "the actions are hidden where nothing can hover");
+  // Below about 300px Customize copy, Duplicate and Delete show their glyph in
+  // place of their word; View and Edit carry no glyph and keep theirs.
+  assert.match(CSS, /\.codicon\.manage-action-glyph \{\s*display: none;/);
+  const compact = /@media \(max-width: 300px\) \{([\s\S]*?)\n\}/.exec(CSS)?.[1] ?? "";
+  assert.match(compact, /\.codicon\.manage-action-glyph \{\s*display: inline-block;/);
+  assert.match(compact, /\.manage-action-glyph \+ \.manage-action-label \{\s*display: none;/);
+  assert.equal(/ellipsis|menu/.test(compact), false, "a narrow row reaches for a menu");
+  // The menu-only rules are gone with the menus.
+  for (const dead of [".manage-menu", ".manage-more", ".manage-primary", ".menu-item-danger", ".preview-menu"]) {
+    assert.equal(CSS.includes(dead), false, `${dead} is still styled`);
+  }
+  // The detail page's actions wrap at the right rather than push the page sideways.
+  assert.match(CSS, /\.preview-actions \{[^}]*flex-wrap: wrap;[^}]*justify-content: flex-end;[^}]*min-width: 0;/s);
+  assert.match(CSS, /\.preview-danger \.codicon \{\s*color: var\(--bugpilot-icon-danger\);/);
+});
+
+test("where a pointer can hover, Fix Mode actions are revealed by hover or focus, laid over the description, and move nothing (§37.117)", () => {
+  const hover = [...CSS.matchAll(/@media \(hover: hover\) \{([\s\S]*?)\n\}/g)].map((match) => match[1]!);
+  assert.equal(hover.length, 1, "one (hover: hover) block");
+  const block = hover[0]!;
+  // At rest: transparent and not clickable — but rendered, so still named,
+  // focusable and in the tab order. Never display or visibility.
+  const rest = /\.manage-actions \{([^}]*)\}/.exec(block)?.[1] ?? "";
+  for (const rule of [/opacity: 0;/, /pointer-events: none;/]) assert.match(rest, rule);
+  assert.equal(/display:|visibility:|tabindex/.test(block), false, "the actions are hidden by more than opacity");
+  // Out of the flow, over the end of the description's line: the line is
+  // their anchor and they span it, so the description has the whole width
+  // at rest and nothing reflows when they appear.
+  assert.match(block, /\.manage-line \{\s*position: relative;\s*\}/);
+  for (const rule of [/position: absolute;/, /top: 0;/, /right: 0;/, /bottom: 0;/, /flex-wrap: nowrap;/]) assert.match(rest, rule);
+  // Over a backdrop of the row's lit colour on the ground, fading in from the
+  // left, so the words beneath do not show through.
+  assert.match(rest, /background:\s*linear-gradient\(to right, transparent, var\(--manage-row-lit\) 20px\),\s*linear-gradient\(to right, transparent, var\(--manage-ground\) 20px\);/);
+  assert.match(CSS, /--manage-ground: var\(--vscode-sideBar-background, var\(--vscode-editor-background\)\);/);
+  // Revealed by the pointer and by the keyboard alike.
+  assert.match(block, /\.manage-row:hover \.manage-actions,\s*\.manage-row:focus-within \.manage-actions \{\s*opacity: 1;\s*pointer-events: auto;\s*\}/);
+  // Only the action group fades: nothing in the block reaches the name,
+  // Current, the description or Investigation only.
+  assert.equal(/manage-(?:title|name|badge|description|kind|icon)/.test(block), false, "something besides the actions fades");
+  // A short fade, and none for a developer who asked for less motion.
+  assert.match(rest, /transition: opacity 100ms ease-out;/);
+  assert.match(CSS, /@media \(prefers-reduced-motion: reduce\) \{\s*\.manage-actions \{\s*transition: none;\s*\}\s*\}/);
+  // High Contrast lights a row with its dashed outline, which takes no room.
+  assert.match(CSS, /body\.vscode-high-contrast \.manage-row:hover,\s*body\.vscode-high-contrast \.manage-row:focus-within,\s*body\.vscode-high-contrast-light \.manage-row:hover,\s*body\.vscode-high-contrast-light \.manage-row:focus-within \{\s*outline: 1px dashed var\(--vscode-contrastActiveBorder, var\(--vscode-focusBorder\)\);\s*outline-offset: -1px;/);
+  // An empty description keeps the line the actions are laid over.
+  assert.match(CSS, /\.manage-description:empty::before \{\s*content: "\\200b";/);
+  // Nowhere are the actions hidden with display or visibility — the only
+  // `display: none` near them swaps a word for its glyph at a narrow width.
+  for (const [, selector, body] of CSS.matchAll(/([^{}]*manage-action[^{}]*)\{([^}]*)\}/g)) {
+    if (/manage-action-(?:glyph|label)/.test(selector!)) continue;
+    assert.equal(/display: none|visibility: hidden/.test(body!), false, `${selector!.trim()} hides an action`);
+  }
+});
+
+test("each Fix Mode glyph has its own theme hue, mixed toward the foreground, and the foreground in High Contrast (§37.116)", () => {
+  const tones: Record<string, string> = {
+    tasklist: "blue",
+    shield: "green",
+    search: "purple",
+    beaker: "amber",
+    graph: "magenta",
+  };
+  for (const [glyph, tone] of Object.entries(tones)) {
+    assert.match(CSS, new RegExp(`\\.mode-icon\\.codicon-${glyph} \\{ color: var\\(--mode-${tone}\\); \\}`), glyph);
+    assert.match(CSS, new RegExp(`--mode-${tone}: color-mix\\(in srgb, var\\(--vscode-[a-zA-Z-]+[^;]*80%, var\\(--vscode-foreground\\)\\);`), tone);
+  }
+  // Every glyph the page's table names has a hue; the kind fallback does not.
+  const table = /const BUILTIN_MODE_ICONS = \{([^}]*)\};/.exec(PAGE_JS)?.[1] ?? "";
+  const named = [...table.matchAll(/"codicon-([a-z-]+)"/g)].map((match) => match[1]!);
+  assert.deepEqual([...named].sort(), Object.keys(tones).sort());
+  assert.equal(/\.mode-icon\.codicon-lightbulb/.test(CSS), false);
+  assert.match(CSS, /body\.vscode-high-contrast \.mode-icon,\s*body\.vscode-high-contrast-light \.mode-icon \{\s*color: var\(--vscode-foreground\);/);
+  // No literal colours anywhere among them.
+  const rules = [...CSS.matchAll(/\.mode-icon[^{]*\{([^}]*)\}/g)].map((match) => match[1]!).join("\n");
+  assert.equal(COLOUR_LITERAL.test(rules), false, "a colour literal on a mode glyph");
+});
+
 test("the markup alone hides everything but the form", () => {
   // Before any state arrives. A page that needs a message to stop showing three
   // views is one that shows them for however long the first run of the CLI
@@ -1862,7 +2207,7 @@ test("the Issue field is one box that says it takes either kind of input", () =>
   );
 });
 
-test("the Issue's label row: a neutral icon, the label, and a few quiet words beside it", () => {
+test("the Issue's label row: a neutral icon, the label, and how the input was read (§37.112)", () => {
   const header = /<div class="setting-header">([\s\S]*?)<\/div>/.exec(ISSUE_BLOCK)?.[1] ?? "";
   assert.notEqual(header, "");
   // The issues glyph, decorative, in the general/AI blue — not Jira's mark, since
@@ -1872,20 +2217,29 @@ test("the Issue's label row: a neutral icon, the label, and a few quiet words be
     new RegExp(`<label for="issue" title="${ISSUE_HELP_TEXT.replaceAll(".", "\\.")}"><span class="codicon codicon-issues setting-icon icon-primary" aria-hidden="true"></span>Issue</label>`),
   );
   assert.equal(/jira/i.test(/<span class="codicon[^"]*"/.exec(header)?.[0] ?? ""), false, "a Jira icon");
-  // The words beside it: a sibling of the label rather than part of it, so the
-  // field is still named "Issue"; hidden from a screen reader, which hears the
-  // full sentence as the field's description; the same tooltip as the label.
+  // How the input was read, beside the label: a sibling of it rather than
+  // part of it, so the field is still named "Issue"; empty and hidden until
+  // there is input, so an untouched panel says nothing; the label's tooltip.
   assert.match(
     header,
-    new RegExp(`</label>\\s*<span class="setting-secondary" id="issue-secondary" title="${ISSUE_HELP_TEXT.replaceAll(".", "\\.")}" aria-hidden="true">Jira ID or bug description</span>`),
+    new RegExp(`</label>\\s*<span class="setting-note" id="issue-note" title="${ISSUE_HELP_TEXT.replaceAll(".", "\\.")}" hidden></span>`),
   );
-  // Short state, not explanation: the full sentence is never on the panel.
+  // "Jira ID or bug description" is gone (§37.112): the row says what the
+  // input is once there is one, not what it may be. The full sentence is never
+  // on the panel either — it is the tooltip and the description.
+  assert.equal(HTML.includes("Jira ID or bug description"), false);
   assert.equal(FORM_ON_SCREEN.includes(ISSUE_HELP_TEXT), false);
-  assert.ok(FORM_ON_SCREEN.includes("Jira ID or bug description"));
-  // The note and the spoken kind start empty: an untouched panel says nothing.
-  assert.match(ISSUE_BLOCK, /<p class="muted issue-note" id="issue-note" hidden><\/p>/);
+  // One reading, in the header: nothing under the box repeats it.
+  assert.equal(HTML.split('id="issue-note"').length - 1, 1, "the reading is in two places");
+  const underHeader = ISSUE_BLOCK.slice(ISSUE_BLOCK.indexOf("</div>"));
+  assert.equal(underHeader.includes('id="issue-note"'), false, "the reading is still under the box");
+  assert.equal(/class="[^"]*issue-note/.test(HTML), false);
+  // Heard as the box's description, never announced per keystroke and never
+  // hidden from a screen reader; the kind alone is said once typing pauses.
+  const note = /<span class="setting-note" id="issue-note"[^>]*>/.exec(header)?.[0] ?? "";
+  assert.equal(/aria-live|role=|aria-hidden/.test(note), false, note);
+  assert.match(ISSUE_BLOCK, /<textarea[^>]*aria-describedby="issue-note issue-error issue-help"/);
   assert.match(ISSUE_BLOCK, /<p class="visually-hidden" id="issue-kind" role="status"><\/p>/);
-  assert.equal(/aria-live|role=/.test(/<p class="muted issue-note"[^>]*>/.exec(ISSUE_BLOCK)?.[0] ?? ""), false, "the note announces every keystroke");
 });
 
 test("the Issue rests at one row and stops growing at four lines", () => {
@@ -1909,17 +2263,27 @@ test("the Issue rests at one row and stops growing at four lines", () => {
   assert.match(CSS, /\n#issue:placeholder-shown \{\s*overflow: hidden;\s*\}/);
 });
 
-test("the words beside a label stay beside it while they fit, and wrap under it when not", () => {
-  const rule = /\.setting-header > \.setting-secondary \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
-  assert.notEqual(rule, "", "no rule for the words beside a label");
-  // Moved as a phrase (basis auto), allowed to shrink and wrap on its own line.
+test("the Issue's reading sits at the right of the label's row, and moves under it when it does not fit", () => {
+  const rule = /\.setting-header > \.setting-note \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.notEqual(rule, "", "no rule for the reading beside a label");
+  // At the row's right; moved as a phrase (basis auto), allowed to shrink and
+  // wrap only on a line of its own — never a horizontal scroll.
+  assert.match(rule, /margin-left: auto;/);
   assert.match(rule, /flex: 0 1 auto;/);
   assert.match(rule, /min-width: 0;/);
   assert.match(rule, /overflow-wrap: anywhere;/);
-  // Quieter than the label: the description colour, a little smaller.
+  // Quieter than the label: the description colour, a little smaller. The
+  // words say Jira issue or Bug description; colour says nothing on its own.
   assert.match(rule, /color: var\(--vscode-descriptionForeground\);/);
   assert.match(rule, /font-size: 0\.9em;/);
+  // Its arrival does not grow the row and nudge the box down a pixel or two.
+  assert.match(rule, /line-height: 1;/);
   assert.equal(/white-space: nowrap|text-overflow/.test(rule), false);
+  assert.match(CSS, /\.setting-note\[hidden\] \{\s*display: none;/);
+  // The old line under the box and the old words beside the label have no styles left.
+  assert.equal(/\.issue-note|\.setting-secondary/.test(CSS), false);
+  // The header row it lives in wraps rather than overflowing.
+  assert.match(CSS, /\.setting-header \{[^}]*flex-wrap: wrap;/s);
 });
 
 test("the input source is no longer a question the panel asks", () => {
@@ -1966,10 +2330,21 @@ test("Workflow Settings is one section per step that has settings, in the workfl
     sections.map((match) => [match[1], match[2]]),
     WORKFLOW_SETTINGS_SECTIONS.map((section) => [section, SETTINGS_SECTION_TITLES[section]]),
   );
-  assert.deepEqual(WORKFLOW_SETTINGS_SECTIONS, ["issue-details", "code-search", "git-history", "build-context", "fix-with-ai"]);
-  // Similar fixes has nothing to configure beyond its checkbox: no section
-  // pretends otherwise. (Git history has had one since its settings.)
-  assert.equal(/settings-section-similar-fixes/.test(HTML), false);
+  assert.deepEqual(WORKFLOW_SETTINGS_SECTIONS, [
+    "issue-details",
+    "retrieval-inputs",
+    "code-search",
+    "git-history",
+    "similar-fixes",
+    "build-context",
+    "fix-with-ai",
+  ]);
+  // Similar fixes has settings since §37.113, after Git history and before
+  // Build context; Retrieval inputs is what the retrieval steps share, just
+  // before them, and no row's.
+  const order = WORKFLOW_SETTINGS_SECTIONS.map((section) => SETTINGS_VIEW.indexOf(`id="settings-section-${section}"`));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.ok(order.every((index) => index > 0));
   // Each says whether its changes need a rebuild: the model's few words beside
   // the heading, the model's sentence as their tooltip — and the heading is
   // described by them, so a gear's arrival on it says it too.
@@ -1984,8 +2359,17 @@ test("Workflow Settings is one section per step that has settings, in the workfl
   assert.equal(/<p[^>]*id="settings-note-/.test(SETTINGS_VIEW), false);
   // No disclosures and no nested forms: one page, read top to bottom.
   assert.equal(/<details|<form/.test(SETTINGS_VIEW), false);
-  // In the whole document only Workflow Steps starts open (§37.109).
-  assert.deepEqual([...HTML.matchAll(/<details[^>]*\sopen(?=[\s>])[^>]*>/g)].length, 1);
+  // In the whole document only Workflow Steps starts open (§37.109) — and the
+  // Fix Mode editor's four main instruction sections, whose open state is
+  // their default (§37.118).
+  const opened = [...HTML.matchAll(/<details[^>]*\sopen(?=[\s>])[^>]*>/g)].map((match) => match[0]);
+  assert.deepEqual(opened.filter((tag) => !tag.includes("editor-instruction")).length, 1);
+  assert.deepEqual(opened.filter((tag) => tag.includes("editor-instruction")).map((tag) => /id="([^"]+)"/.exec(tag)?.[1]), [
+    "field-editor-objective",
+    "field-editor-investigation",
+    "field-editor-implementation",
+    "field-editor-verification",
+  ]);
 });
 
 test("Issue details' section is the title and attachments; Build context's is Fresh", () => {
@@ -2017,20 +2401,54 @@ test("Fix with AI's section is the agent and its command — Fix Mode and Hint a
   }
 });
 
-test("Code search's section is everything that steers the search", () => {
+test("Code search's section is its own settings; the Keywords and Focus files it reads are Retrieval inputs (§37.113)", () => {
   // Ignore paths and the two limits decide what the search walks and how much
-  // of it reaches the context, which is the same kind of thing the first two do.
+  // of it reaches the context. Nothing else: no Keywords, no Focus files, and
+  // no "Use shared…" switch — the shared inputs are always Code search's.
   const search = settingsSection("code-search");
   const fields = [...search.matchAll(/id="field-([A-Za-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(fields, ["keywords", "focusFiles", "ignorePaths", "maxFiles", "maxSearchLines"]);
-
-  // Short labels (Advanced Settings simplification): a blank box already says
-  // it is optional, and what each is for is its tooltip.
-  assert.match(search, /<label[^>]*for="keywords"[^>]*>[\s\S]*?Keywords<\/label>/);
-  assert.match(search, /<label[^>]*for="focusFiles"[^>]*>[\s\S]*?Focus files<\/label>/);
-  assert.match(search, /title="Boost retrieval with known identifiers or technical terms\./);
-  assert.match(search, /title="Prioritize files you already suspect are relevant\./);
+  assert.deepEqual(fields, ["ignorePaths", "maxFiles", "maxSearchLines"]);
+  assert.equal(/type="checkbox"/.test(search), false);
   assert.match(search, /title="Changes here require rebuilding context\.">Requires rebuild</);
+
+  const inputs = settingsSection("retrieval-inputs");
+  assert.deepEqual([...inputs.matchAll(/id="field-([A-Za-z]+)"/g)].map((match) => match[1]), ["keywords", "focusFiles"]);
+  assert.match(inputs, /<h3 [^>]*id="settings-title-retrieval-inputs"[^>]*>Retrieval inputs<\/h3>/);
+  assert.match(inputs, /title="Changes here require rebuilding context\.">Requires rebuild</);
+  // Short labels (Advanced Settings simplification): a blank box already says
+  // it is optional, and what each is for — and who uses it — is its tooltip.
+  assert.match(inputs, /<label[^>]*for="keywords"[^>]*>[\s\S]*?Keywords<\/label>/);
+  assert.match(inputs, /<label[^>]*for="focusFiles"[^>]*>[\s\S]*?Focus files<\/label>/);
+  assert.match(inputs, /title="Shared search terms used by Code Search and optionally reused by Git History and Similar Fixes\./);
+  assert.match(inputs, /title="Files to prioritize in Code Search and optionally reuse for Git History\./);
+  // One of each in the whole document: the shared inputs have no second copy.
+  for (const id of ["keywords", "focusFiles"]) {
+    assert.equal([...HTML.matchAll(new RegExp(`id="${id}"`, "g"))].length, 1, id);
+  }
+});
+
+test("Similar fixes' section is exactly its three settings, after Git history (§37.113)", () => {
+  const similar = settingsSection("similar-fixes");
+  const controls = [...similar.matchAll(/<(?:input|textarea|select) [^>]*?\bid="([A-Za-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(controls, ["similarUseSharedKeywords", "similarKeywords", "similarMaxFixes"]);
+  assert.match(similar, /<h3 [^>]*id="settings-title-similar-fixes"[^>]*>Similar fixes<\/h3>/);
+  assert.match(similar, /title="Changes here require rebuilding context\.">Requires rebuild</);
+  // The switch ships ticked, inside its own label, like Git history's.
+  assert.match(
+    similar,
+    /<div class="field field-check" id="field-similarUseSharedKeywords">[\s\S]*?<label class="choice" for="similarUseSharedKeywords" title="[^"]+"><input type="checkbox" id="similarUseSharedKeywords" aria-describedby="similarUseSharedKeywords-hint" checked> Use shared keywords<\/label>/,
+  );
+  assert.match(similar, /<label[^>]*for="similarKeywords"[^>]*>[\s\S]*?Additional keywords<\/label>/);
+  assert.match(similar, /<textarea id="similarKeywords" name="similarKeywords" rows="2"/);
+  assert.match(similar, /<label[^>]*for="similarMaxFixes"[^>]*>[\s\S]*?Max similar fixes<\/label>/);
+  // Never the Focus files: Similar fixes does not read them, so there is no
+  // switch for them and nothing here names them.
+  assert.equal(/focus/i.test(similar.replace(/<!--[\s\S]*?-->/g, "")), false);
+  // No helper line on screen; a problem has its place, hidden until there is one.
+  assert.equal(/<p class="hint"/.test(similar), false);
+  for (const id of ["similarKeywords", "similarMaxFixes"]) {
+    assert.match(similar, new RegExp(`<p class="error" id="${id}-error" hidden></p>`));
+  }
 });
 
 test("the panel never teaches the retrieval pipeline's own vocabulary", () => {
@@ -2102,8 +2520,10 @@ test("a section's tag is a quiet fact beside its heading, never a badge, and wra
   // never something the section does by itself.
   const expected: Readonly<Record<string, readonly [string, string]>> = {
     "issue-details": ["Requires rebuild", "Changes here require rebuilding context."],
+    "retrieval-inputs": ["Requires rebuild", "Changes here require rebuilding context."],
     "code-search": ["Requires rebuild", "Changes here require rebuilding context."],
     "git-history": ["Requires rebuild", "Changes here require rebuilding context."],
+    "similar-fixes": ["Requires rebuild", "Changes here require rebuilding context."],
     "build-context": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     "fix-with-ai": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
   };
@@ -2896,11 +3316,11 @@ test("the dot is small, round, sized without a pixel width, and coloured from th
 });
 
 test("gears only where a step has settings, as buttons in the metadata", () => {
-  for (const id of ["issueDetails", "codeSearch", "gitHistory", "buildContext", "fixWithAI"]) {
+  for (const id of ["issueDetails", "codeSearch", "gitHistory", "similarFixes", "buildContext", "fixWithAI"]) {
     const row = rowMarkup(id);
     assert.match(row, new RegExp(`<button type="button" class="icon step-settings" id="settings-${id}"`), id);
   }
-  for (const id of ["similarFixes"]) {
+  for (const id of ["fixResult"]) {
     assert.equal(rowMarkup(id).includes('class="icon step-settings"'), false, `${id} has a gear`);
   }
 });

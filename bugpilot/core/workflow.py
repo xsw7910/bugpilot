@@ -48,6 +48,7 @@ from .models import (
     InvestigationOptions,
     InvestigationPlan,
     InvestigationRequest,
+    SimilarFixesOptions,
     effective_plan,
 )
 from .artifacts import (
@@ -179,7 +180,9 @@ def refine_investigation(
         found.retrieval = code_search_step(repo_root, work_item_id, search_options, keywords=found.keywords)
 
     def similar() -> None:
-        found.similar_fixes = memory_search_step(repo_root, work_item_id, keywords=found.keywords)
+        found.similar_fixes = memory_search_step(
+            repo_root, work_item_id, keywords=found.keywords, options=search_options
+        )
 
     def history() -> None:
         found.git_history = git_context_step(
@@ -504,7 +507,7 @@ def run_investigation(
             keywords = keywords_step(repo_root, issue_key, search_options, issue=issue)
         if "memory_search" in resolved:
             _progress(progress, "memory_search")
-            similar_fixes = memory_search_step(repo_root, issue_key, keywords=keywords)
+            similar_fixes = memory_search_step(repo_root, issue_key, keywords=keywords, options=search_options)
         if "code_search" in resolved:
             _progress(progress, "code_search")
             retrieval = code_search_step(repo_root, issue_key, search_options, keywords=keywords)
@@ -711,6 +714,13 @@ def extract_issue_keywords(issue: IssueArtifact, supplied: list[str] | None = No
     # Boost keywords found in stack traces / error messages — the richest
     # source of real class/function/file names.
     keywords = extract_keywords(issue.combined_text, priority_text=issue.priority_text)
+    # What the issue alone yields, before the developer's words are put at its
+    # head: Similar fixes searches with these whatever its settings say, and
+    # adds the shared Keywords only when told to (`similar_fixes_terms`).
+    keywords["issue_terms"] = [
+        *keywords.get("high_value_keywords", []),  # type: ignore[misc]
+        *keywords.get("normal_keywords", []),  # type: ignore[misc]
+    ]
     # Developer-supplied keywords lead: an explicit --keywords is a stronger
     # signal than anything mined from the bug text, and it is often the term
     # the report never spelled out.
@@ -726,6 +736,9 @@ def extract_issue_keywords(issue: IssueArtifact, supplied: list[str] | None = No
     if words:
         existing = [word for word in keywords.get("high_value_keywords", []) if word not in words]  # type: ignore[union-attr]
         keywords["high_value_keywords"] = words + existing
+    # The shared Keywords this extraction carries, as searched: what a step
+    # that may leave them out (Similar fixes) leaves out.
+    keywords["supplied_keywords"] = words
     return keywords
 
 
@@ -780,15 +793,77 @@ def keywords_step(
         raise
 
 
+def similar_fixes_terms(
+    extracted: dict[str, object], settings: SimilarFixesOptions | None = None
+) -> list[str]:
+    """What Similar fixes scores past fixes with: its inputs, composed here and only here.
+
+    The issue's own extracted terms, always; the shared Keywords, while *Use
+    shared keywords* is on; Similar Fixes' own Additional Keywords, always.
+    Nothing else reaches it — not the Focus Files, not Git History's keywords or
+    files, not an Ignore Path or a Code Search limit — and nothing here changes
+    what any other step was given: switching the shared Keywords off leaves
+    them out of this list, not out of the extraction.
+
+    One entry per term, compared without case as the score compares them, in a
+    fixed order: the developer's words first, as in the extraction — shared,
+    then additional — then the issue's. A term several inputs name is scored
+    once and weighs what any other term weighs.
+
+    An extraction without ``issue_terms`` (a caller's own dict) counts all of its
+    high-value and normal keywords as the issue's, which is how the step read
+    one before these settings existed.
+    """
+    settings = (settings or SimilarFixesOptions()).normalized()
+    issue_terms = extracted.get("issue_terms")
+    if not isinstance(issue_terms, list):
+        issue_terms = [*_as_strings(extracted.get("high_value_keywords")), *_as_strings(extracted.get("normal_keywords"))]
+    shared = _as_strings(extracted.get("supplied_keywords")) if settings.use_shared_keywords else []
+    terms: list[str] = []
+    seen: set[str] = set()
+    for term in [*shared, *settings.keywords, *_as_strings(issue_terms)]:
+        word = term.strip()
+        if word and word.casefold() not in seen:
+            seen.add(word.casefold())
+            terms.append(word)
+    return terms
+
+
+def _as_strings(value: object) -> list[str]:
+    return [str(item) for item in value] if isinstance(value, list) else []
+
+
 def memory_search_step(
-    repo_root: Path, issue_key: str, keywords: dict[str, object] | None = None
+    repo_root: Path,
+    issue_key: str,
+    keywords: dict[str, object] | None = None,
+    options: InvestigationOptions | None = None,
 ) -> str:
-    """Similar past bugs, as the Markdown report the context renders. Writes nothing."""
+    """Similar past bugs, as the Markdown report the context renders. Writes nothing.
+
+    How it searches is this run's Similar Fixes Settings
+    (``options.similar_fixes``); a standalone run has none and uses the
+    defaults — the issue's terms and the shared Keywords, five results — which
+    is what the step did before they existed.
+    """
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] memory_search")
     try:
+        settings = (options.similar_fixes if options is not None else SimilarFixesOptions()).normalized()
+        # The settings' shape only: never a keyword (§37.95).
+        log(
+            target,
+            "[INFO] memory_search settings: "
+            f"sharedKeywords={'on' if settings.use_shared_keywords else 'off'} "
+            f"additionalKeywords={len(settings.keywords)} maxResults={settings.max_results}",
+        )
         extracted = keywords if keywords is not None else work_item_keywords(repo_root, issue_key)
-        _matched, report, _results = search_memory(repo_root, issue_key, extracted=extracted)
+        # Without an extraction — no issue.json to read — the step scores the
+        # id's own words, as it always has.
+        terms = similar_fixes_terms(extracted, settings) if extracted is not None else None
+        _matched, report, _results = search_memory(
+            repo_root, issue_key, extracted=extracted, terms=terms, max_results=settings.max_results
+        )
         _mark_step(repo_root, issue_key, "memory_search", "pass")
         log(target, "[END] memory_search: pass")
         return report

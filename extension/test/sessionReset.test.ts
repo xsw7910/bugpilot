@@ -62,6 +62,9 @@ const USED: FormState = {
   gitSearchFileHistory: false,
   gitHistoryDepth: "broader",
   gitMaxCommits: "20",
+  similarUseSharedKeywords: false,
+  similarKeywords: "export crash",
+  similarMaxFixes: "2",
   fresh: true,
 };
 
@@ -83,6 +86,7 @@ test("every form field is classified, and only the AI Agent preference is kept",
     "issueKey", "description", "title", "hint", "keywords", "focusFiles", "attachments", "attachmentDescriptions",
     "plan", "fixWithAI", "fixModeId", "gitUseSharedKeywords", "gitUseSharedFocusFiles", "gitKeywords", "gitFiles",
     "gitSearchMessages", "gitSearchFileHistory", "gitHistoryDepth", "gitMaxCommits", "fresh", "useIssueDetails",
+    "similarUseSharedKeywords", "similarKeywords", "similarMaxFixes",
   ] as const) {
     assert.equal(FORM_FIELD_SCOPE[field], "session", field);
   }
@@ -106,6 +110,14 @@ test("a reset form is the product defaults, Fix Mode at the catalog default, the
   assert.equal(fresh.gitSearchFileHistory, true);
   assert.equal(fresh.gitHistoryDepth, "recent");
   assert.equal(fresh.gitMaxCommits, "");
+  // The shared Retrieval inputs, empty (§37.113).
+  assert.equal(fresh.keywords, "");
+  assert.equal(fresh.focusFiles, "");
+  // Similar Fixes Settings, spelled out: the shared Keywords on, no keywords of
+  // its own, the CLI's own count — five.
+  assert.equal(fresh.similarUseSharedKeywords, true);
+  assert.equal(fresh.similarKeywords, "");
+  assert.equal(fresh.similarMaxFixes, "");
   // Nothing of the old form is shared by reference.
   assert.notEqual(fresh.attachments, USED.attachments);
   // A catalog not read yet: no mode, as `DEFAULT_FORM` says, rather than a guess.

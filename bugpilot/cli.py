@@ -42,13 +42,16 @@ from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.issue import IssueArtifactError, read_issue_quietly
 from bugpilot.core.keywords import extract_keywords
 from bugpilot.core.models import (
+    DEFAULT_MAX_SIMILAR_FIXES,
     GIT_HISTORY_DEPTHS,
     MAX_RELATED_COMMITS_LIMIT,
+    MAX_SIMILAR_FIXES_LIMIT,
     SOURCE_MANUAL,
     GitHistoryOptions,
     InvestigationOptions,
     InvestigationPlan,
     InvestigationRequest,
+    SimilarFixesOptions,
 )
 from bugpilot.core.memory import add_memory_entry, search_memory
 from bugpilot.core.prompts import generate_task
@@ -261,7 +264,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read the bug description from a file instead of fetching a Jira issue.",
     )
     bug_parser.add_argument("--title", metavar="TEXT", help="Title for a hand-written bug (derived from the description otherwise).")
-    bug_parser.add_argument("--keywords", metavar="WORD", action="append", default=[], help="Extra search keyword. Repeatable.")
+    bug_parser.add_argument("--keywords", metavar="WORD", action="append", default=[], help="Extra search keyword, shared: code search uses it, and git history and similar fixes unless told not to. Repeatable.")
     bug_parser.add_argument("--focus-file", metavar="PATH", action="append", default=[], dest="focus_files", help="Rank this file or directory higher. Repeatable.")
     bug_parser.add_argument("--ignore-path", metavar="PATH", action="append", default=[], dest="ignore_paths", help="Exclude this file or directory from code search. Repeatable.")
     bug_parser.add_argument("--attach", metavar="PATH", action="append", default=[], dest="attachments", help="Copy this file into the work item for the agent to read: a log, a screenshot, a config. Repeatable.")
@@ -283,6 +286,12 @@ def build_parser() -> argparse.ArgumentParser:
     bug_parser.add_argument("--git-history-depth", choices=GIT_HISTORY_DEPTHS, default="recent", help="How far back git history reads (default recent).")
     bug_parser.add_argument("--git-max-commits", type=int, metavar="N", help=f"How many related commits to keep, 1-{MAX_RELATED_COMMITS_LIMIT} (default 10).")
     bug_parser.add_argument("--skip-similar-fixes", action="store_true", help="Skip the memory search for similar past bugs.")
+    # Similar Fixes Settings: the memory search only — neither code search nor
+    # git history reads them. As above, a command line that names none of them
+    # runs exactly as before they existed.
+    bug_parser.add_argument("--similar-fixes-keyword", metavar="WORD", action="append", default=[], dest="similar_keywords", help="Extra keyword for the similar-fixes memory search only. Repeatable.")
+    bug_parser.add_argument("--similar-fixes-no-shared-keywords", action="store_true", help="The similar-fixes memory search ignores --keywords (code search still uses them).")
+    bug_parser.add_argument("--max-similar-fixes", type=int, metavar="N", help=f"How many similar past fixes to keep, 1-{MAX_SIMILAR_FIXES_LIMIT} (default {DEFAULT_MAX_SIMILAR_FIXES}).")
     bug_parser.add_argument("--only-issue-details", action="store_true", help="Only normalize the bug description; skip search, history and context.")
     _add_json_flag(bug_parser)
     bug_parser.add_argument(
@@ -1069,6 +1078,22 @@ def _git_history_options(args: argparse.Namespace) -> GitHistoryOptions:
     )
 
 
+def _similar_fixes_options(args: argparse.Namespace) -> SimilarFixesOptions:
+    """The Similar Fixes Settings a ``bug`` command line asks for.
+
+    Like ``--git-max-commits``, a count outside 1-20 is refused rather than
+    clamped.
+    """
+    max_fixes = args.max_similar_fixes
+    if max_fixes is not None and not 1 <= max_fixes <= MAX_SIMILAR_FIXES_LIMIT:
+        raise ValueError(f"--max-similar-fixes must be between 1 and {MAX_SIMILAR_FIXES_LIMIT}.")
+    return SimilarFixesOptions(
+        use_shared_keywords=not args.similar_fixes_no_shared_keywords,
+        keywords=tuple(args.similar_keywords),
+        max_results=DEFAULT_MAX_SIMILAR_FIXES if max_fixes is None else max_fixes,
+    )
+
+
 def _emit_status_json(repo_root: Path, issue_key: str) -> int:
     """Machine-readable `status`. Missing state is a failure, not an empty result."""
     try:
@@ -1824,6 +1849,7 @@ def _build_bug_request(repo_root: Path, args) -> InvestigationRequest:
             raise ValueError("--max-search-lines must be at least 1.")
         options.max_search_lines = args.max_search_lines
     options.git_history = _git_history_options(args)
+    options.similar_fixes = _similar_fixes_options(args)
 
     plan = InvestigationPlan(
         code_search=not (args.skip_code_search or args.only_issue_details),
