@@ -575,7 +575,7 @@ test("the workflow has no primary button: the one primary action is at the top",
   // Fix with AI used to be a second primary button inside its row, a competing
   // answer to "what next?" under a disclosure that started collapsed then. Handing the
   // task over is the top button's job now, in every state that offers it.
-  const workflow = HTML.slice(HTML.indexOf('<details class="group" id="workflow"'), HTML.indexOf("</form>"));
+  const workflow = HTML.slice(HTML.indexOf('<details class="workflow-group" id="workflow"'), HTML.indexOf("</form>"));
   assert.notEqual(workflow, "", "no workflow disclosure");
   assert.deepEqual([...workflow.matchAll(/<button[^>]*class="primary"/g)].length, 0);
   // In the whole main view, exactly one: Run's. (Apply is the settings page's.)
@@ -708,13 +708,14 @@ test("Advanced Settings has a heading that says Apply is the act, on hover and t
   // (Advanced Settings simplification).
   const lede = "Configure workflow inputs and limits. Changes apply when you press Apply. Back and Cancel discard them.";
   assert.ok(
-    SETTINGS_VIEW.includes(`<h2 id="settings-heading" class="view-title" tabindex="-1" title="${lede}" aria-describedby="settings-lede">Advanced Settings</h2>`),
+    SETTINGS_VIEW.includes(`<h2 id="settings-heading" class="page-title" tabindex="-1" title="${lede}" aria-describedby="settings-lede">Advanced Settings</h2>`),
     "the heading lost its tooltip or its description",
   );
   assert.ok(SETTINGS_VIEW.includes(`<p class="visually-hidden" id="settings-lede">${lede}</p>`));
   assert.equal(SETTINGS_VIEW.includes("view-lede"), false, "the lede is still a paragraph on screen");
   assert.equal(SETTINGS_VIEW.includes("What each workflow step uses."), false);
-  assert.match(SETTINGS_VIEW, /<button type="button" id="settings-back" class="link view-back">[\s\S]*?Back\s*<\/button>/);
+  // The shared page header's Back (§37.120), its tooltip saying what it does.
+  assert.match(SETTINGS_VIEW, /<button type="button" id="settings-back" class="page-back" title="Back to Workflow — discards the changes">[\s\S]*?<span class="page-back-label">Back<\/span><\/button>/);
   // Cancel, then Apply — the page's one primary button, at its foot.
   const actions = /<div class="settings-actions">[\s\S]*?<\/div>/.exec(SETTINGS_VIEW)?.[0] ?? "";
   assert.deepEqual([...actions.matchAll(/<button[^>]*id="([a-z-]+)"/g)].map((match) => match[1]), ["settings-cancel", "settings-apply"]);
@@ -1115,8 +1116,10 @@ test("the Fix Mode editor: Basic info, then Workflow instructions, then a footer
   // One editor for New and Edit: one view, one set of ids.
   assert.equal([...HTML.matchAll(/id="fix-mode-editor-view"/g)].length, 1);
   assert.equal([...HTML.matchAll(/id="editor-save"/g)].length, 1);
-  // The head: Back, the title, what is edited, where it came from.
-  assert.match(EDITOR_HTML, /<h2 id="editor-title" class="view-title" tabindex="-1" aria-describedby="editor-subject"><\/h2>\s*<p id="editor-subject" class="editor-subject"><\/p>\s*<p id="editor-origin" class="muted editor-origin" hidden><\/p>/);
+  // The head: the shared page header — Back, the title — then, under it, what
+  // is edited and where it came from (§37.120).
+  assert.match(EDITOR_HTML, /<div class="page-header">\s*<button type="button" id="editor-back" class="page-back"[^>]*>[\s\S]*?<\/button>\s*<h2 id="editor-title" class="page-title" tabindex="-1" aria-describedby="editor-subject"><\/h2>\s*<\/div>/);
+  assert.match(EDITOR_HTML, /<div class="editor-head">\s*<p id="editor-subject" class="editor-subject"><\/p>\s*<p id="editor-origin" class="muted editor-origin" hidden><\/p>\s*<\/div>/);
   // Two sections, each a heading with its glyph, in this order.
   const basic = EDITOR_HTML.indexOf('id="editor-basic-title"');
   const workflow = EDITOR_HTML.indexOf('id="editor-workflow-title"');
@@ -1283,7 +1286,7 @@ test("the Jira row sits between Advanced Settings and Workflow Steps, on the for
   assert.ok(at("open-settings") !== -1 && at("open-settings") < at("jira-row"), "the Jira row is above Advanced Settings");
   assert.ok(at("jira-row") < at("workflow"), "the Jira row is below Workflow Steps");
   // Not inside Workflow Steps, and not in a disclosure, a menu or a card.
-  const workflow = form.slice(form.indexOf('<details class="group" id="workflow"'));
+  const workflow = form.slice(form.indexOf('<details class="workflow-group" id="workflow"'));
   assert.equal(workflow.includes('id="jira-row"'), false);
   assert.equal(/<details|class="card|role="menu/.test(JIRA_ROW), false);
   assert.equal(HTML.split('id="set-credentials"').length - 1, 1, "more than one Jira entry in the panel");
@@ -1321,8 +1324,11 @@ test("the Jira row keeps its action in a narrow sidebar: the status gives way, t
   // Secondary words; the error colour only for a failure, and from the theme.
   assert.match(CSS, /\.jira-status \{[^}]*color: var\(--vscode-descriptionForeground\);/s);
   assert.match(CSS, /\.jira-authFailed \.jira-status-text \{\s*color: var\(--vscode-errorForeground\);/);
-  // No card around it.
+  // The row draws nothing around itself: since §37.119 its compact group does,
+  // a wrapper — the page rewrites the row's own class on every push.
   assert.equal(/\.jira-row \{[^}]*(border|background|box-shadow)/s.test(CSS), false);
+  assert.match(HTML, /<div class="workflow-group workflow-compact-group" id="group-jira">\s*<div class="jira-row[^"]*" id="jira-row"/);
+  assert.match(PAGE_JS, /row\.className = `jira-row jira-\$\{jira\.state\}`;/);
 });
 
 test("Workflow has no footer, no version-and-path line and no Diagnostics (§37.110)", () => {
@@ -1657,7 +1663,7 @@ test("the one Fix Mode selector is on the form, under the Issue, with its gear a
 });
 
 test("the Advanced Settings entry is the button alone: the Fix Mode is on the form, in plain view", () => {
-  const entry = /<div class="settings-entry">[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
+  const entry = /<div class="workflow-group workflow-compact-group settings-entry" id="group-settings">[\s\S]*?<\/div>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(entry, "", "no settings entry");
   const button = /<button type="button" id="open-settings"[\s\S]*?<\/button>/.exec(entry)?.[0] ?? "";
   assert.match(button, /codicon-settings-gear/);
@@ -1677,7 +1683,7 @@ test("the Fix Mode selector is labelled and described for assistive tech", () =>
   assert.ok(HTML.includes('id="fixModeId-description"'));
   assert.equal(HTML.includes('id="fixModeId-hint"'), false);
   assert.equal(visibleText(HTML).includes("How the AI works on this bug."), false);
-  assert.match(HTML, /<label for="fixModeId" title="Choose how BugPilot approaches the fix">/);
+  assert.match(HTML, /<label for="fixModeId" id="fixModeId-label" title="Choose how BugPilot approaches the fix">/);
   // The gear names what it does, for a screen reader and for a hover.
   assert.match(HTML, /id="manage-fix-modes"[^>]*title="Manage Fix Modes"[^>]*aria-label="Manage Fix Modes"/);
 });
@@ -1754,11 +1760,102 @@ test("each Fix Mode view says where back goes, and can take focus on arrival", (
   }
 });
 
-test("a view header stacks, so a narrow sidebar never has to fit it on one line", () => {
-  // The panel is resizable down to about 200px. Back above the heading rather
-  // than beside it also puts the way out first in the tab order.
-  const rule = /\.view-head \{[^}]*\}/.exec(CSS)?.[0] ?? "";
-  assert.match(rule, /flex-direction: column/, "the view header is not stacked");
+/** Every page with a way back: its view, its Back, its heading, its title and where Back goes. */
+const BACK_PAGES = [
+  ["workflow-settings-view", "settings-back", "settings-heading", "Advanced Settings", "Back to Workflow — discards the changes"],
+  ["fix-mode-manager-view", "manage-back", "manage-heading", "Manage Fix Modes", "Back to Workflow"],
+  ["fix-mode-preview-view", "preview-back", "preview-heading", "", "Back to Fix Mode Manager"],
+  ["fix-mode-editor-view", "editor-back", "editor-title", "", "Back to Fix Mode Manager"],
+] as const;
+
+test("every page with a way back uses the one shared page header (§37.120)", () => {
+  // Exactly these four, and nowhere else: the main view has no way back.
+  assert.equal([...HTML.matchAll(/<div class="page-header">/g)].length, BACK_PAGES.length);
+  const main = /<section id="main-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
+  assert.equal(main.includes("page-header"), false);
+  for (const [view, back, heading, title, destination] of BACK_PAGES) {
+    const section = new RegExp(`<section id="${view}"[\\s\\S]*?\\n {2}</section>`).exec(HTML)?.[0] ?? "";
+    assert.notEqual(section, "", view);
+    // The header is the view's first thing: Back, then the page's heading.
+    const header = new RegExp(`^<section id="${view}"[^>]*>\\s*<div class="page-header">\\s*<button type="button" id="${back}" class="page-back" title="${destination}"><span class="codicon codicon-arrow-left" aria-hidden="true"></span><span class="page-back-label">Back</span></button>\\s*<h2 id="${heading}" class="page-title" tabindex="-1"[^>]*>${title}</h2>`).test(section);
+    assert.ok(header, `${view} does not open with the shared header`);
+    // Named by that heading; Back first in the tab order.
+    assert.match(section, new RegExp(`^<section id="${view}"[^>]*aria-labelledby="${heading}"`));
+    const firstControl = /<(button|input|select|textarea|summary)\b[^>]*id="([^"]+)"/.exec(section)?.[2];
+    assert.equal(firstControl, back, `${view}: ${firstControl} comes before Back`);
+    // One heading at the page's level: the header's.
+    assert.equal([...section.matchAll(/<h2\b/g)].length, 1, `${view} repeats its title`);
+  }
+});
+
+test("Back says Back everywhere; where it goes is its tooltip (§37.120)", () => {
+  // The old markup and words are gone: no ‹ mark, no stacked header, no
+  // "Back to …" on screen.
+  for (const gone of [/class="[^"]*\bview-(?:back|head|title)\b/, /&lsaquo;/, /class="[^"]*\bpreview-back\b/, /editor-back-label/]) {
+    assert.equal(gone.test(HTML), false, `${gone} is back`);
+  }
+  const onScreen = visibleText(HTML);
+  assert.equal(/Back to /.test(onScreen), false, "a Back to … label is on screen");
+  for (const [, back] of BACK_PAGES) {
+    const button = new RegExp(`<button type="button" id="${back}"[\\s\\S]*?</button>`).exec(HTML)?.[0] ?? "";
+    assert.equal(visibleText(button).trim(), "Back", back);
+  }
+  // The page keeps saying where the editor's Back goes, by its tooltip.
+  assert.match(PAGE_JS, /byId\("editor-back"\)\.title =\s*duplicateOrigin === "preview" \? "Back to Fix Mode Preview" : "Back to Fix Mode Manager";/);
+  // Each Back still does what it did.
+  assert.match(PAGE_JS, /byId\("settings-back"\)\.addEventListener\("click", cancelSettings\);/);
+  assert.match(PAGE_JS, /byId\("manage-back"\)\.addEventListener\("click", \(\) =>\s*vscode\.postMessage\(\{ type: "closeFixModes" \}\),?\s*\);/);
+  assert.match(PAGE_JS, /byId\("editor-back"\)\.addEventListener\("click", leaveEditor\);/);
+});
+
+test("the page header stays at the top while the page scrolls, opaque, compact, and never pushes Back off (§37.120)", () => {
+  const header = /\.page-header \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  // Sticky to the document, which is what scrolls — never fixed.
+  for (const rule of [/position: sticky;/, /top: 0;/, /z-index: 2;/]) assert.match(header, rule);
+  assert.equal(/position: fixed/.test(CSS.replace(/\/\*[\s\S]*?\*\//g, "")), false, "something is fixed to the viewport");
+  // Flush with the panel's top and across the body's side padding, so nothing
+  // scrolls into view beside it; an opaque theme ground and one hairline.
+  assert.match(CSS, /body \{[^}]*padding: 10px 12px 16px;/s);
+  assert.match(header, /margin: -10px -12px 0;/);
+  assert.match(header, /padding: 6px 12px;/);
+  assert.match(header, /background: var\(--vscode-sideBar-background, var\(--vscode-editor-background\)\);/);
+  assert.match(header, /border-bottom: 1px solid var\(--vscode-panel-border\);/);
+  assert.equal(/box-shadow|border-radius/.test(header), false, "the header is a card");
+  // One row while it fits; the title wraps whole under Back when it does not,
+  // and is cut to one line before Back could move.
+  assert.match(header, /display: flex;/);
+  assert.match(header, /flex-wrap: wrap;/);
+  assert.match(CSS, /\.page-back \{[^}]*flex: none;/s);
+  const title = /\.page-title \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  for (const rule of [/flex: 1 1 8em;/, /min-width: 0;/, /overflow: hidden;/, /text-overflow: ellipsis;/, /white-space: nowrap;/, /font-weight: 600;/]) assert.match(title, rule);
+  // Back: no box until pointed at, the parent in the hover selector so the base
+  // button rule does not fill it; the shared focus outline.
+  assert.match(CSS, /\.page-back \{[^}]*border: 0;[^}]*background: transparent;/s);
+  assert.match(CSS, /\.page-header > \.page-back:hover:not\(:disabled\) \{\s*background: var\(--vscode-toolbar-hoverBackground/);
+  assert.match(CSS, /button:focus-visible \{[^}]*outline: 1px solid var\(--vscode-focusBorder\)/s);
+  // The optional action slot, at the right.
+  assert.match(CSS, /\.page-header-actions \{[^}]*margin-left: auto;/s);
+  // What the header covers, the browser does not scroll to.
+  assert.match(CSS, /html:has\(\.view:not\(\[hidden\]\) > \.page-header\) \{\s*scroll-padding-top: [\d.]+rem;/);
+  // Nothing in the header fixes a width or names a colour.
+  const rules = [...CSS.matchAll(/\.page-[a-z-]+[^{]*\{([^}]*)\}/g)].map((match) => match[1]!).join("\n");
+  assert.equal(/(^|[^-])width:/m.test(rules), false);
+  assert.equal(COLOUR_LITERAL.test(rules), false);
+});
+
+test("New and Edit Fix Mode keep their sticky footer under the sticky header (§37.120)", () => {
+  const editor = /<section id="fix-mode-editor-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
+  // The header first, the footer last, everything else between.
+  assert.ok(editor.indexOf('class="page-header"') < editor.indexOf('id="editor-error"'));
+  assert.match(editor, /<div class="editor-footer">[\s\S]*<\/div>\s*<\/section>$/);
+  // Top and bottom, each sticky, the header above the footer if they ever met.
+  assert.match(CSS, /\.editor-footer \{[^}]*position: sticky;[^}]*bottom: 0;[^}]*z-index: 1;/s);
+  assert.match(CSS, /\.page-header \{[^}]*position: sticky;[^}]*top: 0;[^}]*z-index: 2;/s);
+  // Both are kept out of the scroll target: under the header, above the footer.
+  assert.match(CSS, /html:has\(#fix-mode-editor-view:not\(\[hidden\]\)\) \{\s*scroll-padding-bottom: [\d.]+rem;/);
+  assert.match(CSS, /html:has\(\.view:not\(\[hidden\]\) > \.page-header\) \{\s*scroll-padding-top: [\d.]+rem;/);
+  // Advanced Settings has the same pair: its header and its Cancel / Apply.
+  assert.match(CSS, /\.settings-actions \{[^}]*position: sticky;[^}]*bottom: 0;/s);
 });
 
 test("a Fix Mode id from the page is shape-checked before it can become a flag", () => {
@@ -1870,8 +1967,9 @@ test("the Fix Mode views are siblings of the main view, not part of it", () => {
     }
     assert.deepEqual(above, tree.get("main-view"), `#${view} is not a sibling of #main-view`);
   }
-  // And the other way round: the way into the settings page stays on the form.
-  assert.deepEqual(tree.get("open-settings"), ["main-view", "form"]);
+  // And the other way round: the way into the settings page stays on the form,
+  // in its own group there (§37.119).
+  assert.deepEqual(tree.get("open-settings"), ["main-view", "form", "group-settings"]);
 });
 
 test("the management and editor controls live in their own views", () => {
@@ -1892,8 +1990,9 @@ test("the management and editor controls live in their own views", () => {
 test("Manage Fix Modes: a short lede, the list, and Delete's description (§37.114)", () => {
   const view = /<section id="fix-mode-manager-view"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(view, "");
-  assert.match(view, /<h2 id="manage-heading" class="view-title" tabindex="-1" aria-describedby="manage-lede">Manage Fix Modes<\/h2>/);
-  assert.match(view, /<p class="muted view-lede" id="manage-lede">Choose and customize AI fix workflows\.<\/p>/);
+  assert.match(view, /<h2 id="manage-heading" class="page-title" tabindex="-1" aria-describedby="manage-lede">Manage Fix Modes<\/h2>/);
+  // The lede under the page header, which it does not repeat (§37.120).
+  assert.match(view, /<\/div>\s*<p class="muted view-lede" id="manage-lede">Choose and customize AI fix workflows\.<\/p>/);
   assert.equal(HTML.includes("The AI workflows available to this repository."), false);
   assert.match(view, /<div id="manage-list" class="manage-list"><\/div>/);
   // Every Delete item points at this: permanent, and confirmed first.
@@ -1907,14 +2006,15 @@ test("Manage Fix Modes: a short lede, the list, and Delete's description (§37.1
 test("the Fix Mode detail page: a header with its action, sections, and Details closed at the foot (§37.115)", () => {
   const view = /<section id="fix-mode-preview-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(view, "");
-  // Back, with the arrow glyph, the whole line one control.
-  assert.match(view, /<button type="button" id="preview-back" class="link view-back preview-back">\s*<span class="codicon codicon-arrow-left" aria-hidden="true"><\/span>\s*<span>Back to Fix Mode Manager<\/span>\s*<\/button>/);
-  // The header: glyph, heading and source, and the action on the top line;
-  // the description under them, the whole width.
+  // The shared page header (§37.120): Back — its destination the tooltip —
+  // and the mode's name as the page's heading, said once.
+  assert.match(view, /<div class="page-header">\s*<button type="button" id="preview-back" class="page-back" title="Back to Fix Mode Manager"><span class="codicon codicon-arrow-left" aria-hidden="true"><\/span><span class="page-back-label">Back<\/span><\/button>\s*<h2 id="preview-heading" class="page-title" tabindex="-1"><\/h2>\s*<\/div>/);
+  assert.equal([...view.matchAll(/<h2\b/g)].length, 1, "the name is a second heading again");
+  // Under it: glyph, source and the action on the top line; the description
+  // under them, the whole width.
   const top = /<div class="preview-hero-top">[\s\S]*?<div class="preview-actions" id="preview-actions"><\/div>\s*<\/div>/.exec(view)?.[0] ?? "";
-  assert.notEqual(top, "", "the action is not in the header");
-  assert.match(top, /<span class="codicon codicon-lightbulb preview-icon" id="preview-icon" aria-hidden="true"><\/span>/);
-  assert.match(top, /<h2 id="preview-heading" class="view-title preview-title" tabindex="-1"><\/h2>\s*<span class="preview-source" id="preview-source"><\/span>/);
+  assert.notEqual(top, "", "the action is not in the hero");
+  assert.match(top, /<span class="codicon codicon-lightbulb preview-icon" id="preview-icon" aria-hidden="true"><\/span>\s*<span class="preview-source" id="preview-source"><\/span>/);
   assert.match(view, /<\/div>\s*<p id="preview-description" class="preview-description"><\/p>\s*<\/div>/);
   // No ⋯ menu on the page: every action is in the header (§37.116).
   assert.equal(/preview-menu|role="menu"|more-menu/.test(view), false, "the detail page has a menu again");
@@ -1931,10 +2031,11 @@ test("the Fix Mode detail page wraps rather than scrolling sideways (§37.115)",
   // The header is a wrapping row: the text column may shrink, the action keeps
   // its width and moves to a line of its own, at the right.
   assert.match(CSS, /\.preview-hero-top \{[^}]*display: flex;[^}]*flex-wrap: wrap;/s);
-  assert.match(CSS, /\.preview-title-row \{[^}]*flex: 1 1 8em;[^}]*min-width: 0;[^}]*flex-wrap: wrap;/s);
   assert.match(CSS, /\.preview-actions \{[^}]*margin-left: auto;/s);
   assert.match(CSS, /\.preview-description \{[^}]*overflow-wrap: anywhere;/s);
-  assert.match(CSS, /\.view-title\.preview-title \{[^}]*overflow-wrap: anywhere;/s);
+  // The name is the page header's now, cut to a line there (§37.120); the
+  // title row and the large in-page title went with it.
+  assert.equal(/\.preview-title-row|\.view-title\.preview-title/.test(CSS), false);
   // A section's line: glyph, title, chevron, the title the column that gives;
   // its own chevron, so the native marker goes; a closed one's line cut short.
   assert.match(CSS, /\.preview-section-head \{[^}]*display: grid;[^}]*grid-template-columns: 16px minmax\(0, 1fr\) 16px;[^}]*list-style: none;/s);
@@ -2159,7 +2260,7 @@ test("the default view is the Issue field, Run, two disclosures and the way into
   // Workflow Steps starts open (§37.109); every other disclosure starts shut.
   const openAtStart = [...form.matchAll(/<details[^>]*\sopen(?=[\s>])[^>]*>/g)].map((match) => /id="([a-z-]+)"/.exec(match[0])?.[1]);
   assert.deepEqual(openAtStart, ["workflow"], "a disclosure other than Workflow Steps starts open");
-  assert.match(form, /<details class="group" id="workflow" aria-labelledby="workflow-heading" open>/);
+  assert.match(form, /<details class="workflow-group" id="workflow" aria-labelledby="workflow-heading" open>/);
 });
 
 /** The Issue field's whole block, as `html.ts` renders it. */
@@ -2214,7 +2315,7 @@ test("the Issue's label row: a neutral icon, the label, and how the input was re
   // the field takes a description too, and neither a warning nor a danger tone.
   assert.match(
     header,
-    new RegExp(`<label for="issue" title="${ISSUE_HELP_TEXT.replaceAll(".", "\\.")}"><span class="codicon codicon-issues setting-icon icon-primary" aria-hidden="true"></span>Issue</label>`),
+    new RegExp(`<label for="issue" id="issue-label" title="${ISSUE_HELP_TEXT.replaceAll(".", "\\.")}"><span class="codicon codicon-issues setting-icon icon-primary" aria-hidden="true"></span>Issue</label>`),
   );
   assert.equal(/jira/i.test(/<span class="codicon[^"]*"/.exec(header)?.[0] ?? ""), false, "a Jira icon");
   // How the input was read, beside the label: a sibling of it rather than
@@ -2546,7 +2647,9 @@ test("the hint row lets its two controls stack, Improve with AI first, the optio
   // Wrapping is the answer; overlapping or clipping would hide the feature. The
   // option and its helper are one group with a floor, so it wraps as one.
   assert.match(CSS, /\.hint-actions \{[^}]*flex-wrap: wrap/s);
-  assert.match(CSS, /\.hint-include \{[^}]*flex: 1 1 14em;[^}]*min-width: 0;/s);
+  // A 12em floor since the Hint is a group (§37.119), so the pair still shares
+  // a line at 360px inside the group's padding.
+  assert.match(CSS, /\.hint-include \{[^}]*flex: 1 1 12em;[^}]*min-width: 0;/s);
   assert.equal(/\.hint-actions \{[^}]*white-space: nowrap/s.test(CSS), false);
   assert.equal(/\.hint-actions \{[^}]*position: absolute/s.test(CSS), false);
 });
@@ -3326,7 +3429,8 @@ test("gears only where a step has settings, as buttons in the metadata", () => {
 });
 
 test("lighter rows: a soft rule and a little air, at full strength in High Contrast", () => {
-  assert.match(CSS, /\.step \{[^}]*padding: 5px 0;[^}]*border-top: 1px solid color-mix\(in srgb, var\(--vscode-panel-border\) 55%, transparent\);/s);
+  // The groups' separator (§37.121): rows are lines in their group, not cards.
+  assert.match(CSS, /\.step \{[^}]*padding: 5px 0;[^}]*border-top: 1px solid var\(--bugpilot-group-separator\);/s);
   assert.match(CSS, /body\.vscode-high-contrast \.step,\s*body\.vscode-high-contrast-light \.step \{\s*border-top-color: var\(--vscode-panel-border\);/);
   // Muted metadata: the duration and status are quieter than the name.
   assert.match(CSS, /\.step-duration \{[^}]*color: var\(--vscode-descriptionForeground\)/s);
@@ -3677,38 +3781,205 @@ test("Advanced Settings sits with the inputs — after Issue, Fix Mode and Hint,
   }
   const between = HTML.slice(at("open-folder"), HTML.indexOf("</form>"));
   assert.equal(between.includes("settings-entry"), false, "a settings entry is left after the results");
-  assert.equal(HTML.split('class="settings-entry"').length - 1, 1, "more than one way in from the form");
+  assert.equal(HTML.split('settings-entry"').length - 1, 1, "more than one way in from the form");
 });
 
-test("Advanced Settings is a compact secondary button: bordered, unfilled, never the primary style", () => {
+test("Advanced Settings is a compact group whose one row is the button: quiet, never the primary style (§37.119)", () => {
   const button = /<button type="button" id="open-settings"[^>]*>/.exec(HTML)?.[0] ?? "";
   assert.equal(button.includes("primary"), false);
   // The accessible name is the visible text; the tooltip says where it goes.
   assert.equal(button.includes("aria-label"), false);
   assert.match(button, /title="Open advanced workflow settings"/);
-  assert.match(HTML, /<button type="button" id="open-settings"[^>]*>\s*<span class="codicon codicon-settings-gear" aria-hidden="true"><\/span>\s*<span class="settings-open-label">Advanced Settings<\/span>/);
+  // The gear, the name, and a chevron for "goes somewhere" — decorative.
+  assert.match(HTML, /<div class="workflow-group workflow-compact-group settings-entry" id="group-settings">\s*<button type="button" id="open-settings"[^>]*>\s*<span class="codicon codicon-settings-gear" aria-hidden="true"><\/span>\s*<span class="settings-open-label">Advanced Settings<\/span>\s*<span class="codicon codicon-chevron-right settings-open-chevron" aria-hidden="true"><\/span>\s*<\/button>\s*<\/div>/);
   const rule = /\.settings-open \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
-  // A button now (§37.93), not the quiet link of §37.91.
-  assert.match(rule, /border: 1px solid var\(--vscode-button-border, var\(--vscode-panel-border\)\);/);
-  assert.match(rule, /padding: 3px 10px;/);
+  // The whole row (§37.119, replacing §37.93's content-sized outlined button):
+  // the group's border is its outline; the button draws none and no fill.
+  assert.match(rule, /display: flex;/);
+  assert.match(rule, /flex: 1 1 auto;/);
+  assert.match(rule, /border: 0;/);
   assert.match(rule, /background: transparent;/);
   assert.match(rule, /color: var\(--vscode-foreground\);/);
-  assert.equal(/border: none|descriptionForeground|text-decoration/.test(rule), false, "still the old muted link");
+  assert.match(CSS, /\.workflow-group\.settings-entry \{[^}]*padding: 0;/s);
+  assert.match(CSS, /\.codicon\.settings-open-chevron \{\s*margin-left: auto;/);
+  // Quieter than the groups with fields: a normal-weight name, not a heading.
+  assert.equal(/font-weight/.test(rule), false);
   // Never the primary's colours.
   assert.equal(/--vscode-button-background|--vscode-button-foreground/.test(rule), false);
-  // Hover strengthens it; focus is the shared focus outline.
-  assert.match(CSS, /\.settings-open:hover:not\(:disabled\) \{[^}]*background: var\(--vscode-toolbar-hoverBackground/s);
+  // Pointing at the row lifts it a little off its group (§37.121) — with the
+  // parent in the selector, so the base `button:hover` (later in the file)
+  // does not win; focus is the shared focus outline.
+  assert.match(CSS, /\.settings-entry > \.settings-open:hover:not\(:disabled\) \{[^}]*background: var\(--bugpilot-group-hover\);/s);
   assert.match(CSS, /button:focus-visible \{[^}]*outline: 1px solid var\(--vscode-focusBorder\)/s);
-  // Content-sized, not a full-width bar.
-  assert.equal(/(?<![a-z-])width: 100%|flex: 1/.test(rule), false);
 });
 
 test("Advanced Settings wraps between words at 200px, never inside one", () => {
   const rule = /\.settings-open \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
   assert.match(rule, /max-width: 100%;/);
+  assert.match(rule, /min-width: 0;/);
   assert.match(rule, /overflow-wrap: normal;/);
   assert.equal(/(?<![a-z-])width:|white-space: nowrap|word-break: break-all/.test(rule), false);
-  assert.match(CSS, /\.settings-entry \{[^}]*flex-wrap: wrap;/s);
+  assert.match(CSS, /\.workflow-group\.settings-entry \{[^}]*flex-wrap: wrap;/s);
+});
+
+// --- the Workflow panel's groups (§37.119) -------------------------------------
+
+/** The run form's markup, whole. */
+const RUN_FORM = /<form id="form"[\s\S]*?<\/form>/.exec(HTML)?.[0] ?? "";
+/** The six groups, in the order they are read and tabbed through. */
+const PANEL_GROUPS = ["group-issue", "group-fix-mode", "group-hint", "group-settings", "group-jira", "workflow"] as const;
+
+test("the run form is six groups, in reading order, and nothing sits between them (§37.119)", () => {
+  const tree = ancestorsById(HTML);
+  // Each a direct child of the form, in this order, each a group.
+  for (const id of PANEL_GROUPS) assert.deepEqual(tree.get(id), ["main-view", "form"], `#${id} is not a group of the form`);
+  const at = PANEL_GROUPS.map((id) => RUN_FORM.indexOf(`id="${id}"`));
+  assert.deepEqual([...at].sort((a, b) => a - b), at, "the groups are out of order");
+  for (const id of PANEL_GROUPS) assert.match(RUN_FORM, new RegExp(`class="workflow-group[^"]*" id="${id}"`), id);
+  // Every control has a group for a parent: no element of the form outside one.
+  const opening = /<(\w+)[^>]*>/;
+  const children: string[] = [];
+  let depth = 0;
+  for (const match of RUN_FORM.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<(\/?)(\w+)([^>]*)>/g)) {
+    const [, closing, tag, attributes] = match;
+    if (tag === "form") continue;
+    if (["input", "br", "img"].includes(tag!)) {
+      if (depth === 0) children.push(`${tag}${attributes}`);
+      continue;
+    }
+    if (closing) depth--;
+    else {
+      if (depth === 0) children.push(`${tag}${attributes}`);
+      depth++;
+    }
+  }
+  assert.equal(children.length, 6, `the form has ${children.length} children: ${children.map((child) => opening.exec(`<${child}>`)?.[1]).join(", ")}`);
+  assert.ok(children.every((child) => /class="workflow-group/.test(child)), "something of the form is outside a group");
+});
+
+test("each control sits in the group it belongs to (§37.119)", () => {
+  const tree = ancestorsById(HTML);
+  const groupOf = (id: string) => (tree.get(id) ?? []).find((ancestor) => (PANEL_GROUPS as readonly string[]).includes(ancestor));
+  const expected: Record<string, readonly string[]> = {
+    "group-issue": ["field-issue", "issue-note", "issue-error", "run", "stop", "more-actions", "run-hint", "session-feedback", "more-menu", "menu-resetSession"],
+    "group-fix-mode": ["field-fixModeId", "fixModeId", "manage-fix-modes", "fixModeId-description"],
+    // Improve with AI and Include issue details belong to the Hint.
+    "group-hint": ["field-hint", "hint", "improve-hint", "useIssueDetails-hint", "hint-improve-notice", "hint-improve-error", "hint-suggestion"],
+    "group-settings": ["open-settings"],
+    "group-jira": ["jira-row", "set-credentials", "jira-status-text"],
+    workflow: ["workflow-heading", "workflow-status", "step-issueDetails", "step-fixWithAI", "open-folder"],
+  };
+  for (const [group, ids] of Object.entries(expected)) {
+    for (const id of ids) assert.equal(groupOf(id), group, `#${id} is in ${groupOf(id) ?? "no group"}, not ${group}`);
+  }
+  // The Hint's checkbox itself — an input, which the tree above does not
+  // record — between the Hint group's start and the next group's.
+  const at = (id: string) => RUN_FORM.indexOf(`id="${id}"`);
+  assert.ok(at("group-hint") < at("useIssueDetails") && at("useIssueDetails") < at("group-settings"), "Include issue details is outside the Hint group");
+});
+
+test("the keyboard meets the groups in reading order (§37.119)", () => {
+  // Tab follows the markup: Issue, Run and More, Fix Mode and its gear, Hint,
+  // Improve with AI, Include issue details, Advanced Settings, Jira's action,
+  // then Workflow Steps.
+  const order = ["issue", "run", "more-actions", "fixModeId", "manage-fix-modes", "hint", "improve-hint", "useIssueDetails", "open-settings", "set-credentials", "workflow-heading", "step-codeSearch"]
+    .map((id) => RUN_FORM.indexOf(`id="${id}"`));
+  assert.ok(order.every((at) => at !== -1), `a control is missing: ${order}`);
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  // No tabindex rearranges it.
+  assert.equal(/tabindex="[1-9]/.test(RUN_FORM), false);
+});
+
+test("each group is named by its own title (§37.119)", () => {
+  for (const [group, label, text] of [
+    ["group-issue", "issue-label", "Issue"],
+    ["group-fix-mode", "fixModeId-label", "Fix Mode"],
+    ["group-hint", "hint-label", "Hint"],
+  ] as const) {
+    assert.match(RUN_FORM, new RegExp(`id="${group}" role="group" aria-labelledby="${label}"`), group);
+    assert.match(RUN_FORM, new RegExp(`<label for="[a-zA-Z]+" id="${label}"[^>]*>(?:<span[^>]*></span>)?${text}</label>`), label);
+  }
+  // Jira's row and Workflow Steps name themselves, as before; Advanced
+  // Settings is its button, named by its words.
+  assert.match(RUN_FORM, /id="jira-row" role="group" aria-labelledby="jira-label jira-status-text"/);
+  assert.match(RUN_FORM, /<details class="workflow-group" id="workflow" aria-labelledby="workflow-heading" open>/);
+  assert.match(RUN_FORM, /<h2 id="workflow-heading">Workflow Steps<\/h2>/);
+});
+
+test("the groups are quiet outlines with one rhythm, at every width (§37.119)", () => {
+  // One gap between groups, from the form, and no margin of their own.
+  assert.match(CSS, /#form \{\s*display: flex;\s*flex-direction: column;\s*gap: 10px;/);
+  const group = /\.workflow-group \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  for (const rule of [/min-width: 0;/, /margin: 0;/, /padding: 10px 12px;/, /border-radius: 4px;/]) assert.match(group, rule);
+  // The shared group surface and border (§37.121) — no shadow.
+  assert.match(group, /border: 1px solid var\(--bugpilot-group-border\);/);
+  assert.match(group, /background: var\(--bugpilot-group-bg\);/);
+  assert.equal(/box-shadow|(?<![a-z-])width:/.test(group), false);
+  // Title and field to what follows: closer inside a group; the last one flush.
+  assert.match(CSS, /\.workflow-group > \.field \{\s*margin-bottom: 8px;/);
+  assert.match(CSS, /\.workflow-group > \.field:last-child \{\s*margin-bottom: 0;/);
+  // One-line groups are a row tall, on the fainter surface (§37.121).
+  assert.match(CSS, /\.workflow-compact-group \{\s*padding: 6px 12px;\s*background: var\(--bugpilot-group-bg-secondary\);/);
+  // The old margins between loose rows are gone.
+  assert.match(CSS, /\.jira-row \{[^}]*margin: 0;/s);
+  // High Contrast: the theme's border, no fill.
+  assert.match(CSS, /body\.vscode-high-contrast \.workflow-group,\s*body\.vscode-high-contrast-light \.workflow-group \{\s*border-color: var\(--vscode-contrastBorder, var\(--vscode-panel-border\)\);\s*background: none;/);
+  // Narrow: the outline stays, the side padding gives some room back.
+  const narrow = [...CSS.matchAll(/@media \(max-width: 220px\) \{([\s\S]*?)\n\}/g)].map((match) => match[1]!).join("\n");
+  assert.match(narrow, /\.workflow-group \{\s*padding-inline: 8px;/);
+  assert.equal(/\.workflow-group \{[^}]*(border: 0|border: none|display: none)/.test(narrow), false, "a narrow sidebar drops the grouping");
+  // Workflow Steps' title over its list, with a hairline.
+  assert.match(CSS, /#workflow\[open\] > \.workflow-summary \{\s*padding-bottom: 8px;\s*border-bottom: 1px solid var\(--bugpilot-group-separator\);/);
+  // The old one-off `.group` box is gone with its only user.
+  assert.equal(/(^|\n)\.group \{/.test(CSS), false);
+  // No colour literal in any group rule.
+  const rules = [...CSS.matchAll(/(?:\.workflow-group|\.workflow-compact-group|#form)[^{]*\{([^}]*)\}/g)].map((match) => match[1]!).join("\n");
+  assert.equal(COLOUR_LITERAL.test(rules), false);
+});
+
+/** The declarations of every rule whose selector is exactly `selector`. */
+function ruleBody(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/,\s*/g, ",\\s*");
+  return [...CSS.matchAll(new RegExp(`(?:^|\\n)${escaped} \\{([^}]*)\\}`, "g"))].map((match) => match[1]!).join("\n");
+}
+
+test("the groups' colours are one set of theme tokens: page, group, field (§37.121)", () => {
+  const TOKENS = ["--bugpilot-group-bg", "--bugpilot-group-bg-secondary", "--bugpilot-group-hover", "--bugpilot-group-border", "--bugpilot-group-separator"];
+  // On the body, where VS Code names the theme kind, so each kind's
+  // strengths resolve against its own tint.
+  const base = ruleBody("body");
+  assert.match(base, /--bugpilot-group-tint: color-mix\(in srgb, var\(--vscode-foreground\) \d+%, var\(--vscode-focusBorder/);
+  for (const token of TOKENS) assert.match(base, new RegExp(`${token}: color-mix\\(in srgb, var\\(--bugpilot-group-tint\\) [\\d.]+%, transparent\\);`), token);
+  // Light: its own tint and strengths, all of them.
+  const light = ruleBody("body.vscode-light");
+  assert.match(light, /--bugpilot-group-tint: color-mix\(in srgb, var\(--vscode-foreground\) \d+%, var\(--vscode-focusBorder/);
+  for (const token of TOKENS) assert.match(light, new RegExp(`${token}: `), `light ${token}`);
+  // Dark: fields are a well, the page's own colour; nowhere else is that set.
+  assert.match(ruleBody("body.vscode-dark"), /--bugpilot-control-bg: var\(--vscode-sideBar-background, var\(--vscode-editor-background\)\);/);
+  assert.equal([...CSS.matchAll(/--bugpilot-control-bg: var/g)].length, 1);
+  // High Contrast: no fill, the theme's contrast border, native fields — and
+  // after the other kinds, so it wins wherever two kinds' classes meet.
+  const contrast = ruleBody("body.vscode-high-contrast, body.vscode-high-contrast-light");
+  assert.match(contrast, /--bugpilot-group-bg: transparent;/);
+  assert.match(contrast, /--bugpilot-group-bg-secondary: transparent;/);
+  assert.match(contrast, /--bugpilot-group-border: var\(--vscode-contrastBorder, var\(--vscode-panel-border\)\);/);
+  assert.match(contrast, /--bugpilot-control-bg: initial;/);
+  const contrastAt = /\nbody\.vscode-high-contrast,\s*body\.vscode-high-contrast-light \{\s*--bugpilot/.exec(CSS)?.index ?? -1;
+  assert.ok(contrastAt > CSS.indexOf("body.vscode-light {"), "High Contrast's tokens come after Light's");
+  // Every colour is the theme's.
+  for (const body of [base, light, ruleBody("body.vscode-dark"), contrast]) assert.equal(COLOUR_LITERAL.test(body), false);
+  // The token is the only place a group's colour comes from: no group colours
+  // itself by id, and no long blend is repeated in the group rules.
+  assert.equal(/#(?:group-[a-z-]+|workflow)\s*\{[^}]*(?:background|border)/.test(CSS), false);
+  assert.equal(/color-mix/.test(ruleBody(".workflow-group") + ruleBody(".workflow-compact-group")), false);
+  // Fields are a layer under the group: the well in a dark theme, the theme's
+  // own field colour otherwise.
+  assert.match(ruleBody('.workflow-group :is(input[type="text"], textarea)'), /background: var\(--bugpilot-control-bg, var\(--vscode-input-background\)\);/);
+  assert.match(ruleBody(".workflow-group select"), /background: var\(--bugpilot-control-bg, var\(--vscode-dropdown-background, var\(--vscode-input-background\)\)\);/);
+  // Workflow Steps' rows have no surface of their own: lines, not cards.
+  assert.equal(/\.step(?::hover)?\s*\{[^}]*background/.test(CSS), false);
+  // Run keeps the theme's primary button colour.
+  assert.match(ruleBody("button.primary"), /background: var\(--vscode-button-background\);/);
 });
 
 // --- Hint actions: Improve with AI, Include issue details (§37.92) -----------
@@ -3747,7 +4018,7 @@ test("the two controls' tooltips and names agree with what they do", () => {
   assert.match(label, /title="Includes only the issue title and description\. Repository files and history are not read\."/);
   // The Hint says what it is for in its placeholder, and in full on hover.
   assert.match(HTML, /<textarea[^>]*id="hint"[^>]*placeholder="Add technical guidance or suspected areas"[^>]*title="Add technical guidance, constraints, or suspected areas"/);
-  assert.match(HTML, /<label for="hint" title="Add technical guidance, constraints, or suspected areas">/);
+  assert.match(HTML, /<label for="hint" id="hint-label" title="Add technical guidance, constraints, or suspected areas">/);
   // Its label is still its name: a tooltip supplements, never labels.
   assert.match(HTML, /<label for="hint"[^>]*>[\s\S]*?Hint<\/label>/);
 });
@@ -3897,11 +4168,11 @@ test("under Run, at most one quiet line — the host's state, never the shortcut
   assert.match(CSS, /\.run-hint\[hidden\] \{\s*display: none;/);
   // The rules for the shortcut and the dot went with them.
   assert.equal(/\.kbd\b|\.run-status\b|\.run-hint::before/.test(CSS), false);
-  // With no line under the button, Fix Mode's own gap is what sets the
-  // settings apart from Run: a little more than a field's. Under a line, the
-  // line's leading makes up the rest — never taller than before the line went.
-  assert.match(CSS, /#field-fixModeId \{\s*margin-top: 16px;/);
-  assert.match(CSS, /\.run:has\(> \.run-hint:not\(\[hidden\]\)\) ~ #field-fixModeId \{\s*margin-top: 12px;/);
+  // What sets the settings apart from Run is the Issue group's edge since
+  // §37.119, not a margin on Fix Mode: the 16px / 12px pair that did it in one
+  // column would now be blank space at the top of the Fix Mode group.
+  assert.equal(/#field-fixModeId \{[^}]*margin-top/.test(CSS), false);
+  assert.ok(HTML.indexOf('id="group-issue"') < HTML.indexOf('id="run-hint"') && HTML.indexOf('id="run-hint"') < HTML.indexOf('id="group-fix-mode"'));
 });
 
 // --- Text density (§37.104) --------------------------------------------------
@@ -3920,9 +4191,9 @@ test("the main form shows controls and state, not explanations — and keeps eve
     ["Enter a Jira issue ID such as JR-12345, or describe the bug directly.", /<p class="visually-hidden" id="issue-help">Enter a Jira issue ID such as JR-12345/],
     ["The form changed since this context was prepared", /id="run"[^>]*aria-describedby="run-hint"/],
     ["Uses the current settings below.", /id="run"[^>]*title="Prepare the issue context for AI-assisted fixing \(Ctrl\+Enter\)"/],
-    ["How the AI works on this bug.", /<label for="fixModeId" title="Choose how BugPilot approaches the fix">/],
+    ["How the AI works on this bug.", /<label for="fixModeId" id="fixModeId-label" title="Choose how BugPilot approaches the fix">/],
     ["Default workflow for most bugs", /<select id="fixModeId"[^>]*aria-describedby="fixModeId-description"/],
-    ["Add technical guidance, constraints, or suspected areas.", /<label for="hint" title="Add technical guidance, constraints, or suspected areas">/],
+    ["Add technical guidance, constraints, or suspected areas.", /<label for="hint" id="hint-label" title="Add technical guidance, constraints, or suspected areas">/],
     ["Includes only the issue title and description. Repository files and history are not read.", /<label class="choice" for="useIssueDetails"\s+title="Includes only the issue title and description\. Repository files and history are not read\."/],
   ];
   for (const [text, home] of moved) {

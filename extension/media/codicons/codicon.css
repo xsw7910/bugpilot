@@ -156,6 +156,10 @@
    codicon.ttf's cmap and glyph names. */
 .codicon-arrow-left:before { content: "\ea9b"; }
 
+/* Advanced Settings' row on the form (§37.119): a chevron for "goes
+   somewhere". Checked in the vendored codicon.ttf's cmap and glyph names. */
+.codicon-chevron-right:before { content: "\eab6"; }
+
 /* The Fix Mode editor (§37.118): Basic info's settings glyph, ID's tag,
    Description's note, Scope's folder, and the footer's save and eye (edit,
    play, list-ordered, add and close are above). Each checked in the vendored

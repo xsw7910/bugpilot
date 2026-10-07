@@ -105,22 +105,25 @@ editor and you save them; nothing is written behind your edits.
    want it to have.
 
 That is the whole panel: the issue, one button, the settings it uses, and one
-list of steps.
+list of steps — six quietly outlined groups, one under the other: **Issue**
+(with Run and More), **Fix Mode**, **Hint** (with Improve with AI and Include
+issue details), **Advanced Settings**, **Jira** and **Workflow Steps**.
 
 ```
-⊙ Issue                 Jira issue · JR-12345
-[ jr-12345                                  ]
-
-[        ▶ Run        ] [ Stop ] [ ⋯ More ]
-
-Fix Mode
-[ Standard Fix                            ▾ ] ⚙
-Hint
-[ Add technical guidance or suspected areas ]
-Improve with AI   ☑ Include issue details
-[ ⚙ Advanced Settings ]
-──────────────────────────────────────────────
-▾ ☰ Workflow Steps                 ( Running 3/6… )
+┌ ⊙ Issue               Jira issue · JR-12345 ┐
+│ [ jr-12345                                ] │
+│ [        ▶ Run        ] [ Stop ] [ ⋯ More ] │
+└─────────────────────────────────────────────┘
+┌ Fix Mode                                    ┐
+│ [ Standard Fix                          ▾ ] ⚙
+└─────────────────────────────────────────────┘
+┌ Hint                                        ┐
+│ [ Add technical guidance or suspected areas ]
+│ Improve with AI   ☑ Include issue details   │
+└─────────────────────────────────────────────┘
+┌ ⚙ Advanced Settings                       › ┐
+┌ 🔑 Jira  ✓ Configured               Replace ┐
+┌ ▾ ☰ Workflow Steps            ( Running 3/6… )
   Issue details         <0.1s  ● Completed  ⚙
   Widget rejects the output type
   issue.json
@@ -172,7 +175,8 @@ Every step that has settings has a **⚙** at the end of its row — **Configure
 Issue Details**, **Configure Code Search**, **Configure Git History**,
 **Configure Similar Fixes**, **Configure Build Context**, **Configure AI
 Agent**. Each opens the same **Advanced Settings** page and scrolls straight to
-that step's section; **⚙ Advanced Settings** under Run opens it at the top.
+that step's section; the **⚙ Advanced Settings** row, under Hint, opens it at
+the top.
 
 | Section | Settings |
 | --- | --- |
@@ -247,7 +251,10 @@ prepared with, before you hand it over.
 ### Manage Fix Modes
 
 The gear beside the dropdown opens **Manage Fix Modes**, which takes over the
-panel; **‹ Back** returns you to the form with your selection intact. The list
+panel; **Back** returns you to the form with your selection intact. Every page
+that takes over the panel — Advanced Settings, Manage Fix Modes, a mode's page,
+New and Edit Fix Mode — has the same header: **Back** and the page's name, kept
+at the top while you scroll. Hover Back to see where it goes. The list
 has three folding groups — **Built-in**, **User** and **Project** — and each
 mode is one row: its icon, its name, one line of description, and a badge only
 where it changes something (*Current* for the mode the form has selected,

@@ -149,48 +149,97 @@ h2 {
   display: none;
 }
 
-.view-head {
+/*
+ * A secondary page's header (§37.120) — Advanced Settings, Manage Fix Modes,
+ * a Fix Mode's page, New / Edit Fix Mode — one renderer, one look: Back and
+ * the page's title on one compact row, held at the top of the panel while the
+ * page scrolls under it, like a toolbar. Sticky to the document, which is
+ * what scrolls here — never fixed. Flush with the panel's top (the body's
+ * 10px top padding taken back) and across the side padding too, so nothing
+ * that scrolls under it shows beside it; the ground is opaque and one
+ * hairline marks its foot — no card, no shadow, no coloured bar.
+ *
+ * Back first, so it is the first thing in the tab order; the title takes the
+ * rest of the row and is cut to one line before Back could move. When even
+ * 8em of title will not fit beside Back — a 200px sidebar — the title wraps
+ * whole onto a line of its own under Back, still cut if it must be.
+ */
+.page-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding-bottom: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  margin: -10px -12px 0;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
-/* Stacked above the heading, so a narrow sidebar never has to fit both on one
-   line and the way out is the first thing in the tab order. */
-.view-back {
+/* Back: the arrow and the word, the whole of it the target; no box until it
+   is pointed at. The parent in the hover selector, so the base `button:hover`
+   (later in this file) does not fill it with the secondary button's colour. */
+.page-back {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  text-decoration: none;
+  gap: 4px;
+  margin-left: -4px;
+  padding: 2px 6px 2px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-foreground);
 }
 
-.view-back:hover {
-  text-decoration: underline;
+.page-header > .page-back:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
 
-/* A text chevron rather than a codicon: the vendored font is subsetted and has
-   no left-facing one, and a whole glyph for one back arrow is not worth it. */
-.view-back-mark {
-  font-size: 1.2em;
-  line-height: 1;
+.page-back .codicon {
+  font-size: 14px;
 }
 
-.view-title {
+/* The page's title: stronger than Back, one line, cut with an ellipsis. */
+.page-title {
+  flex: 1 1 8em;
+  min-width: 0;
   margin: 0;
   font-size: 1.1em;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A heading focused on arrival should not draw the caret box a click would. */
-.view-title:focus-visible {
+.page-title:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
+  outline-offset: -1px;
 }
 
-.view-title:focus:not(:focus-visible) {
+.page-title:focus:not(:focus-visible) {
   outline: none;
+}
+
+/* A slot at the right for a page that needs an action up here; none yet. */
+.page-header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* What the header covers, the browser must not scroll to: a Tab, a focused
+   error, a heading a gear lands on stops under the header, not behind it.
+   Two rows of it at the narrowest widths: 55px at 200px (measured), so more
+   than 4rem. */
+html:has(.view:not([hidden]) > .page-header) {
+  scroll-padding-top: 4.5rem;
 }
 
 .view-lede {
@@ -231,19 +280,12 @@ h2 {
 
 /* --- the Fix Mode detail page (§37.115) ----------------------------------- */
 
-/* Back, with the editor's own arrow, the whole line a target. */
-.preview-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 0;
-}
-
-/* The header: the mode's glyph, its name with its source beside it, and its
-   action at the right on one line — the action wrapping onto a line of its
-   own, still at the right, when the sidebar is too narrow for both (no
-   breakpoint: the row decides) — then the description under them, the full
-   width from where the name starts, never squeezed beside the action. */
+/* Under the page header, which names the mode (§37.120): the mode's glyph, its
+   source, and its action at the right on one line — the action wrapping onto
+   a line of its own, still at the right, when the sidebar is too narrow for
+   both (no breakpoint: the row decides) — then the description under them,
+   the full width from where the source starts, never squeezed beside the
+   action. */
 .preview-hero {
   margin-top: 8px;
 }
@@ -262,25 +304,11 @@ h2 {
   color: var(--vscode-textLink-foreground);
 }
 
-.preview-title-row {
-  flex: 1 1 8em;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 8px;
-}
-
-/* The page's heading: the strongest text on it, and never cut. */
-.view-title.preview-title {
-  font-size: 1.3em;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-/* Built-in, User or Project: a quiet pill, the list's badge. */
+/* Built-in, User or Project: a quiet pill, the list's badge — beside the
+   glyph now that the name is the header's (§37.120). */
 .preview-source {
   flex: none;
+  align-self: center;
   padding: 0 6px;
   border: 1px solid color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
   border-radius: 9px;
@@ -672,17 +700,19 @@ html:has(#fix-mode-editor-view:not([hidden])) {
  */
 /* Improve with AI, then Include issue details with its helper under it
    (§37.92). The group keeps a floor so that at a narrow width it wraps whole
-   onto its own line, Improve with AI still first, rather than squeezing. */
+   onto its own line, Improve with AI still first, rather than squeezing. The
+   floor is 12em since the Hint became a group (§37.119): its padding left
+   14em too much for the pair to share a line even at 360px. */
 .hint-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 4px 16px;
+  gap: 4px 12px;
   margin-top: 4px;
 }
 
 .hint-include {
-  flex: 1 1 14em;
+  flex: 1 1 12em;
   min-width: 0;
 }
 
@@ -1047,16 +1077,103 @@ body.vscode-high-contrast-light .mode-icon {
 
 /* --- groups --------------------------------------------------------------- */
 
-.group {
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 2px;
-  padding: 8px 10px;
-  margin: 0;
+/* The run form as six groups (§37.119) — Issue, Fix Mode, Hint, Advanced
+   Settings, Jira, Workflow Steps — one under the other, 10px apart, so every
+   control has an obvious parent and nothing sits between two of them. */
+#form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-/* The last setting in a section does not need to push the border away. */
-.group > .field:last-child {
+/* The groups' surfaces (§37.121): page, then group, then the fields in it.
+   A cool tint — the foreground with some of the theme's focus colour — laid
+   over whatever is behind at a few percent, so it lifts a dark sidebar, darkens
+   a light one, and is right in an editor tab too (the body is transparent).
+   Declared on the body, where VS Code names the theme kind, so each kind's
+   strengths resolve against its own tint. No literals: every colour is the
+   theme's. */
+body {
+  --bugpilot-group-tint: color-mix(in srgb, var(--vscode-foreground) 55%, var(--vscode-focusBorder, var(--vscode-foreground)));
+  --bugpilot-group-bg: color-mix(in srgb, var(--bugpilot-group-tint) 7%, transparent);
+  --bugpilot-group-bg-secondary: color-mix(in srgb, var(--bugpilot-group-tint) 4.5%, transparent);
+  --bugpilot-group-hover: color-mix(in srgb, var(--bugpilot-group-tint) 5%, transparent);
+  --bugpilot-group-border: color-mix(in srgb, var(--bugpilot-group-tint) 16%, transparent);
+  --bugpilot-group-separator: color-mix(in srgb, var(--bugpilot-group-tint) 11%, transparent);
+}
+
+/* Dark: a field is a well in its group — the page's own colour, darker than
+   the group around it — where the theme's input colour would be lighter than
+   the group and read as the same shade. Light keeps the theme's (white). */
+body.vscode-dark {
+  --bugpilot-control-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+/* Light: less of the focus colour, so the groups are a cool neutral rather
+   than blue, and lighter strengths — the page is already near white. */
+body.vscode-light {
+  --bugpilot-group-tint: color-mix(in srgb, var(--vscode-foreground) 80%, var(--vscode-focusBorder, var(--vscode-foreground)));
+  --bugpilot-group-bg: color-mix(in srgb, var(--bugpilot-group-tint) 5%, transparent);
+  --bugpilot-group-bg-secondary: color-mix(in srgb, var(--bugpilot-group-tint) 3%, transparent);
+  --bugpilot-group-hover: color-mix(in srgb, var(--bugpilot-group-tint) 4%, transparent);
+  --bugpilot-group-border: color-mix(in srgb, var(--bugpilot-group-tint) 12%, transparent);
+  --bugpilot-group-separator: color-mix(in srgb, var(--bugpilot-group-tint) 9%, transparent);
+}
+
+/* High Contrast: the theme's own lines and fields, nothing blended. */
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --bugpilot-group-bg: transparent;
+  --bugpilot-group-bg-secondary: transparent;
+  --bugpilot-group-hover: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  --bugpilot-group-border: var(--vscode-contrastBorder, var(--vscode-panel-border));
+  --bugpilot-group-separator: var(--vscode-panel-border);
+  --bugpilot-control-bg: initial;
+}
+
+/* A group: a quiet surface, a low-contrast cool border, a modest radius, no
+   shadow. Grouping, not cards. Its title is its first line (the label row, or
+   Workflow Steps' summary). */
+.workflow-group {
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--bugpilot-group-border);
+  border-radius: 4px;
+  background: var(--bugpilot-group-bg);
+}
+
+/* Fields are a layer under their group: in a dark theme the well above; the
+   theme's own field colour everywhere else. */
+.workflow-group :is(input[type="text"], textarea) {
+  background: var(--bugpilot-control-bg, var(--vscode-input-background));
+}
+
+.workflow-group select {
+  background: var(--bugpilot-control-bg, var(--vscode-dropdown-background, var(--vscode-input-background)));
+}
+
+/* Title and field to what follows in the group — Issue to Run — closer than
+   field to field elsewhere; the last field does not push the border away. */
+.workflow-group > .field {
+  margin-bottom: 8px;
+}
+
+.workflow-group > .field:last-child {
   margin-bottom: 0;
+}
+
+/* The one-line groups, Advanced Settings and Jira: a row tall, and quieter
+   than the groups with fields in them — a fainter surface, the same border. */
+.workflow-compact-group {
+  padding: 6px 12px;
+  background: var(--bugpilot-group-bg-secondary);
+}
+
+body.vscode-high-contrast .workflow-group,
+body.vscode-high-contrast-light .workflow-group {
+  border-color: var(--vscode-contrastBorder, var(--vscode-panel-border));
+  background: none;
 }
 
 summary {
@@ -1074,35 +1191,40 @@ details[open] > summary {
   margin-bottom: 10px;
 }
 
+/* Workflow Steps' title over its list (§37.119): a hairline between, so the
+   group's header reads as the header the other groups' titles are. */
+#workflow[open] > .workflow-summary {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--bugpilot-group-separator);
+}
+
 /* --- Workflow Settings --------------------------------------------------- */
 
-/* The way in from the form: a quiet full-width row under the workflow, with the
-   gear every row's own entry uses. The Fix Mode line beside it names a
-   non-default mode and wraps under it rather than squeezing it at 200px. */
-/* Advanced Settings, under Run and above the workflow (§37.91): a compact
-   secondary button (§37.93) — a gear, the label in the normal foreground, a
-   hairline border and no fill, content-sized. Visibly a button, never the
-   primary one's blue, and never louder than Run beside it. Its label wraps
+/* Advanced Settings, under Hint and above Jira (§37.91): since §37.119 a
+   compact group of one row that is the button — the gear, the label in the
+   normal foreground, a chevron at the right — with no fill of its own until
+   it is pointed at. The group's border is its outline; it is never the
+   primary one's blue, and never louder than the groups above. Its label wraps
    between words at the narrowest widths, never inside one. */
-.settings-entry {
+.workflow-group.settings-entry {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 8px;
-  margin: 2px 0 6px;
+  padding: 0;
 }
 
 /* The Jira row (§37.110), under Advanced Settings and above Workflow Steps:
-   one line — the key, the name, the status, the action — with no card around
-   it. The status is the part that gives way in a narrow sidebar, cut with an
-   ellipsis (the tooltip has it whole); the name and the action never shrink,
-   so Configure / Replace is always on screen. */
+   one line — the key, the name, the status, the action — inside a compact
+   group of its own since §37.119 (the row itself draws no border). The status
+   is the part that gives way in a narrow sidebar, cut with an ellipsis (the
+   tooltip has it whole); the name and the action never shrink, so Configure
+   / Replace is always on screen. */
 .jira-row {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  margin: 0 0 10px;
+  margin: 0;
 }
 
 .jira-icon {
@@ -1149,27 +1271,37 @@ details[open] > summary {
 }
 
 .settings-open {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
-  padding: 3px 10px;
-  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
-  border-radius: 2px;
+  min-width: 0;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 3px;
   background: transparent;
   color: var(--vscode-foreground);
   text-align: left;
   overflow-wrap: normal;
 }
 
-.settings-open:hover:not(:disabled) {
-  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
-  border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+/* The parent in the selector because the base `button:hover`, later in this
+   file, would otherwise win and fill the row with the secondary button's
+   colour. Pointed at, the row lifts a little off its group (§37.121). */
+.settings-entry > .settings-open:hover:not(:disabled) {
+  background: var(--bugpilot-group-hover);
 }
 
 .settings-open .codicon {
   flex: none;
   font-size: 14px;
+}
+
+/* The chevron says the row goes somewhere: at its right, in the icon colour. */
+.codicon.settings-open-chevron {
+  margin-left: auto;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
 }
 
 /* One section per step that has settings. A heading and a hairline, not a
@@ -1897,19 +2029,6 @@ button:focus-visible {
   display: none;
 }
 
-/* The settings under Run read as their own group, not as Run's: a little more
-   than a field's gap before Fix Mode — after the menu, too, when it is open —
-   which with no line under the button is all that separates them. Under a
-   line, its own leading makes up the difference: the same gap to the eye, and
-   never taller than the line it replaced (§37.105). */
-#field-fixModeId {
-  margin-top: 16px;
-}
-
-.run:has(> .run-hint:not([hidden])) ~ #field-fixModeId {
-  margin-top: 12px;
-}
-
 /* Open AI Session's acknowledgement, under the button (§37.87). Empty — and so
    no height — until a press is answered; it wraps rather than widening the
    panel. Neutral in every case: a closed terminal is not a failed fix. */
@@ -2402,10 +2521,11 @@ body.vscode-high-contrast-light .workflow-status {
   --bugpilot-step-purple: color-mix(in srgb, var(--vscode-charts-purple, var(--vscode-textLink-foreground)) 80%, var(--vscode-foreground));
 }
 
-/* Rows separated by a light rule and a little air — not a table's lines. */
+/* Rows separated by a light rule and a little air — not a table's lines, and
+   not cards: a row has no surface of its own, only its group's (§37.121). */
 .step {
   padding: 5px 0;
-  border-top: 1px solid color-mix(in srgb, var(--vscode-panel-border) 55%, transparent);
+  border-top: 1px solid var(--bugpilot-group-separator);
 }
 
 /* High Contrast themes: the theme's own border, at full strength. */
@@ -2539,6 +2659,16 @@ body.vscode-high-contrast-light .step-icon {
    to about 190px. Below that the ellipsis is the fallback, the gear and the
    icon keep their places, and the name is still the box's accessible name. */
 @media (max-width: 220px) {
+  /* The groups keep their outline and give some of their side padding to
+     what is inside them (§37.119); Workflow Steps' rows give a little more. */
+  .workflow-group {
+    padding-inline: 8px;
+  }
+
+  .settings-open {
+    padding-inline: 8px;
+  }
+
   #workflow {
     padding-inline: 6px;
   }

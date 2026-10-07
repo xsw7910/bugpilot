@@ -12522,3 +12522,173 @@ empty." under Constraints, the section open, the box invalid and focused,
 above the footer, no banner; text restored → saved; deleted through VS Code's
 confirmation. High Contrast (280px): borders, glyphs in the foreground, no
 overflow, the footer sticky.
+
+### 37.119 The Workflow panel in groups (after `7590f52`, uncommitted)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (Dark Modern and Light Modern, an installed VSIX, an isolated
+HOME); not committed. The canonical plan has a new "Confirmed decisions
+(Workflow panel groups)" and notes on the two decisions it revises (§37.93's
+Advanced Settings button, §37.110's Jira row). Visual restructuring only:
+`src/panel/html.ts` (the groups' wrappers; `labelId` for `settingHeader` and
+`TextField`; the Advanced Settings chevron), `media/panel.css`,
+`media/codicons/codicon.css` (chevron-right). No script changed. The request
+named a "Clear Group" reference image; none was attached, so its written
+outline was the target.
+
+- **Groups**: Issue (field, Run, Stop, ⋯ More, the hint line, the session
+  line, the More menu), Fix Mode, Hint (with Improve with AI, Include issue
+  details and the suggestion), Advanced Settings, Jira, Workflow Steps — the
+  run form's six children, a column 10px apart. `.workflow-group`: the widget
+  border at 70%, 4px radius, a 2% foreground fill, 10px 12px padding; High
+  Contrast's border and no fill; 8px sides at ≤ 220px. Issue, Fix Mode and
+  Hint are named groups by their visible labels.
+- **Advanced Settings**: a compact group whose one row is the button — gear,
+  name, chevron — with the toolbar hover fill (the base `button:hover`, which
+  would have won and filled it with the secondary button's colour, is outranked
+  by a parent selector). **Jira**: the row unchanged inside a compact wrapper,
+  since the page rewrites the row's class on each push. **Workflow Steps**: its
+  old one-off `.group` box became the shared style, its title over a hairline.
+- **Removed**: Fix Mode's 16px/12px top margin — inside a group it showed as a
+  blank band above the title (measured: 27px, real window) — and the loose rows'
+  margins. Include issue details' floor went from 14em to 12em (and the pair's
+  gap from 16px to 12px): inside the group the two had stacked even at 360px.
+
+**Tests.** 1915 (1910 + 5), all passing: the form is exactly the six groups,
+in order, with nothing outside one; each control in its group (Run, More and
+its menu in Issue; Improve with AI, Include issue details and the suggestion in
+Hint; Jira's action in Jira; the steps in Workflow Steps); the keyboard order
+across groups; each group's name; the container CSS, its rhythm, High
+Contrast, the narrow padding, no shadow, width or colour literal. Tests that
+pinned an exact label tag, the `.group` class, the old entry class, the
+content-sized Advanced Settings button, Fix Mode's margins and the 14em floor
+now pin the new markup and decisions. Thirteen mutations each fail a test.
+
+**Real window** (VS Code 1.139.1), Dark and Light, at 360, 280 and 200px: the
+six groups with a 10px gap between each, no horizontal overflow; Run and More
+on one row at every width (More is its glyph at 200px); Improve with AI and
+Include issue details on one row at 360px, stacked at 280 and 200; Jira's
+status ellipsized at 200px with Configure whole; Advanced Settings wrapping
+its two words at 200px. Tab from the Issue: Run, More, Fix Mode, its gear,
+Hint, Improve with AI, Include issue details, Advanced Settings, Jira's
+Configure, Workflow Steps — each inside its group, each with the focus ring.
+⋯ More opens its menu inside the Issue group and Escape returns to it; the
+gear opens Manage Fix Modes; Advanced Settings opens its page and Cancel comes
+back to it; the row's hover is the toolbar tint, not a fill. Run was not
+pressed (a real run).
+
+### 37.120 One page header for every page with a way back (after `7590f52`, uncommitted, on §37.119)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (Dark Modern and Light Modern, an installed VSIX, an isolated
+HOME); not committed. The canonical plan has a new "Confirmed decisions (Page
+header)" and notes on the decisions it revises (Workflow Settings' head,
+§37.115's title and Back, §37.118's head). Files: `src/panel/html.ts` (the
+`pageHeader` helper and the four pages that use it; the detail page's hero
+without its title), `media/panel.css` (`.page-header` and its parts replacing
+`.view-head`/`.view-back`/`.view-title` and the detail page's title row; the
+top scroll padding), `media/panel.js` (Back's tooltip in the editor, the
+detail page's title tooltip, keyboard focus kept clear of the bars),
+`test/panel.test.ts`, `test/page.test.ts`, `extension/README.md`. No command,
+message, navigation or form behaviour changed.
+
+- **Pages**: Advanced Settings, Manage Fix Modes, a mode's page (detail), and
+  the Fix Mode editor (New and Edit). Excluded: the Workflow view (no way
+  back) and the Reset Session question (a dialog). Before, three pages had a
+  link-style `‹ Back` above the title and the detail page an arrow with *Back
+  to Fix Mode Manager*; the editor's label named its destination too.
+- **Header**: one row — the arrow and *Back*, the page's `h2` — sticky at the
+  top, opaque (the sidebar background, a hairline under it), above the sticky
+  footers. Back's destination is its tooltip, set by the page script where it
+  depends on how the editor was opened. The detail page's name moved from its
+  hero into the header (ellipsized, its whole name the tooltip); no page now
+  shows its title twice or a destination in Back's words.
+- **Narrow/wide**: one row, 34px, at 360 and 280px; at 200px Back keeps the
+  first row and the title wraps to a second (55px), cut with an ellipsis.
+- **Reachability**: `scroll-padding-top: 4.5rem` while a page with the header
+  shows. Measured in the real window: focusing Implementation with its top
+  35px under the header did not scroll at all (Chromium only scrolls a focused
+  element that is off screen), and `scrollIntoView` did honour the padding.
+  So after Tab — never after a pointer — the page brings the focused control
+  clear of both bars: the nearest edge, or the control's top when it is taller
+  than the room between them (Investigation at 200px: 503px in 486px).
+
+**Tests.** 1920 (1915 + 5), all passing: every page with a way back uses the
+one header and nothing else uses its classes; Back says Back everywhere, its
+destination the tooltip, with no `‹`, `view-*` class or editor label left;
+the header's sticky, opaque, compact CSS and the top scroll padding; New and
+Edit keep their footer under the header; the detail page names the mode once,
+whole on hover, Back still asking for the list; Tab onto a control under
+either bar brings it clear (nearest, or start when taller), while a click,
+another key, or a spent Tab does not. Tests that pinned the old head markup
+and the editor's Back label now pin the header and the tooltip. Twelve
+mutations (static header, header under the footer, see-through header, no
+scroll padding, a destination in Back's words, the old title class, a second
+title on the detail page, no whole-name tooltip, one editor tooltip for both
+origins, no keyboard handler, a click that scrolls, nearest for a tall field)
+each fail a test.
+
+**Real window** (VS Code 1.139.1), Dark and Light, at 360, 280 and 200px,
+each page at rest, scrolled to the middle and to the end: the header's top at
+0 every time, Back the topmost element at its centre (clickable), the
+background opaque, one `h2`, no horizontal overflow; the editor's and Advanced
+Settings' footers at the bottom while the header holds the top. Back clicked
+at the end of each page: Advanced Settings and Manage Fix Modes → the
+Workflow view (focus on the button that opened them), a mode's page and the
+editor from the list → the manager, the editor from a mode's page → that page
+(focus on Customize copy). Tab and Shift+Tab through every page at 200 and
+360px: every control clear of both bars (Investigation, taller than the room
+at 200px, top-aligned); Shift+Tab from each title reaches Back; a click on a
+field half under the header focuses it without moving the page. Run was not
+pressed.
+
+### 37.121 Cooler group surfaces (after `7590f52`, uncommitted, on §37.120)
+
+**Status:** implemented, verified in the extension suite and real disposable
+VS Code windows (Dark Modern, Light Modern, Default High Contrast; an
+installed VSIX, an isolated HOME); not committed. The canonical plan has a
+new "Confirmed decisions (Group surfaces)" and notes on the two §37.119
+decisions it revises. Colour only: `media/panel.css` and
+`test/panel.test.ts`. The request named a reference screenshot; none was
+attached, so its written description was the target.
+
+- **Before**: each group was 2% of the foreground over the page (Dark Modern
+  `#1c1c1c` on `#181818`, a neutral grey four levels up), the widget border at
+  70% (`#2a2a2a`); the fields were the theme's input colour (`#313131`),
+  lighter than the group; Advanced Settings' hover was the toolbar's grey.
+- **Tokens on the body**: a tint (the foreground with 45% of the focus colour
+  in dark kinds, 20% in light) and the group surface, secondary surface,
+  hover, border and separator as percentages of it over transparent, so they
+  are right on the sidebar and in an editor tab. `--bugpilot-control-bg` is
+  set only in dark kinds (the page's colour), so fields fall back to the
+  theme's own elsewhere. High Contrast: no fill, the contrast border, native
+  fields.
+- **Applied**: `.workflow-group` (surface and border), `.workflow-compact-group`
+  (secondary surface), the fields inside a group, Advanced Settings' hover,
+  Workflow Steps' title hairline and row separators. Run, the icons, the
+  Results view, every size and every behaviour are untouched.
+
+**Tests.** 1921 (1920 + 1), all passing: the tokens live on the body, each
+theme kind defines what it should (Light its own tint and strengths, Dark the
+field well, High Contrast no fill, the contrast border and native fields,
+after the others), no literal anywhere in them, no group coloured by its id,
+no blend repeated in the group rules, fields on the control token with the
+native fallback, step rows without a surface, Run on the theme's button
+colour. Three §37.119 tests that pinned the old border, fill and hover now
+pin the tokens. Eight mutations (a literal, Light's tint dropped, a High
+Contrast fill, fields on the group colour, rows as cards, compact groups as
+loud as major, the toolbar hover back, Issue coloured by id) each fail a
+test. Typecheck, activation smoke, package check, publishability (15) and
+`git diff --check` pass; `package-lock.json` untouched.
+
+**Real window** (VS Code 1.139.1), pixels measured from screenshots at 360,
+280 and 200px. Dark Modern: page `#181818`, major groups `#1e2225`, compact
+groups `#1c1e20`, border `#2c3841`, fields `#181818`, Advanced Settings
+hovered `#212529`, Run `#0078d4` (3.5:1 against the group, the strongest
+element); the focus ring on a field is the strongest line. In an editor tab
+the page is the editor's `#1f1f1f`, the groups lift from it and the fields
+stay darker. Light Modern: page `#f8f8f8`, groups `#edeeef`, compact
+`#f1f2f3`, border `#d7dadd`, fields white. High Contrast: black, no fill, the
+`#6fc3df` contrast border on every group and row line, native fields. Every
+element's position and size identical to the old build at all three widths
+(Dark and Light), no horizontal overflow. Run was not pressed.

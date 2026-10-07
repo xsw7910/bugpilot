@@ -1803,7 +1803,7 @@ workflow list that did not point at it.
 
 2. **One shared Workflow Settings page**, a panel view like the Fix Mode views
    (a sibling of the main view, outside the form, never a modal): Back, the
-   title, a lede, one section per step that has settings in the workflow's
+   title (since §37.120 the shared sticky page header), a lede, one section per step that has settings in the workflow's
    order, and Cancel / Apply kept on screen at its foot. The model is
    `extension/src/app/workflowSettings.ts`: `WorkflowSettingsSection` is
    `issue-details | code-search | build-context | fix-with-ai`, and
@@ -2659,7 +2659,9 @@ Navigation)" (§37.77); the page and what it edits are unchanged.
    border (`--vscode-button-border`, falling back to the panel border), no fill,
    content-sized, a hover fill and a stronger border; the shared focus outline.
    Never the primary colours. Label, tooltip (*Open advanced workflow
-   settings*), placement and focus return unchanged.
+   settings*), placement and focus return unchanged. (Revised by "Workflow
+   panel groups", §37.119: a compact group whose one row is the button, with
+   a chevron.)
 
 ### Confirmed decisions (⋯ More and Reset Session)
 
@@ -3024,7 +3026,8 @@ are unchanged.
    `setCredentials` message and prompt. A named group ("Jira, Configured"); the
    button named for what it does ("Replace Jira credentials"); two sentences
    as tooltip and description. At a narrow sidebar the key drops and the
-   status ellipsizes before the action could move.
+   status ellipsizes before the action could move. (Since §37.119 the row sits
+   in a compact group of its own; the row itself still draws no border.)
 3. **Authentication failed** is no new credential state: it is the last run
    this session that asked Jira ending in the CLI's `JIRA_AUTH_FAILED`
    (`#jiraRejected`), cleared when credentials are saved or a Jira run gets its
@@ -3184,7 +3187,9 @@ View, Edit, Duplicate and Delete send the messages they always sent.
 
 1. **The page shows the workflow, not its bookkeeping.** Header: the kind
    glyph (lightbulb, or search for investigation only — never keyed on an id,
-   as for the list; since §37.116 the list's glyph for the mode), the name as the page's `h2`, one source badge (*Built-in*,
+   as for the list; since §37.116 the list's glyph for the mode), the name as the page's `h2` (since §37.120
+   in the shared page header beside Back, cut to a line with the whole name as
+   its tooltip; the hero keeps the glyph, the badge and the actions), one source badge (*Built-in*,
    *User*, *Project*), the description under them at full width. ID, Version,
    Type, Source and Based on are a term list under *Details*, closed, at the
    foot — not on the page's face.
@@ -3208,7 +3213,8 @@ View, Edit, Duplicate and Delete send the messages they always sent.
    Completion requirements become a list only along the text's own seams —
    its lines, else its sentences — and stay prose when there is one; joined
    back, the items are the text. Nothing is reworded or invented.
-5. **Back** is *Back to Fix Mode Manager* with the arrow glyph. A copy started
+5. **Back** goes to the Fix Mode Manager, with the arrow glyph (since §37.120
+   it says *Back*, the destination its tooltip). A copy started
    here returns here, also through the host's two pushes (list loading, list
    ready), with focus on the action it came from.
 6. **Delete from the page returns to the list**: the host closes a view of the
@@ -3322,7 +3328,8 @@ none is added.
    fields are fixed, and the primary action (*Create Fix Mode* with an add
    glyph, *Save Fix Mode* with a save glyph). New Fix Mode is still opened
    only by Customize copy or Duplicate, prefilled.
-2. **Head**: Back, the title, then *Create a custom AI fixing workflow.* (new)
+2. **Head**: Back, the title (since §37.120 the shared sticky page header;
+   Back's destination is its tooltip), then *Create a custom AI fixing workflow.* (new)
    or the mode's name (edit), then *Based on <origin's name>* when there is
    one. Ids and versions are tooltips (`my-safe, version 3`; `standard,
    version 1`), not text; the model keeps them.
@@ -3363,6 +3370,128 @@ none is added.
    the field marked invalid, its folded section opened, the focus on it and
    the page scrolled to it once per new message — the run form's problem
    pattern. A message naming no field stays at the top, as before.
+
+### Confirmed decisions (Workflow panel groups)
+
+Visual restructuring only (§37.119): Run, More, issue detection, Fix Mode
+selection, Hint and its two actions, Advanced Settings, Jira credentials,
+Workflow Steps, Results, stale/rebuild logic and Reset Session are unchanged;
+no script changed.
+
+1. **Six groups**, one under the other in the run form, in reading and tab
+   order: **Issue** (the field, Run, Stop, ⋯ More, its hint line, the session
+   line and the More menu), **Fix Mode** (selector and gear), **Hint** (the
+   box, Improve with AI, Include issue details, the suggestion), **Advanced
+   Settings**, **Jira**, **Workflow Steps**. Nothing of the form sits outside
+   a group.
+2. **One container style** (`.workflow-group`): the widget border at 70%, a
+   4px radius, the faintest foreground fill, 10px 12px padding, no shadow;
+   the theme's contrast border and no fill in High Contrast (since §37.121 the
+   border and fill are the shared group tokens, a cool tint; see "Group
+   surfaces"). The form is a
+   column with a 10px gap; fields inside a group are 8px apart and the last
+   is flush. At ≤ 220px the side padding is 8px and the outline stays.
+3. **Titles** are the existing label rows (glyph, name, the Issue's reading at
+   the right) and Workflow Steps' summary, now over a hairline. Issue, Fix
+   Mode and Hint are `role="group"` named by their visible label; Jira's row
+   and Workflow Steps name themselves as before.
+4. **Advanced Settings and Jira are compact groups**, a row tall.
+   Advanced Settings' row is the button — gear, name, chevron at the right, no
+   fill until pointed at (the parent in the hover selector, so the base
+   `button:hover` does not fill it; since §37.121 the fill is a small lift of
+   the group's own surface, not the toolbar's grey) — replacing §37.93's content-sized outlined
+   button. Jira's row is wrapped, not restyled: the page rewrites its class on
+   every push.
+5. **Spacing that only separated loose rows is gone**: Fix Mode's 16px/12px
+   top margin (it showed as a blank band inside the group), the Jira row's
+   and the entry's margins. Include issue details' floor is 12em so it shares
+   Improve with AI's line at 360px inside the group's padding.
+6. **No new behaviour, no new text**: the groups add no helper lines; the Fix
+   Mode description line keeps showing only what changes what happens.
+
+### Confirmed decisions (Page header)
+
+Presentation only (§37.120): where each Back goes, what it discards, where
+focus lands on arrival and on return, the commands and every form's behaviour
+are unchanged.
+
+1. **One header for every page with a way back** — Advanced Settings, Manage
+   Fix Modes, a mode's page, and the Fix Mode editor (New and Edit): one
+   helper (`pageHeader` in `html.ts`), one class set (`.page-header`,
+   `.page-back`, `.page-title`, an optional `.page-header-actions`). Back,
+   then the page's `h2` (`tabindex="-1"`, the arrival focus). The Workflow
+   view has no way back and so no header; the Reset Session question is a
+   dialog, not a page.
+2. **Back says Back.** The arrow glyph and the word; where it goes is its
+   tooltip: *Back to Workflow* (Manage Fix Modes), *Back to Workflow —
+   discards the changes* (Advanced Settings), *Back to Fix Mode Manager* (a
+   mode's page; the editor opened from the list), *Back to Fix Mode Preview*
+   (the editor opened from a mode's page). The `‹` mark and the visible
+   destination labels are gone. A toolbar-style button: no fill until hovered,
+   the focus ring on keyboard focus.
+3. **One title, in the header.** A mode's page shows its name there — cut to
+   one line, the whole name its tooltip — and no longer in its hero, which
+   keeps the glyph, the source badge, the actions and the description. The
+   editor's line under the title (what is being made or edited, *Based on…*)
+   and Manage Fix Modes' lede stay in the page, under the header.
+4. **Sticky, opaque, compact.** `position: sticky; top: 0`, above the
+   editor's and Advanced Settings' sticky footers (z-index 2 over 1), the
+   sidebar's background and a hairline under it, bleeding to the view's edges.
+   One row (34px) at 280px and up. At ≤ ~220px Back keeps the first row whole
+   and the title takes a second (55px); the title ellipsizes and never pushes
+   Back off.
+5. **Everything stays reachable.** While a page with the header shows, the
+   document's `scroll-padding-top` is 4.5rem (the two-row header and room), so
+   a scroll to a field — a refused save, a settings problem — lands below it;
+   the bottom keeps the editor's 6rem and Advanced Settings' 3.5rem. Chromium
+   scrolls a focused control only when it is off screen, not when it is under
+   a sticky bar, so after **Tab** the page brings the focused control clear of
+   both bars — its nearest edge, or its top when it is taller than the room
+   between them. Only Tab: focus from a pointer lands where the pointer is and
+   the page does not move.
+
+### Confirmed decisions (Group surfaces)
+
+Colour only (§37.121): layout, spacing, radius, structure, icons and their
+colours, Run, controls, behaviour and the native Results view are unchanged.
+The request named a reference screenshot; none was attached, so its written
+description was the target.
+
+1. **Three layers: page, group, field.** The page is VS Code's own (the body
+   stays transparent, so the sidebar's or the editor's colour); a group is a
+   tint laid over it at a few percent; a field is a layer under its group.
+2. **One set of tokens, on the body** — `--bugpilot-group-tint`,
+   `-group-bg`, `-group-bg-secondary`, `-group-hover`, `-group-border`,
+   `-group-separator`, `--bugpilot-control-bg` — on the body because VS Code
+   names the theme kind there and each kind's strengths must resolve against
+   its own tint. Rules use the tokens; no group is coloured by its id and no
+   blend is repeated.
+3. **The tint is the theme's, cool by default**: the foreground with some of
+   the focus colour (55/45 in dark kinds, 80/20 in light, so light stays a
+   cool neutral rather than blue). Dark Modern measured: page `#181818`,
+   group `#1e2225` (was `#1c1c1c`), border `#2c3841` (was `#2a2a2a`). Light
+   Modern: page `#f8f8f8`, group `#edeeef` (was `#f4f4f4`), border `#d7dadd`.
+   No literal in the stylesheet; those values are measurements, not rules.
+4. **Major and secondary.** Issue, Fix Mode, Hint and Workflow Steps share the
+   group surface (7% dark, 5% light); Advanced Settings and Jira, the compact
+   groups, a fainter one (4.5% / 3%) with the same border. Advanced Settings,
+   pointed at, lifts by a little more of the tint (it was the toolbar's grey);
+   the other groups do not respond to the pointer.
+5. **Fields under the group.** In a dark kind the Issue field, the Fix Mode
+   selector and the Hint are a well in the page's colour — the theme's input
+   colour is lighter than the group and read as the same shade. Light keeps
+   the theme's white, which is already the clearest layer. The theme's input
+   border and focus ring are unchanged; the focus ring stays the strongest
+   line.
+6. **Workflow Steps' rows have no surface** — lines in their group, the group
+   separator between them and under the title — never six nested cards. No
+   row hover: the rows have no side padding, so a fill would touch the text.
+7. **High Contrast** keeps the theme's system: no fill, the contrast border,
+   native fields, the separator at the panel border's full strength (the
+   title's hairline was half strength before), the hover expression as
+   before. Its block comes after the others so it wins wherever two kinds'
+   classes meet.
+
 
 ---
 

@@ -121,6 +121,8 @@ interface TextField {
   readonly extra?: string;
   /** A tooltip for the label and the control: what the field is for, when no helper line says it. */
   readonly title?: string;
+  /** An id for the label, for a group the label names (§37.119). */
+  readonly labelId?: string;
 }
 
 /**
@@ -181,7 +183,7 @@ const ISSUE_HELP =
  * description (§37.104).
  */
 const ISSUE_FIELD = `      <div class="field" id="field-issue">
-${settingHeader({ forId: "issue", label: "Issue", icon: "issues", tone: "primary", title: ISSUE_HELP, note: true })}
+${settingHeader({ forId: "issue", label: "Issue", icon: "issues", tone: "primary", title: ISSUE_HELP, note: true, labelId: "issue-label" })}
         <textarea id="issue" name="issue" rows="1" placeholder="Describe the bug or enter a Jira ID" title="${ISSUE_HELP}" aria-describedby="issue-note issue-error issue-help"></textarea>
         <p class="visually-hidden" id="issue-help">${ISSUE_HELP}</p>
         <p class="visually-hidden" id="issue-kind" role="status"></p>
@@ -255,6 +257,7 @@ ${settingHeader({
   icon: "lightbulb",
   tone: "primary",
   title: FIX_MODE_HELP,
+  labelId: "fixModeId-label",
 })}
           <div class="fix-mode-row">
             <select id="fixModeId" name="fixModeId" aria-describedby="fixModeId-description">
@@ -294,6 +297,7 @@ const GUIDANCE_FIELDS: readonly TextField[] = [
     placeholder: "Add technical guidance or suspected areas",
     title: HINT_HELP,
     extra: HINT_IMPROVEMENT,
+    labelId: "hint-label",
   },
 ];
 
@@ -779,6 +783,14 @@ export function panelHtml(options: PanelHtmlOptions): string {
 
     <form id="form" autocomplete="off">
 
+      <!--
+        The run form as six groups (§37.119), one under the other, in the
+        order they are read and tabbed through: Issue (with Run and More),
+        Fix Mode, Hint (with Improve with AI and Include issue details),
+        Advanced Settings, Jira, Workflow Steps. Each is a quiet container
+        named by its own title, so no control sits between two of them.
+      -->
+      <div class="workflow-group" id="group-issue" role="group" aria-labelledby="issue-label">
 ${ISSUE_FIELD}
 
       <!--
@@ -820,31 +832,44 @@ ${ISSUE_FIELD}
 ${RESET_MENU_ITEM}
 ${MORE_ACTIONS.map(menuItem).join("\n")}
       </div>
+      </div>
 
       <!--
         How the AI should approach the issue, and any guidance for it: optional
         tuning for the run above, in the order they are read and tabbed through
-        (§37.84, §37.102).
+        (§37.84, §37.102) — each its own group (§37.119).
       -->
+      <div class="workflow-group" id="group-fix-mode" role="group" aria-labelledby="fixModeId-label">
 ${FIX_MODE_FIELD}
+      </div>
+      <div class="workflow-group" id="group-hint" role="group" aria-labelledby="hint-label">
 ${GUIDANCE_FIELDS.map(field).join("\n")}
+      </div>
 
       <!--
         Advanced Settings (§37.91): the one page where every step's settings live
         (app/workflowSettings.ts), also reached from each row's gear. After the
         main page's own settings and above the workflow — with the inputs, not
         after the results, where it read as part of the review above
-        Diagnostics. A compact secondary button (§37.93): findable, and never a
-        second primary beside Run, Fix with AI or Review with AI. Its name is
-        its visible text; the tooltip says where it goes.
+        Diagnostics. Since §37.119 a compact group of its own that is one
+        row: the whole row the button — the gear, its name, a chevron for
+        "goes somewhere" — quieter than the groups above, and never a second
+        primary beside Run, Fix with AI or Review with AI. Its name is its
+        visible text; the tooltip says where it goes.
       -->
-      <div class="settings-entry">
+      <div class="workflow-group workflow-compact-group settings-entry" id="group-settings">
         <button type="button" id="open-settings" class="settings-open" title="Open advanced workflow settings">
           <span class="codicon codicon-settings-gear" aria-hidden="true"></span>
           <span class="settings-open-label">Advanced Settings</span>
+          <span class="codicon codicon-chevron-right settings-open-chevron" aria-hidden="true"></span>
         </button>
       </div>
+      <!-- The Jira row in a compact group of its own (§37.119). The container
+           is a wrapper, not the row: the page rewrites the row's class on
+           every push. -->
+      <div class="workflow-group workflow-compact-group" id="group-jira">
 ${JIRA_ROW}
+      </div>
 
       <!--
         A disclosure rather than a section, since UI-A1, so a developer can fold
@@ -856,7 +881,7 @@ ${JIRA_ROW}
         (a run starting, a new card, a reopened work item with results), never
         on an ordinary push, so a developer who folds it keeps it folded.
       -->
-      <details class="group" id="workflow" aria-labelledby="workflow-heading" open>
+      <details class="workflow-group" id="workflow" aria-labelledby="workflow-heading" open>
         <summary class="workflow-summary">
           <span class="codicon codicon-list-unordered workflow-icon" aria-hidden="true"></span>
           <h2 id="workflow-heading">Workflow Steps</h2>
@@ -889,14 +914,14 @@ ${FIX_RESULT_ROW}
 ${settingsView()}
 
   <section id="fix-mode-manager-view" class="view" aria-labelledby="manage-heading" hidden>
-    <div class="view-head">
-      <button type="button" id="manage-back" class="link view-back">
-        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
-        Back
-      </button>
-      <h2 id="manage-heading" class="view-title" tabindex="-1" aria-describedby="manage-lede">Manage Fix Modes</h2>
-      <p class="muted view-lede" id="manage-lede">Choose and customize AI fix workflows.</p>
-    </div>
+${pageHeader({
+  backId: "manage-back",
+  backTitle: "Back to Workflow",
+  titleId: "manage-heading",
+  title: "Manage Fix Modes",
+  titleAttributes: ` aria-describedby="manage-lede"`,
+})}
+    <p class="muted view-lede" id="manage-lede">Choose and customize AI fix workflows.</p>
     <p id="manage-error" class="error" role="alert" hidden></p>
     <p id="manage-success" class="success" role="status" hidden></p>
     <p id="manage-detail" class="muted" hidden></p>
@@ -919,22 +944,16 @@ ${settingsView()}
     the version and the type are in Details, closed, at the foot.
   -->
   <section id="fix-mode-preview-view" class="view" aria-labelledby="preview-heading" hidden>
-    <div class="view-head preview-head">
-      <button type="button" id="preview-back" class="link view-back preview-back">
-        <span class="codicon codicon-arrow-left" aria-hidden="true"></span>
-        <span>Back to Fix Mode Manager</span>
-      </button>
-      <div class="preview-hero">
-        <div class="preview-hero-top">
-          <span class="codicon codicon-lightbulb preview-icon" id="preview-icon" aria-hidden="true"></span>
-          <div class="preview-title-row">
-            <h2 id="preview-heading" class="view-title preview-title" tabindex="-1"></h2>
-            <span class="preview-source" id="preview-source"></span>
-          </div>
-          <div class="preview-actions" id="preview-actions"></div>
-        </div>
-        <p id="preview-description" class="preview-description"></p>
+${pageHeader({ backId: "preview-back", backTitle: "Back to Fix Mode Manager", titleId: "preview-heading" })}
+    <!-- Under the header, which names the mode (§37.120): its glyph, where it
+         comes from and its action on one line, its description under them. -->
+    <div class="preview-hero">
+      <div class="preview-hero-top">
+        <span class="codicon codicon-lightbulb preview-icon" id="preview-icon" aria-hidden="true"></span>
+        <span class="preview-source" id="preview-source"></span>
+        <div class="preview-actions" id="preview-actions"></div>
       </div>
+      <p id="preview-description" class="preview-description"></p>
     </div>
     <p id="preview-error" class="error" role="alert" hidden></p>
     <p id="preview-success" class="success" role="status" hidden></p>
@@ -1075,6 +1094,39 @@ function sectionBody(section: WorkflowSettingsSection): string {
  */
 const SETTINGS_LEDE = "Configure workflow inputs and limits. Changes apply when you press Apply. Back and Cancel discard them.";
 
+/**
+ * A secondary page's header (§37.120): Back and the page's title on one row —
+ * the title under Back when a narrow sidebar cannot fit both — held at the
+ * top of the panel while the page scrolls under it. One renderer for every
+ * page that has a way back (Advanced Settings, Manage Fix Modes, a Fix Mode's
+ * page, New / Edit Fix Mode), so they cannot drift apart again.
+ *
+ * The visible words are always "Back"; where it goes is the button's tooltip
+ * (and so its description), because the page's title already says where you
+ * are. The title is the page's `h2` — the heading the view is named by and the
+ * focus lands on — cut to one line with an ellipsis, so nothing pushes Back
+ * off. `actions` is a slot at the right for a page that needs one; none does
+ * yet.
+ */
+function pageHeader(options: {
+  readonly backId: string;
+  readonly backTitle: string;
+  readonly titleId: string;
+  readonly title?: string;
+  /** More attributes for the heading: a tooltip, a description. */
+  readonly titleAttributes?: string;
+  /** Anything else that belongs to the header, such as a visually hidden description. */
+  readonly extra?: string;
+  readonly actions?: string;
+}): string {
+  const actions = options.actions ? `\n      <div class="page-header-actions">${options.actions}</div>` : "";
+  const extra = options.extra ? `\n${options.extra}` : "";
+  return `    <div class="page-header">
+      <button type="button" id="${options.backId}" class="page-back" title="${options.backTitle}"><span class="codicon codicon-arrow-left" aria-hidden="true"></span><span class="page-back-label">Back</span></button>
+      <h2 id="${options.titleId}" class="page-title" tabindex="-1"${options.titleAttributes ?? ""}>${options.title ?? ""}</h2>${actions}${extra}
+    </div>`;
+}
+
 function settingsView(): string {
   const sections = WORKFLOW_SETTINGS_SECTIONS.map(
     (section) => `    <section class="settings-section" id="settings-section-${section}" aria-labelledby="settings-title-${section}">
@@ -1086,14 +1138,14 @@ ${sectionBody(section)}
     </section>`,
   ).join("\n\n");
   return `  <section id="workflow-settings-view" class="view" aria-labelledby="settings-heading" hidden>
-    <div class="view-head">
-      <button type="button" id="settings-back" class="link view-back">
-        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
-        Back
-      </button>
-      <h2 id="settings-heading" class="view-title" tabindex="-1" title="${SETTINGS_LEDE}" aria-describedby="settings-lede">Advanced Settings</h2>
-      <p class="visually-hidden" id="settings-lede">${SETTINGS_LEDE}</p>
-    </div>
+${pageHeader({
+  backId: "settings-back",
+  backTitle: "Back to Workflow — discards the changes",
+  titleId: "settings-heading",
+  title: "Advanced Settings",
+  titleAttributes: ` title="${SETTINGS_LEDE}" aria-describedby="settings-lede"`,
+  extra: `      <p class="visually-hidden" id="settings-lede">${SETTINGS_LEDE}</p>`,
+})}
 
 ${sections}
 
@@ -1144,6 +1196,8 @@ function settingHeader(options: {
   readonly help?: string;
   /** A decorative warning mark after the label, for a setting that deletes work. */
   readonly warning?: boolean;
+  /** An id for the label, so the group it heads can be named by it (§37.119). */
+  readonly labelId?: string;
 }): string {
   // The tone is a class, never an inline style: the colours belong to the
   // stylesheet, where a theme can be reasoned about in one place.
@@ -1162,6 +1216,7 @@ function settingHeader(options: {
       ? `<p class="visually-hidden" id="${options.forId}-hint">${options.help}</p>`
       : "";
   const labelClass = options.labelClass ? ` class="${options.labelClass}"` : "";
+  const labelId = options.labelId ? ` id="${options.labelId}"` : "";
   const tooltip = options.title ?? options.help;
   const title = tooltip ? ` title="${tooltip}"` : "";
   const rebuild = options.rebuild ? `<span class="rebuild-label" id="${options.forId}-rebuild">${REQUIRES_REBUILD_LABEL}</span>` : "";
@@ -1170,7 +1225,7 @@ function settingHeader(options: {
     ? `<span class="codicon codicon-warning setting-warning icon-warning" aria-hidden="true"></span>`
     : "";
   return `      <div class="setting-header">
-        <label${labelClass} for="${options.forId}"${title}>${icon}${options.control ?? ""}${options.label}${warning}</label>
+        <label${labelClass} for="${options.forId}"${labelId}${title}>${icon}${options.control ?? ""}${options.label}${warning}</label>
         ${note}${rebuild}${hint}
       </div>`;
 }
@@ -1210,6 +1265,7 @@ ${settingHeader({
     ...(entry.hint === undefined ? {} : { hint: entry.hint }),
     ...(entry.help === undefined ? {} : { help: entry.help }),
     ...(entry.title === undefined ? {} : { title: entry.title }),
+    ...(entry.labelId === undefined ? {} : { labelId: entry.labelId }),
     rebuild: isSettingsField(entry.id) && showsRebuildLabel(entry.id),
   })}
       ${control}
@@ -1708,12 +1764,15 @@ function editorDescribed(id: string, hint: boolean): string {
  * that stays at the bottom of the panel while the page scrolls.
  */
 const EDITOR_VIEW = `  <section id="fix-mode-editor-view" class="view fix-mode-editor" aria-labelledby="editor-title" hidden>
-    <div class="view-head editor-head">
-      <button type="button" id="editor-back" class="link view-back">
-        <span class="view-back-mark" aria-hidden="true">&lsaquo;</span>
-        <span id="editor-back-label">Back to Fix Mode Manager</span>
-      </button>
-      <h2 id="editor-title" class="view-title" tabindex="-1" aria-describedby="editor-subject"></h2>
+${pageHeader({
+  backId: "editor-back",
+  backTitle: "Back to Fix Mode Manager",
+  titleId: "editor-title",
+  titleAttributes: ` aria-describedby="editor-subject"`,
+})}
+    <!-- Under the header, which says New or Edit (§37.120): what is being
+         edited — or, new, what the page is for — and where it came from. -->
+    <div class="editor-head">
       <p id="editor-subject" class="editor-subject"></p>
       <p id="editor-origin" class="muted editor-origin" hidden></p>
     </div>

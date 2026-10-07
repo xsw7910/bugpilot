@@ -3552,6 +3552,84 @@ test("the detail header: a glyph, the name as the heading, its source and descri
   assert.equal(project.byId("preview-source").textContent, "Project");
 });
 
+test("the page header names the mode once, whole on hover, and Back still goes to the list (§37.120)", () => {
+  const page = load();
+  page.send(opened({ ...TEST_DRIVEN_VIEW, name: "A long custom name that a narrow sidebar cuts short" }));
+  // In the header, cut to a line there by the stylesheet: the whole name as
+  // its tooltip, and nowhere else on the page's face.
+  assert.equal(page.byId("preview-heading").textContent, "A long custom name that a narrow sidebar cuts short");
+  assert.equal(page.byId("preview-heading").title, "A long custom name that a narrow sidebar cuts short");
+  // Back's words are Back; it still asks the host for the list.
+  page.byId("preview-back").dispatch("click");
+  assert.deepEqual(page.posted.at(-1), { type: "manageFixModes" });
+});
+
+/**
+ * A control on a page with the sticky header, laid out as the test says: the
+ * header ends at 55px, the footer (when there is one) starts at 541px.
+ */
+function barredControl(box: { top: number; bottom: number }, where: "page" | "header" | "footer" = "page", footer = true) {
+  const scrolls: unknown[] = [];
+  const control = {
+    getBoundingClientRect: () => ({ ...box, height: box.bottom - box.top }),
+    scrollIntoView: (options: unknown) => scrolls.push(options),
+    closest: (selector: string) => (selector === ".view" ? view : null),
+  };
+  const header = { contains: (node: unknown) => where === "header" && node === control, getBoundingClientRect: () => ({ bottom: 55 }) };
+  const footerBar = { contains: (node: unknown) => where === "footer" && node === control, getBoundingClientRect: () => ({ top: 541 }) };
+  const view = {
+    querySelector: (selector: string) => (selector === ".page-header" ? header : footer ? footerBar : null),
+  };
+  return { control, scrolls };
+}
+
+test("Tab onto a control under the sticky header or footer brings it clear; a click does not (§37.120)", () => {
+  const page = load();
+  const tab = (target: unknown) => {
+    page.dispatchDocument("keydown", { key: "Tab" });
+    page.dispatchDocument("focusin", { target });
+  };
+
+  // Its top under the header (focus() alone leaves it there): the nearest edge.
+  const underHeader = barredControl({ top: 20, bottom: 80 });
+  tab(underHeader.control);
+  assert.deepEqual(underHeader.scrolls, [{ block: "nearest" }]);
+
+  // Under the footer, likewise.
+  const underFooter = barredControl({ top: 520, bottom: 580 });
+  tab(underFooter.control);
+  assert.deepEqual(underFooter.scrolls, [{ block: "nearest" }]);
+
+  // Taller than the room between the bars: its top, where the caret is.
+  const tall = barredControl({ top: -142, bottom: 361 });
+  tab(tall.control);
+  assert.deepEqual(tall.scrolls, [{ block: "start" }]);
+
+  // Already clear, or one of the bars' own controls: left where it is.
+  for (const [box, where] of [[{ top: 60, bottom: 90 }, "page"], [{ top: 6, bottom: 28 }, "header"], [{ top: 548, bottom: 570 }, "footer"]] as const) {
+    const still = barredControl(box, where);
+    tab(still.control);
+    assert.deepEqual(still.scrolls, [], `${where} ${box.top}-${box.bottom}`);
+  }
+
+  // Focus from a pointer lands where the pointer is: the page does not move.
+  const clicked = barredControl({ top: 20, bottom: 80 });
+  page.dispatchDocument("keydown", { key: "Tab" });
+  page.dispatchDocument("pointerdown", {});
+  page.dispatchDocument("focusin", { target: clicked.control });
+  assert.deepEqual(clicked.scrolls, []);
+
+  // Another key does not count as Tab; and one Tab is spent on one focus.
+  const typed = barredControl({ top: 20, bottom: 80 });
+  page.dispatchDocument("keydown", { key: "a" });
+  page.dispatchDocument("focusin", { target: typed.control });
+  assert.deepEqual(typed.scrolls, []);
+  tab(barredControl({ top: 60, bottom: 90 }).control);
+  const after = barredControl({ top: 20, bottom: 80 });
+  page.dispatchDocument("focusin", { target: after.control });
+  assert.deepEqual(after.scrolls, []);
+});
+
 test("the page's face says no id, no version and no type; Details does, closed (§37.115)", () => {
   const page = load();
   page.send(opened(TEST_DRIVEN_VIEW));
@@ -3706,7 +3784,7 @@ test("duplicating from the manager opens New Fix Mode and comes back to the mana
   page.send(opened(COPY));
   assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
   assert.equal(page.byId("editor-title").textContent, "New Fix Mode");
-  assert.equal(page.byId("editor-back-label").textContent, "Back to Fix Mode Manager");
+  assert.equal(page.byId("editor-back").title, "Back to Fix Mode Manager");
 
   page.byId("editor-cancel").dispatch("click");
   page.send(manager()); // the host dropped the draft
@@ -3724,7 +3802,7 @@ test("duplicating from a preview comes back to the preview, not the list", () =>
   previewAction(page, "Customize copy").dispatch("click");
   page.send(opened(COPY));
   assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
-  assert.equal(page.byId("editor-back-label").textContent, "Back to Fix Mode Preview");
+  assert.equal(page.byId("editor-back").title, "Back to Fix Mode Preview");
 
   page.byId("editor-save").dispatch("click");
   page.send(manager()); // a successful create closes the editor
@@ -3809,7 +3887,7 @@ test("Edit opens Edit Fix Mode, and never New", () => {
   page.send(opened(DRAFT));
   assert.deepEqual(visible(page), ["fix-mode-editor-view"]);
   assert.equal(page.byId("editor-title").textContent, "Edit Fix Mode");
-  assert.equal(page.byId("editor-back-label").textContent, "Back to Fix Mode Manager");
+  assert.equal(page.byId("editor-back").title, "Back to Fix Mode Manager");
   assert.equal(page.byId("editor-subject").textContent, "My Safe Fix");
   assert.equal(page.byId("editor-save-label").textContent, "Save Fix Mode");
 

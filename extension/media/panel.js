@@ -3469,6 +3469,8 @@
     previewSignature = signature;
 
     byId("preview-heading").textContent = draft.name || draft.id;
+    // The header holds the name to one line; the whole of it on hover.
+    byId("preview-heading").title = draft.name || draft.id;
     // Who it belongs to, in a word beside the name: the only fact about it on
     // the page's face. A built-in is read-only, and its action says so.
     byId("preview-source").textContent = SOURCE_LABELS[draft.source] || draft.source || "";
@@ -3979,7 +3981,9 @@
     // so a New Fix Mode can never be mistaken for an edit of the mode it copied.
     const creating = draft.intent === "create";
     byId("editor-title").textContent = creating ? "New Fix Mode" : "Edit Fix Mode";
-    byId("editor-back-label").textContent =
+    // Back's words are always "Back" (§37.120); where it goes — the list, or
+    // the mode a copy was started from — is its tooltip and description.
+    byId("editor-back").title =
       duplicateOrigin === "preview" ? "Back to Fix Mode Preview" : "Back to Fix Mode Manager";
 
     // What is being edited — or, for a new mode, what the page is for — and
@@ -4190,6 +4194,44 @@
     });
   }
   byId("fix-mode-editor-view").addEventListener("input", (event) => grow(event.target));
+
+  /**
+   * Keyboard focus that lands behind a page's sticky header or footer is
+   * brought clear of both (§37.120). Chromium scrolls a focused control into
+   * view only when it is off screen; one under a sticky bar is on screen to it,
+   * and the scroll padding that keeps `scrollIntoView` clear of the bars is not
+   * consulted (measured: Implementation focused with its top 35px under the
+   * header, no scroll). So after a Tab the page does it — the nearest edge, or
+   * the control's top, where the caret is, when it is taller than the room
+   * between the bars. Only for Tab: a click lands where the pointer is, and
+   * moving the page under it would be the opposite of help.
+   */
+  let tabbing = false;
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab") tabbing = true;
+  }, true);
+  document.addEventListener("pointerdown", () => {
+    tabbing = false;
+  }, true);
+  document.addEventListener("focusin", (event) => {
+    if (!tabbing) return;
+    tabbing = false;
+    keepClearOfBars(event.target);
+  });
+
+  function keepClearOfBars(element) {
+    if (!element || typeof element.closest !== "function" || typeof element.getBoundingClientRect !== "function") return;
+    const view = element.closest(".view");
+    const header = view && view.querySelector(".page-header");
+    if (!header || header.contains(element)) return;
+    const footer = view.querySelector(".editor-footer, .settings-actions");
+    if (footer && footer.contains(element)) return;
+    const top = header.getBoundingClientRect().bottom;
+    const bottom = footer ? footer.getBoundingClientRect().top : window.innerHeight;
+    const box = element.getBoundingClientRect();
+    if (box.top >= top && box.bottom <= bottom) return;
+    element.scrollIntoView({ block: box.height > bottom - top ? "start" : "nearest" });
+  }
 
   // --- wiring --------------------------------------------------------------
 
