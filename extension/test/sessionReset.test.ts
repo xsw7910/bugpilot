@@ -67,21 +67,41 @@ const USED: FormState = {
   similarMaxFixes: "2",
   fresh: true,
   branchPolicy: "ask",
+  repositoryProfile: "custom",
+  repositoryLanguages: "C++, Python",
+  repositoryFrameworks: "Qt",
+  repositoryApplicationType: "Desktop application",
+  repositoryBuildSystem: "CMake",
+  repositoryTestFramework: "Catch2",
+  repositoryNotes: "Keep the plugin ABI stable.",
 };
 
 // --- the form ---------------------------------------------------------------
 
-test("every form field is classified, and only the AI Agent and branch policy preferences are kept", () => {
+test("every form field is classified, and only the AI Agent, branch policy and repository profile are kept", () => {
   // The Record makes a missing field a compile error; this makes an extra one a
   // test failure, and states the decision in one line. The branch policy is how
-  // the developer works with branches, not anything about this issue (§37.127).
+  // the developer works with branches, not anything about this issue (§37.127);
+  // the Repository Profile is a copy of the repository's own file, which a
+  // session reset never touches (pre-release Batch 1).
   assert.deepEqual(Object.keys(FORM_FIELD_SCOPE).sort(), Object.keys(DEFAULT_FORM).sort());
   assert.deepEqual(
     Object.entries(FORM_FIELD_SCOPE)
       .filter(([, scope]) => scope === "preference")
       .map(([field]) => field)
       .sort(),
-    ["agent", "agentCommand", "branchPolicy"],
+    [
+      "agent",
+      "agentCommand",
+      "branchPolicy",
+      "repositoryApplicationType",
+      "repositoryBuildSystem",
+      "repositoryFrameworks",
+      "repositoryLanguages",
+      "repositoryNotes",
+      "repositoryProfile",
+      "repositoryTestFramework",
+    ],
   );
   // The fields this feature names as the session's, by name.
   for (const field of [

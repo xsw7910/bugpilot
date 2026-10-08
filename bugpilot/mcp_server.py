@@ -41,6 +41,7 @@ from mcp.server.mcpserver import MCPServer
 # sees only "Error executing tool <name>", losing every actionable hint.
 from mcp.server.mcpserver.exceptions import ToolError
 
+from bugpilot import __version__
 from bugpilot.core import errors, handoff, workflow
 from bugpilot.core.artifacts import CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_ARTIFACT
 from bugpilot.core.branch_policy import check_branch_policy
@@ -279,7 +280,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
     bound = _Bound(repo_root=resolve_repo_root(str(repo_root) if repo_root else None))
     server: MCPServer = MCPServer(
         name="bugpilot",
-        version="0.1.0",
+        version=__version__,
         instructions=INSTRUCTIONS,
     )
 

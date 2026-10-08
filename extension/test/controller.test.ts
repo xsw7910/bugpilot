@@ -6,6 +6,7 @@ import nodePath from "node:path";
 import { COMMANDS } from "../src/commands.ts";
 
 import { Controller } from "../src/app/controller.ts";
+import type { RepositoryProfileOutcome, RepositoryProfilePayload } from "../src/app/repositoryProfile.ts";
 import type { ControllerPorts, RunOptions } from "../src/app/controller.ts";
 import { DEFAULT_FORM, restoreForm } from "../src/app/form.ts";
 import { JIRA_API_TOKENS_URL } from "../src/app/jiraConnection.ts";
@@ -143,7 +144,11 @@ interface HarnessOptions {
   readonly aborted?: boolean;
   readonly foreignVersion?: number;
   readonly stderr?: string;
+  /** The streaming run's exit code; 0 unless a test says otherwise. */
+  readonly exitCode?: number;
   readonly streamThrows?: Error;
+  /** The Repository Profile port; absent means the host has none. */
+  readonly repositoryProfile?: NonNullable<ControllerPorts["repositoryProfile"]>;
   /** A function may answer later, which is how a test holds a request open. */
   readonly json?: Envelope | (() => Envelope | Promise<Envelope>);
   readonly jsonThrows?: Error;
@@ -273,7 +278,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         }
         return {
           result: {
-            code: options.aborted ? null : 0,
+            code: options.aborted ? null : (options.exitCode ?? 0),
             stdout: "",
             stderr: options.stderr ?? "",
             aborted: options.aborted ?? runOptions.signal?.aborted ?? false,
@@ -400,6 +405,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     saveForm: (form) => saved.push(form),
     saveWorkItem: (workItemId) => savedWorkItems.push(workItemId),
     ...(options.deleteArtifacts === undefined ? {} : { deleteWorkItemArtifacts: options.deleteArtifacts }),
+    ...(options.repositoryProfile === undefined ? {} : { repositoryProfile: options.repositoryProfile }),
     ...(options.fixModes === undefined
       ? {}
       : {
@@ -10988,4 +10994,288 @@ test("Results 4: reopening a work item from History fills Current again — once
   assert.equal(new Set(current).size, current.length, "a file is listed twice");
   assert.equal(tree.currentRow().description, "JR-1");
   assert.deepEqual(await tree.root(), ["Current", "History", "Diagnostics"]);
+});
+
+
+// --- Pre-release Batch 1: an out-of-date or missing CLI (D) -------------------
+
+const ARGPARSE_REJECTION =
+  "usage: bugpilot [-h] [--version] {setup,doctor,bug} ...\n" +
+  "bugpilot: error: unrecognized arguments: --replace-attachments --branch-policy=current --description=the secret bug\n";
+
+test("an old CLI that rejects this extension's flags is said to be out of date, not to have crashed", async () => {
+  const h = harness({ terminated: false, exitCode: 2, stderr: ARGPARSE_REJECTION });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  const failure = h.last().progress.failure!;
+  assert.equal(failure.code, "CLI_OUTDATED");
+  assert.equal(failure.summary, "BugPilot CLI is out of date.");
+  assert.equal(failure.retryable, false, "retrying the same CLI fails the same way");
+  // What it rejected, by flag name only: the description never reaches the card.
+  assert.equal(
+    failure.detail,
+    "The installed bugpilot does not accept: --replace-attachments, --branch-policy, --description.",
+  );
+  const card = h.last().runError!;
+  assert.equal(card.title, "BugPilot CLI is out of date");
+  assert.match(card.message, /This version of the extension requires a newer BugPilot CLI\./);
+  assert.deepEqual(card.action, { title: "Update Instructions", command: "bugpilot.showInstallInstructions" });
+  // Never argparse's usage text as the message.
+  assert.equal(/usage:|unrecognized arguments|the secret bug/.test(`${card.title} ${card.message} ${card.detail ?? ""}`), false);
+  // And the environment card offers the way out: update, choose another, check again.
+  const readiness = h.last().readiness;
+  assert.equal(readiness.kind, "blocked");
+  if (readiness.kind === "blocked") {
+    assert.equal(readiness.summary, "BugPilot CLI is out of date.");
+    assert.deepEqual(
+      readiness.actions.map((action) => [action.title, action.command]),
+      [
+        ["Update Instructions", "bugpilot.showInstallInstructions"],
+        ["Choose Executable", "bugpilot.chooseExecutable"],
+        ["Retry", "bugpilot.checkEnvironment"],
+      ],
+    );
+  }
+});
+
+test("an ordinary usage error with exit code 2 is not taken for an out-of-date CLI", async () => {
+  const h = harness({
+    terminated: false,
+    exitCode: 2,
+    stderr: "usage: bugpilot bug ...\nbugpilot bug: error: argument --max-files: invalid int value: 'x'\n",
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  assert.equal(h.last().progress.failure?.code, "INTERNAL_ERROR");
+  assert.match(h.last().progress.failure?.summary ?? "", /stopped before finishing/);
+  assert.equal(h.last().readiness.kind, "ready");
+});
+
+test("'unrecognized arguments' text with another exit code is not taken for an out-of-date CLI", async () => {
+  const h = harness({ terminated: false, exitCode: 1, stderr: "error: unrecognized arguments: --x\n" });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+
+  assert.equal(h.last().progress.failure?.code, "INTERNAL_ERROR");
+  assert.equal(h.last().readiness.kind, "ready");
+});
+
+test("a CLI that vanished since start-up is said to be missing, and the environment is checked again", async () => {
+  let checks = 0;
+  const missing = Object.assign(new Error("spawn bugpilot ENOENT"), { code: "ENOENT" });
+  const h = harness({
+    streamThrows: missing,
+    environment: (): Environment => {
+      checks += 1;
+      return checks === 1
+        ? { kind: "ready", executable: "bugpilot", root: ROOT, report: {} }
+        : {
+            kind: "unusable-cli",
+            root: ROOT,
+            verdict: { kind: "not-found", executable: "bugpilot", detail: "not on PATH" },
+            summary: "bugpilot was not found.",
+            action: "Install it.",
+            actions: [{ title: "Install Instructions", command: "bugpilot.showInstallInstructions" }],
+          };
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm());
+  await h.controller.refreshEnvironment();
+
+  const failure = h.last().progress.failure!;
+  assert.equal(failure.code, "CLI_NOT_FOUND");
+  assert.equal(failure.summary, "BugPilot CLI was not found.");
+  assert.equal(failure.retryable, false);
+  assert.equal(h.last().runError?.title, "BugPilot CLI was not found");
+  assert.deepEqual(h.last().runError?.action, { title: "Install Instructions", command: "bugpilot.showInstallInstructions" });
+  assert.ok(checks >= 2, "the environment was not checked again");
+  assert.equal(h.last().readiness.kind, "blocked");
+});
+
+// --- Pre-release Batch 1: the Repository Profile (F) --------------------------
+
+const NO_DETAILS = {
+  languages: "",
+  frameworks: "",
+  application_type: "",
+  build_system: "",
+  test_framework: "",
+  notes: "",
+} as const;
+
+function profilePort(initial: RepositoryProfilePayload, detected = "C++ · Qt · CMake") {
+  const saves: RepositoryProfilePayload[] = [];
+  let current = initial;
+  let loads = 0;
+  const snapshot = (): RepositoryProfileOutcome => ({
+    kind: "loaded",
+    snapshot: { profile: current, detected, saved: true, warnings: [] },
+  });
+  return {
+    saves,
+    loads: () => loads,
+    set: (profile: RepositoryProfilePayload) => {
+      current = profile;
+    },
+    port: {
+      load: async () => {
+        loads += 1;
+        return snapshot();
+      },
+      save: async (profile: RepositoryProfilePayload) => {
+        saves.push(profile);
+        current = profile;
+        return snapshot();
+      },
+    } satisfies NonNullable<ControllerPorts["repositoryProfile"]>,
+  };
+}
+
+test("the repository's profile file is put on the form when the environment resolves", async () => {
+  const profile = profilePort({ mode: "custom", custom: { ...NO_DETAILS, languages: "Go" } });
+  const h = harness({ repositoryProfile: profile.port });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().form?.repositoryProfile, "custom");
+  assert.equal(h.last().form?.repositoryLanguages, "Go");
+  // What Auto-detect finds is the host's line, for the Auto-detect choice only.
+  assert.deepEqual(h.last().repositoryProfile?.lines, { auto: "Detected: C++ · Qt · CMake", generic: "", custom: "" });
+  // Nothing was written: reading is not saving.
+  assert.equal(profile.saves.length, 0);
+});
+
+test("an old CLI without the repository-profile command is blocked as out of date before any Run", async () => {
+  const h = harness({
+    repositoryProfile: {
+      load: async () => ({ kind: "outdated", rejected: ["repository-profile"] }),
+      save: async () => ({ kind: "outdated", rejected: ["repository-profile"] }),
+    },
+  });
+  await h.controller.refreshEnvironment();
+
+  const readiness = h.last().readiness;
+  assert.equal(readiness.kind, "blocked");
+  if (readiness.kind === "blocked") {
+    assert.equal(readiness.summary, "BugPilot CLI is out of date.");
+    assert.match(readiness.action ?? "", /does not accept: repository-profile/);
+    assert.deepEqual(readiness.actions.map((action) => action.title), ["Update Instructions", "Choose Executable", "Retry"]);
+  }
+  await h.controller.run(jiraForm());
+  assert.equal(h.streamRuns.length, 0, "a Run started on a CLI known to be too old");
+});
+
+test("a profile that cannot be read leaves the form's copy and says nothing about detection", async () => {
+  const h = harness({
+    form: jiraForm({ repositoryProfile: "generic" }),
+    repositoryProfile: {
+      load: async () => ({ kind: "failed", message: "boom" }),
+      save: async () => ({ kind: "failed", message: "boom" }),
+    },
+  });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().readiness.kind, "ready");
+  assert.equal(h.last().form?.repositoryProfile, "generic");
+  assert.deepEqual(h.last().repositoryProfile?.lines, { auto: "", generic: "", custom: "" });
+  assert.ok(h.logged.some((line) => line.includes("Reading the repository profile failed: boom")));
+});
+
+test("Apply writes a changed profile to the repository, and a Run sends no profile flag", async () => {
+  const profile = profilePort({ mode: "auto", custom: NO_DETAILS });
+  const h = harness({ repositoryProfile: profile.port, events: successfulRun });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(applySettings(jiraForm({ repositoryProfile: "custom", repositoryLanguages: "  Rust,\n Go  " })));
+
+  assert.equal(profile.saves.length, 1);
+  assert.equal(profile.saves[0]!.mode, "custom");
+  assert.equal(profile.saves[0]!.custom.languages, "Rust, Go", "saved the way the CLI stores it");
+  await h.controller.run(jiraForm({ repositoryProfile: "custom", repositoryLanguages: "Rust, Go" }));
+  assert.equal(h.streamRuns[0]!.args.some((arg) => arg.startsWith("--repository-profile")), false);
+});
+
+test("Apply with an unchanged profile writes nothing", async () => {
+  const profile = profilePort({ mode: "auto", custom: NO_DETAILS });
+  const h = harness({ repositoryProfile: profile.port });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(applySettings(jiraForm({ maxFiles: "5" })));
+
+  assert.equal(profile.saves.length, 0);
+});
+
+test("a profile that could not be saved is said so, and the form goes back to the file's", async () => {
+  const h = harness({
+    repositoryProfile: {
+      load: async () => ({ kind: "loaded", snapshot: { profile: { mode: "auto", custom: NO_DETAILS }, detected: "", saved: false, warnings: [] } }),
+      save: async () => ({ kind: "failed", message: "Refusing: .bugpilot is a symbolic link or junction." }),
+    },
+  });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(applySettings(jiraForm({ repositoryProfile: "generic", maxFiles: "5" })));
+
+  assert.ok(h.notices.some((notice) => notice.kind === "error" && /repository profile was not saved/.test(notice.message)));
+  assert.equal(h.last().form?.repositoryProfile, "auto", "the page shows a profile no run will use");
+  // The other settings were applied all the same.
+  assert.equal(h.last().form?.maxFiles, "5");
+});
+
+test("changing the profile makes a prepared context stale; Reset Session keeps it", async () => {
+  const profile = profilePort({ mode: "auto", custom: NO_DETAILS });
+  const h = await preparedHarness({ repositoryProfile: profile.port });
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  await h.controller.handle(applySettings(jiraForm({ repositoryProfile: "generic" })));
+  assert.equal(h.last().primary.action, "rebuildContext", "a new repository profile did not ask for a rebuild");
+
+  await h.controller.handle({ type: "resetSession", deleteGeneratedFiles: false });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.last().form?.repositoryProfile, "generic", "Reset Session discarded the repository's profile");
+});
+
+test("a Run waits for a profile Apply is still saving", async () => {
+  let finishSave: () => void = () => {};
+  const order: string[] = [];
+  const h = harness({
+    events: successfulRun,
+    repositoryProfile: {
+      load: async () => ({ kind: "loaded", snapshot: { profile: { mode: "auto", custom: NO_DETAILS }, detected: "", saved: false, warnings: [] } }),
+      save: async (profile) => {
+        await new Promise<void>((resolve) => {
+          finishSave = resolve;
+        });
+        order.push("saved");
+        return { kind: "loaded", snapshot: { profile, detected: "", saved: true, warnings: [] } };
+      },
+    },
+    onStream: () => order.push("run"),
+  });
+  await h.controller.refreshEnvironment();
+
+  const applying = h.controller.handle(applySettings(jiraForm({ repositoryProfile: "generic" })));
+  await new Promise((resolve) => setImmediate(resolve));
+  const running = h.controller.run(jiraForm({ repositoryProfile: "generic" }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, [], "the run started before the profile was written");
+  finishSave();
+  await applying;
+  await running;
+  assert.deepEqual(order, ["saved", "run"]);
+});
+
+test("after a profile Apply, Rebuild Context prepares again and the context is current", async () => {
+  const profile = profilePort({ mode: "auto", custom: NO_DETAILS });
+  const h = await preparedHarness({ repositoryProfile: profile.port, events: successfulRun });
+  const generic = jiraForm({ repositoryProfile: "generic" });
+  await h.controller.handle(applySettings(generic));
+  assert.equal(h.last().primary.action, "rebuildContext");
+
+  await h.controller.handle(next("rebuildContext", generic));
+
+  assert.equal(h.streamRuns.length, 2, "Rebuild Context did not start a run");
+  assert.equal(h.last().primary.action, "fixWithAI", "the rebuilt context still reads as stale");
 });

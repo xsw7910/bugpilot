@@ -1,11 +1,13 @@
 """Deprecated: launching a coding agent from bugpilot.
 
-**This module is deprecated as of V1 and will be removed after Internal Beta
-feedback** (design section 9, phase 7). It still works, and nothing that
+**This module is deprecated as of V1 and will be removed in a future
+release** (design section 9, phase 7). It still works, and nothing that
 depends on it has been changed.
 
 It exists because bugpilot originally launched Claude in a terminal after
-preparing a package. The three-entry architecture made that the odd one out:
+preparing a package. That is no longer the default: `bugpilot bug` prepares and
+stops, and this module runs only when a command line asks for it with
+``--launch-agent claude`` or ``--launch-agent copilot``. The three-entry architecture made that the odd one out:
 the MCP server is *called by* an agent, and the VS Code extension hands the
 package over on a human's click. In both, deciding to involve a model is a
 separate act from preparing the context — which is requirement R5, and the
@@ -13,7 +15,7 @@ reason this path is going away rather than being extended.
 
 What to use instead:
 
-- ``bugpilot bug <ID> --prepare-only``, then hand ``.ai/<ID>/task.md`` to
+- ``bugpilot bug <ID>`` (prepare-only is the default), then hand ``.ai/<ID>/task.md`` to
   whatever agent you use. The extension's "Copy handoff prompt" does exactly
   this, and the Claude Code skill in ``skills/`` tells the agent to do it
   itself.
@@ -39,6 +41,10 @@ from .handoff import handoff_prompt, retry_handoff_prompt
 # carrying the same instructions in two files will drift).
 HANDOFF_PROMPT = handoff_prompt("{issue_key}")
 RETRY_HANDOFF_PROMPT = retry_handoff_prompt("{prompt_file}")
+
+# What `bugpilot bug --launch-agent` accepts. The flag is the only way the CLI
+# starts an agent: there is no implicit default one.
+LAUNCHABLE_AGENTS: tuple[str, ...] = ("claude", "copilot")
 
 
 @dataclass
@@ -100,12 +106,12 @@ def _warn_deprecated(agent: str) -> None:
     """
     print(
         f"NOTE: launching {agent} from bugpilot is deprecated and will be removed "
-        "after Internal Beta.",
+        "in a future release.",
         file=sys.stderr,
     )
     print(
-        "      Prefer --prepare-only and hand task.md over yourself "
-        "(the VS Code extension's Copy handoff prompt does this).",
+        "      Prefer leaving out --launch-agent (prepare-only is the default) and handing "
+        "task.md over yourself (the VS Code extension's Copy handoff prompt does this).",
         file=sys.stderr,
     )
 

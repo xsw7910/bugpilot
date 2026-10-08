@@ -229,7 +229,11 @@ def test_retry_hands_the_agent_the_retry_prompt(tmp_path, monkeypatch, capsys):
     captured: dict = {}
     _stub_agent(monkeypatch, captured)
 
+    # Prepare-only unless an agent is named: the retry launches nothing by default.
     assert main(["bug", work_item, "--retry"]) == 0
+    assert captured == {}
+
+    assert main(["bug", work_item, "--retry", "--launch-agent", "claude"]) == 0
     assert captured["prompt"] == RETRY_HANDOFF_PROMPT.format(
         prompt_file=f".ai/{work_item}/agent_retry_prompt.md"
     )

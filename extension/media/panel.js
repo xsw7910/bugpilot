@@ -47,6 +47,12 @@
     "gitMaxCommits",
     "similarKeywords",
     "similarMaxFixes",
+    "repositoryLanguages",
+    "repositoryFrameworks",
+    "repositoryApplicationType",
+    "repositoryBuildSystem",
+    "repositoryTestFramework",
+    "repositoryNotes",
   ];
 
   /**
@@ -66,6 +72,20 @@
   const GIT_HISTORY_DEPTHS = ["recent", "broader"];
   /** The branch policies, as `BRANCH_POLICIES` in `form.ts` lists them; the first is the default. */
   const BRANCH_POLICIES = ["current", "per-issue", "ask"];
+  /**
+   * The Repository Profile's modes, as `REPOSITORY_PROFILE_MODES` in
+   * `repositoryProfile.ts` lists them; the first is the default. Custom shows
+   * the details below the picker; the others hide them.
+   */
+  const REPOSITORY_PROFILES = ["auto", "generic", "custom"];
+  const REPOSITORY_DETAILS = [
+    "repositoryLanguages",
+    "repositoryFrameworks",
+    "repositoryApplicationType",
+    "repositoryBuildSystem",
+    "repositoryTestFramework",
+    "repositoryNotes",
+  ];
 
   /**
    * A Jira issue key, as `form.ts` and `bugpilot/core/identity.py` spell it.
@@ -134,6 +154,18 @@
       fields: ["similarUseSharedKeywords", "similarKeywords", "similarMaxFixes"],
       focus: ["similarUseSharedKeywords"],
     },
+    repository: {
+      fields: [
+        "repositoryProfile",
+        "repositoryLanguages",
+        "repositoryFrameworks",
+        "repositoryApplicationType",
+        "repositoryBuildSystem",
+        "repositoryTestFramework",
+        "repositoryNotes",
+      ],
+      focus: ["repositoryProfile"],
+    },
     "build-context": { fields: ["fresh"], focus: ["fresh"] },
     "fix-with-ai": { fields: ["agent", "agentCommand"], focus: ["agent"] },
     branch: { fields: ["branchPolicy"], focus: ["branchPolicy"] },
@@ -162,7 +194,7 @@
    * the developer has to discover. `rows` in the markup is the height each one
    * starts at; `max-height` in `panel.css` is where growing stops.
    */
-  const GROWING_FIELDS = ["issue", "hint", "keywords", "focusFiles", "ignorePaths", "gitKeywords", "gitFiles", "similarKeywords"];
+  const GROWING_FIELDS = ["issue", "hint", "keywords", "focusFiles", "ignorePaths", "gitKeywords", "gitFiles", "similarKeywords", "repositoryNotes"];
 
   /** The Fix Mode editor's six instruction sections, named exactly as the draft names them. */
   const EDITOR_SECTIONS = [
@@ -265,12 +297,25 @@
     similarMaxFixes: "",
     similarUseSharedKeywords: true,
     branchPolicy: "current",
+    repositoryProfile: "auto",
+    repositoryLanguages: "",
+    repositoryFrameworks: "",
+    repositoryApplicationType: "",
+    repositoryBuildSystem: "",
+    repositoryTestFramework: "",
+    repositoryNotes: "",
   };
   /**
    * The line under the AI Agent picker per choice, from the host's detection
    * (`PanelState.agents`). The page only shows it; it never detects.
    */
   let agentLines = {};
+  /**
+   * The line under the Repository Profile picker per choice, from the host
+   * (`PanelState.repositoryProfile`): what Auto-detect finds in this repository.
+   * The page only shows it.
+   */
+  let repositoryLines = {};
   /**
    * Agent values an older page or saved form may hold, and what they meant:
    * `claude` ran the claude CLI. A <select> would silently drop a value that
@@ -619,6 +664,7 @@
     for (const field of SETTINGS_SWITCHES) settings[field] = byId(field).checked;
     settings.gitHistoryDepth = gitHistoryDepthOf(byId("gitHistoryDepth").value);
     settings.branchPolicy = branchPolicyOf(byId("branchPolicy").value);
+    settings.repositoryProfile = repositoryProfileOf(byId("repositoryProfile").value);
     return settings;
   }
 
@@ -632,6 +678,11 @@
     return BRANCH_POLICIES.includes(value) ? value : BRANCH_POLICIES[0];
   }
 
+  /** A Repository Profile mode this page offers, else Auto-detect. */
+  function repositoryProfileOf(value) {
+    return REPOSITORY_PROFILES.includes(value) ? value : REPOSITORY_PROFILES[0];
+  }
+
   /** The applied settings, out of a whole form. */
   function settingsOf(form) {
     const settings = {};
@@ -643,6 +694,7 @@
     for (const field of SETTINGS_SWITCHES) settings[field] = form[field] !== false;
     settings.gitHistoryDepth = gitHistoryDepthOf(form.gitHistoryDepth);
     settings.branchPolicy = branchPolicyOf(form.branchPolicy);
+    settings.repositoryProfile = repositoryProfileOf(form.repositoryProfile);
     return settings;
   }
 
@@ -660,7 +712,9 @@
     for (const field of SETTINGS_SWITCHES) byId(field).checked = settings[field] !== false;
     byId("gitHistoryDepth").value = gitHistoryDepthOf(settings.gitHistoryDepth);
     byId("branchPolicy").value = branchPolicyOf(settings.branchPolicy);
+    byId("repositoryProfile").value = repositoryProfileOf(settings.repositoryProfile);
     applyAgentVisibility();
+    applyRepositoryVisibility();
   }
 
   function writeForm(form) {
@@ -918,6 +972,29 @@
   }
 
   /**
+   * The Custom details belong to the Custom profile: shown while it is chosen —
+   * the draft's choice, while Advanced Settings is open — and hidden otherwise,
+   * with what they hold kept for a switch back.
+   */
+  function applyRepositoryVisibility() {
+    const custom = byId("repositoryProfile").value === "custom";
+    for (const field of REPOSITORY_DETAILS) byId(`field-${field}`).hidden = !custom;
+    renderRepositoryDetected();
+  }
+
+  /**
+   * The quiet line under the Repository Profile picker, for whichever choice it
+   * shows — the draft's while Advanced Settings is open. Hidden when the host
+   * has nothing to say for it.
+   */
+  function renderRepositoryDetected() {
+    const line = repositoryLines[byId("repositoryProfile").value];
+    const status = byId("repositoryProfile-detected");
+    status.textContent = typeof line === "string" ? line : "";
+    status.hidden = typeof line !== "string" || line === "";
+  }
+
+  /**
    * The quiet line under the picker, for whichever choice it shows — the draft's
    * while Advanced Settings is open: "Detected: Codex CLI" for Auto-detect, how
    * an explicit agent stands otherwise. Hidden when the host has nothing to say.
@@ -981,6 +1058,8 @@
     renderSessionFeedback(state);
     agentLines = (state.agents && state.agents.lines) || {};
     renderAgentStatus();
+    repositoryLines = (state.repositoryProfile && state.repositoryProfile.lines) || {};
+    renderRepositoryDetected();
     renderNotices(state);
     renderManage(state);
     renderSettings(state);
@@ -3141,6 +3220,7 @@
     for (const field of SETTINGS_SWITCHES) byId(field).disabled = !enabled;
     byId("gitHistoryDepth").disabled = !enabled;
     byId("branchPolicy").disabled = !enabled;
+    byId("repositoryProfile").disabled = !enabled;
     applyStepBoxes();
   }
 
@@ -4539,6 +4619,7 @@
   byId("workflow-settings-view").addEventListener("change", (event) => {
     const target = event.target;
     if (target && target.id === "agent") applyAgentVisibility();
+    if (target && target.id === "repositoryProfile") applyRepositoryVisibility();
   });
   byId("workflow-settings-view").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {

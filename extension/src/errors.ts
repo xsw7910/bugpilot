@@ -32,11 +32,11 @@ const TABLE: Record<string, Entry> = {
   // --- Jira ---------------------------------------------------------------
   JIRA_NOT_CONFIGURED: {
     summary: "Jira is not configured.",
-    action: "Run `bugpilot setup` in a terminal to store your Jira email and API token.",
+    action: "Store your Jira email and API token with Set Jira Credentials. If no Jira site is set, run `bugpilot setup` or set JIRA_BASE_URL.",
   },
   JIRA_AUTH_FAILED: {
     summary: "Jira rejected the stored credentials.",
-    action: "Re-run `bugpilot setup`; an API token may have been revoked or rotated.",
+    action: "Replace them with Set Jira Credentials; an API token may have been revoked or rotated.",
   },
   JIRA_ISSUE_NOT_FOUND: {
     summary: "Jira has no such issue, or the account cannot see it.",

@@ -9026,8 +9026,7 @@ the script asks for it once. The old registration can then be removed. (Not
 verified on a live install.)
 
 **Retained on purpose.** `VolumeDescriptor`, `OutputSelector` and `outputType`
-are generic technical compounds, not the product family — although all three
-also occur in the product checkout, `VolumeDescriptor` widely. Kept by the
+are generic technical compounds, not the product family. Kept by the
 user's decision: they are generic engineering terms, outside the anonymization
 scope, which is now frozen. `OpenVDS`, `VDS` and `SEG-Y` are public formats.
 

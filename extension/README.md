@@ -192,8 +192,10 @@ the top.
 | Code search | Ignore paths, Max files, Max search lines |
 | Git history | Use shared keywords, Use shared focus files, Additional commit keywords, Additional files, Search commit messages, Search related file history, History depth, Max related commits |
 | Similar fixes | Use shared keywords, Additional keywords, Max similar fixes |
+| Repository | Repository profile: Auto-detect, Generic or Custom (Languages, Frameworks, Application type, Build system, Test framework, Codebase notes) |
 | Build context | Delete previous artifacts first |
 | Fix with AI | AI Agent, custom agent command |
+| Branch | Branch policy |
 
 **Keywords** and **Focus files** are entered once, under **Retrieval inputs**,
 and shared:
@@ -223,6 +225,17 @@ it. Changing the AI Agent or *Delete
 previous artifacts first* does not. What each setting does is its tooltip:
 hover its label. While BugPilot is running something, Apply waits until it
 finishes.
+
+**Repository profile** says what `task.md` tells the agent about this
+repository. **Auto-detect** (the default) reads high-confidence facts from the
+repository's own build and package files — the line under the picker says what
+it found, "Detected: C++ · Qt · CMake" — and never guesses; **Generic** assumes
+nothing about languages or frameworks; **Custom** shows six short fields for the
+details you provide. It is the repository's setting rather than this panel's:
+**Apply** saves it in `.bugpilot/repository_profile.json` in the repository,
+where the CLI and the MCP server read it too (commit it to share it), and a
+profile someone else saved there is what the page shows. It needs a rebuild, and
+**Reset Session** keeps it.
 
 A row with settings shows a short summary of them under its description — "4
 keywords · 2 focus paths · max 10 files", "shared keywords off · max 3 similar
@@ -427,8 +440,8 @@ reads, it never prepares, searches or runs anything, and nothing you are typing
 in the panel is touched by it. Showing the panel again reads the folder too, and
 **Refresh** on the Results view does the same by hand. No report
 yet does not mean the agent is still working; it only means nothing has been
-written. A re-run that is
-not **Fresh** keeps the last report, so during and after it the row can show the
+written. A re-run without
+**Delete previous artifacts first** keeps the last report, so during and after it the row can show the
 previous attempt's report until an agent writes a new one.
 
 Two review aids sit under the report, both built by the CLI from the work item's
@@ -521,7 +534,7 @@ the review's first summary line and findings line, and **Open Review Report**.
 It says a result was saved — not that the review passed, that the fix is
 correct, that tests ran or that its recommendations were applied. **Replace
 Review Result** saves a new one in its place, after asking; Paste Review Output
-can fill that form too. A **Fresh** run removes it with the fix report;
+can fill that form too. A run with **Delete previous artifacts first** ticked removes it with the fix report;
 **Rebuild Context** and **Start New Attempt** leave it, so after a new attempt
 it describes the earlier one until you replace it. History is not changed by
 it.
@@ -557,7 +570,7 @@ fix is correct. **Edit Verification Evidence** fills the form from the report,
 and your changes replace it as they are saved. While a review result or verification evidence is being recorded, no
 run starts and **Clean** is refused until it ends; while Clean runs, neither
 recording starts. Plain Enter in a check's name never runs the panel.
-A **Fresh** run removes the report with the fix report; **Rebuild Context** and
+A run with **Delete previous artifacts first** ticked removes the report with the fix report; **Rebuild Context** and
 **Start New Attempt** leave it.
 History is not changed by it.
 
@@ -631,7 +644,7 @@ open. Each row's icon says what became of it:
 Hover a row for the source, when it last changed, and that sentence in full.
 **Click** it to reopen the whole investigation in the panel — the six steps come
 back from `run.json` and Current follows. A Jira work item's key goes
-into the Issue field (never over a bug description you are typing), **Fresh** is
+into the Issue field (never over a bug description you are typing), **Delete previous artifacts first** is
 cleared, and its Fix Mode is selected again, so the next Run prepares that item
 as it was prepared before.
 
@@ -644,12 +657,13 @@ to a work item you cannot see.
 
 **⋯ More → Reset Session** puts the panel back to a fresh session: the Issue,
 the Hint, Keywords, Focus Files, attachments, the workflow steps, every Code
-Search and Git History setting, Fresh, and Fix Mode (back to Standard Fix) —
+Search and Git History setting, Delete previous artifacts first, and Fix Mode (back to Standard Fix) —
 and the work item on screen, with its results, is let go. The next button is
 **Run** again, and a reload or a restart opens the fresh session too.
 
 It keeps what is yours rather than the issue's: the **AI Agent** you chose and
-its custom command, your settings, and **History**.
+its custom command, your settings, the **Repository profile** (the repository's
+own), and **History**.
 
 It asks first, with one choice about the generated files:
 
@@ -763,7 +777,7 @@ worth knowing:
 | Open Panel in Editor | The form is more comfortable in a wide editor tab |
 | Clean Work Item Artifacts | Remove one work item's `.ai/` directory. Confirms first |
 | MCP Status | Whether an agent in this workspace can reach bugpilot directly |
-| Resume Agent Session in Terminal | Continue the agent run that happened in this repository |
+| Resume Agent Session in Terminal | Continue the last Claude CLI session that ran in this repository (`claude --resume`) |
 
 ## What it does not do
 
@@ -779,6 +793,8 @@ worth knowing:
 | --- | --- |
 | "bugpilot is not on PATH" | The CLI is not installed, or not in this terminal's `PATH`. Use **Install Instructions** |
 | "does not support the machine-readable output this extension needs" | An older CLI is being found first. Upgrade it, or set `bugpilot.executablePath` |
+| "BugPilot CLI is out of date" | The CLI found is older than this extension and does not accept what a Run sends. **Update Instructions** says how (`pipx upgrade bugpilot`); **Choose Executable** points at a newer one; then **Retry**. `bugpilot --version` shows which version runs |
+| "BugPilot CLI was not found" during a Run | The executable went away since the panel checked. Install it, or choose it again |
 | "did not answer `doctor --json` in time" | Usually a frozen executable starting cold under antivirus. Try again |
 | "runs, but its environment check failed" | The CLI is fine; something it needs is not. The message names which |
 | A run stops with "ran longer than BugPilot waits" | Narrow the search: ignore vendored or generated directories, or lower Max files |

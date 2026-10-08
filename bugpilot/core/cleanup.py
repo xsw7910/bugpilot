@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .identity import validate_work_item_id
+from .safe_paths import owned_path, remove_owned_path
 
 
 @dataclass
@@ -28,26 +28,27 @@ def validate_issue_key(issue_key: str) -> None:
 
 
 def clean_issue_artifacts(repo_root: Path, issue_key: str, include_memory: bool = False) -> CleanResult:
+    """Delete one work item's generated artifacts, and its memory entry if asked.
+
+    Every path is checked before anything is deleted (``safe_paths.owned_path``):
+    a link or junction at ``.ai``, ``.ai/<id>``, ``.ai_memory`` or below raises
+    :class:`~bugpilot.core.safe_paths.UnsafePathError` and nothing is removed —
+    not the folder, not the memory entry. Both ``clean`` and ``bug --fresh``
+    come through here.
+    """
     validate_issue_key(issue_key)
-    root = repo_root.resolve()
-    ai_root = (root / ".ai").resolve()
-    memory_root = (root / ".ai_memory" / "bugs").resolve()
-    workflow_dir = ai_root / issue_key
-    memory_file = memory_root / f"{issue_key}.md"
     result = CleanResult(issue_key=issue_key)
 
-    _ensure_child(workflow_dir, ai_root, ".ai issue directory")
-    _ensure_child(memory_file, memory_root, "memory issue file")
+    workflow_dir = owned_path(repo_root, (".ai", issue_key))
+    memory_file = owned_path(repo_root, (".ai_memory", "bugs", f"{issue_key}.md")) if include_memory else None
 
-    if workflow_dir.exists() or workflow_dir.is_symlink():
-        _remove_path(workflow_dir)
+    if remove_owned_path(workflow_dir):
         result.deleted_paths.append(f".ai/{issue_key}/")
     else:
         result.missing_paths.append(f".ai/{issue_key}/")
 
-    if include_memory:
-        if memory_file.exists() or memory_file.is_symlink():
-            _remove_path(memory_file)
+    if memory_file is not None:
+        if remove_owned_path(memory_file):
             result.deleted_paths.append(f".ai_memory/bugs/{issue_key}.md")
         else:
             result.missing_paths.append(f".ai_memory/bugs/{issue_key}.md")
@@ -55,18 +56,3 @@ def clean_issue_artifacts(repo_root: Path, issue_key: str, include_memory: bool 
         result.preserved_paths.append(f".ai_memory/bugs/{issue_key}.md")
 
     return result
-
-
-def _ensure_child(path: Path, parent: Path, label: str) -> None:
-    try:
-        path.relative_to(parent)
-    except ValueError as exc:
-        raise ValueError(f"Refusing to clean {label} outside target repo generated paths.") from exc
-
-
-def _remove_path(path: Path) -> None:
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-        return
-    if path.is_dir():
-        shutil.rmtree(path)

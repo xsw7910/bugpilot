@@ -21,8 +21,8 @@ not at an end user (see the [README](../README.md) and
 - Console script: `bugpilot = bugpilot.cli:main`.
 - Runtime dependencies: **none** — standard library only. `requires-python >= 3.10`.
 - External tools used at runtime (all optional, all degraded gracefully): `git`,
-  ripgrep (`rg`), and the `claude` / `copilot` CLIs (Claude is launched by
-  default after preparation; `--prepare-only` skips it).
+  ripgrep (`rg`), and the `claude` / `copilot` CLIs (launched only when
+  `bugpilot bug --launch-agent claude|copilot` asks; preparing alone is the default).
 
 ---
 
@@ -30,8 +30,8 @@ not at an end user (see the [README](../README.md) and
 
 bugpilot **prepares, then hands off**. The tool never commits, pushes, merges, or
 opens PRs; every preparation step produces a reviewable Markdown/JSON artifact
-under `.ai/<issue>/`; and a coding agent — Claude by default, or Copilot with
-`--copilot`, or none with `--prepare-only` — does the actual fixing, stopping at
+under `.ai/<issue>/`; and a coding agent — the developer's own, or one started
+with `--launch-agent claude|copilot` — does the actual fixing, stopping at
 the commit gate for the developer to approve. The only Jira write is one optional
 status comment (opt-in via `--jira-comment`, executed explicitly).
 
@@ -134,7 +134,7 @@ the *outputs* of the other steps, not their code.
 
 | Group | Commands |
 | --- | --- |
-| Full pipeline | `bug` — the **default command**, so `bugpilot JR-123` == `bugpilot bug JR-123`. Prepares, then launches Claude. Flags: `--copilot` (use Copilot) / `--prepare-only` (no agent), `--jira-comment` (add the pre-commit Jira status instruction, off by default), `--resume` / `--fresh`, `--include-memory`, `--hint`, `--allow-mock` / `--no-mock`, and the legacy `--agent-fix` guidance printer. |
+| Full pipeline | `bug` — the **default command**, so `bugpilot JR-123` == `bugpilot bug JR-123`. Prepares, keeps existing artifacts and launches no agent. Flags: `--launch-agent claude\|copilot` (launch one after preparing) / `--prepare-only` (the default, explicit), `--fresh` (delete `.ai/<issue>/` first) / `--resume` (the default, explicit), `--include-memory` (with `--fresh`), `--repository-profile`, `--jira-comment` (add the pre-commit Jira status instruction, off by default), `--hint`, `--allow-mock` / `--no-mock`, and the legacy `--agent-fix` guidance printer. |
 | Setup | `setup` — interactive first-run config: collects Jira email + API token, validates them, writes `~/.bugpilot/config.toml`. |
 | Jira | `fetch`, `jira-validate`, `jira-comment-draft`, `jira-comment [--execute]` |
 | Individual steps | `parse`, `keywords`, `search`, `git-context`, `context`, `prompt [--jira-comment]`, `agent-task [--jira-comment]`, `agent-instructions`, `status`, `review-package` |
@@ -146,7 +146,7 @@ the *outputs* of the other steps, not their code.
 
 Most single-step commands are thin: parse args → call the matching
 `workflow.*_step` → print a result. `bug` is the exception; it calls
-`run_bug_workflow` with a progress printer, then (unless `--prepare-only`)
+`run_bug_workflow` with a progress printer, then (only with `--launch-agent`)
 launches the agent. `main()` injects `bug` as the default when the first token
 isn't a known subcommand, which is what makes `bugpilot JR-123` work.
 
@@ -490,8 +490,8 @@ and before the pipeline runs — and is shown separately from the current select
 
 ### 5.5 Agent handoff & setup — `agent_runner.py`, `copilot.py`, `setup.py`
 
-- **`agent_runner.py` (~79 lines)** — the launcher run by default (Claude) or with
-  `--copilot`; `--prepare-only` skips it. `build_agent_command` builds argv from
+- **`agent_runner.py` (~79 lines)** — the launcher run only by
+  `--launch-agent claude|copilot`; preparing alone never reaches it. `build_agent_command` builds argv from
   `config` command+args (split with `shlex`); `run_agent` resolves the executable
   (`_resolve_launch_command`, wrapping `.cmd`/`.bat` in `cmd /c` on Windows) and
   runs it inheriting the terminal. `HANDOFF_PROMPT` is the seed instruction.
@@ -592,8 +592,8 @@ Manager. Nothing is echoed in errors or the `doctor` report.
 The guarantees enforced across the code (see also [safety.md](safety.md)):
 
 - bugpilot never commits, pushes, merges, or opens PRs. It prepares artifacts and
-  then launches an agent that edits code but **stops at the commit gate** for the
-  developer to approve; `--prepare-only` launches no agent at all.
+  stops; only `--launch-agent` launches an agent, which edits code but **stops at
+  the commit gate** for the developer to approve.
 - The only Jira write is one *optional* status comment via `jira-comment
   --execute` (opt-in with `--jira-comment`; no field edits, transitions,
   assignments, or attachment up/downloads).

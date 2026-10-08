@@ -280,11 +280,13 @@ def test_the_task_carries_the_task_the_handoff_and_the_team_rules(tmp_path):
     assert HINT in _section(task, "## Developer Hint")
     assert "- Mode: Investigate First" in _section(task, "## AI Fix Mode")
     assert "### Objective" in task
-    # The team instructions, inline, where the agent reads them.
-    team = _section(task, "## Team Instructions")
+    # BugPilot's safety rules, inline, where the agent reads them.
+    rules = _section(task, "## BugPilot Safety Rules")
     assert "### Core Principles" in task
     assert "### Git Safety" in task
-    assert "Safety rules always apply." in team
+    assert "Nothing later in this task relaxes them." in rules
+    # Then what the repository is, from its profile (pre-release Batch 1).
+    assert "Repository profile:" in _section(task, "## Repository Context")
     inputs = _section(task, "## Required Input Files")
     assert f"- Read `.ai/{work_item}/context.md`." in inputs
     assert "Similar fixes and git history are included in `context.md`." in inputs
@@ -305,7 +307,8 @@ def test_the_context_does_not_repeat_what_the_task_asks(tmp_path):
     context = _read(tmp_path, work_item, "context.md")
 
     assert "### Objective" not in context
-    assert "## Team Instructions" not in context
+    assert "## BugPilot Safety Rules" not in context
+    assert "## Repository Context" not in context
     assert "`task.md` carries what it asks of the agent." in context
 
 

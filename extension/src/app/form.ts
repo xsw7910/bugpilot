@@ -29,6 +29,8 @@ import path from "node:path";
 import { isWithin } from "../workspace.ts";
 import { migrateAgentChoice } from "./agents.ts";
 import type { AgentChoice } from "./agents.ts";
+import { repositoryProfileFingerprint, repositoryProfileModeOf } from "./repositoryProfile.ts";
+import type { RepositoryProfileMode } from "./repositoryProfile.ts";
 
 export type Source = "jira" | "manual";
 
@@ -180,7 +182,8 @@ export interface FormState {
   /**
    * Delete `.ai/<work_item>/` before running.
    *
-   * The CLI's default, and off here. Phase 3 learned this the hard way: a
+   * Off here and, since pre-release Batch 1, off in the CLI too (`--fresh` is
+   * explicit everywhere). Phase 3 learned this the hard way: a
    * re-prepare with fresh=True deleted an agent's `fix_report.md`. The
    * extension asks for it explicitly or does not do it.
    */
@@ -193,6 +196,23 @@ export interface FormState {
    * them, and preparing again never calls for a new branch.
    */
   readonly branchPolicy: BranchPolicy;
+  /**
+   * The Repository Profile (pre-release Batch 1): how task.md describes this
+   * repository — Auto-detect, Generic, or the Custom details below.
+   *
+   * A copy of `<repo>/.bugpilot/repository_profile.json`, which is the setting:
+   * the host loads it from there when the environment resolves and writes it
+   * back on Apply, and every run reads the file, so no flag carries it. Kept
+   * by Reset Session, as the repository's rather than the session's.
+   */
+  readonly repositoryProfile: RepositoryProfileMode;
+  /** The Custom details, one line each; used only when the profile is Custom. */
+  readonly repositoryLanguages: string;
+  readonly repositoryFrameworks: string;
+  readonly repositoryApplicationType: string;
+  readonly repositoryBuildSystem: string;
+  readonly repositoryTestFramework: string;
+  readonly repositoryNotes: string;
 }
 
 /** The CLI's `--branch-policy` values, in the order the settings page lists them. */
@@ -242,6 +262,13 @@ export const DEFAULT_FORM: FormState = {
   similarMaxFixes: "",
   fresh: false,
   branchPolicy: "current",
+  repositoryProfile: "auto",
+  repositoryLanguages: "",
+  repositoryFrameworks: "",
+  repositoryApplicationType: "",
+  repositoryBuildSystem: "",
+  repositoryTestFramework: "",
+  repositoryNotes: "",
 };
 
 /** A History Depth from anywhere outside this module: an unknown value is `recent`. */
@@ -282,12 +309,25 @@ export function restoreForm(saved: FormState | undefined): FormState {
     similarMaxFixes: typeof saved.similarMaxFixes === "string" ? saved.similarMaxFixes : "",
     // A form saved before the branch policy existed gets the default.
     branchPolicy: branchPolicyOf(saved.branchPolicy),
+    // Likewise the Repository Profile: Auto-detect and no details, until the
+    // host reads the repository's own file over it.
+    repositoryProfile: repositoryProfileModeOf(saved.repositoryProfile),
+    repositoryLanguages: textOf(saved.repositoryLanguages),
+    repositoryFrameworks: textOf(saved.repositoryFrameworks),
+    repositoryApplicationType: textOf(saved.repositoryApplicationType),
+    repositoryBuildSystem: textOf(saved.repositoryBuildSystem),
+    repositoryTestFramework: textOf(saved.repositoryTestFramework),
+    repositoryNotes: textOf(saved.repositoryNotes),
     // A form saved while Build context could be unticked may say it was: the
     // two fixed steps are on whatever it says (§37.107). The three optional
     // ones keep what was saved — unticking Build context had cleared them, and
     // ticking them again was never this form's to decide.
     plan: { ...DEFAULT_FORM.plan, ...saved.plan, issueDetails: true, buildContext: true },
   };
+}
+
+function textOf(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 /**
@@ -609,13 +649,19 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
 
   args.push(...planFlags(form.plan));
 
+  // The Repository Profile contributes nothing either: every run reads it from
+  // `.bugpilot/repository_profile.json`, which the host writes on Apply, so a
+  // flag here would be a second copy of one setting.
+
   // `fixWithAI`, `agent` and `agentCommand` deliberately contribute nothing.
   // They describe what the extension does *after* this process exits; a flag
   // here would make the run itself launch an agent, which is the thing
   // `--prepare-only` exists to prevent. `test/form.test.ts` pins that down.
 
-  // Preserve artifacts unless the developer asked otherwise. The CLI's default
-  // is the destructive one; phase 3 already lost an agent's fix_report.md to it.
+  // Preserve artifacts unless the developer asked otherwise. `--resume` is the
+  // CLI's default too now (pre-release Batch 1), and still said: the intent is
+  // legible in the log line, and phase 3 lost an agent's fix_report.md to a
+  // default that was once the destructive one.
   args.push(form.fresh ? "--fresh" : "--resume");
   // Streaming implies prepare-only in the CLI, but saying it costs nothing and
   // makes the intent legible in the log line the panel shows.
@@ -748,6 +794,9 @@ export function preparationFingerprint(form: FormState): string {
     },
     // The branch policy is written into task.md, as the Fix Mode is.
     branchPolicy: branchPolicyOf(form.branchPolicy),
+    // So is the Repository Profile: its mode and every Custom detail, read the
+    // way the CLI stores them. The details are on screen only under Custom.
+    repository: repositoryProfileFingerprint(form),
   });
 }
 

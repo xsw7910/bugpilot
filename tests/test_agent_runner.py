@@ -101,7 +101,8 @@ def _spy_run_agent(monkeypatch, captured):
     monkeypatch.setattr("bugpilot.core.agent_runner.run_agent", spy)
 
 
-def test_bug_launches_claude_by_default(tmp_path, monkeypatch, capsys):
+def test_bare_bug_prepares_only_and_launches_no_agent(tmp_path, monkeypatch, capsys):
+    """The public default: prepare, then stop. No agent unless a flag names one."""
     captured = {}
     _spy_run_agent(monkeypatch, captured)
     monkeypatch.chdir(tmp_path)
@@ -109,10 +110,20 @@ def test_bug_launches_claude_by_default(tmp_path, monkeypatch, capsys):
     assert main(["bug", "JR-12345", "--allow-mock"]) == 0
     out = capsys.readouterr().out
 
-    assert "Launching claude to complete the workflow" in out
-    assert captured["agent"] == "claude"
-    assert captured["issue_key"] == "JR-12345"
-    assert Path(captured["repo_root"]) == tmp_path
+    assert captured == {}, "a bare bug command launched an agent"
+    assert "Launching" not in out
+    assert "Next manual agent instruction:" in out
+    assert "Read .ai/JR-12345/task.md and complete the workflow." in out
+
+
+def test_the_default_command_form_launches_no_agent_either(tmp_path, monkeypatch):
+    # `bugpilot JR-12345` is `bugpilot bug JR-12345`, default included.
+    captured = {}
+    _spy_run_agent(monkeypatch, captured)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["JR-12345", "--allow-mock"]) == 0
+    assert captured == {}
 
 
 def test_bug_prepare_only_does_not_invoke_agent(tmp_path, monkeypatch):
@@ -124,23 +135,101 @@ def test_bug_prepare_only_does_not_invoke_agent(tmp_path, monkeypatch):
     assert captured == {}
 
 
-def test_bug_copilot_flag_launches_copilot(tmp_path, monkeypatch):
+def test_launch_agent_claude_launches_claude(tmp_path, monkeypatch, capsys):
     captured = {}
     _spy_run_agent(monkeypatch, captured)
     monkeypatch.chdir(tmp_path)
 
-    assert main(["bug", "JR-12345", "--copilot", "--allow-mock"]) == 0
+    assert main(["bug", "JR-12345", "--launch-agent", "claude", "--allow-mock"]) == 0
+    out = capsys.readouterr().out
+
+    assert "Launching claude to complete the workflow" in out
+    assert captured["agent"] == "claude"
+    assert captured["issue_key"] == "JR-12345"
+    assert Path(captured["repo_root"]) == tmp_path
+
+
+def test_launch_agent_copilot_launches_copilot(tmp_path, monkeypatch):
+    captured = {}
+    _spy_run_agent(monkeypatch, captured)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["bug", "JR-12345", "--launch-agent=copilot", "--allow-mock"]) == 0
     assert captured["agent"] == "copilot"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["bug", "JR-12345", "--copilot"],
+        ["bug", "JR-12345", "--claude"],
+        ["bug", "JR-12345", "--launch-agent", "gpt"],
+        ["bug", "JR-12345", "--launch-agent", "claude", "--prepare-only"],
+    ],
+)
+def test_agent_launch_is_one_explicit_flag(tmp_path, monkeypatch, argv):
+    """No implicit agent, no second spelling, and never both prepare-only and a launch."""
+    captured = {}
+    _spy_run_agent(monkeypatch, captured)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        main(argv)
+    assert exc.value.code == 2
+    assert captured == {}
+    assert not (tmp_path / ".ai").exists()
+
+
+@pytest.mark.parametrize("mode", ["--json", "--json-lines"])
+def test_launch_agent_is_refused_in_machine_readable_modes(tmp_path, monkeypatch, capsys, mode):
+    captured = {}
+    _spy_run_agent(monkeypatch, captured)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["bug", "JR-12345", "--allow-mock", "--launch-agent", "claude", mode]) == 1
+    out = capsys.readouterr().out
+
+    assert captured == {}
+    assert "INVALID_INPUT" in out
+    assert not (tmp_path / ".ai").exists()
+
+
+def test_retry_prepares_only_unless_an_agent_is_named(tmp_path, monkeypatch, capsys):
+    captured = {}
+    _spy_run_agent(monkeypatch, captured)
+    monkeypatch.chdir(tmp_path)
+    assert main(["bug", "JR-12345", "--allow-mock"]) == 0
+    assert main(["bug", "JR-12345", "--retry"]) == 0  # creates user_feedback.md and stops
+    capsys.readouterr()
+
+    assert main(["bug", "JR-12345", "--retry"]) == 0
+    assert captured == {}
+    assert "Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow." in capsys.readouterr().out
+
+    assert main(["bug", "JR-12345", "--retry", "--launch-agent", "claude"]) == 0
+    assert captured["agent"] == "claude"
+    assert captured["prompt"] == "Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow."
 
 
 def test_bug_missing_binary_warns(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("bugpilot.core.agent_runner.shutil.which", lambda c: None)
     monkeypatch.chdir(tmp_path)
 
-    assert main(["bug", "JR-12345", "--allow-mock"]) == 1
+    assert main(["bug", "JR-12345", "--allow-mock", "--launch-agent", "claude"]) == 1
     err = capsys.readouterr().err
     assert "could not launch claude" in err
     assert "Read .ai/JR-12345/task.md" in err
+
+
+def test_agent_check_describes_the_real_default(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["agent-check"]) == 0
+    out = capsys.readouterr().out
+
+    assert "default_mode: prepare-only" in out
+    assert "--launch-agent claude|copilot" in out
+    assert "--claude" not in out
 
 
 def test_launching_an_agent_says_it_is_deprecated(tmp_path, monkeypatch, capsys):
@@ -155,5 +244,5 @@ def test_launching_an_agent_says_it_is_deprecated(tmp_path, monkeypatch, capsys)
     captured = capsys.readouterr()
     assert result.ran is False
     assert "deprecated" in captured.err
-    assert "--prepare-only" in captured.err
+    assert "prepare-only is the default" in captured.err
     assert captured.out == "", "the deprecation notice must not touch stdout"

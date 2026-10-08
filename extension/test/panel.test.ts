@@ -95,6 +95,8 @@ const MODEL_TEXT_FIELDS = Object.keys(DEFAULT_FORM).filter(
       "similarUseSharedKeywords",
       // The Branch section's select (§37.127).
       "branchPolicy",
+      // The Repository section's select (pre-release Batch 1); its details are text.
+      "repositoryProfile",
     ].includes(key),
 );
 
@@ -768,6 +770,15 @@ const SETTINGS_HELP: Readonly<Record<string, string>> = {
   similarKeywords: "Extra terms used only for Similar Fixes. Separate them with commas or new lines.",
   similarMaxFixes: "How many similar past fixes to include, from 1 to 20. Empty uses the default, 5.",
   fresh: "Removes the work item's existing generated artifacts before running. Off by default to avoid accidental data loss.",
+  // The Repository Profile and its Custom details (pre-release Batch 1).
+  repositoryProfile:
+    "Describe the repository context BugPilot gives to the AI agent. Auto-detect uses high-confidence project files. Generic makes no language or framework assumptions. Custom uses the repository details you provide. Saved for the repository in .bugpilot/repository_profile.json.",
+  repositoryLanguages: "The repository's main programming languages.",
+  repositoryFrameworks: "Frameworks the code is built on.",
+  repositoryApplicationType: "What the software is.",
+  repositoryBuildSystem: "How the repository is built.",
+  repositoryTestFramework: "How the repository is tested.",
+  repositoryNotes: "Anything else the AI agent should know about the codebase, in a sentence or two.",
   // What each policy means, since the select shows only their names (§37.127).
   branchPolicy:
     "Choose which branch the AI agent edits and commits on. Main and master are always protected. Use current branch: Work on the checked-out branch and do not create or switch branches. One branch per issue: Create or reuse one branch for the issue. Ask before editing: Ask whether to stay on the current branch or create/switch before editing.",
@@ -842,9 +853,9 @@ test("the settings page's labels are short, sentence case, and never say optiona
     match[1]!.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
   );
   // Title, Attachments; Retrieval inputs' two; Code search's three; Git
-  // history's eight; Similar fixes' three; Fresh; the agent and its command;
-  // the branch policy.
-  assert.equal(labels.length, 22, `${labels.length} labels`);
+  // history's eight; Similar fixes' three; the repository profile and its six
+  // details; Fresh; the agent and its command; the branch policy.
+  assert.equal(labels.length, 29, `${labels.length} labels`);
   for (const label of labels) {
     assert.equal(/optional/i.test(label), false, `"${label}" says optional — an empty box already does`);
     // Sentence case: a capital first, then lower case — except AI, an acronym,
@@ -869,9 +880,10 @@ test("every setting has a header row with a real label in it", () => {
   );
   // The text fields, plus the rows that are not text fields: the agent
   // picker, the attachment list and the Fresh checkbox, Git history's four
-  // switches and its depth select, Similar fixes' switch, and the branch
-  // policy's select. (Fix Mode and Hint are the main page's now, §37.84.)
-  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 7, "a row is missing the pattern");
+  // switches and its depth select, Similar fixes' switch, the repository
+  // profile's select and the branch policy's select. (Fix Mode and Hint are the
+  // main page's now, §37.84.)
+  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 8, "a row is missing the pattern");
 
   for (const row of rows) {
     const label = /<label[^>]*for="([^"]+)"/.exec(row);
@@ -2483,6 +2495,7 @@ test("Workflow Settings is one section per step that has settings, in the workfl
     "code-search",
     "git-history",
     "similar-fixes",
+    "repository",
     "build-context",
     "fix-with-ai",
     "branch",
@@ -2683,6 +2696,8 @@ test("a section's tag is a quiet fact beside its heading, never a badge, and wra
     "code-search": ["Requires rebuild", "Changes here require rebuilding context."],
     "git-history": ["Requires rebuild", "Changes here require rebuilding context."],
     "similar-fixes": ["Requires rebuild", "Changes here require rebuilding context."],
+    // Written into task.md's Repository Context (pre-release Batch 1).
+    repository: ["Requires rebuild", "Changes here require rebuilding context."],
     "build-context": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     "fix-with-ai": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     // Written into task.md, as the Fix Mode is (§37.127).

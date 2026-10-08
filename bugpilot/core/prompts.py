@@ -10,6 +10,19 @@ from .branch_policy import DEFAULT_BRANCH_POLICY, branch_editing_guardrail, bran
 from .delivery_instructions import assisted_delivery_block, delivery_safety_block
 from .fix_modes import STANDARD_FIX, FixMode, FixModeError
 from .git_ops import branch_name
+from .repository_profile import RepositoryContext, repository_context_section
+
+# The layers of guidance a task carries, in precedence order (plan §5.3). Each
+# later layer may refine how the agent works within the earlier ones; none may
+# loosen a BugPilot safety rule. Batch 2 inserts "User instructions" and
+# "Project / team instructions" between the repository context and the Fix
+# Mode; the task's sections and this list are rendered in the same order.
+INSTRUCTION_LAYERS: tuple[str, ...] = (
+    "BugPilot safety rules",
+    "Repository context",
+    "AI Fix Mode",
+    "Developer hint",
+)
 
 # Headings for the six editable Fix Mode sections, keyed by the model's section
 # name so the rendering order comes from `FixMode.instruction_sections()` rather
@@ -34,6 +47,7 @@ def generate_task(
     attachment_notes: Mapping[str, str] | None = None,
     branch_policy: str = DEFAULT_BRANCH_POLICY,
     branch: str | None = None,
+    repository: RepositoryContext | None = None,
 ) -> str:
     """``task.md``: the one package BugPilot hands a coding agent.
 
@@ -44,18 +58,27 @@ def generate_task(
 
     ``branch`` is the branch the work item recorded, if it did; without one the
     name is derived from the id and ``summary``.
+
+    ``repository`` is the resolved Repository Profile
+    (:func:`repository_profile.resolve_repository_context`), resolved by the
+    caller for the same reason a Fix Mode is: this module has no repository to
+    look at. ``None`` renders the Generic profile, which assumes nothing.
     """
     # The full analysis/fix/review/test workflow lives inside the task, so no
     # standalone per-phase prompt files are generated.
     branch = branch or branch_name(issue_key, summary)
     mode = _task_fix_mode(fix_mode)
     return _copilot_task(
-        issue_key, branch, hint, jira_comment, attachments, mode, attachment_notes, branch_policy
+        issue_key, branch, hint, jira_comment, attachments, mode, attachment_notes, branch_policy, repository
     )
 
 
 def copilot_team_instructions() -> str:
-    """The effective team instructions: the repository's document, else the bundled copy."""
+    """BugPilot's safety rules: the source tree's document, else the bundled copy.
+
+    Repository-neutral by design. What a particular repository is belongs to its
+    Repository Profile, and a team's own rules to project instructions (Batch 2).
+    """
     path = Path(__file__).resolve().parents[2] / "docs" / "agent_team_instructions.md"
     if path.exists():
         return path.read_text(encoding="utf-8")
@@ -63,7 +86,7 @@ def copilot_team_instructions() -> str:
 
 
 def _team_instructions_section() -> str:
-    """The team instructions as a section of the task, their title dropped.
+    """The safety rules as a section of the task, their title dropped.
 
     Their own headings move one level down so they read as part of this section
     rather than as a second document pasted into the middle of the task.
@@ -138,8 +161,14 @@ def _precedence_section() -> str:
     an agent reading a mode that contradicts a BugPilot rule has already been
     told which one loses.
     """
+    layers = "".join(f"{number}. {layer}\n" for number, layer in enumerate(INSTRUCTION_LAYERS, start=1))
     return (
         "## BugPilot Rule Precedence\n\n"
+        "The guidance in this task is layered, in this order:\n\n"
+        f"{layers}\n"
+        "Each later layer refines how you work within the earlier ones. None of them can "
+        "loosen a BugPilot safety rule. The repository context is a description, not a "
+        "permission: where it disagrees with the code, trust the code.\n\n"
         "Fix Mode controls workflow strategy only.\n\n"
         "If any Fix Mode instruction conflicts with BugPilot safety, evidence-integrity, "
         "branch, Jira, or delivery rules, the BugPilot rule wins.\n\n"
@@ -191,6 +220,7 @@ def _copilot_task(
     fix_mode: FixMode | None = None,
     attachment_notes: Mapping[str, str] | None = None,
     branch_policy: str = DEFAULT_BRANCH_POLICY,
+    repository: RepositoryContext | None = None,
 ) -> str:
     mode = _task_fix_mode(fix_mode)
     investigating = mode.is_investigation
@@ -259,13 +289,13 @@ def _copilot_task(
         "- Run your AI agent from the target repo root (the target repository root).\n"
         "- Do not run your AI agent from the bugpilot tool source directory.\n"
         f"- `.ai/{issue_key}/` files are relative to the target repo root.\n\n"
-        "## Team Instructions\n\n"
-        "Read these general team rules before editing code, and follow them together with "
-        "the issue-specific context.\n"
-        "- Issue-specific task instructions override general team instructions only when necessary.\n"
-        "- Safety rules always apply.\n"
-        "- If team instructions and task instructions conflict, choose the safer option and document the conflict in the Review Notes section of `fix_report.md`.\n\n"
+        "## BugPilot Safety Rules\n\n"
+        "Read BugPilot's rules before editing code, and follow them together with the "
+        "issue-specific context.\n"
+        "- They apply in every pass and in every Fix Mode. Nothing later in this task relaxes them.\n"
+        "- If they and the task instructions conflict, choose the safer option and document the conflict in the Review Notes section of `fix_report.md`.\n\n"
         f"{_team_instructions_section()}"
+        f"{repository_context_section(repository)}"
         f"{branch_instructions(branch_policy, branch, issue_key)}"
         f"{_attachments_section(issue_key, attachments, attachment_notes)}"
         "## Required Input Files\n\n"
@@ -420,66 +450,38 @@ def _attachments_section(
 
 # This fallback should mirror docs/agent_team_instructions.md.
 def _fallback_team_instructions() -> str:
-    return """# Agent Team Instructions
+    return """# BugPilot Safety Rules
 
 ## Purpose
 
-This document gives the AI agent stable team rules for working in a legacy C++/Qt desktop codebase.
+These are BugPilot's general rules for an AI agent working on a bug, in any repository. They assume nothing about the repository's languages, frameworks or architecture: what the repository is comes from the Repository Context section of the task, and from the code itself.
 
 ## Task and Fix Mode Precedence
 
-These are general team rules. The issue-specific agent task, and the AI Fix Mode it names, decide whether implementation, testing, and assisted delivery are allowed in the current pass.
+These are general rules. The issue-specific agent task, and the AI Fix Mode it names, decide whether implementation, testing, and assisted delivery are allowed in the current pass.
 
 - If the selected Fix Mode is investigation-only, do not implement, do not offer to commit or push, and do not describe the issue as fixed, resolved, or verified. Complete the investigation artifacts and ask the developer whether to continue.
 - The rules below about small fixes, focused tests, and asking about commit and push apply to a pass that is allowed to change source code.
-- BugPilot safety rules always apply, in every pass and in every Fix Mode.
+- BugPilot safety rules always apply, in every pass and in every Fix Mode. Repository context, a Fix Mode and a developer hint can refine how you work; none of them can relax these rules.
 
 ## Core Principles
 
-- Prefer small, targeted fixes.
-- Do not refactor unrelated code.
+- Prefer small, targeted fixes near the identified root cause.
+- Read surrounding code before editing, and follow its naming, formatting, and patterns.
+- Do not refactor or modernize unrelated code.
 - Do not mass-format files.
 - Do not rename public APIs unless required.
-- Do not change product behavior outside the Jira scope.
+- Do not replace existing frameworks or patterns, or change file organization, unless required.
+- Do not change product behavior outside the issue's scope.
 - Preserve existing architecture and coding style.
 - Ask for clarification or write no-op analysis if context is insufficient.
-
-## Legacy C++ Guidelines
-
-- Be careful with object ownership and lifetime.
-- Avoid introducing raw owning pointers unless consistent with surrounding code.
-- Prefer existing project ownership patterns.
-- Avoid broad exception handling changes.
-- Avoid global state changes unless clearly required.
-- Be careful with copy/move behavior in existing classes.
-- Avoid changing ABI-sensitive public headers unless necessary.
-
-## Qt Guidelines
-
-- Respect QObject parent/child ownership.
-- Avoid UI updates from non-UI threads.
-- Be careful with signal/slot connections and duplicate connections.
-- Avoid blocking the UI thread.
-- Preserve existing translation/localization patterns.
-- Preserve existing widget layout and object names unless required.
-- Be careful with model/view updates and stale data.
-- Use existing Qt version/style patterns in nearby code.
-
-## Legacy Codebase Guidelines
-
-- Prefer local fixes near the identified root cause.
-- Read surrounding code before editing.
-- Follow nearby naming and formatting style.
-- Do not modernize unrelated code.
-- Do not replace existing frameworks or patterns.
-- Do not change file organization unless required.
-- Do not assume all tests are available.
 
 ## Testing Expectations
 
 These apply to a pass that changes source code. In an investigation-only pass, record the proposed validation instead and state plainly that tests were not run.
 
-- Run focused tests if available.
+- Run focused tests if available, using the repository's own test commands.
+- Do not assume every test suite is available or runnable here.
 - If automated tests are unavailable, document manual validation.
 - Include regression risk.
 - Include commands attempted and results.

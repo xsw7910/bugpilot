@@ -24,6 +24,8 @@ import { isWorkItemId, restoreForm } from "./app/form.ts";
 import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues } from "./app/logSafety.ts";
 import { deleteWorkItemArtifacts } from "./app/sessionReset.ts";
 import { fixModeCommandPort, payloadCommandPort } from "./app/fixModeTransport.ts";
+import { runRepositoryProfile } from "./app/repositoryProfile.ts";
+import type { RepositoryProfileOutcome, RepositoryProfilePayload } from "./app/repositoryProfile.ts";
 import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
 import { diagnose } from "./errors.ts";
@@ -120,6 +122,15 @@ export function activate(context: vscode.ExtensionContext): void {
     return resolved;
   };
 
+  const repositoryProfileCommand = async (profile?: RepositoryProfilePayload): Promise<RepositoryProfileOutcome> => {
+    const root = controller.root;
+    if (!root) return { kind: "failed", message: "No repository is open." };
+    return runRepositoryProfile(
+      (args) => new Runner(executable).run(args, { cwd: root, timeoutMs: 30_000 }),
+      profile,
+    );
+  };
+
   // Annotated because the panel's message callback above refers to it: without
   // a type here the inference is circular. It is only *called* later, so the
   // reference is safe at runtime.
@@ -204,6 +215,13 @@ export function activate(context: vscode.ExtensionContext): void {
         return loadManagedFixModes((args) =>
           new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
         );
+      },
+      // The Repository Profile, read and written through the CLI that owns its
+      // file and its validation. Run raw, not through runJson: an exit code 2
+      // from a CLI without the command is how an out-of-date CLI is recognised.
+      repositoryProfile: {
+        load: () => repositoryProfileCommand(),
+        save: (profile) => repositoryProfileCommand(profile),
       },
       // The payload file and its cleanup live in the app layer; the controller
       // only says what the command is and what definition it carries, and the
@@ -527,7 +545,7 @@ export function activate(context: vscode.ExtensionContext): void {
       channel.appendLine("No MCP configuration for bugpilot was found in this workspace.");
       channel.appendLine("Looked in:");
       for (const file of status.checked) channel.appendLine(`  ${file}`);
-      channel.appendLine("See docs/mcp_setup.md in the bugpilot repository to add one.");
+      channel.appendLine("See https://github.com/xsw7910/bugpilot/blob/main/docs/mcp_setup.md to add one.");
     }
     channel.show(true);
   });

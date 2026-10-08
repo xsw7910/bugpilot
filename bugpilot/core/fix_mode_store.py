@@ -42,6 +42,7 @@ from .fix_modes import (
     builtin_fix_mode_registry,
     is_valid_fix_mode_id,
 )
+from .safe_paths import is_link_or_junction
 from .user_config import user_config_dir
 
 CUSTOM_SCHEMA_VERSION = 1
@@ -548,17 +549,11 @@ def _redirects_elsewhere(path: Path) -> bool:
     file follows the same link, so the two agree and the check passes while the
     file lands outside the repository.
 
-    What this guard covers, stated precisely rather than claimed broadly:
-    symbolic links everywhere, and on Windows also directory junctions where
-    the interpreter reports them (`Path.is_junction`, 3.12+). Other reparse
-    point types are not classified, so this is containment against the shapes a
-    repository can actually carry — a cloned repo can ship a symlink — not a
-    general Windows filesystem model.
+    The one link test BugPilot has (`safe_paths.is_link_or_junction`), shared
+    with `clean` and `--fresh`: symbolic links everywhere, and on Windows every
+    name-surrogate reparse point, junctions included.
     """
-    if path.is_symlink():
-        return True
-    is_junction = getattr(path, "is_junction", None)
-    return bool(is_junction()) if callable(is_junction) else False
+    return is_link_or_junction(path)
 
 
 def _unsafe_directory_reason(directory: Path, scope: str) -> str | None:

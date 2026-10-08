@@ -27,11 +27,11 @@ def _issue(title: str = "", description: str = "", **details: str) -> IssueArtif
     )
 
 
-# The normalized shape of the real issue, trimmed to the fields these two
-# functions read.
-HR_12345 = _issue(
-    title="[Client] Feature to Calculate Quality (Q) Factor …",
-    description="Suggested by a customer's geophysics group …",
+# The shape of the real issue, trimmed to the fields these two functions read;
+# the title and description are synthetic.
+JR_12345 = _issue(
+    title="Feature request: export a summary report from the widget editor …",
+    description="Suggested during a product review …",
     issue_type="Task",
     status="Closed",
     resolution="Won't Do",
@@ -70,7 +70,7 @@ NO_MEMORY = "No similar memory entries found."
 
 def _score(confidence, related=TEN_LOW_VALUE_FILES):
     retrieval = RetrievalArtifact(confidence=confidence, related_files=tuple(related))
-    return _quality_score(HR_12345, {"high_value_keywords": ["a"]}, retrieval, NO_MEMORY, GIT)
+    return _quality_score(JR_12345, {"high_value_keywords": ["a"]}, retrieval, NO_MEMORY, GIT)
 
 
 # --- the headline must not contradict the section beneath it ----------------
@@ -113,14 +113,14 @@ def test_finding_nothing_still_beats_finding_ten_wrong_things_by_a_little():
 
 def test_a_closed_issue_says_so_before_the_reader_starts():
     """bugpilot prepared a branch name and a fix workflow for a Won't Do."""
-    caution = _caution_markdown(HR_12345)
+    caution = _caution_markdown(JR_12345)
     assert "## Caution" in caution
     assert "Closed" in caution and "Won't Do" in caution
     assert "did not reopen" in caution
 
 
 def test_a_non_bug_says_what_to_expect_instead():
-    caution = _caution_markdown(HR_12345)
+    caution = _caution_markdown(JR_12345)
     assert "types this as Task, not a Bug" in caution
     assert "no reproduction steps" in caution
 

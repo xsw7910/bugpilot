@@ -31,6 +31,9 @@ const SAFE_VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--git-max-commits",
   // A count, checked from 1 to 20 before it is sent (§37.113).
   "--max-similar-fixes",
+  // One of three choices, normalised before it is sent (§37.127). Redacted, its
+  // values — "ask", "current" — were scrubbed out of every word containing them.
+  "--branch-policy",
   "--description-file",
 ]);
 

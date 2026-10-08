@@ -20,6 +20,7 @@
  */
 
 import { COMMANDS } from "../commands.ts";
+import { CLI_NOT_FOUND_CODE, CLI_OUTDATED_CODE } from "./cliCompatibility.ts";
 import type { ProgressView } from "./progress.ts";
 import type { CommandAction } from "./environment.ts";
 
@@ -31,7 +32,7 @@ import type { CommandAction } from "./environment.ts";
  * token" and "Jira has no such issue" lead to different next actions, so they
  * are two; a rate limit and a timeout both lead to "try again", so they are one.
  */
-export type ErrorKind = "agent" | "jira-access" | "jira-not-found" | "run";
+export type ErrorKind = "agent" | "cli" | "jira-access" | "jira-not-found" | "run";
 
 export interface UserFacingError {
   readonly kind: ErrorKind;
@@ -75,6 +76,20 @@ const OPEN_SETTINGS: CommandAction = {
 };
 
 /**
+ * Where updating or installing the CLI is explained. One command, two names:
+ * an out-of-date CLI needs the update line, a missing one the install line.
+ */
+const UPDATE_INSTRUCTIONS: CommandAction = {
+  title: "Update Instructions",
+  command: COMMANDS.showInstallInstructions,
+};
+
+const INSTALL_INSTRUCTIONS: CommandAction = {
+  title: "Install Instructions",
+  command: COMMANDS.showInstallInstructions,
+};
+
+/**
  * A finished run's failure, as a card.
  *
  * `summary` and `action` are `diagnose()`'s, unchanged — this does not rewrite
@@ -109,6 +124,16 @@ export function runError(
         : "BugPilot couldn't find that issue. Check the Jira key, or describe the bug instead.",
       ...(detail ? { detail } : {}),
     };
+  }
+
+  // The extension's own observations about the CLI (`cliCompatibility.ts`),
+  // never retryable as they stand: the same CLI fails the same way until it is
+  // updated or found. The environment card carries Choose Executable and Retry.
+  if (failure.code === CLI_OUTDATED_CODE) {
+    return { kind: "cli", title: "BugPilot CLI is out of date", ...base, action: UPDATE_INSTRUCTIONS };
+  }
+  if (failure.code === CLI_NOT_FOUND_CODE) {
+    return { kind: "cli", title: "BugPilot CLI was not found", ...base, action: INSTALL_INSTRUCTIONS };
   }
 
   if (JIRA_ACCESS_CODES.has(failure.code)) {

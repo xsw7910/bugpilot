@@ -49,6 +49,16 @@ test("a work item id and BugPilot's own values stay: a Jira run and a retry read
   assert.equal(commandForLog(["bug", "--description-file=C:\\storage\\bug-description.md"]), "bugpilot bug --description-file=C:\\storage\\bug-description.md");
 });
 
+test("the branch policy is a choice BugPilot normalised, so it stays — and is not scrubbed from stderr", () => {
+  for (const policy of ["current", "per-issue", "ask"]) {
+    assert.equal(commandForLog(["bug", "JR-1", `--branch-policy=${policy}`]), `bugpilot bug JR-1 --branch-policy=${policy}`);
+  }
+  // Redacted, "ask" and "current" were cut out of every word that held them.
+  const values = sensitiveValues(["bug", "JR-1", "--branch-policy=ask", "--branch-policy=current"]);
+  assert.deepEqual(values, []);
+  assert.equal(stderrForLog("could not read task.md in the current folder", values), "could not read task.md in the current folder");
+});
+
 test("an unknown flag's value, and a positional that is not an id, are redacted by default", () => {
   // An allowlist: a flag added tomorrow leaks nothing until someone decides it may.
   assert.equal(commandForLog(["bug", `--future-flag=${SECRET_JIRA}`]), `bugpilot bug --future-flag=${REDACTED}`);

@@ -113,6 +113,25 @@ import type { ArtifactList } from "./artifacts.ts";
 import { COMMANDS } from "../commands.ts";
 import { diagnose } from "../errors.ts";
 import type { Environment } from "./environment.ts";
+import { outdatedCliActions } from "./environment.ts";
+import {
+  CLI_OUTDATED_ACTION,
+  CLI_OUTDATED_SUMMARY,
+  isMissingCli,
+  outdatedCliDetail,
+  rejectedByOutdatedCli,
+} from "./cliCompatibility.ts";
+import {
+  formWithRepositoryProfile,
+  repositoryProfileOfForm,
+  repositoryProfileView,
+  sameRepositoryProfile,
+} from "./repositoryProfile.ts";
+import type {
+  RepositoryProfileOutcome,
+  RepositoryProfilePayload,
+  RepositoryProfileSnapshot,
+} from "./repositoryProfile.ts";
 import {
   deleteArgsFor,
   draftFromDefinition,
@@ -326,6 +345,16 @@ export interface ControllerPorts {
   readonly listFixModes?: () => Promise<FixModeCatalog>;
   /** Every physical definition, for the management view. */
   readonly listManagedFixModes?: () => Promise<ManagedFixModes>;
+  /**
+   * The repository's Repository Profile, through `bugpilot repository-profile`
+   * (pre-release Batch 1): read when the environment resolves, written on
+   * Apply. A port so the spawn stays with the host; absent, the form's copy is
+   * all there is and Apply cannot save a change to it.
+   */
+  readonly repositoryProfile?: {
+    readonly load: () => Promise<RepositoryProfileOutcome>;
+    readonly save: (profile: RepositoryProfilePayload) => Promise<RepositoryProfileOutcome>;
+  };
   /**
    * One issue's title and description, for improving a hint.
    *
@@ -844,6 +873,15 @@ export class Controller {
    */
   #fixEpoch = 0;
   #readiness: Readiness = { kind: "checking" };
+  /**
+   * The Repository Profile as the repository's own file last said it, from
+   * `bugpilot repository-profile` — `undefined` until read, or when it could not
+   * be. The form holds the copy the page edits; this is what Apply compares it
+   * with, and what a failed save puts back.
+   */
+  #savedProfile: RepositoryProfileSnapshot | undefined;
+  /** A save of the Repository Profile in flight: a Run waits for it, so it reads the new file. */
+  #profileSave: Promise<void> | undefined;
   #root: string | undefined;
   #jiraConfigured = false;
   /**
@@ -1292,6 +1330,7 @@ export class Controller {
         ? new Set(this.#readiness.actions.map((action) => action.command))
         : new Set();
     await this.#loadFixModes();
+    await this.#loadRepositoryProfile();
     // The revision is deliberately *not* bumped here. Bumping it makes the page
     // rewrite every field from the host's copy, which moves the caret and
     // discards anything typed inside the 400ms `formChanged` debounce — and
@@ -1549,11 +1588,18 @@ export class Controller {
       await this.refreshEnvironment();
       if (this.#readiness.kind !== "ready" || !this.#root) return;
     }
+    // A profile Apply is still writing: the run reads the file, so it waits for
+    // the one on screen to be there.
+    if (this.#profileSave) {
+      await this.#profileSave;
+      if (this.#readiness.kind !== "ready") return;
+    }
     // Reset while the environment was checked, or being reset now: this form's
     // problems are not the fresh session's to show, and its Fresh question is not
     // one to ask (§37.103).
     if (epoch !== this.#sessionEpoch || this.#reset !== undefined) return;
     const root = this.#root;
+    if (root === undefined) return;
 
     const built = buildPrepareArgs(form, {
       root,
@@ -1707,11 +1753,20 @@ export class Controller {
         },
       );
 
+      // A CLI too old for this Run's flags exits 2 with argparse's "unrecognized
+      // arguments" (pre-release Batch 1, D): said as that, with the update
+      // actions, rather than as a crash with a Retry that would fail the same way.
+      const rejected = outcome.result.aborted ? undefined : rejectedByOutdatedCli(outcome.result);
       if (outcome.foreignVersion !== undefined) tracker.foreign(outcome.foreignVersion);
       else if (!outcome.terminated) {
-        tracker.interrupted(
-          outcome.result.aborted ? (this.#stoppedByUser ? "stopped" : "timeout") : "crashed",
-        );
+        if (rejected !== undefined) {
+          tracker.cliUnusable("outdated", outdatedCliDetail(rejected));
+          this.#blockOutdatedCli(rejected);
+        } else {
+          tracker.interrupted(
+            outcome.result.aborted ? (this.#stoppedByUser ? "stopped" : "timeout") : "crashed",
+          );
+        }
         if (!outcome.result.aborted && outcome.result.stderr.trim() !== "") {
           // Its tail, scrubbed: argparse and a traceback can both quote the
           // argv back, description and all.
@@ -1724,11 +1779,20 @@ export class Controller {
       this.#noteJiraOutcome(this.#progress, form);
     } catch (error) {
       // A spawn failure, or output that broke the contract outright.
-      tracker.interrupted("crashed");
-      this.#progress = tracker.view();
-      const reason = redactKnown((error as Error).message, sensitiveValues(built.args));
-      this.#ports.log.error(`bugpilot ${built.args[0] ?? ""} could not run: ${reason}`);
-      this.#ports.ui.notify("error", `bugpilot could not run: ${reason}`);
+      if (isMissingCli(error)) {
+        // Gone since the environment was checked: said as that, and the check
+        // run again so the environment card offers the way to fix it.
+        tracker.cliUnusable("missing");
+        this.#progress = tracker.view();
+        this.#ports.log.error(`bugpilot ${built.args[0] ?? ""} could not run: the executable was not found.`);
+        void this.#freshEnvironment();
+      } else {
+        tracker.interrupted("crashed");
+        this.#progress = tracker.view();
+        const reason = redactKnown((error as Error).message, sensitiveValues(built.args));
+        this.#ports.log.error(`bugpilot ${built.args[0] ?? ""} could not run: ${reason}`);
+        this.#ports.ui.notify("error", `bugpilot could not run: ${reason}`);
+      }
     } finally {
       this.#running = false;
       this.#abort = undefined;
@@ -2366,7 +2430,7 @@ export class Controller {
     };
     this.#ports.ui.notify(
       "warning",
-      `There is no ${TASK_ARTIFACT} for ${workItemId}. Run BugPilot with Build context enabled first.`,
+      `There is no ${TASK_ARTIFACT} for ${workItemId}. Press Run to prepare it first.`,
     );
     return true;
   }
@@ -2427,7 +2491,15 @@ export class Controller {
       return;
     }
     const before = JSON.stringify(this.#primaryView());
+    const previous = this.#form;
     await this.#formChanged(form);
+    // The Repository Profile is the repository's file, not the form: a change
+    // to it is written there, where every run reads it.
+    const baseline = this.#savedProfile?.profile ?? repositoryProfileOfForm(previous);
+    if (!sameRepositoryProfile(form, baseline)) {
+      await this.#saveRepositoryProfile(previous);
+      return;
+    }
     // Pushed whether or not the primary action moved: the rows' summaries are
     // the settings just applied, and they are on screen now.
     if (JSON.stringify(this.#primaryView()) === before) this.#push();
@@ -2840,6 +2912,101 @@ export class Controller {
    * spawns a process that is already known to fail, and the answer would be an
    * error card the blocked card already showed.
    */
+  /**
+   * Read the repository's profile and put it on the form (pre-release Batch 1).
+   *
+   * The file is the setting and the form a copy, so the file wins: a profile a
+   * teammate committed, or one edited by hand, is what the settings page shows
+   * after the next environment check. The form is replaced only when the two
+   * differ — replacing it rewrites every field on the page.
+   *
+   * A CLI too old to have the command is too old for this extension: its runs
+   * would ignore the profile, and its Run rejects this extension's flags. That
+   * blocks here, before a Run, with the update actions.
+   */
+  async #loadRepositoryProfile(): Promise<void> {
+    this.#savedProfile = undefined;
+    if (this.#readiness.kind !== "ready" || !this.#ports.repositoryProfile) return;
+    this.#applyProfileOutcome(await this.#ports.repositoryProfile.load());
+  }
+
+  /** What a read or a save of the profile came back with, applied. False when it was not read. */
+  #applyProfileOutcome(outcome: RepositoryProfileOutcome): boolean {
+    if (outcome.kind === "outdated") {
+      this.#savedProfile = undefined;
+      this.#blockOutdatedCli(outcome.rejected);
+      return false;
+    }
+    if (outcome.kind === "failed") {
+      this.#ports.log.error(`Reading the repository profile failed: ${oneSentence(outcome.message)}`);
+      return false;
+    }
+    this.#savedProfile = outcome.snapshot;
+    for (const warning of outcome.snapshot.warnings) this.#ports.log.info(`Repository profile: ${warning}`);
+    if (!sameRepositoryProfile(this.#form, outcome.snapshot.profile)) {
+      this.#replaceForm(formWithRepositoryProfile(this.#form, outcome.snapshot.profile));
+    }
+    return true;
+  }
+
+  /**
+   * The CLI turned out to be too old for this extension (pre-release Batch 1, D):
+   * the environment card says so, with Update Instructions, Choose Executable
+   * and Retry, and the form waits until it is fixed. Retry re-checks, and an
+   * old CLI is caught again by reading the profile.
+   */
+  #blockOutdatedCli(rejected: readonly string[]): void {
+    this.#readiness = {
+      kind: "blocked",
+      summary: CLI_OUTDATED_SUMMARY,
+      action: `${CLI_OUTDATED_ACTION} ${outdatedCliDetail(rejected)}`,
+      actions: outdatedCliActions(),
+    };
+    this.#offered = new Set(this.#readiness.actions.map((action) => action.command));
+  }
+
+  /**
+   * Write the form's Repository Profile to the repository's file, on Apply.
+   *
+   * The other settings were applied already: a profile that could not be saved
+   * is said so, and the form's copy goes back to what the file holds, so the
+   * page never shows a profile no run will use.
+   */
+  async #saveRepositoryProfile(previous: FormState): Promise<void> {
+    const port = this.#ports.repositoryProfile;
+    const saved = this.#savedProfile;
+    const restore = (): void => {
+      this.#replaceForm(formWithRepositoryProfile(this.#form, saved?.profile ?? repositoryProfileOfForm(previous)));
+    };
+    if (!port || this.#readiness.kind !== "ready" || !this.#root) {
+      this.#ports.ui.notify(
+        "warning",
+        "The repository profile was not saved: BugPilot is not ready in this repository. The other settings were applied.",
+      );
+      restore();
+      this.#push();
+      return;
+    }
+    const save = (async () => {
+      const outcome = await port.save(repositoryProfileOfForm(this.#form));
+      if (this.#applyProfileOutcome(outcome)) return;
+      this.#ports.ui.notify(
+        "error",
+        outcome.kind === "outdated"
+          ? `The repository profile was not saved. ${CLI_OUTDATED_SUMMARY}`
+          : `The repository profile was not saved: ${outcome.kind === "failed" ? oneSentence(outcome.message) : ""}`,
+      );
+      restore();
+    })();
+    this.#profileSave = save;
+    try {
+      await save;
+    } finally {
+      if (this.#profileSave === save) this.#profileSave = undefined;
+    }
+    this.#push();
+  }
+
   async #loadFixModes(): Promise<void> {
     if (this.#readiness.kind !== "ready") {
       this.#fixModes = {
@@ -4983,6 +5150,7 @@ export class Controller {
     this.#ports.ui.render({
       revision: this.#revision,
       fixModes: this.#fixModes,
+      repositoryProfile: repositoryProfileView(this.#savedProfile),
       ...(this.#preparedFixMode === undefined ? {} : { preparedFixMode: this.#preparedFixMode }),
       ...(this.#manageOpen
         ? {

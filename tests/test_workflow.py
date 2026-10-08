@@ -314,10 +314,14 @@ def test_copilot_task_references_retrieval(tmp_path):
     assert "Work on the branch that is currently checked out. Do not create or switch branches." in task
     assert "Create or switch to `" not in task
     assert ".ai/JR-12345/context.md" in task
-    # The team instructions are in the task, not in a file beside it.
-    assert "## Team Instructions" in task
+    # BugPilot's safety rules are in the task, not in a file beside it.
+    assert "## BugPilot Safety Rules" in task
     assert "### Core Principles" in task
-    assert "Read these general team rules before editing code" in task
+    assert "Read BugPilot's rules before editing code" in task
+    # And no repository is assumed to be a legacy C++/Qt desktop codebase.
+    assert "## Repository Context" in task
+    for assumption in ("C++", "Qt", "legacy", "desktop"):
+        assert assumption not in task, assumption
     assert ".ai/JR-12345/retrieval.json" in task
     for name in LEGACY_RETRIEVAL_FILES:
         assert name not in task
@@ -355,7 +359,7 @@ def test_default_omits_jira_status_section(tmp_path):
     task = (issue_dir / "task.md").read_text()
     # The team rules name `jira-comment --execute` conditionally ("when the task
     # instructions ask for it"); what must be absent is the task asking.
-    own = task[: task.index("## Team Instructions")] + task[task.index("## Branch Instructions"):]
+    own = task[: task.index("## BugPilot Safety Rules")] + task[task.index("## Branch Instructions"):]
 
     # No pre-commit Jira status section, and no marker, by default.
     assert "Report Status to Jira (before commit)" not in task
@@ -842,10 +846,8 @@ def test_docs_copilot_team_instructions_exists():
 
     for heading in [
         "## Purpose",
+        "## Task and Fix Mode Precedence",
         "## Core Principles",
-        "## Legacy C++ Guidelines",
-        "## Qt Guidelines",
-        "## Legacy Codebase Guidelines",
         "## Testing Expectations",
         "## Git Safety",
         "## Output Expectations",
@@ -857,6 +859,10 @@ def test_docs_copilot_team_instructions_exists():
     assert "Never push main/master" in text
     assert "Never force push" in text
     assert "Never commit .ai/ or .ai_memory/" in text
+    # Repository-neutral (pre-release Batch 1): what a repository is comes from
+    # its Repository Profile, never from BugPilot's own rules.
+    for assumption in ("C++", "Qt", "legacy", "Legacy", "desktop"):
+        assert assumption not in text, assumption
 
 
 def test_copilot_task_command_regenerates_task_files(tmp_path, monkeypatch):
@@ -938,7 +944,7 @@ def test_copilot_instructions_command_prints_them(tmp_path, monkeypatch, capsys)
     output = capsys.readouterr().out
     status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
-    assert "Agent Team Instructions" in output
+    assert "BugPilot Safety Rules" in output
     assert "## Core Principles" in output
     assert not (tmp_path / ".ai" / "JR-12345" / "agent_team_instructions.md").exists()
     assert status["steps"]["agent_instructions"] == "pass"
@@ -1394,7 +1400,8 @@ def test_bug_fresh_removes_old_later_phase_artifacts(tmp_path, monkeypatch):
     assert (issue_dir / "context.md").is_file()
 
 
-def test_bug_default_is_fresh_and_removes_old_artifacts(tmp_path, monkeypatch):
+def test_bug_default_keeps_old_artifacts(tmp_path, monkeypatch):
+    """The public default (pre-release Batch 1): prepare, keep, launch nothing."""
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
         "bugpilot.core.jira.urllib.request.urlopen",
@@ -1403,11 +1410,13 @@ def test_bug_default_is_fresh_and_removes_old_artifacts(tmp_path, monkeypatch):
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
     (issue_dir / "old_artifact.md").write_text("old", encoding="utf-8")
+    (issue_dir / "fix_report.md").write_text("an agent's report", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert main(["bug", "JR-12345"]) == 0
 
-    assert not (issue_dir / "old_artifact.md").exists()
+    assert (issue_dir / "old_artifact.md").read_text(encoding="utf-8") == "old"
+    assert (issue_dir / "fix_report.md").read_text(encoding="utf-8") == "an agent's report"
     assert (issue_dir / "context.md").is_file()
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
     assert status["status"] == "prepared"
@@ -1449,17 +1458,17 @@ def test_bug_fresh_include_memory_removes_old_memory_then_recreates(tmp_path, mo
     assert "Prototype prepare-only workflow" in memory
 
 
-def test_bug_default_include_memory_removes_old_memory_then_recreates(tmp_path, monkeypatch):
+def test_include_memory_without_fresh_deletes_nothing(tmp_path, monkeypatch, capsys):
     memory_file = tmp_path / ".ai_memory" / "bugs" / "JR-12345.md"
     memory_file.parent.mkdir(parents=True)
     memory_file.write_text("UNIQUE OLD MEMORY", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    assert main(["bug", "JR-12345", "--include-memory", "--allow-mock"]) == 0
+    assert main(["bug", "JR-12345", "--include-memory", "--allow-mock"]) == 1
 
-    memory = memory_file.read_text(encoding="utf-8")
-    assert "UNIQUE OLD MEMORY" not in memory
-    assert "Prototype prepare-only workflow" in memory
+    assert "needs --fresh" in capsys.readouterr().err
+    assert memory_file.read_text(encoding="utf-8") == "UNIQUE OLD MEMORY"
+    assert not (tmp_path / ".ai").exists()
 
 
 def test_clean_does_not_affect_product_files(tmp_path, monkeypatch):
@@ -1480,7 +1489,7 @@ def test_bug_resume_include_memory_conflicts(tmp_path, monkeypatch, capsys):
 
     assert main(["bug", "JR-12345", "--resume", "--include-memory"]) == 1
 
-    assert "--include-memory requires fresh mode and cannot be used with --resume" in capsys.readouterr().err
+    assert "--include-memory deletes a memory entry, so it needs --fresh to say so." in capsys.readouterr().err
 
 
 def test_bug_fresh_and_resume_conflict():
@@ -2354,7 +2363,7 @@ def _full_jira_issue(issue_key: str = "JR-12345") -> dict:
             "reporter": {"displayName": "QA User", "accountId": "qa-id"},
             "created": "2026-05-01T10:00:00.000+0000",
             "updated": "2026-05-30T12:00:00.000+0000",
-            "project": {"key": "HR", "name": "HR System"},
+            "project": {"key": "JR", "name": "JR System"},
             "comment": {
                 "total": 3,
                 "comments": [
@@ -2418,8 +2427,8 @@ def test_normalize_core_fields_extracts_all_standard_fields():
     assert normalized["assignee"] == "Jane Dev"
     assert normalized["reporter"] == "QA User"
     assert normalized["created"] == "2026-05-01T10:00:00.000+0000"
-    assert normalized["project_key"] == "HR"
-    assert normalized["project_name"] == "HR System"
+    assert normalized["project_key"] == "JR"
+    assert normalized["project_name"] == "JR System"
     assert normalized["comment_count_total"] == 3
     assert normalized["attachment_count"] == 1
 
@@ -2476,7 +2485,7 @@ def test_issue_summary_includes_real_jira_fields_but_no_people():
     assert "- Resolution: Unresolved" in summary
     assert "- Components: Search, Filters" in summary
     # Names are not kept in issue.json, so they cannot reach the context.
-    for absent in ("Jane Dev", "QA User", "## Assignee", "## Reporter", "HR System"):
+    for absent in ("Jane Dev", "QA User", "## Assignee", "## Reporter", "JR System"):
         assert absent not in summary
     assert "- Affected versions: 2026.0" in summary
     assert "- Fix versions: 2026.2, 2026.1-patch" in summary

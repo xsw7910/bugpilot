@@ -115,8 +115,8 @@ def skill_steps() -> tuple[str, ...]:
     """
     reads = " and ".join(f"`.ai/<ISSUE>/{name}`" for name in REQUIRED_READS)
     return (
-        "Run `bugpilot bug <ISSUE>` from the repository root. "
-        'For a bug with no issue key, run `bugpilot bug --description="..."` instead.',
+        "Run `bugpilot bug <ISSUE> --prepare-only --resume` from the repository root. "
+        'For a bug with no issue key, run `bugpilot bug --description="..." --prepare-only` instead.',
         f"Read {reads}. They contain the issue details, the ranked candidate "
         "files and the relevant git history — read them instead of searching "
         "the repository from scratch.",

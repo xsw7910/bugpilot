@@ -1,63 +1,35 @@
-# Agent Team Instructions
+# BugPilot Safety Rules
 
 ## Purpose
 
-This document gives the AI agent stable team rules for working in a legacy C++/Qt desktop codebase.
+These are BugPilot's general rules for an AI agent working on a bug, in any repository. They assume nothing about the repository's languages, frameworks or architecture: what the repository is comes from the Repository Context section of the task, and from the code itself.
 
 ## Task and Fix Mode Precedence
 
-These are general team rules. The issue-specific agent task, and the AI Fix Mode it names, decide whether implementation, testing, and assisted delivery are allowed in the current pass.
+These are general rules. The issue-specific agent task, and the AI Fix Mode it names, decide whether implementation, testing, and assisted delivery are allowed in the current pass.
 
 - If the selected Fix Mode is investigation-only, do not implement, do not offer to commit or push, and do not describe the issue as fixed, resolved, or verified. Complete the investigation artifacts and ask the developer whether to continue.
 - The rules below about small fixes, focused tests, and asking about commit and push apply to a pass that is allowed to change source code.
-- BugPilot safety rules always apply, in every pass and in every Fix Mode.
+- BugPilot safety rules always apply, in every pass and in every Fix Mode. Repository context, a Fix Mode and a developer hint can refine how you work; none of them can relax these rules.
 
 ## Core Principles
 
-- Prefer small, targeted fixes.
-- Do not refactor unrelated code.
+- Prefer small, targeted fixes near the identified root cause.
+- Read surrounding code before editing, and follow its naming, formatting, and patterns.
+- Do not refactor or modernize unrelated code.
 - Do not mass-format files.
 - Do not rename public APIs unless required.
-- Do not change product behavior outside the Jira scope.
+- Do not replace existing frameworks or patterns, or change file organization, unless required.
+- Do not change product behavior outside the issue's scope.
 - Preserve existing architecture and coding style.
 - Ask for clarification or write no-op analysis if context is insufficient.
-
-## Legacy C++ Guidelines
-
-- Be careful with object ownership and lifetime.
-- Avoid introducing raw owning pointers unless consistent with surrounding code.
-- Prefer existing project ownership patterns.
-- Avoid broad exception handling changes.
-- Avoid global state changes unless clearly required.
-- Be careful with copy/move behavior in existing classes.
-- Avoid changing ABI-sensitive public headers unless necessary.
-
-## Qt Guidelines
-
-- Respect QObject parent/child ownership.
-- Avoid UI updates from non-UI threads.
-- Be careful with signal/slot connections and duplicate connections.
-- Avoid blocking the UI thread.
-- Preserve existing translation/localization patterns.
-- Preserve existing widget layout and object names unless required.
-- Be careful with model/view updates and stale data.
-- Use existing Qt version/style patterns in nearby code.
-
-## Legacy Codebase Guidelines
-
-- Prefer local fixes near the identified root cause.
-- Read surrounding code before editing.
-- Follow nearby naming and formatting style.
-- Do not modernize unrelated code.
-- Do not replace existing frameworks or patterns.
-- Do not change file organization unless required.
-- Do not assume all tests are available.
 
 ## Testing Expectations
 
 These apply to a pass that changes source code. In an investigation-only pass, record the proposed validation instead and state plainly that tests were not run.
 
-- Run focused tests if available.
+- Run focused tests if available, using the repository's own test commands.
+- Do not assume every test suite is available or runnable here.
 - If automated tests are unavailable, document manual validation.
 - Include regression risk.
 - Include commands attempted and results.

@@ -54,6 +54,8 @@ import type { AgentChoice } from "../app/agents.ts";
 import type { NextActionId } from "../app/nextAction.ts";
 import { BRANCH_POLICIES, SIMILAR_MAX_FIXES_DEFAULT, SIMILAR_MAX_FIXES_LIMIT } from "../app/form.ts";
 import type { BranchPolicy } from "../app/form.ts";
+import { REPOSITORY_FIELDS, REPOSITORY_PROFILE_LABELS, REPOSITORY_PROFILE_MODES } from "../app/repositoryProfile.ts";
+import type { RepositoryField, RepositoryProfileMode } from "../app/repositoryProfile.ts";
 import {
   DELETE_FILES_HELPER,
   DELETE_FILES_HISTORY,
@@ -124,6 +126,8 @@ interface TextField {
   readonly title?: string;
   /** An id for the label, for a group the label names (§37.119). */
   readonly labelId?: string;
+  /** The most characters the control accepts, where the CLI has a limit. */
+  readonly maxLength?: number;
 }
 
 /**
@@ -1122,6 +1126,74 @@ ${BRANCH_POLICIES.map((policy) => `            <option value="${policy}" title="
         </div>`;
 
 /**
+ * Repository (pre-release Batch 1): how task.md describes the repository.
+ * Auto-detect, the default, reads high-confidence facts from the repository's
+ * build and package files; Generic assumes nothing; Custom uses the details
+ * typed below, which appear only when Custom is chosen. The profile is the
+ * repository's own — `.bugpilot/repository_profile.json`, written on Apply —
+ * so the CLI and the MCP server describe the repository the same way.
+ *
+ * The select's options are names; what each means is its tooltip, and the
+ * field's sentence the select's tooltip and description. Under it, one quiet
+ * line of state: what Auto-detect finds in this repository, filled by the page
+ * from the host's `repositoryProfile`, as the agent picker's status line is.
+ */
+const REPOSITORY_PROFILE_MEANING: Readonly<Record<RepositoryProfileMode, string>> = {
+  auto: "Use high-confidence facts from the repository's build and package files.",
+  generic: "Make no language or framework assumptions.",
+  custom: "Use the repository details you provide.",
+};
+
+const REPOSITORY_PROFILE_HELP =
+  "Describe the repository context BugPilot gives to the AI agent. Auto-detect uses high-confidence project files. " +
+  "Generic makes no language or framework assumptions. Custom uses the repository details you provide. " +
+  "Saved for the repository in .bugpilot/repository_profile.json.";
+
+const REPOSITORY_PROFILE_FIELD = `        <div class="field" id="field-repositoryProfile">
+  ${settingHeader({
+    forId: "repositoryProfile",
+    label: "Repository profile",
+    icon: "folder",
+    tone: "muted",
+    help: REPOSITORY_PROFILE_HELP,
+    rebuild: showsRebuildLabel("repositoryProfile"),
+  })}
+          <select id="repositoryProfile" name="repositoryProfile" title="${REPOSITORY_PROFILE_HELP}" aria-describedby="repositoryProfile-hint repositoryProfile-detected">
+${REPOSITORY_PROFILE_MODES.map((mode) => `            <option value="${mode}" title="${REPOSITORY_PROFILE_MEANING[mode]}">${REPOSITORY_PROFILE_LABELS[mode]}</option>`).join("\n")}
+          </select>
+          <p class="hint repository-detected" id="repositoryProfile-detected" aria-live="polite" hidden></p>
+        </div>`;
+
+/** What each Custom detail is for, and an example of the kind of answer. */
+const REPOSITORY_DETAIL_TEXT: Readonly<Record<RepositoryField, { readonly help: string; readonly placeholder: string; readonly icon: string }>> = {
+  repositoryLanguages: { help: "The repository's main programming languages.", placeholder: "Python, TypeScript", icon: "tag" },
+  repositoryFrameworks: { help: "Frameworks the code is built on.", placeholder: "Django, React", icon: "files" },
+  repositoryApplicationType: { help: "What the software is.", placeholder: "Web service", icon: "target" },
+  repositoryBuildSystem: { help: "How the repository is built.", placeholder: "CMake, npm", icon: "tools" },
+  repositoryTestFramework: { help: "How the repository is tested.", placeholder: "pytest", icon: "beaker" },
+  repositoryNotes: {
+    help: "Anything else the AI agent should know about the codebase, in a sentence or two.",
+    placeholder: "Public APIs must stay backward compatible",
+    icon: "note",
+  },
+};
+
+const REPOSITORY_DETAIL_FIELDS: readonly TextField[] = REPOSITORY_FIELDS.map((entry) => ({
+  id: entry.field,
+  label: entry.label,
+  kind: entry.field === "repositoryNotes" ? "textarea" : "input",
+  ...(entry.field === "repositoryNotes" ? { rows: 2 } : {}),
+  icon: REPOSITORY_DETAIL_TEXT[entry.field].icon,
+  tone: "muted",
+  help: REPOSITORY_DETAIL_TEXT[entry.field].help,
+  placeholder: REPOSITORY_DETAIL_TEXT[entry.field].placeholder,
+  maxLength: entry.max,
+}));
+
+/** The Custom details are drawn hidden; the page shows them while Custom is chosen. */
+const REPOSITORY_SECTION = [REPOSITORY_PROFILE_FIELD, ...REPOSITORY_DETAIL_FIELDS.map((entry) => field(entry).replace(`<div class="field" id="field-${entry.id}">`, `<div class="field" id="field-${entry.id}" hidden>`))].join("\n");
+
+/**
  * How files get to Attachments — the dialog, a drop, the clipboard. Not
  * inferable from the label, and there is no box to hang a placeholder on, so it
  * is the label's and the button's tooltip and the button's description.
@@ -1178,6 +1250,8 @@ function sectionBody(section: WorkflowSettingsSection): string {
       return GIT_HISTORY_SECTION;
     case "similar-fixes":
       return SIMILAR_FIXES_SECTION;
+    case "repository":
+      return REPOSITORY_SECTION;
     case "build-context":
       return FRESH_FIELD;
     case "fix-with-ai":
@@ -1358,15 +1432,16 @@ function field(entry: TextField): string {
   // supplements the label, which stays the accessible name.
   const tooltip = entry.title ?? entry.help;
   const title = tooltip ? ` title="${tooltip}"` : "";
+  const limit = entry.maxLength === undefined ? "" : ` maxlength="${entry.maxLength}"`;
   const control =
     entry.kind === "textarea"
-      ? `<textarea id="${entry.id}" name="${entry.id}" rows="${entry.rows ?? 3}"${placeholder}${title} aria-describedby="${described}"></textarea>`
+      ? `<textarea id="${entry.id}" name="${entry.id}" rows="${entry.rows ?? 3}"${placeholder}${limit}${title} aria-describedby="${described}"></textarea>`
       : entry.kind === "number"
         ? // `inputmode` rather than `type="number"`: the spinner steals the
           // field's width in a 200px sidebar, and the value still travels as a
           // string that `buildPrepareArgs` validates either way.
           `<input type="text" inputmode="numeric" id="${entry.id}" name="${entry.id}"${placeholder}${title} aria-describedby="${described}">`
-        : `<input type="text" id="${entry.id}" name="${entry.id}"${placeholder}${title} aria-describedby="${described}">`;
+        : `<input type="text" id="${entry.id}" name="${entry.id}"${placeholder}${limit}${title} aria-describedby="${described}">`;
   // A field with nothing to explain still carries the hint element, hidden: the
   // control's `aria-describedby` names it, and an empty visible paragraph
   // leaves a gap in the row for no reason.
@@ -1961,6 +2036,7 @@ export const SETTINGS_FIELD_IDS: readonly string[] = [
   ...GIT_HISTORY_TEXT_FIELDS,
   GIT_MAX_COMMITS_FIELD,
   ...SIMILAR_FIXES_FIELDS,
+  ...REPOSITORY_DETAIL_FIELDS,
   ...RUN_OPTION_FIELDS,
   AGENT_COMMAND_FIELD,
 ].map((entry) => entry.id);

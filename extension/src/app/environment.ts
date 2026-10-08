@@ -137,6 +137,20 @@ export function actionsFor(verdict: Verdict): readonly CommandAction[] {
 }
 
 /**
+ * What a CLI that turned out to be too old for this extension is offered,
+ * wherever that was noticed — a Run, or reading the Repository Profile:
+ * update it, point at a newer one, then check again. The same three as an
+ * `incompatible` start-up verdict, with the first named for what it is here.
+ */
+export function outdatedCliActions(): readonly CommandAction[] {
+  return [
+    { title: "Update Instructions", command: COMMANDS.showInstallInstructions },
+    { title: "Choose Executable", command: COMMANDS.chooseExecutable },
+    { title: "Retry", command: COMMANDS.checkEnvironment },
+  ];
+}
+
+/**
  * The install wizard's text.
  *
  * Kept as data so it can be shown in a notification, the panel's empty state,
@@ -151,10 +165,18 @@ export function installInstructions(): readonly string[] {
     "Or, from a checkout of the repository:",
     "    python -m pip install -e .",
     "",
-    "Then tell it where your Jira lives — there is no built-in default:",
+    "For Jira issues, tell it where your Jira lives — there is no built-in default.",
+    "A bug you describe in your own words needs no Jira at all.",
     "    bugpilot setup",
     "",
     "Already installed but not found? It is probably not on PATH. Use",
     "\"Choose Executable\" to point the `bugpilot.executablePath` setting at it.",
+    "",
+    "Installed but out of date? This extension needs a CLI at least as new as",
+    "itself. Update it, then press Retry:",
+    "    pipx upgrade bugpilot",
+    "    (from a checkout: git pull, then python -m pip install -e .)",
+    "Check which bugpilot runs, and its version, with:",
+    "    bugpilot --version",
   ];
 }

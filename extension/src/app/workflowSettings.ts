@@ -36,6 +36,10 @@ import type { WorkflowStepId } from "./workflow.ts";
  * Branch last (§37.127): which branch the agent works on, belonging to no one
  * step, and its own section because it changes task.md where Fix with AI's
  * agent settings do not — no section mixes the two.
+ *
+ * Repository (pre-release Batch 1) sits after the retrieval steps: what the
+ * repository is, written into task.md. No one step's either, so no gear opens
+ * it, and the repository's own setting rather than this session's.
  */
 export const WORKFLOW_SETTINGS_SECTIONS = [
   "issue-details",
@@ -43,14 +47,15 @@ export const WORKFLOW_SETTINGS_SECTIONS = [
   "code-search",
   "git-history",
   "similar-fixes",
+  "repository",
   "build-context",
   "fix-with-ai",
   "branch",
 ] as const;
 export type WorkflowSettingsSection = (typeof WORKFLOW_SETTINGS_SECTIONS)[number];
 
-/** The sections that belong to one step: every one but the shared inputs and Branch. */
-export type StepSettingsSection = Exclude<WorkflowSettingsSection, "retrieval-inputs" | "branch">;
+/** The sections that belong to one step: every one but the shared inputs, Repository and Branch. */
+export type StepSettingsSection = Exclude<WorkflowSettingsSection, "retrieval-inputs" | "repository" | "branch">;
 
 /**
  * Which row's gear opens which section. A row absent here has no gear, and
@@ -73,6 +78,7 @@ export const SETTINGS_SECTION_TITLES: Readonly<Record<WorkflowSettingsSection, s
   "code-search": "Code search",
   "git-history": "Git history",
   "similar-fixes": "Similar fixes",
+  repository: "Repository",
   "build-context": "Build context",
   "fix-with-ai": "Fix with AI",
   branch: "Branch",
@@ -123,6 +129,16 @@ export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, r
   // Whether Similar fixes follows the shared Keywords, what it adds of its own,
   // and how many past fixes it keeps. Never the Focus files.
   "similar-fixes": ["similarUseSharedKeywords", "similarKeywords", "similarMaxFixes"],
+  // What the repository is, for task.md: the profile, and its Custom details.
+  repository: [
+    "repositoryProfile",
+    "repositoryLanguages",
+    "repositoryFrameworks",
+    "repositoryApplicationType",
+    "repositoryBuildSystem",
+    "repositoryTestFramework",
+    "repositoryNotes",
+  ],
   // How a preparation treats the work item's previous folder.
   "build-context": ["fresh"],
   // Who the task goes to. How it is approached, and the hint it carries, are
@@ -169,6 +185,14 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
   agentCommand: false,
   // Written into task.md, as the Fix Mode is.
   branchPolicy: true,
+  // The Repository Context section of task.md: the mode and each detail.
+  repositoryProfile: true,
+  repositoryLanguages: true,
+  repositoryFrameworks: true,
+  repositoryApplicationType: true,
+  repositoryBuildSystem: true,
+  repositoryTestFramework: true,
+  repositoryNotes: true,
 };
 
 /**

@@ -294,9 +294,20 @@ def test_a_fresh_rerun_without_a_flag_returns_to_standard(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     assert prepare(tmp_path, "--fix-mode", "deep-analysis") == 0
 
-    assert prepare(tmp_path) == 0
+    assert prepare(tmp_path, "--fresh") == 0
 
     assert stored(tmp_path)["id"] == "standard"
+
+
+def test_a_plain_rerun_keeps_the_chosen_mode(tmp_path, monkeypatch):
+    # Preparing again keeps the work item (pre-release Batch 1): only --fresh
+    # discards the package that recorded the mode.
+    monkeypatch.chdir(tmp_path)
+    assert prepare(tmp_path, "--fix-mode", "deep-analysis") == 0
+
+    assert prepare(tmp_path) == 0
+
+    assert stored(tmp_path)["id"] == "deep-analysis"
 
 
 def test_refinement_keeps_the_chosen_mode(tmp_path, monkeypatch):
@@ -652,7 +663,7 @@ def test_an_investigate_launch_does_not_promise_a_fix(tmp_path, monkeypatch, cap
     monkeypatch.chdir(tmp_path)
     _stub_agent(monkeypatch)
 
-    assert main(["bug", "JR-12345", "--allow-mock", "--fix-mode", "investigate-first"]) == 0
+    assert main(["bug", "JR-12345", "--allow-mock", "--fix-mode", "investigate-first", "--launch-agent", "claude"]) == 0
     out = capsys.readouterr().out
 
     assert "Investigation only: the agent will not change source code in this pass." in out
@@ -665,7 +676,7 @@ def test_a_fix_launch_keeps_the_implementation_guidance(tmp_path, monkeypatch, c
     monkeypatch.chdir(tmp_path)
     _stub_agent(monkeypatch)
 
-    assert main(["bug", "JR-12345", "--allow-mock", "--fix-mode", "conservative"]) == 0
+    assert main(["bug", "JR-12345", "--allow-mock", "--fix-mode", "conservative", "--launch-agent", "claude"]) == 0
     out = capsys.readouterr().out
 
     assert "implement the smallest safe fix" in out

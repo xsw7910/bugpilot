@@ -21,6 +21,8 @@ import type { OverallStatus, WorkflowStepResult } from "../app/workflow.ts";
 import type { ArtifactList } from "../app/artifacts.ts";
 import type { CommandAction } from "../app/environment.ts";
 import { FIX_MODE_ID_RE, branchPolicyOf, gitHistoryDepthOf } from "../app/form.ts";
+import { repositoryProfileModeOf } from "../app/repositoryProfile.ts";
+import type { RepositoryProfileView } from "../app/repositoryProfile.ts";
 import type { UserFacingError } from "../app/failures.ts";
 import type { JiraConnectionView } from "../app/jiraConnection.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
@@ -66,6 +68,15 @@ const CAPS: Readonly<Record<keyof FormTextFields, number>> = {
   gitMaxCommits: 16,
   similarKeywords: 8_000,
   similarMaxFixes: 16,
+  // The Repository Profile's Custom details: the CLI's own limits
+  // (`repository_profile.PROFILE_FIELDS`), so nothing longer than the CLI
+  // would store ever reaches the form, the fingerprint or the file.
+  repositoryLanguages: 200,
+  repositoryFrameworks: 200,
+  repositoryApplicationType: 120,
+  repositoryBuildSystem: 120,
+  repositoryTestFramework: 120,
+  repositoryNotes: 1_000,
 };
 
 type FormTextFields = Omit<
@@ -85,6 +96,7 @@ type FormTextFields = Omit<
   | "gitHistoryDepth"
   | "similarUseSharedKeywords"
   | "branchPolicy"
+  | "repositoryProfile"
 >;
 
 /**
@@ -191,6 +203,12 @@ export interface PanelState {
    * that decides what a Fix Mode is.
    */
   readonly fixModes: FixModeCatalog;
+  /**
+   * The Repository Profile picker's quiet line: what Auto-detect finds in this
+   * repository, when the profile could be read at all. The profile itself is
+   * on the form; this is only what the host learned about the repository.
+   */
+  readonly repositoryProfile?: RepositoryProfileView;
   /**
    * What the *prepared* package was built with, when there is one.
    *
@@ -955,6 +973,15 @@ function parseForm(raw: unknown): FormState | undefined {
     similarMaxFixes: text("similarMaxFixes"),
     // One of three, or the default: the value becomes a command-line flag.
     branchPolicy: branchPolicyOf(record["branchPolicy"]),
+    // One of three, or Auto-detect; the details capped at the CLI's limits.
+    // The host writes them to the repository's profile file on Apply.
+    repositoryProfile: repositoryProfileModeOf(record["repositoryProfile"]),
+    repositoryLanguages: text("repositoryLanguages"),
+    repositoryFrameworks: text("repositoryFrameworks"),
+    repositoryApplicationType: text("repositoryApplicationType"),
+    repositoryBuildSystem: text("repositoryBuildSystem"),
+    repositoryTestFramework: text("repositoryTestFramework"),
+    repositoryNotes: text("repositoryNotes"),
   };
 }
 

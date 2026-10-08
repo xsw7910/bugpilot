@@ -1,7 +1,7 @@
 # bugpilot
 
 ## What It Is
-bugpilot is a prototype CLI for an AI-assisted Jira bug workflow. It works with any coding agent (Claude by default, GitHub Copilot CLI optional via `--copilot`). It builds a deterministic development package from a Jira issue, local code search, shared memory, and git context so a developer can hand the agent a clearer task.
+bugpilot is a prototype CLI for an AI-assisted Jira bug workflow. It works with any coding agent: it prepares the package and stops, and you hand it to the agent you use (or ask it to launch Claude or GitHub Copilot CLI with `--launch-agent`). It builds a deterministic development package from a Jira issue, local code search, shared memory, and git context so a developer can hand the agent a clearer task.
 
 ## Why It Exists
 AI-assisted bug work often starts with scattered context and ends with useful investigation notes disappearing into chat history. bugpilot is intended to make that work repeatable.
@@ -10,14 +10,14 @@ AI-assisted bug work often starts with scattered context and ends with useful in
 - Developers manually copy Jira context into AI tools.
 - Useful AI investigation is lost after the fix is done.
 - Similar bugs are repeatedly analyzed from scratch.
-- Legacy C++/Qt repositories need better context before AI tools can help safely.
+- Large or unfamiliar codebases need better context before AI tools can help safely.
 
 ## How It Works
 ```text
 Jira issue -> code search -> memory search -> context.md -> task.md -> fix_report.md -> memory update -> delivery plan
 ```
 
-bugpilot prepares files under `.ai/<issue>/` and shared memory under `.ai_memory/bugs/<issue>.md`. Jira Cloud ADF descriptions and comments are converted into readable Markdown for the issue package, and Jira attachment metadata is surfaced without downloading attachment content. Code search includes a confidence assessment so low-confidence false positives are visible before the agent edits anything. The AI agent remains a manual handoff step, with reusable team instructions for legacy C++/Qt work.
+bugpilot prepares files under `.ai/<issue>/` and shared memory under `.ai_memory/bugs/<issue>.md`. Jira Cloud ADF descriptions and comments are converted into readable Markdown for the issue package, and Jira attachment metadata is surfaced without downloading attachment content. Code search includes a confidence assessment so low-confidence false positives are visible before the agent edits anything. The AI agent remains a manual handoff step. `task.md` describes the repository from its Repository Profile (Auto-detect, Generic or Custom; see below) rather than assuming any language or framework.
 
 ## Installation
 
@@ -71,13 +71,13 @@ Distribute: give teammates the single `dist\bugpilot.exe`. They save it (e.g.
 `C:\tools\bugpilot\`), optionally add that folder to PATH, then:
 ```powershell
 bugpilot setup        # one-time: Jira email + API token -> %USERPROFILE%\.bugpilot\config.toml
-bugpilot JR-12345     # prepare, then launch the agent
+bugpilot JR-12345     # prepare the package (add --launch-agent claude to start Claude)
 ```
 The first run may trip SmartScreen ("Windows protected your PC") because the exe is
 unsigned — choose **More info -> Run anyway**.
 
 Note: the packaged exe can't read `docs/agent_team_instructions.md` from the repo, so the
-team instructions in `task.md` come from the built-in fallback (same content).
+BugPilot safety rules in `task.md` come from the built-in fallback (same content).
 
 ## Jira Configuration
 For real Jira fetches, set:
@@ -94,11 +94,13 @@ The normal workflow uses real Jira only and does not fall back to mock data:
 bugpilot bug JR-12345
 ```
 
-Equivalent explicit form:
+Equivalent explicit form (prepare only, keep any existing `.ai/JR-12345/`, real Jira only):
 
 ```powershell
-bugpilot bug JR-12345 --fresh --no-mock
+bugpilot bug JR-12345 --prepare-only --resume --no-mock
 ```
+
+`--fresh` deletes `.ai/JR-12345/` before preparing; nothing is deleted without it.
 
 Demo/testing fallback must be requested explicitly:
 
@@ -127,8 +129,8 @@ It requires a one-time **app registration** by an admin (see below), then:
 $env:GRAPH_TENANT_ID="<tenant id / directory id>"
 $env:GRAPH_CLIENT_ID="<application (client) id>"
 $env:GRAPH_CLIENT_SECRET="..."        # store in a secrets manager, not in scripts
-$env:BUGPILOT_EMAIL_FROM="you@your-company.com"   # mailbox the app may send as
-$env:BUGPILOT_EMAIL_TO="you@your-company.com"     # comma/semicolon separated for multiple
+$env:BUGPILOT_EMAIL_FROM="you@example.com"   # mailbox the app may send as
+$env:BUGPILOT_EMAIL_TO="you@example.com"     # comma/semicolon separated for multiple
 ```
 
 **What to ask IT for (app registration):**
@@ -141,14 +143,14 @@ $env:BUGPILOT_EMAIL_TO="you@your-company.com"     # comma/semicolon separated fo
 Configure SMTP through the environment (credentials are never hardcoded or persisted):
 
 ```powershell
-$env:SMTP_HOST="smtp.your-company.com"
+$env:SMTP_HOST="smtp.example.com"
 $env:SMTP_PORT="587"              # optional, default 587
 $env:SMTP_USERNAME="relay-user"   # optional; omit for an open internal relay
 $env:SMTP_PASSWORD="..."          # store in a secrets manager, not in scripts
 $env:SMTP_USE_STARTTLS="true"     # optional, default true
 $env:SMTP_USE_SSL="false"         # optional, default false (set true for SMTPS/465)
-$env:BUGPILOT_EMAIL_FROM="bugpilot@your-company.com"
-$env:BUGPILOT_EMAIL_TO="you@your-company.com"   # comma/semicolon separated for multiple
+$env:BUGPILOT_EMAIL_FROM="bugpilot@example.com"
+$env:BUGPILOT_EMAIL_TO="you@example.com"   # comma/semicolon separated for multiple
 ```
 
 For a guided setup that stores the password in the PowerShell SecretStore (never in
@@ -217,22 +219,22 @@ Notes:
 - The comment body is sanitized to redact secret-like values.
 
 ## Optional: Let an Agent Complete the Workflow
-By default `bugpilot bug` is prepare-only and prints the manual handoff line. You can
-instead have it launch a coding agent to read `task.md` and complete the
-workflow (analyze, implement the smallest safe fix, write the fix report, post one Jira
-status comment) — the agent still stops at the commit gate and asks before committing.
+By default `bugpilot bug` is prepare-only: it keeps any existing `.ai/<issue>/` artifacts,
+launches no agent, and prints the manual handoff line. You can instead ask it to launch a
+coding agent to read `task.md` and complete the workflow the selected Fix Mode describes —
+the agent still stops at the commit gate and asks before committing.
 
 ```powershell
-bugpilot bug JR-12345 --claude     # launch Claude after preparation
-bugpilot bug JR-12345 --copilot    # launch Copilot CLI instead
-bugpilot bug JR-12345              # no flag: prepare only (default, unchanged)
+bugpilot bug JR-12345 --launch-agent claude     # launch Claude after preparation
+bugpilot bug JR-12345 --launch-agent copilot    # launch Copilot CLI instead
+bugpilot bug JR-12345                           # no flag: prepare only (the default)
 ```
 
 To steer the agent straight to a known fix location (skips broad investigation — much
 faster when you already know where the bug is), pass `--hint`:
 
 ```powershell
-bugpilot bug JR-12345 --claude --hint "Fix in FooWidget.cxx: preserve selection on tab switch"
+bugpilot bug JR-12345 --hint "Fix in FooWidget.cxx: preserve selection on tab switch"
 
 # Attach files the agent should see: a log, a screenshot, a config.
 # Copied into .ai/<id>/attachments/ and named in task.md.
@@ -313,6 +315,7 @@ bugpilot push-plan JR-12345
 ```
 
 ## Main Commands
+- `bugpilot --version`: print the CLI's version (`bugpilot 0.1.0`).
 - `bugpilot doctor`: report environment, git, ripgrep, Jira env vars, and Copilot CLI availability.
 - `bugpilot agent-check`: check AI agent and GitHub CLI availability without invoking the agent.
 - `bugpilot fetch <ISSUE>`: fetch real Jira data and fail clearly if Jira is unavailable.
@@ -328,7 +331,9 @@ bugpilot push-plan JR-12345
 - `bugpilot context <ISSUE>`: generate `context.md` (issue, code search, similar fixes and git history).
 - `bugpilot prompt <ISSUE>`: generate `task.md`.
 - `bugpilot agent-task <ISSUE>`: regenerate `task.md` from an existing `context.md`.
-- `bugpilot agent-instructions <ISSUE>`: print the team instructions `task.md` includes.
+- `bugpilot agent-instructions <ISSUE>`: print the BugPilot safety rules `task.md` includes.
+- `bugpilot repository-profile [show]`: print the Repository Profile and what Auto-detect finds; `--json` for the machine-readable form.
+- `bugpilot repository-profile set --mode auto|generic|custom` or `--from-file <json>`: save the profile in `.bugpilot/repository_profile.json` (see Repository profile below).
 - `bugpilot check-results <ISSUE>`: check whether the agent's `fix_report.md` exists.
 - `bugpilot check-results <ISSUE> --strict`: return nonzero if the fix report is missing.
 - `bugpilot summarize-results <ISSUE>`: print the fix report's status and a suggested validation checklist.
@@ -354,10 +359,12 @@ bugpilot push-plan JR-12345
 - `bugpilot clean <ISSUE>`: remove generated `.ai/<issue>/` workflow artifacts while preserving memory.
 - `bugpilot clean <ISSUE> --include-memory`: also remove `.ai_memory/bugs/<issue>.md` for that issue only.
 - `bugpilot status <ISSUE>`: show workflow status and generated files.
-- `bugpilot bug <ISSUE>`: run a fresh prepare-only workflow end to end with real Jira required and mock fallback disabled.
-- `bugpilot bug <ISSUE> --fresh`: same as the default; kept for compatibility.
-- `bugpilot bug <ISSUE> --resume`: preserve existing `.ai/<issue>/` artifacts and continue an existing workflow.
-- `bugpilot bug <ISSUE> --include-memory`: clean `.ai/<issue>/` and that issue's memory entry first, then rerun.
+- `bugpilot bug <ISSUE>`: prepare the workflow package end to end with real Jira required and mock fallback disabled. Existing `.ai/<issue>/` artifacts are kept and no agent is launched.
+- `bugpilot bug <ISSUE> --fresh`: delete the existing `.ai/<issue>/` artifacts first, then prepare.
+- `bugpilot bug <ISSUE> --resume` / `--prepare-only`: the defaults, said explicitly.
+- `bugpilot bug <ISSUE> --launch-agent claude|copilot`: after preparing, launch that agent in the terminal.
+- `bugpilot bug <ISSUE> --repository-profile auto|generic|custom`: describe the repository with this profile for this run only.
+- `bugpilot bug <ISSUE> --fresh --include-memory`: also delete that issue's memory entry first, then prepare.
 - `bugpilot bug <ISSUE> --allow-mock`: explicitly allow mock/demo Jira fallback.
 - `bugpilot bug <ISSUE> --no-mock`: require real Jira data and stop if Jira fetch fails. This is the default.
 - `bugpilot jira-validate <ISSUE>`: validate Jira field mapping for a real issue (no code search, no agent task). Generates `issue.json` and `jira_field_report.md`.
@@ -372,7 +379,7 @@ bugpilot jira-comment JR-12345
 bugpilot jira-comment JR-12345 --execute
 ```
 
-Run these from the target product repo root. Real Jira is the default, and mock fallback requires `--allow-mock`. `bugpilot bug <ISSUE>` is fresh by default; use `--resume` only when continuing existing artifacts. `bugpilot jira-comment <ISSUE>` previews without writing Jira, and `--execute` is required for Jira comment write-back.
+Run these from the target product repo root. Real Jira is the default, and mock fallback requires `--allow-mock`. `bugpilot bug <ISSUE>` keeps existing artifacts by default; use `--fresh` only when you want them deleted first. `bugpilot jira-comment <ISSUE>` previews without writing Jira, and `--execute` is required for Jira comment write-back.
 
 ## AI Fix Modes
 A Fix Mode decides *how* the agent approaches a bug — how far to investigate, how to implement, how to verify, what to report. It never decides what the agent may do: BugPilot's evidence, branch, Jira and delivery rules are added around every mode and cannot be edited by one.
@@ -381,6 +388,21 @@ A Fix Mode decides *how* the agent approaches a bug — how far to investigate, 
 - Select one per run with `--fix-mode <id>`. The choice is recorded in `.ai/<issue>/issue.json` (`guidance.fix_mode`) and reused by `--resume`, `prompt`, `agent-task` and `retry-prompt`; a fresh run starts from Standard Fix again.
 - Custom modes are JSON files: yours in `~/.bugpilot/fix_modes/<id>.json`, the project's in `<repo>/.bugpilot/fix_modes/<id>.json` (commit that directory to share them). A project mode shadows a user mode with the same id; built-in ids cannot be overridden. Start from `bugpilot fix-mode duplicate <builtin> <new-id> --scope user|project`.
 - The VS Code extension selects a mode under **Advanced settings → Strategy** and edits custom ones under **Manage Fix Modes**. The MCP server can list, inspect and select modes (`list_fix_modes`, `show_fix_mode`, `fix_mode_id` on the prepare tools) but cannot create, change or delete them — that stays with the developer.
+
+## Repository profile
+`task.md` tells the agent what the repository is in a **Repository Context** section, from the repository's profile. It never assumes a language, framework or kind of application.
+
+- **Auto-detect** (default): high-confidence facts from the repository's own build and package files — `CMakeLists.txt` (and the directories it adds), `*.pro`, a root `*.sln` and its projects, `pyproject.toml`, `requirements*.txt`, `package.json`, `tsconfig.json`, `Cargo.toml`, `go.mod`, `pom.xml`, Gradle files, test-framework configuration — and the repository's guidance files (`AGENTS.md`, `CONTRIBUTING.md`, …). Source files are never scanned, nothing is guessed from age or size, and whatever cannot be established is left out.
+- **Generic**: no language, framework or tooling assumption: "Work within the repository's existing architecture, languages, frameworks, conventions, and tests."
+- **Custom**: the details you provide — Languages, Frameworks, Application type, Build system, Test framework, Codebase notes.
+
+The profile is saved with the repository in `.bugpilot/repository_profile.json` (beside `.bugpilot/fix_modes/`; commit it to share it), and the CLI, the MCP prepare tools and the VS Code extension (**Advanced Settings → Repository**) all read it. No file means Auto-detect; a file that cannot be used falls back to Generic with a warning. `--repository-profile` overrides the mode for one CLI run. Changing the profile changes `task.md`, so a prepared context needs a rebuild.
+
+```powershell
+bugpilot repository-profile                      # what is configured, and what Auto-detect finds
+bugpilot repository-profile set --mode generic
+bugpilot repository-profile set --from-file profile.json   # {"mode": "custom", "custom": {"languages": "C++, Python", ...}}
+```
 
 ## Branch policy
 bugpilot never creates or switches branches itself; `task.md` tells the agent which branch to work on, and that rule is yours to choose with `--branch-policy` (the VS Code extension's **Advanced Settings → Branch → Branch policy**, the MCP prepare tools' `branch_policy`):
@@ -395,7 +417,7 @@ Under every policy `main` and `master` are never edited, committed to or pushed,
 
 ## Safety Rules
 - bugpilot does not automatically modify product source code.
-- bugpilot does not automatically invoke an agent CLI.
+- bugpilot does not invoke an agent CLI unless `bugpilot bug --launch-agent claude|copilot` asks it to.
 - bugpilot does not update Jira.
 - Jira integration is read-only; bugpilot converts fetched Jira content to Markdown but does not comment, assign, close, or transition Jira issues.
 - `jira-comment-draft` writes a local markdown draft only; it does not post comments to Jira.
@@ -409,7 +431,7 @@ Under every policy `main` and `master` are never edited, committed to or pushed,
 - `commit-plan` and `push-plan` only generate markdown plans.
 - `bugpilot commit` and `bugpilot push` exist only to say so and point at the plan
   commands; `--execute` is accepted and ignored.
-- `clean` and `--fresh` remove only generated bugpilot artifacts for the requested issue.
+- `clean` and `--fresh` remove only generated bugpilot artifacts for the requested issue, and never through a symbolic link or junction: if `.ai`, `.ai/<issue>` or `.ai_memory` is one, they refuse and delete nothing.
 - Memory is preserved by default; `--include-memory` removes only `.ai_memory/bugs/<issue>.md`.
 
 ## Generated Artifacts
@@ -446,12 +468,12 @@ Shared memory entry:
 
 These folders belong to the target repository where the command is run.
 
-Reusable team instructions live at:
+BugPilot's own safety rules live at:
 ```text
 docs/agent_team_instructions.md
 ```
 
-`task.md` includes them so the AI agent reads stable team rules together with the issue-specific task.
+`task.md` includes them, then the repository's Repository Context, so the AI agent reads stable, repository-neutral rules together with the issue-specific task.
 
 ## Prototype Status
 - Phase 1: prepare-only workflow skeleton.

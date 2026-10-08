@@ -22,6 +22,14 @@
 
 import { diagnose } from "../errors.ts";
 import type { StreamEvent } from "../protocol.ts";
+import {
+  CLI_NOT_FOUND_ACTION,
+  CLI_NOT_FOUND_CODE,
+  CLI_NOT_FOUND_SUMMARY,
+  CLI_OUTDATED_ACTION,
+  CLI_OUTDATED_CODE,
+  CLI_OUTDATED_SUMMARY,
+} from "./cliCompatibility.ts";
 import type { PlanState } from "./form.ts";
 
 export type Capability =
@@ -289,6 +297,32 @@ export class ProgressTracker {
       summary: "bugpilot stopped before finishing and did not say why.",
       action: "Check the BugPilot output for what it printed before it stopped, then run it again.",
       retryable: true,
+      ...(capability === undefined ? {} : { capability }),
+    };
+  }
+
+  /**
+   * The CLI could not take part: too old for this extension's arguments, or not
+   * there at all (pre-release Batch 1, D).
+   *
+   * Not retryable, and not routed through `diagnose()`: running the same CLI
+   * again fails the same way until it is updated or found, and this failure is
+   * the extension's observation, not a code the CLI reported.
+   */
+  cliUnusable(kind: "outdated" | "missing", detail?: string): void {
+    if (this.#state !== "running") return;
+    this.#finishedAt = this.#now();
+    this.#state = "failed";
+    this.#activity = undefined;
+    const capability = this.#openCapability;
+    if (capability) this.#set(capability, "failed");
+    const outdated = kind === "outdated";
+    this.#failure = {
+      code: outdated ? CLI_OUTDATED_CODE : CLI_NOT_FOUND_CODE,
+      summary: outdated ? CLI_OUTDATED_SUMMARY : CLI_NOT_FOUND_SUMMARY,
+      action: outdated ? CLI_OUTDATED_ACTION : CLI_NOT_FOUND_ACTION,
+      retryable: false,
+      ...(detail === undefined || detail.trim() === "" ? {} : { detail: detail.trim() }),
       ...(capability === undefined ? {} : { capability }),
     };
   }

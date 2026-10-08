@@ -305,6 +305,11 @@ class InvestigationRequest:
     # like the Fix Mode. `None`: no preference — the work item's recorded
     # policy, else the default (the current branch).
     branch_policy: str | None = None
+    # A Repository Profile mode for this run only (`repository_profile.py`).
+    # `None`: the repository's own `.bugpilot/repository_profile.json`, else
+    # Auto-detect. Not recorded with the work item: the profile is repository
+    # configuration, and a later regeneration reads the file again.
+    repository_profile: str | None = None
 
     @property
     def work_item_id(self) -> str:

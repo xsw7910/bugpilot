@@ -9241,3 +9241,79 @@ for (const choice of ["keep", "delete"] as const) {
     assert.equal(l.page.byId("issue-kind").textContent, "Jira issue");
   });
 }
+
+// --- Pre-release Batch 1: the Repository section -------------------------------
+
+const REPOSITORY_DETAIL_IDS = [
+  "repositoryLanguages",
+  "repositoryFrameworks",
+  "repositoryApplicationType",
+  "repositoryBuildSystem",
+  "repositoryTestFramework",
+  "repositoryNotes",
+];
+
+test("repository 1: the Custom details are shown for Custom alone, and kept across a switch", () => {
+  const p = settingsPage({ repositoryProfile: { lines: { auto: "Detected: C++ · Qt · CMake", generic: "", custom: "" } } });
+  p.byId("open-settings").dispatch("click");
+  for (const id of REPOSITORY_DETAIL_IDS) assert.equal(p.byId(`field-${id}`).hidden, true, id);
+  // Auto-detect says what it found, in the host's words.
+  assert.equal(p.byId("repositoryProfile").value, "auto");
+  assert.equal(p.byId("repositoryProfile-detected").hidden, false);
+  assert.equal(p.byId("repositoryProfile-detected").textContent, "Detected: C++ · Qt · CMake");
+
+  p.byId("repositoryProfile").value = "custom";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("repositoryProfile") });
+  for (const id of REPOSITORY_DETAIL_IDS) assert.equal(p.byId(`field-${id}`).hidden, false, id);
+  assert.equal(p.byId("repositoryProfile-detected").hidden, true, "a detection line under Custom");
+  p.byId("repositoryLanguages").value = "Go";
+
+  p.byId("repositoryProfile").value = "generic";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("repositoryProfile") });
+  for (const id of REPOSITORY_DETAIL_IDS) assert.equal(p.byId(`field-${id}`).hidden, true, id);
+  assert.equal(p.byId("repositoryLanguages").value, "Go", "switching away threw the detail away");
+});
+
+test("repository 2: Apply sends the profile with the form; Cancel puts back the applied one", () => {
+  const p = settingsPage();
+  p.byId("open-settings").dispatch("click");
+  p.byId("repositoryProfile").value = "custom";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("repositoryProfile") });
+  p.byId("repositoryLanguages").value = "Rust";
+  p.byId("repositoryNotes").value = "No unsafe code.";
+  p.byId("settings-cancel").dispatch("click");
+  assert.equal(p.byId("repositoryProfile").value, "auto", "Cancel kept the draft");
+  assert.equal(p.byId("repositoryLanguages").value, "");
+
+  p.byId("open-settings").dispatch("click");
+  p.byId("repositoryProfile").value = "custom";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("repositoryProfile") });
+  p.byId("repositoryLanguages").value = "Rust";
+  p.byId("repositoryNotes").value = "No unsafe code.";
+  p.byId("settings-apply").dispatch("click");
+  const sent = p.posted.at(-1)!;
+  assert.equal(sent["type"], "applySettings");
+  const form = sent["form"] as FormState;
+  assert.equal(form.repositoryProfile, "custom");
+  assert.equal(form.repositoryLanguages, "Rust");
+  assert.equal(form.repositoryNotes, "No unsafe code.");
+});
+
+test("repository 3: a profile the host could not read shows no detection line", () => {
+  const p = settingsPage();
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("repositoryProfile-detected").hidden, true);
+  assert.equal(p.byId("repositoryProfile-detected").textContent, "");
+});
+
+test("repository 4: the host's form puts the repository's own profile on the page", () => {
+  const p = load();
+  p.send({
+    ...prepared(),
+    revision: 3,
+    form: { ...DEFAULT_FORM, issueKey: "JR-12345", repositoryProfile: "custom", repositoryFrameworks: "Qt" },
+  });
+  assert.equal(p.byId("repositoryProfile").value, "custom");
+  assert.equal(p.byId("repositoryFrameworks").value, "Qt");
+  assert.equal(p.byId("field-repositoryFrameworks").hidden, false);
+});

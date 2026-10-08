@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from bugpilot import cli_json
+from bugpilot import __version__, cli_json
 from bugpilot.core import agent_runner, copilot, doctor, errors, setup, workflow
 from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.cleanup import clean_issue_artifacts
@@ -56,6 +56,21 @@ from bugpilot.core.models import (
 )
 from bugpilot.core.memory import add_memory_entry, search_memory
 from bugpilot.core.prompts import generate_task
+from bugpilot.core.repository_profile import (
+    PROFILE_FIELD_KEYS,
+    PROFILE_FIELDS,
+    PROFILE_MODE_LABELS,
+    PROFILE_MODES,
+    PROJECT_CONFIG_DIR,
+    PROFILE_FILE_NAME,
+    RepositoryProfile,
+    detect_repository,
+    load_repository_profile,
+    profile_from_payload,
+    profile_path,
+    resolve_repository_context,
+    save_repository_profile,
+)
 
 
 def _add_json_flag(parser: argparse.ArgumentParser) -> None:
@@ -70,6 +85,9 @@ def _add_json_flag(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bugpilot")
+    # "bugpilot 0.1.0": one line a person or a tool can read. The version is
+    # bugpilot.__version__, the one string pyproject.toml also builds from.
+    parser.add_argument("--version", action="version", version=f"bugpilot {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     setup_parser = subparsers.add_parser("setup", help="Interactively configure BugPilot (Jira email + API token).")
@@ -248,7 +266,16 @@ def build_parser() -> argparse.ArgumentParser:
     memory_search = memory_subparsers.add_parser("search", help="Search shared AI memory.")
     memory_search.add_argument("query")
 
-    bug_parser = subparsers.add_parser("bug", help="Run prepare-only bug workflow.")
+    bug_parser = subparsers.add_parser(
+        "bug",
+        help="Prepare the bug workflow package. Keeps existing artifacts and launches no agent unless asked.",
+        description=(
+            "Prepare .ai/<issue>/ for a coding agent: issue details, code search, git history, "
+            "similar fixes, context.md and task.md. By default this only prepares: existing "
+            "artifacts are kept (--fresh deletes them first) and no agent is launched "
+            "(--launch-agent starts one)."
+        ),
+    )
     # Optional so a bug can be described by hand instead: exactly one of an issue
     # key or a description is required, checked in main() for a clearer message
     # than argparse's mutually-exclusive-group wording gives for a positional.
@@ -298,7 +325,10 @@ def build_parser() -> argparse.ArgumentParser:
     bug_parser.add_argument(
         "--retry",
         action="store_true",
-        help="Prepare a second attempt: generate the retry prompt and user_feedback.md, then hand off.",
+        help=(
+            "Prepare a second attempt: generate the retry prompt and user_feedback.md. "
+            "Launches no agent unless --launch-agent is given."
+        ),
     )
     bug_parser.add_argument(
         "--json-lines",
@@ -311,32 +341,42 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print experimental agent invocation guidance after preparation.",
     )
+    # Preparing and involving a model are separate decisions (requirement R5),
+    # so launching an agent is something a command line asks for by name. There
+    # is no implicit agent: a bare `bugpilot bug <issue>` prepares and stops.
     bug_run = bug_parser.add_mutually_exclusive_group()
-    bug_run.add_argument(
-        "--copilot",
-        action="store_true",
-        help="Use Copilot CLI instead of Claude to complete the workflow after preparation.",
-    )
     bug_run.add_argument(
         "--prepare-only",
         action="store_true",
-        help="Only prepare artifacts; do not launch an agent. By default Claude is launched after preparation.",
+        help="Prepare artifacts and launch no agent. This is the default; the flag says so explicitly.",
     )
+    bug_run.add_argument(
+        "--launch-agent",
+        choices=agent_runner.LAUNCHABLE_AGENTS,
+        metavar="AGENT",
+        dest="launch_agent",
+        help=(
+            "After preparing, launch this coding agent (claude or copilot) in this terminal to "
+            "work the task. Without it no agent is launched."
+        ),
+    )
+    # Likewise deleting: the work item's folder holds the agent's fix report and
+    # the developer's own notes, so it is kept unless --fresh says otherwise.
     bug_mode = bug_parser.add_mutually_exclusive_group()
     bug_mode.add_argument(
         "--fresh",
         action="store_true",
-        help="Remove existing .ai/<issue>/ artifacts before running the workflow. This is the default.",
+        help="Delete the existing .ai/<issue>/ artifacts before preparing. Without it they are kept.",
     )
     bug_mode.add_argument(
         "--resume",
         action="store_true",
-        help="Preserve existing .ai/<issue>/ artifacts and continue an existing workflow.",
+        help="Keep the existing .ai/<issue>/ artifacts and continue the workflow. This is the default; the flag says so explicitly.",
     )
     bug_parser.add_argument(
         "--include-memory",
         action="store_true",
-        help="With fresh mode, also remove that issue's memory entry before rerunning.",
+        help="With --fresh, also remove that issue's memory entry before preparing.",
     )
     bug_parser.add_argument(
         "--hint",
@@ -373,9 +413,53 @@ def build_parser() -> argparse.ArgumentParser:
             "Default: the work item's previous choice, otherwise 'current'."
         ),
     )
+    bug_parser.add_argument(
+        "--repository-profile",
+        dest="repository_profile",
+        choices=PROFILE_MODES,
+        help=(
+            "How task.md describes this repository, for this run only: 'auto' reads high-confidence "
+            "facts from its build and package files, 'generic' assumes nothing, 'custom' uses the "
+            "details saved with `bugpilot repository-profile set`. "
+            "Default: the repository's .bugpilot/repository_profile.json, otherwise 'auto'."
+        ),
+    )
     bug_mock = bug_parser.add_mutually_exclusive_group()
     bug_mock.add_argument("--allow-mock", action="store_true", help="Allow mock/demo fallback when Jira fetch fails.")
     bug_mock.add_argument("--no-mock", action="store_true", help="Require real Jira data. This is the default.")
+
+    profile_parser = subparsers.add_parser(
+        "repository-profile",
+        help="Show or set how task.md describes this repository (Auto-detect, Generic or Custom).",
+        description=(
+            "The Repository Profile is saved in .bugpilot/repository_profile.json in the repository, "
+            "where the CLI, the MCP server and the VS Code extension all read it. Without the file "
+            "the profile is Auto-detect."
+        ),
+    )
+    profile_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["show", "set"],
+        default="show",
+        help="show (the default) prints the profile and what Auto-detect finds; set saves a new one.",
+    )
+    profile_source = profile_parser.add_mutually_exclusive_group()
+    profile_source.add_argument(
+        "--mode",
+        choices=PROFILE_MODES,
+        help="For `set`: the mode to save. Custom details already saved are kept.",
+    )
+    profile_source.add_argument(
+        "--from-file",
+        metavar="PATH",
+        dest="from_file",
+        help=(
+            'For `set`: a JSON file holding the whole profile, {"mode": ..., "custom": {...}}, with custom '
+            f"fields {', '.join(PROFILE_FIELD_KEYS)}."
+        ),
+    )
+    _add_json_flag(profile_parser)
 
     return parser
 
@@ -405,7 +489,7 @@ def main(argv: list[str] | None = None) -> int:
             # file is an error, and this is its one sentence — a traceback
             # chained through the step's own handler is not.
             print(f"ERROR: {exc}", file=sys.stderr)
-            print("A fresh run replaces it: bugpilot bug <work-item-id>", file=sys.stderr)
+            print("Preparing the work item again replaces it: bugpilot bug <work-item-id>", file=sys.stderr)
             return 1
     # Machine-readable modes promise exactly one object (or one closed stream) on
     # stdout for every outcome. An unhandled exception would otherwise print a
@@ -436,6 +520,9 @@ def _dispatch(args, repo_root: Path) -> int:
 
     if args.command == "fix-mode":
         return _run_fix_mode_command(args, repo_root)
+
+    if args.command == "repository-profile":
+        return _run_repository_profile_command(args, repo_root)
 
     if args.command == "agent-check":
         for line in copilot.agent_status_lines(repo_root):
@@ -890,14 +977,22 @@ def _dispatch(args, repo_root: Path) -> int:
             return _emit_status_json(repo_root, args.issue_key)
         return _print_status(repo_root, args.issue_key)
 
+    if args.command == "bug" and args.launch_agent and (args.json_output or args.json_lines):
+        # The machine-readable modes promise one object or one stream on
+        # stdout; an interactive agent sharing that terminal breaks both.
+        message = "--launch-agent starts an interactive agent and cannot be combined with --json or --json-lines."
+        _report_bug_preflight_failure(args, errors.INVALID_INPUT, message)
+        return 1
+
     if args.command == "bug" and args.retry:
         return _run_retry(repo_root, args)
 
     if args.command == "bug":
-        fresh = not args.resume
+        # Non-destructive by default: only an explicit --fresh deletes .ai/<id>/.
+        fresh = args.fresh
         json_mode = args.json_output
-        if args.include_memory and args.resume:
-            message = "--include-memory requires fresh mode and cannot be used with --resume."
+        if args.include_memory and not fresh:
+            message = "--include-memory deletes a memory entry, so it needs --fresh to say so."
             _report_bug_preflight_failure(args, errors.INVALID_INPUT, message)
             return 1
         try:
@@ -907,6 +1002,9 @@ def _dispatch(args, repo_root: Path) -> int:
             return 1
 
         work_item_id = request.work_item_id
+        # Whether there was anything to keep, so the summary does not claim to
+        # have preserved a folder this run created.
+        existed = (repo_root / ".ai" / work_item_id).is_dir()
         stream = None
         if args.json_lines:
             stream = cli_json.JsonLinesEmitter(work_item_id, request.spec.source)
@@ -1009,9 +1107,9 @@ def _dispatch(args, repo_root: Path) -> int:
             print(f"WARN: {mock_warning}")
         for warning in result.warnings:
             print(f"WARN: {warning}")
-        if not fresh:
-            print(f"Resuming existing workflow package for {work_item_id}.")
-            print("Previous artifacts were preserved.")
+        if not fresh and existed:
+            print(f"Updated the existing workflow package for {work_item_id}.")
+            print("Previous artifacts were kept (--fresh deletes them first).")
         _print_key_generated_artifacts(repo_root, work_item_id)
         print(f"Prepared bugpilot workflow package for {work_item_id}.")
         print(f"Artifacts: .ai/{work_item_id}")
@@ -1019,13 +1117,13 @@ def _dispatch(args, repo_root: Path) -> int:
             print(f"AI Fix Mode: {result.fix_mode.name} ({result.fix_mode.id})")
             if result.fix_mode.is_investigation:
                 print("  Investigation only: the agent will not change source code in this pass.")
-        # By default an agent (Claude) is launched after preparation. --prepare-only
-        # stops here with artifacts only; --agent-fix prints legacy guidance instead.
+        # Prepare-only unless --launch-agent names an agent; --agent-fix prints
+        # the legacy invocation guidance alongside the manual instruction.
         if not agent_task_exists:
             print(f"No {agent_task} was generated, so there is nothing to hand to an agent.")
             print("Re-run without --only-issue-details to build the full task package.")
             return 0
-        if args.prepare_only or args.agent_fix:
+        if args.launch_agent is None:
             print("Next manual agent instruction:")
             print(f"  Read {agent_task} and complete the workflow.")
             if args.agent_fix:
@@ -1034,8 +1132,7 @@ def _dispatch(args, repo_root: Path) -> int:
                 for line in copilot.auto_invocation_guidance(work_item_id):
                     print(line)
             return 0
-        agent = "copilot" if args.copilot else "claude"
-        return _run_agent_after_prepare(repo_root, work_item_id, agent, fix_mode=result.fix_mode)
+        return _run_agent_after_prepare(repo_root, work_item_id, args.launch_agent, fix_mode=result.fix_mode)
 
     return 1
 
@@ -1441,12 +1538,11 @@ def _run_retry(repo_root: Path, args) -> int:
         print(f"then run:  bugpilot bug {args.issue_key} --retry")
         return 0
     print(f"Using your existing {feedback}.")
-    if args.prepare_only:
+    if args.launch_agent is None:
         print("Next manual agent instruction:")
         print(f"  Read {prompt} and continue the workflow.")
         return 0
-    agent = "copilot" if args.copilot else "claude"
-    return _run_agent_after_prepare(repo_root, args.issue_key, agent, prompt_file=prompt)
+    return _run_agent_after_prepare(repo_root, args.issue_key, args.launch_agent, prompt_file=prompt)
 
 
 def _refuse_for_manual(repo_root: Path, command: str, work_item_id: str, json_output: bool) -> int | None:
@@ -1547,6 +1643,87 @@ def _report_issue_failure(issue_key: str, exc: IssueArtifactError) -> int:
     print(f"ERROR: {exc}", file=sys.stderr)
     print(f"Run: bugpilot bug {issue_key}", file=sys.stderr)
     return 1
+
+
+def _run_repository_profile_command(args, repo_root: Path) -> int:
+    """`bugpilot repository-profile [show|set]`: the profile every entry point reads.
+
+    `show` is read-only. `set` writes `.bugpilot/repository_profile.json`, which
+    is repository configuration a team may commit, like `.bugpilot/fix_modes/`.
+    The VS Code extension reads and writes the profile through this command, so
+    the validation and Auto-detect live in one place.
+    """
+
+    def fail(message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("repository-profile", errors.INVALID_INPUT, message)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    if args.action == "show" and (args.mode or args.from_file):
+        return fail("--mode and --from-file are for `bugpilot repository-profile set`.")
+    if args.action == "set":
+        try:
+            if args.from_file:
+                path = Path(args.from_file)
+                if path.stat().st_size > 64 * 1024:
+                    raise ValueError("--from-file is far larger than any repository profile.")
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"--from-file is not valid JSON: {exc.msg}.") from exc
+                profile = profile_from_payload(payload)
+            elif args.mode:
+                current, _warnings = load_repository_profile(repo_root)
+                profile = RepositoryProfile(mode=args.mode, custom=current.custom)
+            else:
+                return fail("`bugpilot repository-profile set` needs --mode MODE or --from-file PATH.")
+            save_repository_profile(repo_root, profile)
+        except (OSError, ValueError) as exc:
+            return fail(str(exc))
+
+    profile, warnings = load_repository_profile(repo_root)
+    detected = detect_repository(repo_root)
+    effective = resolve_repository_context(repo_root)
+    saved = profile_path(repo_root).is_file()
+    if args.json_output:
+        cli_json.emit(
+            cli_json.success(
+                "repository-profile",
+                profile={"mode": profile.mode, "custom": profile.custom.to_dict()},
+                path=f"{PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}",
+                saved=saved,
+                detected={"facts": detected.facts.to_dict(), "guidance_files": list(detected.guidance_files)},
+                effective={
+                    "mode": effective.mode,
+                    "facts": effective.facts.to_dict(),
+                    "guidance_files": list(effective.guidance_files),
+                },
+                warnings=warnings,
+            )
+        )
+        return 0
+
+    if args.action == "set":
+        print(f"Saved the repository profile: {PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}")
+    origin = f"{PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}" if saved else "the default; nothing saved"
+    print(f"Repository profile: {PROFILE_MODE_LABELS[profile.mode]} ({origin})")
+    for warning in warnings:
+        print(f"WARN: {warning}")
+    print("Auto-detect finds:")
+    for name, value in detected.facts.items() or [("Nothing", "no language, framework or build system with confidence")]:
+        print(f"  {name}: {value}")
+    if detected.guidance_files:
+        print(f"  Repository guidance: {', '.join(detected.guidance_files)}")
+    custom = profile.custom.items()
+    print("Custom details:" if custom else "Custom details: none saved")
+    for name, value in custom:
+        print(f"  {name}: {value}")
+    print()
+    print("Change it with: bugpilot repository-profile set --mode auto|generic|custom")
+    print(f"Custom details: bugpilot repository-profile set --from-file <json> (fields: {', '.join(key for key, _l, _m in PROFILE_FIELDS)})")
+    return 0
 
 
 def _run_fix_mode_command(args, repo_root: Path) -> int:
@@ -1882,18 +2059,26 @@ def _build_bug_request(repo_root: Path, args) -> InvestigationRequest:
     fix_mode_id = getattr(args, "fix_mode", None)
     # Likewise the branch policy: argparse has checked it is one of the three.
     branch_policy = getattr(args, "branch_policy", None)
+    # And the Repository Profile override, for this run only.
+    repository_profile = getattr(args, "repository_profile", None)
 
     if args.issue_key:
         request = workflow.jira_request(args.issue_key, options)
         request.plan = plan
         request.fix_mode_id = fix_mode_id
         request.branch_policy = branch_policy
+        request.repository_profile = repository_profile
         return request
     # repo_root makes the local id collision-safe: ids have one-second
     # granularity and a fresh run would wipe a same-second neighbour.
     spec = bug_spec_from_description(description, title=args.title, repo_root=repo_root)
     return InvestigationRequest(
-        spec=spec, options=options, plan=plan, fix_mode_id=fix_mode_id, branch_policy=branch_policy
+        spec=spec,
+        options=options,
+        plan=plan,
+        fix_mode_id=fix_mode_id,
+        branch_policy=branch_policy,
+        repository_profile=repository_profile,
     )
 
 

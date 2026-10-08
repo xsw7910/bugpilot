@@ -1,0 +1,16 @@
+{
+  "//": "The Repository Profile's shape, read by tests/test_repository_profile.py and extension/test/repositoryProfile.test.ts so the Python model and the extension's copy cannot drift apart.",
+  "modes": ["auto", "generic", "custom"],
+  "default_mode": "auto",
+  "fallback_mode": "generic",
+  "labels": { "auto": "Auto-detect", "generic": "Generic", "custom": "Custom" },
+  "path": ".bugpilot/repository_profile.json",
+  "fields": [
+    { "key": "languages", "label": "Languages", "max": 200 },
+    { "key": "frameworks", "label": "Frameworks", "max": 200 },
+    { "key": "application_type", "label": "Application type", "max": 120 },
+    { "key": "build_system", "label": "Build system", "max": 120 },
+    { "key": "test_framework", "label": "Test framework", "max": 120 },
+    { "key": "notes", "label": "Codebase notes", "max": 1000 }
+  ]
+}

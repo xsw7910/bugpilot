@@ -45,6 +45,7 @@ import { parseVerificationReport } from "../src/app/verificationReport.ts";
 import type { VerificationCheckEntry } from "../src/app/verificationReport.ts";
 import { payloadCommandPort } from "../src/app/fixModeTransport.ts";
 import { deleteWorkItemArtifacts } from "../src/app/sessionReset.ts";
+import { repositoryProfileOfForm, runRepositoryProfile } from "../src/app/repositoryProfile.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -645,4 +646,50 @@ test("Reset Session's Delete runs the real clean on .ai/<id>/ only, and never de
 
   // Nothing there: missing, and the CLI is not asked.
   assert.deepEqual(await deleteWorkItemArtifacts({ root, workItemId: "JR-3", clean: clean("JR-3") }), { kind: "missing" });
+});
+
+// --- pre-release Batch 1: the Repository Profile through the real CLI ----------
+
+test("the Repository Profile port reads, saves and reads back through the real CLI, and a run writes it into task.md", async () => {
+  const root = repository();
+  writeFileSync(
+    path.join(root, "CMakeLists.txt"),
+    "cmake_minimum_required(VERSION 3.21)\nproject(Viewer LANGUAGES CXX)\nfind_package(Qt6 REQUIRED COMPONENTS Widgets)\n",
+    "utf8",
+  );
+  const run = (args: readonly string[]) => runner().run([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
+
+  const shown = await runRepositoryProfile(run);
+  assert.equal(shown.kind, "loaded");
+  if (shown.kind !== "loaded") return;
+  assert.equal(shown.snapshot.profile.mode, "auto");
+  assert.equal(shown.snapshot.saved, false);
+  assert.match(shown.snapshot.detected, /C\+\+ · Qt · Desktop application · CMake/);
+
+  const custom = repositoryProfileOfForm({ ...DEFAULT_FORM, repositoryProfile: "custom", repositoryLanguages: "Rust", repositoryNotes: "No unsafe code." });
+  const saved = await runRepositoryProfile(run, custom);
+  assert.equal(saved.kind, "loaded");
+  if (saved.kind !== "loaded") return;
+  assert.equal(saved.snapshot.saved, true);
+  assert.equal(saved.snapshot.profile.custom.languages, "Rust");
+  const file = JSON.parse(readFileSync(path.join(root, ".bugpilot", "repository_profile.json"), "utf8")) as { mode: string };
+  assert.equal(file.mode, "custom");
+
+  // A Run sends no profile flag, and the task still describes the repository from the file.
+  const built = buildPrepareArgs(manualForm({ repositoryProfile: "custom", repositoryLanguages: "Rust" }), { root });
+  assert.ok(built.ok);
+  if (!built.ok) return;
+  const outcome = await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+    () => {},
+  );
+  assert.equal(outcome.terminated, true, outcome.result.stderr);
+  const ai = path.join(root, ".ai");
+  const [workItem] = readdirSync(ai);
+  const task = readFileSync(path.join(ai, workItem!, "task.md"), "utf8");
+  assert.match(task, /Repository profile: Custom\./);
+  assert.match(task, /- Languages: Rust/);
+  assert.match(task, /- Codebase notes: No unsafe code\./);
+  assert.equal(/Qt|C\+\+/.test(task), false, "the detected facts leaked into a Custom profile");
 });

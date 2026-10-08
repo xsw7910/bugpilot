@@ -7,7 +7,8 @@ First release. What it does today:
 - **One workflow panel**, the **Workflow** view. A Jira issue key or a bug you describe, one primary
   button, and six steps: issue details, code search, git history, similar fixes,
   build context, and an optional **Fix with AI**. Each row is both the choice and
-  the outcome: the checkbox on the left, and on the right how it went, said once
+  the outcome: the checkbox on the left (Issue details and Build context always
+  run, so they have none), and on the right how it went, said once
   in words — Completed, Skipped, Running, Failed, Context ready — with a small
   dot, never a second check mark. A second line only when it adds something, the
   file it wrote under that.
@@ -30,13 +31,13 @@ First release. What it does today:
   strongest integration found, and says what it found under the picker; a
   choice you made is never swapped for another agent. Off by default:
   preparing context and involving a model stay two separate decisions.
-- **Results view.** One native tree with two groups. **Current** is one flat
+- **Results view.** One native tree with three groups. **Current** is one flat
   list of the open work item's files in workflow order — each Written or Not
   written yet, with what it is for on hover. **History**, collapsed until you
   open it, says what became of each work item — ready, fixed, retry waiting,
   retry prepared, failed, unfinished — and reopens any of them in the panel.
-  One view rather than separate Artifacts and History views: VS Code gives
-  every open view the same minimum height, and two short lists paid it twice.
+  **Diagnostics**, also collapsed, shows the repository, Jira, AI agent, work
+  item and versions BugPilot is using.
 - **Start New Attempt.** A new agent session on the prepared context, with
   optional feedback: empty writes nothing; typed feedback becomes
   `user_feedback.md` and the retry package the CLI builds from it. A saved
@@ -69,19 +70,40 @@ First release. What it does today:
   Current within about a second — no reload. A new fix report offers
   Review with AI; the same report written again does not. Only that folder is
   watched; the refresh only reads, and keeps whatever is being typed.
-- Jira credentials live in VS Code's SecretStorage and reach the CLI as
-  environment variables — never on a command line, never in the panel.
-- **The problem at the top.** Issue, **Fix Mode** and **Hint** (with Improve
-  with AI and Include issue details) sit together above the button: what the bug is, how
-  the AI should approach it, and any guidance. The Issue field says it takes a
-  Jira ticket (e.g. JR-12345) or a description.
-- **Advanced Settings.** A ⚙ on each step that has settings — Issue details,
-  Code search, Build context, Fix with AI — opens one settings page at that
-  step's section, and **⚙ Advanced Settings** under Run opens it at the top.
-  Changes apply with **Apply** and are discarded by Cancel or Back; each section
-  says whether its changes require rebuilding context, and the rows show a
-  short summary of their settings. It replaces the old settings disclosure. Fix
-  Mode and Hint are on the main page, not here.
+- **Jira Setup.** The Jira row, or **BugPilot: Set Jira Credentials**, opens
+  one dialog for your Atlassian email and API token, with a link to
+  Atlassian's token page. Credentials live in VS Code's SecretStorage and reach
+  the CLI as environment variables — never on a command line, never in the
+  panel. Jira is optional: a bug you describe in your own words needs none.
+- **Issue first.** The Issue field takes a Jira issue key (e.g. JR-12345) or a
+  description, with Run directly under it; **Fix Mode** and **Hint** (with
+  *Improve with AI ☑ using Issue details*) follow: what the bug is, how the AI
+  should approach it, and any guidance.
+- **Advanced Settings.** One page with sections for Issue details, Retrieval
+  inputs, Code search, Git history, Similar fixes, Repository, Build context,
+  Fix with AI and Branch. A step's ⚙ opens its section, and the **⚙ Advanced Settings** row
+  opens the top. Changes apply with **Apply** and are discarded by Cancel or
+  Back; each section is tagged *Requires rebuild* or *Next run only*, and the
+  rows show a short summary of their settings. Fix Mode and Hint are on the
+  main page, not here.
+- **Attachments.** Under Advanced Settings → Issue details: pick files, paste
+  them, or drop them on the field, each with an optional description — up to
+  10 files of 10 MB each.
+- **Repository profile.** Advanced Settings → Repository: *Auto-detect* (the
+  default — high-confidence facts from the repository's build and package files,
+  shown under the picker), *Generic* (no language or framework assumed) or
+  *Custom* (six short details you write). `task.md` describes the repository from
+  it and assumes nothing else. It is saved with the repository in
+  `.bugpilot/repository_profile.json`, where the CLI and MCP server read it too,
+  needs a rebuild when changed, and survives Reset Session.
+- **An out-of-date CLI says so.** A bugpilot CLI older than the extension is
+  reported as *BugPilot CLI is out of date*, with Update Instructions, Choose
+  Executable and Retry — not as a run that crashed. A CLI that disappears
+  mid-session is reported as not found.
+- **Branch policy.** Advanced Settings → Branch: *Use current branch* (the
+  default), *One branch per issue*, or *Ask before editing*. It is an
+  instruction in `task.md`: BugPilot itself never creates or switches a branch,
+  and `main`/`master` are never edited, committed or pushed.
 - **Fix Mode.** On the main page under the issue, a dropdown chooses how
   the agent approaches the bug: Standard Fix (the default), Conservative Fix,
   Investigate First, Test-Driven Fix or Deep Analysis, plus any custom mode you
@@ -89,9 +111,10 @@ First release. What it does today:
   evidence, hypotheses and a fix plan, no source changes — and the panel says so
   beneath the dropdown before you run it. History shows which mode a work item
   was prepared with.
-- **Manage Fix Modes.** Duplicate a built-in mode and edit the copy's
-  instructions, at user scope (`~/.bugpilot/fix_modes/`) or project scope
-  (`.bugpilot/fix_modes/`, shared through source control). The list of modes
+- **Manage Fix Modes.** View any mode, **Customize copy** of a built-in, and
+  **Edit**, **Duplicate** or **Delete** your own in one editor, at user scope
+  (`~/.bugpilot/fix_modes/`) or project scope (`.bugpilot/fix_modes/`, shared
+  through source control). The list of modes
   comes from the `bugpilot` CLI; the extension defines none of its own.
 - **Add to .gitignore.** The Repository Files warning — `.ai/` and `.ai_memory/`
   are not ignored — has a button that adds the missing rules to the repository's

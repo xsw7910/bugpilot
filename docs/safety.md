@@ -36,9 +36,10 @@ bugpilot prepares an AI-ready task package from a Jira bug and then hands it to 
 - The developer reviews context, runs their AI agent manually, validates changes, and performs delivery actions manually.
 - `bugpilot clean <ISSUE>` deletes only `.ai/<issue>/`.
 - `bugpilot clean <ISSUE> --include-memory` also deletes only `.ai_memory/bugs/<issue>.md`.
-- `bugpilot <ISSUE>` performs the same scoped cleanup before running the workflow.
-- `bugpilot <ISSUE> --resume` preserves existing `.ai/<issue>/` artifacts.
-- `bugpilot <ISSUE>` (the default command; `bugpilot bug <ISSUE>` still works) prepares the package and then launches Claude interactively to complete the workflow. Pass `--copilot` to use Copilot instead, or `--prepare-only` to stop after preparation with no agent. The agent stops at the commit gate, and agent-generated code must be reviewed before commit.
+- `bugpilot <ISSUE> --fresh` performs the same scoped cleanup before running the workflow; without `--fresh` nothing is deleted.
+- `bugpilot <ISSUE>` (and `--resume`, which says so explicitly) preserves existing `.ai/<issue>/` artifacts.
+- Cleanup never deletes through a symbolic link or junction: if `.ai`, `.ai/<issue>` or `.ai_memory` is one, `clean` and `--fresh` refuse and delete nothing.
+- `bugpilot <ISSUE>` (the default command; `bugpilot bug <ISSUE>` still works) prepares the package and stops: no agent is launched. `--launch-agent claude` or `--launch-agent copilot` launches that agent interactively after preparation. The agent stops at the commit gate, and agent-generated code must be reviewed before commit.
 - Mock/demo Jira fallback is disabled by default.
 - `--allow-mock` explicitly enables mock/demo fallback for demos and testing.
 - `--no-mock` is accepted for compatibility and matches the default real Jira-only behavior.
@@ -49,7 +50,7 @@ bugpilot prepares an AI-ready task package from a Jira bug and then hands it to 
 - Both add exactly one Jira comment from the local analysis draft; neither transitions, assigns, or edits fields.
 - No other bugpilot command writes Jira, and the opt-in default is off.
 - No command transitions Jira issues, assigns issues, updates fields, uploads attachments, or downloads attachments.
-- `bugpilot <ISSUE>` prepares the package and then launches a coding agent (Claude by default, or Copilot with `--copilot`) interactively in the target repo; `--prepare-only` stops after preparation with no agent. bugpilot itself still never commits or pushes, and the agent stops at the commit gate.
+- `bugpilot <ISSUE>` prepares the package and launches no agent; `--launch-agent claude|copilot` launches one interactively in the target repo after preparation. bugpilot itself still never commits or pushes, and the agent stops at the commit gate.
 - bugpilot does not run `git add`, `git commit`, `git push`, merge, or PR creation.
 - The only outbound network actions are the read-only Jira fetch, `jira-comment --execute` (one comment), and the notification email over SMTP or Microsoft Graph (`notify --execute` or a configured `commit-plan`). The email is sent only to the configured internal recipients and carries no credentials.
 
@@ -66,7 +67,7 @@ These paths are relative to the current working directory, which should be the t
 Clean and fresh-run commands validate issue keys and are scoped to those generated artifact paths. They do not delete product source code.
 
 ## Manual Handoff
-The AI agent should be run from the target product repository root. The generated `agent_task.md` and `agent_team_instructions.md` instruct the agent to avoid destructive git commands, avoid unrelated refactoring, preserve legacy C++/Qt patterns, and generate result files before delivery planning.
+The AI agent should be run from the target product repository root. The generated `task.md` instructs the agent to avoid destructive git commands, avoid unrelated refactoring, follow the repository's existing patterns as its Repository Context describes them, and generate result files before delivery planning.
 
 ## Jira Mock Fallback
 When mock fallback is used, generated Jira artifacts are clearly marked as mock/demo fallback. For real Jira-only preparation (no agent launch), run:

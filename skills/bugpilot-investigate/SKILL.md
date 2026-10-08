@@ -15,8 +15,11 @@ already assembled around them.
 
 ## Steps
 
-1. Run `bugpilot bug <ISSUE>` from the repository root. For a bug with no issue
-   key, run `bugpilot bug --description="..."` instead.
+1. Run `bugpilot bug <ISSUE> --prepare-only --resume` from the repository root.
+   For a bug with no issue key, run `bugpilot bug --description="..." --prepare-only`
+   instead. Both flags are the defaults; pass them anyway, so the command stays
+   safe with an older bugpilot, which launched a second agent itself and first
+   deleted `.ai/<ISSUE>/` unless told otherwise.
 2. Read `.ai/<ISSUE>/task.md` and `.ai/<ISSUE>/context.md`. They contain the
    issue details, the ranked candidate files and the relevant git history —
    read them instead of searching the repository from scratch.
@@ -26,13 +29,13 @@ already assembled around them.
 4. Stop at the commit gate. Do not commit, push, or post to Jira.
 
 The developer chooses the AI Fix Mode, not you: `bugpilot bug <ISSUE>
---fix-mode <id>` selects one, `bugpilot fix-mode list` names them, and Standard
+--prepare-only --resume --fix-mode <id>` selects one, `bugpilot fix-mode list` names them, and Standard
 Fix is the default. `task.md` is authoritative for what the selected mode asks
 of you.
 
 ## If the fix did not work
 
-Do not start over. Run `bugpilot bug <ISSUE> --retry`, which creates
+Do not start over. Run `bugpilot bug <ISSUE> --retry --prepare-only`, which creates
 `.ai/<ISSUE>/user_feedback.md` and stops. The developer describes what went
 wrong there; running the same command again then builds
 `.ai/<ISSUE>/agent_retry_prompt.md`, carrying that correction plus a summary of

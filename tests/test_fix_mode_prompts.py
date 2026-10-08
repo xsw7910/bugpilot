@@ -125,7 +125,7 @@ def task(mode_id: str | None = None, **kwargs) -> str:
 
 
 def _without_team_instructions(text: str) -> str:
-    start = text.index("## Team Instructions")
+    start = text.index("## BugPilot Safety Rules")
     end = text.index("\n## ", start + 1)
     return text[:start] + text[end:]
 
@@ -317,7 +317,7 @@ def test_mode_owned_workflow_text_is_not_duplicated_outside_the_mode():
     implement the smallest safe fix and run tests, which is the opposite of what
     the developer selected.
 
-    Checked outside the Team Instructions section: those are general rules the
+    Checked outside the BugPilot Safety Rules section: those are general rules the
     agent has always been given, and they already say their testing advice
     applies to a pass that changes source code.
     """

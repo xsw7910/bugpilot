@@ -40,7 +40,10 @@ export interface ResetSessionOptions {
  * Fresh — back to its default.
  * `preference`: the developer's standing choice of AI agent and its custom
  * command, and of branch policy — how they work with branches — which say
- * nothing about this issue and are kept.
+ * nothing about this issue and are kept. So is the Repository Profile, which
+ * is not even the developer's alone: it is a copy of the repository's own
+ * `.bugpilot/repository_profile.json`, and a session reset leaves that file,
+ * and so the copy, as they are.
  *
  * A `Record` over `keyof FormState`, so a field added to the form without being
  * classified here fails to compile — the decision cannot be skipped.
@@ -79,6 +82,13 @@ export const FORM_FIELD_SCOPE: Readonly<Record<keyof FormState, "session" | "pre
   similarMaxFixes: "session",
   fresh: "session",
   branchPolicy: "preference",
+  repositoryProfile: "preference",
+  repositoryLanguages: "preference",
+  repositoryFrameworks: "preference",
+  repositoryApplicationType: "preference",
+  repositoryBuildSystem: "preference",
+  repositoryTestFramework: "preference",
+  repositoryNotes: "preference",
 };
 
 /**

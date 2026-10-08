@@ -190,7 +190,7 @@ def test_a_human_command_reports_an_unusable_run_file_without_a_traceback(tmp_pa
 
     err = capsys.readouterr().err
     assert "run.json" in err
-    assert "A fresh run replaces it: bugpilot bug" in err
+    assert "Preparing the work item again replaces it: bugpilot bug" in err
 
 
 def test_an_unusable_run_file_is_a_missing_artifact_to_the_error_codes():

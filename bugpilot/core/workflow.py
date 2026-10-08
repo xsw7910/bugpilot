@@ -87,6 +87,7 @@ from .prompts import (
     generate_task,
     investigation_handoff_block,
 )
+from .repository_profile import RepositoryContext, resolve_repository_context
 from .retrieval import RetrievalArtifact, read_retrieval_quietly, save_retrieval
 from .search import run_code_search
 
@@ -309,7 +310,7 @@ def run_bug_workflow(
     repo_root: Path,
     issue_key: str,
     agent_fix: bool = False,
-    fresh: bool = True,
+    fresh: bool = False,
     include_memory: bool = False,
     allow_mock: bool = False,
     progress: Callable[[str], None] | None = None,
@@ -334,7 +335,7 @@ def run_investigation(
     repo_root: Path,
     request: InvestigationRequest,
     agent_fix: bool = False,
-    fresh: bool = True,
+    fresh: bool = False,
     include_memory: bool = False,
     allow_mock: bool = False,
     progress: Callable[[str], None] | None = None,
@@ -346,6 +347,9 @@ def run_investigation(
     Which steps run comes from ``request.plan``; core owns that expansion so the
     CLI, the MCP server and the extension cannot drift into different notions of
     what a partial run means.
+
+    Non-destructive unless asked: ``fresh=True`` is the only way a preparation
+    deletes ``.ai/<id>/`` first, and every entry point has to say so.
     """
     issue_key = request.work_item_id
     resolved = set(request.resolved_steps())
@@ -458,9 +462,13 @@ def run_investigation(
     for warning in selection.warnings:
         log(target, f"[WARN] {warning}")
     log(target, f"[INFO] branch policy: {branch_policy}")
+    # Resolved once, before any step runs, so an unusable profile file is
+    # reported with this run's warnings rather than discovered by the task.
+    repository = resolve_repository_context(repo_root, request.repository_profile)
+    _log_repository_context(target, repository)
     command = f"bugpilot bug {issue_key}"
-    if not fresh:
-        command += " --resume"
+    if fresh:
+        command += " --fresh"
     if include_memory:
         command += " --include-memory"
     if allow_mock:
@@ -477,7 +485,7 @@ def run_investigation(
         log(target, "[INFO] real Jira required")
         log(target, "[INFO] mock fallback disabled")
     if fresh:
-        log(target, "[INFO] fresh run requested/defaulted")
+        log(target, "[INFO] fresh run requested")
         log(target, "[INFO] previous workflow artifacts were removed before this run")
         if include_memory:
             log(target, "[INFO] memory entry removed due to --include-memory")
@@ -554,7 +562,7 @@ def run_investigation(
             )
         if "prompt" in resolved:
             _progress(progress, "prompt")
-            prompt_step(repo_root, issue_key, fix_mode=selection.mode, issue=issue)
+            prompt_step(repo_root, issue_key, fix_mode=selection.mode, issue=issue, repository=repository)
         if "memory_add" in resolved:
             memory_add_step(repo_root, issue_key, issue=issue)
     except Exception as exc:
@@ -584,7 +592,7 @@ def run_investigation(
         issue_key=issue_key,
         issue_dir=target,
         generated_files=generated,
-        warnings=attachment_warnings + list(selection.warnings),
+        warnings=attachment_warnings + list(selection.warnings) + list(repository.warnings),
         jira_result=jira_result,
         clean_result=clean_result,
         fresh=fresh,
@@ -1141,12 +1149,29 @@ def _task_branch(repo_root: Path, issue: IssueArtifact) -> tuple[str, str]:
     return policy, branch
 
 
+def _log_repository_context(target: Path, repository: RepositoryContext) -> None:
+    facts = ", ".join(f"{name}: {value}" for name, value in repository.facts.items() if name != "Codebase notes")
+    log(target, f"[INFO] repository profile: {repository.mode}" + (f" ({facts})" if facts else ""))
+    for warning in repository.warnings:
+        log(target, f"[WARN] {warning}")
+
+
+def _task_repository(repo_root: Path, target: Path, repository: RepositoryContext | None) -> RepositoryContext:
+    """The Repository Profile a task is written with: the caller's, else the file's."""
+    if repository is not None:
+        return repository
+    resolved = resolve_repository_context(repo_root)
+    _log_repository_context(target, resolved)
+    return resolved
+
+
 def prompt_step(
     repo_root: Path,
     issue_key: str,
     jira_comment: bool = False,
     fix_mode: FixMode | None = None,
     issue: IssueArtifact | None = None,
+    repository: RepositoryContext | None = None,
 ) -> None:
     target = _prepare_issue_dir(repo_root, issue_key)
     if jira_comment:
@@ -1170,6 +1195,7 @@ def prompt_step(
             attachment_notes=issue.guidance.attachment_notes,
             branch_policy=branch_policy,
             branch=branch,
+            repository=_task_repository(repo_root, target, repository),
         )
         atomic_write_text(target / TASK_ARTIFACT, task)
         _mark_step(repo_root, issue_key, "prompt", "pass")
@@ -1210,6 +1236,7 @@ def copilot_task_step(
             attachment_notes=issue.guidance.attachment_notes,
             branch_policy=branch_policy,
             branch=branch,
+            repository=_task_repository(repo_root, target, None),
         )
         atomic_write_text(target / TASK_ARTIFACT, task)
         log(target, "[END] copilot_task: pass")
@@ -1219,7 +1246,7 @@ def copilot_task_step(
 
 
 def copilot_instructions_step(repo_root: Path, issue_key: str) -> str:
-    """The effective team instructions, returned rather than written.
+    """BugPilot's safety rules, returned rather than written.
 
     They are a section of ``task.md``; a per-work-item copy of a document that is
     the same for every work item was a file to keep in step, not information.

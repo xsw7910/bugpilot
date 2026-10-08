@@ -5,8 +5,8 @@ variables. ``bugpilot setup`` writes a small ``config.toml`` here so a first-tim
 user does not have to export ``JIRA_*`` variables by hand. Environment variables
 still win over this file (see :func:`bugpilot.core.config.load_config`).
 
-The company Jira URL is fixed and is NOT persisted. Only ``jira_email`` and (for
-now) ``jira_token`` are stored. Token persistence goes through :class:`TokenStore`
+The Jira site URL (``jira_base_url``), ``jira_email`` and (for now) ``jira_token``
+are stored. Token persistence goes through :class:`TokenStore`
 so it can later be swapped for the Windows Credential Manager without touching the
 rest of the code.
 """

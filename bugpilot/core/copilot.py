@@ -25,8 +25,9 @@ def collect_agent_status(repo_root: Path | None = None) -> dict[str, str | bool]
         "copilot_available": command_available(config.copilot_command),
         "gh_available": command_available("gh"),
         "claude_available": command_available(config.claude_command),
-        "automatic_invocation": "opt-in via `bugpilot bug --claude` or `--copilot`",
-        "default_mode": "prepare-only",
+        # What `bugpilot bug` does by default, and the one flag that changes it.
+        "automatic_invocation": "opt-in via `bugpilot bug <issue> --launch-agent claude|copilot`",
+        "default_mode": "prepare-only (existing artifacts kept; --fresh deletes them first)",
     }
 
 

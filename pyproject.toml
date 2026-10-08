@@ -7,12 +7,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bugpilot"
-version = "0.1.0"
+# One version, in bugpilot/__init__.py: `bugpilot --version`, `doctor --json`, the
+# MCP server and the wheel metadata all read it, so they cannot disagree.
+dynamic = ["version"]
 description = "Turn a Jira bug into focused code context for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
-# Name only, no email. A contact address on a public package is a public
-# address, and the one on this machine belongs to an employer.
+# Name only, no email: a contact address on a public package is a public
+# address.
 authors = [{ name = "Shiwei Xing" }]
 keywords = ["jira", "bug", "ai", "agent", "code-search", "context"]
 # No `License ::` classifier: with PEP 639 the SPDX expression above is the
@@ -49,3 +51,6 @@ bugpilot-mcp = "bugpilot.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["bugpilot*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "bugpilot.__version__" }
