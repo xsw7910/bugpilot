@@ -74,9 +74,9 @@ def repo(tmp_path_factory):
     """One commit per kind of evidence the settings can switch. Read-only."""
     root = _init(tmp_path_factory.mktemp("settings") / "repo")
     hashes = {
-        "issue": _commit(root, "2025-01-10", "JR-12345: fix the gather order", {"src/Gather.cpp": "v1\n"}),
-        "shared": _commit(root, "2025-03-01", "Tidy poststack volumes", {"src/Volumes.cpp": "v1\n"}),
-        "git_keyword": _commit(root, "2025-04-01", "Rework the stackmerge pass", {"src/Merge.cpp": "v1\n"}),
+        "issue": _commit(root, "2025-01-10", "JR-12345: fix the bucket order", {"src/Bucket.cpp": "v1\n"}),
+        "shared": _commit(root, "2025-03-01", "Tidy postblend volumes", {"src/Volumes.cpp": "v1\n"}),
+        "git_keyword": _commit(root, "2025-04-01", "Rework the blendmerge pass", {"src/Merge.cpp": "v1\n"}),
         "focus": _commit(root, "2025-05-01", "Adjust focus defaults", {"src/Focus.cpp": "v1\n"}),
         "additional": _commit(root, "2025-06-01", "Rename legacy options", {"src/Legacy.cpp": "v1\n"}),
         "ranked": _commit(root, "2025-07-01", "Speed up renderer", {"src/Renderer.cpp": "v1\n"}),
@@ -88,8 +88,8 @@ def repo(tmp_path_factory):
 
 FULL_QUERY = GitHistoryQuery(
     issue_id="JR-12345",
-    shared_keywords=("poststack",),
-    git_keywords=("stackmerge",),
+    shared_keywords=("postblend",),
+    git_keywords=("blendmerge",),
     focus_files=("src/Focus.cpp",),
     git_files=("src/Legacy.cpp",),
     ranked_files=("src/Renderer.cpp",),
@@ -138,9 +138,9 @@ def test_the_default_settings_give_batch_1s_results(repo):
     root, _hashes = repo
     query = GitHistoryQuery(
         issue_id="JR-12345",
-        shared_keywords=("poststack",),
+        shared_keywords=("postblend",),
         focus_files=("src/Focus.cpp",),
-        ranked_files=("src/Renderer.cpp", "src/Gather.cpp"),
+        ranked_files=("src/Renderer.cpp", "src/Bucket.cpp"),
     )
 
     batch_1 = find_related_commits(root, query)
@@ -153,15 +153,15 @@ def test_the_default_settings_give_batch_1s_results(repo):
 
 def test_the_default_settings_build_batch_1s_query(tmp_path):
     retrieval = RetrievalArtifact(related_files=(RelatedFile("src/a.cpp", False, 9, "high", 1),))
-    options = InvestigationOptions(keywords=["poststack"], focus_files=["src/Focus.cpp"])
-    keywords = {"high_value_keywords": ["poststack", "StackInputModel"], "normal_keywords": []}
+    options = InvestigationOptions(keywords=["postblend"], focus_files=["src/Focus.cpp"])
+    keywords = {"high_value_keywords": ["postblend", "BlendInputModel"], "normal_keywords": []}
 
     query = workflow._git_history_query(tmp_path, "JR-12345", retrieval, None, keywords, options, GitHistoryOptions())
 
     assert query == GitHistoryQuery(
         issue_id="JR-12345",
-        shared_keywords=("poststack",),
-        extracted_terms=("StackInputModel",),
+        shared_keywords=("postblend",),
+        extracted_terms=("BlendInputModel",),
         focus_files=("src/Focus.cpp",),
         ranked_files=("src/a.cpp",),
         # Batch 4: every Code Search file, never searched — only excluded from supporting files.
@@ -180,8 +180,8 @@ def test_a_command_line_without_git_flags_gets_the_defaults(tmp_path, monkeypatc
 @needs_git
 def test_shared_keywords_off_removes_them_from_search_and_ranking(repo, monkeypatch):
     root, hashes = repo
-    options = InvestigationOptions(keywords=["poststack"])
-    keywords = {"high_value_keywords": ["poststack"], "normal_keywords": []}
+    options = InvestigationOptions(keywords=["postblend"])
+    keywords = {"high_value_keywords": ["postblend"], "normal_keywords": []}
     settings = GitHistoryOptions(use_shared_keywords=False)
 
     query = workflow._git_history_query(root, "JR-12345", None, None, keywords, options, settings)
@@ -190,8 +190,8 @@ def test_shared_keywords_off_removes_them_from_search_and_ranking(repo, monkeypa
 
     assert query.shared_keywords == ()
     # Not smuggled back in as an "issue term" by the extraction it heads.
-    assert "poststack" not in [term.lower() for term in query.extracted_terms]
-    assert not any("--grep=poststack" in command for command in commands)
+    assert "postblend" not in [term.lower() for term in query.extracted_terms]
+    assert not any("--grep=postblend" in command for command in commands)
     assert hashes["shared"] not in _order(result)
     assert all(not commit.shared_keywords for commit in result.commits)
 
@@ -201,11 +201,11 @@ def test_shared_keywords_off_removes_them_from_search_and_ranking(repo, monkeypa
 def test_code_search_still_uses_shared_keywords_git_history_ignores(tmp_path):
     root, work_item = _prepared(
         tmp_path,
-        InvestigationOptions(keywords=["poststack"], git_history=GitHistoryOptions(use_shared_keywords=False)),
+        InvestigationOptions(keywords=["postblend"], git_history=GitHistoryOptions(use_shared_keywords=False)),
     )
 
     terms = json.loads((root / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))["terms"]
-    assert {"value": "poststack", "source": "user"}.items() <= terms[0].items()
+    assert {"value": "postblend", "source": "user"}.items() <= terms[0].items()
     history = _history(root, work_item)
     assert "matched shared keyword" not in history
 
@@ -235,7 +235,7 @@ def test_code_search_still_uses_focus_files_git_history_ignores(tmp_path):
     root, work_item = _prepared(
         tmp_path,
         InvestigationOptions(
-            keywords=["poststack"],
+            keywords=["postblend"],
             focus_files=["src/Volumes.cpp"],
             git_history=GitHistoryOptions(use_shared_focus_files=False),
         ),
@@ -253,12 +253,12 @@ def test_code_search_still_uses_focus_files_git_history_ignores(tmp_path):
 @needs_git
 def test_additional_commit_keywords_search_commits(repo):
     root, hashes = repo
-    result = find_related_commits(root, GitHistoryQuery(git_keywords=("stackmerge",)))
+    result = find_related_commits(root, GitHistoryQuery(git_keywords=("blendmerge",)))
 
     assert _order(result) == [hashes["git_keyword"]]
     commit = result.commits[0]
-    assert commit.git_keywords == ["stackmerge"] and commit.shared_keywords == []
-    assert "matched commit keyword: stackmerge" in commit.reasons
+    assert commit.git_keywords == ["blendmerge"] and commit.shared_keywords == []
+    assert "matched commit keyword: blendmerge" in commit.reasons
 
 
 @needs_git
@@ -276,30 +276,30 @@ def test_additional_files_read_their_history(repo):
 @needs_rg
 @needs_git
 def test_additional_keywords_and_files_never_reach_code_search(tmp_path):
-    settings = GitHistoryOptions(keywords=("stackmerge",), files=("src/Legacy.cpp",))
-    root, work_item = _prepared(tmp_path, InvestigationOptions(keywords=["poststack"], git_history=settings))
+    settings = GitHistoryOptions(keywords=("blendmerge",), files=("src/Legacy.cpp",))
+    root, work_item = _prepared(tmp_path, InvestigationOptions(keywords=["postblend"], git_history=settings))
 
     retrieval = json.loads((root / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
-    assert "stackmerge" not in [term["value"].lower() for term in retrieval["terms"]]
+    assert "blendmerge" not in [term["value"].lower() for term in retrieval["terms"]]
     assert all(
         "developer marked this file as a focus area" not in item["reasons"] for item in retrieval["related_files"]
     )
     history = _history(root, work_item)
-    assert "matched commit keyword: stackmerge" in history
+    assert "matched commit keyword: blendmerge" in history
     assert "modified additional file: `src/Legacy.cpp`" in history
 
 
 def test_a_word_in_both_keyword_lists_counts_once_as_a_commit_keyword():
-    query = GitHistoryQuery(shared_keywords=("poststack", "volumes"), git_keywords=("Poststack",))
+    query = GitHistoryQuery(shared_keywords=("postblend", "volumes"), git_keywords=("Postblend",))
 
-    assert git_history._git_keywords(query) == ["Poststack"]
+    assert git_history._git_keywords(query) == ["Postblend"]
     assert git_history._shared_keywords(query, git_history._git_keywords(query)) == ["volumes"]
 
 
 def test_commit_keywords_are_trimmed_deduplicated_and_kept_unicode():
-    query = GitHistoryQuery(git_keywords=("  stackmerge ", "", "ab", "STACKMERGE", "ångström-skalierung"))
+    query = GitHistoryQuery(git_keywords=("  blendmerge ", "", "ab", "BLENDMERGE", "ångström-skalierung"))
 
-    assert git_history._git_keywords(query) == ["stackmerge", "ångström-skalierung"]
+    assert git_history._git_keywords(query) == ["blendmerge", "ångström-skalierung"]
 
 
 # --- 8/9/10. the two routes ---------------------------------------------------------------
@@ -361,7 +361,7 @@ def test_both_routes_off_runs_no_git_history_and_does_not_fail(tmp_path, monkeyp
     monkeypatch.setattr(workflow, "collect_git_history", lambda *a, **k: called.append(a) or "")
     settings = GitHistoryOptions(search_commit_messages=False, search_file_history=False)
 
-    root, work_item = _prepared(tmp_path, InvestigationOptions(keywords=["poststack"], git_history=settings))
+    root, work_item = _prepared(tmp_path, InvestigationOptions(keywords=["postblend"], git_history=settings))
 
     assert called == []
     run = json.loads((root / ".ai" / work_item / "run.json").read_text(encoding="utf-8"))
@@ -476,9 +476,9 @@ def test_every_git_flag_reaches_the_options(tmp_path, monkeypatch):
         tmp_path,
         monkeypatch,
         [
-            "--git-keyword=stackmerge", "--git-keyword=ångström", "--git-file=src/Legacy.cpp",
+            "--git-keyword=blendmerge", "--git-keyword=ångström", "--git-file=src/Legacy.cpp",
             "--git-no-shared-keywords", "--git-no-shared-focus-files", "--git-no-commit-search",
-            "--git-history-depth=broader", "--git-max-commits=7", "--keywords=poststack",
+            "--git-history-depth=broader", "--git-max-commits=7", "--keywords=postblend",
             "--focus-file=src/Focus.cpp",
         ],
     )
@@ -486,7 +486,7 @@ def test_every_git_flag_reaches_the_options(tmp_path, monkeypatch):
     assert captured.options.git_history == GitHistoryOptions(
         use_shared_keywords=False,
         use_shared_focus_files=False,
-        keywords=("stackmerge", "ångström"),
+        keywords=("blendmerge", "ångström"),
         files=("src/Legacy.cpp",),
         search_commit_messages=False,
         search_file_history=True,
@@ -494,7 +494,7 @@ def test_every_git_flag_reaches_the_options(tmp_path, monkeypatch):
         max_related_commits=7,
     )
     # Code Search's own inputs are untouched by any of them.
-    assert captured.options.keywords == ["poststack"]
+    assert captured.options.keywords == ["postblend"]
     assert captured.options.focus_files == ["src/Focus.cpp"]
 
 
@@ -552,10 +552,10 @@ def _capture_request(tmp_path: Path, monkeypatch, argv: list[str]) -> Investigat
 def _prepared(tmp_path: Path, options: InvestigationOptions) -> tuple[Path, str]:
     """A small git repository with code Code Search can rank, prepared once."""
     root = _init(tmp_path / "prepared")
-    _commit(root, "2025-01-01", "Add poststack volumes", {"src/Volumes.cpp": "void poststack() {}\n"})
-    _commit(root, "2025-02-01", "Rework the stackmerge pass", {"src/Merge.cpp": "int merge() { return 0; }\n"})
+    _commit(root, "2025-01-01", "Add postblend volumes", {"src/Volumes.cpp": "void postblend() {}\n"})
+    _commit(root, "2025-02-01", "Rework the blendmerge pass", {"src/Merge.cpp": "int merge() { return 0; }\n"})
     _commit(root, "2025-03-01", "Rename legacy options", {"src/Legacy.cpp": "int legacy() { return 1; }\n"})
-    spec = bug_spec_from_description("poststack volumes vanish after a merge.", title="Volumes vanish")
+    spec = bug_spec_from_description("postblend volumes vanish after a merge.", title="Volumes vanish")
     workflow.run_investigation(root, InvestigationRequest(spec=spec, options=options))
     return root, spec.work_item_id
 
@@ -577,7 +577,7 @@ def test_standalone_git_context_prints_and_leaves_the_prepared_run_alone(tmp_pat
     # context.md, so the panel and the agent read two different runs.
     root, work_item = _prepared(
         tmp_path,
-        InvestigationOptions(keywords=["poststack"], git_history=GitHistoryOptions(max_related_commits=1, history_depth="broader")),
+        InvestigationOptions(keywords=["postblend"], git_history=GitHistoryOptions(max_related_commits=1, history_depth="broader")),
     )
     directory = root / ".ai" / work_item
     before = {name: (directory / name).read_bytes() for name in ("retrieval.json", "run.json", "context.md")}

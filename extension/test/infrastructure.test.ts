@@ -7,12 +7,13 @@ import {
   DEFAULT_EXECUTABLE,
   describeVerdict,
   discoverExecutable,
-  launcherNames,
 } from "../src/executable.ts";
 import type { SpawnFn } from "../src/runner.ts";
 import { chooseRepoRoot, isWithin } from "../src/workspace.ts";
 import type { Folder } from "../src/workspace.ts";
 import { CredentialStore, assertNoSecretsInArgs } from "../src/secrets.ts";
+import { jiraConnection } from "../src/app/jiraConnection.ts";
+import { runJiraSite } from "../src/app/jiraSite.ts";
 import type { SecretStore } from "../src/secrets.ts";
 
 // --- executable discovery --------------------------------------------------
@@ -59,6 +60,15 @@ function spawnWith(behaviour: Behaviour): { spawn: SpawnFn; calls: string[] } {
   return { spawn, calls };
 }
 
+/**
+ * Discovery with an identity resolver: these tests are about what the spawn
+ * answers, so the name is started as given. Resolution itself — PATH's absolute
+ * entries, never the working directory — is tested in executablePath.test.ts
+ * and below, where it is the subject.
+ */
+const discover = (options: Parameters<typeof discoverExecutable>[0]) =>
+  discoverExecutable({ locate: (name) => ({ kind: "found", path: name }), ...options });
+
 const doctorEnvelope = `${JSON.stringify({
   schema_version: 1,
   ok: true,
@@ -69,7 +79,7 @@ const doctorEnvelope = `${JSON.stringify({
 
 test("a working bugpilot is reported ready with its doctor report", async () => {
   const { spawn, calls } = spawnWith({ kind: "envelope", stdout: doctorEnvelope, code: 0 });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn });
+  const verdict = await discover({ cwd: "/repo", spawn });
 
   assert.equal(verdict.kind, "ready");
   assert.equal(verdict.executable, DEFAULT_EXECUTABLE);
@@ -79,7 +89,7 @@ test("a working bugpilot is reported ready with its doctor report", async () => 
 
 test("a configured path is used instead of PATH", async () => {
   const { spawn, calls } = spawnWith({ kind: "envelope", stdout: doctorEnvelope, code: 0 });
-  const verdict = await discoverExecutable({
+  const verdict = await discover({
     cwd: "/repo",
     spawn,
     configured: "C:\\tools\\bugpilot.exe",
@@ -91,13 +101,13 @@ test("a configured path is used instead of PATH", async () => {
 
 test("a blank configured path falls back to PATH", async () => {
   const { spawn } = spawnWith({ kind: "envelope", stdout: doctorEnvelope, code: 0 });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn, configured: "   " });
+  const verdict = await discover({ cwd: "/repo", spawn, configured: "   " });
   assert.equal(verdict.executable, DEFAULT_EXECUTABLE);
 });
 
 test("ENOENT means not found, with advice naming PATH", async () => {
   const { spawn } = spawnWith({ kind: "spawn-error", code: "ENOENT" });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn });
+  const verdict = await discover({ cwd: "/repo", spawn });
 
   assert.equal(verdict.kind, "not-found");
   assert.match(verdict.kind === "not-found" ? verdict.detail : "", /not on PATH/);
@@ -108,7 +118,7 @@ test("a broken configured path says so instead of blaming PATH", async () => {
   // Falling back to a different bugpilot than the developer named would make the
   // failure impossible to diagnose.
   const { spawn } = spawnWith({ kind: "spawn-error", code: "ENOENT" });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn, configured: "/nope/bugpilot" });
+  const verdict = await discover({ cwd: "/repo", spawn, configured: "/nope/bugpilot" });
 
   assert.equal(verdict.kind, "not-found");
   assert.match(verdict.kind === "not-found" ? verdict.detail : "", /configured bugpilot path/);
@@ -118,7 +128,7 @@ test("a bugpilot too old for --json is incompatible, not missing", async () => {
   // The distinction matters: "install bugpilot" is the wrong advice for someone
   // who already has one.
   const { spawn } = spawnWith({ kind: "old-cli" });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn });
+  const verdict = await discover({ cwd: "/repo", spawn });
 
   assert.equal(verdict.kind, "incompatible");
   assert.match(verdict.kind === "incompatible" ? verdict.detail : "", /unrecognized arguments/);
@@ -135,18 +145,19 @@ test("a doctor failure means unhealthy, not incompatible", async () => {
     error: { code: "JIRA_NOT_CONFIGURED", message: "env vars missing" },
   })}\n`;
   const { spawn } = spawnWith({ kind: "envelope", stdout: failure, code: 1 });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn });
+  const verdict = await discover({ cwd: "/repo", spawn });
 
   assert.equal(verdict.kind, "unhealthy");
   if (verdict.kind === "unhealthy") assert.equal(verdict.code, "JIRA_NOT_CONFIGURED");
   // Advice comes from the shared code table, not a second explanation.
-  assert.match(describeVerdict(verdict).action, /bugpilot setup/);
+  // Since Batch 3 the table points at Jira Setup, which also takes the site.
+  assert.match(describeVerdict(verdict).action, /Open Jira Setup/);
 });
 
 test("a non-executable binary is not reported as absent", async () => {
   // "install bugpilot" is the wrong advice for a binary that is already there.
   const { spawn } = spawnWith({ kind: "spawn-error", code: "EACCES" });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn });
+  const verdict = await discover({ cwd: "/repo", spawn });
 
   assert.equal(verdict.kind, "not-found");
   assert.match(verdict.kind === "not-found" ? verdict.detail : "", /not executable/);
@@ -171,7 +182,7 @@ test("a timed-out handshake is unresponsive, not incompatible", async () => {
     return child as unknown as ChildProcess;
   };
 
-  const verdict = await discoverExecutable({
+  const verdict = await discover({
     cwd: "/repo",
     spawn,
     timeoutMs: 5,
@@ -202,7 +213,7 @@ test("the handshake is doctor, which needs no work item and no network", async (
     return child as unknown as ChildProcess;
   };
 
-  await discoverExecutable({ cwd: "/repo", spawn });
+  await discover({ cwd: "/repo", spawn });
   assert.deepEqual(args, [["doctor", "--json"]]);
 });
 
@@ -446,7 +457,7 @@ test("the CLI's own version is captured and shown with the path", async () => {
   // A machine can carry a pipx copy, an editable install and a frozen exe at
   // once — this one does — so "which bugpilot just ran" is a real question.
   const { spawn } = spawnWith({ kind: "envelope", stdout: doctorEnvelope, code: 0 });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn });
+  const verdict = await discover({ cwd: "/repo", spawn });
 
   assert.equal(verdict.kind === "ready" ? verdict.version : undefined, "0.1.0");
   assert.match(describeVerdict(verdict).summary, /bugpilot 0\.1\.0/);
@@ -463,41 +474,60 @@ test("a compatible CLI that reports no version is still ready", async () => {
     report: { python_ok: true },
   })}\n`;
   const { spawn } = spawnWith({ kind: "envelope", stdout: withoutVersion, code: 0 });
-  const verdict = await discoverExecutable({ cwd: "/repo", spawn });
+  const verdict = await discover({ cwd: "/repo", spawn });
 
   assert.equal(verdict.kind, "ready");
   assert.equal(verdict.kind === "ready" ? verdict.version : "unset", undefined);
   assert.match(describeVerdict(verdict).summary, /Using bugpilot\./);
 });
 
-test("a bare Windows command is looked for under every PATHEXT extension", () => {
-  // The case this exists for: npm installs Claude Code as `claude.cmd`, which a
-  // spawn probe cannot see. Measured, not assumed — spawning the `.cmd` itself
-  // throws EINVAL, so the launcher has to be found by name on disk.
-  const names = launcherNames("claude", ".COM;.EXE;.BAT;.CMD", "win32");
+// --- Batch 3: Jira Setup keeps a stored token, and the site's transport -------------
 
-  // PATHEXT's case is kept as the environment wrote it, which costs nothing on
-  // a case-insensitive filesystem and avoids inventing a spelling.
-  assert.ok(
-    names.some((name) => name.toLowerCase() === "claude.cmd"),
-    "must look for the npm launcher",
+test("a blank token in Jira Setup keeps the stored one, in one write; with none stored it is refused", async () => {
+  const store = memoryStore();
+  const credentials = new CredentialStore(store);
+  await assert.rejects(credentials.saveKeepingToken("me@example.com"), /An API token is required/);
+  assert.deepEqual(store.data, {}, "a half credential was stored");
+
+  await credentials.save({ email: "old@example.com", token: "kept-token" });
+  await credentials.saveKeepingToken(" new@example.com ");
+  assert.deepEqual(JSON.parse(store.data["bugpilot.jiraCredentials"]!), { email: "new@example.com", token: "kept-token" });
+  assert.deepEqual(await credentials.status(), { configured: true, email: "new@example.com" });
+});
+
+test("the Jira row says No Jira site when credentials are stored but the site is not", () => {
+  const view = jiraConnection(true, false, true);
+  assert.equal(view.state, "notConfigured");
+  assert.equal(view.status, "No Jira site");
+  assert.equal(view.action, "Configure");
+  assert.equal(jiraConnection(true, false, false).state, "configured");
+  assert.equal(jiraConnection(false, false, true).status, "Not configured");
+});
+
+test("the site goes to the CLI on stdin, never on its command line; the answer is read as untrusted", async () => {
+  const calls: { args: readonly string[]; input: string | undefined }[] = [];
+  const answer = (payload: unknown) => ({ code: 0, stderr: "", stdout: `${JSON.stringify(payload)}\n` });
+  const site = "https://dev:typo@jira.example.test";
+  await runJiraSite(async (args, input) => {
+    calls.push({ args, input });
+    return answer({ schema_version: 1, ok: true, command: "jira-site", site: "https://your-company.atlassian.net", source: "user configuration", warnings: [] });
+  }, site);
+  assert.deepEqual(calls[0]!.args, ["jira-site", "set", "--stdin", "--json"]);
+  assert.equal(calls[0]!.input, `${site}\n`);
+  assert.equal(calls[0]!.args.some((arg) => arg.includes("atlassian")), false);
+
+  const shown = await runJiraSite(async () =>
+    answer({ schema_version: 1, ok: true, command: "jira-site", site: "https://env.example.com", source: "environment", warnings: [] }),
   );
-  assert.deepEqual(names, ["claude", "claude.COM", "claude.EXE", "claude.BAT", "claude.CMD"]);
-});
-
-test("PATHEXT lookup is Windows-only and never second-guesses an explicit extension", () => {
-  assert.deepEqual(launcherNames("claude", ".COM;.EXE", "linux"), []);
-  // Asking about `claude.exe` and being told about `claude.exe.cmd` would
-  // answer a question nobody asked.
-  assert.deepEqual(launcherNames("claude.exe", ".COM;.EXE", "win32"), ["claude.exe"]);
-});
-
-test("a machine with no PATHEXT still gets the four extensions Windows guarantees", () => {
-  assert.deepEqual(launcherNames("claude", undefined, "win32"), [
-    "claude",
-    "claude.COM",
-    "claude.EXE",
-    "claude.BAT",
-    "claude.CMD",
-  ]);
+  assert.deepEqual(shown, { kind: "loaded", site: "https://env.example.com", fromEnvironment: true });
+  const unusable = await runJiraSite(async () =>
+    answer({ schema_version: 1, ok: true, command: "jira-site", site: "javascript:alert(1)", source: "user configuration", problem: "The Jira site must start with https://." }),
+  );
+  assert.deepEqual(unusable, { kind: "loaded", fromEnvironment: false, problem: "The Jira site must start with https://." });
+  const old = await runJiraSite(async () => ({
+    code: 2,
+    stdout: "",
+    stderr: "usage: bugpilot ...\nbugpilot: error: argument command: invalid choice: 'jira-site' (choose from 'bug')\n",
+  }));
+  assert.deepEqual(old, { kind: "outdated", rejected: ["jira-site"] });
 });

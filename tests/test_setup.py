@@ -68,7 +68,7 @@ def test_toml_round_trips_special_characters():
 
 def test_validate_credentials_ok(monkeypatch):
     monkeypatch.setattr(
-        "bugpilot.core.jira.urllib.request.urlopen",
+        "bugpilot.core.jira._open",
         lambda request, timeout: _FakeResponse({"emailAddress": "e@example.com", "displayName": "Dev"}),
     )
     result = validate_credentials("https://example.atlassian.net", "e@example.com", "tok")
@@ -81,7 +81,7 @@ def test_validate_credentials_auth_failure(monkeypatch):
     def raise_http(request, timeout):
         raise urllib.error.HTTPError("url", 401, "Unauthorized", None, None)
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", raise_http)
+    monkeypatch.setattr("bugpilot.core.jira._open", raise_http)
     result = validate_credentials("https://x", "e", "bad")
     assert not result.ok
     assert result.error_type == "auth_or_permission"
@@ -92,7 +92,7 @@ def test_validate_credentials_network_error(monkeypatch):
     def raise_url(request, timeout):
         raise urllib.error.URLError("host down")
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", raise_url)
+    monkeypatch.setattr("bugpilot.core.jira._open", raise_url)
     result = validate_credentials("https://x", "e", "t")
     assert not result.ok
     assert result.error_type == "network_error"
@@ -298,8 +298,58 @@ def test_setup_rejects_a_site_with_no_scheme(monkeypatch):
     rc = run_setup(prompt=lambda _p: next(answers), out=out.append)
 
     assert rc == 0
-    assert "does not look like a URL" in "\n".join(out)
+    assert "The Jira site must start with https://." in "\n".join(out)
     assert load_user_config().jira_base_url == "https://acme.example.com"
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    ["http://jira.example.com", "https://user:pw@jira.example.com", "https://jira.example.com/?x=1", "javascript:alert(1)"],
+)
+def test_setup_refuses_a_site_credentials_must_not_go_to(monkeypatch, unsafe):
+    """Pre-release Batch 2: https:// only, nothing in the URL that is not the site."""
+    monkeypatch.setattr(
+        "bugpilot.core.setup.jira.validate_credentials",
+        lambda *_args, **_kwargs: JiraValidationResult(ok=True),
+    )
+    out: list[str] = []
+    answers = iter([unsafe, "https://jira.example.com", "dev@example.com", "tok"])
+
+    assert run_setup(prompt=lambda _p: next(answers), out=out.append) == 0
+    assert load_user_config().jira_base_url == "https://jira.example.com"
+
+
+def test_setup_does_not_keep_a_saved_http_site_on_enter(monkeypatch):
+    monkeypatch.setattr(
+        "bugpilot.core.setup.jira.validate_credentials",
+        lambda *_args, **_kwargs: JiraValidationResult(ok=True),
+    )
+    save_user_config("old@example.com", "old", "http://jira.example.com")
+    out: list[str] = []
+    answers = iter(["", "https://jira.example.com", "dev@example.com", "tok"])
+
+    assert run_setup(prompt=lambda _p: next(answers), out=out.append) == 0
+    text = "\n".join(out)
+    assert "is not an https:// address" in text
+    assert "press Enter to keep http://" not in text
+    assert load_user_config().jira_base_url == "https://jira.example.com"
+
+
+def test_setup_never_echoes_a_refused_saved_site(monkeypatch):
+    """A refused value may carry a password in its user-info part."""
+    monkeypatch.setattr(
+        "bugpilot.core.setup.jira.validate_credentials",
+        lambda *_args, **_kwargs: JiraValidationResult(ok=True),
+    )
+    save_user_config("old@example.com", "old", "https://dev:hunter2@jira.example.com")
+    out: list[str] = []
+    answers = iter(["", "https://jira.example.com", "dev@example.com", "tok"])
+
+    assert run_setup(prompt=lambda _p: next(answers), out=out.append) == 0
+    text = "\n".join(out)
+    assert "The saved Jira site is not an https:// address BugPilot accepts" in text
+    assert "hunter2" not in text
+    assert load_user_config().jira_base_url == "https://jira.example.com"
 
 
 def test_setup_keeps_the_site_already_configured(monkeypatch):

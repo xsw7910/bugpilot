@@ -191,14 +191,21 @@ export interface CapturedReviewInvocation {
  * answer only — no tool logs, no progress. The rest keeps an unattended
  * reviewer read-only, because nobody is there to approve anything:
  *
- * - `--tools Read Grep Glob Bash`: nothing that edits is even available;
- * - `--permission-mode dontAsk` with `--allowedTools`: of the shell, only
- *   `git diff`, `git status`, `git log` and `git show` run — anything else is
+ * - `--tools Read Grep Glob`: the only tools that exist in the session. No
+ *   shell, so no command at all — `git diff --output=<file>`, an external diff
+ *   driver or a textconv filter could write files or run programs from inside
+ *   a `Bash(git diff *)` rule (pre-release Batch 2, C). The current changes
+ *   come in the prompt instead, collected by BugPilot itself
+ *   (`review-package --include-changes`);
+ * - `--permission-mode dontAsk` with `--allowedTools`: anything not allowed is
  *   denied, never asked about. `--allowedTools` alone is not a restriction:
  *   with the developer's own `auto` mode a probe wrote a file through Bash;
  * - `--setting-sources ""` and `--strict-mcp-config`: neither the developer's
- *   nor the repository's settings, allow rules or MCP servers widen that;
+ *   nor the repository's settings, allow rules, hooks or MCP servers widen that;
  * - `--no-session-persistence`: the review leaves no session to resume.
+ *
+ * Read-only is about the workspace and the machine: `Read` can open any file
+ * the developer can, and the answer — shown only in the panel — may quote it.
  */
 export const CLAUDE_CAPTURED_REVIEW: CapturedReviewInvocation = {
   args: [
@@ -215,17 +222,10 @@ export const CLAUDE_CAPTURED_REVIEW: CapturedReviewInvocation = {
     "Read",
     "Grep",
     "Glob",
-    "Bash",
     "--allowedTools",
     "Read",
     "Grep",
     "Glob",
-    "Bash(git diff)",
-    "Bash(git diff *)",
-    "Bash(git status)",
-    "Bash(git status *)",
-    "Bash(git log *)",
-    "Bash(git show *)",
   ],
   output: "claude-json",
 };

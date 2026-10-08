@@ -16,7 +16,7 @@ MOMENT = datetime(2026, 9, 1, 9, 41, 33, tzinfo=timezone.utc)
 
 
 def test_manual_spec_gets_a_local_id_and_no_source_ref():
-    spec = bug_spec_from_description("3D view crashes after changing horizon", now=MOMENT)
+    spec = bug_spec_from_description("3D view crashes after changing layer", now=MOMENT)
     assert spec.work_item_id == "local_20260901094133"
     assert spec.source == "manual"
     assert spec.source_ref is None
@@ -25,9 +25,9 @@ def test_manual_spec_gets_a_local_id_and_no_source_ref():
 
 def test_manual_spec_derives_a_title_from_the_first_line():
     spec = bug_spec_from_description(
-        "3D view crashes after changing horizon\n\nFull steps below...", now=MOMENT
+        "3D view crashes after changing layer\n\nFull steps below...", now=MOMENT
     )
-    assert spec.title == "3D view crashes after changing horizon"
+    assert spec.title == "3D view crashes after changing layer"
     assert spec.description.startswith("3D view crashes")
 
 
@@ -43,8 +43,8 @@ def test_manual_spec_requires_a_description():
 
 def test_manual_spec_keeps_non_ascii_titles_intact():
     """A Chinese title survives: this is why the local id carries no slug."""
-    spec = bug_spec_from_description("三维视图切换层位后崩溃", now=MOMENT)
-    assert spec.title == "三维视图切换层位后崩溃"
+    spec = bug_spec_from_description("三维视图切换图层后崩溃", now=MOMENT)
+    assert spec.title == "三维视图切换图层后崩溃"
     assert spec.work_item_id == "local_20260901094133"
 
 

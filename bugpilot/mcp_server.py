@@ -31,15 +31,36 @@ start over on its own.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from mcp.server.mcpserver import MCPServer
-# The SDK's own ToolError is what marks a failure as anticipated: the model
-# receives the message. Any other exception is treated as a crash and the model
-# sees only "Error executing tool <name>", losing every actionable hint.
-from mcp.server.mcpserver.exceptions import ToolError
+try:
+    from mcp.server.mcpserver import MCPServer
+    # The SDK's own ToolError is what marks a failure as anticipated: the model
+    # receives the message. Any other exception is treated as a crash and the
+    # model sees only "Error executing tool <name>", losing every actionable hint.
+    from mcp.server.mcpserver.exceptions import ToolError
+except ModuleNotFoundError as _missing:
+    # `bugpilot-mcp` is installed with every bugpilot; the SDK only with the
+    # `mcp` extra. Without it (or with a 1.x SDK, which has no `mcpserver`),
+    # `main` says how to add it instead of ending in a traceback (pre-release
+    # Batch 4.1). Any other missing module is a real error and is raised.
+    if (_missing.name or "").split(".")[0] != "mcp":
+        raise
+    _MCP_MISSING = True
+else:
+    _MCP_MISSING = False
+
+#: What `bugpilot-mcp` prints, on stderr, when the MCP SDK is not installed.
+MCP_MISSING_MESSAGE = (
+    "bugpilot-mcp needs the optional MCP SDK (the Python package `mcp`, version 2 or later), "
+    "and it is not installed where bugpilot runs.\n"
+    "Install it into that environment, then restart the agent that starts bugpilot-mcp:\n"
+    '  pipx inject bugpilot "mcp>=2"          (bugpilot installed with pipx)\n'
+    '  python -m pip install "mcp>=2"         (bugpilot installed with pip)\n'
+)
 
 from bugpilot import __version__
 from bugpilot.core import errors, handoff, workflow
@@ -277,6 +298,8 @@ def _options(
 
 def build_server(repo_root: Path | None = None) -> MCPServer:
     """Create the server bound to one repository."""
+    if _MCP_MISSING:
+        raise RuntimeError(MCP_MISSING_MESSAGE.strip())
     bound = _Bound(repo_root=resolve_repo_root(str(repo_root) if repo_root else None))
     server: MCPServer = MCPServer(
         name="bugpilot",
@@ -605,7 +628,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         the three cannot drift apart (design 5.5).
         """
         # Reuses the one predicate that answers "did the user type an id?".
-        # A local re-implementation routed "crash in openvds-2" to the Jira tool.
+        # A local re-implementation routed "crash in opencsv-2" to the Jira tool.
         looks_like_key = is_known_work_item_id(work_item.strip())
         tool = "prepare_jira_bug" if looks_like_key else "prepare_bug_description"
         argument = f'issue_key="{work_item}"' if looks_like_key else f'description="{work_item}"'
@@ -617,6 +640,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
 
 def main() -> None:
     """Entry point for ``bugpilot-mcp``. stdio transport, so stdout is the wire."""
+    if _MCP_MISSING:
+        # stderr only: stdout is the JSON-RPC channel an agent is reading.
+        sys.stderr.write(MCP_MISSING_MESSAGE)
+        raise SystemExit(1)
     build_server().run(transport="stdio")
 
 

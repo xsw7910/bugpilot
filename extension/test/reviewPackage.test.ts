@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 
 import { parseReviewOutput, REVIEW_OUTPUT_SECTIONS } from "../src/app/reviewOutput.ts";
 import { isPlainPrompt } from "../src/app/agents.ts";
-import { MAX_RISKS, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
+import { MAX_CHANGES_CHARS, MAX_RISKS, reviewPackageArgs, reviewPackageFromEnvelope } from "../src/app/reviewPackage.ts";
 import type { Envelope } from "../src/protocol.ts";
 
 const PROMPT = "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n";
@@ -36,6 +36,20 @@ const envelope = (validation: unknown, prompt: unknown = PROMPT): Envelope => ({
 
 test("the command is the read-only JSON query, for exactly this work item", () => {
   assert.deepEqual([...reviewPackageArgs("JR-12345")], ["review-package", "JR-12345", "--json"]);
+  // Review with AI's own: also the changes BugPilot collects for a reviewer
+  // without a shell (pre-release Batch 2, C).
+  assert.deepEqual([...reviewPackageArgs("JR-12345", { includeChanges: true })], ["review-package", "JR-12345", "--json", "--include-changes"]);
+});
+
+test("the collected changes are read when well-formed, and left out otherwise", () => {
+  const changes = "## Current Changes\n\n```diff\n+x\n```\n";
+  const withChanges = (value: unknown) => reviewPackageFromEnvelope({ ...envelope({ steps: STEPS }), changes: value });
+  assert.equal(withChanges(changes)?.changes, changes);
+  for (const value of [undefined, "", "   ", 42, ["a"], "x".repeat(MAX_CHANGES_CHARS + 1)]) {
+    const parsed = withChanges(value);
+    assert.ok(parsed, "the prompt and checklist do not depend on the changes");
+    assert.equal(parsed.changes, undefined, String(value).slice(0, 20));
+  }
 });
 
 test("a well-formed envelope gives the prompt as written and the checklist as lists", () => {
@@ -43,7 +57,7 @@ test("a well-formed envelope gives the prompt as written and the checklist as li
     envelope({
       steps: STEPS,
       regression_files: ["src/widgets/WidgetController.cpp", "src/widgets/WidgetController.h"],
-      review_risks: ["- Check the other enum comparisons.", "The legacy VDS path is untested."],
+      review_risks: ["- Check the other enum comparisons.", "The legacy CSV path is untested."],
     }),
   );
   assert.deepEqual(parsed, {
@@ -52,7 +66,7 @@ test("a well-formed envelope gives the prompt as written and the checklist as li
       steps: STEPS,
       files: ["src/widgets/WidgetController.cpp", "src/widgets/WidgetController.h"],
       // The report's own list markers go; the panel draws its bullets.
-      risks: ["Check the other enum comparisons.", "The legacy VDS path is untested."],
+      risks: ["Check the other enum comparisons.", "The legacy CSV path is untested."],
     },
   });
 });

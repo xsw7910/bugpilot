@@ -140,10 +140,10 @@ def test_artifacts_land_in_the_bound_repo_only(tmp_path, monkeypatch):
 
 def test_prepare_bug_description_returns_paths_not_the_whole_package(tmp_path):
     server = build_server(tmp_path)
-    payload = _call(server, "prepare_bug_description", {"description": "OpenVdsStatistics crashes"})
+    payload = _call(server, "prepare_bug_description", {"description": "OpenCsvStatistics crashes"})
 
     assert payload["source"] == "manual"
-    assert payload["title"] == "OpenVdsStatistics crashes"
+    assert payload["title"] == "OpenCsvStatistics crashes"
     assert payload["agent_task"].endswith("task.md")
     assert "Stop before committing" in payload["next_step"]
     assert payload["context_excerpt"]
@@ -158,9 +158,9 @@ def test_prepare_bug_description_rejects_an_empty_description(tmp_path):
 
 def test_prepare_keeps_a_non_ascii_title(tmp_path):
     payload = _call(
-        build_server(tmp_path), "prepare_bug_description", {"description": "三维视图切换层位后崩溃"}
+        build_server(tmp_path), "prepare_bug_description", {"description": "三维视图切换图层后崩溃"}
     )
-    assert payload["title"] == "三维视图切换层位后崩溃"
+    assert payload["title"] == "三维视图切换图层后崩溃"
 
 
 def test_refine_reuses_the_prepared_work_item(tmp_path):
@@ -171,12 +171,12 @@ def test_refine_reuses_the_prepared_work_item(tmp_path):
     refined = _call(
         server,
         "refine_investigation",
-        {"work_item_id": work_item, "keywords": ["OpenVdsStatistics"], "hint": "look in the writer"},
+        {"work_item_id": work_item, "keywords": ["OpenCsvStatistics"], "hint": "look in the writer"},
     )
     assert refined["work_item_id"] == work_item
 
     retrieval = json.loads((tmp_path / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
-    assert {"value": "OpenVdsStatistics", "source": "user"}.items() <= retrieval["terms"][0].items()
+    assert {"value": "OpenCsvStatistics", "source": "user"}.items() <= retrieval["terms"][0].items()
     issue = json.loads((tmp_path / ".ai" / work_item / "issue.json").read_text(encoding="utf-8"))
     assert issue["guidance"]["hint"] == "look in the writer"
 
@@ -221,10 +221,10 @@ def test_get_status_on_an_unknown_work_item_says_how_to_fix_it(tmp_path):
 
 def test_search_memory_finds_a_prior_investigation(tmp_path):
     server = build_server(tmp_path)
-    _call(server, "prepare_bug_description", {"description": "OpenVdsStatistics fails to initialize"})
+    _call(server, "prepare_bug_description", {"description": "OpenCsvStatistics fails to initialize"})
 
-    payload = _call(server, "search_memory", {"query": "OpenVdsStatistics"})
-    assert payload["query"] == "OpenVdsStatistics"
+    payload = _call(server, "search_memory", {"query": "OpenCsvStatistics"})
+    assert payload["query"] == "OpenCsvStatistics"
     assert payload["report"]
 
 
@@ -264,7 +264,7 @@ def test_summarize_takes_no_jira_comment_argument(tmp_path):
     "work_item, expected_tool",
     [
         ("JR-12345", "prepare_jira_bug"),
-        ("3D view crashes after changing horizon", "prepare_bug_description"),
+        ("3D view crashes after changing layer", "prepare_bug_description"),
     ],
 )
 def test_fix_bug_prompt_routes_by_input_shape(tmp_path, work_item, expected_tool):
@@ -399,7 +399,7 @@ def test_tool_errors_carry_a_stable_code(tmp_path, monkeypatch):
         ("JR-12345", "prepare_jira_bug"),
         ("local_20260901094133", "prepare_jira_bug"),
         # These used to route to the Jira tool and dead-end on validation.
-        ("crash in openvds-2", "prepare_bug_description"),
+        ("crash in opencsv-2", "prepare_bug_description"),
         ("regression since v1.2-3", "prepare_bug_description"),
         ("jr-12345", "prepare_bug_description"),
     ],
@@ -967,3 +967,50 @@ def test_summarize_results_and_get_status_claim_no_validation_or_review(tmp_path
     assert steps["result_summary"] == "pass"
     assert "manual_validation" not in steps
     assert "final_review_prompt" not in steps
+
+
+# --- pre-release Batch 4.1: the optional SDK ---------------------------------------
+
+
+def _mcp_entry(block: str):
+    """Run `bugpilot-mcp`'s entry point in a fresh interpreter, with `block` hidden from imports."""
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        f"for name in {block!r}.split(','):\n"
+        "    sys.modules[name] = None\n"
+        "from bugpilot.mcp_server import main\n"
+        "main()\n"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("JIRA_")}
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, env=env, stdin=subprocess.DEVNULL)
+
+
+@pytest.mark.parametrize("block", ["mcp", "mcp.server.mcpserver"], ids=["not installed", "a 1.x SDK"])
+def test_without_the_mcp_sdk_the_server_says_how_to_install_it(block):
+    done = _mcp_entry(block)
+    assert done.returncode == 1
+    assert "Traceback" not in done.stderr, done.stderr
+    assert 'pipx inject bugpilot "mcp>=2"' in done.stderr
+    assert 'python -m pip install "mcp>=2"' in done.stderr
+    # stdout is the JSON-RPC wire an agent reads: nothing may land there.
+    assert done.stdout == ""
+
+
+def test_another_missing_module_is_still_an_error():
+    """Only the SDK is optional; anything else missing is a real fault and is raised."""
+    done = _mcp_entry("bugpilot.core.workflow")
+    assert done.returncode != 0
+    assert "ModuleNotFoundError" in done.stderr
+    assert "pipx inject" not in done.stderr
+
+
+def test_with_the_sdk_the_server_is_built_as_before(tmp_path):
+    from bugpilot import mcp_server
+
+    assert mcp_server._MCP_MISSING is False
+    assert build_server(tmp_path) is not None
+    assert build_server.__doc__, "the missing-SDK guard displaced the docstring"

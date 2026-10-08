@@ -25,12 +25,19 @@ import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues } from
 import { deleteWorkItemArtifacts } from "./app/sessionReset.ts";
 import { fixModeCommandPort, payloadCommandPort } from "./app/fixModeTransport.ts";
 import { runRepositoryProfile } from "./app/repositoryProfile.ts";
+import { runInstructions } from "./app/instructions.ts";
+import { runProjectSettings } from "./app/projectSettings.ts";
+import { runJiraSite } from "./app/jiraSite.ts";
+import type { JiraSiteOutcome } from "./app/jiraSite.ts";
+import type { ProjectSettingsOutcome, ProjectSettingsPayload } from "./app/projectSettings.ts";
+import type { InstructionScope, InstructionsOutcome } from "./app/instructions.ts";
 import type { RepositoryProfileOutcome, RepositoryProfilePayload } from "./app/repositoryProfile.ts";
 import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
 import { diagnose } from "./errors.ts";
 import { discoverExecutable } from "./executable.ts";
-import { Runner } from "./runner.ts";
+import { trustedRunner } from "./runner.ts";
+import { childEnvironmentAdditions } from "./executablePath.ts";
 import { CredentialStore } from "./secrets.ts";
 import { PanelHost } from "./panel/provider.ts";
 import { reviewedFixStore } from "./app/reviewRun.ts";
@@ -126,8 +133,37 @@ export function activate(context: vscode.ExtensionContext): void {
     const root = controller.root;
     if (!root) return { kind: "failed", message: "No repository is open." };
     return runRepositoryProfile(
-      (args) => new Runner(executable).run(args, { cwd: root, timeoutMs: 30_000 }),
+      (args) => trustedRunner(executable).run(args, { cwd: root, timeoutMs: 30_000 }),
       profile,
+    );
+  };
+
+  const jiraSiteCommand = async (site?: string): Promise<JiraSiteOutcome> => {
+    const root = controller.root;
+    if (!root) return { kind: "failed", message: "No repository is open." };
+    return runJiraSite(
+      (args, input) => trustedRunner(executable).run(args, { cwd: root, timeoutMs: 30_000, ...(input === undefined ? {} : { input }) }),
+      site,
+    );
+  };
+
+  // The repository's project settings (Batch 3): the CLI owns the file and
+  // judges a branch template; Apply hands the payload over in a temporary file.
+  const projectSettingsCommand = async (settings?: ProjectSettingsPayload): Promise<ProjectSettingsOutcome> => {
+    const root = controller.root;
+    if (!root) return { kind: "failed", message: "No repository is open." };
+    return runProjectSettings((args) => trustedRunner(executable).run(args, { cwd: root, timeoutMs: 30_000 }), settings);
+  };
+
+  // User and Project instructions (pre-release Batch 2): the CLI owns the two
+  // paths, the limit and the link checks. A save's text goes on stdin — never
+  // on a command line, never in a temporary file — and nothing of it is logged.
+  const instructionsCommand = async (save?: { scope: InstructionScope; text: string }): Promise<InstructionsOutcome> => {
+    const root = controller.root;
+    if (!root) return { kind: "failed", message: "No repository is open." };
+    return runInstructions(
+      (args, input) => trustedRunner(executable).run(args, { cwd: root, timeoutMs: 30_000, ...(input === undefined ? {} : { input }) }),
+      save,
     );
   };
 
@@ -138,8 +174,8 @@ export function activate(context: vscode.ExtensionContext): void {
     {
       runner: {
         runStreaming: (args, options, onEvent) =>
-          new Runner(executable).runStreaming(args, options, onEvent),
-        runJson: (args, options) => new Runner(executable).runJson(args, options),
+          trustedRunner(executable).runStreaming(args, options, onEvent),
+        runJson: (args, options) => trustedRunner(executable).runJson(args, options),
       },
       files: createFilesPort(),
       // This extension's own version, which is not the CLI's — on a machine
@@ -168,7 +204,14 @@ export function activate(context: vscode.ExtensionContext): void {
       // only ask whether one is stored and for which email — never the token.
       jiraCredentials: {
         status: () => credentials.status(),
-        save: (pair) => credentials.save(pair),
+        // A blank token keeps the stored one (Jira Setup, Batch 3).
+        save: (pair) => (pair.token === "" ? credentials.saveKeepingToken(pair.email) : credentials.save(pair)),
+      },
+      // The site is not a secret: it lives where the CLI reads it, written
+      // through the CLI, the typed value on stdin (Batch 3).
+      jiraSite: {
+        load: () => jiraSiteCommand(),
+        save: (site) => jiraSiteCommand(site),
       },
       // Kept out of the repository: a scratch file for a description too long
       // for a command line is the extension's business, not the project's.
@@ -193,7 +236,7 @@ export function activate(context: vscode.ExtensionContext): void {
         deleteWorkItemArtifacts({
           root,
           workItemId,
-          clean: () => new Runner(executable).run(["clean", workItemId], { cwd: root, timeoutMs: 120_000 }),
+          clean: () => trustedRunner(executable).run(["clean", workItemId], { cwd: root, timeoutMs: 120_000 }),
         }),
       // One spawn for the whole catalog, from the one place that knows the
       // discovery command. The controller asks when the environment resolves,
@@ -204,7 +247,7 @@ export function activate(context: vscode.ExtensionContext): void {
           return { kind: "unavailable", detail: "No repository is open, so AI Fix Modes could not be read." };
         }
         return loadFixModes((args) =>
-          new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
+          trustedRunner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
         );
       },
       listManagedFixModes: async () => {
@@ -213,7 +256,7 @@ export function activate(context: vscode.ExtensionContext): void {
           return { kind: "unavailable", detail: "No repository is open, so AI Fix Modes could not be read." };
         }
         return loadManagedFixModes((args) =>
-          new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
+          trustedRunner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
         );
       },
       // The Repository Profile, read and written through the CLI that owns its
@@ -223,19 +266,27 @@ export function activate(context: vscode.ExtensionContext): void {
         load: () => repositoryProfileCommand(),
         save: (profile) => repositoryProfileCommand(profile),
       },
+      projectSettings: {
+        load: () => projectSettingsCommand(),
+        save: (settings) => projectSettingsCommand(settings),
+      },
+      instructions: {
+        load: () => instructionsCommand(),
+        save: (scope, text) => instructionsCommand({ scope, text }),
+      },
       // The payload file and its cleanup live in the app layer; the controller
       // only says what the command is and what definition it carries, and the
       // port refuses outright when there is no repository to run it against.
       runFixModeCommand: fixModeCommandPort(
         () => controller.root,
-        (args, cwd) => new Runner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
+        (args, cwd) => trustedRunner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
       ),
       // Record Review Result: the review goes the same way a Fix Mode does — a
       // temporary file outside the repository, removed afterwards — so four
       // sections of someone's prose are never argv and never shell text.
       runReviewCommand: payloadCommandPort(
         () => controller.root,
-        (args, cwd) => new Runner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
+        (args, cwd) => trustedRunner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
         {
           command: "record-review",
           prefix: "bugpilot-review",
@@ -247,7 +298,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // and never shell text. The extension runs none of the checks.
       runVerificationCommand: payloadCommandPort(
         () => controller.root,
-        (args, cwd) => new Runner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
+        (args, cwd) => trustedRunner(executable).runJson(args, { cwd, timeoutMs: 30_000 }),
         {
           command: "record-verification",
           prefix: "bugpilot-verification",
@@ -261,7 +312,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!root) return undefined;
         const environment = await credentials.environment();
         const runJson = (args: readonly string[]) =>
-          new Runner(executable).runJson(args, { cwd: root, env: environment, timeoutMs: 30_000 });
+          trustedRunner(executable).runJson(args, { cwd: root, env: environment, timeoutMs: 30_000 });
         return loadIssueDetails(runJson, issueKey);
       },
       improveHint: improveHintWithProvider,
@@ -299,7 +350,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const root = controller.root;
         if (!root) return { kind: "empty", detail: "Open the repository you are fixing bugs in." };
         return loadHistory(root, (args) =>
-          new Runner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
+          trustedRunner(executable).runJson(args, { cwd: root, timeoutMs: 30_000 }),
         );
       },
       // State the controller already holds: no probe, no request (§37.110).
@@ -487,7 +538,7 @@ export function activate(context: vscode.ExtensionContext): void {
     channel.appendLine("");
     channel.appendLine("$ bugpilot doctor --json");
     try {
-      const envelope = await new Runner(executable).runJson(["doctor"], {
+      const envelope = await trustedRunner(executable).runJson(["doctor"], {
         cwd: root,
         timeoutMs: 60_000,
       });
@@ -563,7 +614,7 @@ export function activate(context: vscode.ExtensionContext): void {
       );
       return;
     }
-    const terminal = vscode.window.createTerminal({ name: "BugPilot agent", cwd: root });
+    const terminal = vscode.window.createTerminal({ name: "BugPilot agent", cwd: root, env: { ...childEnvironmentAdditions() } });
     terminal.show();
     // Not sent as a live handover: two processes writing one transcript is not
     // safe, so this resumes after the previous agent exited.
@@ -682,7 +733,7 @@ async function runText(
   // palette's box is shown only if it is one (§37.95).
   channel.appendLine(`$ ${commandForLog(args)}`);
   try {
-    const result = await new Runner(executable).run(args, { cwd: root, timeoutMs: 120_000 });
+    const result = await trustedRunner(executable).run(args, { cwd: root, timeoutMs: 120_000 });
     for (const line of `${result.stdout}${result.stderr}`.split("\n")) {
       if (line.trim() !== "") channel.appendLine(`  ${line}`);
     }

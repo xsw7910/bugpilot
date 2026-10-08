@@ -20,7 +20,7 @@
  *    `clean` — the one delete BugPilot already has for that folder.
  */
 
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, mkdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { DEFAULT_FORM, isWorkItemId } from "./form.ts";
@@ -89,6 +89,13 @@ export const FORM_FIELD_SCOPE: Readonly<Record<keyof FormState, "session" | "pre
   repositoryBuildSystem: "preference",
   repositoryTestFramework: "preference",
   repositoryNotes: "preference",
+  // The repository's project settings (Batch 3): its configuration, not the session's.
+  verifyRelevantTests: "preference",
+  verifyStaticChecks: "preference",
+  verifyFullSuite: "preference",
+  verifyReportNotRun: "preference",
+  branchNaming: "preference",
+  branchTemplate: "preference",
 };
 
 /**
@@ -255,6 +262,71 @@ export async function deleteWorkItemArtifacts(options: {
     return { kind: "failed", reason: exit ?? code };
   }
   return { kind: "failed", reason: exit ?? "still-present" };
+}
+
+/**
+ * Write one file into `.ai/<work item>/` under the rule the delete above uses
+ * (pre-release Batch 2, D): `.ai` and the work item folder are real
+ * directories whose resolved path is the repository's own, and the file itself
+ * is not a link — a link anywhere on the way could take the write somewhere
+ * else, so it is refused and nothing is written. A missing folder is created,
+ * and checked again once it is there. The CLI's writers follow the same rule
+ * (`bugpilot/core/safe_paths.py`); this is the extension's one writer into the
+ * folder, `user_feedback.md`.
+ *
+ * Throws an Error whose message names only `.ai/<work item>/`, never an
+ * absolute path.
+ */
+export async function writeWorkItemFile(options: {
+  readonly root: string;
+  readonly workItemId: string;
+  readonly name: string;
+  readonly contents: string;
+  readonly fs?: DeletionFileSystem;
+  readonly caseInsensitive?: boolean;
+}): Promise<void> {
+  const fs = options.fs ?? NODE_FS;
+  const { root, workItemId, name } = options;
+  const folder = `.ai/${workItemId}/`;
+  if (name === "" || name === "." || name === ".." || /[\\/:]/.test(name)) {
+    throw new Error(`${name} is not a file name BugPilot writes, so nothing was written.`);
+  }
+  let check = await checkArtifactDirectory(root, workItemId, fs, options.caseInsensitive);
+  if (check.kind === "missing") {
+    // Only reached when `.ai` is a real directory or absent: a linked `.ai` is
+    // refused above, before anything is created through it.
+    await mkdir(path.join(root, ARTIFACT_ROOT, workItemId), { recursive: true });
+    check = await checkArtifactDirectory(root, workItemId, fs, options.caseInsensitive);
+  }
+  if (check.kind !== "ok") throw new Error(writeProblem(check, folder, name));
+  const target = path.join(check.directory, name);
+  try {
+    const stat = await fs.lstat(target);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`BugPilot does not write through a link or junction, and ${folder}${name} is one, so nothing was written.`);
+    }
+    if (!stat.isFile()) throw new Error(`${folder}${name} is not a file BugPilot created, so nothing was written.`);
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") throw error;
+  }
+  await writeFile(target, options.contents, "utf8");
+}
+
+function writeProblem(check: Exclude<DirectoryCheck, { kind: "ok" }>, folder: string, name: string): string {
+  if (check.kind === "refused") {
+    switch (check.reason) {
+      case "invalid-id":
+        return `This work item's id is not one BugPilot could have created, so ${name} was not written.`;
+      case "link":
+        return `BugPilot does not write through a link or junction, and ${folder} or .ai/ is one, so ${name} was not written.`;
+      case "not-a-directory":
+        return `${folder} is not a folder BugPilot created, so ${name} was not written.`;
+      case "outside":
+        return `${folder} resolves outside this repository's .ai/ folder, so ${name} was not written.`;
+    }
+  }
+  if (check.kind === "missing") return `${folder} could not be created, so ${name} was not written.`;
+  return `${folder} could not be checked (${check.reason}), so ${name} was not written.`;
 }
 
 /**

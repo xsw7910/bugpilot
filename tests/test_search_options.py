@@ -22,17 +22,17 @@ from bugpilot.core.search import (
 @pytest.mark.parametrize(
     "path, patterns, expected",
     [
-        ("src/reader/VdsReader.cpp", ["src/reader"], True),
-        ("src/reader/VdsReader.cpp", ["src/reader/"], True),
-        ("src/reader/VdsReader.cpp", ["./src/reader"], True),
+        ("src/reader/CsvReader.cpp", ["src/reader"], True),
+        ("src/reader/CsvReader.cpp", ["src/reader/"], True),
+        ("src/reader/CsvReader.cpp", ["./src/reader"], True),
         # A Windows-style pattern must still match rg's forward-slash output.
-        ("src/reader/VdsReader.cpp", [r"src\reader"], True),
-        (r"src\reader\VdsReader.cpp", ["src/reader"], True),
-        ("src/reader/VdsReader.cpp", ["VDSREADER.CPP"], True),  # case-insensitive
+        ("src/reader/CsvReader.cpp", [r"src\reader"], True),
+        (r"src\reader\CsvReader.cpp", ["src/reader"], True),
+        ("src/reader/CsvReader.cpp", ["CSVREADER.CPP"], True),  # case-insensitive
         # A prefix must stop at a path boundary, not mid-segment.
         ("src/readerx/A.cpp", ["src/reader"], False),
-        ("src/reader/VdsReader.cpp", [], False),
-        ("src/reader/VdsReader.cpp", ["", "   "], False),
+        ("src/reader/CsvReader.cpp", [], False),
+        ("src/reader/CsvReader.cpp", ["", "   "], False),
     ],
 )
 def test_path_pattern_matching(path, patterns, expected):
@@ -43,14 +43,14 @@ def test_path_pattern_matching(path, patterns, expected):
 
 
 def test_focus_bonus_lifts_a_marked_file():
-    item = FileScore(file="src/reader/VdsReader.cpp", score=4)
+    item = FileScore(file="src/reader/CsvReader.cpp", score=4)
     _apply_focus_bonus(item, ["src/reader"])
     assert item.score == 4 + FOCUS_FILE_BONUS
     assert any("focus area" in reason for reason in item.reasons)
 
 
 def test_focus_bonus_leaves_other_files_alone():
-    item = FileScore(file="src/writer/VdsWriter.cpp", score=4)
+    item = FileScore(file="src/writer/CsvWriter.cpp", score=4)
     _apply_focus_bonus(item, ["src/reader"])
     assert item.score == 4
     assert item.reasons == []

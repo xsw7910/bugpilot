@@ -17,9 +17,14 @@
 
 import type { Envelope } from "../protocol.ts";
 
-/** The one command both aids come from. */
-export function reviewPackageArgs(workItemId: string): readonly string[] {
-  return ["review-package", workItemId, "--json"];
+/**
+ * The one command both aids come from. `includeChanges`: also the current git
+ * status and diff, which BugPilot collects itself for a captured review that
+ * cannot run commands (pre-release Batch 2, C) — asked for only by Review with
+ * AI, since the copy and the checklist do not need a diff.
+ */
+export function reviewPackageArgs(workItemId: string, options: { readonly includeChanges?: boolean } = {}): readonly string[] {
+  return ["review-package", workItemId, "--json", ...(options.includeChanges ? ["--include-changes"] : [])];
 }
 
 /** At most this many Review Notes lines on the row; the rest are in the report. */
@@ -30,6 +35,12 @@ const MAX_LINE_CHARS = 240;
 
 /** The prompt is a template of a few hundred characters; anything past this is not it. */
 const MAX_PROMPT_CHARS = 64 * 1024;
+
+/**
+ * The CLI bounds the changes block (60,000 characters of diff, 200 status
+ * lines, said when cut); anything past this is not that block.
+ */
+export const MAX_CHANGES_CHARS = 128 * 1024;
 
 /** What the panel shows under "Validation checklist". Guidance, never a result. */
 export interface ValidationChecklist {
@@ -46,6 +57,11 @@ export interface ValidationChecklist {
 export interface ReviewPackage {
   readonly prompt: string;
   readonly validation: ValidationChecklist;
+  /**
+   * The current changes as BugPilot collected them, a Markdown block for a
+   * captured review's stdin — present only when asked for and well-formed.
+   */
+  readonly changes?: string;
 }
 
 /**
@@ -65,8 +81,10 @@ export function reviewPackageFromEnvelope(envelope: Envelope): ReviewPackage | u
   const files = lines(record["regression_files"]) ?? [];
   const allRisks = (lines(record["review_risks"]) ?? []).map(withoutListMarker).filter((line) => line !== "");
   const risks = allRisks.slice(0, MAX_RISKS);
+  const changes = envelope["changes"];
   return {
     prompt,
+    ...(typeof changes === "string" && changes.trim() !== "" && changes.length <= MAX_CHANGES_CHARS ? { changes } : {}),
     validation: {
       steps,
       files,

@@ -78,23 +78,23 @@ def repo(tmp_path_factory):
     root = _init(tmp_path_factory.mktemp("history") / "repo")
     hashes = {
         "issue": _commit(
-            root, "2024-01-10", "JR-12345: fix poststack angle selection",
-            {"src/stack/AngleStack.cpp": "v1\n"},
+            root, "2024-01-10", "JR-12345: fix postblend angle selection",
+            {"src/blend/AngleBlend.cpp": "v1\n"},
         ),
         "keyword_old": _commit(
-            root, "2024-03-01", "Refactor volume selector for poststack volumes",
+            root, "2024-03-01", "Refactor volume selector for postblend volumes",
             {"src/VolumeSelector.cpp": "v1\n"},
         ),
         "unrelated_old": _commit(root, "2025-06-01", "Tidy logging", {"src/Logger.cpp": "v1\n"}),
         "keyword_body": _commit(
             root, "2025-11-01", "Fix crash on load", {"src/Loader.cpp": "v1\n"},
-            body="Root cause: poststack buffer reuse.",
+            body="Root cause: postblend buffer reuse.",
         ),
         "extracted": _commit(
-            root, "2026-01-05", "Add StackInputModel caching", {"src/StackInputModel.cpp": "v1\n"}
+            root, "2026-01-05", "Add BlendInputModel caching", {"src/BlendInputModel.cpp": "v1\n"}
         ),
         "focus": _commit(
-            root, "2026-02-01", "Adjust defaults", {"src/stack/AngleStack.cpp": "v2\n"}
+            root, "2026-02-01", "Adjust defaults", {"src/blend/AngleBlend.cpp": "v2\n"}
         ),
         "ranked": _commit(root, "2026-03-10", "Speed up renderer", {"src/Renderer.cpp": "v1\n"}),
         "unrelated_new": _commit(root, "2026-03-20", "Update readme", {"README.md": "v1\n"}),
@@ -147,7 +147,7 @@ def test_shared_keywords_find_commits_by_subject_and_body(repo):
     root, hashes = repo
     without = find_related_commits(root, GitHistoryQuery(ranked_files=("src/Renderer.cpp",)))
     with_keyword = find_related_commits(
-        root, GitHistoryQuery(shared_keywords=("poststack",), ranked_files=("src/Renderer.cpp",))
+        root, GitHistoryQuery(shared_keywords=("postblend",), ranked_files=("src/Renderer.cpp",))
     )
 
     assert hashes["keyword_old"] not in _order(without)
@@ -159,7 +159,7 @@ def test_shared_keywords_find_commits_by_subject_and_body(repo):
     assert found.index(hashes["ranked"]) > max(
         found.index(hashes[name]) for name in ("keyword_old", "keyword_body", "issue")
     )
-    assert "matched shared keyword: poststack" in _by_hash(with_keyword, hashes["keyword_body"]).reasons
+    assert "matched shared keyword: postblend" in _by_hash(with_keyword, hashes["keyword_body"]).reasons
 
 
 # --- 3. Focus Files -----------------------------------------------------------------
@@ -167,25 +167,25 @@ def test_shared_keywords_find_commits_by_subject_and_body(repo):
 
 def test_focus_file_history_contributes_candidates(repo):
     root, hashes = repo
-    result = find_related_commits(root, GitHistoryQuery(focus_files=("src/stack/AngleStack.cpp",)))
+    result = find_related_commits(root, GitHistoryQuery(focus_files=("src/blend/AngleBlend.cpp",)))
 
     assert set(_order(result)) == {hashes["focus"], hashes["issue"]}
     focus = _by_hash(result, hashes["focus"])
-    assert focus.focus_files == ["src/stack/AngleStack.cpp"]
-    assert "modified focus file: `src/stack/AngleStack.cpp`" in focus.reasons
+    assert focus.focus_files == ["src/blend/AngleBlend.cpp"]
+    assert "modified focus file: `src/blend/AngleBlend.cpp`" in focus.reasons
 
 
 def test_a_bare_focus_file_name_resolves_like_code_search_does(repo):
     root, hashes = repo
-    result = find_related_commits(root, GitHistoryQuery(focus_files=("anglestack.cpp",)))
+    result = find_related_commits(root, GitHistoryQuery(focus_files=("angleblend.cpp",)))
 
     assert set(_order(result)) == {hashes["focus"], hashes["issue"]}
-    assert _by_hash(result, hashes["focus"]).focus_files == ["src/stack/AngleStack.cpp"]
+    assert _by_hash(result, hashes["focus"]).focus_files == ["src/blend/AngleBlend.cpp"]
 
 
 def test_a_focus_directory_covers_the_files_inside_it(repo):
     root, hashes = repo
-    result = find_related_commits(root, GitHistoryQuery(focus_files=("src/stack/",)))
+    result = find_related_commits(root, GitHistoryQuery(focus_files=("src/blend/",)))
 
     assert set(_order(result)) == {hashes["focus"], hashes["issue"]}
 
@@ -194,7 +194,7 @@ def test_a_focus_file_outranks_a_top_code_search_file(repo):
     root, hashes = repo
     result = find_related_commits(
         root,
-        GitHistoryQuery(focus_files=("src/stack/AngleStack.cpp",), ranked_files=("src/Renderer.cpp",)),
+        GitHistoryQuery(focus_files=("src/blend/AngleBlend.cpp",), ranked_files=("src/Renderer.cpp",)),
     )
 
     order = _order(result)
@@ -226,8 +226,8 @@ def test_a_commit_found_three_ways_appears_once_with_all_three_reasons(repo):
         root,
         GitHistoryQuery(
             issue_id="JR-12345",
-            shared_keywords=("poststack",),
-            focus_files=("src/stack/AngleStack.cpp",),
+            shared_keywords=("postblend",),
+            focus_files=("src/blend/AngleBlend.cpp",),
         ),
     )
 
@@ -235,11 +235,11 @@ def test_a_commit_found_three_ways_appears_once_with_all_three_reasons(repo):
     assert len(_order(result)) == len(set(_order(result)))
     commit = _by_hash(result, hashes["issue"])
     assert commit.issue_id == "JR-12345"
-    assert commit.shared_keywords == ["poststack"]
-    assert commit.focus_files == ["src/stack/AngleStack.cpp"]
-    assert commit.reasons[:2] == ["exact issue ID match: JR-12345", "matched shared keyword: poststack"]
-    assert "modified focus file: `src/stack/AngleStack.cpp`" in commit.reasons
-    assert commit.matched_terms == ["JR-12345", "poststack"]
+    assert commit.shared_keywords == ["postblend"]
+    assert commit.focus_files == ["src/blend/AngleBlend.cpp"]
+    assert commit.reasons[:2] == ["exact issue ID match: JR-12345", "matched shared keyword: postblend"]
+    assert "modified focus file: `src/blend/AngleBlend.cpp`" in commit.reasons
+    assert commit.matched_terms == ["JR-12345", "postblend"]
 
 
 def test_a_message_match_is_credited_with_the_candidate_file_it_changed(repo):
@@ -249,7 +249,7 @@ def test_a_message_match_is_credited_with_the_candidate_file_it_changed(repo):
     # learn it touched VolumeSelector.cpp through the overlap check.
     result = find_related_commits(
         root,
-        GitHistoryQuery(shared_keywords=("poststack",), ranked_files=("src/VolumeSelector.cpp",)),
+        GitHistoryQuery(shared_keywords=("postblend",), ranked_files=("src/VolumeSelector.cpp",)),
         GitHistoryLimits(commits_per_ranked_file=0),
     )
 
@@ -263,16 +263,16 @@ def test_a_message_match_is_credited_with_the_candidate_file_it_changed(repo):
 
 def test_extracted_issue_terms_contribute_candidates(repo):
     root, hashes = repo
-    result = find_related_commits(root, GitHistoryQuery(extracted_terms=("StackInputModel",)))
+    result = find_related_commits(root, GitHistoryQuery(extracted_terms=("BlendInputModel",)))
 
     assert _order(result) == [hashes["extracted"]]
-    assert "matched issue term: StackInputModel" in result.commits[0].reasons
+    assert "matched issue term: BlendInputModel" in result.commits[0].reasons
 
 
 def test_an_extracted_term_must_match_a_whole_word(repo):
     root, _hashes = repo
-    # `Stack` is inside `StackInputModel` and `AngleStack`, never on its own.
-    result = find_related_commits(root, GitHistoryQuery(extracted_terms=("Stack",)))
+    # `Blend` is inside `BlendInputModel` and `AngleBlend`, never on its own.
+    result = find_related_commits(root, GitHistoryQuery(extracted_terms=("Blend",)))
 
     assert result.commits == ()
 
@@ -280,8 +280,8 @@ def test_an_extracted_term_must_match_a_whole_word(repo):
 def test_only_specific_extracted_terms_are_selected_and_capped():
     keywords = {
         "high_value_keywords": ["correctly", "data", "process", "output", "volume"],
-        "normal_keywords": ["AngleStack", "VolumeSelector", "StackInputModel", "RenderQueue", "a_b", "FooBar"],
-        "phrase_keywords": ["poststack volume not shown"],
+        "normal_keywords": ["AngleBlend", "VolumeSelector", "BlendInputModel", "RenderQueue", "a_b", "FooBar"],
+        "phrase_keywords": ["postblend volume not shown"],
         "priority_keywords": ["RenderQueue"],
     }
     selected = select_extracted_terms(keywords)
@@ -291,16 +291,16 @@ def test_only_specific_extracted_terms_are_selected_and_capped():
     assert not {"correctly", "data", "process", "output", "volume", "a_b"} & set(selected)
     # The stack-trace identifier leads; phrases come after identifiers.
     assert selected[0] == "RenderQueue"
-    assert "poststack volume not shown" not in selected
+    assert "postblend volume not shown" not in selected
 
 
 def test_extracted_terms_skip_shared_keywords_and_broad_terms():
-    keywords = {"high_value_keywords": ["AngleStack", "VolumeSelector", "RenderQueue"], "normal_keywords": []}
+    keywords = {"high_value_keywords": ["AngleBlend", "VolumeSelector", "RenderQueue"], "normal_keywords": []}
     retrieval = RetrievalArtifact(
         terms=(RetrievalTerm("VolumeSelector", "identifier", 6, 1, 900, "broad"),)
     )
 
-    selected = select_extracted_terms(keywords, exclude=["anglestack"], retrieval=retrieval)
+    selected = select_extracted_terms(keywords, exclude=["angleblend"], retrieval=retrieval)
 
     assert selected == ("RenderQueue",)
 
@@ -334,7 +334,7 @@ def test_an_old_strong_match_outranks_recent_weak_ones(repo):
     result = find_related_commits(
         root,
         GitHistoryQuery(
-            shared_keywords=("poststack",),
+            shared_keywords=("postblend",),
             ranked_files=("src/Renderer.cpp", "README.md", "docs/notes.md"),
         ),
     )
@@ -347,7 +347,7 @@ def test_an_old_strong_match_outranks_recent_weak_ones(repo):
 
 def test_recency_breaks_ties_between_equal_evidence(repo):
     root, hashes = repo
-    result = find_related_commits(root, GitHistoryQuery(shared_keywords=("poststack",)))
+    result = find_related_commits(root, GitHistoryQuery(shared_keywords=("postblend",)))
 
     # Same evidence (one keyword); the newer commit leads.
     order = _order(result)
@@ -357,27 +357,27 @@ def test_recency_breaks_ties_between_equal_evidence(repo):
 def test_the_related_commits_are_bounded(tmp_path):
     root = _init(tmp_path / "busy")
     for index in range(MAX_RELATED_COMMITS + 6):
-        _commit(root, f"2026-01-{index + 1:02d}", f"poststack tweak {index}", {f"src/f{index}.cpp": "x\n"})
+        _commit(root, f"2026-01-{index + 1:02d}", f"postblend tweak {index}", {f"src/f{index}.cpp": "x\n"})
 
-    result = find_related_commits(root, GitHistoryQuery(shared_keywords=("poststack",)))
+    result = find_related_commits(root, GitHistoryQuery(shared_keywords=("postblend",)))
     smaller = find_related_commits(
-        root, GitHistoryQuery(shared_keywords=("poststack",)), GitHistoryLimits(max_related_commits=3)
+        root, GitHistoryQuery(shared_keywords=("postblend",)), GitHistoryLimits(max_related_commits=3)
     )
 
     assert len(result.commits) == MAX_RELATED_COMMITS
     assert result.candidate_count == MAX_RELATED_COMMITS + 6
     assert len(smaller.commits) == 3
     # The newest win among equals.
-    assert result.commits[0].subject == f"poststack tweak {MAX_RELATED_COMMITS + 5}"
+    assert result.commits[0].subject == f"postblend tweak {MAX_RELATED_COMMITS + 5}"
 
 
 def test_the_ranking_is_deterministic(repo):
     root, _hashes = repo
     query = GitHistoryQuery(
         issue_id="JR-12345",
-        shared_keywords=("poststack",),
-        extracted_terms=("StackInputModel",),
-        focus_files=("src/stack/AngleStack.cpp",),
+        shared_keywords=("postblend",),
+        extracted_terms=("BlendInputModel",),
+        focus_files=("src/blend/AngleBlend.cpp",),
         ranked_files=("src/Renderer.cpp", "src/Logger.cpp"),
     )
 
@@ -395,14 +395,14 @@ def test_a_bulk_commit_gets_no_credit_for_the_files_it_touched(tmp_path):
     files = {f"vendor/f{index}.cpp": "x\n" for index in range(git_history.BULK_COMMIT_FILES + 1)}
     files["src/Focus.cpp"] = "v1\n"
     bulk = _commit(root, "2024-01-01", "Import everything", files)
-    labelled = _commit(root, "2024-01-02", "Reformat poststack sources", {
+    labelled = _commit(root, "2024-01-02", "Reformat postblend sources", {
         **{f"fmt/g{index}.cpp": "y\n" for index in range(git_history.BULK_COMMIT_FILES + 1)},
         "src/Focus.cpp": "v2\n",
     })
     fix = _commit(root, "2025-01-01", "Fix the focus bug", {"src/Focus.cpp": "v3\n"})
 
     result = find_related_commits(
-        root, GitHistoryQuery(shared_keywords=("poststack",), focus_files=("src/Focus.cpp",))
+        root, GitHistoryQuery(shared_keywords=("postblend",), focus_files=("src/Focus.cpp",))
     )
 
     # File-only evidence on a bulk commit is no evidence; the message still counts,
@@ -500,7 +500,7 @@ def test_unsafe_paths_are_rejected(value):
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("src/A.cpp", "src/A.cpp"), ("./src//A.cpp", "src/A.cpp"), ("src\\stack\\", "src/stack"), ("A.cpp", "A.cpp")],
+    [("src/A.cpp", "src/A.cpp"), ("./src//A.cpp", "src/A.cpp"), ("src\\blend\\", "src/blend"), ("A.cpp", "A.cpp")],
 )
 def test_safe_paths_are_normalized(value, expected):
     assert safe_relative_path(value) == expected
@@ -509,26 +509,26 @@ def test_safe_paths_are_normalized(value, expected):
 def test_invalid_focus_files_are_ignored_and_the_rest_still_searched(repo):
     root, hashes = repo
     query = GitHistoryQuery(
-        focus_files=("../../etc/passwd", "C:/x.cpp", "*.cpp", ":(glob)**", "src/stack/AngleStack.cpp"),
+        focus_files=("../../etc/passwd", "C:/x.cpp", "*.cpp", ":(glob)**", "src/blend/AngleBlend.cpp"),
         ranked_files=("../escape.cpp", "src/Renderer.cpp"),
     )
 
     paths = [candidate.path for candidate in file_candidates(root, query)]
     result = find_related_commits(root, query)
 
-    assert paths == ["src/stack/AngleStack.cpp", "src/Renderer.cpp"]
+    assert paths == ["src/blend/AngleBlend.cpp", "src/Renderer.cpp"]
     assert hashes["focus"] in _order(result) and hashes["ranked"] in _order(result)
 
 
 def test_a_ranked_file_inside_a_focus_directory_counts_as_focus(repo):
     root, _hashes = repo
     candidates = file_candidates(
-        root, GitHistoryQuery(focus_files=("src/stack",), ranked_files=("src/stack/AngleStack.cpp",))
+        root, GitHistoryQuery(focus_files=("src/blend",), ranked_files=("src/blend/AngleBlend.cpp",))
     )
 
     assert [(item.path, item.focus, item.rank) for item in candidates] == [
-        ("src/stack", True, None),
-        ("src/stack/AngleStack.cpp", True, 1),
+        ("src/blend", True, None),
+        ("src/blend/AngleBlend.cpp", True, 1),
     ]
 
 
@@ -537,13 +537,13 @@ def test_a_ranked_file_inside_a_focus_directory_counts_as_focus(repo):
 
 def test_a_unicode_term_reaches_git_intact_and_matches(tmp_path):
     root = _init(tmp_path / "unicode")
-    unicode_commit = _commit(root, "2026-01-01", "Ångström-Skalierung für Poststack korrigiert", {"a.cpp": "x\n"})
+    unicode_commit = _commit(root, "2026-01-01", "Ångström-Skalierung für Postblend korrigiert", {"a.cpp": "x\n"})
     _commit(root, "2026-01-02", "Unrelated", {"b.cpp": "x\n"})
 
     result = find_related_commits(root, GitHistoryQuery(shared_keywords=("ångström-skalierung",)))
 
     assert _order(result) == [unicode_commit]
-    assert result.commits[0].subject == "Ångström-Skalierung für Poststack korrigiert"
+    assert result.commits[0].subject == "Ångström-Skalierung für Postblend korrigiert"
 
 
 def test_shell_metacharacters_are_text_not_commands(tmp_path, monkeypatch):
@@ -597,13 +597,13 @@ def test_the_document_renders_each_commit_with_its_reasons(repo):
     text = generate_git_context(
         root,
         "JR-12345",
-        GitHistoryQuery(issue_id="JR-12345", shared_keywords=("poststack",), focus_files=("src/stack/AngleStack.cpp",)),
+        GitHistoryQuery(issue_id="JR-12345", shared_keywords=("postblend",), focus_files=("src/blend/AngleBlend.cpp",)),
     )
 
     assert "## Related Commits" in text
-    assert f"### {hashes['issue'][:10]} — JR-12345: fix poststack angle selection" in text
-    assert "\nDate: 2024-01-10\nMatched: JR-12345, poststack\n" in text
-    assert "Relevant files:\n- `src/stack/AngleStack.cpp`\n" in text
+    assert f"### {hashes['issue'][:10]} — JR-12345: fix postblend angle selection" in text
+    assert "\nDate: 2024-01-10\nMatched: JR-12345, postblend\n" in text
+    assert "Relevant files:\n- `src/blend/AngleBlend.cpp`\n" in text
     assert "Why relevant:\n- exact issue ID match: JR-12345\n" in text
     assert text.count(f"### {hashes['issue'][:10]}") == 1
     assert re.search(r"\n\d+ related commits found\.\n", text)
@@ -626,15 +626,15 @@ def test_the_trace_records_counts_and_never_the_terms(repo, execution_trace):
         "JR-12345",
         GitHistoryQuery(
             issue_id="JR-12345",
-            shared_keywords=(secret, "poststack"),
+            shared_keywords=(secret, "postblend"),
             extracted_terms=("SECRET_TERM_77310",),
-            focus_files=("src/stack/AngleStack.cpp",),
+            focus_files=("src/blend/AngleBlend.cpp",),
         ),
     )
 
     trace = execution_trace.text
     assert "commit-search term(s)" in trace and "retained" in trace
-    for private in (secret, "poststack", "SECRET_TERM_77310", "AngleStack", "fix poststack angle selection"):
+    for private in (secret, "postblend", "SECRET_TERM_77310", "AngleBlend", "fix postblend angle selection"):
         assert private not in trace
 
 
@@ -659,16 +659,16 @@ def test_the_pipeline_hands_shared_guidance_to_git_history(tmp_path, monkeypatch
             RelatedFile(f"src/f{index}.cpp", False, 10 - index, "high", 1) for index in range(7)
         )
     )
-    options = InvestigationOptions(keywords=["poststack", " "], focus_files=["src/stack/AngleStack.cpp"])
-    keywords = {"high_value_keywords": ["poststack", "StackInputModel"], "normal_keywords": []}
+    options = InvestigationOptions(keywords=["postblend", " "], focus_files=["src/blend/AngleBlend.cpp"])
+    keywords = {"high_value_keywords": ["postblend", "BlendInputModel"], "normal_keywords": []}
 
     workflow.git_context_step(tmp_path, "JR-12345", retrieval=retrieval, keywords=keywords, options=options)
 
     (query,) = seen
     assert query.issue_id == "JR-12345"
-    assert query.shared_keywords == ("poststack",)
-    assert query.extracted_terms == ("StackInputModel",)
-    assert query.focus_files == ("src/stack/AngleStack.cpp",)
+    assert query.shared_keywords == ("postblend",)
+    assert query.extracted_terms == ("BlendInputModel",)
+    assert query.focus_files == ("src/blend/AngleBlend.cpp",)
     assert query.ranked_files == tuple(f"src/f{index}.cpp" for index in range(5))
 
 
@@ -678,9 +678,9 @@ def test_a_standalone_rebuild_replays_the_recorded_guidance(tmp_path, monkeypatc
         workflow, "collect_git_history", lambda root, key, query=None, settings=None: seen.append(query) or _nothing(key)
     )
     retrieval = RetrievalArtifact(
-        terms=(RetrievalTerm("poststack", "user", 8, 8, 3, "specific"),),
+        terms=(RetrievalTerm("postblend", "user", 8, 8, 3, "specific"),),
         related_files=(
-            RelatedFile("src/stack/AngleStack.cpp", False, 40, "high", 2, reasons=("developer marked this file as a focus area",)),
+            RelatedFile("src/blend/AngleBlend.cpp", False, 40, "high", 2, reasons=("developer marked this file as a focus area",)),
             RelatedFile("src/Renderer.cpp", False, 10, "medium", 1),
         ),
     )
@@ -688,9 +688,9 @@ def test_a_standalone_rebuild_replays_the_recorded_guidance(tmp_path, monkeypatc
     workflow.git_context_step(tmp_path, "JR-12345", retrieval=retrieval)
 
     (query,) = seen
-    assert query.shared_keywords == ("poststack",)
-    assert query.focus_files == ("src/stack/AngleStack.cpp",)
-    assert query.ranked_files == ("src/stack/AngleStack.cpp", "src/Renderer.cpp")
+    assert query.shared_keywords == ("postblend",)
+    assert query.focus_files == ("src/blend/AngleBlend.cpp",)
+    assert query.ranked_files == ("src/blend/AngleBlend.cpp", "src/Renderer.cpp")
 
 
 @needs_rg
@@ -698,24 +698,24 @@ def test_a_prepared_run_finds_a_commit_file_history_alone_would_miss(tmp_path):
     """The v2 claim, end to end: a keyword commit on a file Code Search never ranked."""
     root = _init(tmp_path / "e2e")
     _commit(
-        root, "2025-01-01", "Fix poststack gather ordering",
+        root, "2025-01-01", "Fix postblend gather ordering",
         {"src/legacy/GatherOrder.cpp": "int order() { return 1; }\n"},
     )
     _commit(
         root, "2026-01-01", "Add WidgetController",
         {"src/WidgetController.cpp": "bool WidgetController::validate() { return true; }\n"},
     )
-    spec = bug_spec_from_description("WidgetController rejects the VDS output type.", title="VDS rejected")
+    spec = bug_spec_from_description("WidgetController rejects the CSV output type.", title="CSV rejected")
     request = InvestigationRequest(
-        spec=spec, options=InvestigationOptions(keywords=["poststack", "WidgetController"])
+        spec=spec, options=InvestigationOptions(keywords=["postblend", "WidgetController"])
     )
 
     workflow.run_investigation(root, request)
 
     context = (root / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
     history = context.split("## Git History", 1)[1]
-    assert "Fix poststack gather ordering" in history
-    assert "matched shared keyword: poststack" in history
+    assert "Fix postblend gather ordering" in history
+    assert "matched shared keyword: postblend" in history
     assert "Add WidgetController" in history
 
 

@@ -6,6 +6,8 @@ import os
 import time
 from pathlib import Path
 
+from .safe_paths import refuse_link
+
 
 def atomic_write_text(path: Path, text: str) -> None:
     """Write via a temp file and one rename, so a reader never sees half a file.
@@ -17,7 +19,11 @@ def atomic_write_text(path: Path, text: str) -> None:
 
     If it still fails, write in place rather than raising: a torn read costs one
     stale checklist, while a raised exception costs the whole step.
+
+    A target that is itself a symbolic link or junction is refused before
+    anything is written (pre-release Batch 2): the fallback below would follow it.
     """
+    refuse_link(path)
     temp = path.with_name(path.name + f".tmp{os.getpid()}")
     temp.write_text(text, encoding="utf-8")
     for attempt in range(4):

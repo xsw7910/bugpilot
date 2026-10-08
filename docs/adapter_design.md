@@ -308,7 +308,7 @@ and introduces no new dependencies. If same-second collisions become a problem, 
 
 #### No readable slug for local IDs
 
-We considered appending a suffix generated from the title to the directory name (`local_20260901094133_3dview-crashes-after-changing-horizon`),
+We considered appending a suffix generated from the title to the directory name (`local_20260901094133_3dview-crashes-after-changing-layer`),
 so that multiple local items can be told apart when running `ls .ai/`. **Decided against it**, for three reasons:
 
 1. **The ID must be stable; the title can change.** If a user fixes a typo in the extension form, either the ID drifts along with it
@@ -316,8 +316,8 @@ so that multiple local items can be told apart when running `ls .ai/`. **Decided
    — there a slug makes perfect sense, because a branch name is a one-off human-facing identifier, not a stable primary key.
 2. **The existing slug implementation does not work for Chinese.** In [git_ops.py](../bugpilot/core/git_ops.py),
    the first step of `summary_slug()` is `re.sub(r"[^a-z0-9]+", "-", ...)`, which discards all non-ASCII characters.
-   Measured: a title written entirely in Chinese (meaning "3D view crashes after switching horizon") → `''` (empty); `OpenVDS statistics` followed by Chinese for "initialization failed"
-   → `openvds-statistics`. If the team writes bug descriptions in Chinese, the readability benefit is **hit and miss**,
+   Measured: a title written entirely in Chinese (meaning "3D view crashes after switching layer") → `''` (empty); `OpenCSV statistics` followed by Chinese for "initialization failed"
+   → `opencsv-statistics`. If the team writes bug descriptions in Chinese, the readability benefit is **hit and miss**,
    which is worse than consistently having none — users would be confused about why some directories have names and others do not. Doing it would first require changing
    the non-ASCII handling in `summary_slug` (keep CJK code points, or introduce a transliteration dependency that breaks the zero-dependency contract).
 3. **This is a display problem, not an identity problem.** `BugSpec.title` is already in the artifacts; the extension's
@@ -429,15 +429,15 @@ no longer carry a slug, and it also serves as the data source for the extension'
 ```text
 $ bugpilot list
 JR-34567              jira    Output panel min/max values not converted to dB  prepared
-local_20260901094133  manual  3D view crashes after switching horizon          fixed
-local_20260828171205  manual  OpenVDS statistics initialization failed         prepared
+local_20260901094133  manual  3D view crashes after switching layer          fixed
+local_20260828171205  manual  OpenCSV statistics initialization failed         prepared
 ```
 
 The `bug` main entry point accepts both kinds of input:
 
 ```text
 bugpilot bug JR-12345
-bugpilot bug --description "3D view crashes after changing horizon"
+bugpilot bug --description "3D view crashes after changing layer"
 bugpilot bug --description-file bug.txt
 ```
 
@@ -565,8 +565,8 @@ The shape of `refine_investigation`:
 ```python
 refine_investigation(
     work_item="JR-34567",
-    hint="Focus on OpenVDS statistics initialization",
-    keywords=["OpenVDS", "statistics", "initialize"],
+    hint="Focus on OpenCSV statistics initialization",
+    keywords=["OpenCSV", "statistics", "initialize"],
 )
 ```
 

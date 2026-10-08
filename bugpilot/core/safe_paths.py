@@ -1,4 +1,9 @@
-"""Link-safe paths for the things BugPilot deletes.
+"""Link-safe paths for the things BugPilot deletes and writes.
+
+Writes (pre-release Batch 2, D) follow the same rule as deletion:
+:func:`writable_dir` and :func:`refuse_link` check every generated path under
+``.ai/`` and ``.ai_memory/`` before anything is created or written there, and
+refuse a link or junction with one sentence rather than writing through it.
 
 BugPilot deletes only what it generated, inside the repository it was run in:
 ``.ai/<work item>/`` and, when asked, ``.ai_memory/bugs/<work item>.md``. A
@@ -97,6 +102,59 @@ def owned_path(repo_root: Path, parts: Sequence[str]) -> Path:
                 "files. Nothing was deleted."
             )
     return target
+
+
+def writable_dir(repo_root: Path, parts: Sequence[str], *, create: bool = True) -> Path:
+    """``repo_root / parts`` as a real directory BugPilot may write generated files into.
+
+    The write-side twin of :func:`owned_path` (pre-release Batch 2, D). Every
+    component below the repository root — ``.ai``, ``.ai/<id>``, ``.ai_memory``,
+    ``.ai_memory/bugs`` — is checked as it stands, never followed: a link or
+    junction raises :class:`UnsafePathError` before anything is created or
+    written. Missing components are created one at a time (``create=True``) and
+    checked again once they exist; with ``create=False`` a missing directory is
+    returned as a path for the caller to report. The repository root itself
+    may sit behind a link: that is where the developer chose to work.
+    """
+    _check_parts(parts)
+    display = "/".join(parts)
+    current = repo_root
+    for index, part in enumerate(parts):
+        current = current / part
+        shown = "/".join(parts[: index + 1])
+        if is_link_or_junction(current):
+            raise UnsafePathError(_write_refusal(display, f"{shown} is a symbolic link or junction"))
+        if not os.path.lexists(current):
+            if not create:
+                return repo_root.joinpath(*parts)
+            current.mkdir(exist_ok=True)
+            if is_link_or_junction(current):
+                raise UnsafePathError(_write_refusal(display, f"{shown} became a symbolic link or junction"))
+        elif not current.is_dir():
+            raise UnsafePathError(_write_refusal(display, f"{shown} is not a directory"))
+    expected = repo_root.resolve().joinpath(*parts)
+    if os.path.normcase(str(current.resolve())) != os.path.normcase(str(expected)):
+        raise UnsafePathError(_write_refusal(display, "it resolves outside this repository"))
+    return current
+
+
+def refuse_link(path: Path) -> Path:
+    """``path`` itself, unless it is a link or junction a write would follow."""
+    if is_link_or_junction(path):
+        raise UnsafePathError(_write_refusal(path.name, f"{path.name} is a symbolic link or junction"))
+    return path
+
+
+def _write_refusal(target: str, reason: str) -> str:
+    return (
+        f"BugPilot cannot write {target}: {reason}. BugPilot writes generated files only into real "
+        "directories inside this repository, and never through a link. Nothing was written."
+    )
+
+
+def _check_parts(parts: Sequence[str]) -> None:
+    if not parts or any(part in ("", ".", "..") or "/" in part or "\\" in part for part in parts):
+        raise UnsafePathError(f"Refusing an invalid generated path: {'/'.join(parts)!r}.")
 
 
 def remove_owned_path(path: Path) -> bool:

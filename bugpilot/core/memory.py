@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .artifacts import RETRIEVAL_ARTIFACT
-from .config import memory_dir
+from .artifact_io import atomic_write_text
+from .config import memory_dir, writable_memory_file
 from .identity import is_known_work_item_id
 from .issue import IssueArtifact
 from .models import DEFAULT_MAX_SIMILAR_FIXES
@@ -33,9 +34,9 @@ def build_memory_entry(issue_key: str, issue: IssueArtifact, context_path: str) 
 
 
 def add_memory_entry(repo_root: Path, issue_key: str, content: str) -> Path:
-    memory_path = repo_root / ".ai_memory" / "bugs" / f"{issue_key}.md"
-    memory_path.parent.mkdir(parents=True, exist_ok=True)
-    memory_path.write_text(content, encoding="utf-8")
+    # Checked like every generated path (pre-release Batch 2): never through a link.
+    memory_path = writable_memory_file(repo_root, issue_key)
+    atomic_write_text(memory_path, content)
     return memory_path
 
 

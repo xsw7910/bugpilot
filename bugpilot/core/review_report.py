@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .artifacts import REVIEW_REPORT_ARTIFACT, WorkItemNotFoundError
-from .config import issue_dir
+from .config import issue_dir, writable_issue_dir
 from .fix_report import section_of
 from .identity import validate_work_item_id
 
@@ -117,7 +117,8 @@ def record_review(
     Touches nothing else: no ``run.json`` mark, no Jira, no email, no memory.
     """
     validate_work_item_id(work_item_id)
-    target = issue_dir(repo_root, work_item_id)
+    # Checked for links before the report is written (pre-release Batch 2).
+    target = writable_issue_dir(repo_root, work_item_id, create=False)
     if not target.is_dir():
         raise WorkItemNotFoundError(f"Work item not found: .ai/{work_item_id}/")
     sections = review.sections()

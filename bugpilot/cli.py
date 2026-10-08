@@ -12,13 +12,14 @@ from bugpilot import __version__, cli_json
 from bugpilot.core import agent_runner, copilot, doctor, errors, setup, workflow
 from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.cleanup import clean_issue_artifacts
+from bugpilot.core.safe_paths import UnsafePathError
 from bugpilot.core.context import build_context
 from bugpilot.core.email_notify import EmailSendError
 from bugpilot.core.git_history import render_git_context
 from bugpilot.core.fix_mode_state import fix_mode_metadata
 from bugpilot.core.fix_mode_store import FixModeCatalog, FixModeStore, scoped_modes
 from bugpilot.core.fix_modes import FixMode, FixModeError
-from bugpilot.core.jira import JiraCommentPostError, JiraFetchError, fetch_issue, parse_issue
+from bugpilot.core.jira import JiraCommentPostError, JiraFetchError, JiraSiteError, fetch_issue, normalize_jira_site, parse_issue
 from bugpilot.core.artifacts import CONTEXT_ARTIFACT, CORE_ARTIFACTS, FIX_REPORT_ARTIFACT, RUN_ARTIFACT
 from bugpilot.core.artifacts import ISSUE_ARTIFACT, RETRIEVAL_ARTIFACT, TASK_ARTIFACT, WorkItemNotFoundError
 from bugpilot.core.review_report import (
@@ -37,6 +38,25 @@ from bugpilot.core.verification_report import (
     record_verification,
     summary_line,
 )
+from bugpilot.core.instructions import (
+    INSTRUCTION_SCOPES,
+    MAX_INSTRUCTION_CHARS,
+    InstructionFile,
+    display_path,
+    instructions_payload,
+    load_instructions,
+    save_instructions,
+)
+from bugpilot.core.project_settings import (
+    DEFAULT_BRANCH_TEMPLATE_LABEL,
+    SHOWN_PATH as SETTINGS_SHOWN_PATH,
+    load_project_settings,
+    project_settings_payload,
+    save_project_settings,
+    settings_from_mapping,
+    settings_path,
+)
+from bugpilot.core.review_changes import collect_review_changes, review_changes_markdown
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
 from bugpilot.core.identity import is_work_item_id
 from bugpilot.core.input_adapters import bug_spec_from_description
@@ -101,6 +121,15 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("issue_key")
         if name in {"status", "delivery-check", "search", "context", "review-package"}:
             _add_json_flag(command)
+        if name == "review-package":
+            command.add_argument(
+                "--include-changes",
+                action="store_true",
+                help=(
+                    "Also collect the current git status and diff, read-only, for a reviewer "
+                    "that cannot run commands (Review with AI's captured review)."
+                ),
+            )
 
     for name in ("prompt", "agent-task"):
         command = subparsers.add_parser(name, help=f"Run the {name} step.")
@@ -461,6 +490,87 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(profile_parser)
 
+    site_parser = subparsers.add_parser(
+        "jira-site",
+        help="Show or set the Jira site BugPilot fetches issues from.",
+        description=(
+            "The Jira site is read from the JIRA_BASE_URL environment variable, else from ~/.bugpilot/config.toml "
+            "(written by `bugpilot setup`, `bugpilot jira-site set` or the VS Code extension's Jira Setup). It must be "
+            "an https:// address with no user name, password, query or fragment."
+        ),
+    )
+    site_parser.add_argument(
+        "action", nargs="?", choices=["show", "set"], default="show", help="show (the default) or set."
+    )
+    site_parser.add_argument("url", nargs="?", help="For `set`: the site, e.g. https://your-company.atlassian.net.")
+    site_parser.add_argument(
+        "--stdin", action="store_true", help="For `set`: read the site from standard input instead of the command line."
+    )
+    _add_json_flag(site_parser)
+
+    settings_parser = subparsers.add_parser(
+        "project-settings",
+        help="Show or set the repository's Verification Policy and branch naming template.",
+        description=(
+            "Project settings are saved in .bugpilot/project_settings.json in the repository, where the CLI, "
+            "the MCP server and the VS Code extension all read them. Without the file the defaults apply: run "
+            "relevant tests and static checks, report what was not run, no full suite, and branch names "
+            "feature/{issue}-{slug}."
+        ),
+    )
+    settings_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["show", "set"],
+        default="show",
+        help="show (the default) prints the settings; set saves new ones from a JSON file.",
+    )
+    settings_parser.add_argument(
+        "--from-file",
+        metavar="PATH",
+        dest="from_file",
+        help=(
+            'For `set`: a JSON file, {"verification": {"relevant_tests": true, "static_checks": true, '
+            '"full_suite": false, "report_not_run": true}, "branch_naming": {"template": "bugfix/{issue}-{slug}"}}. '
+            "Omitted values take their defaults; an empty template is the default branch name."
+        ),
+    )
+    _add_json_flag(settings_parser)
+
+    instructions_parser = subparsers.add_parser(
+        "instructions",
+        help="Show or set the User and Project / Team Instructions task.md carries.",
+        description=(
+            "User Instructions live in ~/.bugpilot/instructions.md and apply to every repository; "
+            "Project / Team Instructions live in .bugpilot/instructions.md in the repository and can be "
+            "committed with it. The CLI, the MCP server and the VS Code extension all read these two files. "
+            "They refine how the AI agent works and never override BugPilot's safety rules."
+        ),
+    )
+    instructions_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["show", "set"],
+        default="show",
+        help="show (the default) prints both; set saves one scope, or removes it when the text is empty.",
+    )
+    instructions_parser.add_argument(
+        "--scope",
+        choices=INSTRUCTION_SCOPES,
+        help="user (~/.bugpilot/instructions.md) or project (.bugpilot/instructions.md). Required for set.",
+    )
+    instructions_source = instructions_parser.add_mutually_exclusive_group()
+    instructions_source.add_argument(
+        "--from-file", metavar="PATH", dest="from_file", help="For `set`: a UTF-8 text or Markdown file."
+    )
+    instructions_source.add_argument(
+        "--stdin", action="store_true", help="For `set`: read the text from standard input."
+    )
+    instructions_source.add_argument(
+        "--clear", action="store_true", help="For `set`: remove the instructions file."
+    )
+    _add_json_flag(instructions_parser)
+
     return parser
 
 
@@ -484,6 +594,11 @@ def main(argv: list[str] | None = None) -> int:
     if not (getattr(args, "json_output", False) or getattr(args, "json_lines", False)):
         try:
             return _dispatch(args, repo_root)
+        except UnsafePathError as exc:
+            # A generated path that is a link or junction, or a work item id that
+            # is not one: one sentence, never a traceback (pre-release Batch 2).
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
         except RunArtifactError as exc:
             # Standalone steps read run.json to mark themselves; an unusable
             # file is an error, and this is its one sentence — a traceback
@@ -523,6 +638,15 @@ def _dispatch(args, repo_root: Path) -> int:
 
     if args.command == "repository-profile":
         return _run_repository_profile_command(args, repo_root)
+
+    if args.command == "instructions":
+        return _run_instructions_command(args, repo_root)
+
+    if args.command == "project-settings":
+        return _run_project_settings_command(args, repo_root)
+
+    if args.command == "jira-site":
+        return _run_jira_site_command(args)
 
     if args.command == "agent-check":
         for line in copilot.agent_status_lines(repo_root):
@@ -882,6 +1006,13 @@ def _dispatch(args, repo_root: Path) -> int:
                 # mid-query — a Fresh run deleting it, say.
                 cli_json.emit_failure("review-package", errors.error_code_for(exc), str(exc), work_item_id=args.issue_key)
                 return 1
+            # Only when asked: collecting a diff is work Copy Review Prompt
+            # and the validation checklist do not need.
+            changes = (
+                {"changes": review_changes_markdown(collect_review_changes(repo_root))}
+                if args.include_changes
+                else {}
+            )
             cli_json.emit(
                 cli_json.success(
                     "review-package",
@@ -892,12 +1023,15 @@ def _dispatch(args, repo_root: Path) -> int:
                         "regression_files": list(checklist.regression_files),
                         "review_risks": [line.strip() for line in checklist.review_risks],
                     },
+                    **changes,
                 )
             )
             return 0
         # Printed, not written: the developer pastes it into a reviewer, and
         # nothing ever read the file this used to produce.
         print(workflow.review_package_step(repo_root, args.issue_key), end="")
+        if args.include_changes:
+            print("\n" + review_changes_markdown(collect_review_changes(repo_root)), end="")
         return 0
 
     if args.command == "delivery-check":
@@ -1724,6 +1858,210 @@ def _run_repository_profile_command(args, repo_root: Path) -> int:
     print("Change it with: bugpilot repository-profile set --mode auto|generic|custom")
     print(f"Custom details: bugpilot repository-profile set --from-file <json> (fields: {', '.join(key for key, _l, _m in PROFILE_FIELDS)})")
     return 0
+
+
+def _jira_site_state() -> dict[str, object]:
+    """Where the Jira site comes from, and the site if it is one Jira requests would use.
+
+    The environment wins over the config file, as in ``load_config``. A value
+    that does not validate is never echoed: it may carry a password.
+    """
+    from bugpilot.core.user_config import load_user_config
+
+    env = (os.getenv("JIRA_BASE_URL") or "").strip()
+    raw, source = (env, "environment") if env else ((load_user_config().jira_base_url or "").strip(), "user configuration")
+    if not raw:
+        return {"site": None, "source": None}
+    try:
+        return {"site": normalize_jira_site(raw), "source": source}
+    except JiraSiteError as exc:
+        return {"site": None, "source": source, "problem": str(exc)}
+
+
+def _run_jira_site_command(args) -> int:
+    """`bugpilot jira-site [show|set]`: the one Jira site the CLI and the extension share.
+
+    `set` validates with the same function every Jira request uses and writes
+    only the site into `~/.bugpilot/config.toml`, keeping the email and token
+    there. The extension's Jira Setup sends the site on standard input, so a
+    mistyped one with a password in it never reaches a command line.
+    """
+    from bugpilot.core.user_config import save_jira_site
+
+    def fail(message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("jira-site", errors.INVALID_INPUT, message)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    if args.action == "show" and (args.url or args.stdin):
+        return fail("A site is for `bugpilot jira-site set`.")
+    warnings: list[str] = []
+    if args.action == "set":
+        if args.stdin and args.url:
+            return fail("Give the site on the command line or with --stdin, not both.")
+        raw = sys.stdin.read(4096) if args.stdin else (args.url or "")
+        try:
+            site = normalize_jira_site(raw.strip())
+        except JiraSiteError as exc:
+            return fail(f"{exc} Example: https://your-company.atlassian.net")
+        save_jira_site(site)
+        if (os.getenv("JIRA_BASE_URL") or "").strip():
+            warnings.append("JIRA_BASE_URL is set in the environment, and BugPilot uses it instead of the saved site.")
+    state = _jira_site_state()
+    if args.json_output:
+        cli_json.emit(cli_json.success("jira-site", **state, warnings=warnings))
+        return 0
+    if args.action == "set":
+        print("Saved the Jira site in ~/.bugpilot/config.toml.")
+    for warning in warnings:
+        print(f"WARN: {warning}")
+    if state.get("site"):
+        print(f"Jira site: {state['site']} (from {state['source']})")
+    elif state.get("problem"):
+        print(f"Jira site: not usable ({state['problem']}) — from {state['source']}")
+    else:
+        print("Jira site: not configured. Set it with: bugpilot jira-site set https://your-company.atlassian.net")
+    return 0
+
+
+def _run_project_settings_command(args, repo_root: Path) -> int:
+    """`bugpilot project-settings [show|set]`: the Verification Policy and branch naming every entry point reads.
+
+    `show` is read-only. `set` writes `.bugpilot/project_settings.json` through
+    the same checks a run reads it with (no links; a branch template that could
+    produce an unsafe ref is refused). The VS Code extension reads and writes
+    through this command, so the validation lives in one place.
+    """
+
+    def fail(message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("project-settings", errors.INVALID_INPUT, message)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    if args.action == "show" and args.from_file:
+        return fail("--from-file is for `bugpilot project-settings set`.")
+    if args.action == "set":
+        if not args.from_file:
+            return fail("`bugpilot project-settings set` needs --from-file PATH.")
+        try:
+            path = Path(args.from_file)
+            if path.stat().st_size > 64 * 1024:
+                raise ValueError("--from-file is far larger than any project settings.")
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8-sig"))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"--from-file is not valid JSON: {exc.msg}.") from exc
+            except RecursionError as exc:
+                raise ValueError("--from-file is nested too deeply to be project settings.") from exc
+            settings, _warnings = settings_from_mapping(payload, strict=True)
+            save_project_settings(repo_root, settings)
+        except (OSError, ValueError) as exc:
+            return fail(str(exc) if isinstance(exc, ValueError) else f"--from-file could not be read: {exc.strerror or exc}.")
+
+    settings, warnings = load_project_settings(repo_root)
+    saved = settings_path(repo_root).is_file()
+    if args.json_output:
+        cli_json.emit(
+            cli_json.success("project-settings", **project_settings_payload(settings, saved=saved, warnings=warnings))
+        )
+        return 0
+
+    if args.action == "set":
+        print(f"Saved the project settings: {SETTINGS_SHOWN_PATH}")
+    origin = SETTINGS_SHOWN_PATH if saved else "the defaults; nothing saved"
+    print(f"Project settings ({origin}):")
+    for warning in warnings:
+        print(f"WARN: {warning}")
+    for key, value in settings.verification.to_dict().items():
+        print(f"  verification.{key}: {str(value).lower()}")
+    template = settings.branch_template or f"(default) {DEFAULT_BRANCH_TEMPLATE_LABEL}"
+    print(f"  branch_naming.template: {template}")
+    print()
+    print("Change them with: bugpilot project-settings set --from-file <json>")
+    return 0
+
+
+def _run_instructions_command(args, repo_root: Path) -> int:
+    """`bugpilot instructions [show|set]`: the two instruction files every entry point reads.
+
+    `show` is read-only. `set` writes one scope's file — or removes it, for empty
+    text — through the same checks a run reads it with (no links, the size
+    limit). The VS Code extension reads and writes through this command, sending
+    the text on standard input, never on the command line or in a temporary file.
+    """
+
+    def fail(message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("instructions", errors.INVALID_INPUT, message)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    if args.action == "show" and (args.from_file or args.stdin or args.clear):
+        return fail("--from-file, --stdin and --clear are for `bugpilot instructions set`.")
+    saved: InstructionFile | None = None
+    if args.action == "set":
+        if args.scope is None:
+            return fail("`bugpilot instructions set` needs --scope user or --scope project.")
+        try:
+            if args.clear:
+                text = ""
+            elif args.stdin:
+                text = _read_instruction_text(sys.stdin.buffer)
+            elif args.from_file:
+                with open(args.from_file, "rb") as source:
+                    text = _read_instruction_text(source)
+            else:
+                return fail("`bugpilot instructions set` needs --from-file PATH, --stdin or --clear.")
+            saved = save_instructions(args.scope, repo_root, text)
+        except (OSError, ValueError) as exc:
+            return fail(str(exc) if isinstance(exc, ValueError) else f"The text could not be read: {exc.strerror or exc}.")
+
+    loaded = load_instructions(repo_root)
+    files = [file for file in loaded.files if args.scope in (None, file.scope)]
+    if args.json_output:
+        cli_json.emit(
+            cli_json.success(
+                "instructions",
+                **instructions_payload(loaded, include_text=True),
+                warnings=list(loaded.warnings),
+            )
+        )
+        return 0
+
+    if saved is not None:
+        verb = "Saved" if saved.configured else "Removed"
+        print(f"{verb} {saved.scope} instructions: {display_path(saved.scope)}")
+    for file in files:
+        label = "User Instructions" if file.scope == "user" else "Project / Team Instructions"
+        state = (
+            f"{file.characters:,} characters"
+            if file.configured
+            else f"not included: {file.problem}"
+            if file.problem
+            else "none configured"
+        )
+        print(f"{label} ({display_path(file.scope)}): {state}")
+        if file.configured and saved is None:
+            print("---")
+            print(file.text)
+            print("---")
+    return 0
+
+
+def _read_instruction_text(stream) -> str:
+    """At most a little past the limit, decoded strictly: the save refuses anything longer."""
+    data = stream.read(MAX_INSTRUCTION_CHARS * 4 + 4)
+    if stream.read(1):
+        raise ValueError(f"The text is longer than the {MAX_INSTRUCTION_CHARS:,} characters BugPilot includes.")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("The text is not UTF-8.") from exc
 
 
 def _run_fix_mode_command(args, repo_root: Path) -> int:

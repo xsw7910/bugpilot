@@ -22,7 +22,7 @@ def _status(repo_root, work_item_id) -> dict:
 
 def _manual_request(**plan_kwargs) -> InvestigationRequest:
     spec = bug_spec_from_description(
-        "3D view crashes after changing horizon\n\nOpen a VDS file, then switch horizon.",
+        "3D view crashes after changing layer\n\nOpen a CSV file, then switch layer.",
         now=MOMENT,
     )
     return InvestigationRequest(spec=spec, plan=InvestigationPlan(**plan_kwargs))
@@ -61,7 +61,7 @@ def test_manual_content_reaches_the_generated_context(tmp_path):
     run_investigation(tmp_path, request)
 
     context = (tmp_path / ".ai" / request.work_item_id / "context.md").read_text(encoding="utf-8")
-    assert "3D view crashes after changing horizon" in context
+    assert "3D view crashes after changing layer" in context
 
 
 def test_manual_status_never_marks_fetch_as_run(tmp_path):
@@ -82,14 +82,14 @@ def test_manual_status_never_marks_fetch_as_run(tmp_path):
 
 
 def test_manual_investigation_keeps_a_non_ascii_title(tmp_path):
-    spec = bug_spec_from_description("三维视图切换层位后崩溃", now=MOMENT)
+    spec = bug_spec_from_description("三维视图切换图层后崩溃", now=MOMENT)
     run_investigation(tmp_path, InvestigationRequest(spec=spec))
 
     stored = load_issue(tmp_path, spec.work_item_id)
-    assert stored.title == "三维视图切换层位后崩溃"
+    assert stored.title == "三维视图切换图层后崩溃"
     # Readable in an editor, not \uXXXX escaped.
     raw = (tmp_path / ".ai" / spec.work_item_id / "issue.json").read_text(encoding="utf-8")
-    assert "三维视图切换层位后崩溃" in raw
+    assert "三维视图切换图层后崩溃" in raw
 
 
 # --- plan gating ------------------------------------------------------------
@@ -235,11 +235,11 @@ def test_hint_from_options_reaches_the_artifacts(tmp_path):
     """options.hint used to be carried and silently dropped."""
     request = InvestigationRequest(
         spec=bug_spec_from_description("crash on save", now=MOMENT),
-        options=InvestigationOptions(hint="look in VdsWriter::flush"),
+        options=InvestigationOptions(hint="look in CsvWriter::flush"),
     )
     run_investigation(tmp_path, request)
 
-    assert load_issue(tmp_path, request.work_item_id).guidance.hint == "look in VdsWriter::flush"
+    assert load_issue(tmp_path, request.work_item_id).guidance.hint == "look in CsvWriter::flush"
 
 
 def test_explicit_hint_argument_beats_options_hint(tmp_path):
@@ -256,11 +256,11 @@ def test_ignore_paths_keeps_matches_out_of_the_results(tmp_path):
     """End-to-end: options reach run_code_search, not just the request object."""
     (tmp_path / "src").mkdir()
     (tmp_path / "vendor").mkdir()
-    (tmp_path / "src" / "Widget.cpp").write_text("void OpenVdsStatistics() {}\n", encoding="utf-8")
-    (tmp_path / "vendor" / "Widget.cpp").write_text("void OpenVdsStatistics() {}\n", encoding="utf-8")
+    (tmp_path / "src" / "Widget.cpp").write_text("void OpenCsvStatistics() {}\n", encoding="utf-8")
+    (tmp_path / "vendor" / "Widget.cpp").write_text("void OpenCsvStatistics() {}\n", encoding="utf-8")
 
     request = InvestigationRequest(
-        spec=bug_spec_from_description("OpenVdsStatistics crashes", now=MOMENT),
+        spec=bug_spec_from_description("OpenCsvStatistics crashes", now=MOMENT),
         options=InvestigationOptions(ignore_paths=["vendor"]),
     )
     run_investigation(tmp_path, request)

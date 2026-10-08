@@ -70,13 +70,13 @@ PAYLOAD = {
         "description": (
             "Steps to Reproduce\n"
             "1. Open sample-repo\n"
-            "2. Select the VDS output type\n\n"
+            "2. Select the CSV output type\n\n"
             "Actual Result\n"
-            "Error: InvalidOutputType: VDS is not allowed\n"
+            "Error: InvalidOutputType: CSV is not allowed\n"
             "    at WidgetController.validate(WidgetController.cpp:42)\n"
             "    at WidgetController.apply(WidgetController.cpp:17)\n\n"
             "Expected Result\n"
-            "VDS is accepted.\n"
+            "CSV is accepted.\n"
         ),
         "issuetype": {"name": "Bug"},
         "status": {"name": "Open"},
@@ -110,7 +110,7 @@ PAYLOAD = {
 }
 
 HINT = "Investigate WidgetController output validation."
-IMPROVED_HINT = "Check WidgetController::validate, which filters the VDS output type."
+IMPROVED_HINT = "Check WidgetController::validate, which filters the CSV output type."
 
 
 @pytest.fixture
@@ -165,7 +165,7 @@ def test_a_jira_run_writes_one_canonical_issue_artifact(tmp_path, fake_jira):
     assert data["id"] == "JR-12345"
     assert data["source"] == "jira"
     assert data["title"] == "WidgetController rejects a valid output type"
-    assert "Select the VDS output type" in data["description"]
+    assert "Select the CSV output type" in data["description"]
     assert data["comments"] == [
         {"created": "2026-05-10T09:00:00.000+0000", "body": "Still broken on 2026.1, see crash.log"}
     ]
@@ -313,7 +313,7 @@ def _full_issue() -> IssueArtifact:
         id="JR-12345",
         source="jira",
         title="WidgetController rejects a valid output type",
-        description="VDS is rejected.",
+        description="CSV is rejected.",
         comments=(IssueComment(created="2026-05-10T09:00:00.000+0000", body="Still broken"),),
         signals=IssueSignals(stack_traces=("at WidgetController.validate",), error_messages=("InvalidOutputType",)),
         details=IssueDetails(
@@ -336,11 +336,11 @@ def test_the_dict_form_round_trips():
 
 
 def test_save_and_load_round_trip_as_readable_utf8(tmp_path):
-    issue = replace(_full_issue(), title="三维视图切换层位后崩溃")
+    issue = replace(_full_issue(), title="三维视图切换图层后崩溃")
     path = save_issue(tmp_path, issue)
 
     assert path == tmp_path / ".ai" / "JR-12345" / "issue.json"
-    assert "三维视图切换层位后崩溃" in path.read_text(encoding="utf-8")
+    assert "三维视图切换图层后崩溃" in path.read_text(encoding="utf-8")
     assert load_issue(tmp_path, "JR-12345") == issue
 
 

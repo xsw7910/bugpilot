@@ -46,12 +46,35 @@ def failure(command: str, code: str, message: str, **fields: object) -> dict[str
     return payload
 
 
+def _utf8_stdout() -> None:
+    """Make stdout UTF-8 before JSON is written to it.
+
+    JSON between programs is UTF-8 (RFC 8259), and the VS Code extension
+    decodes it as UTF-8. Python on Windows writes a pipe in the ANSI code page
+    (cp1252) unless PYTHONIOENCODING or UTF-8 mode says otherwise: a "→" in an
+    instructions file or a Chinese bug title failed the command with "'charmap'
+    codec can't encode", and an "é" arrived as a byte the extension could not
+    decode (found in pre-release Batch 4). A console is unaffected — Python
+    writes it as UTF-16 — and a stream that is UTF-8 already is left alone.
+    """
+    stream = sys.stdout
+    encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "").replace("_", "")
+    reconfigure = getattr(stream, "reconfigure", None)
+    if encoding == "utf8" or reconfigure is None:
+        return
+    try:
+        reconfigure(encoding="utf-8")
+    except (ValueError, OSError):
+        pass
+
+
 def emit(payload: dict[str, object]) -> None:
     """Write one envelope to stdout.
 
     ``ensure_ascii=False`` so a Chinese bug title stays readable in a terminal
-    and in an editor's output pane; the stream is UTF-8 either way.
+    and in an editor's output pane; the stream is made UTF-8 first.
     """
+    _utf8_stdout()
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
@@ -86,6 +109,7 @@ class JsonLinesEmitter:
     def _emit(self, event: dict[str, object]) -> None:
         payload: dict[str, object] = {"schema_version": SCHEMA_VERSION}
         payload.update(event)
+        _utf8_stdout()
         print(json.dumps(payload, ensure_ascii=False), flush=True)
 
     def skipped(self, steps: list[str]) -> None:
@@ -133,6 +157,7 @@ def emit_stream_failure(code: str, message: str) -> None:
     A consumer waits for a terminal event; without one an aborted run is
     indistinguishable from a process that is still working.
     """
+    _utf8_stdout()
     print(
         json.dumps(
             {

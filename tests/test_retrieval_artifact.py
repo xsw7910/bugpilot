@@ -475,11 +475,11 @@ def test_the_dict_form_round_trips():
 
 
 def test_save_and_load_round_trip(tmp_path):
-    artifact = replace(_artifact(), reasons=("三维视图切换层位后崩溃",))
+    artifact = replace(_artifact(), reasons=("三维视图切换图层后崩溃",))
     path = save_retrieval(tmp_path, "JR-12345", artifact)
 
     assert path == tmp_path / ".ai" / "JR-12345" / "retrieval.json"
-    assert "三维视图切换层位后崩溃" in path.read_text(encoding="utf-8")
+    assert "三维视图切换图层后崩溃" in path.read_text(encoding="utf-8")
     assert load_retrieval(tmp_path, "JR-12345") == artifact
 
 

@@ -81,6 +81,8 @@ class FakeElement {
   textContent = "";
   value = "";
   checked = false;
+  /** A field the page makes read-only: Jira Setup's site when the environment sets it. */
+  readOnly = false;
   type = "";
   /** A tooltip the page sets as a property, as it does on the Fix Mode list's rows. */
   title = "";
@@ -406,6 +408,10 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
     // Always present, like the readiness beside it: the question Diagnostics
     // answers is asked most urgently when nothing has run.
     agents: { lines: {} },
+    instructions: {
+      user: { status: "No user instructions configured.", editable: true },
+      project: { status: "No project instructions configured.", editable: true },
+    },
     problems: [],
     progress,
     workflow,
@@ -469,7 +475,7 @@ const CAPABILITY_IDS = ["issue_details", "code_search", "git_history", "similar_
 const PREPARED_FILES = ["issue.json", "retrieval.json", "context.md", "task.md", "run.json"];
 
 /** `issue.json`, as the host parses it. */
-const ISSUE = { id: "JR-12345", source: "jira", title: "WidgetController rejects the VDS output type" };
+const ISSUE = { id: "JR-12345", source: "jira", title: "WidgetController rejects the CSV output type" };
 
 /** `retrieval.json`, as the host projects it: the counts, and no lists yet. */
 const SEARCH = { relevantFiles: 8, searchTerms: 53, content: { files: [], terms: [] } };
@@ -1769,7 +1775,8 @@ test("the Jira row: Authentication failed says so in words, with Replace (§37.1
 
 // --- Jira Setup (§37.124) -------------------------------------------------------
 
-const JIRA_SETUP_REPLACE = { request: 1, email: "dev@example.com", tokenStored: true, saving: false } as const;
+const JIRA_SITE = "https://your-company.atlassian.net";
+const JIRA_SETUP_REPLACE = { request: 1, email: "dev@example.com", site: JIRA_SITE, siteFromEnvironment: false, tokenStored: true, saving: false } as const;
 
 test("Jira Setup opens when the host says so: the stored email, an empty hidden token, focus on the token", () => {
   const p = load();
@@ -1785,21 +1792,36 @@ test("Jira Setup opens when the host says so: the stored email, an empty hidden 
   assert.equal(p.posted.some((message) => String(message["type"]).includes("Jira")), false);
 });
 
-test("Configure: an empty email takes the focus, and there is no stored-token note", () => {
+test("Configure: an empty site takes the focus, and there is no stored-token note", () => {
   const p = load();
-  p.send(state({ jiraSetup: { request: 1, tokenStored: false, saving: false } }));
+  p.send(state({ jiraSetup: { request: 1, siteFromEnvironment: false, tokenStored: false, saving: false } }));
   assert.equal(p.byId("jira-dialog").open, true);
+  assert.equal(p.byId("jira-site").value, "");
+  assert.equal(p.byId("jira-site").readOnly, false);
+  assert.equal(p.byId("jira-site-environment").hidden, true);
   assert.equal(p.byId("jira-email").value, "");
   assert.equal(p.byId("jira-token-stored").hidden, true);
+  assert.equal(p.focused, "jira-site");
+  // With a site already set, the empty email is next.
+  p.send(state({}));
+  p.send(state({ jiraSetup: { request: 2, site: JIRA_SITE, siteFromEnvironment: false, tokenStored: false, saving: false } }));
+  assert.equal(p.byId("jira-site").value, JIRA_SITE);
   assert.equal(p.focused, "jira-email");
 });
 
-test("Save posts both fields as typed; a missing field is said under it and nothing is posted", () => {
+test("Save posts the three fields as typed; a missing field is said under it and nothing is posted", () => {
   const p = load();
-  p.send(state({ jiraSetup: { request: 1, tokenStored: false, saving: false } }));
+  p.send(state({ jiraSetup: { request: 1, siteFromEnvironment: false, tokenStored: false, saving: false } }));
   const before = p.posted.length;
   p.byId("jira-save").dispatch("click");
+  assert.equal(p.posted.length, before, "Save posted with no site");
+  assert.equal(p.byId("jira-site-error").textContent, "Enter your Jira site, such as https://your-company.atlassian.net.");
+  assert.equal(p.focused, "jira-site");
+  // The site's shape is the CLI's to judge: any text is sent on.
+  p.byId("jira-site").value = JIRA_SITE;
+  p.byId("jira-save").dispatch("click");
   assert.equal(p.posted.length, before, "Save posted with no email");
+  assert.equal(p.byId("jira-site-error").hidden, true);
   assert.equal(p.byId("jira-email-error").hidden, false);
   assert.equal(p.byId("jira-email-error").textContent, "Enter your Atlassian account email.");
   assert.equal(p.byId("jira-email").getAttribute("aria-invalid"), "true");
@@ -1818,13 +1840,16 @@ test("Save posts both fields as typed; a missing field is said under it and noth
 
   p.byId("jira-token").value = "typed-token-value";
   p.byId("jira-save").dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "saveJiraCredentials", email: "dev@example.com", token: "typed-token-value" });
+  assert.deepEqual(p.posted.at(-1), { type: "saveJiraCredentials", site: JIRA_SITE, email: "dev@example.com", token: "typed-token-value" });
   assert.equal(p.byId("jira-token-error").hidden, true);
 });
 
-test("Enter in the email goes on to the token; Enter in the token saves through the same check", () => {
+test("Enter in the site goes on to the email, in the email to the token; Enter in the token saves through the same check", () => {
   const p = load();
-  p.send(state({ jiraSetup: { request: 1, tokenStored: false, saving: false } }));
+  p.send(state({ jiraSetup: { request: 1, siteFromEnvironment: false, tokenStored: false, saving: false } }));
+  p.byId("jira-site").value = JIRA_SITE;
+  p.byId("jira-site").dispatch("keydown", { key: "Enter" });
+  assert.equal(p.focused, "jira-email");
   p.byId("jira-email").value = "dev@example.com";
   p.byId("jira-email").dispatch("keydown", { key: "Enter" });
   assert.equal(p.focused, "jira-token");
@@ -1833,7 +1858,7 @@ test("Enter in the email goes on to the token; Enter in the token saves through 
   assert.equal(p.byId("jira-token-error").textContent, "Enter an API token.");
   p.byId("jira-token").value = "typed-token-value";
   p.byId("jira-token").dispatch("keydown", { key: "Enter" });
-  assert.deepEqual(p.posted.at(-1), { type: "saveJiraCredentials", email: "dev@example.com", token: "typed-token-value" });
+  assert.deepEqual(p.posted.at(-1), { type: "saveJiraCredentials", site: JIRA_SITE, email: "dev@example.com", token: "typed-token-value" });
 });
 
 test("Cancel and Escape close it and tell the host, the token cleared; the same request does not reopen it", () => {
@@ -1885,6 +1910,7 @@ test("the host closes it once the credentials are stored: the fields cleared, th
   assert.equal(p.byId("jira-dialog").open, false);
   assert.equal(p.byId("jira-token").value, "");
   assert.equal(p.byId("jira-email").value, "");
+  assert.equal(p.byId("jira-site").value, "");
   assert.equal(p.focused, "set-credentials");
   assert.equal(p.posted.some((message) => message["type"] === "closeJiraSetup"), false, "a save was reported as a Cancel");
 });
@@ -4771,7 +4797,7 @@ test("the regrouped fields round-trip through the form unchanged", () => {
   p.send(state());
 
   applyOnPage(p, () => {
-    p.byId("keywords").value = "VolumeDescriptor, OpenVDS\noutputType";
+    p.byId("keywords").value = "VolumeDescriptor, OpenCSV\noutputType";
     p.byId("focusFiles").value = "src/core/\nsrc/services/example.cpp";
     p.byId("hint").value = "check the output validation";
     p.byId("ignorePaths").value = "build/";
@@ -4781,7 +4807,7 @@ test("the regrouped fields round-trip through the form unchanged", () => {
   const message = p.posted.at(-1) as { type: string; action?: string; form: Record<string, unknown> };
   assert.equal(message.type, "nextAction");
   assert.equal(message.action, "run");
-  assert.equal(message.form["keywords"], "VolumeDescriptor, OpenVDS\noutputType");
+  assert.equal(message.form["keywords"], "VolumeDescriptor, OpenCSV\noutputType");
   assert.equal(message.form["focusFiles"], "src/core/\nsrc/services/example.cpp");
   assert.equal(message.form["hint"], "check the output validation");
   assert.equal(message.form["ignorePaths"], "build/");
@@ -4874,7 +4900,7 @@ test("a finished run reads as results on the rows, and one next action", () => {
   p.send(prepared({ strategy: "Standard Fix" }));
 
   // Issue details: one line, the issue's title (§37.104).
-  assert.equal(p.byId("description-issueDetails").textContent, "WidgetController rejects the VDS output type");
+  assert.equal(p.byId("description-issueDetails").textContent, "WidgetController rejects the CSV output type");
   assert.equal(p.byId("detail-issueDetails").hidden, true, "a second line under Issue details");
   assert.equal(p.byId("artifact-issueDetails-name").textContent, "issue.json");
   assert.equal(p.byId("artifact-issueDetails").hidden, false);
@@ -5000,7 +5026,7 @@ test("a later failure never erases the rows that finished before it", () => {
   const p = load();
   p.send(failedAt("build_context", { kind: "run", title: "Run failed", message: "It stopped." }, ["issue_details", "code_search"]));
 
-  assert.equal(p.byId("description-issueDetails").textContent, "WidgetController rejects the VDS output type");
+  assert.equal(p.byId("description-issueDetails").textContent, "WidgetController rejects the CSV output type");
   assert.equal(p.byId("description-codeSearch").textContent, "53 terms · 8 relevant files");
   assert.equal(p.byId("error-buildContext").hidden, false);
   assert.equal(p.byId("error-issueDetails").hidden, true);
@@ -5208,7 +5234,7 @@ test("a report is a result: it alone makes a work item one worth opening the wor
 const CHECKLIST = {
   steps: ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
   files: ["src/widgets/WidgetController.cpp"],
-  risks: ["The legacy VDS path is untested."],
+  risks: ["The legacy CSV path is untested."],
 };
 
 const REPORT = { readable: true, summary: "Fixed it.", tests: "3 passed." };
@@ -5286,7 +5312,7 @@ test("loading, then the checklist as text: steps, then regression areas", () => 
   assert.deepEqual(validationTexts(p), [
     ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
     "Regression areas",
-    ["src/widgets/WidgetController.cpp", "The legacy VDS path is untested."],
+    ["src/widgets/WidgetController.cpp", "The legacy CSV path is untested."],
     "2 more in fix_report.md",
   ]);
   // A numbered list of steps: guidance, with nothing marked done.
@@ -5491,11 +5517,11 @@ function withCommits(
 const COMMIT = {
   hash: "a".repeat(40),
   shortHash: "aaaaaaaaaa",
-  subject: "Add poststack support to Angle Stack",
+  subject: "Add postblend support to Angle Blend",
   date: "2026-03-01",
-  terms: [{ value: "poststack", source: "shared_keyword" as const }],
+  terms: [{ value: "postblend", source: "shared_keyword" as const }],
   files: [
-    { path: "src/stack/AngleStack.cpp", source: "shared_focus_file" as const },
+    { path: "src/blend/AngleBlend.cpp", source: "shared_focus_file" as const },
     { path: "src/select/VolumeSelector.cpp", source: "code_search_ranked_file" as const },
   ],
 };
@@ -5527,11 +5553,11 @@ test("each commit is a row: the short hash and subject, then what matched, what 
   const [title, matched, changed, why] = rows[0]!.children;
   assert.deepEqual(title!.children.map((span) => [span.className, span.textContent]), [
     ["commit-hash", "aaaaaaaaaa"],
-    ["commit-subject", "Add poststack support to Angle Stack"],
+    ["commit-subject", "Add postblend support to Angle Blend"],
   ]);
-  assert.equal(matched!.textContent, "Matched: poststack");
-  assert.equal(changed!.textContent, "Changed: AngleStack.cpp, VolumeSelector.cpp");
-  assert.equal(changed!.getAttribute("title"), "src/stack/AngleStack.cpp\nsrc/select/VolumeSelector.cpp");
+  assert.equal(matched!.textContent, "Matched: postblend");
+  assert.equal(changed!.textContent, "Changed: AngleBlend.cpp, VolumeSelector.cpp");
+  assert.equal(changed!.getAttribute("title"), "src/blend/AngleBlend.cpp\nsrc/select/VolumeSelector.cpp");
   assert.equal(why!.textContent, "Why: shared keyword · focus file · Code search file");
   // The record's order, and a commit with nothing more to say is just its title.
   assert.equal(rows[1]!.children.length, 1);
@@ -5574,26 +5600,26 @@ test("Supporting files is hidden without any, and lists each one with its own op
   assert.equal(p.byId("supporting-files").hidden, true);
 
   p.send(prepared(withCommits([COMMIT], [
-    { path: "src/stack/StackInputModel.cpp", change: "modified", commitCount: 2 },
-    { path: "src/Gather.cpp", change: "added", commitCount: 1 },
+    { path: "src/blend/BlendInputModel.cpp", change: "modified", commitCount: 2 },
+    { path: "src/Bucket.cpp", change: "added", commitCount: 1 },
   ])));
   assert.equal(p.byId("supporting-files").hidden, false);
   assert.equal(p.byId("supporting-files").open, false, "collapsed, like the other disclosures");
   const rows = p.byId("supporting-files-list").children;
   assert.deepEqual(rows.map((row) => row.className), ["file-row", "file-row"]);
   const [button, detail] = rows[0]!.children;
-  assert.deepEqual(button!.children.map((span) => span.textContent), ["StackInputModel.cpp", "src/stack/StackInputModel.cpp"]);
+  assert.deepEqual(button!.children.map((span) => span.textContent), ["BlendInputModel.cpp", "src/blend/BlendInputModel.cpp"]);
   assert.equal(detail!.textContent, "Changed in 2 related commits");
   assert.equal(rows[1]!.children[1]!.textContent, "Changed in 1 related commit · added");
   // Its own open, which the host checks against the checkout before opening.
   button!.dispatch("click");
-  assert.deepEqual(p.posted.at(-1), { type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+  assert.deepEqual(p.posted.at(-1), { type: "openSupportingFile", path: "src/blend/BlendInputModel.cpp" });
   // Rendering asked nothing of the disk: the page has no way to, and posted
   // nothing until the click.
   assert.equal(p.posted.filter((message) => (message as { type?: string }).type === "openSupportingFile").length, 1);
   // And Code search's list is still only Code search's.
   assert.equal(
-    p.byId("relevant-files-list").children.some((row) => JSON.stringify(row.children.map((c) => c.textContent)).includes("StackInputModel")),
+    p.byId("relevant-files-list").children.some((row) => JSON.stringify(row.children.map((c) => c.textContent)).includes("BlendInputModel")),
     false,
   );
 });
@@ -9316,4 +9342,278 @@ test("repository 4: the host's form puts the repository's own profile on the pag
   assert.equal(p.byId("repositoryProfile").value, "custom");
   assert.equal(p.byId("repositoryFrameworks").value, "Qt");
   assert.equal(p.byId("field-repositoryFrameworks").hidden, false);
+});
+
+// --- Pre-release Batch 2: User and Project instructions ------------------------
+
+const INSTRUCTION_ROWS = {
+  user: { status: "No user instructions configured.", editable: true },
+  project: { status: "Configured · 26 characters", editable: true },
+} as const;
+
+const openEditor = (token: number, overrides: Record<string, unknown> = {}) =>
+  ({
+    token,
+    scope: "project" as const,
+    title: "Project instructions",
+    scopeLine: "Shared with this repository.",
+    empty: "No project instructions configured.",
+    text: "Run relevant module tests.",
+    maxCharacters: 20_000,
+    saving: false,
+    ...overrides,
+  }) as NonNullable<PanelState["instructionsEditor"]>;
+
+test("instructions 1: each row shows the host's line, and Edit asks for its scope — never a path", () => {
+  const p = settingsPage({ instructions: INSTRUCTION_ROWS });
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("user-instructions-status").textContent, "No user instructions configured.");
+  assert.equal(p.byId("project-instructions-status").textContent, "Configured · 26 characters");
+  assert.equal(p.byId("project-instructions-edit").disabled, false);
+
+  p.byId("project-instructions-edit").dispatch("click");
+  const sent = p.posted.at(-1)!;
+  assert.deepEqual(sent, { type: "openInstructions", scope: "project" });
+  assert.deepEqual(parsePanelMessage(sent), sent);
+  // Nothing changes on the page until the host has read the file.
+  assert.equal(p.byId("instructions-editor-view").hidden, true);
+});
+
+test("instructions 2: the editor opens on the host's text, its scope and title, focus on its heading", () => {
+  const p = settingsPage({ instructions: INSTRUCTION_ROWS });
+  p.byId("open-settings").dispatch("click");
+  p.byId("project-instructions-edit").dispatch("click");
+  p.send({ ...prepared(), instructions: INSTRUCTION_ROWS, instructionsEditor: openEditor(1) });
+
+  assert.equal(p.byId("instructions-editor-view").hidden, false);
+  assert.equal(p.byId("workflow-settings-view").hidden, true);
+  assert.equal(p.byId("instructions-title").textContent, "Project instructions");
+  assert.equal(p.byId("instructions-scope").textContent, "Shared with this repository.");
+  assert.equal(p.byId("instructions-text").value, "Run relevant module tests.");
+  assert.equal(p.byId("instructions-empty").hidden, true);
+  assert.equal(p.byId("instructions-count").textContent, "26 / 20,000 characters");
+  assert.equal(p.focused, "instructions-title");
+});
+
+test("instructions 3: a later push never overwrites what is being typed; a new open does", () => {
+  const p = settingsPage({ instructions: INSTRUCTION_ROWS });
+  p.byId("open-settings").dispatch("click");
+  p.send({ ...prepared(), instructions: INSTRUCTION_ROWS, instructionsEditor: openEditor(1) });
+  p.byId("instructions-text").value = "Run relevant module tests.\nPrefer pytest.";
+  p.byId("instructions-text").dispatch("input");
+  assert.equal(p.byId("instructions-count").textContent, "41 / 20,000 characters");
+
+  p.send({ ...prepared(), instructions: INSTRUCTION_ROWS, instructionsEditor: openEditor(1) });
+  assert.equal(p.byId("instructions-text").value, "Run relevant module tests.\nPrefer pytest.");
+
+  p.send({
+    ...prepared(),
+    instructions: INSTRUCTION_ROWS,
+    instructionsEditor: openEditor(2, { scope: "user", title: "User instructions", empty: "No user instructions configured.", text: "" }),
+  });
+  assert.equal(p.byId("instructions-text").value, "");
+  assert.equal(p.byId("instructions-empty").hidden, false);
+  assert.equal(p.byId("instructions-empty").textContent, "No user instructions configured.");
+});
+
+test("instructions 4: Save sends the scope and the text; Ctrl+Enter is Save; too long is refused on the page", () => {
+  const p = settingsPage({ instructions: INSTRUCTION_ROWS });
+  p.byId("open-settings").dispatch("click");
+  p.send({ ...prepared(), instructions: INSTRUCTION_ROWS, instructionsEditor: openEditor(1) });
+
+  p.byId("instructions-text").value = "Maintain Windows and Linux compatibility.";
+  p.byId("instructions-save").dispatch("click");
+  const saved = p.posted.at(-1)!;
+  assert.deepEqual(saved, { type: "saveInstructions", scope: "project", text: "Maintain Windows and Linux compatibility." });
+  assert.deepEqual(parsePanelMessage(saved), saved);
+
+  const before = p.posted.length;
+  p.byId("instructions-text").value = "x".repeat(20_001);
+  p.byId("instructions-text").dispatch("input");
+  assert.equal(p.byId("instructions-count").classes.has("over-limit"), true);
+  p.byId("instructions-editor-view").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  assert.equal(p.posted.length, before, "too long was sent");
+  assert.equal(p.byId("instructions-error").hidden, false);
+  assert.match(p.byId("instructions-error").textContent, /the most BugPilot includes is 20,000/);
+
+  // Empty is a save too: it removes the file.
+  p.byId("instructions-text").value = "";
+  p.byId("instructions-editor-view").dispatch("keydown", { key: "Enter", ctrlKey: true });
+  assert.deepEqual(p.posted.at(-1), { type: "saveInstructions", scope: "project", text: "" });
+});
+
+test("instructions 5: while saving, Save waits; a refusal is said; Back, Cancel and Escape send close", () => {
+  const p = settingsPage({ instructions: INSTRUCTION_ROWS });
+  p.byId("open-settings").dispatch("click");
+  p.send({ ...prepared(), instructions: INSTRUCTION_ROWS, instructionsEditor: openEditor(1, { saving: true }) });
+  assert.equal(p.byId("instructions-save").getAttribute("aria-disabled"), "true");
+  assert.equal(p.byId("instructions-save").textContent, "Saving…");
+  const before = p.posted.length;
+  p.byId("instructions-save").dispatch("click");
+  assert.equal(p.posted.length, before, "a second save went out while one was in flight");
+
+  p.send({
+    ...prepared(),
+    instructions: INSTRUCTION_ROWS,
+    instructionsEditor: openEditor(1, { error: { token: 1, message: "Project instructions were not saved: .bugpilot is a symbolic link or junction." } }),
+  });
+  assert.equal(p.byId("instructions-error").hidden, false);
+  assert.match(p.byId("instructions-error").textContent, /symbolic link or junction/);
+
+  for (const press of [
+    () => p.byId("instructions-back").dispatch("click"),
+    () => p.byId("instructions-cancel").dispatch("click"),
+    () => p.byId("instructions-editor-view").dispatch("keydown", { key: "Escape" }),
+  ]) {
+    press();
+    assert.deepEqual(p.posted.at(-1), { type: "closeInstructions" });
+  }
+});
+
+test("instructions 6: closed by the host, the settings page is back, focus on the Edit that opened it", () => {
+  const p = settingsPage({ instructions: INSTRUCTION_ROWS });
+  p.byId("open-settings").dispatch("click");
+  p.byId("maxFiles").value = "7";
+  p.byId("user-instructions-edit").dispatch("click");
+  p.send({ ...prepared(), instructions: INSTRUCTION_ROWS, instructionsEditor: openEditor(1, { scope: "user", title: "User instructions" }) });
+  assert.equal(p.byId("instructions-editor-view").hidden, false);
+
+  p.send({ ...prepared(), instructions: { ...INSTRUCTION_ROWS, user: { status: "Configured · 9 characters", editable: true } } });
+  assert.equal(p.byId("instructions-editor-view").hidden, true);
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  assert.equal(p.focused, "user-instructions-edit");
+  assert.equal(p.byId("user-instructions-status").textContent, "Configured · 9 characters");
+  // The settings draft under it was not touched.
+  assert.equal(p.byId("maxFiles").value, "7");
+});
+
+test("instructions 7: rows the host cannot read say nothing, and Edit waits", () => {
+  const p = settingsPage({
+    instructions: { user: { status: "", editable: false }, project: { status: "", editable: false } },
+  });
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("user-instructions-status").hidden, true);
+  assert.equal(p.byId("project-instructions-edit").disabled, true);
+});
+
+test("instructions 8: a paste over the editor is never an attachment on the settings page behind it", () => {
+  const p = settingsPage({ instructions: INSTRUCTION_ROWS });
+  p.byId("open-settings").dispatch("click");
+  p.send({ ...prepared(), instructions: INSTRUCTION_ROWS, instructionsEditor: openEditor(1) });
+  const before = p.posted.length;
+  p.dispatchDocument("paste", {
+    target: p.byId("instructions-save"),
+    clipboardData: { files: [{ name: "shot.png", size: 3, type: "image/png", arrayBuffer: async () => new ArrayBuffer(3) }], items: [] },
+  });
+  assert.equal(p.posted.length, before);
+});
+
+// --- Pre-release Batch 3: project settings on the settings page ------------------
+
+test("project settings 1: the four switches start at their defaults — the full suite off — and Apply sends them", () => {
+  const p = settingsPage();
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("verifyRelevantTests").checked, true);
+  assert.equal(p.byId("verifyStaticChecks").checked, true);
+  assert.equal(p.byId("verifyFullSuite").checked, false);
+  assert.equal(p.byId("verifyReportNotRun").checked, true);
+
+  p.byId("verifyFullSuite").checked = true;
+  p.byId("verifyReportNotRun").checked = false;
+  p.byId("settings-apply").dispatch("click");
+  const sent = p.posted.at(-1)!;
+  assert.equal(sent["type"], "applySettings");
+  const form = sent["form"] as FormState;
+  assert.equal(form.verifyFullSuite, true);
+  assert.equal(form.verifyReportNotRun, false);
+  assert.equal(form.verifyRelevantTests, true);
+  const parsed = parsePanelMessage(sent);
+  assert.ok(parsed && parsed.type === "applySettings");
+  if (parsed?.type === "applySettings") assert.equal(parsed.form.verifyFullSuite, true);
+});
+
+test("project settings 2: the template is on screen only while Custom is chosen, and survives a switch", () => {
+  const p = settingsPage();
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("branchNaming").value, "default");
+  assert.equal(p.byId("field-branchTemplate").hidden, true);
+
+  p.byId("branchNaming").value = "custom";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("branchNaming") });
+  assert.equal(p.byId("field-branchTemplate").hidden, false);
+  p.byId("branchTemplate").value = "bugfix/{issue}-{slug}";
+
+  p.byId("branchNaming").value = "default";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("branchNaming") });
+  assert.equal(p.byId("field-branchTemplate").hidden, true);
+  assert.equal(p.byId("branchTemplate").value, "bugfix/{issue}-{slug}", "switching away threw the template away");
+
+  p.byId("branchNaming").value = "custom";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("branchNaming") });
+  p.byId("settings-apply").dispatch("click");
+  const form = p.posted.at(-1)!["form"] as FormState;
+  assert.equal(form.branchNaming, "custom");
+  assert.equal(form.branchTemplate, "bugfix/{issue}-{slug}");
+});
+
+test("project settings 3: the host's form puts the repository's own settings on the page", () => {
+  const p = settingsPage({
+    revision: 3,
+    form: { ...DEFAULT_FORM, issueKey: "JR-12345", verifyFullSuite: true, verifyStaticChecks: false, branchNaming: "custom", branchTemplate: "fix/{issue}" },
+  });
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("verifyFullSuite").checked, true);
+  assert.equal(p.byId("verifyStaticChecks").checked, false);
+  assert.equal(p.byId("branchNaming").value, "custom");
+  assert.equal(p.byId("field-branchTemplate").hidden, false);
+  assert.equal(p.byId("branchTemplate").value, "fix/{issue}");
+});
+
+test("project settings 4: Cancel puts the applied switches and naming back", () => {
+  const p = settingsPage();
+  p.byId("open-settings").dispatch("click");
+  p.byId("verifyRelevantTests").checked = false;
+  p.byId("branchNaming").value = "custom";
+  p.byId("workflow-settings-view").dispatch("change", { target: p.byId("branchNaming") });
+  p.byId("settings-cancel").dispatch("click");
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("verifyRelevantTests").checked, true);
+  assert.equal(p.byId("branchNaming").value, "default");
+  assert.equal(p.byId("field-branchTemplate").hidden, true);
+});
+
+
+// --- Batch 3: the Jira site in Jira Setup ------------------------------------------
+
+test("Replace with a stored token: the site and email prefilled, a blank token posted as blank — the host keeps the stored one", () => {
+  const p = load();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  assert.equal(p.byId("jira-site").value, JIRA_SITE);
+  assert.equal(p.byId("jira-token-stored").hidden, false);
+  p.byId("jira-save").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "saveJiraCredentials", site: JIRA_SITE, email: "dev@example.com", token: "" });
+  assert.equal(p.byId("jira-token-error").hidden, true, "a blank token was refused although one is stored");
+});
+
+test("a site JIRA_BASE_URL sets is shown read-only, with the reason, and is not required", () => {
+  const p = load();
+  p.send(state({ jiraSetup: { request: 1, site: "https://env.example.com", siteFromEnvironment: true, tokenStored: false, saving: false } }));
+  assert.equal(p.byId("jira-site").value, "https://env.example.com");
+  assert.equal(p.byId("jira-site").readOnly, true);
+  assert.equal(p.byId("jira-site-environment").hidden, false);
+  assert.equal(p.focused, "jira-email", "the focus went to a field that cannot be changed");
+  p.byId("jira-email").value = "dev@example.com";
+  p.byId("jira-token").value = "typed-token-value";
+  p.byId("jira-save").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "saveJiraCredentials", site: "https://env.example.com", email: "dev@example.com", token: "typed-token-value" });
+});
+
+test("the CLI's refusal of a site is said under the site field", () => {
+  const p = load();
+  p.send(state({ jiraSetup: JIRA_SETUP_REPLACE }));
+  p.send(state({ jiraSetup: { ...JIRA_SETUP_REPLACE, error: { token: 1, field: "site" as const, message: "The Jira site must start with https://." } } }));
+  assert.equal(p.byId("jira-site-error").hidden, false);
+  assert.equal(p.byId("jira-site-error").textContent, "The Jira site must start with https://.");
+  assert.equal(p.byId("jira-site").getAttribute("aria-invalid"), "true");
+  assert.equal(p.focused, "jira-site");
 });

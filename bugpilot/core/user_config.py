@@ -20,7 +20,7 @@ from pathlib import Path
 
 # There is deliberately no default Jira site.
 #
-# There used to be one — a single company tenant, hard-coded here and used
+# There used to be one — a single hard-coded tenant, used
 # wherever JIRA_BASE_URL was unset. That is exactly wrong for a package anyone
 # can install: it discloses an internal hostname, and it points every stranger's
 # first run at somebody else's Jira. The URL is now the developer's, from the
@@ -126,6 +126,23 @@ def save_user_config(
     if jira_base_url:
         data["jira_base_url"] = jira_base_url
     _token_store().save(data, jira_token)
+    path.write_text(_dump_toml(data), encoding="utf-8")
+    _restrict_permissions(path)
+    return path
+
+
+def save_jira_site(jira_base_url: str) -> Path:
+    """Write only the Jira site, keeping whatever email and token the file holds.
+
+    For the VS Code extension's Jira Setup (pre-release Batch 3), which keeps
+    the email and token in VS Code's SecretStorage but the site here, where the
+    CLI reads it too: one site for both, not two that can disagree. The caller
+    validates the site (``jira.normalize_jira_site``).
+    """
+    path = user_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = _parse_toml(path.read_text(encoding="utf-8", errors="replace")) if path.exists() else {}
+    data["jira_base_url"] = jira_base_url
     path.write_text(_dump_toml(data), encoding="utf-8")
     _restrict_permissions(path)
     return path

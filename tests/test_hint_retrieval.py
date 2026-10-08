@@ -30,7 +30,7 @@ from bugpilot.core.search_terms import (
 
 needs_rg = pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep is not installed")
 
-ISSUE = "VDS cannot be selected as process output."
+ISSUE = "CSV cannot be selected as the export format."
 HINT = "Maybe related to output type validation."
 
 
@@ -58,10 +58,10 @@ def test_an_empty_hint_changes_nothing():
 
 def test_changing_the_hint_changes_the_terms():
     first = _terms(hint="Maybe related to output type validation.")
-    second = _terms(hint="Look at the poststack reader instead.")
+    second = _terms(hint="Look at the postblend reader instead.")
 
     assert first != second
-    assert "poststack" in second and "poststack" not in first
+    assert "postblend" in second and "postblend" not in first
 
 
 # --- but cannot take over ------------------------------------------------------

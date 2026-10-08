@@ -69,9 +69,11 @@ const required = [
   // default. The changelog shipped as nothing for one build before this line
   // existed, and the Marketplace would have shown an empty Changelog tab.
   "CHANGELOG.md",
-  // Named by `license` in the manifest, and the file the extension page's
-  // License link points at.
+  // The Business Source License 1.1, a copy of the repository's LICENSE, and the
+  // file the extension page's License link points at.
   "LICENSE.txt",
+  // What LICENSE.txt does not cover: the codicons font, CC BY 4.0.
+  "THIRD_PARTY_NOTICES.md",
   // The entry point the extension host requires.
   manifest.main.replace(/^\.\//, ""),
   // The activity bar icon: a missing one renders as a blank container.
@@ -104,6 +106,7 @@ const allowed = [
   /^README\.md$/i,
   /^CHANGELOG\.md$/i,
   /^LICENSE\.txt$/i,
+  /^THIRD_PARTY_NOTICES\.md$/i,
   /^out\//,
   /^media\//,
 ];

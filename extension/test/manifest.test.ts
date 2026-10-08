@@ -299,28 +299,26 @@ test("the manifest names a publisher, and not a company", () => {
   }
 });
 
-test("the licence is a file the extension page can link to", () => {
-  // `UNLICENSED` was the old value and it says "no rights granted at all",
-  // which is the wrong thing to tell someone installing from the Marketplace:
-  // they need permission to *use* it. vsce only ships a License asset for the
-  // `SEE LICENSE IN` form, so this is also what makes the page link work.
-  assert.equal(manifest.license, "SEE LICENSE IN LICENSE.txt");
+test("the licence is the repository's Business Source License, shipped where the extension page links to it", () => {
+  // One licence for the CLI and the extension (pre-release Batch 3, option a):
+  // the same SPDX id as pyproject.toml. vsce finds LICENSE.txt by name and ships
+  // it as the License asset with an SPDX id too — checked on a packaged .vsix.
+  assert.equal(manifest.license, "BUSL-1.1");
   const file = new URL("../LICENSE.txt", import.meta.url);
-  assert.ok(existsSync(file), "the manifest names a licence file that is not there");
+  assert.ok(existsSync(file), "there is no licence file for the extension page to link to");
+  // A copy, never a variant: compared as text so a checkout's line endings do not matter.
+  const text = (url: URL) => readFileSync(url, "utf8").replace(/\r\n/g, "\n");
+  assert.equal(text(file), text(new URL("../../LICENSE", import.meta.url)), "LICENSE.txt is not a copy of the repository's LICENSE");
+  assert.match(text(file), /^Business Source License 1\.1\n/);
 
-  const text = readFileSync(file, "utf8");
-  // The four things this file exists to do.
-  assert.match(text, /free of charge/, "no grant of use");
-  // Matched loosely on purpose: the file is wrapped prose, so a phrase that
-  // spans a line break must not fail a guard about what the licence *says*.
-  assert.match(text, /Future versions may not be free/, "no room to charge later");
-  assert.match(text, /paid licence/);
-  assert.match(text, /may not redistribute/, "no restriction on redistribution");
-  assert.match(text, /WITHOUT WARRANTY OF ANY KIND/, "no warranty disclaimer");
-  // CC BY 4.0 asks for attribution wherever the font is redistributed, and a
-  // proprietary licence must not appear to override it.
-  assert.match(text, /codicons/);
-  assert.match(text, /CC BY 4\.0/);
+  // CC BY 4.0 asks for attribution wherever the font is redistributed, and the
+  // licence must not appear to cover a font that is not the licensor's.
+  const notices = text(new URL("../THIRD_PARTY_NOTICES.md", import.meta.url));
+  assert.match(notices, /codicons/);
+  assert.match(notices, /CC BY 4\.0/);
+  assert.match(notices, /media\/codicons\/ATTRIBUTION\.md/);
+  assert.match(notices, /not\s+part of the Licensed Work/);
+  assert.ok(existsSync(new URL("../media/codicons/ATTRIBUTION.md", import.meta.url)), "the codicons attribution is gone");
 });
 
 test("every menu the manifest contributes is a list, so VS Code reports no submenu error", () => {

@@ -98,14 +98,15 @@ test("changing it makes a prepared context stale: task.md says it", () => {
 test("the Branch section: last, its own, no row's gear, and wholly 'Requires rebuild'", () => {
   assert.equal(WORKFLOW_SETTINGS_SECTIONS.at(-1), "branch");
   assert.equal(SETTINGS_SECTION_TITLES.branch, "Branch");
-  assert.deepEqual([...SETTINGS_SECTION_FIELDS.branch], ["branchPolicy"]);
+  // Branch naming (pre-release Batch 3) is the same section: both name what task.md says about branches.
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS.branch], ["branchPolicy", "branchNaming", "branchTemplate"]);
   // Not mixed into Fix with AI, whose agent settings need no rebuild.
   assert.deepEqual([...SETTINGS_SECTION_FIELDS["fix-with-ai"]], ["agent", "agentCommand"]);
   assert.equal(sectionRebuildTag("branch"), "Requires rebuild");
   assert.equal(sectionRebuildTag("fix-with-ai"), "Next run only");
   assert.equal(Object.values(SETTINGS_SECTION_OF_STEP).includes("branch" as never), false);
   // The page's copy of the section.
-  assert.match(PAGE_JS, /branch: \{ fields: \["branchPolicy"\], focus: \["branchPolicy"\] \},/);
+  assert.match(PAGE_JS, /branch: \{ fields: \["branchPolicy", "branchNaming", "branchTemplate"\], focus: \["branchPolicy"\] \},/);
 });
 
 test("the page offers the three by name, the default first and recommended, what each means on hover", () => {
@@ -114,7 +115,8 @@ test("the page offers the three by name, the default first and recommended, what
   assert.match(section, /<h3 class="settings-section-title" id="settings-title-branch"[^>]*>Branch<\/h3>/);
   // The field says what it is, under a heading that says where: not "Branch" twice.
   assert.match(section, /<label for="branchPolicy"[^>]*>[\s\S]*?Branch policy<\/label>/);
-  const options = [...section.matchAll(/<option value="([^"]+)" title="([^"]+)">([^<]+)<\/option>/g)].map((match) => [
+  const policy = /<select id="branchPolicy"[\s\S]*?<\/select>/.exec(section)?.[0] ?? "";
+  const options = [...policy.matchAll(/<option value="([^"]+)" title="([^"]+)">([^<]+)<\/option>/g)].map((match) => [
     match[1],
     match[3],
     match[2],
@@ -141,17 +143,19 @@ test("the page offers the three by name, the default first and recommended, what
   assert.match(PAGE_JS, /byId\("branchPolicy"\)\.disabled = !enabled;/);
 });
 
-test("the Branch section fits a narrow sidebar: one full-width select, nothing that sets a width", () => {
+test("the Branch section fits a narrow sidebar: full-width fields one under another, nothing that sets a width", () => {
   const section = /<section class="settings-section" id="settings-section-branch"[\s\S]*?<\/section>/.exec(HTML)?.[0] ?? "";
-  // One field, the select under its label — no row that would need side-by-side room.
-  assert.equal((section.match(/<div class="field"/g) ?? []).length, 1);
-  assert.equal((section.match(/<select /g) ?? []).length, 1);
+  // Fields one under another, each select under its label — no row that would need side-by-side
+  // room: the policy, Branch naming, and the Template field Custom template shows (hidden until then).
+  assert.equal((section.match(/<div class="field"/g) ?? []).length, 3);
+  assert.equal((section.match(/<select /g) ?? []).length, 2);
+  assert.match(section, /<div class="field" id="field-branchTemplate" hidden>/);
   assert.doesNotMatch(section, /style="/);
   // Every select is as wide as its column, never wider…
   const css = readFileSync(new URL("../media/panel.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   assert.match(css, /textarea,\s*select \{\s*width: 100%;\s*box-sizing: border-box;/);
   // …and no rule gives this one a width of its own.
-  assert.doesNotMatch(css, /#branchPolicy|field-branchPolicy|settings-section-branch/);
+  assert.doesNotMatch(css, /#branchPolicy|field-branchPolicy|#branchNaming|field-branchNaming|#branchTemplate|field-branchTemplate|settings-section-branch/);
   // A choice longer than a narrow box ends in an ellipsis, not under the arrow.
   assert.match(css, /#workflow-settings-view select \{\s*overflow: hidden;\s*text-overflow: ellipsis;\s*white-space: nowrap;\s*\}/);
 });

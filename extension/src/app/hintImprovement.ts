@@ -171,6 +171,21 @@ export function hintCacheKey(input: {
  * The prompt travels on **stdin**, never in argv: a hint is untrusted text, and
  * a command line is the one place where untrusted text becomes a shell's
  * problem.
+ *
+ * And the CLI gets nothing to act with (pre-release Batch 2, C): the prompt
+ * carries a Jira issue's own words, so whatever permission mode the developer
+ * set for their own sessions must not apply to it.
+ *
+ * - Claude: `--tools ""` — no tool exists in the session, so there is nothing
+ *   to permit; `--strict-mcp-config` — none of the developer's MCP servers
+ *   either; `--no-session-persistence` — no session is left behind.
+ * - Codex: `--sandbox read-only` — any command it runs cannot write;
+ *   `--skip-git-repo-check` — it runs in an empty temporary folder, which Codex
+ *   otherwise refuses ("Not inside a trusted directory"); `--ephemeral` — no
+ *   session files.
+ *
+ * Measured on Claude Code 2.1.214 (the session's init record lists no tools
+ * and no MCP servers) and Codex CLI 0.159.3 (a write is denied by the sandbox).
  */
 export interface HintProvider {
   readonly id: string;
@@ -180,8 +195,13 @@ export interface HintProvider {
 }
 
 export const HINT_PROVIDERS: readonly HintProvider[] = [
-  { id: "claude", label: "Claude CLI", command: "claude", args: ["-p"] },
-  { id: "codex", label: "Codex CLI", command: "codex", args: ["exec", "-"] },
+  { id: "claude", label: "Claude CLI", command: "claude", args: ["-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence"] },
+  {
+    id: "codex",
+    label: "Codex CLI",
+    command: "codex",
+    args: ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "-"],
+  },
 ];
 
 /**

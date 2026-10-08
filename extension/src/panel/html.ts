@@ -56,6 +56,10 @@ import { BRANCH_POLICIES, SIMILAR_MAX_FIXES_DEFAULT, SIMILAR_MAX_FIXES_LIMIT } f
 import type { BranchPolicy } from "../app/form.ts";
 import { REPOSITORY_FIELDS, REPOSITORY_PROFILE_LABELS, REPOSITORY_PROFILE_MODES } from "../app/repositoryProfile.ts";
 import type { RepositoryField, RepositoryProfileMode } from "../app/repositoryProfile.ts";
+import { INSTRUCTION_TEXT, MAX_INSTRUCTION_CHARS } from "../app/instructions.ts";
+import { DEFAULT_BRANCH_TEMPLATE, MAX_BRANCH_TEMPLATE_CHARS, VERIFICATION_FIELDS } from "../app/projectSettings.ts";
+import type { VerificationField } from "../app/projectSettings.ts";
+import type { InstructionScope } from "../app/instructions.ts";
 import {
   DELETE_FILES_HELPER,
   DELETE_FILES_HISTORY,
@@ -484,12 +488,12 @@ const GIT_MAX_COMMITS_FIELD: TextField = {
  * its own label, like Fresh. What it does is its tooltip and accessible
  * description, never a line under it.
  */
-function settingSwitch(id: string, label: string, help: string): string {
+function settingSwitch(id: string, label: string, help: string, checked = true): string {
   return `        <div class="field field-check" id="field-${id}">
   ${settingHeader({
     forId: id,
     label,
-    control: `<input type="checkbox" id="${id}" aria-describedby="${id}-hint" checked> `,
+    control: `<input type="checkbox" id="${id}" aria-describedby="${id}-hint"${checked ? " checked" : ""}> `,
     labelClass: "choice",
     help,
   })}
@@ -744,6 +748,13 @@ const JIRA_SETUP_DIALOG = `  <dialog class="jira-dialog" id="jira-dialog" role="
     </div>
     <div class="jira-dialog-body" id="jira-dialog-body">
       <div class="jira-field">
+        <label class="jira-label" for="jira-site">${JIRA_SETUP_TEXT.siteLabel}</label>
+        <input type="url" id="jira-site" placeholder="${JIRA_SETUP_TEXT.sitePlaceholder}" autocomplete="off" spellcheck="false" aria-describedby="jira-site-description jira-site-environment jira-site-error">
+        <p class="visually-hidden" id="jira-site-description">${JIRA_SETUP_TEXT.siteDescription}</p>
+        <p class="muted jira-site-environment" id="jira-site-environment" hidden>${JIRA_SETUP_TEXT.siteFromEnvironment}</p>
+        <p class="error jira-field-error" id="jira-site-error" role="alert" hidden></p>
+      </div>
+      <div class="jira-field">
         <label class="jira-label" for="jira-email">${JIRA_SETUP_TEXT.emailLabel}</label>
         <input type="email" id="jira-email" placeholder="${JIRA_SETUP_TEXT.emailPlaceholder}" autocomplete="off" spellcheck="false" aria-describedby="jira-email-description jira-email-error">
         <p class="visually-hidden" id="jira-email-description">${JIRA_SETUP_TEXT.emailDescription}</p>
@@ -984,6 +995,8 @@ ${FIX_RESULT_ROW}
 
 ${settingsView()}
 
+${INSTRUCTIONS_VIEW}
+
   <section id="fix-mode-manager-view" class="view" aria-labelledby="manage-heading" hidden>
 ${pageHeader({
   backId: "manage-back",
@@ -1111,6 +1124,45 @@ const BRANCH_POLICY_HELP = [
   ),
 ].join(" ");
 
+/**
+ * Branch naming (pre-release Batch 3): only the name a new branch would get —
+ * whether one is made is the policy above. Default is BugPilot's own name;
+ * Custom shows the template, which is the repository's (`project_settings.json`,
+ * written on Apply) and judged by the CLI. The field is hidden until Custom is
+ * chosen: a template that is not used is not on screen.
+ */
+const BRANCH_NAMING_HELP =
+  "The name a new branch gets, when the branch policy calls for one. It never creates or switches a branch itself, " +
+  "and a work item keeps the branch it already has. Saved for the repository in .bugpilot/project_settings.json.";
+
+const BRANCH_NAMING_FIELD = `        <div class="field" id="field-branchNaming">
+  ${settingHeader({
+    forId: "branchNaming",
+    label: "Branch naming",
+    icon: "tag",
+    tone: "muted",
+    help: BRANCH_NAMING_HELP,
+    rebuild: showsRebuildLabel("branchNaming"),
+  })}
+          <select id="branchNaming" name="branchNaming" title="${BRANCH_NAMING_HELP}" aria-describedby="branchNaming-hint">
+            <option value="default" title="${DEFAULT_BRANCH_TEMPLATE}">Default (${DEFAULT_BRANCH_TEMPLATE})</option>
+            <option value="custom" title="The repository's own template">Custom template</option>
+          </select>
+        </div>`;
+
+const BRANCH_TEMPLATE_FIELD: TextField = {
+  id: "branchTemplate",
+  label: "Template",
+  kind: "input",
+  icon: "edit",
+  tone: "muted",
+  help:
+    "Must include {issue}: the Jira key, or bug- and a hash of the title for a bug you describe. {slug} is the title. " +
+    "Letters, digits, '.', '_', '-' and '/' only.",
+  placeholder: "bugfix/{issue}-{slug}",
+  maxLength: MAX_BRANCH_TEMPLATE_CHARS,
+};
+
 const BRANCH_POLICY_FIELD = `        <div class="field" id="field-branchPolicy">
   ${settingHeader({
     forId: "branchPolicy",
@@ -1190,8 +1242,102 @@ const REPOSITORY_DETAIL_FIELDS: readonly TextField[] = REPOSITORY_FIELDS.map((en
   maxLength: entry.max,
 }));
 
+/**
+ * What each instruction scope is, for its row's tooltip and description: where
+ * the file is, whom it applies to, and that it never overrides BugPilot.
+ */
+const INSTRUCTION_HELP: Readonly<Record<InstructionScope, string>> = {
+  user:
+    "Your own instructions for the AI agent, in every repository: ~/.bugpilot/instructions.md. " +
+    "They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
+  project:
+    "Instructions for the AI agent shared with this repository: .bugpilot/instructions.md, which can be committed. " +
+    "They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
+};
+
+/**
+ * An instruction row (pre-release Batch 2): the name, Edit, and under them one
+ * quiet line of state the page fills from the host — the empty state until
+ * there is something to say. A document is not edited in this narrow column:
+ * Edit opens its own page.
+ */
+function instructionRow(scope: InstructionScope): string {
+  const id = `${scope}-instructions`;
+  const text = INSTRUCTION_TEXT[scope];
+  return `        <div class="field instruction-row" id="field-${id}">
+          <div class="setting-header">
+            <label for="${id}-edit" title="${INSTRUCTION_HELP[scope]}"><span class="codicon codicon-${scope === "user" ? "checklist" : "file-text"} setting-icon icon-muted" aria-hidden="true"></span>${text.title}</label>
+            <button type="button" class="instruction-edit" id="${id}-edit" aria-label="${text.editLabel}" title="${INSTRUCTION_HELP[scope]}" aria-describedby="${id}-edit-hint ${id}-status">Edit</button>
+            <p class="visually-hidden" id="${id}-edit-hint">${INSTRUCTION_HELP[scope]}</p>
+          </div>
+          <p class="hint instruction-status" id="${id}-status">${text.empty}</p>
+        </div>`;
+}
+
+/**
+ * The Verification Policy (pre-release Batch 3): four switches under one
+ * heading, what each asks for in its tooltip. The repository's, saved in
+ * `.bugpilot/project_settings.json` on Apply; how an attempt verifies stays
+ * the Fix Mode's.
+ */
+const VERIFICATION_HELP: Readonly<Record<VerificationField, { readonly label: string; readonly help: string }>> = {
+  verifyRelevantTests: { label: "Run relevant tests", help: "Ask the agent to run the tests relevant to the changed behavior." },
+  verifyStaticChecks: {
+    label: "Run existing static checks",
+    help: "Ask the agent to run the repository's existing linters, type checks or compiler warnings when they are available.",
+  },
+  verifyFullSuite: {
+    label: "Run full test suite",
+    help: "Ask the agent to run the repository's full test suite before reporting, if it can run here.",
+  },
+  verifyReportNotRun: {
+    label: "Report tests not run",
+    help: "Ask the agent to list the relevant verification it did not run, and why.",
+  },
+};
+
+const VERIFICATION_GROUP_HELP =
+  "The verification this repository expects from a fix. The Fix Mode decides how each attempt verifies within it. " +
+  "Saved for the repository in .bugpilot/project_settings.json.";
+
+const VERIFICATION_GROUP = `        <div class="setting-group" id="field-verification" role="group" aria-labelledby="verification-label" aria-describedby="verification-description">
+          <p class="setting-group-label" id="verification-label" title="${VERIFICATION_GROUP_HELP}"><span class="codicon codicon-beaker setting-icon icon-muted" aria-hidden="true"></span>Verification</p>
+          <p class="visually-hidden" id="verification-description">${VERIFICATION_GROUP_HELP}</p>
+${VERIFICATION_FIELDS.map((entry) => settingSwitch(entry.field, VERIFICATION_HELP[entry.field].label, VERIFICATION_HELP[entry.field].help, entry.default)).join("\n")}
+        </div>`;
+
 /** The Custom details are drawn hidden; the page shows them while Custom is chosen. */
-const REPOSITORY_SECTION = [REPOSITORY_PROFILE_FIELD, ...REPOSITORY_DETAIL_FIELDS.map((entry) => field(entry).replace(`<div class="field" id="field-${entry.id}">`, `<div class="field" id="field-${entry.id}" hidden>`))].join("\n");
+const REPOSITORY_SECTION = [
+  REPOSITORY_PROFILE_FIELD,
+  ...REPOSITORY_DETAIL_FIELDS.map((entry) => field(entry).replace(`<div class="field" id="field-${entry.id}">`, `<div class="field" id="field-${entry.id}" hidden>`)),
+  instructionRow("project"),
+].join("\n");
+
+/**
+ * The instruction editor (pre-release Batch 2): one page for either scope,
+ * reached from a row's Edit, with the shared Back header. The title, the
+ * scope line and the text are the host's, filled once per open; nothing on
+ * this page is part of the form. Save writes the file — empty text removes it
+ * — and Back, Cancel and Escape write nothing. The count is the limit the CLI
+ * enforces, said before Save rather than after.
+ */
+const INSTRUCTIONS_VIEW = `  <section id="instructions-editor-view" class="view instructions-editor" aria-labelledby="instructions-title" hidden>
+${pageHeader({ backId: "instructions-back", backTitle: "Back to Advanced Settings — discards the changes", titleId: "instructions-title", title: "Instructions" })}
+
+    <p class="instructions-scope" id="instructions-scope"></p>
+    <p class="hint instructions-empty" id="instructions-empty" hidden></p>
+    <p class="hint instructions-problem" id="instructions-problem" hidden></p>
+    <label class="visually-hidden" for="instructions-text" id="instructions-text-label">Instructions</label>
+    <textarea id="instructions-text" class="instructions-text" rows="14" spellcheck="true" placeholder="Plain text or Markdown" aria-describedby="instructions-scope instructions-guide instructions-count instructions-error"></textarea>
+    <p class="visually-hidden" id="instructions-guide">Plain text or Markdown, up to ${MAX_INSTRUCTION_CHARS.toLocaleString("en-US")} characters. They refine how the AI agent works and never override BugPilot's safety rules. Saving empty text removes the file. Ctrl+Enter saves; Escape cancels.</p>
+    <p class="hint instructions-count" id="instructions-count"></p>
+    <p class="error" id="instructions-error" role="alert" hidden></p>
+
+    <div class="settings-actions">
+      <button type="button" id="instructions-cancel">Cancel</button>
+      <button type="button" id="instructions-save" class="primary">Save</button>
+    </div>
+  </section>`;
 
 /**
  * How files get to Attachments — the dialog, a drop, the clipboard. Not
@@ -1252,12 +1398,18 @@ function sectionBody(section: WorkflowSettingsSection): string {
       return SIMILAR_FIXES_SECTION;
     case "repository":
       return REPOSITORY_SECTION;
+    case "ai-instructions":
+      return `${instructionRow("user")}\n${VERIFICATION_GROUP}`;
     case "build-context":
       return FRESH_FIELD;
     case "fix-with-ai":
       return `${AGENT_FIELD}\n${field(AGENT_COMMAND_FIELD)}`;
     case "branch":
-      return BRANCH_POLICY_FIELD;
+      return [
+        BRANCH_POLICY_FIELD,
+        BRANCH_NAMING_FIELD,
+        field(BRANCH_TEMPLATE_FIELD).replace('<div class="field" id="field-branchTemplate">', '<div class="field" id="field-branchTemplate" hidden>'),
+      ].join("\n");
   }
 }
 
@@ -2039,6 +2191,7 @@ export const SETTINGS_FIELD_IDS: readonly string[] = [
   ...REPOSITORY_DETAIL_FIELDS,
   ...RUN_OPTION_FIELDS,
   AGENT_COMMAND_FIELD,
+  BRANCH_TEMPLATE_FIELD,
 ].map((entry) => entry.id);
 
 /**

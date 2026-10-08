@@ -83,12 +83,12 @@ def repo(tmp_path_factory):
     """Every kind of evidence once, and a body that must never be persisted. Read-only."""
     root = _init(tmp_path_factory.mktemp("artifact") / "repo")
     hashes = {
-        "issue": _commit(root, "2025-01-10", "JR-12345: fix the gather order", {"src/Gather.cpp": "v1\n"}),
+        "issue": _commit(root, "2025-01-10", "JR-12345: fix the bucket order", {"src/Bucket.cpp": "v1\n"}),
         "shared": _commit(
-            root, "2025-03-01", "Tidy poststack volumes", {"src/Volumes.cpp": "v1\n"}, body=SECRET_BODY
+            root, "2025-03-01", "Tidy postblend volumes", {"src/Volumes.cpp": "v1\n"}, body=SECRET_BODY
         ),
-        "git_keyword": _commit(root, "2025-04-01", "Rework the stackmerge pass", {"src/Merge.cpp": "v1\n"}),
-        "extracted": _commit(root, "2025-04-15", "Cache StackInputModel results", {"src/Model.cpp": "v1\n"}),
+        "git_keyword": _commit(root, "2025-04-01", "Rework the blendmerge pass", {"src/Merge.cpp": "v1\n"}),
+        "extracted": _commit(root, "2025-04-15", "Cache BlendInputModel results", {"src/Model.cpp": "v1\n"}),
         "focus": _commit(root, "2025-05-01", "Adjust focus defaults", {"src/Focus.cpp": "v1\n"}),
         "additional": _commit(root, "2025-06-01", "Rename legacy options", {"src/Legacy.cpp": "v1\n"}),
         "ranked": _commit(root, "2025-07-01", "Speed up renderer", {"src/Renderer.cpp": "v1\n"}),
@@ -98,9 +98,9 @@ def repo(tmp_path_factory):
 
 QUERY = GitHistoryQuery(
     issue_id="JR-12345",
-    shared_keywords=("poststack",),
-    git_keywords=("stackmerge",),
-    extracted_terms=("StackInputModel",),
+    shared_keywords=("postblend",),
+    git_keywords=("blendmerge",),
+    extracted_terms=("BlendInputModel",),
     focus_files=("src/Focus.cpp",),
     git_files=("src/Legacy.cpp",),
     ranked_files=("src/Renderer.cpp",),
@@ -151,9 +151,9 @@ def test_matched_terms_and_files_keep_their_sources(repo):
         return [(term.value, term.source) for term in commit.matched_terms], [(f.path, f.source) for f in commit.files]
 
     assert sources("issue")[0] == [("JR-12345", "issue_id")]
-    assert sources("git_keyword")[0] == [("stackmerge", "additional_commit_keyword")]
-    assert sources("shared")[0] == [("poststack", "shared_keyword")]
-    assert sources("extracted")[0] == [("StackInputModel", "extracted_term")]
+    assert sources("git_keyword")[0] == [("blendmerge", "additional_commit_keyword")]
+    assert sources("shared")[0] == [("postblend", "shared_keyword")]
+    assert sources("extracted")[0] == [("BlendInputModel", "extracted_term")]
     assert sources("focus")[1] == [("src/Focus.cpp", "shared_focus_file")]
     assert sources("additional")[1] == [("src/Legacy.cpp", "additional_file")]
     assert sources("ranked")[1] == [("src/Renderer.cpp", "code_search_ranked_file")]
@@ -186,7 +186,7 @@ def test_no_body_and_no_diff_is_persisted(repo):
 
 
 def test_a_runaway_subject_is_capped():
-    candidate = git_history.CommitCandidate("a" * 40, "x" * 1000, 0, shared_keywords=["poststack"])
+    candidate = git_history.CommitCandidate("a" * 40, "x" * 1000, 0, shared_keywords=["postblend"])
     result = git_history.GitHistoryResult(commits=(candidate,), candidate_count=1)
 
     subject = record_of(result, GitHistorySearch()).commits[0].subject
@@ -288,15 +288,15 @@ def test_malformed_commits_and_unknown_sources_are_dropped_on_read():
         {"hash": ""},
         {
             "hash": "b" * 40, "short_hash": "bbbbbbbbbb", "subject": "ok", "date": "2025-01-01", "score": 30,
-            "matched_terms": [{"value": "x", "source": "made_up"}, {"value": "poststack", "source": "shared_keyword"}],
-            "files": [{"path": "src/a.cpp", "source": "elsewhere"}], "reasons": ["matched shared keyword: poststack"],
+            "matched_terms": [{"value": "x", "source": "made_up"}, {"value": "postblend", "source": "shared_keyword"}],
+            "files": [{"path": "src/a.cpp", "source": "elsewhere"}], "reasons": ["matched shared keyword: postblend"],
         },
     ]
 
     record = git_history_from_dict(data)
 
     assert [c.hash for c in record.commits] == ["b" * 40]
-    assert [t.value for t in record.commits[0].matched_terms] == ["poststack"]
+    assert [t.value for t in record.commits[0].matched_terms] == ["postblend"]
     assert record.commits[0].files == ()
 
 
@@ -305,18 +305,18 @@ def test_malformed_commits_and_unknown_sources_are_dropped_on_read():
 
 def _code_repo(tmp_path: Path) -> Path:
     root = _init(tmp_path / "prepared")
-    _commit(root, "2025-01-01", "Add poststack volumes", {"src/Volumes.cpp": "void poststack() {}\n"})
-    _commit(root, "2025-02-01", "Rework the stackmerge pass", {"src/Merge.cpp": "int merge() { return 0; }\n"})
-    _commit(root, "2025-03-01", "Tidy poststack logging", {"src/Log.cpp": "int log() { return 1; }\n"})
+    _commit(root, "2025-01-01", "Add postblend volumes", {"src/Volumes.cpp": "void postblend() {}\n"})
+    _commit(root, "2025-02-01", "Rework the blendmerge pass", {"src/Merge.cpp": "int merge() { return 0; }\n"})
+    _commit(root, "2025-03-01", "Tidy postblend logging", {"src/Log.cpp": "int log() { return 1; }\n"})
     _git(root, "commit", "-q", "--allow-empty", "-m", "Ignore nothing", date="2025-03-02")
     return root
 
 
 def _prepare(root: Path, options: InvestigationOptions | None = None, plan: InvestigationPlan | None = None, spec=None, fresh=True):
-    spec = spec or bug_spec_from_description("poststack volumes vanish after a merge.", title="Volumes vanish")
+    spec = spec or bug_spec_from_description("postblend volumes vanish after a merge.", title="Volumes vanish")
     request = InvestigationRequest(
         spec=spec,
-        options=options or InvestigationOptions(keywords=["poststack"]),
+        options=options or InvestigationOptions(keywords=["postblend"]),
         **({"plan": plan} if plan else {}),
     )
     workflow.run_investigation(root, request, fresh=fresh)
@@ -410,7 +410,7 @@ def test_a_rerun_replaces_the_section(tmp_path):
     spec = _prepare(root)
     before = _section(root, spec.work_item_id)
 
-    options = InvestigationOptions(keywords=["poststack"], git_history=GitHistoryOptions(max_related_commits=1))
+    options = InvestigationOptions(keywords=["postblend"], git_history=GitHistoryOptions(max_related_commits=1))
     _prepare(root, options, spec=spec, fresh=False)
     after = _section(root, spec.work_item_id)
 
@@ -427,7 +427,7 @@ def test_skipping_git_history_leaves_no_section_behind(tmp_path):
     assert _section(root, spec.work_item_id) is not None
 
     off = GitHistoryOptions(search_commit_messages=False, search_file_history=False)
-    _prepare(root, InvestigationOptions(keywords=["poststack"], git_history=off), spec=spec, fresh=False)
+    _prepare(root, InvestigationOptions(keywords=["postblend"], git_history=off), spec=spec, fresh=False)
 
     # Code Search rewrote the file; Git history did not run, so nothing claims it did.
     assert _section(root, spec.work_item_id) is None
@@ -493,7 +493,7 @@ def test_the_context_section_renders_the_records_fields(repo):
     assert f"### {first.short_hash} — {first.subject}\n\nDate: {first.date}\n" in text
     assert "Matched: JR-12345\n" in text
     assert "Relevant files:\n- `src/Focus.cpp`\n" in text
-    assert "Why relevant:\n- matched commit keyword: stackmerge\n" in text
+    assert "Why relevant:\n- matched commit keyword: blendmerge\n" in text
     headings = re.findall(r"^### ([0-9a-f]{10}) — ", text, flags=re.M)
     assert headings == [c.short_hash for c in outcome.record.commits]
 
@@ -513,9 +513,9 @@ def test_a_work_item_whose_git_history_did_not_run_says_so(tmp_path):
 @needs_git
 def test_recording_logs_counts_and_never_contents(tmp_path, execution_trace):
     root = _code_repo(tmp_path)
-    _prepare(root, InvestigationOptions(keywords=["poststack"], git_history=GitHistoryOptions(keywords=("stackmerge",))))
+    _prepare(root, InvestigationOptions(keywords=["postblend"], git_history=GitHistoryOptions(keywords=("blendmerge",))))
 
     trace = execution_trace.text
     assert re.search(r"git_context recorded: status=completed, \d+ candidate\(s\), \d+ retained", trace)
-    for private in ("poststack", "stackmerge", "Rework the stackmerge pass", "src/Merge.cpp", "Volumes"):
+    for private in ("postblend", "blendmerge", "Rework the blendmerge pass", "src/Merge.cpp", "Volumes"):
         assert private not in trace

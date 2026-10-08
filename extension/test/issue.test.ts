@@ -16,8 +16,8 @@ const ISSUE = {
   schema_version: 1,
   id: "JR-12345",
   source: "jira",
-  title: "WidgetController rejects the VDS output type",
-  description: "Saving a VDS volume fails with an output type error.",
+  title: "WidgetController rejects the CSV output type",
+  description: "Saving a CSV volume fails with an output type error.",
   comments: [],
   signals: { stack_traces: [], error_messages: [], log_signals: [] },
   details: { issue_type: "Bug", status: "Open", labels: [] },
@@ -33,7 +33,7 @@ test("a Jira issue yields its id, its source and its title", () => {
   assert.deepEqual(parseIssue(text(ISSUE)), {
     id: "JR-12345",
     source: "jira",
-    title: "WidgetController rejects the VDS output type",
+    title: "WidgetController rejects the CSV output type",
   });
 });
 

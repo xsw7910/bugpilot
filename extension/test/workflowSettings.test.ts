@@ -42,12 +42,12 @@ test("every settings field has exactly one home, and the form's own fields have 
 test("the gears map rows to sections one to one, and a section is titled by its step", () => {
   const steps = Object.keys(SETTINGS_SECTION_OF_STEP);
   for (const step of steps) assert.ok((WORKFLOW_STEP_IDS as readonly string[]).includes(step), step);
-  // Every section but the shared inputs and Branch is one step's, in the
-  // workflow's order.
+  // Every section but the shared inputs, Repository, AI instructions and
+  // Branch is one step's, in the workflow's order.
   assert.deepEqual(
     Object.values(SETTINGS_SECTION_OF_STEP),
     WORKFLOW_SETTINGS_SECTIONS.filter(
-      (section) => section !== "retrieval-inputs" && section !== "repository" && section !== "branch",
+      (section) => section !== "retrieval-inputs" && section !== "repository" && section !== "ai-instructions" && section !== "branch",
     ),
   );
   // Git history has a gear, and Similar fixes too since §37.113; Fix result
@@ -63,8 +63,14 @@ test("the gears map rows to sections one to one, and a section is titled by its 
 test("the page's sections, in order: the shared inputs just before the retrieval steps that read them (§37.113)", () => {
   assert.deepEqual(
     [...WORKFLOW_SETTINGS_SECTIONS],
-    ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "repository", "build-context", "fix-with-ai", "branch"],
+    ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "repository", "ai-instructions", "build-context", "fix-with-ai", "branch"],
   );
+  // AI instructions (pre-release Batch 2) holds a document edited on its own
+  // page, and since Batch 3 the Verification Policy's four switches: all of it
+  // task.md's, so wholly "Requires rebuild".
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS["ai-instructions"]], ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun"]);
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS.branch], ["branchPolicy", "branchNaming", "branchTemplate"]);
+  assert.equal(SETTINGS_SECTION_TITLES["ai-instructions"], "AI instructions");
   assert.equal(SETTINGS_SECTION_TITLES["retrieval-inputs"], "Retrieval inputs");
   // One Keywords and one Focus files, shared, and no row's gear opens them.
   assert.deepEqual([...SETTINGS_SECTION_FIELDS["retrieval-inputs"]], ["keywords", "focusFiles"]);
@@ -103,7 +109,7 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   agentCommand: { agentCommand: "my-agent {prompt}" },
   gitUseSharedKeywords: { gitUseSharedKeywords: false },
   gitUseSharedFocusFiles: { gitUseSharedFocusFiles: false },
-  gitKeywords: { gitKeywords: "stackmerge" },
+  gitKeywords: { gitKeywords: "blendmerge" },
   gitFiles: { gitFiles: "src/legacy/" },
   gitSearchMessages: { gitSearchMessages: false },
   gitSearchFileHistory: { gitSearchFileHistory: false },
@@ -121,6 +127,14 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   repositoryBuildSystem: { repositoryBuildSystem: "Cargo" },
   repositoryTestFramework: { repositoryTestFramework: "cargo test" },
   repositoryNotes: { repositoryNotes: "No unsafe code." },
+  // The project settings (Batch 3): the Verification Policy is a section of
+  // task.md, and a template names the branch — used only while Custom is chosen.
+  verifyRelevantTests: { verifyRelevantTests: false },
+  verifyStaticChecks: { verifyStaticChecks: false },
+  verifyFullSuite: { verifyFullSuite: true },
+  verifyReportNotRun: { verifyReportNotRun: false },
+  branchNaming: { branchNaming: "custom", branchTemplate: "fix/{issue}" },
+  branchTemplate: { branchNaming: "custom", branchTemplate: "bugfix/{issue}-{slug}" },
 };
 
 test("the page's 'requires rebuild' words are the host's staleness rule, field by field", () => {
@@ -228,10 +242,10 @@ test("Similar fixes' summary: its own keywords counted, the switch when off, the
   assert.equal(settingsSummaries({ ...DEFAULT_FORM, similarMaxFixes: "abc" }).similarFixes, undefined);
   // The shared Keywords are counted where they are always used, Code search,
   // and never a second time on Similar fixes' row; its words are never shown.
-  const shared = settingsSummaries({ ...DEFAULT_FORM, keywords: "OpenVDS", similarKeywords: "s3cretTerm" });
+  const shared = settingsSummaries({ ...DEFAULT_FORM, keywords: "OpenCSV", similarKeywords: "s3cretTerm" });
   assert.equal(shared.codeSearch, "1 keyword");
   assert.equal(shared.similarFixes, "1 additional keyword");
-  assert.doesNotMatch(JSON.stringify(shared), /OpenVDS|s3cretTerm/);
+  assert.doesNotMatch(JSON.stringify(shared), /OpenCSV|s3cretTerm/);
 });
 
 test("a custom agent is summarized by kind, never by its command", () => {

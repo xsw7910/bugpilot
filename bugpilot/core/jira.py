@@ -70,7 +70,20 @@ class JiraCommentPostError(Exception):
 
 
 ERROR_MESSAGES = {
-    "missing_env": "Jira environment variables are missing. Set JIRA_BASE_URL, JIRA_EMAIL, and JIRA_TOKEN.",
+    # Names the two ways to configure Jira and nothing else: no value, no site
+    # (pre-release Batch 4.1; it used to name only the environment variables).
+    "missing_env": (
+        "Jira is not configured: no Jira site, email and API token were found in the environment or in "
+        "~/.bugpilot/config.toml. Run `bugpilot setup`, or set JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN."
+    ),
+    "invalid_site": (
+        "The Jira site must be an https:// address with no user name, password, query or fragment, "
+        "for example https://your-company.atlassian.net. Fix JIRA_BASE_URL or run: bugpilot setup"
+    ),
+    "redirect_refused": (
+        "Jira redirected the request to a different site. BugPilot sends Jira credentials only to the "
+        "configured site; check that JIRA_BASE_URL (or bugpilot setup) names the address Jira really uses."
+    ),
     "auth_or_permission": "Jira authentication or permission failed. Check Jira credentials and project access.",
     "not_found": "Jira issue was not found or is not accessible. Check issue key and project permissions.",
     "rate_limited": "Jira rate limit reached. Retry later.",
@@ -90,13 +103,132 @@ MAX_JIRA_COMMENT_LENGTH = 12000
 # three places, which named a version that had already moved on.
 USER_AGENT = f"bugpilot/{__version__}"
 
+
+# --- the Jira site, and the one way a request reaches it ---------------------
+#
+# Every request carries the developer's email and API token as HTTP Basic
+# credentials, so two rules hold for all of them (pre-release Batch 2, B):
+#
+# - the site is https://, always. There is no switch that allows http://, for a
+#   loopback host or anything else: a test fakes the transport instead;
+# - a redirect never takes the credentials to another origin. urllib's default
+#   handler copies `Authorization` onto every redirect, to any host; the handler
+#   below follows a redirect only to the same scheme, host and effective port,
+#   and refuses any other with its own error rather than retrying without them.
+
+_HOST_LABEL = re.compile(r"(?!-)[a-z0-9_-]{1,63}(?<!-)")
+
+
+class JiraSiteError(ValueError):
+    """A Jira site URL BugPilot will not send credentials to. The message says why."""
+
+
+class JiraRedirectRefused(Exception):
+    """A Jira response redirected to another origin; the request was not repeated."""
+
+
+def normalize_jira_site(raw: str | None) -> str:
+    """The Jira site as every request uses it: ``https://host[:port][/path]``.
+
+    Refused with :class:`JiraSiteError`: any scheme but https, a user name or
+    password in the URL, a query or fragment, whitespace, backslashes or control
+    characters, a missing or malformed host, a port outside 1-65535. A path is
+    kept (a self-hosted Jira may live under one) without its trailing slash.
+    """
+    value = (raw or "").strip()
+    if not value:
+        raise JiraSiteError("No Jira site is configured.")
+    if any(character.isspace() or ord(character) < 32 or character == "\\" for character in value):
+        raise JiraSiteError("The Jira site contains spaces, backslashes or control characters.")
+    try:
+        parts = urlsplit(value)
+    except ValueError as exc:
+        # "Invalid IPv6 URL" for a bracket that is not an IPv6 literal, such as a
+        # placeholder typed with its brackets. Every caller handles JiraSiteError.
+        raise JiraSiteError("The Jira site has an invalid host name.") from exc
+    if parts.scheme.lower() != "https":
+        raise JiraSiteError("The Jira site must start with https://.")
+    if "@" in parts.netloc:
+        raise JiraSiteError("The Jira site must not contain a user name or password.")
+    if parts.query or parts.fragment or value.endswith(("?", "#")):
+        raise JiraSiteError("The Jira site must not contain a query or fragment.")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise JiraSiteError("The Jira site has an invalid port.") from exc
+    if port is not None and not 1 <= port <= 65535:
+        raise JiraSiteError("The Jira site has an invalid port.")
+    host = (parts.hostname or "").lower()
+    if not host:
+        raise JiraSiteError("The Jira site has no host name.")
+    if parts.netloc.startswith("["):
+        import ipaddress
+
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError as exc:
+            raise JiraSiteError("The Jira site has an invalid host name.") from exc
+        netloc_host = f"[{host}]"
+    else:
+        if len(host) > 253 or not all(_HOST_LABEL.fullmatch(label) for label in host.split(".")):
+            raise JiraSiteError("The Jira site has an invalid host name.")
+        netloc_host = host
+    netloc = netloc_host if port is None else f"{netloc_host}:{port}"
+    return urlunsplit(("https", netloc, parts.path.rstrip("/"), "", ""))
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """Scheme, host and effective port: what a redirect may not change."""
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    try:
+        port = parts.port
+    except ValueError:
+        port = -1
+    if port is None:
+        port = {"https": 443, "http": 80}.get(scheme)
+    return scheme, (parts.hostname or "").lower(), port
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only within the origin the credentials were meant for."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401 - urllib's signature
+        if _origin(newurl) != _origin(req.full_url):
+            # The redirect's own response is not read, and its connection is
+            # not left open behind the refusal.
+            if fp is not None:
+                fp.close()
+            raise JiraRedirectRefused(
+                f"Jira redirected from {_origin(req.full_url)[1]} to {_origin(newurl)[1] or 'another site'}."
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _build_opener(*handlers: urllib.request.BaseHandler) -> urllib.request.OpenerDirector:
+    """The opener every Jira request goes through; extra handlers are for tests."""
+    return urllib.request.build_opener(_SameOriginRedirectHandler, *handlers)
+
+
+_OPENER = _build_opener()
+
+
+def _open(request: urllib.request.Request, timeout: float):
+    """The one transport for Jira: same-origin redirects only. Tests replace it."""
+    return _OPENER.open(request, timeout=timeout)
+
+
 def fetch_issue(repo_root: Path, issue_key: str, allow_mock: bool = True) -> JiraFetchResult:
     config = load_config(repo_root)
     if not config.has_jira_credentials:
         failure = _failure(issue_key, "missing_env")
         return _fallback_or_raise(failure, allow_mock)
+    try:
+        site = normalize_jira_site(config.jira_base_url)
+    except JiraSiteError:
+        return _fallback_or_raise(_failure(issue_key, "invalid_site"), allow_mock)
 
-    url = f"{config.jira_base_url.rstrip('/')}/rest/api/3/issue/{issue_key}?expand=renderedFields"
+    url = f"{site}/rest/api/3/issue/{issue_key}?expand=renderedFields"
     token = base64.b64encode(f"{config.jira_email}:{config.jira_token}".encode()).decode()
     request = urllib.request.Request(
         url,
@@ -107,7 +239,7 @@ def fetch_issue(repo_root: Path, issue_key: str, allow_mock: bool = True) -> Jir
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with _open(request, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, dict) or "fields" not in payload:
             failure = _failure(issue_key, "invalid_response")
@@ -124,6 +256,8 @@ def fetch_issue(repo_root: Path, issue_key: str, allow_mock: bool = True) -> Jir
             error_message=None,
             data=payload,
         )
+    except JiraRedirectRefused:
+        return _fallback_or_raise(_failure(issue_key, "redirect_refused"), allow_mock)
     except urllib.error.HTTPError as exc:
         failure = _failure(issue_key, _http_error_type(exc.code))
         return _fallback_or_raise(failure, allow_mock)
@@ -158,7 +292,11 @@ def validate_credentials(base_url: str, email: str, token: str, timeout: int = 3
     :class:`JiraValidationResult` with ``ok`` and, on failure, a classified
     ``error_type`` / ``error_message`` drawn from the shared ``ERROR_MESSAGES``.
     """
-    url = f"{base_url.rstrip('/')}/rest/api/3/myself"
+    try:
+        site = normalize_jira_site(base_url)
+    except JiraSiteError:
+        return _validation_failure("invalid_site")
+    url = f"{site}/rest/api/3/myself"
     request = urllib.request.Request(
         url,
         headers={
@@ -168,7 +306,7 @@ def validate_credentials(base_url: str, email: str, token: str, timeout: int = 3
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _open(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, dict):
             return _validation_failure("invalid_response")
@@ -177,6 +315,8 @@ def validate_credentials(base_url: str, email: str, token: str, timeout: int = 3
             account_email=payload.get("emailAddress"),
             display_name=payload.get("displayName"),
         )
+    except JiraRedirectRefused:
+        return _validation_failure("redirect_refused")
     except urllib.error.HTTPError as exc:
         return _validation_failure(_http_error_type(exc.code))
     except (TimeoutError, socket.timeout):
@@ -208,7 +348,11 @@ def post_jira_comment(repo_root: Path, issue_key: str, comment_text: str) -> Jir
     if not prepared:
         raise JiraCommentPostError("empty_comment", "Jira comment draft is empty.")
 
-    url = f"{config.jira_base_url.rstrip('/')}/rest/api/3/issue/{issue_key}/comment"
+    try:
+        site = normalize_jira_site(config.jira_base_url)
+    except JiraSiteError as exc:
+        raise JiraCommentPostError("invalid_site", ERROR_MESSAGES["invalid_site"]) from exc
+    url = f"{site}/rest/api/3/issue/{issue_key}/comment"
     token = base64.b64encode(f"{config.jira_email}:{config.jira_token}".encode()).decode()
     body = json.dumps({"body": _markdown_to_adf(prepared)}).encode("utf-8")
     request = urllib.request.Request(
@@ -223,8 +367,10 @@ def post_jira_comment(repo_root: Path, issue_key: str, comment_text: str) -> Jir
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with _open(request, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
+    except JiraRedirectRefused as exc:
+        raise JiraCommentPostError("redirect_refused", ERROR_MESSAGES["redirect_refused"]) from exc
     except urllib.error.HTTPError as exc:
         error_type = _http_error_type(exc.code)
         raise JiraCommentPostError(error_type, ERROR_MESSAGES.get(error_type, ERROR_MESSAGES["unknown_error"])) from exc

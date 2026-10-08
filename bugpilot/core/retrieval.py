@@ -40,7 +40,7 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, RETRIEVAL_ARTIFACT
-from .config import issue_dir
+from .config import issue_dir, writable_issue_dir
 from .models import DEFAULT_MAX_RELATED_COMMITS
 
 
@@ -232,8 +232,7 @@ def save_retrieval(repo_root: Path, work_item_id: str, retrieval: RetrievalArtif
     Atomically because the extension reads it to draw Relevant files and
     Search details, possibly while a refinement is rewriting it.
     """
-    path = retrieval_path(repo_root, work_item_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = writable_issue_dir(repo_root, work_item_id) / RETRIEVAL_ARTIFACT
     atomic_write_text(path, json.dumps(retrieval_to_dict(retrieval), indent=2, ensure_ascii=False) + "\n")
     return path
 

@@ -22,7 +22,11 @@ import type { ArtifactList } from "../app/artifacts.ts";
 import type { CommandAction } from "../app/environment.ts";
 import { FIX_MODE_ID_RE, branchPolicyOf, gitHistoryDepthOf } from "../app/form.ts";
 import { repositoryProfileModeOf } from "../app/repositoryProfile.ts";
+import { MAX_BRANCH_TEMPLATE_CHARS, branchNamingOf } from "../app/projectSettings.ts";
+import { JIRA_SITE_CAP } from "../app/jiraSite.ts";
 import type { RepositoryProfileView } from "../app/repositoryProfile.ts";
+import { MAX_INSTRUCTION_CHARS, isInstructionScope } from "../app/instructions.ts";
+import type { InstructionScope } from "../app/instructions.ts";
 import type { UserFacingError } from "../app/failures.ts";
 import type { JiraConnectionView } from "../app/jiraConnection.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
@@ -77,6 +81,9 @@ const CAPS: Readonly<Record<keyof FormTextFields, number>> = {
   repositoryBuildSystem: 120,
   repositoryTestFramework: 120,
   repositoryNotes: 1_000,
+  // One past the CLI's own limit, so a template that is too long is refused by
+  // the CLI with its reason, never cut short and saved as something else.
+  branchTemplate: MAX_BRANCH_TEMPLATE_CHARS + 1,
 };
 
 type FormTextFields = Omit<
@@ -97,6 +104,11 @@ type FormTextFields = Omit<
   | "similarUseSharedKeywords"
   | "branchPolicy"
   | "repositoryProfile"
+  | "verifyRelevantTests"
+  | "verifyStaticChecks"
+  | "verifyFullSuite"
+  | "verifyReportNotRun"
+  | "branchNaming"
 >;
 
 /**
@@ -210,6 +222,13 @@ export interface PanelState {
    */
   readonly repositoryProfile?: RepositoryProfileView;
   /**
+   * The settings page's two instruction rows (pre-release Batch 2): each
+   * scope's state in one line. Never the text, which only the open editor gets.
+   */
+  readonly instructions: InstructionsView;
+  /** The instruction editor, present only while it is open. */
+  readonly instructionsEditor?: InstructionsEditorView;
+  /**
    * What the *prepared* package was built with, when there is one.
    *
    * Separate from `form.fixModeId`, which is what the next run would use. The
@@ -263,6 +282,42 @@ export interface PanelState {
   readonly jiraSetup?: JiraSetupView;
 }
 
+/** One instruction scope's row on the settings page. */
+export interface InstructionRowView {
+  /** "No project instructions configured.", "Configured · 1,204 characters" — empty while unknown. */
+  readonly status: string;
+  /** Whether Edit may be pressed: the host can read and write the file. */
+  readonly editable: boolean;
+}
+
+export interface InstructionsView {
+  readonly user: InstructionRowView;
+  readonly project: InstructionRowView;
+}
+
+/**
+ * The instruction editor, as the host sees it. The text is what the file held
+ * when the editor opened, sent so the page can fill its box once — per
+ * `token` — and never again while the developer types.
+ */
+export interface InstructionsEditorView {
+  /** Bumped by every open: a new token is a new editor, filled afresh. */
+  readonly token: number;
+  readonly scope: InstructionScope;
+  readonly title: string;
+  readonly scopeLine: string;
+  /** "No project instructions configured." — shown while the file has nothing. */
+  readonly empty: string;
+  readonly text: string;
+  readonly maxCharacters: number;
+  /** Why the saved file is not used, when it is not: saving replaces it. */
+  readonly problem?: string;
+  /** A save is under way: the editor waits. */
+  readonly saving: boolean;
+  /** Why the last Save wrote nothing, sent once: `token` changes per answer. */
+  readonly error?: { readonly token: number; readonly message: string };
+}
+
 /**
  * Jira Setup's dialog, as the host sees it. It carries the stored email and
  * whether a token is stored — never the token, which no message to the page
@@ -276,6 +331,10 @@ export interface JiraSetupView {
   readonly request: number;
   /** The stored Atlassian account email, to start the field with. */
   readonly email?: string;
+  /** The Jira site the CLI would use, to start the field with (Batch 3). Not a secret. */
+  readonly site?: string;
+  /** `JIRA_BASE_URL` sets the site: the field shows it and is not this dialog's to change. */
+  readonly siteFromEnvironment: boolean;
   /** A token is stored: a saved one replaces it, and the dialog says so. */
   readonly tokenStored: boolean;
   /** A save is under way: the dialog waits. */
@@ -283,7 +342,7 @@ export interface JiraSetupView {
   /** Why the last Save stored nothing, sent once: `token` changes per answer. */
   readonly error?: {
     readonly token: number;
-    readonly field?: "email" | "token";
+    readonly field?: "site" | "email" | "token";
     readonly message: string;
   };
 }
@@ -534,9 +593,23 @@ export type PanelMessage =
    * and stores them with the existing credential store; the page keeps the
    * token only while the dialog is open and never persists it.
    */
-  | { readonly type: "saveJiraCredentials"; readonly email: string; readonly token: string }
+  | { readonly type: "saveJiraCredentials"; readonly site: string; readonly email: string; readonly token: string }
   /** Jira Setup's Cancel, or Escape: close it and store nothing. */
   | { readonly type: "closeJiraSetup" }
+  /**
+   * An instruction row's Edit (pre-release Batch 2): which scope, and nothing
+   * else — the host knows where each file is, and the page never names a path.
+   * Opening reads the file; it never creates one.
+   */
+  | { readonly type: "openInstructions"; readonly scope: InstructionScope }
+  /** The instruction editor's Back, Cancel or Escape: close it, write nothing. */
+  | { readonly type: "closeInstructions" }
+  /**
+   * The instruction editor's Save: the scope it was opened for and the text as
+   * typed, bounded one past the limit so too long is refused, never cut. Empty
+   * text removes the file.
+   */
+  | { readonly type: "saveInstructions"; readonly scope: InstructionScope; readonly text: string }
   /**
    * "Read this pasted review into the form" (Paste Review Output): the text as
    * pasted, bounded. The host answers once with the sections or the reason it
@@ -609,6 +682,9 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   resetSession: true,
   saveJiraCredentials: true,
   closeJiraSetup: true,
+  openInstructions: true,
+  closeInstructions: true,
+  saveInstructions: true,
   parseReviewOutput: true,
   discardReviewDraft: true,
   verificationDraft: true,
@@ -696,12 +772,26 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       // above anything real (an Atlassian token is a few hundred characters).
       const email = message?.["email"];
       const token = message?.["token"];
+      // The site since Batch 3; a page from before it sends none, which reads
+      // as empty — the host then asks for it rather than guessing one.
+      const site = message?.["site"] ?? "";
+      if (typeof site !== "string" || site.length > JIRA_SITE_CAP) return undefined;
       if (typeof email !== "string" || email.length > JIRA_EMAIL_CAP) return undefined;
       if (typeof token !== "string" || token.length > JIRA_TOKEN_CAP) return undefined;
-      return { type, email, token };
+      return { type, site, email, token };
     }
     case "closeJiraSetup":
+    case "closeInstructions":
       return { type };
+    case "openInstructions": {
+      const scope = message?.["scope"];
+      return isInstructionScope(scope) ? { type, scope } : undefined;
+    }
+    case "saveInstructions": {
+      const scope = message?.["scope"];
+      const text = asString(message?.["text"], MAX_INSTRUCTION_CHARS + 1);
+      return isInstructionScope(scope) && text !== undefined ? { type, scope, text } : undefined;
+    }
     case "parseReviewOutput": {
       // Clamped one past the cap, so a paste that is too long is refused by the
       // parser with a reason, never cut short and read as if that were all.
@@ -982,6 +1072,16 @@ function parseForm(raw: unknown): FormState | undefined {
     repositoryBuildSystem: text("repositoryBuildSystem"),
     repositoryTestFramework: text("repositoryTestFramework"),
     repositoryNotes: text("repositoryNotes"),
+    // The project settings: the four switches, each absent as its default
+    // (the full suite ships off); a naming that is not Custom is the default,
+    // and the template is capped like the rest. The host writes them to the
+    // repository's project settings file on Apply.
+    verifyRelevantTests: record["verifyRelevantTests"] !== false,
+    verifyStaticChecks: record["verifyStaticChecks"] !== false,
+    verifyFullSuite: record["verifyFullSuite"] === true,
+    verifyReportNotRun: record["verifyReportNotRun"] !== false,
+    branchNaming: branchNamingOf(record["branchNaming"]),
+    branchTemplate: text("branchTemplate"),
   };
 }
 

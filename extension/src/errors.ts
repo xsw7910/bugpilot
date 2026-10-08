@@ -32,7 +32,7 @@ const TABLE: Record<string, Entry> = {
   // --- Jira ---------------------------------------------------------------
   JIRA_NOT_CONFIGURED: {
     summary: "Jira is not configured.",
-    action: "Store your Jira email and API token with Set Jira Credentials. If no Jira site is set, run `bugpilot setup` or set JIRA_BASE_URL.",
+    action: "Open Jira Setup (Set Jira Credentials) and enter the Jira site, your email and an API token, or set JIRA_BASE_URL.",
   },
   JIRA_AUTH_FAILED: {
     summary: "Jira rejected the stored credentials.",
@@ -59,6 +59,16 @@ const TABLE: Record<string, Entry> = {
   },
   JIRA_INVALID_RESPONSE: { summary: "Jira returned something bugpilot could not read." },
   JIRA_ERROR: { summary: "Jira request failed.", retryable: true },
+  // Pre-release Batch 2: the site is https:// or nothing, and credentials never
+  // follow a redirect to another site.
+  JIRA_INVALID_SITE: {
+    summary: "The Jira site must be an https:// address.",
+    action: "Set the Jira site to its https:// address, such as https://your-company.atlassian.net, in Jira Setup (Set Jira Credentials), with `bugpilot jira-site set`, or in JIRA_BASE_URL.",
+  },
+  JIRA_REDIRECT_REFUSED: {
+    summary: "Jira redirected to a different site, so BugPilot did not send your credentials there.",
+    action: "Check that the Jira site (Jira Setup, `bugpilot jira-site`, or JIRA_BASE_URL) is the address Jira really uses.",
+  },
 
   // --- source-mode gates --------------------------------------------------
   JIRA_ONLY_COMMAND: {

@@ -85,29 +85,29 @@ def repo(tmp_path_factory):
     root = _init(tmp_path_factory.mktemp("feedback") / "repo")
     base = {name: "v0\n" for name in (
         "src/A.cpp", "src/B.cpp", "src/C.cpp", "src/D.cpp", "src/E.cpp", "src/F.cpp", "src/Old.cpp",
-        "src/Focus.cpp", "src/H.cpp", "src/W.cpp", "src/legacy/Gather.cpp", "src/legacy/Util.cpp",
+        "src/Focus.cpp", "src/H.cpp", "src/W.cpp", "src/legacy/Bucket.cpp", "src/legacy/Util.cpp",
         "docs/notes.md", "vendor/lib.cpp", "build/gen.cpp", "package-lock.json",
     )}
     hashes = {"init": _commit(root, "2024-12-01", "Initial import", base)}
-    hashes["issue"] = _commit(root, "2025-01-10", "JR-12345: fix poststack ordering", {"src/A.cpp": "v1\n", "src/C.cpp": "v1\n"})
-    hashes["keyword"] = _commit(root, "2025-02-01", "Tidy poststack volumes", {"src/A.cpp": "v2\n", "src/D.cpp": "v1\n"})
+    hashes["issue"] = _commit(root, "2025-01-10", "JR-12345: fix postblend ordering", {"src/A.cpp": "v1\n", "src/C.cpp": "v1\n"})
+    hashes["keyword"] = _commit(root, "2025-02-01", "Tidy postblend volumes", {"src/A.cpp": "v2\n", "src/D.cpp": "v1\n"})
     hashes["mixed"] = _commit(
-        root, "2025-03-01", "poststack cleanup",
+        root, "2025-03-01", "postblend cleanup",
         {"src/C.cpp": "v2\n", "src/E.cpp": "v1\n", "docs/notes.md": "v1\n", "vendor/lib.cpp": "v1\n",
          "build/gen.cpp": "v1\n", "package-lock.json": "v1\n"},
         delete=("src/Old.cpp",),
     )
-    hashes["rename"] = _commit(root, "2025-04-01", "poststack rename", rename=("src/F.cpp", "src/G.cpp"))
-    hashes["gone_added"] = _commit(root, "2025-04-15", "poststack helper", {"src/Gone.cpp": "v1\n"})
+    hashes["rename"] = _commit(root, "2025-04-01", "postblend rename", rename=("src/F.cpp", "src/G.cpp"))
+    hashes["gone_added"] = _commit(root, "2025-04-15", "postblend helper", {"src/Gone.cpp": "v1\n"})
     hashes["gone_removed"] = _commit(root, "2025-04-20", "Remove the helper", delete=("src/Gone.cpp",))
     hashes["weak"] = _commit(root, "2025-06-01", "Speed up B", {"src/B.cpp": "v1\n", "src/W.cpp": "v1\n"})
     hashes["bulk"] = _commit(
-        root, "2025-07-01", "poststack reformat",
+        root, "2025-07-01", "postblend reformat",
         {**{f"src/bulk/f{i}.cpp": "x\n" for i in range(BULK_COMMIT_FILES + 1)}, "src/A.cpp": "v3\n"},
     )
     hashes["focus"] = _commit(root, "2025-08-01", "Adjust focus defaults", {"src/Focus.cpp": "v1\n", "src/H.cpp": "v1\n"})
     hashes["legacy"] = _commit(
-        root, "2025-09-01", "Rename legacy options", {"src/legacy/Gather.cpp": "v1\n", "src/legacy/Util.cpp": "v1\n"}
+        root, "2025-09-01", "Rename legacy options", {"src/legacy/Bucket.cpp": "v1\n", "src/legacy/Util.cpp": "v1\n"}
     )
     return root, hashes
 
@@ -169,8 +169,8 @@ def test_directory_guidance_never_becomes_a_supporting_file(repo):
 
     assert "src/legacy" not in _paths(found)
     # The files inside it are real paths git returned, and new evidence.
-    assert {"src/legacy/Gather.cpp", "src/legacy/Util.cpp"} <= set(_paths(found))
-    assert "changed with additional file `src/legacy`" in _by_path(found, "src/legacy/Gather.cpp").reasons
+    assert {"src/legacy/Bucket.cpp", "src/legacy/Util.cpp"} <= set(_paths(found))
+    assert "changed with additional file `src/legacy`" in _by_path(found, "src/legacy/Bucket.cpp").reasons
 
 
 # --- 4/5/6. evidence adds up, and stronger commits count for more ---------------------------------
@@ -179,7 +179,7 @@ def test_directory_guidance_never_becomes_a_supporting_file(repo):
 def test_the_same_file_in_two_commits_gathers_both(repo):
     root, hashes = repo
     once = _by_path(_supporting(root, GitHistoryQuery(issue_id="JR-12345", known_files=("src/A.cpp",))), "src/C.cpp")
-    found = _supporting(root, GitHistoryQuery(issue_id="JR-12345", shared_keywords=("poststack",), known_files=("src/A.cpp",)))
+    found = _supporting(root, GitHistoryQuery(issue_id="JR-12345", shared_keywords=("postblend",), known_files=("src/A.cpp",)))
 
     c = _by_path(found, "src/C.cpp")
     assert set(c.commit_hashes) == {hashes["issue"], hashes["mixed"]}
@@ -191,10 +191,10 @@ def test_the_same_file_in_two_commits_gathers_both(repo):
 def test_a_file_from_a_stronger_commit_ranks_above_one_from_a_weaker(tmp_path):
     root = _init(tmp_path / "order")
     _commit(root, "2025-01-01", "Base", {"src/A.cpp": "0\n", "src/X.cpp": "0\n", "src/Y.cpp": "0\n"})
-    _commit(root, "2025-02-01", "poststack older change", {"src/Y.cpp": "1\n"})
-    _commit(root, "2025-03-01", "poststack newer change", {"src/X.cpp": "1\n"})
+    _commit(root, "2025-02-01", "postblend older change", {"src/Y.cpp": "1\n"})
+    _commit(root, "2025-03-01", "postblend newer change", {"src/X.cpp": "1\n"})
 
-    found = _supporting(root, GitHistoryQuery(shared_keywords=("poststack",)))
+    found = _supporting(root, GitHistoryQuery(shared_keywords=("postblend",)))
 
     # Same evidence, so recency put the newer commit first — and its file leads.
     assert _paths(found) == ["src/X.cpp", "src/Y.cpp"]
@@ -204,10 +204,10 @@ def test_a_file_from_a_stronger_commit_ranks_above_one_from_a_weaker(tmp_path):
 def test_a_bulk_commit_does_not_take_a_stronger_commits_place(tmp_path):
     root = _init(tmp_path / "bulky")
     _commit(root, "2025-01-01", "Base", {"src/X.cpp": "0\n"})
-    _commit(root, "2025-02-01", "poststack fix", {"src/X.cpp": "1\n"})
-    _commit(root, "2025-03-01", "poststack reformat", {f"src/many/f{i}.cpp": "x\n" for i in range(BULK_COMMIT_FILES + 1)})
+    _commit(root, "2025-02-01", "postblend fix", {"src/X.cpp": "1\n"})
+    _commit(root, "2025-03-01", "postblend reformat", {f"src/many/f{i}.cpp": "x\n" for i in range(BULK_COMMIT_FILES + 1)})
 
-    found = _supporting(root, GitHistoryQuery(shared_keywords=("poststack",)))
+    found = _supporting(root, GitHistoryQuery(shared_keywords=("postblend",)))
 
     # The newer bulk commit lent nothing, so the fix is the first commit that lent files.
     assert _paths(found) == ["src/X.cpp"]
@@ -217,7 +217,7 @@ def test_a_bulk_commit_does_not_take_a_stronger_commits_place(tmp_path):
 def test_an_issue_id_commit_lends_more_than_a_keyword_commit(repo):
     root, _hashes = repo
     with_id = _by_path(_supporting(root, GitHistoryQuery(issue_id="JR-12345", known_files=("src/A.cpp",))), "src/C.cpp")
-    keyword_only = _by_path(_supporting(root, GitHistoryQuery(shared_keywords=("fix poststack ordering",), known_files=("src/A.cpp",))), "src/C.cpp")
+    keyword_only = _by_path(_supporting(root, GitHistoryQuery(shared_keywords=("fix postblend ordering",), known_files=("src/A.cpp",))), "src/C.cpp")
 
     assert with_id.score - keyword_only.score == git_history.SUPPORT_ISSUE_ID
 
@@ -227,14 +227,14 @@ def test_an_issue_id_commit_lends_more_than_a_keyword_commit(repo):
 
 def test_a_bulk_commit_lends_none_of_its_files(repo):
     root, _hashes = repo
-    found = _supporting(root, GitHistoryQuery(shared_keywords=("poststack",), ranked_files=("src/A.cpp",), known_files=("src/A.cpp",)))
+    found = _supporting(root, GitHistoryQuery(shared_keywords=("postblend",), ranked_files=("src/A.cpp",), known_files=("src/A.cpp",)))
 
     assert not any(path.startswith("src/bulk/") for path in _paths(found))
 
 
 def test_deleted_and_since_deleted_files_are_not_promoted(repo):
     root, _hashes = repo
-    found = _supporting(root, GitHistoryQuery(shared_keywords=("poststack",), known_files=("src/A.cpp",)))
+    found = _supporting(root, GitHistoryQuery(shared_keywords=("postblend",), known_files=("src/A.cpp",)))
 
     assert "src/Old.cpp" not in _paths(found)  # deleted by the commit
     assert "src/Gone.cpp" not in _paths(found)  # added, then deleted later
@@ -243,7 +243,7 @@ def test_deleted_and_since_deleted_files_are_not_promoted(repo):
 
 def test_a_rename_offers_the_new_path_only(repo):
     root, hashes = repo
-    found = _supporting(root, GitHistoryQuery(shared_keywords=("poststack rename",)))
+    found = _supporting(root, GitHistoryQuery(shared_keywords=("postblend rename",)))
 
     assert _paths(found) == ["src/G.cpp"]
     assert found[0].change == "renamed"
@@ -252,7 +252,7 @@ def test_a_rename_offers_the_new_path_only(repo):
 
 def test_files_code_search_would_never_read_are_not_promoted(repo):
     root, _hashes = repo
-    found = _supporting(root, GitHistoryQuery(shared_keywords=("poststack cleanup",)))
+    found = _supporting(root, GitHistoryQuery(shared_keywords=("postblend cleanup",)))
 
     paths = _paths(found)
     assert {"src/C.cpp", "src/E.cpp"} <= set(paths)
@@ -310,9 +310,9 @@ def test_a_symlink_out_of_the_repository_is_refused(tmp_path):
 
 def test_the_list_is_bounded(tmp_path):
     root = _init(tmp_path / "wide")
-    _commit(root, "2025-01-01", "poststack wide change", {f"src/m{i:02d}.cpp": "x\n" for i in range(12)})
+    _commit(root, "2025-01-01", "postblend wide change", {f"src/m{i:02d}.cpp": "x\n" for i in range(12)})
 
-    found = _supporting(root, GitHistoryQuery(shared_keywords=("poststack",)))
+    found = _supporting(root, GitHistoryQuery(shared_keywords=("postblend",)))
 
     assert len(found) == MAX_SUPPORTING_FILES
     # Equal evidence: the order is the path's, so it never varies.
@@ -321,7 +321,7 @@ def test_the_list_is_bounded(tmp_path):
 
 def test_no_supporting_file_is_ever_searched(repo, monkeypatch):
     root, _hashes = repo
-    query = GitHistoryQuery(issue_id="JR-12345", shared_keywords=("poststack",), ranked_files=("src/A.cpp",), known_files=("src/A.cpp",))
+    query = GitHistoryQuery(issue_id="JR-12345", shared_keywords=("postblend",), ranked_files=("src/A.cpp",), known_files=("src/A.cpp",))
     searched: list[list[str]] = []
     real = git_history.run_command
 
@@ -348,7 +348,7 @@ def test_file_history_off_means_no_feedback(repo):
 
 def test_the_ranking_of_commits_is_untouched(repo):
     root, _hashes = repo
-    query = GitHistoryQuery(issue_id="JR-12345", shared_keywords=("poststack",), ranked_files=("src/A.cpp",), known_files=("src/A.cpp",))
+    query = GitHistoryQuery(issue_id="JR-12345", shared_keywords=("postblend",), ranked_files=("src/A.cpp",), known_files=("src/A.cpp",))
     ranked = find_related_commits(root, query, limits_for(GitHistoryOptions()))
     record = collect_git_history(root, "JR-12345", query).record
 
@@ -390,7 +390,7 @@ def test_a_supporting_file_with_another_source_is_not_read():
 
 def test_the_supporting_files_are_deterministic(repo):
     root, _hashes = repo
-    query = GitHistoryQuery(issue_id="JR-12345", shared_keywords=("poststack",), known_files=("src/A.cpp",))
+    query = GitHistoryQuery(issue_id="JR-12345", shared_keywords=("postblend",), known_files=("src/A.cpp",))
     first = git_history_to_dict(collect_git_history(root, "JR-12345", query).record)["supporting_files"]
     second = git_history_to_dict(collect_git_history(root, "JR-12345", query).record)["supporting_files"]
     assert json.dumps(first) == json.dumps(second)
@@ -423,7 +423,7 @@ def test_the_trace_counts_and_never_names(repo, execution_trace):
 
     trace = execution_trace.text
     assert re.search(r"git_context feedback: \d+ commit\(s\) inspected, \d+ changed file\(s\) read, \d+ supporting file\(s\) retained", trace)
-    for private in ("src/C.cpp", "C.cpp", "fix poststack ordering", "poststack"):
+    for private in ("src/C.cpp", "C.cpp", "fix postblend ordering", "postblend"):
         assert private not in trace
 
 
@@ -431,15 +431,15 @@ def test_the_trace_counts_and_never_names(repo, execution_trace):
 
 
 def _acceptance_repo(tmp_path: Path) -> Path:
-    """Code Search can find A and B (they name poststack); C names nothing, and only history links it."""
+    """Code Search can find A and B (they name postblend); C names nothing, and only history links it."""
     root = _init(tmp_path / "accept")
     _commit(root, "2025-01-01", "Add the stack sources", {
-        "src/A.cpp": "void selectPoststack() {}\n",
-        "src/B.cpp": "int poststackCount() { return 0; }\n",
+        "src/A.cpp": "void selectPostblend() {}\n",
+        "src/B.cpp": "int postblendCount() { return 0; }\n",
         "src/C.cpp": "int sortSteps() { return 1; }\n",
     })
-    _commit(root, "2025-05-01", "Fix poststack ordering", {
-        "src/A.cpp": "void selectPoststack() { sortSteps(); }\n",
+    _commit(root, "2025-05-01", "Fix postblend ordering", {
+        "src/A.cpp": "void selectPostblend() { sortSteps(); }\n",
         "src/C.cpp": "int sortSteps() { return 2; }\n",
     })
     return root
@@ -460,8 +460,8 @@ def test_acceptance_history_surfaces_the_file_code_search_could_not(tmp_path, mo
     monkeypatch.setattr(retrieval_module, "atomic_write_text", lambda path, text: (writes.append(text), real_write(path, text))[1])
 
     root = _acceptance_repo(tmp_path)
-    spec = bug_spec_from_description("Poststack selection loses the last angle.", title="Angle lost")
-    workflow.run_investigation(root, InvestigationRequest(spec=spec, options=InvestigationOptions(keywords=["poststack"])))
+    spec = bug_spec_from_description("Postblend selection loses the last angle.", title="Angle lost")
+    workflow.run_investigation(root, InvestigationRequest(spec=spec, options=InvestigationOptions(keywords=["postblend"])))
     target = root / ".ai" / spec.work_item_id
     data = json.loads((target / "retrieval.json").read_text(encoding="utf-8"))
 

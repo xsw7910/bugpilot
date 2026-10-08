@@ -594,6 +594,68 @@ def test_the_licence_parameters_are_filled_in():
         assert placeholder not in licence, placeholder
 
 
+#: Licence text that is not BugPilot's: a third party's notice, kept as written.
+THIRD_PARTY_DIRECTORIES = ("extension/media/codicons/",)
+
+LICENCE_FILE = re.compile(r"(?:^|/)(?:LICEN[CS]E|COPYING)(?:\.(?:txt|md))?$", re.IGNORECASE)
+
+
+def _licence_text(name: str) -> str:
+    return (REPO / name).read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+def test_every_component_ships_the_same_licence():
+    """One licence for every published component (pre-release Batch 3, option a).
+
+    The wheel ships `LICENSE`, the VS Code extension `extension/LICENSE.txt`, and
+    anything published from this repository later — a Claude Code plugin, say —
+    carries its own copy beside its manifest, found here by name. Each must be
+    the root `LICENSE` unchanged: a copy that drifts is a second licence nobody
+    chose. Compared as text, so a checkout's line endings do not matter.
+    """
+    copies = [
+        name for name in _tracked_files()
+        if LICENCE_FILE.search(name)
+        and not any(name.startswith(prefix) for prefix in GENERATED_DIRECTORIES + THIRD_PARTY_DIRECTORIES)
+    ]
+    assert "LICENSE" in copies and "extension/LICENSE.txt" in copies, copies
+    root = _licence_text("LICENSE")
+    for name in copies:
+        assert _licence_text(name) == root, f"{name} is not a copy of LICENSE"
+
+
+def test_every_manifest_declares_that_licence():
+    """PyPI and the Marketplace show the manifest's field, not the file: they must agree.
+
+    A future manifest — a Claude Code plugin's `.claude-plugin/plugin.json` —
+    that declares a licence is held to the same id.
+    """
+    import json
+
+    assert 'license = "BUSL-1.1"' in _pyproject()
+    manifests = [
+        name for name in _tracked_files()
+        if re.search(r"(?:^|/)(?:package\.json|\.claude-plugin/plugin\.json)$", name)
+        and not any(name.startswith(prefix) for prefix in GENERATED_DIRECTORIES)
+    ]
+    assert "extension/package.json" in manifests, manifests
+    for name in manifests:
+        declared = json.loads((REPO / name).read_text(encoding="utf-8")).get("license")
+        if name == "extension/package.json" or declared is not None:
+            assert declared == "BUSL-1.1", f"{name} declares {declared!r}"
+
+
+def test_third_party_attribution_ships_with_the_extension():
+    """Replacing the extension's own licence must not lose the codicons attribution (CC BY 4.0)."""
+    attribution = (REPO / "extension" / "media" / "codicons" / "ATTRIBUTION.md").read_text(encoding="utf-8")
+    assert "CC BY 4.0" in attribution and "Microsoft" in attribution
+    notices = (REPO / "extension" / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    assert "media/codicons/ATTRIBUTION.md" in notices and "CC BY 4.0" in notices
+    shipped = (REPO / "extension" / ".vscodeignore").read_text(encoding="utf-8").splitlines()
+    for kept in ("!LICENSE.txt", "!THIRD_PARTY_NOTICES.md", "!media/**"):
+        assert kept in shipped, kept
+
+
 def test_the_sdist_does_not_ship_the_test_suite():
     """`MANIFEST.in` earns its keep here.
 

@@ -11,7 +11,17 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .cleanup import clean_issue_artifacts, validate_issue_key
-from .config import WORKFLOW_STEPS, EmailConfig, GraphConfig, issue_dir, load_email_config, load_graph_config
+from .config import (
+    WORKFLOW_STEPS,
+    EmailConfig,
+    GraphConfig,
+    issue_dir,
+    load_email_config,
+    load_graph_config,
+    writable_issue_dir,
+    writable_memory_file,
+)
+from .safe_paths import refuse_link, writable_dir
 from .email_notify import EmailSendError, EmailSendResult, build_email_draft, render_eml, send_notification, send_via_graph
 from .context import build_context
 from .branch_policy import (
@@ -87,6 +97,8 @@ from .prompts import (
     generate_task,
     investigation_handoff_block,
 )
+from .instructions import ResolvedInstructions, load_instructions
+from .project_settings import ResolvedProjectSettings, resolve_project_settings
 from .repository_profile import RepositoryContext, resolve_repository_context
 from .retrieval import RetrievalArtifact, read_retrieval_quietly, save_retrieval
 from .search import run_code_search
@@ -153,7 +165,7 @@ def refine_investigation(
     Which steps run still comes from an :class:`InvestigationPlan`, so a caller
     toggles capabilities here exactly as it does for a full run.
     """
-    target = issue_dir(repo_root, work_item_id)
+    target = writable_issue_dir(repo_root, work_item_id, create=False)
     if not target.exists():
         raise FileNotFoundError(
             f"No workflow package found for {work_item_id}. Run: bugpilot bug {work_item_id}"
@@ -369,6 +381,11 @@ def run_investigation(
         clean_result = clean_issue_artifacts(repo_root, issue_key, include_memory=include_memory)
         _progress(progress, "clean_done" if f".ai/{issue_key}/" in clean_result.deleted_paths else "clean_none")
 
+    # Every place this run will write is checked before the first write, so a
+    # linked `.ai_memory` refuses the run up front rather than after task.md was
+    # written (pre-release Batch 2: no partial write through a link).
+    if "memory_add" in resolved:
+        writable_memory_file(repo_root, issue_key, create=False)
     target = _prepare_issue_dir(repo_root, issue_key)
     # What an earlier run recorded, for --resume. A fresh run has just deleted it.
     previous = None if fresh else load_issue(repo_root, issue_key)
@@ -466,6 +483,13 @@ def run_investigation(
     # reported with this run's warnings rather than discovered by the task.
     repository = resolve_repository_context(repo_root, request.repository_profile)
     _log_repository_context(target, repository)
+    # The same, for the user's and the repository's instructions: read once, so
+    # a file that cannot be used is one of this run's warnings.
+    instructions = load_instructions(repo_root)
+    _log_instructions(target, instructions)
+    # And the repository's Verification Policy and branch naming (Batch 3).
+    project_settings = resolve_project_settings(repo_root)
+    _log_project_settings(target, project_settings)
     command = f"bugpilot bug {issue_key}"
     if fresh:
         command += " --fresh"
@@ -562,7 +586,15 @@ def run_investigation(
             )
         if "prompt" in resolved:
             _progress(progress, "prompt")
-            prompt_step(repo_root, issue_key, fix_mode=selection.mode, issue=issue, repository=repository)
+            prompt_step(
+                repo_root,
+                issue_key,
+                fix_mode=selection.mode,
+                issue=issue,
+                repository=repository,
+                instructions=instructions,
+                project_settings=project_settings,
+            )
         if "memory_add" in resolved:
             memory_add_step(repo_root, issue_key, issue=issue)
     except Exception as exc:
@@ -592,7 +624,11 @@ def run_investigation(
         issue_key=issue_key,
         issue_dir=target,
         generated_files=generated,
-        warnings=attachment_warnings + list(selection.warnings) + list(repository.warnings),
+        warnings=attachment_warnings
+        + list(selection.warnings)
+        + list(repository.warnings)
+        + list(instructions.warnings)
+        + list(project_settings.warnings),
         jira_result=jira_result,
         clean_result=clean_result,
         fresh=fresh,
@@ -676,7 +712,7 @@ def jira_validate_step(repo_root: Path, issue_key: str) -> dict:
         guidance = existing.guidance if existing is not None else IssueGuidance()
         normalized = issue_from_jira(issue, issue_key, guidance)
         save_issue(repo_root, normalized)
-        (target / "jira_field_report.md").write_text(jira_field_report_markdown(issue), encoding="utf-8")
+        atomic_write_text(target / "jira_field_report.md", jira_field_report_markdown(issue))
         log(target, "[END] jira_validate: pass")
         details = normalized.details
         return {
@@ -1132,7 +1168,9 @@ def _selected_fix_mode(
     return selection.mode
 
 
-def _task_branch(repo_root: Path, issue: IssueArtifact) -> tuple[str, str]:
+def _task_branch(
+    repo_root: Path, issue: IssueArtifact, project_settings: ResolvedProjectSettings | None = None
+) -> tuple[str, str]:
     """The branch policy a task is written under, and the branch it names.
 
     Under a policy that may have the agent create a branch, the first task's
@@ -1141,9 +1179,14 @@ def _task_branch(repo_root: Path, issue: IssueArtifact) -> tuple[str, str]:
     (§37.127). Under ``current`` the name is only the suggestion for main/master
     and is derived each time. The title names it; a hand-written bug's name
     comes from the title alone (see ``branch_name``).
+
+    The repository's branch naming template (Batch 3) shapes only a name that is
+    derived: a recorded one is reused as it is, so changing the template never
+    renames a work item's branch.
     """
     policy = resolve_branch_policy(None, issue.guidance.branch_policy)
-    branch = issue.guidance.branch_name or branch_name(issue.id, issue.title or None)
+    template = (project_settings or resolve_project_settings(repo_root)).settings.branch_template
+    branch = issue.guidance.branch_name or branch_name(issue.id, issue.title or None, template)
     if records_branch_name(policy) and issue.guidance.branch_name is None:
         save_issue(repo_root, issue.with_guidance(replace(issue.guidance, branch_name=branch)))
     return policy, branch
@@ -1165,6 +1208,40 @@ def _task_repository(repo_root: Path, target: Path, repository: RepositoryContex
     return resolved
 
 
+def _log_project_settings(target: Path, project_settings: ResolvedProjectSettings) -> None:
+    log(target, project_settings.log_line)
+    for warning in project_settings.warnings:
+        log(target, f"[WARN] {warning}")
+
+
+def _task_project_settings(
+    repo_root: Path, target: Path, project_settings: ResolvedProjectSettings | None
+) -> ResolvedProjectSettings:
+    """The project settings a task is written with: the caller's, else the file's."""
+    if project_settings is not None:
+        return project_settings
+    resolved = resolve_project_settings(repo_root)
+    _log_project_settings(target, resolved)
+    return resolved
+
+
+def _log_instructions(target: Path, instructions: ResolvedInstructions) -> None:
+    """Whether each scope was loaded, and how long — never what it says."""
+    for file in instructions.files:
+        log(target, file.log_line)
+
+
+def _task_instructions(
+    repo_root: Path, target: Path, instructions: ResolvedInstructions | None
+) -> ResolvedInstructions:
+    """The User and Project Instructions a task is written with: the caller's, else the files'."""
+    if instructions is not None:
+        return instructions
+    resolved = load_instructions(repo_root)
+    _log_instructions(target, resolved)
+    return resolved
+
+
 def prompt_step(
     repo_root: Path,
     issue_key: str,
@@ -1172,6 +1249,8 @@ def prompt_step(
     fix_mode: FixMode | None = None,
     issue: IssueArtifact | None = None,
     repository: RepositoryContext | None = None,
+    instructions: ResolvedInstructions | None = None,
+    project_settings: ResolvedProjectSettings | None = None,
 ) -> None:
     target = _prepare_issue_dir(repo_root, issue_key)
     if jira_comment:
@@ -1184,7 +1263,8 @@ def prompt_step(
         # The recorded selection, not whatever is in the folder (§37.99).
         attached = listed_attachments(target, issue.guidance.attachment_files)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
-        branch_policy, branch = _task_branch(repo_root, issue)
+        settings = _task_project_settings(repo_root, target, project_settings)
+        branch_policy, branch = _task_branch(repo_root, issue, settings)
         task = generate_task(
             issue_key,
             issue.title or None,
@@ -1196,6 +1276,8 @@ def prompt_step(
             branch_policy=branch_policy,
             branch=branch,
             repository=_task_repository(repo_root, target, repository),
+            instructions=_task_instructions(repo_root, target, instructions),
+            project_settings=settings,
         )
         atomic_write_text(target / TASK_ARTIFACT, task)
         _mark_step(repo_root, issue_key, "prompt", "pass")
@@ -1225,7 +1307,8 @@ def copilot_task_step(
         jira_comment = _jira_comment_enabled(target)
         attached = listed_attachments(target, issue.guidance.attachment_files)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
-        branch_policy, branch = _task_branch(repo_root, issue)
+        settings = _task_project_settings(repo_root, target, None)
+        branch_policy, branch = _task_branch(repo_root, issue, settings)
         task = generate_task(
             issue_key,
             issue.title or None,
@@ -1237,6 +1320,8 @@ def copilot_task_step(
             branch_policy=branch_policy,
             branch=branch,
             repository=_task_repository(repo_root, target, None),
+            instructions=_task_instructions(repo_root, target, None),
+            project_settings=settings,
         )
         atomic_write_text(target / TASK_ARTIFACT, task)
         log(target, "[END] copilot_task: pass")
@@ -1453,11 +1538,11 @@ def notify_step(
         graph_config = graph_config if graph_config is not None else load_graph_config()
         draft = build_email_draft(repo_root, issue_key)
         draft_path = target / "email_draft.md"
-        draft_path.write_text(f"Subject: {draft.subject}\n\n{draft.body}", encoding="utf-8")
+        atomic_write_text(draft_path, f"Subject: {draft.subject}\n\n{draft.body}")
         log(target, f"[GENERATED] .ai/{issue_key}/email_draft.md")
 
         eml_path = target / "notification.eml"
-        eml_path.write_bytes(render_eml(draft, email_config.sender, email_config.recipients))
+        refuse_link(eml_path).write_bytes(render_eml(draft, email_config.sender, email_config.recipients))
         log(target, f"[GENERATED] .ai/{issue_key}/notification.eml")
 
         if not execute:
@@ -1514,17 +1599,17 @@ def memory_update_step(repo_root: Path, issue_key: str) -> bool:
     target = _prepare_issue_dir(repo_root, issue_key)
     log(target, "[START] memory_update")
     report = read_fix_report(repo_root, issue_key)
-    memory_path = repo_root / ".ai_memory" / "bugs" / f"{issue_key}.md"
+    memory_path = writable_memory_file(repo_root, issue_key, create=False)
     if report is None:
         log(target, f"[WARN] memory_update: missing .ai/{issue_key}/{FIX_REPORT_ARTIFACT}; the agent writes it, or run bugpilot manual-result {issue_key}")
         _mark_step(repo_root, issue_key, "memory_update", "skipped")
         return False
 
-    memory_path.parent.mkdir(parents=True, exist_ok=True)
+    memory_path = writable_memory_file(repo_root, issue_key)
     existing = memory_path.read_text(encoding="utf-8") if memory_path.exists() else f"# {issue_key} AI Bug Workflow Memory\n"
     final_result = _build_final_result_section(report)
     updated = _replace_section(existing, "## Final Result", final_result)
-    memory_path.write_text(updated, encoding="utf-8")
+    atomic_write_text(memory_path, updated)
     _mark_step(repo_root, issue_key, "memory_update", "pass")
     log(target, f"[UPDATED] .ai_memory/bugs/{issue_key}.md")
     log(target, "[END] memory_update: pass")
@@ -1549,7 +1634,7 @@ def memory_add_step(repo_root: Path, issue_key: str, issue: IssueArtifact | None
 
 
 def jira_comment_draft_step(repo_root: Path, issue_key: str, strict: bool = False) -> Path:
-    target = issue_dir(repo_root, issue_key)
+    target = writable_issue_dir(repo_root, issue_key, create=False)
     if not target.exists():
         raise FileNotFoundError(f"No workflow package found for {issue_key}. Run: bugpilot bug {issue_key}")
     if not (target / CONTEXT_ARTIFACT).exists() and not (target / ISSUE_ARTIFACT).exists():
@@ -1566,7 +1651,7 @@ def jira_comment_draft_step(repo_root: Path, issue_key: str, strict: bool = Fals
 
     draft = _build_jira_comment_draft(repo_root, issue_key, missing)
     path = target / "jira_comment_draft.md"
-    path.write_text(draft, encoding="utf-8")
+    atomic_write_text(path, draft)
     _mark_step(repo_root, issue_key, "jira_comment_draft", "pass")
     log(target, f"[GENERATED] .ai/{issue_key}/jira_comment_draft.md")
     log(target, "[END] jira_comment_draft: pass")
@@ -1574,7 +1659,7 @@ def jira_comment_draft_step(repo_root: Path, issue_key: str, strict: bool = Fals
 
 
 def jira_comment_step(repo_root: Path, issue_key: str, execute: bool = False) -> dict[str, object]:
-    target = issue_dir(repo_root, issue_key)
+    target = writable_issue_dir(repo_root, issue_key, create=False)
     if not target.exists():
         raise FileNotFoundError(f"No workflow package found for {issue_key}. Run: bugpilot bug {issue_key}")
     draft_path = target / "jira_comment_draft.md"
@@ -1602,7 +1687,7 @@ def jira_comment_step(repo_root: Path, issue_key: str, execute: bool = False) ->
         result_json = _jira_comment_result_json(result)
         # The one audit record of the POST that happened. The prose summary it
         # used to sit beside was a duplicate nothing read.
-        (target / "jira_comment_post_result.json").write_text(json.dumps(result_json, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(target / "jira_comment_post_result.json", json.dumps(result_json, indent=2) + "\n")
         _mark_step(repo_root, issue_key, "jira_comment", "pass")
         log(target, f"[GENERATED] .ai/{issue_key}/jira_comment_post_result.json")
         log(target, "[END] jira_comment: pass")
@@ -1621,7 +1706,7 @@ def jira_comment_step(repo_root: Path, issue_key: str, execute: bool = False) ->
 
 
 def retry_prompt_step(repo_root: Path, issue_key: str) -> dict[str, Path]:
-    target = issue_dir(repo_root, issue_key)
+    target = writable_issue_dir(repo_root, issue_key, create=False)
     if not target.exists():
         raise FileNotFoundError(f"No workflow package found for {issue_key}. Run: bugpilot bug {issue_key}")
     log(target, "[START] retry_prompt")
@@ -1629,14 +1714,12 @@ def retry_prompt_step(repo_root: Path, issue_key: str) -> dict[str, Path]:
         feedback_path = target / "user_feedback.md"
         created_feedback = False
         if not feedback_path.exists():
-            feedback_path.write_text(_user_feedback_template(issue_key), encoding="utf-8")
+            atomic_write_text(feedback_path, _user_feedback_template(issue_key))
             created_feedback = True
             log(target, f"[GENERATED] .ai/{issue_key}/user_feedback.md")
         prompt_path = target / "agent_retry_prompt.md"
         mode = _selected_fix_mode(repo_root, issue_key)
-        prompt_path.write_text(
-            _build_retry_prompt(repo_root, issue_key, mode), encoding="utf-8"
-        )
+        atomic_write_text(prompt_path, _build_retry_prompt(repo_root, issue_key, mode))
         log(target, f"[INFO] retry fix mode: {mode.id} ({mode.execution_kind})")
         _mark_step(repo_root, issue_key, "retry_prompt", "pass")
         log(target, f"[GENERATED] .ai/{issue_key}/agent_retry_prompt.md")
@@ -1653,7 +1736,7 @@ def retry_prompt_step(repo_root: Path, issue_key: str) -> dict[str, Path]:
 
 
 def manual_result_step(repo_root: Path, issue_key: str, overwrite: bool = False) -> dict[str, list[str]]:
-    target = issue_dir(repo_root, issue_key)
+    target = writable_issue_dir(repo_root, issue_key, create=False)
     if not target.exists():
         raise FileNotFoundError(f"No workflow package found for {issue_key}. Run: bugpilot bug {issue_key}")
     log(target, "[START] manual_result")
@@ -1669,7 +1752,7 @@ def manual_result_step(repo_root: Path, issue_key: str, overwrite: bool = False)
                 continue
             if path.exists() and overwrite:
                 log(target, f"[WARN] manual_result overwriting existing file: {rel}")
-            path.write_text(content, encoding="utf-8")
+            atomic_write_text(path, content)
             created.append(rel)
             log(target, f"[GENERATED] {rel}")
         _mark_step(repo_root, issue_key, "manual_result", "pass")
@@ -1683,9 +1766,8 @@ def manual_result_step(repo_root: Path, issue_key: str, overwrite: bool = False)
 
 
 def _prepare_issue_dir(repo_root: Path, issue_key: str) -> Path:
-    target = issue_dir(repo_root, issue_key)
-    target.mkdir(parents=True, exist_ok=True)
-    return target
+    """``.ai/<id>/``, validated and checked for links before any step writes there."""
+    return writable_issue_dir(repo_root, issue_key)
 
 
 def _effective_hint(*candidates: str | None) -> str | None:
@@ -1921,7 +2003,7 @@ _JIRA_COMMENT_ON_MARKER = "jira_comment_on.flag"
 
 
 def _set_jira_comment_on(target: Path) -> None:
-    (target / _JIRA_COMMENT_ON_MARKER).write_text("", encoding="utf-8")
+    atomic_write_text(target / _JIRA_COMMENT_ON_MARKER, "")
 
 
 def _jira_comment_enabled(target: Path) -> bool:

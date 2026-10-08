@@ -26,7 +26,7 @@ from pathlib import Path
 from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, ISSUE_ARTIFACT
 from .branch_policy import usable_branch_name
-from .config import issue_dir
+from .config import issue_dir, writable_issue_dir
 from .input_adapters import manual_issue_payload
 from .jira import parse_issue
 from .models import SOURCE_JIRA, SOURCE_MANUAL, BugSpec
@@ -277,8 +277,7 @@ def save_issue(repo_root: Path, issue: IssueArtifact) -> Path:
     Atomically because other processes read it while a run is writing: the
     extension, an MCP ``get_status``, a ``bugpilot list`` in another terminal.
     """
-    path = issue_path(repo_root, issue.id)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = writable_issue_dir(repo_root, issue.id) / ISSUE_ARTIFACT
     atomic_write_text(path, json.dumps(issue_to_dict(issue), indent=2, ensure_ascii=False) + "\n")
     return path
 

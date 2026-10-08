@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .code_files import is_documentation, is_implementation, is_searchable, search_globs
+from .executables import child_environment, find_executable
 from .git_ops import command_available
 from .models import InvestigationOptions
 from .retrieval import RelatedFile, RetrievalArtifact, RetrievalTerm, Snippet
@@ -393,10 +394,17 @@ def _run_rg(repo_root: Path, keyword: str, warnings: list[str]):
     args.append(keyword)
     args.append(".")
 
+    # Started by its absolute PATH location: a repository's own rg.exe must not
+    # run because the repository is the working directory (pre-release Batch 2).
+    program = find_executable(args[0])
+    if program is None:
+        warnings.append(f"Search failed for keyword `{keyword}`: rg was not found on PATH.")
+        return None
     try:
         completed = subprocess.run(
-            args,
+            [program, *args[1:]],
             cwd=repo_root,
+            env=child_environment(),
             encoding="utf-8",
             errors="replace",
             stdout=subprocess.PIPE,
@@ -587,7 +595,7 @@ def _matches_any_path(path: str, patterns: list[str]) -> bool:
     """True when ``path`` is covered by one of the user's path patterns.
 
     A pattern may be a directory prefix (``src/reader``), a full relative path,
-    or a bare file name (``VdsReader.cpp``). Comparison is case-insensitive and
+    or a bare file name (``CsvReader.cpp``). Comparison is case-insensitive and
     separator-agnostic so a Windows-style pattern still matches rg's output.
     """
     if not patterns:

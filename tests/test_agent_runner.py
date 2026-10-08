@@ -45,7 +45,7 @@ def test_build_agent_command_respects_env(tmp_path, monkeypatch):
 
 
 def test_run_agent_skips_when_binary_missing(tmp_path, monkeypatch):
-    monkeypatch.setattr("bugpilot.core.agent_runner.shutil.which", lambda c: None)
+    monkeypatch.setattr("bugpilot.core.agent_runner.find_executable", lambda c: None)
     called = {"v": False}
     monkeypatch.setattr(
         "bugpilot.core.agent_runner.subprocess.run",
@@ -58,10 +58,10 @@ def test_run_agent_skips_when_binary_missing(tmp_path, monkeypatch):
 
 
 def test_run_agent_invokes_subprocess_in_repo_root(tmp_path, monkeypatch):
-    monkeypatch.setattr("bugpilot.core.agent_runner.shutil.which", lambda c: "/usr/bin/claude")
+    monkeypatch.setattr("bugpilot.core.agent_runner.find_executable", lambda c: "/usr/bin/claude")
     calls = {}
 
-    def fake_run(cmd, cwd=None):
+    def fake_run(cmd, cwd=None, env=None):
         calls["cmd"] = cmd
         calls["cwd"] = cwd
         return _Done()
@@ -77,16 +77,19 @@ def test_run_agent_invokes_subprocess_in_repo_root(tmp_path, monkeypatch):
 
 def test_run_agent_wraps_windows_cmd_shim(tmp_path, monkeypatch):
     monkeypatch.setattr("bugpilot.core.agent_runner.sys.platform", "win32")
-    monkeypatch.setattr("bugpilot.core.agent_runner.shutil.which", lambda c: r"C:\npm\claude.cmd")
+    found = {"claude": r"C:\npm\claude.cmd", r"C:\Windows\System32\cmd.exe": r"C:\Windows\System32\cmd.exe"}
+    monkeypatch.setenv("ComSpec", r"C:\Windows\System32\cmd.exe")
+    monkeypatch.setattr("bugpilot.core.agent_runner.find_executable", lambda c: found.get(c))
     calls = {}
 
-    def fake_run(cmd, cwd=None):
+    def fake_run(cmd, cwd=None, env=None):
         calls["cmd"] = cmd
         return _Done()
 
     monkeypatch.setattr("bugpilot.core.agent_runner.subprocess.run", fake_run)
     run_agent(tmp_path, "JR-12345", "claude")
-    assert calls["cmd"][:3] == ["cmd", "/c", r"C:\npm\claude.cmd"]
+    # The system's cmd.exe by absolute path, never a bare `cmd` a repository could shadow.
+    assert calls["cmd"][:3] == [r"C:\Windows\System32\cmd.exe", "/c", r"C:\npm\claude.cmd"]
     assert calls["cmd"][-1] == HANDOFF
 
 
@@ -212,7 +215,7 @@ def test_retry_prepares_only_unless_an_agent_is_named(tmp_path, monkeypatch, cap
 
 
 def test_bug_missing_binary_warns(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr("bugpilot.core.agent_runner.shutil.which", lambda c: None)
+    monkeypatch.setattr("bugpilot.core.agent_runner.find_executable", lambda c: None)
     monkeypatch.chdir(tmp_path)
 
     assert main(["bug", "JR-12345", "--allow-mock", "--launch-agent", "claude"]) == 1
@@ -238,7 +241,7 @@ def test_launching_an_agent_says_it_is_deprecated(tmp_path, monkeypatch, capsys)
     The notice goes to stderr so requirement R1 holds: every existing command's
     human-readable stdout is unchanged.
     """
-    monkeypatch.setattr("bugpilot.core.agent_runner.shutil.which", lambda c: None)
+    monkeypatch.setattr("bugpilot.core.agent_runner.find_executable", lambda c: None)
     result = run_agent(tmp_path, "JR-1", "claude")
 
     captured = capsys.readouterr()

@@ -125,6 +125,24 @@ def _install_fake_smtp(monkeypatch):
     return sent
 
 
+@pytest.mark.parametrize(
+    "site",
+    ["http://jira.example.test", "https://dev:secret@jira.example.test", "https://jira.example.test?x=1"],
+)
+def test_email_draft_links_only_a_site_jira_requests_would_accept(tmp_path, monkeypatch, site):
+    """An http:// or credential-bearing site never reaches a recipient (pre-release Batch 2, B)."""
+    monkeypatch.setenv("JIRA_BASE_URL", site)
+    issue_dir = _seed_result_artifacts(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["notify", "JR-12345"]) == 0
+    draft = (issue_dir / "email_draft.md").read_text(encoding="utf-8")
+    assert "JR-12345" in draft
+    assert "browse/" not in draft
+    assert "secret" not in draft
+    assert "http://" not in draft
+
+
 def test_email_draft_contains_the_four_requested_blocks(tmp_path, monkeypatch):
     monkeypatch.setenv("JIRA_BASE_URL", "https://jira.example.test")
     issue_dir = _seed_result_artifacts(tmp_path)

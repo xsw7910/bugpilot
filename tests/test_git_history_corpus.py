@@ -59,8 +59,8 @@ def _merge_history() -> History:
     # A merge whose message names what its commit does not.
     h.branch("feature/JR-34567")
     h.commit("plain-feature", "JR-34567: tidy the pass",
-             {"src/Stack.cpp": "v1\n", "src/Plan.cpp": "v1\n"}, branch="feature/JR-34567")
-    h.merge("own-evidence", "Merge JR-34567: the stackmerge pass", "feature/JR-34567")
+             {"src/Blend.cpp": "v1\n", "src/Plan.cpp": "v1\n"}, branch="feature/JR-34567")
+    h.merge("own-evidence", "Merge JR-34567: the blendmerge pass", "feature/JR-34567")
     # A merge whose branch commit found nothing on its own.
     h.branch("feature/JR-45678")
     h.commit("silent-feature", "wip", {"src/Silent.cpp": "v1\n", "src/Quiet.cpp": "v1\n"}, branch="feature/JR-45678")
@@ -109,11 +109,11 @@ def test_a_merge_that_resolved_a_conflict_stays_and_lends_only_its_own_files(mer
 
 def test_a_merge_with_evidence_of_its_own_stays_without_lending_twice(merges):
     root, hashes = merges
-    record = _record(root, GitHistoryQuery(issue_id="JR-34567", git_keywords=("stackmerge",)))
+    record = _record(root, GitHistoryQuery(issue_id="JR-34567", git_keywords=("blendmerge",)))
     assert _labels(hashes, record.commits) == ["own-evidence", "plain-feature"]
-    assert "matched commit keyword: stackmerge" in record.commits[0].reasons
+    assert "matched commit keyword: blendmerge" in record.commits[0].reasons
     supporting = {item.path: item.commit_hashes for item in record.supporting_files}
-    assert supporting == {"src/Plan.cpp": (hashes["plain-feature"],), "src/Stack.cpp": (hashes["plain-feature"],)}
+    assert supporting == {"src/Plan.cpp": (hashes["plain-feature"],), "src/Blend.cpp": (hashes["plain-feature"],)}
 
 
 def test_a_merge_that_alone_carries_the_evidence_stays(merges):
@@ -161,7 +161,7 @@ def test_the_merge_check_costs_nothing_without_a_merge_and_one_command_for_a_wra
 def test_a_merge_its_branch_tip_does_not_decide_asks_once_and_bounded(merges, monkeypatch):
     root, _hashes = merges
     seen = _recording(monkeypatch)
-    find_related_commits(root, GitHistoryQuery(issue_id="JR-34567", git_keywords=("stackmerge",)))
+    find_related_commits(root, GitHistoryQuery(issue_id="JR-34567", git_keywords=("blendmerge",)))
     clean_checks, rev_lists = _merge_checks(seen)
     assert len(clean_checks) == 1 and len(rev_lists) == 1
     assert f"--max-count={gh.MAX_MERGE_MEMBERS}" in rev_lists[0]
@@ -172,7 +172,7 @@ def test_a_merge_its_branch_tip_does_not_decide_asks_once_and_bounded(merges, mo
 
 @pytest.mark.parametrize(("query", "fail_on", "merge"), [
     (GitHistoryQuery(issue_id="JR-12345"), "--cc", "wrapper"),
-    (GitHistoryQuery(issue_id="JR-34567", git_keywords=("stackmerge",)), "rev-list", "own-evidence"),
+    (GitHistoryQuery(issue_id="JR-34567", git_keywords=("blendmerge",)), "rev-list", "own-evidence"),
 ])
 def test_a_merge_check_that_fails_leaves_the_merge_listed(merges, monkeypatch, query, fail_on, merge):
     root, hashes = merges
@@ -326,7 +326,7 @@ def test_the_whole_key_walk_is_a_regex_only_for_a_key_of_the_usual_shape():
 
 def test_file_names_are_resolved_only_as_far_as_the_cap_and_never_without_limit(merges, monkeypatch):
     root, _hashes = merges
-    names = ("Angle.cpp", "Range.cpp", "Render.cpp", "Other.cpp", "Variant.cpp", "Glue.cpp", "Stack.cpp", "Plan.cpp")
+    names = ("Angle.cpp", "Range.cpp", "Render.cpp", "Other.cpp", "Variant.cpp", "Glue.cpp", "Blend.cpp", "Plan.cpp")
     seen = _recording(monkeypatch)
     found = gh.file_candidates(root, GitHistoryQuery(focus_files=names))
     assert [candidate.path for candidate in found] == [f"src/{name}" for name in names[: gh.MAX_FOCUS_HISTORY_FILES]]

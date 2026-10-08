@@ -61,13 +61,13 @@ test("the artifact's order is the list's order", () => {
   // the retrieval story, so nothing here sorts it into alphabetical nonsense.
   const terms = retrievalTerms(
     withTerms(
-      { ...ENTRY, value: "VDS" },
+      { ...ENTRY, value: "CSV" },
       { ...ENTRY, value: "outputType" },
       { ...ENTRY, value: "validation" },
     ),
   );
 
-  assert.deepEqual(terms.map((term) => term.term), ["VDS", "outputType", "validation"]);
+  assert.deepEqual(terms.map((term) => term.term), ["CSV", "outputType", "validation"]);
 });
 
 test("every source the model can produce has a readable name", () => {

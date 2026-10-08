@@ -39,7 +39,11 @@ import type { WorkflowStepId } from "./workflow.ts";
  *
  * Repository (pre-release Batch 1) sits after the retrieval steps: what the
  * repository is, written into task.md. No one step's either, so no gear opens
- * it, and the repository's own setting rather than this session's.
+ * it, and the repository's own setting rather than this session's. It also
+ * holds the repository's Project instructions (pre-release Batch 2), and AI
+ * instructions after it the developer's own User instructions: two documents,
+ * each edited on its own page and saved there, so neither section's form
+ * fields include them — every change to either changes task.md.
  */
 export const WORKFLOW_SETTINGS_SECTIONS = [
   "issue-details",
@@ -48,14 +52,15 @@ export const WORKFLOW_SETTINGS_SECTIONS = [
   "git-history",
   "similar-fixes",
   "repository",
+  "ai-instructions",
   "build-context",
   "fix-with-ai",
   "branch",
 ] as const;
 export type WorkflowSettingsSection = (typeof WORKFLOW_SETTINGS_SECTIONS)[number];
 
-/** The sections that belong to one step: every one but the shared inputs, Repository and Branch. */
-export type StepSettingsSection = Exclude<WorkflowSettingsSection, "retrieval-inputs" | "repository" | "branch">;
+/** The sections that belong to one step: every one but the shared inputs, Repository, AI instructions and Branch. */
+export type StepSettingsSection = Exclude<WorkflowSettingsSection, "retrieval-inputs" | "repository" | "ai-instructions" | "branch">;
 
 /**
  * Which row's gear opens which section. A row absent here has no gear, and
@@ -79,6 +84,7 @@ export const SETTINGS_SECTION_TITLES: Readonly<Record<WorkflowSettingsSection, s
   "git-history": "Git history",
   "similar-fixes": "Similar fixes",
   repository: "Repository",
+  "ai-instructions": "AI instructions",
   "build-context": "Build context",
   "fix-with-ai": "Fix with AI",
   branch: "Branch",
@@ -139,13 +145,16 @@ export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, r
     "repositoryTestFramework",
     "repositoryNotes",
   ],
+  // The developer's User instructions (a document on its own page, not a form
+  // field) and the repository's Verification Policy: all of it task.md's.
+  "ai-instructions": ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun"],
   // How a preparation treats the work item's previous folder.
   "build-context": ["fresh"],
   // Who the task goes to. How it is approached, and the hint it carries, are
   // on the main page, under the issue.
   "fix-with-ai": ["agent", "agentCommand"],
-  // Which branch the agent edits and commits on.
-  branch: ["branchPolicy"],
+  // Which branch the agent edits and commits on, and what a new one is called.
+  branch: ["branchPolicy", "branchNaming", "branchTemplate"],
 };
 
 /**
@@ -185,6 +194,13 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
   agentCommand: false,
   // Written into task.md, as the Fix Mode is.
   branchPolicy: true,
+  // The Verification Policy section of task.md, and the branch it names (Batch 3).
+  verifyRelevantTests: true,
+  verifyStaticChecks: true,
+  verifyFullSuite: true,
+  verifyReportNotRun: true,
+  branchNaming: true,
+  branchTemplate: true,
   // The Repository Context section of task.md: the mode and each detail.
   repositoryProfile: true,
   repositoryLanguages: true,

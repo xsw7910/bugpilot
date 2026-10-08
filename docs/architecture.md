@@ -230,8 +230,9 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
 - **`user_config.py`** — the `~/.bugpilot/config.toml` store written by
   `bugpilot setup`. `load_user_config` / `save_user_config` read/write
   `jira_email` (+ token) via a minimal flat-TOML reader/writer (keeps the
-  zero-dependency, py3.10 contract). The Jira site is the developer's, not a built-in company
-  URL (never persisted). The dir is overridable via `BUGPILOT_CONFIG_DIR` (used
+  zero-dependency, py3.10 contract). The Jira site (`jira_base_url`) is the
+  developer's, never a built-in company URL; `save_jira_site` rewrites only
+  that key, for `bugpilot jira-site set` and the extension's Jira Setup. The dir is overridable via `BUGPILOT_CONFIG_DIR` (used
   to keep tests hermetic). Token persistence goes through a **`TokenStore`** seam
   (`FileTokenStore` today) so it can later move to the Windows Credential Manager
   without touching callers.
@@ -476,8 +477,19 @@ and before the pipeline runs — and is shown separately from the current select
   mode cannot relax it. The `jira_comment` parameter threads through
   `_copilot_task`, `_copilot_handoff`, and `delivery_instructions_block` to
   include or omit the "Report Status to Jira (before commit)" instruction.
-  `copilot_team_instructions()` loads `docs/agent_team_instructions.md` or a
-  `_fallback_team_instructions()` mirror.
+  `copilot_team_instructions()` returns the bundled safety rules
+  (`_fallback_team_instructions()`), which `docs/agent_team_instructions.md`
+  mirrors. Project / Team and User Instructions (`instructions.py`) are rendered
+  after the Repository Context, project first, with the project's Verification
+  Policy between them (`project_settings.py`); `INSTRUCTION_LAYERS` states the
+  precedence, and is the only place it is defined.
+- **`project_settings.py`** — `<repo>/.bugpilot/project_settings.json`: the
+  Verification Policy (four switches rendered as a short `task.md` section that
+  names no commands) and the branch naming template (`{issue}`, `{slug}`;
+  validated and rendered by `git_ops.branch_template_problem` /
+  `render_branch_template`). Read and written only as a real file inside the
+  repository; an unusable file falls back to the defaults with a warning.
+  `bugpilot project-settings` and the extension's Advanced Settings edit it.
 - **`delivery_instructions.py` (~110 lines)** — delivery text, split in two
   because only one half depends on the workflow. `delivery_safety_block` is the
   BugPilot-owned gate — branch-name checks, the forbidden add-list (`.ai/`,

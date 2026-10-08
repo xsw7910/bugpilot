@@ -53,6 +53,7 @@
     "repositoryBuildSystem",
     "repositoryTestFramework",
     "repositoryNotes",
+    "branchTemplate",
   ];
 
   /**
@@ -67,6 +68,21 @@
     "gitSearchFileHistory",
     "similarUseSharedKeywords",
   ];
+
+  /**
+   * The Verification Policy's switches (pre-release Batch 3) and their defaults,
+   * as `VERIFICATION_FIELDS` in `projectSettings.ts` lists them. Not in
+   * `SETTINGS_SWITCHES`: one of them ships off, so absent is each one's own
+   * default rather than on.
+   */
+  const VERIFICATION_SWITCHES = {
+    verifyRelevantTests: true,
+    verifyStaticChecks: true,
+    verifyFullSuite: false,
+    verifyReportNotRun: true,
+  };
+  /** Branch naming's choices, as `BRANCH_NAMINGS` in `projectSettings.ts`; the first is the default. */
+  const BRANCH_NAMINGS = ["default", "custom"];
 
   /** History Depth's options, as `GIT_HISTORY_DEPTHS` in `form.ts` lists them. */
   const GIT_HISTORY_DEPTHS = ["recent", "broader"];
@@ -166,9 +182,13 @@
       ],
       focus: ["repositoryProfile"],
     },
+    "ai-instructions": {
+      fields: ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun"],
+      focus: ["user-instructions-edit"],
+    },
     "build-context": { fields: ["fresh"], focus: ["fresh"] },
     "fix-with-ai": { fields: ["agent", "agentCommand"], focus: ["agent"] },
-    branch: { fields: ["branchPolicy"], focus: ["branchPolicy"] },
+    branch: { fields: ["branchPolicy", "branchNaming", "branchTemplate"], focus: ["branchPolicy"] },
   };
 
   /** Which workflow row's gear opens which section; a row absent here has none. */
@@ -304,6 +324,12 @@
     repositoryBuildSystem: "",
     repositoryTestFramework: "",
     repositoryNotes: "",
+    verifyRelevantTests: true,
+    verifyStaticChecks: true,
+    verifyFullSuite: false,
+    verifyReportNotRun: true,
+    branchNaming: "default",
+    branchTemplate: "",
   };
   /**
    * The line under the AI Agent picker per choice, from the host's detection
@@ -524,12 +550,15 @@
   let jiraSetupDismissed;
   let jiraSetupErrorToken;
   let jiraSetupReturnFocus;
+  /** The dialog the host has open, as last drawn: whether a token is stored, whether the site is the environment's. */
+  let jiraSetupView;
   /**
    * The host's rules for a field Save cannot store, said the host's way — the
    * page checks first so a missing field is said at once, and the host checks
    * again. The same three sentences as `JIRA_SETUP_PROBLEMS` (a test compares).
    */
   const JIRA_SETUP_PROBLEMS = {
+    siteMissing: "Enter your Jira site, such as https://your-company.atlassian.net.",
     emailMissing: "Enter your Atlassian account email.",
     emailInvalid: "Enter a valid email address.",
     tokenMissing: "Enter an API token.",
@@ -665,7 +694,14 @@
     settings.gitHistoryDepth = gitHistoryDepthOf(byId("gitHistoryDepth").value);
     settings.branchPolicy = branchPolicyOf(byId("branchPolicy").value);
     settings.repositoryProfile = repositoryProfileOf(byId("repositoryProfile").value);
+    for (const field of Object.keys(VERIFICATION_SWITCHES)) settings[field] = byId(field).checked;
+    settings.branchNaming = branchNamingOf(byId("branchNaming").value);
     return settings;
+  }
+
+  /** A branch naming this page offers, else the default. */
+  function branchNamingOf(value) {
+    return BRANCH_NAMINGS.includes(value) ? value : BRANCH_NAMINGS[0];
   }
 
   /** A History Depth this page offers, else `recent` — never a blank select. */
@@ -695,6 +731,10 @@
     settings.gitHistoryDepth = gitHistoryDepthOf(form.gitHistoryDepth);
     settings.branchPolicy = branchPolicyOf(form.branchPolicy);
     settings.repositoryProfile = repositoryProfileOf(form.repositoryProfile);
+    for (const [field, fallback] of Object.entries(VERIFICATION_SWITCHES)) {
+      settings[field] = typeof form[field] === "boolean" ? form[field] : fallback;
+    }
+    settings.branchNaming = branchNamingOf(form.branchNaming);
     return settings;
   }
 
@@ -713,8 +753,18 @@
     byId("gitHistoryDepth").value = gitHistoryDepthOf(settings.gitHistoryDepth);
     byId("branchPolicy").value = branchPolicyOf(settings.branchPolicy);
     byId("repositoryProfile").value = repositoryProfileOf(settings.repositoryProfile);
+    for (const [field, fallback] of Object.entries(VERIFICATION_SWITCHES)) {
+      byId(field).checked = typeof settings[field] === "boolean" ? settings[field] : fallback;
+    }
+    byId("branchNaming").value = branchNamingOf(settings.branchNaming);
     applyAgentVisibility();
     applyRepositoryVisibility();
+    applyBranchNamingVisibility();
+  }
+
+  /** The template is on screen only while Custom is chosen: one that is not used is not shown. */
+  function applyBranchNamingVisibility() {
+    byId("field-branchTemplate").hidden = byId("branchNaming").value !== "custom";
   }
 
   function writeForm(form) {
@@ -1061,6 +1111,9 @@
     repositoryLines = (state.repositoryProfile && state.repositoryProfile.lines) || {};
     renderRepositoryDetected();
     renderNotices(state);
+    // Before the views are switched: the editor's content is in place before it
+    // is shown and takes focus.
+    renderInstructions(state);
     renderManage(state);
     renderSettings(state);
     renderHintImprovement(state);
@@ -2971,9 +3024,16 @@
   function openJiraDialog(view) {
     const dialog = byId("jira-dialog");
     jiraSetupOpenFor = view.request;
-    // The token never arrives; the field starts empty and hidden every time.
+    jiraSetupView = view;
+    // The site and the email are prefilled; the token never arrives — the field
+    // starts empty and hidden every time. A site the environment sets is shown,
+    // read-only, with the reason: it is not this dialog's to change.
+    const site = byId("jira-site");
     const email = byId("jira-email");
     const token = byId("jira-token");
+    site.value = view.site || "";
+    site.readOnly = view.siteFromEnvironment === true;
+    byId("jira-site-environment").hidden = view.siteFromEnvironment !== true;
     email.value = view.email || "";
     token.value = "";
     showJiraToken(false);
@@ -2986,8 +3046,8 @@
     jiraSetupReturnFocus = active && active.id && active.id !== "jira-dialog" ? active.id : "set-credentials";
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.open = true;
-    // The first thing still to fill: the email, else the token.
-    (email.value.trim() === "" ? email : token).focus();
+    // The first thing still to fill: the site, the email, else the token.
+    (site.value.trim() === "" && !site.readOnly ? site : email.value.trim() === "" ? email : token).focus();
   }
 
   /** Close it, the token field cleared — the page keeps no draft of a credential. */
@@ -3005,6 +3065,7 @@
   function clearJiraFields() {
     byId("jira-token").value = "";
     byId("jira-email").value = "";
+    byId("jira-site").value = "";
     showJiraToken(false);
     showJiraError(undefined, "");
   }
@@ -3020,22 +3081,29 @@
   /** Save: the page's check first, so a missing field is said at once; then the host's. */
   function saveJiraSetup() {
     if (!byId("jira-dialog").open || byId("jira-save").getAttribute("aria-disabled") === "true") return;
+    const site = byId("jira-site").value;
     const email = byId("jira-email").value;
     const token = byId("jira-token").value;
-    const problem = jiraSetupProblem(email, token);
+    const problem = jiraSetupProblem(site, email, token, jiraSetupView || {});
     if (problem) {
       showJiraError(problem.field, problem.message);
       return;
     }
     showJiraError(undefined, "");
-    vscode.postMessage({ type: "saveJiraCredentials", email, token });
+    vscode.postMessage({ type: "saveJiraCredentials", site, email, token });
   }
 
-  function jiraSetupProblem(email, token) {
+  /**
+   * `jiraSetupProblem` in `jiraConnection.ts`, word for word (a test compares):
+   * the site unless the environment sets it, the email, and a token only when
+   * none is stored. Whether the site is a usable address is the CLI's to say.
+   */
+  function jiraSetupProblem(site, email, token, view) {
+    if (view.siteFromEnvironment !== true && site.trim() === "") return { field: "site", message: JIRA_SETUP_PROBLEMS.siteMissing };
     const address = email.trim();
     if (address === "") return { field: "email", message: JIRA_SETUP_PROBLEMS.emailMissing };
     if (!JIRA_EMAIL_SHAPE.test(address)) return { field: "email", message: JIRA_SETUP_PROBLEMS.emailInvalid };
-    if (token.trim() === "") return { field: "token", message: JIRA_SETUP_PROBLEMS.tokenMissing };
+    if (view.tokenStored !== true && token.trim() === "") return { field: "token", message: JIRA_SETUP_PROBLEMS.tokenMissing };
     return undefined;
   }
 
@@ -3044,7 +3112,7 @@
    * the focus, or — a refusal that names no field — above the actions.
    */
   function showJiraError(field, message) {
-    for (const [name, id] of [["email", "jira-email"], ["token", "jira-token"]]) {
+    for (const [name, id] of [["site", "jira-site"], ["email", "jira-email"], ["token", "jira-token"]]) {
       const here = message !== "" && field === name;
       const text = byId(`${id}-error`);
       text.hidden = !here;
@@ -3052,10 +3120,10 @@
       byId(id).setAttribute("aria-invalid", String(here));
     }
     const general = byId("jira-error");
-    const elsewhere = message !== "" && field !== "email" && field !== "token";
+    const elsewhere = message !== "" && field !== "site" && field !== "email" && field !== "token";
     general.hidden = !elsewhere;
     general.textContent = elsewhere ? message : "";
-    if (message !== "" && (field === "email" || field === "token")) byId(`jira-${field}`).focus();
+    if (message !== "" && (field === "site" || field === "email" || field === "token")) byId(`jira-${field}`).focus();
   }
 
   /** Show or hide what was typed in the token field — never anything stored. */
@@ -3221,6 +3289,8 @@
     byId("gitHistoryDepth").disabled = !enabled;
     byId("branchPolicy").disabled = !enabled;
     byId("repositoryProfile").disabled = !enabled;
+    for (const field of Object.keys(VERIFICATION_SWITCHES)) byId(field).disabled = !enabled;
+    byId("branchNaming").disabled = !enabled;
     applyStepBoxes();
   }
 
@@ -3432,6 +3502,9 @@
     // title, different way back, different place to land after saving.
     "fix-mode-new": "fix-mode-editor-view",
     "fix-mode-edit": "fix-mode-editor-view",
+    // User or Project instructions (pre-release Batch 2): one page, reached
+    // from the settings page and returning to it.
+    instructions: "instructions-editor-view",
   };
 
   const VIEW_SECTIONS = [...new Set(Object.values(PANEL_VIEWS))];
@@ -3454,6 +3527,7 @@
     "fix-mode-preview": "preview-heading",
     "fix-mode-new": "editor-title",
     "fix-mode-edit": "editor-title",
+    instructions: "instructions-title",
   };
 
   let activeView = "main";
@@ -3498,7 +3572,9 @@
    * one more thing that can disagree. This is the only place that decides.
    */
   function viewFor(state, editor) {
-    if (!state.manage) return settingsOpen ? "settings" : "main";
+    // The instruction editor is the host's, like the Fix Mode one, and is only
+    // ever reached from the settings page.
+    if (!state.manage) return settingsOpen ? (state.instructionsEditor ? "instructions" : "settings") : "main";
     if (editor) {
       if (editor.intent === "view") return "fix-mode-preview";
       return editor.intent === "create" ? "fix-mode-new" : "fix-mode-edit";
@@ -3534,6 +3610,16 @@
     if (view === "main" || view === "settings") growAll();
     if (view === "fix-mode-new" || view === "fix-mode-edit") growEditor();
     if (options && options.focus === false) return;
+    // Back on the settings page from an instruction editor: on the Edit that
+    // opened it, not at the top of a long page.
+    if (view === "settings" && previous === "instructions") {
+      const back = instructionsReturn && document.getElementById(instructionsReturn);
+      instructionsReturn = undefined;
+      if (back) {
+        focusElement(back);
+        return;
+      }
+    }
     // Coming back to a mode the developer was reading, put them back on the
     // button they left from rather than at the top of it again.
     const fromEditor = previous === "fix-mode-new" || previous === "fix-mode-edit";
@@ -3565,6 +3651,96 @@
     if (element && typeof element.scrollIntoView === "function") {
       element.scrollIntoView({ behavior: "smooth", block: block || "center" });
     }
+  }
+
+  // --- User and Project instructions (pre-release Batch 2) ------------------
+
+  /** The editor the host has open, as last drawn: its token, scope and limit. */
+  let instructionsEditor;
+  /** The Edit that opened the editor, to land on again when it closes. */
+  let instructionsReturn;
+  let instructionsErrorToken;
+
+  /**
+   * The settings page's two rows — one line of state each, from the host — and
+   * the editor while the host has one open. The editor's box is filled once per
+   * open (its `token`), never by a later push, so typing is never overwritten.
+   */
+  function renderInstructions(state) {
+    const rows = state.instructions || {};
+    for (const scope of ["user", "project"]) {
+      const row = rows[scope] || { status: "", editable: false };
+      const status = byId(`${scope}-instructions-status`);
+      status.textContent = row.status || "";
+      status.hidden = !row.status;
+      byId(`${scope}-instructions-edit`).disabled = !row.editable;
+    }
+    const editor = state.instructionsEditor;
+    if (!editor) {
+      instructionsEditor = undefined;
+      return;
+    }
+    const text = byId("instructions-text");
+    if (!instructionsEditor || editor.token !== instructionsEditor.token) {
+      byId("instructions-title").textContent = editor.title;
+      byId("instructions-text-label").textContent = editor.title;
+      byId("instructions-scope").textContent = editor.scopeLine;
+      text.value = editor.text;
+      const empty = byId("instructions-empty");
+      empty.textContent = editor.text === "" ? editor.empty : "";
+      empty.hidden = editor.text !== "";
+      showInstructionsError("");
+      instructionsErrorToken = undefined;
+    }
+    instructionsEditor = editor;
+    renderInstructionsCount();
+    const problem = byId("instructions-problem");
+    problem.textContent = editor.problem || "";
+    problem.hidden = !editor.problem;
+    const save = byId("instructions-save");
+    save.setAttribute("aria-disabled", editor.saving ? "true" : "false");
+    save.textContent = editor.saving ? "Saving…" : "Save";
+    text.readOnly = Boolean(editor.saving);
+    if (editor.error && editor.error.token !== instructionsErrorToken) {
+      instructionsErrorToken = editor.error.token;
+      showInstructionsError(editor.error.message);
+    }
+  }
+
+  /** How much is typed against the limit the CLI enforces — said before Save, not after. */
+  function renderInstructionsCount() {
+    const length = byId("instructions-text").value.length;
+    const max = (instructionsEditor && instructionsEditor.maxCharacters) || 20000;
+    const count = byId("instructions-count");
+    count.textContent = `${length.toLocaleString("en-US")} / ${max.toLocaleString("en-US")} characters`;
+    count.classList.toggle("over-limit", length > max);
+  }
+
+  function showInstructionsError(message) {
+    const error = byId("instructions-error");
+    error.textContent = message;
+    error.hidden = message === "";
+  }
+
+  function closeInstructionsEditor() {
+    vscode.postMessage({ type: "closeInstructions" });
+  }
+
+  /** Save: too long is said here and sent nowhere; the host checks again and the CLI a third time. */
+  function saveInstructionsEditor() {
+    const save = byId("instructions-save");
+    if (!instructionsEditor || save.getAttribute("aria-disabled") === "true") return;
+    const text = byId("instructions-text").value;
+    const max = instructionsEditor.maxCharacters || 20000;
+    if (text.length > max) {
+      showInstructionsError(
+        `${instructionsEditor.title} are ${text.length.toLocaleString("en-US")} characters; the most BugPilot includes is ${max.toLocaleString("en-US")}. Shorten them to save.`,
+      );
+      byId("instructions-text").focus();
+      return;
+    }
+    showInstructionsError("");
+    vscode.postMessage({ type: "saveInstructions", scope: instructionsEditor.scope, text });
   }
 
   // --- managing custom Fix Modes -------------------------------------------
@@ -4613,6 +4789,27 @@
   byId("settings-back").addEventListener("click", cancelSettings);
   byId("settings-cancel").addEventListener("click", cancelSettings);
   byId("settings-apply").addEventListener("click", applySettings);
+  // An instruction row's Edit asks the host, which reads the file and opens the
+  // editor; the page names the scope, never a path.
+  for (const scope of ["user", "project"]) {
+    byId(`${scope}-instructions-edit`).addEventListener("click", () => {
+      instructionsReturn = `${scope}-instructions-edit`;
+      vscode.postMessage({ type: "openInstructions", scope });
+    });
+  }
+  byId("instructions-back").addEventListener("click", closeInstructionsEditor);
+  byId("instructions-cancel").addEventListener("click", closeInstructionsEditor);
+  byId("instructions-save").addEventListener("click", saveInstructionsEditor);
+  byId("instructions-text").addEventListener("input", renderInstructionsCount);
+  byId("instructions-editor-view").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      saveInstructionsEditor();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeInstructionsEditor();
+    }
+  });
   // Its fields are not the form's: typing there grows the box and updates what
   // depends on it on the page, and sends nothing until Apply.
   byId("workflow-settings-view").addEventListener("input", (event) => grow(event.target));
@@ -4620,6 +4817,7 @@
     const target = event.target;
     if (target && target.id === "agent") applyAgentVisibility();
     if (target && target.id === "repositoryProfile") applyRepositoryVisibility();
+    if (target && target.id === "branchNaming") applyBranchNamingVisibility();
   });
   byId("workflow-settings-view").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -4702,8 +4900,14 @@
   byId("jira-token-page").addEventListener("click", () =>
     vscode.postMessage({ type: "action", id: "openJiraTokenPage" }),
   );
-  // Enter in the email goes on to the token; Enter in the token saves, through
-  // the same check as the button. Nothing else in the dialog saves on Enter.
+  // Enter in the site goes on to the email, Enter in the email to the token;
+  // Enter in the token saves, through the same check as the button. Nothing
+  // else in the dialog saves on Enter.
+  byId("jira-site").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    byId("jira-email").focus();
+  });
   byId("jira-email").addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -4972,7 +5176,8 @@
   // becomes an attachment. Not inside a text box — there it is that box's own
   // paste — and plain text is never an attachment.
   document.addEventListener("paste", (event) => {
-    if (!settingsOpen || editable(event.target)) return;
+    // On the settings page itself: not behind an instruction editor laid over it.
+    if (!settingsOpen || activeView !== "settings" || editable(event.target)) return;
     const files = filesOf(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();

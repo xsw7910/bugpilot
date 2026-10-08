@@ -66,6 +66,18 @@ export class CredentialStore {
     await this.#store.store(CREDENTIAL_KEY, JSON.stringify({ email, token }));
   }
 
+  /**
+   * A new email with the token already stored (Jira Setup with the token left
+   * blank, pre-release Batch 3): one write, as `save` is. Refuses when nothing
+   * usable is stored — there is no token to keep, and a half credential is
+   * never saved.
+   */
+  async saveKeepingToken(email: string): Promise<void> {
+    const stored = await this.#read();
+    if (!stored) throw new Error("An API token is required: none is stored yet.");
+    await this.save({ email, token: stored.token });
+  }
+
   async clear(): Promise<void> {
     await this.#store.delete(CREDENTIAL_KEY);
   }

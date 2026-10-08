@@ -52,11 +52,11 @@ PAYLOAD = {
         "description": (
             "Steps to Reproduce\n"
             "1. Open sample-repo\n"
-            "2. Select the VDS output type\n\n"
+            "2. Select the CSV output type\n\n"
             "Actual Result\n"
-            "Error: InvalidOutputType: VDS is not allowed\n\n"
+            "Error: InvalidOutputType: CSV is not allowed\n\n"
             "Expected Result\n"
-            "VDS is accepted.\n"
+            "CSV is accepted.\n"
         ),
         "issuetype": {"name": "Bug"},
         "status": {"name": "Open"},
@@ -80,8 +80,8 @@ def _repo(root: Path) -> Path:
     (root / "src" / "WidgetController.cpp").write_text(
         '#include "WidgetController.h"\n'
         "bool WidgetController::validate(OutputType type) {\n"
-        "  // VDS output type is filtered here\n"
-        "  return type != OutputType::VDS;\n"
+        "  // CSV output type is filtered here\n"
+        "  return type != OutputType::CSV;\n"
         "}\n",
         encoding="utf-8",
     )
@@ -101,7 +101,7 @@ def _git_repo(root: Path) -> Path:
     _git(root, "config", "user.email", "dev@example.com")
     _git(root, "config", "user.name", "Dev")
     _git(root, "add", "src")
-    _git(root, "commit", "-q", "-m", "Filter the VDS output type in WidgetController")
+    _git(root, "commit", "-q", "-m", "Filter the CSV output type in WidgetController")
     return root
 
 
@@ -110,16 +110,16 @@ def _seed_memory(root: Path) -> None:
     bugs = root / ".ai_memory" / "bugs"
     bugs.mkdir(parents=True, exist_ok=True)
     (bugs / "JR-11111.md").write_text(
-        "# JR-11111: WidgetController dropped the VDS output type\n\n"
-        "Fixed in src/WidgetController.cpp: validate() filtered VDS.\n",
+        "# JR-11111: WidgetController dropped the CSV output type\n\n"
+        "Fixed in src/WidgetController.cpp: validate() filtered CSV.\n",
         encoding="utf-8",
     )
 
 
 def _manual(root: Path, *, hint: str | None = HINT, fix_mode_id: str | None = None) -> str:
     spec = bug_spec_from_description(
-        "WidgetController rejects the VDS output type.\n\nError: InvalidOutputType thrown by validate",
-        title="Output type cannot select VDS",
+        "WidgetController rejects the CSV output type.\n\nError: InvalidOutputType thrown by validate",
+        title="Output type cannot select CSV",
     )
     request = InvestigationRequest(
         spec=spec,
@@ -198,14 +198,14 @@ def test_the_context_carries_guidance_issue_and_code_search(tmp_path):
     assert "Investigate First (`investigate-first`)" in guidance
     issue = _section(context, "## Issue")
     assert "- Source: Hand-written description" in issue
-    assert "- Summary: Output type cannot select VDS" in issue
+    assert "- Summary: Output type cannot select CSV" in issue
     # The description itself, which the old context left to a separate file.
-    assert "WidgetController rejects the VDS output type." in _section(context, "## Issue Details")
+    assert "WidgetController rejects the CSV output type." in _section(context, "## Issue Details")
     search = _section(context, "## Code Search")
     assert f"`.ai/{work_item}/retrieval.json`" in search
     assert "- `src/WidgetController.cpp` confidence=high" in search
     assert "#### src/WidgetController.cpp" in search
-    assert "`return type != OutputType::VDS;`" in search
+    assert "`return type != OutputType::CSV;`" in search
 
 
 @needs_rg
@@ -226,7 +226,7 @@ def test_git_history_reaches_the_context_without_a_file_of_its_own(tmp_path):
 
     assert "- Current branch:" in history
     # Git History v2: one ranked commit, with the file and the keyword that found it.
-    assert "— Filter the VDS output type in WidgetController" in history
+    assert "— Filter the CSV output type in WidgetController" in history
     assert "Relevant files:\n- `src/WidgetController.cpp`\n" in history
     assert "matched shared keyword: WidgetController" in history
     assert not (tmp_path / ".ai" / work_item / "git_context.md").exists()
@@ -257,7 +257,7 @@ def test_similar_fixes_reach_the_context_without_a_file_of_their_own(tmp_path):
     similar = _section(_read(tmp_path, work_item, "context.md"), "## Similar Fixes")
 
     assert "`.ai_memory/bugs/JR-11111.md`" in similar
-    assert "JR-11111: WidgetController dropped the VDS output type" in similar
+    assert "JR-11111: WidgetController dropped the CSV output type" in similar
     assert not (tmp_path / ".ai" / work_item / "memory_search.md").exists()
 
 
@@ -326,8 +326,8 @@ def test_a_standalone_rebuild_reproduces_the_pipelines_context(tmp_path, monkeyp
     """
     _repo(tmp_path)
     spec = bug_spec_from_description(
-        "WidgetController rejects the VDS output type.\n\nError: InvalidOutputType thrown by validate",
-        title="Output type cannot select VDS",
+        "WidgetController rejects the CSV output type.\n\nError: InvalidOutputType thrown by validate",
+        title="Output type cannot select CSV",
     )
     request = InvestigationRequest(
         # A keyword the issue text never says, so extraction alone cannot supply it.

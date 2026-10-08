@@ -24,6 +24,11 @@ JIRA_TIMEOUT = "JIRA_TIMEOUT"
 JIRA_NETWORK_ERROR = "JIRA_NETWORK_ERROR"
 JIRA_INVALID_RESPONSE = "JIRA_INVALID_RESPONSE"
 JIRA_ERROR = "JIRA_ERROR"
+# The configured Jira site is not an https:// address BugPilot will send
+# credentials to (pre-release Batch 2).
+JIRA_INVALID_SITE = "JIRA_INVALID_SITE"
+# Jira redirected to another origin, and the credentials were not sent there.
+JIRA_REDIRECT_REFUSED = "JIRA_REDIRECT_REFUSED"
 
 # --- source-mode gates (design section 5.1) ---------------------------------
 
@@ -59,6 +64,8 @@ _JIRA_ERROR_TYPES: dict[str, str] = {
     "network_error": JIRA_NETWORK_ERROR,
     "invalid_response": JIRA_INVALID_RESPONSE,
     "unknown_error": JIRA_ERROR,
+    "invalid_site": JIRA_INVALID_SITE,
+    "redirect_refused": JIRA_REDIRECT_REFUSED,
 }
 
 

@@ -14,10 +14,12 @@
 import { diagnose } from "./errors.ts";
 import { ProtocolError } from "./protocol.ts";
 import type { Envelope } from "./protocol.ts";
+import { locateExecutable } from "./executablePath.ts";
+import type { Located } from "./executablePath.ts";
 import { Runner } from "./runner.ts";
 import type { SpawnFn } from "./runner.ts";
 
-/** Default command name, resolved through PATH by the OS. */
+/** Default command name, resolved on PATH's absolute entries (`executablePath.ts`). */
 export const DEFAULT_EXECUTABLE = "bugpilot";
 
 export type Verdict =
@@ -63,6 +65,12 @@ export interface DiscoverOptions {
   readonly spawn?: SpawnFn;
   readonly platform?: string;
   readonly timeoutMs?: number;
+  /**
+   * Where a name or a configured path resolves (pre-release Batch 2, A):
+   * `executablePath.ts`'s policy by default — PATH's absolute entries, never
+   * the working directory. Replaced in tests.
+   */
+  readonly locate?: (name: string) => Located;
 }
 
 /**
@@ -75,7 +83,29 @@ export interface DiscoverOptions {
  */
 export async function discoverExecutable(options: DiscoverOptions): Promise<Verdict> {
   const configured = options.configured?.trim();
-  const executable = configured && configured !== "" ? configured : DEFAULT_EXECUTABLE;
+  const requested = configured && configured !== "" ? configured : DEFAULT_EXECUTABLE;
+  // Resolved once, here, and the absolute path is what this handshake and every
+  // later run start: detecting one bugpilot and running another from PATH — or
+  // from the repository, the working directory — is how a hijack would look.
+  const located = (options.locate ?? ((name) => locateExecutable(name, { purpose: "spawn" })))(requested);
+  if (located.kind === "invalid") {
+    return {
+      kind: "not-found",
+      executable: requested,
+      detail: `The configured bugpilot path is not valid: ${located.reason}`,
+    };
+  }
+  if (located.kind === "not-found") {
+    return {
+      kind: "not-found",
+      executable: requested,
+      detail:
+        configured && configured !== ""
+          ? `The configured bugpilot path does not exist: ${requested}`
+          : "bugpilot is not on PATH.",
+    };
+  }
+  const executable = located.path;
   const runner = new Runner(executable, options.spawn, options.platform);
 
   let envelope: Envelope;
@@ -212,34 +242,4 @@ export function describeVerdict(verdict: Verdict): { summary: string; action: st
       };
     }
   }
-}
-
-/**
- * The file names a shell would try for a bare command on Windows.
- *
- * Node's `spawn` without a shell goes straight to `CreateProcess`, which
- * appends `.exe` and nothing else — so a command installed as `claude.cmd` (npm
- * does exactly this) is invisible to a spawn probe while running perfectly in a
- * terminal. Spawning the `.cmd` directly is not the answer: since the fix for
- * CVE-2024-27980, Node rejects that with EINVAL. Measured on the author's
- * machine: `claude` exits 0, `claude.cmd` throws EINVAL.
- *
- * So the fallback is a file lookup rather than a second spawn, and this is the
- * list of names to look for. Empty on other platforms, where PATH lookup has no
- * extension rules to reproduce.
- */
-export function launcherNames(
-  executable: string,
-  pathext: string | undefined,
-  platform: string,
-): readonly string[] {
-  if (platform !== "win32") return [];
-  // Already carries an extension: a lookup would be asking a different question
-  // than the caller asked.
-  if (/\.[A-Za-z0-9]+$/.test(executable)) return [executable];
-  const extensions = (pathext ?? ".COM;.EXE;.BAT;.CMD")
-    .split(";")
-    .map((extension) => extension.trim())
-    .filter((extension) => extension.startsWith("."));
-  return [executable, ...extensions.map((extension) => executable + extension)];
 }

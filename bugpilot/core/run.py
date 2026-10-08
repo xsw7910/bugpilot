@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .artifact_io import atomic_write_text
 from .artifacts import ARTIFACT_SCHEMA_VERSION, RUN_ARTIFACT
-from .config import WORKFLOW_STEPS, issue_dir
+from .config import WORKFLOW_STEPS, issue_dir, writable_issue_dir
 
 # The one authoritative overall state. The product's own words: `bugpilot list`
 # and the extension's history both call a finished package "prepared".
@@ -141,8 +141,7 @@ def _step_status(value: object) -> str:
 
 def save_run(repo_root: Path, work_item_id: str, run: RunArtifact) -> Path:
     """Write ``run.json`` atomically: other processes read it mid-run."""
-    path = run_path(repo_root, work_item_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = writable_issue_dir(repo_root, work_item_id) / RUN_ARTIFACT
     atomic_write_text(path, json.dumps(run_to_dict(run), indent=2) + "\n")
     return path
 

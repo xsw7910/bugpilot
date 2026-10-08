@@ -58,16 +58,16 @@ test("the count's default and ceiling are the CLI's", () => {
 
 test("a form at the defaults sends no Similar fixes flag: the command line it always sent", () => {
   assert.deepEqual(similarFlags(argsOf(form())), []);
-  assert.deepEqual(similarFlags(argsOf(form({ keywords: "poststack", focusFiles: "src/a.cpp" }))), []);
+  assert.deepEqual(similarFlags(argsOf(form({ keywords: "postblend", focusFiles: "src/a.cpp" }))), []);
 });
 
 // --- the shared Retrieval inputs ------------------------------------------------------------
 
 test("the shared Keywords go out once, as --keywords, whichever steps use them", () => {
   for (const [gitShared, similarShared] of [[true, true], [false, true], [true, false], [false, false]] as const) {
-    const args = argsOf(form({ keywords: "poststack, OpenVDS", gitUseSharedKeywords: gitShared, similarUseSharedKeywords: similarShared }));
+    const args = argsOf(form({ keywords: "postblend, OpenCSV", gitUseSharedKeywords: gitShared, similarUseSharedKeywords: similarShared }));
     // Code search always: one canonical list, never a copy per step.
-    assert.deepEqual(values(args, "--keywords"), ["poststack", "OpenVDS"]);
+    assert.deepEqual(values(args, "--keywords"), ["postblend", "OpenCSV"]);
     // Each step's opt-out is its own flag, and only that.
     assert.equal(args.includes("--git-no-shared-keywords"), !gitShared);
     assert.equal(args.includes("--similar-fixes-no-shared-keywords"), !similarShared);
@@ -117,12 +117,12 @@ test("every Similar fixes flag the panel builds is one the CLI declares", () => 
 });
 
 test("Additional keywords are Similar fixes' alone: never Code search's, never Git history's, never the shared list", () => {
-  const args = argsOf(form({ keywords: "poststack", gitKeywords: "stackmerge", similarKeywords: "legacyexporter" }));
-  assert.deepEqual(values(args, "--keywords"), ["poststack"]);
-  assert.deepEqual(values(args, "--git-keyword"), ["stackmerge"]);
+  const args = argsOf(form({ keywords: "postblend", gitKeywords: "blendmerge", similarKeywords: "legacyexporter" }));
+  assert.deepEqual(values(args, "--keywords"), ["postblend"]);
+  assert.deepEqual(values(args, "--git-keyword"), ["blendmerge"]);
   assert.deepEqual(values(args, "--similar-fixes-keyword"), ["legacyexporter"]);
   // And Git history's never reach Similar fixes.
-  assert.equal(values(args, "--similar-fixes-keyword").includes("stackmerge"), false);
+  assert.equal(values(args, "--similar-fixes-keyword").includes("blendmerge"), false);
 });
 
 test("Max similar fixes must be a whole number from 1 to 20, or empty", () => {
@@ -158,7 +158,7 @@ test("every Similar fixes setting, and each shared input, changes what a context
     { similarUseSharedKeywords: false },
     { similarKeywords: "legacyexporter" },
     { similarMaxFixes: "2" },
-    { keywords: "poststack" },
+    { keywords: "postblend" },
     { focusFiles: "src/a.cpp" },
   ]) {
     assert.notEqual(preparationFingerprint({ ...base, ...change }), preparationFingerprint(base), JSON.stringify(change));
@@ -171,7 +171,7 @@ test("every Similar fixes setting, and each shared input, changes what a context
 // --- persistence -----------------------------------------------------------------------------
 
 test("a form saved before the Similar Fixes Settings restores with their defaults", () => {
-  const legacy: Record<string, unknown> = { ...form(), keywords: "poststack" };
+  const legacy: Record<string, unknown> = { ...form(), keywords: "postblend" };
   for (const key of ["similarUseSharedKeywords", "similarKeywords", "similarMaxFixes"]) delete legacy[key];
 
   const restored = restoreForm(legacy as unknown as FormState);
@@ -179,7 +179,7 @@ test("a form saved before the Similar Fixes Settings restores with their default
   assert.equal(restored.similarUseSharedKeywords, true);
   assert.equal(restored.similarKeywords, "");
   assert.equal(restored.similarMaxFixes, "");
-  assert.equal(restored.keywords, "poststack");
+  assert.equal(restored.keywords, "postblend");
   assert.deepEqual(similarFlags(argsOf(restored)), []);
 });
 

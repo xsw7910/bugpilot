@@ -46,6 +46,8 @@ import type { VerificationCheckEntry } from "../src/app/verificationReport.ts";
 import { payloadCommandPort } from "../src/app/fixModeTransport.ts";
 import { deleteWorkItemArtifacts } from "../src/app/sessionReset.ts";
 import { repositoryProfileOfForm, runRepositoryProfile } from "../src/app/repositoryProfile.ts";
+import { runInstructions } from "../src/app/instructions.ts";
+import { projectSettingsOfForm, runProjectSettings } from "../src/app/projectSettings.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -250,7 +252,9 @@ test("a missing work item fails with a code this client knows", async () => {
 test("an unreachable Jira ends the stream with a terminal failure event", async () => {
   // Pointed at a closed local port. Environment variables win over
   // ~/.bugpilot/config.toml, so this cannot reach the real Jira even on a
-  // machine where credentials are configured.
+  // machine where credentials are configured. https://, because an http:// site
+  // is refused before any connection (pre-release Batch 2, B) — a different
+  // failure from the unreachable one this test is about.
   const tracker = new ProgressTracker(DEFAULT_FORM.plan);
   const outcome = await runner().runStreaming(
     [...MODULE, "bug", "JR-12345", "--resume", "--prepare-only"],
@@ -258,7 +262,7 @@ test("an unreachable Jira ends the stream with a terminal failure event", async 
       cwd: repository(),
       env: {
         ...ENVIRONMENT,
-        JIRA_BASE_URL: "http://127.0.0.1:9",
+        JIRA_BASE_URL: "https://127.0.0.1:9",
         JIRA_EMAIL: "nobody@example.invalid",
         JIRA_TOKEN: "not-a-real-token",
       },
@@ -692,4 +696,105 @@ test("the Repository Profile port reads, saves and reads back through the real C
   assert.match(task, /- Languages: Rust/);
   assert.match(task, /- Codebase notes: No unsafe code\./);
   assert.equal(/Qt|C\+\+/.test(task), false, "the detected facts leaked into a Custom profile");
+});
+
+// --- pre-release Batch 2: User and Project instructions through the real CLI ----
+
+test("the instructions port reads, saves by stdin, clears and reads back through the real CLI, and a run carries them", async () => {
+  const root = repository();
+  // The user's own file in a folder of the test's, never the real ~/.bugpilot.
+  const home = mkdtempSync(path.join(tmpdir(), "bugpilot-it-home-"));
+  const env = { ...ENVIRONMENT, BUGPILOT_CONFIG_DIR: home };
+  const run = (args: readonly string[], input?: string) =>
+    runner().run([...MODULE, ...args], { cwd: root, env, timeoutMs: 120_000, ...(input === undefined ? {} : { input }) });
+
+  const shown = await runInstructions(run);
+  assert.equal(shown.kind, "loaded", JSON.stringify(shown));
+  if (shown.kind !== "loaded") return;
+  assert.equal(shown.snapshot.user.configured, false);
+  assert.equal(shown.snapshot.project.configured, false);
+  assert.equal(existsSync(path.join(root, ".bugpilot")), false, "reading created a folder");
+
+  const qt = "Preserve Qt object ownership conventions.\nAvoid blocking the UI thread.";
+  const project = await runInstructions(run, { scope: "project", text: `${qt}\n` });
+  assert.equal(project.kind, "loaded", JSON.stringify(project));
+  if (project.kind !== "loaded") return;
+  assert.equal(project.snapshot.project.text, qt);
+  assert.equal(project.snapshot.project.sha256.length, 64);
+  assert.ok(existsSync(path.join(root, ".bugpilot", "instructions.md")));
+
+  const user = await runInstructions(run, { scope: "user", text: "Prefer small focused changes — ✓ ünïcode." });
+  assert.equal(user.kind, "loaded");
+  assert.equal(readFileSync(path.join(home, "instructions.md"), "utf8").trim(), "Prefer small focused changes — ✓ ünïcode.");
+
+  // A Run carries both, after the Repository Context and below the safety rules.
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.ok(built.ok);
+  if (!built.ok) return;
+  const outcome = await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env, timeoutMs: 300_000 },
+    () => {},
+  );
+  assert.equal(outcome.terminated, true, outcome.result.stderr);
+  const ai = path.join(root, ".ai");
+  const [workItem] = readdirSync(ai);
+  // Line endings unified: artifacts are written in the platform's own.
+  const task = readFileSync(path.join(ai, workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
+  const order = ["## BugPilot Safety Rules", "## Repository Context", "## Project / Team Instructions", "## User Instructions", "## Branch Instructions"].map((heading) => task.indexOf(heading));
+  assert.ok(order.every((index) => index >= 0), JSON.stringify(order));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.ok(task.includes(qt));
+  assert.ok(task.includes("Prefer small focused changes — ✓ ünïcode."));
+  assert.equal(task.includes(home), false, "an absolute path reached the task");
+
+  // Empty text removes the file.
+  const cleared = await runInstructions(run, { scope: "project", text: "" });
+  assert.equal(cleared.kind, "loaded");
+  if (cleared.kind !== "loaded") return;
+  assert.equal(cleared.snapshot.project.configured, false);
+  assert.equal(existsSync(path.join(root, ".bugpilot", "instructions.md")), false);
+});
+
+// --- pre-release Batch 3: project settings through the real CLI -------------------
+
+test("the project settings port reads, saves and reads back through the real CLI, and a run writes the policy and branch", async () => {
+  const root = repository();
+  const run = (args: readonly string[]) => runner().run([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
+
+  const shown = await runProjectSettings(run);
+  assert.equal(shown.kind, "loaded", JSON.stringify(shown));
+  if (shown.kind !== "loaded") return;
+  assert.equal(shown.snapshot.saved, false);
+  assert.deepEqual(shown.snapshot.settings, projectSettingsOfForm(DEFAULT_FORM));
+
+  const form = { ...DEFAULT_FORM, verifyFullSuite: true, branchNaming: "custom" as const, branchTemplate: "bugfix/{issue}-{slug}" };
+  const saved = await runProjectSettings(run, projectSettingsOfForm(form));
+  assert.equal(saved.kind, "loaded", JSON.stringify(saved));
+  if (saved.kind !== "loaded") return;
+  assert.equal(saved.snapshot.saved, true);
+  assert.equal(saved.snapshot.settings.branch_naming.template, "bugfix/{issue}-{slug}");
+
+  // An unsafe template is refused by the CLI, in its own words, and the file is kept.
+  const refused = await runProjectSettings(run, { ...projectSettingsOfForm(form), branch_naming: { template: "../{issue}" } });
+  assert.equal(refused.kind, "failed");
+  if (refused.kind === "failed") assert.match(refused.message, /cannot contain '\.\.'/);
+
+  // A Run sends no flag for them, and the task carries both.
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.ok(built.ok);
+  if (!built.ok) return;
+  assert.equal(built.args.some((arg) => /verif|template/i.test(arg)), false);
+  const outcome = await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+    () => {},
+  );
+  assert.equal(outcome.terminated, true, outcome.result.stderr);
+  const ai = path.join(root, ".ai");
+  const [workItem] = readdirSync(ai);
+  const task = readFileSync(path.join(ai, workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
+  assert.match(task, /## Verification Policy\n\nSource: repository configuration \(project settings\)\./);
+  assert.match(task, /- Run the repository's full test suite before reporting, if it can run in this environment\./);
+  assert.match(task, /`bugfix\/bug-[0-9a-f]{8}-/);
 });

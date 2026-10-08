@@ -23,9 +23,10 @@ import {
 } from "../app/fixModes.ts";
 import type { FixModeCatalog, ManagedFixModes } from "../app/fixModes.ts";
 import type { IssueDetails } from "../app/hintImprovement.ts";
-import { launcherNames } from "../executable.ts";
+import { childEnvironmentAdditions, locateExecutable } from "../executablePath.ts";
 import { pickLatestSession, sessionIdFromFileName } from "../app/session.ts";
-import { Runner } from "../runner.ts";
+import { trustedRunner } from "../runner.ts";
+import { writeWorkItemFile } from "../app/sessionReset.ts";
 import { CAPTURED_REVIEW_TIMEOUT_MS } from "../app/reviewRun.ts";
 import type { SessionCandidate } from "../app/session.ts";
 import type { ControllerPorts, FilesPort, UiPort } from "../app/controller.ts";
@@ -57,7 +58,15 @@ export function createFilesPort(): FilesPort {
         return undefined;
       }
     },
-    writeFile: async (file, contents) => {
+    writeFile: async (file, contents, workItem) => {
+      if (workItem !== undefined) {
+        const name = path.basename(file);
+        if (path.join(workItem.root, ".ai", workItem.workItemId, name) !== path.join(file)) {
+          throw new Error(`${name} is not in this work item's .ai folder, so nothing was written.`);
+        }
+        await writeWorkItemFile({ ...workItem, name, contents });
+        return;
+      }
       await mkdir(path.dirname(file), { recursive: true });
       await writeFile(file, contents, "utf8");
     },
@@ -108,7 +117,10 @@ export function createUiPort(deps: UiPortDeps): UiPort {
       await vscode.commands.executeCommand(commandId);
     },
     runInTerminal: (name, cwd, commandLine) => {
-      const terminal = vscode.window.createTerminal({ name, cwd });
+      // The shell resolves the agent's name; with this switch cmd.exe — and every
+      // program started inside the terminal, such as an npm shim's `node` — skips
+      // the repository, the working directory (pre-release Batch 2, A).
+      const terminal = vscode.window.createTerminal({ name, cwd, env: { ...childEnvironmentAdditions() } });
       terminal.show();
       terminal.sendText(commandLine, true);
     },
@@ -324,54 +336,16 @@ export async function mcpConfigured(
 
 
 /**
- * Whether an executable can be started at all.
- *
- * A `--version` handshake, because that is the cheapest question that proves a
- * spawn works; ENOENT is the answer that matters. Used to detect an AI CLI
- * before offering to run it in a terminal, since a terminal printing "command
- * not found" reads as a bug in this extension rather than a missing tool. No
- * terminal is opened and nothing but `--version` is run.
- *
- * ENOENT alone would be too harsh a verdict on Windows, where a spawn probe
- * cannot see a `.cmd` launcher that a terminal runs happily — see
- * `launcherNames`. So a failed probe is followed by a file lookup along PATH,
- * and the question the whole function answers is the one the caller actually
- * has: will the terminal find this.
+ * Whether an AI CLI is there to run (pre-release Batch 2, A): resolved under
+ * `executablePath.ts`'s policy — PATH's absolute entries, never the working
+ * directory — and not executed at all. A program Node can start (`.exe`) or a
+ * launcher a terminal's shell runs (`claude.cmd`) both count: the question the
+ * caller has is "will this agent start", and nothing needs to run to answer it.
+ * A relative path is never trusted, so it is never "there".
  */
 export async function canRun(executable: string): Promise<boolean> {
-  try {
-    // Short: a CLI that has not printed its version in five seconds still
-    // exists — a timeout is not ENOENT — and nothing should wait longer to
-    // learn that.
-    await new Runner(executable).run(["--version"], { cwd: process.cwd(), timeoutMs: 5_000 });
-    return true;
-  } catch (error) {
-    const code = (error as { code?: string } | undefined)?.code;
-    if (code === "ENOENT") return existsOnPath(executable);
-    // Anything else — a non-zero exit, unreadable output — still proves the
-    // program exists, which is the only question here.
-    return true;
-  }
-}
-
-/** Whether any launcher for a bare command name exists in a PATH directory. */
-async function existsOnPath(executable: string): Promise<boolean> {
-  // An explicit path was not found by the spawn, and no PATH search would
-  // change that.
-  if (executable.includes("/") || executable.includes("\\")) return false;
-  const names = launcherNames(executable, process.env["PATHEXT"], process.platform);
-  if (names.length === 0) return false;
-  const directories = (process.env["PATH"] ?? "").split(path.delimiter).filter(Boolean);
-  for (const directory of directories) {
-    for (const name of names) {
-      try {
-        if ((await stat(path.join(directory, name))).isFile()) return true;
-      } catch {
-        // A PATH entry that does not exist is ordinary, not an error.
-      }
-    }
-  }
-  return false;
+  if (locateExecutable(executable, { purpose: "spawn" }).kind === "found") return true;
+  return locateExecutable(executable, { purpose: "shell" }).kind === "found";
 }
 
 /**
@@ -424,7 +398,7 @@ export async function improveHintWithProvider(request: {
 }): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
   const scratch = await mkdtemp(path.join(tmpdir(), "bugpilot-hint-"));
   try {
-    const result = await new Runner(request.provider.command).run([...request.provider.args], {
+    const result = await trustedRunner(request.provider.command).run([...request.provider.args], {
       cwd: scratch,
       input: request.prompt,
       timeoutMs: 120_000,
@@ -528,7 +502,7 @@ export async function runCapturedReview(request: {
   readonly signal?: AbortSignal;
   readonly onStarted?: () => void;
 }): Promise<{ code: number | null; stdout: string; stderr: string; aborted: boolean }> {
-  return new Runner(request.command).run([...request.args], {
+  return trustedRunner(request.command).run([...request.args], {
     cwd: request.cwd,
     input: request.input,
     // A review reads a diff and a few files; past this it is not coming back.

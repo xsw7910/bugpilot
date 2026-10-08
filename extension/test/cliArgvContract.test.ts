@@ -30,6 +30,9 @@ import type { FormState } from "../src/app/form.ts";
 import { FIX_MODE_LIST_ARGS, FIX_MODE_MANAGED_ARGS, deleteArgsFor, saveArgsForDraft } from "../src/app/fixModes.ts";
 import type { FixModeDraft, ManagedFixMode } from "../src/app/fixModes.ts";
 import { reviewPackageArgs } from "../src/app/reviewPackage.ts";
+import { instructionsArgs } from "../src/app/instructions.ts";
+import { projectSettingsArgs } from "../src/app/projectSettings.ts";
+import { jiraSiteArgs } from "../src/app/jiraSite.ts";
 import { recordReviewArgs } from "../src/app/reviewCapture.ts";
 import { recordVerificationArgs } from "../src/app/verificationCapture.ts";
 import { repositoryProfileArgs } from "../src/app/repositoryProfile.ts";
@@ -131,10 +134,21 @@ function contract(): { readonly name: string; readonly argv: readonly string[] }
     { name: "fix-mode update", argv: json(saveArgsForDraft({ ...DRAFT, intent: "edit", version: 2 } as unknown as FixModeDraft, PAYLOAD)) },
     { name: "fix-mode delete", argv: json(deleteArgsFor(MANAGED)) },
     { name: "review-package", argv: json(reviewPackageArgs("JR-12345")) },
+    { name: "review-package --include-changes (Review with AI)", argv: json(reviewPackageArgs("JR-12345", { includeChanges: true })) },
     { name: "record-review", argv: json(recordReviewArgs("JR-12345", PAYLOAD, true)) },
     { name: "record-verification", argv: json(recordVerificationArgs("JR-12345", PAYLOAD, true)) },
     { name: "repository-profile show", argv: placeholders([...repositoryProfileArgs(), "--json"]) },
     { name: "repository-profile set", argv: placeholders([...repositoryProfileArgs(PAYLOAD), "--json"]) },
+    // User and Project instructions (pre-release Batch 2): the text goes on stdin, so none is here.
+    // Jira Setup's site (Batch 3): read when the dialog opens, written by Save — the site on stdin.
+    { name: "jira-site show", argv: placeholders([...jiraSiteArgs(false)]) },
+    { name: "jira-site set", argv: placeholders([...jiraSiteArgs(true)]) },
+    // Project settings (Batch 3): read when the environment resolves, written on Apply.
+    { name: "project-settings show", argv: placeholders([...projectSettingsArgs(), "--json"]) },
+    { name: "project-settings set", argv: placeholders([...projectSettingsArgs(PAYLOAD), "--json"]) },
+    { name: "instructions show", argv: placeholders([...instructionsArgs()]) },
+    { name: "instructions set (stdin)", argv: placeholders([...instructionsArgs({ scope: "project", clear: false })]) },
+    { name: "instructions set --clear", argv: placeholders([...instructionsArgs({ scope: "user", clear: true })]) },
   ];
 }
 

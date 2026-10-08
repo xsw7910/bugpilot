@@ -1529,6 +1529,70 @@ html:has(#workflow-settings-view:not([hidden])) {
   cursor: default;
 }
 
+/* The Verification Policy's four switches under one quiet heading (Batch 3):
+   the heading reads like a setting's label; the switches sit under it. */
+.setting-group {
+  margin-top: 10px;
+}
+
+.setting-group-label {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+/* An instruction row (pre-release Batch 2): the name and Edit on one line,
+   Edit at the right, the file's state under them in one quiet line. In a
+   200px sidebar the name wraps rather than pushing Edit off the panel. */
+.instruction-row .setting-header {
+  align-items: center;
+}
+
+.instruction-row .setting-header > label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.instruction-edit {
+  flex: none;
+}
+
+.instruction-status {
+  margin: 0;
+}
+
+/* The instruction editor: one tall box, the count under it, the footer of the
+   settings page. The box is the page's reason to exist, so it is not held to
+   the growing fields' ceiling. */
+.instructions-scope {
+  margin: 10px 0 6px;
+}
+
+.instructions-empty,
+.instructions-problem {
+  margin: 0 0 6px;
+}
+
+.instructions-text {
+  min-height: 14em;
+  max-height: none;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.instructions-count {
+  margin: 4px 0 0;
+  text-align: right;
+}
+
+.instructions-count.over-limit {
+  color: var(--vscode-errorForeground);
+}
+
+html:has(#instructions-editor-view:not([hidden])) {
+  scroll-padding-bottom: 3.5rem;
+}
+
 /* A row's gear: the editor's own toolbar button, a little quieter than the
    row until it is hovered or focused — clearly a control at rest (§37.108) —
    and never hidden, so it is there for a keyboard and a touch screen alike.
@@ -1742,8 +1806,9 @@ label {
 
 
 
-/* Every field, Jira Setup's email and password ones too (§37.124). */
+/* Every field, Jira Setup's site, email and password ones too (§37.124, pre-release Batch 3). */
 input[type="text"],
+input[type="url"],
 input[type="email"],
 input[type="password"],
 textarea,

@@ -17,6 +17,8 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 
+import { childEnvironmentAdditions, locateExecutable } from "./executablePath.ts";
+import type { Located } from "./executablePath.ts";
 import { EventStreamReader, ProtocolError, parseEnvelope } from "./protocol.ts";
 import { assertNoSecretsInArgs } from "./secrets.ts";
 import type { Envelope, StreamEvent } from "./protocol.ts";
@@ -62,15 +64,63 @@ export interface RunResult {
   readonly aborted: boolean;
 }
 
+/**
+ * How a Runner turns a program name into the file it starts (pre-release
+ * Batch 2, A). Production code gets one through `trustedRunner`; a test that
+ * gives none spawns exactly the name it passed, as before.
+ */
+export interface RunnerPolicy {
+  readonly locate: (name: string, env: Readonly<Record<string, string | undefined>>) => Located;
+}
+
+/** The policy every production Runner uses: `executablePath.ts`'s, never the working directory. */
+const TRUSTED_POLICY: RunnerPolicy = {
+  locate: (name, env) => locateExecutable(name, { env, purpose: "spawn" }),
+};
+
+/**
+ * A Runner for production: the program is resolved to an absolute path on
+ * PATH (or kept, if it already is one) before every spawn, so a repository's
+ * own `bugpilot.exe` or `claude.exe` never runs because the repository is the
+ * working directory. `test/executablePath.test.ts` checks no production module
+ * builds a Runner any other way.
+ */
+export function trustedRunner(executable: string): Runner {
+  return new Runner(executable, nodeSpawn, process.platform, TRUSTED_POLICY);
+}
+
 export class Runner {
   readonly #executable: string;
   readonly #spawn: SpawnFn;
   readonly #platform: string;
+  readonly #policy: RunnerPolicy | undefined;
 
-  constructor(executable: string, spawn: SpawnFn = nodeSpawn, platform: string = process.platform) {
+  constructor(
+    executable: string,
+    spawn: SpawnFn = nodeSpawn,
+    platform: string = process.platform,
+    policy?: RunnerPolicy,
+  ) {
     this.#executable = executable;
     this.#spawn = spawn;
     this.#platform = platform;
+    this.#policy = policy;
+  }
+
+  /**
+   * The file a name starts, under the policy: an absolute path, or a thrown
+   * error coded like Node's own — `ENOENT` for a program that is not there, so
+   * every caller's "not found" handling still applies, and
+   * `BUGPILOT_INVALID_EXECUTABLE` for a value that may not be trusted as given.
+   */
+  #program(name: string, env: Readonly<Record<string, string | undefined>>): string {
+    if (this.#policy === undefined) return name;
+    const located = this.#policy.locate(name, env);
+    if (located.kind === "found") return located.path;
+    if (located.kind === "invalid") {
+      throw Object.assign(new Error(located.reason), { code: "BUGPILOT_INVALID_EXECUTABLE", path: name });
+    }
+    throw Object.assign(new Error(`spawn ${name} ENOENT`), { code: "ENOENT", syscall: "spawn", path: name });
   }
 
   /** Run a command to completion and collect its output. */
@@ -171,12 +221,18 @@ export class Runner {
     // only place the argv guard can actually be enforced. secrets.ts declaring
     // the invariant is not the same as something checking it.
     assertNoSecretsInArgs(args, options.env ?? {});
-    const child = this.#spawn(this.#executable, [...args], {
+    // Inherit the ambient environment so PATH and proxy settings still apply,
+    // then layer the caller's additions — which is how secrets reach the child
+    // without ever appearing in argv. Under the trusted policy, the child's own
+    // program lookups skip the working directory too.
+    const env = {
+      ...process.env,
+      ...options.env,
+      ...(this.#policy === undefined ? {} : childEnvironmentAdditions(this.#platform)),
+    };
+    const child = this.#spawn(this.#program(this.#executable, env), [...args], {
       cwd: options.cwd,
-      // Inherit the ambient environment so PATH and proxy settings still apply,
-      // then layer the caller's additions — which is how secrets reach the child
-      // without ever appearing in argv.
-      env: { ...process.env, ...options.env },
+      env,
       // A process group is what makes killing the whole tree possible on POSIX.
       // On Windows the group is created by taskkill /T instead (see #kill).
       detached: this.#platform !== "win32",
@@ -279,7 +335,14 @@ export class Runner {
     if (this.#platform === "win32") {
       // No signals on Windows; taskkill /T walks the tree, /F is required
       // because a console child does not honour a polite request.
-      const killer = this.#spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      let taskkill = "taskkill";
+      try {
+        taskkill = this.#program("taskkill", process.env);
+      } catch {
+        // Not on PATH: the last-resort settle below still ends the run.
+        return;
+      }
+      const killer = this.#spawn(taskkill, ["/pid", String(child.pid), "/T", "/F"], {
         stdio: "ignore",
         windowsHide: true,
       });

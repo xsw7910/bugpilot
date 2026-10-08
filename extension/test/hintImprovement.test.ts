@@ -131,7 +131,21 @@ test("the prompt never travels in argv", () => {
   for (const provider of HINT_PROVIDERS) {
     for (const argument of provider.args) {
       assert.ok(!argument.includes("{prompt}"), `${provider.id} interpolates the prompt`);
-      assert.ok(argument.length < 20, `${provider.id} carries something long in argv`);
+      assert.ok(argument.length < 32, `${provider.id} carries something long in argv`);
+    }
+  }
+});
+
+test("the CLI that improves a hint gets nothing to act with (pre-release Batch 2, C)", () => {
+  // The prompt carries a Jira issue's own words: the developer's own
+  // permission mode must not apply to it.
+  const claude = HINT_PROVIDERS.find((provider) => provider.id === "claude")!;
+  assert.deepEqual([...claude.args], ["-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence"]);
+  const codex = HINT_PROVIDERS.find((provider) => provider.id === "codex")!;
+  assert.deepEqual([...codex.args], ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "-"]);
+  for (const provider of HINT_PROVIDERS) {
+    for (const loosening of ["--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox", "bypassPermissions", "acceptEdits", "workspace-write", "danger-full-access", "--full-auto", "--add-dir"]) {
+      assert.equal(provider.args.includes(loosening), false, `${provider.id}: ${loosening}`);
     }
   }
 });

@@ -97,6 +97,13 @@ const MODEL_TEXT_FIELDS = Object.keys(DEFAULT_FORM).filter(
       "branchPolicy",
       // The Repository section's select (pre-release Batch 1); its details are text.
       "repositoryProfile",
+      // The Verification Policy's four switches and Branch naming's select
+      // (pre-release Batch 3); the branch template is text.
+      "verifyRelevantTests",
+      "verifyStaticChecks",
+      "verifyFullSuite",
+      "verifyReportNotRun",
+      "branchNaming",
     ].includes(key),
 );
 
@@ -249,7 +256,7 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   command: { type: "command", id: "bugpilot.openSettings" },
   openArtifact: { type: "openArtifact", name: "task.md" },
   openRelevantFile: { type: "openRelevantFile", path: "src/widgets/WidgetController.cpp" },
-  openSupportingFile: { type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" },
+  openSupportingFile: { type: "openSupportingFile", path: "src/blend/BlendInputModel.cpp" },
   improveHint: { type: "improveHint", form: DEFAULT_FORM },
   useImprovedHint: { type: "useImprovedHint" },
   dismissImprovedHint: { type: "dismissImprovedHint" },
@@ -260,6 +267,9 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   resetSession: { type: "resetSession", deleteGeneratedFiles: false },
   saveJiraCredentials: { type: "saveJiraCredentials", email: "dev@example.com", token: "not-a-real-token" },
   closeJiraSetup: { type: "closeJiraSetup" },
+  openInstructions: { type: "openInstructions", scope: "project" },
+  closeInstructions: { type: "closeInstructions" },
+  saveInstructions: { type: "saveInstructions", scope: "user", text: "Prefer small focused changes." },
   parseReviewOutput: { type: "parseReviewOutput", text: "## Summary\nReads correctly.\n" },
   discardReviewDraft: { type: "discardReviewDraft" },
   verificationDraft: {
@@ -335,10 +345,19 @@ test("the content security policy allows nothing by default", () => {
 
 test("nothing is loaded from a remote origin", () => {
   // §5.4: the webview must not reach the network. A CDN font or script would
-  // also leak the fact that a developer is looking at a particular bug.
-  assert.equal(/https?:\/\//.test(HTML), false);
+  // also leak the fact that a developer is looking at a particular bug. What
+  // would load something is an address in an attribute, a stylesheet url() or
+  // @import, or a script's fetch/import — never the words of Jira Setup's site
+  // placeholder and its "such as https://your-company.atlassian.net" (Batch 3),
+  // which are text. The one address any of it names is that reserved example.
+  assert.equal(/(?:src|href|action|data|poster|srcset)\s*=\s*["']?https?:\/\//i.test(HTML), false);
+  assert.equal(/url\(\s*["']?https?:|@import/i.test(CSS), false);
   assert.equal(/https?:\/\//.test(CSS), false);
-  assert.equal(/https?:\/\//.test(PAGE_JS), false);
+  assert.equal(/(?:fetch|import|XMLHttpRequest|EventSource|WebSocket)\s*\(?[^;\n]*["'`]https?:\/\//.test(PAGE_JS), false);
+  for (const text of [HTML, PAGE_JS]) {
+    const named = [...text.matchAll(/https?:\/\/[^\s"'`<)]+/g)].map((match) => match[0].replace(/[.,]$/, ""));
+    assert.deepEqual([...new Set(named)], named.length === 0 ? [] : ["https://your-company.atlassian.net"]);
+  }
 });
 
 test("the one script tag carries the nonce and the given source", () => {
@@ -779,6 +798,21 @@ const SETTINGS_HELP: Readonly<Record<string, string>> = {
   repositoryBuildSystem: "How the repository is built.",
   repositoryTestFramework: "How the repository is tested.",
   repositoryNotes: "Anything else the AI agent should know about the codebase, in a sentence or two.",
+  // The instruction rows' Edit (pre-release Batch 2): where each file is, whom
+  // it applies to, and that it never overrides BugPilot.
+  "project-instructions-edit":
+    "Instructions for the AI agent shared with this repository: .bugpilot/instructions.md, which can be committed. They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
+  "user-instructions-edit":
+    "Your own instructions for the AI agent, in every repository: ~/.bugpilot/instructions.md. They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
+  // The Verification Policy's switches and Branch naming (pre-release Batch 3).
+  verifyRelevantTests: "Ask the agent to run the tests relevant to the changed behavior.",
+  verifyStaticChecks: "Ask the agent to run the repository's existing linters, type checks or compiler warnings when they are available.",
+  verifyFullSuite: "Ask the agent to run the repository's full test suite before reporting, if it can run here.",
+  verifyReportNotRun: "Ask the agent to list the relevant verification it did not run, and why.",
+  branchNaming:
+    "The name a new branch gets, when the branch policy calls for one. It never creates or switches a branch itself, and a work item keeps the branch it already has. Saved for the repository in .bugpilot/project_settings.json.",
+  branchTemplate:
+    "Must include {issue}: the Jira key, or bug- and a hash of the title for a bug you describe. {slug} is the title. Letters, digits, '.', '_', '-' and '/' only.",
   // What each policy means, since the select shows only their names (§37.127).
   branchPolicy:
     "Choose which branch the AI agent edits and commits on. Main and master are always protected. Use current branch: Work on the checked-out branch and do not create or switch branches. One branch per issue: Create or reuse one branch for the issue. Ask before editing: Ask whether to stay on the current branch or create/switch before editing.",
@@ -854,8 +888,10 @@ test("the settings page's labels are short, sentence case, and never say optiona
   );
   // Title, Attachments; Retrieval inputs' two; Code search's three; Git
   // history's eight; Similar fixes' three; the repository profile and its six
-  // details; Fresh; the agent and its command; the branch policy.
-  assert.equal(labels.length, 29, `${labels.length} labels`);
+  // details, and Project instructions; User instructions and the Verification
+  // Policy's four switches; Fresh; the agent and its command; the branch
+  // policy, Branch naming and its template.
+  assert.equal(labels.length, 37, `${labels.length} labels`);
   for (const label of labels) {
     assert.equal(/optional/i.test(label), false, `"${label}" says optional — an empty box already does`);
     // Sentence case: a capital first, then lower case — except AI, an acronym,
@@ -881,9 +917,12 @@ test("every setting has a header row with a real label in it", () => {
   // The text fields, plus the rows that are not text fields: the agent
   // picker, the attachment list and the Fresh checkbox, Git history's four
   // switches and its depth select, Similar fixes' switch, the repository
-  // profile's select and the branch policy's select. (Fix Mode and Hint are the
-  // main page's now, §37.84.)
-  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 8, "a row is missing the pattern");
+  // profile's select and the branch policy's select, and the two instruction
+  // rows' Edit (pre-release Batch 2). (Fix Mode and Hint are the main page's
+  // now, §37.84.)
+  // And since Batch 3 the Verification Policy's four switches and the Branch
+  // naming select (its template is a text field, counted above).
+  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 8 + 2 + 5, "a row is missing the pattern");
 
   for (const row of rows) {
     const label = /<label[^>]*for="([^"]+)"/.exec(row);
@@ -1200,7 +1239,7 @@ test("the Fix Mode editor wraps rather than scrolling sideways, with its footer 
   // The containers may shrink to the sidebar; the controls fill them.
   assert.match(CSS, /\.editor-section \{\s*min-width: 0;/);
   assert.match(CSS, /\.editor-section-body \{\s*min-width: 0;/);
-  assert.match(CSS, /(?:^|\n)input\[type="text"\],\s*input\[type="email"\],\s*input\[type="password"\],\s*textarea,\s*select \{\s*width: 100%;\s*box-sizing: border-box;/);
+  assert.match(CSS, /(?:^|\n)input\[type="text"\],\s*input\[type="url"\],\s*input\[type="email"\],\s*input\[type="password"\],\s*textarea,\s*select \{\s*width: 100%;\s*box-sizing: border-box;/);
   assert.match(CSS, /\.editor-section-title \{[^}]*overflow-wrap: anywhere;/s);
   assert.match(CSS, /\.editor-subject \{[^}]*overflow-wrap: anywhere;/s);
   // The instruction sections: the detail page's glyph | title | chevron row,
@@ -1787,10 +1826,12 @@ const BACK_PAGES = [
   ["fix-mode-manager-view", "manage-back", "manage-heading", "Manage Fix Modes", "Back to Workflow"],
   ["fix-mode-preview-view", "preview-back", "preview-heading", "", "Back to Fix Mode Manager"],
   ["fix-mode-editor-view", "editor-back", "editor-title", "", "Back to Fix Mode Manager"],
+  // User or Project instructions (pre-release Batch 2): the title is the scope's, set by the page.
+  ["instructions-editor-view", "instructions-back", "instructions-title", "Instructions", "Back to Advanced Settings — discards the changes"],
 ] as const;
 
 test("every page with a way back uses the one shared page header (§37.120)", () => {
-  // Exactly these four, and nowhere else: the main view has no way back.
+  // Exactly these five, and nowhere else: the main view has no way back.
   assert.equal([...HTML.matchAll(/<div class="page-header">/g)].length, BACK_PAGES.length);
   const main = /<section id="main-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
   assert.equal(main.includes("page-header"), false);
@@ -2413,7 +2454,7 @@ test("the Issue rests at one row and stops growing at four lines", () => {
   // Past the ceiling it scrolls, inheriting the textarea rule; it never scrolls sideways.
   const textarea = /\ntextarea \{[^}]*\}/.exec(CSS)?.[0] ?? "";
   assert.match(textarea, /overflow-y: auto/);
-  assert.match(CSS, /input\[type="text"\],\s*input\[type="email"\],\s*input\[type="password"\],\s*textarea,\s*select \{[^}]*width: 100%;[^}]*box-sizing: border-box;/s);
+  assert.match(CSS, /input\[type="text"\],\s*input\[type="url"\],\s*input\[type="email"\],\s*input\[type="password"\],\s*textarea,\s*select \{[^}]*width: 100%;[^}]*box-sizing: border-box;/s);
   assert.equal(/overflow-x|white-space: (nowrap|pre)\b|wrap="off"/.test(rule + ISSUE_BLOCK), false);
   // Empty, still one row in a 200px sidebar: the placeholder is held to one line
   // and clipped rather than wrapped into a second row that the first keystroke
@@ -2496,6 +2537,7 @@ test("Workflow Settings is one section per step that has settings, in the workfl
     "git-history",
     "similar-fixes",
     "repository",
+    "ai-instructions",
     "build-context",
     "fix-with-ai",
     "branch",
@@ -2698,6 +2740,8 @@ test("a section's tag is a quiet fact beside its heading, never a badge, and wra
     "similar-fixes": ["Requires rebuild", "Changes here require rebuilding context."],
     // Written into task.md's Repository Context (pre-release Batch 1).
     repository: ["Requires rebuild", "Changes here require rebuilding context."],
+    // The User instructions, written into task.md (pre-release Batch 2).
+    "ai-instructions": ["Requires rebuild", "Changes here require rebuilding context."],
     "build-context": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     "fix-with-ai": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     // Written into task.md, as the Fix Mode is (§37.127).
@@ -4115,7 +4159,14 @@ test("every page paints from one set of theme tokens: page, section, field (§37
     assert.match(rule, /border-(?:top|bottom): 1px solid var\(--bugpilot-section-border\);/, selector);
   }
   // Fields everywhere are the layer under their section.
-  assert.match(ruleBody('input[type="text"],\ninput[type="email"],\ninput[type="password"],\ntextarea,\nselect'), /background: var\(--bugpilot-control-bg\);/);
+  const fields = 'input[type="text"],\ninput[type="url"],\ninput[type="email"],\ninput[type="password"],\ntextarea,\nselect';
+  assert.match(ruleBody(fields), /background: var\(--bugpilot-control-bg\);/);
+  // Every typed text input the panel draws is in that rule: Jira Setup's url
+  // field once drew as the browser's white box in a dark theme (Batch 3).
+  for (const type of new Set([...HTML.matchAll(/<input[^>]*\stype="([a-z]+)"/g)].map((match) => match[1]!))) {
+    if (type === "checkbox" || type === "radio" || type === "file") continue;
+    assert.ok(fields.includes(`input[type="${type}"]`), `input type="${type}" has no field style`);
+  }
   assert.match(ruleBody("select"), /background: var\(--bugpilot-dropdown-bg\);/);
   // No section is coloured by its id.
   assert.equal(/#(?:group-[a-z-]+|workflow|settings-section-[a-z-]+|editor-[a-z-]+)\s*\{[^}]*(?:background|border)/.test(CSS), false);
@@ -4456,12 +4507,16 @@ test("the question fits the sidebar, in the editor's widget colours, and lets hi
 
 const JIRA_DIALOG_HTML = /<dialog class="jira-dialog"[\s\S]*?<\/dialog>/.exec(HTML)?.[0] ?? "";
 
-test("Jira Setup is one modal dialog in the panel: email and token together, Cancel then Save", () => {
+test("Jira Setup is one modal dialog in the panel: site, email and token together, Cancel then Save", () => {
   assert.notEqual(JIRA_DIALOG_HTML, "", "no Jira Setup dialog");
   assert.match(JIRA_DIALOG_HTML, /^<dialog class="jira-dialog" id="jira-dialog" role="dialog" aria-modal="true" aria-labelledby="jira-title" aria-describedby="jira-intro">/);
   assert.match(JIRA_DIALOG_HTML, /<h2 class="jira-title" id="jira-title">[\s\S]*?Jira Setup<\/h2>/);
   assert.match(JIRA_DIALOG_HTML, new RegExp(`<p class="muted jira-intro" id="jira-intro">${JIRA_SETUP_TEXT.intro}</p>`));
-  assert.equal(JIRA_SETUP_TEXT.intro, "Connect BugPilot to Jira using your Atlassian account email and API token.");
+  assert.equal(JIRA_SETUP_TEXT.intro, "Connect BugPilot to your Jira site using your Atlassian account email and API token.");
+  // The site (Batch 3): labelled, a placeholder of the reserved example tenant,
+  // described off screen, and a note shown only when the environment sets it.
+  assert.match(JIRA_DIALOG_HTML, /<label class="jira-label" for="jira-site">Jira site<\/label>\s*<input type="url" id="jira-site" placeholder="https:\/\/your-company\.atlassian\.net" autocomplete="off" spellcheck="false" aria-describedby="jira-site-description jira-site-environment jira-site-error">/);
+  assert.match(JIRA_DIALOG_HTML, /id="jira-site-environment" hidden>Set by JIRA_BASE_URL in your environment, which BugPilot uses\. Change it there\.<\/p>/);
   // Outside every view and every form: the panel behind it is inert, and no
   // browser submit can send anything.
   assert.equal(/<form/.test(JIRA_DIALOG_HTML), false);
@@ -4475,15 +4530,15 @@ test("Jira Setup is one modal dialog in the panel: email and token together, Can
   assert.match(JIRA_DIALOG_HTML, /<label class="jira-label" for="jira-token">API token<\/label>/);
   assert.match(JIRA_DIALOG_HTML, /<input type="password" id="jira-token" autocomplete="off" spellcheck="false" aria-describedby="jira-token-stored jira-token-error">/);
   assert.equal(/id="jira-token"[^>]*\svalue=/.test(JIRA_DIALOG_HTML), false, "the token field has a value in the markup");
-  assert.match(JIRA_DIALOG_HTML, /id="jira-token-stored" hidden>A token is already stored\. Enter a new token to replace it\.<\/p>/);
+  assert.match(JIRA_DIALOG_HTML, /id="jira-token-stored" hidden>A token is already stored\. Leave this blank to keep it, or enter a new one to replace it\.<\/p>/);
   assert.match(JIRA_DIALOG_HTML, /<button type="button" class="icon jira-reveal" id="jira-token-reveal" aria-label="Show API token" title="Show API token">/);
-  // In tab order: email, token, Show, the link, the steps, Cancel, Save.
-  const order = ["jira-email", "jira-token", "jira-token-reveal", "jira-token-page", "jira-steps", "jira-cancel", "jira-save"].map((id) => JIRA_DIALOG_HTML.indexOf(`id="${id}"`));
+  // In tab order: site, email, token, Show, the link, the steps, Cancel, Save.
+  const order = ["jira-site", "jira-email", "jira-token", "jira-token-reveal", "jira-token-page", "jira-steps", "jira-cancel", "jira-save"].map((id) => JIRA_DIALOG_HTML.indexOf(`id="${id}"`));
   assert.ok(order.every((at) => at !== -1), JSON.stringify(order));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.match(JIRA_DIALOG_HTML, /<button type="button" id="jira-cancel">Cancel<\/button>\s*<button type="button" id="jira-save" class="primary"><span id="jira-save-label">Save<\/span><\/button>/);
   // Each field's message, announced when it appears.
-  for (const id of ["jira-email-error", "jira-token-error", "jira-error"]) assert.match(JIRA_DIALOG_HTML, new RegExp(`id="${id}" role="alert" hidden`));
+  for (const id of ["jira-site-error", "jira-email-error", "jira-token-error", "jira-error"]) assert.match(JIRA_DIALOG_HTML, new RegExp(`id="${id}" role="alert" hidden`));
 });
 
 test("Jira Setup says how to get a token, Atlassian's way, and links to Atlassian's own page", () => {
@@ -4491,7 +4546,10 @@ test("Jira Setup says how to get a token, Atlassian's way, and links to Atlassia
   assert.match(JIRA_DIALOG_HTML, new RegExp(`<p class="jira-help-text">${JIRA_SETUP_TEXT.help}</p>`));
   // The link is a button the host answers: the page names no URL.
   assert.match(JIRA_DIALOG_HTML, /<button type="button" class="link jira-link" id="jira-token-page" title="[^"]*"><span>Open Atlassian API tokens<\/span><span class="codicon codicon-link-external" aria-hidden="true"><\/span><\/button>/);
-  assert.equal(/https?:/.test(JIRA_DIALOG_HTML) || /id\.atlassian\.com/.test(PAGE_JS), false, "the page names an address");
+  // The site's placeholder (the reserved example tenant) and the words
+  // "https:// address" are the only scheme in it; neither is a link.
+  const linkless = JIRA_DIALOG_HTML.replaceAll(JIRA_SETUP_TEXT.sitePlaceholder, "").replaceAll("https:// address", "");
+  assert.equal(/https?:/.test(linkless) || /id\.atlassian\.com/.test(PAGE_JS), false, "the page names an address");
   assert.equal(JIRA_API_TOKENS_URL, "https://id.atlassian.com/manage-profile/security/api-tokens");
   // The steps: Atlassian's flow, the classic token BugPilot sends to the site,
   // an expiry, copied once — and never that it can be read back later.
@@ -4514,10 +4572,16 @@ test("the page checks the fields as the host does: the same sentences, the same 
   const shape = /const JIRA_EMAIL_SHAPE = (\/.*\/);/.exec(PAGE_JS)?.[1] ?? "";
   const host = /const EMAIL_SHAPE = (\/.*\/);/.exec(readFileSync(new URL("../src/app/jiraConnection.ts", import.meta.url), "utf8"))?.[1];
   assert.equal(shape, host);
+  const fresh = { tokenStored: false, siteFromEnvironment: false };
+  const site = "https://your-company.atlassian.net";
   for (const [email, ok] of [["dev@example.com", true], [" dev@example.com ", true], ["dev@example", false], ["dev example.com", false], ["", false]] as const) {
-    assert.equal(jiraSetupProblem(email, "t") === undefined, ok, email);
+    assert.equal(jiraSetupProblem({ site, email, token: "t" }, fresh) === undefined, ok, email);
   }
-  assert.deepEqual(jiraSetupProblem("dev@example.com", " "), { field: "token", message: "Enter an API token." });
+  assert.deepEqual(jiraSetupProblem({ site, email: "dev@example.com", token: " " }, fresh), { field: "token", message: "Enter an API token." });
+  // A stored token makes a blank one "keep it"; the environment's site makes the field optional.
+  assert.equal(jiraSetupProblem({ site, email: "dev@example.com", token: "" }, { tokenStored: true, siteFromEnvironment: false }), undefined);
+  assert.deepEqual(jiraSetupProblem({ site: " ", email: "dev@example.com", token: "t" }, fresh), { field: "site", message: "Enter your Jira site, such as https://your-company.atlassian.net." });
+  assert.equal(jiraSetupProblem({ site: "", email: "dev@example.com", token: "t" }, { tokenStored: false, siteFromEnvironment: true }), undefined);
 });
 
 test("Jira Setup sits centred over the panel, as wide as it allows, its actions always at its foot", () => {
@@ -4552,8 +4616,9 @@ test("no Jira credential is asked for anywhere but Jira Setup: the old prompts a
   assert.equal(/title: "Jira (email|API token)"/.test(source), false);
   // The palette command opens the dialog, bringing the panel forward first.
   assert.match(source, /register\(COMMANDS\.setCredentials, async \(\) => \{\s*if \(!panel\.visible\) await vscode\.commands\.executeCommand\(`\$\{PanelHost\.viewType\}\.focus`\);\s*await controller\.openJiraSetup\(\);/);
-  // The store is the existing one, by its two safe operations.
-  assert.match(source, /jiraCredentials: \{\s*status: \(\) => credentials\.status\(\),\s*save: \(pair\) => credentials\.save\(pair\),\s*\}/);
+  // The store is the existing one, by its safe operations: a blank token keeps
+  // the stored one (Batch 3), anything else is the usual one-write save.
+  assert.match(source, /jiraCredentials: \{\s*status: \(\) => credentials\.status\(\),\s*\/\/[^\n]*\n\s*save: \(pair\) => \(pair\.token === "" \? credentials\.saveKeepingToken\(pair\.email\) : credentials\.save\(pair\)\),\s*\}/);
 });
 
 test("the page is never given a token: Jira Setup's view carries the email and whether one is stored", () => {
@@ -4561,7 +4626,7 @@ test("the page is never given a token: Jira Setup's view carries the email and w
   const view = /export interface JiraSetupView \{([\s\S]*?)\n\}/.exec(messages)?.[1] ?? "";
   assert.notEqual(view, "");
   const fields = [...stripComments(view).matchAll(/readonly (\w+)\??:/g)].map((match) => match[1]!);
-  assert.deepEqual(fields, ["request", "email", "tokenStored", "saving", "error", "token", "field", "message"]);
+  assert.deepEqual(fields, ["request", "email", "site", "siteFromEnvironment", "tokenStored", "saving", "error", "token", "field", "message"]);
   // The one `token` there is the error's answer counter, a number.
   assert.match(view, /readonly token: number;/);
 });

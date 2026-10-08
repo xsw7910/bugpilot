@@ -186,7 +186,7 @@ test("only Build context and Fix with AI ever offer actions, and never the folde
 
 // --- each row's result (Batch 6) --------------------------------------------
 
-const ISSUE = { id: "JR-12345", source: "jira", title: "WidgetController rejects the VDS output type" };
+const ISSUE = { id: "JR-12345", source: "jira", title: "WidgetController rejects the CSV output type" };
 
 test("Issue details says what it is doing, then what it read", () => {
   // Pending, nothing: "Gather issue information" is the row's tooltip (§37.107).
@@ -211,7 +211,7 @@ test("Issue details says what it is doing, then what it read", () => {
   );
   // One line once read (§37.104): the issue's title, which the developer
   // recognises — the key is in the Issue field, the source is its note.
-  assert.equal(jira.summary, "WidgetController rejects the VDS output type");
+  assert.equal(jira.summary, "WidgetController rejects the CSV output type");
   assert.equal(jira.detail, undefined);
   assert.equal(jira.artifact, "issue.json");
 
@@ -262,7 +262,7 @@ test("a failed step carries the run's card; the rows before it keep their result
   assert.equal(stepIn(steps, "codeSearch").statusText, "Failed");
   assert.equal(stepIn(steps, "codeSearch").summary, "", "Failed said twice");
   assert.equal(stepIn(steps, "codeSearch").error, card);
-  assert.equal(stepIn(steps, "issueDetails").summary, "WidgetController rejects the VDS output type");
+  assert.equal(stepIn(steps, "issueDetails").summary, "WidgetController rejects the CSV output type");
   assert.equal(stepIn(steps, "issueDetails").statusText, "Completed");
   assert.equal(stepIn(steps, "issueDetails").error, undefined);
   // Exactly one row owns it.

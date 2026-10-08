@@ -171,7 +171,7 @@ def test_a_corpus_file_is_read_into_cases(tmp_path):
                 "cases": [
                     {
                         "id": "JR-12345",
-                        "issue_text": "VDS cannot be selected as process output.",
+                        "issue_text": "CSV cannot be selected as the export format.",
                         "hint": "maybe output type validation",
                         "expected_files": ["src/OutputSelector.cpp"],
                         "category": "real",
@@ -239,7 +239,7 @@ def test_a_valid_corpus_still_loads(tmp_path):
         json.dumps(
             {
                 "repo_root": str(tmp_path),
-                "cases": [{"id": "JR-1", "issue_text": "VDS cannot be selected.",
+                "cases": [{"id": "JR-1", "issue_text": "CSV cannot be selected as the export format.",
                            "expected_files": ["src/a.cpp"]}],
             }
         ),

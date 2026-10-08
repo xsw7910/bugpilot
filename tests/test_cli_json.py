@@ -246,10 +246,10 @@ def test_json_mode_writes_exactly_one_object_to_stdout(tmp_path, monkeypatch, ca
 def test_non_ascii_survives_the_envelope(capsys):
     from bugpilot.cli_json import emit
 
-    emit(success("status", title="三维视图切换层位后崩溃"))
+    emit(success("status", title="三维视图切换图层后崩溃"))
     out = capsys.readouterr().out
-    assert "三维视图切换层位后崩溃" in out  # not \uXXXX escaped
-    assert json.loads(out)["title"] == "三维视图切换层位后崩溃"
+    assert "三维视图切换图层后崩溃" in out  # not \uXXXX escaped
+    assert json.loads(out)["title"] == "三维视图切换图层后崩溃"
 
 
 # --- bug: manual input, options, plan ---------------------------------------
@@ -271,26 +271,26 @@ def test_bug_json_for_a_jira_work_item(tmp_path, monkeypatch, capsys):
 def test_bug_json_for_a_hand_written_description(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     code, payload = _run_json(
-        capsys, ["bug", "--description", "3D view crashes after changing horizon", "--prepare-only", "--json"]
+        capsys, ["bug", "--description", "3D view crashes after changing layer", "--prepare-only", "--json"]
     )
 
     assert code == 0
     assert payload["source"] == "manual"
     assert payload["source_ref"] is None
     assert payload["work_item_id"].startswith("local_")
-    assert payload["title"] == "3D view crashes after changing horizon"
+    assert payload["title"] == "3D view crashes after changing layer"
 
 
 def test_bug_reads_a_description_file(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     report = tmp_path / "bug.txt"
-    report.write_text("三维视图切换层位后崩溃\n\n复现步骤...", encoding="utf-8")
+    report.write_text("三维视图切换图层后崩溃\n\n复现步骤...", encoding="utf-8")
 
     code, payload = _run_json(
         capsys, ["bug", "--description-file", str(report), "--prepare-only", "--json"]
     )
     assert code == 0
-    assert payload["title"] == "三维视图切换层位后崩溃"
+    assert payload["title"] == "三维视图切换图层后崩溃"
 
 
 def test_bug_rejects_an_unreadable_description_file(tmp_path, monkeypatch, capsys):
@@ -343,12 +343,12 @@ def test_ignore_path_reaches_the_code_search(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "src").mkdir()
     (tmp_path / "vendor").mkdir()
-    (tmp_path / "src" / "W.cpp").write_text("void OpenVdsStatistics() {}\n", encoding="utf-8")
-    (tmp_path / "vendor" / "W.cpp").write_text("void OpenVdsStatistics() {}\n", encoding="utf-8")
+    (tmp_path / "src" / "W.cpp").write_text("void OpenCsvStatistics() {}\n", encoding="utf-8")
+    (tmp_path / "vendor" / "W.cpp").write_text("void OpenCsvStatistics() {}\n", encoding="utf-8")
 
     code, payload = _run_json(
         capsys,
-        ["bug", "--description", "OpenVdsStatistics crashes", "--ignore-path", "vendor",
+        ["bug", "--description", "OpenCsvStatistics crashes", "--ignore-path", "vendor",
          "--prepare-only", "--json"],
     )
     assert code == 0
@@ -360,11 +360,11 @@ def test_hint_flag_still_reaches_the_artifacts(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     code, payload = _run_json(
         capsys,
-        ["bug", "--description", "crash on save", "--hint", "look in VdsWriter", "--prepare-only", "--json"],
+        ["bug", "--description", "crash on save", "--hint", "look in CsvWriter", "--prepare-only", "--json"],
     )
     assert code == 0
     issue = json.loads((tmp_path / ".ai" / payload["work_item_id"] / "issue.json").read_text(encoding="utf-8"))
-    assert issue["guidance"]["hint"] == "look in VdsWriter"
+    assert issue["guidance"]["hint"] == "look in CsvWriter"
 
 
 def test_manual_progress_numbering_excludes_the_jira_fetch(tmp_path, monkeypatch, capsys):
@@ -386,3 +386,66 @@ def test_jira_progress_numbering_is_unchanged(tmp_path, monkeypatch, capsys):
     assert "[2/9] Fetching Jira issue JR-12345..." in out
     assert "[3/9] Parsing Jira details..." in out
     assert "[9/9] Generating agent task package..." in out
+
+
+# --- UTF-8 on any console code page (pre-release Batch 4) -------------------
+
+
+def _cp1252_stdout(monkeypatch):
+    """What Python on Windows gives a piped stdout: the ANSI code page."""
+    import io as _io
+    import sys
+
+    raw = _io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", _io.TextIOWrapper(raw, encoding="cp1252", newline="\n"))
+    return raw
+
+
+def test_an_envelope_is_utf8_even_when_stdout_is_cp1252(monkeypatch):
+    import sys
+
+    from bugpilot import cli_json
+
+    raw = _cp1252_stdout(monkeypatch)
+    cli_json.emit(cli_json.success("status", title="三维视图切换图层后崩溃 → é"))
+    sys.stdout.flush()
+    assert json.loads(raw.getvalue().decode("utf-8"))["title"] == "三维视图切换图层后崩溃 → é"
+
+
+def test_a_stream_is_utf8_even_when_stdout_is_cp1252(monkeypatch, capsys):
+    import sys
+
+    from bugpilot import cli_json
+
+    raw = _cp1252_stdout(monkeypatch)
+    emitter = cli_json.JsonLinesEmitter("local_1", "manual")
+    emitter.fail("INVALID_INPUT", "无法 → é")
+    cli_json.emit_stream_failure("INVALID_INPUT", "再次 → é")
+    sys.stdout.flush()
+    lines = [json.loads(line) for line in raw.getvalue().decode("utf-8").splitlines()]
+    assert [line["type"] for line in lines] == ["started", "completed", "completed"]
+    assert lines[1]["error"]["message"] == "无法 → é" and lines[2]["error"]["message"] == "再次 → é"
+
+
+def test_the_cli_writes_utf8_json_through_a_pipe_whatever_the_code_page(tmp_path):
+    """End to end, as the extension runs it: piped, and the locale not UTF-8.
+
+    `PYTHONIOENCODING=cp1252` reproduces Windows' default for a pipe on every
+    platform. Before the fix this exited 1 with "'charmap' codec can't encode".
+    """
+    import os
+    import subprocess
+    import sys
+
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "instructions.md").write_text("Prefer small changes → 三维 é.\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("PYTHONUTF8", "JIRA_"))}
+    env.update(PYTHONIOENCODING="cp1252", BUGPILOT_CONFIG_DIR=str(config), HOME=str(tmp_path), USERPROFILE=str(tmp_path))
+    done = subprocess.run(
+        [sys.executable, "-m", "bugpilot", "instructions", "show", "--json"],
+        cwd=tmp_path, env=env, capture_output=True, timeout=120,
+    )
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    payload = json.loads(done.stdout.decode("utf-8"))
+    assert payload["user"]["text"] == "Prefer small changes → 三维 é."

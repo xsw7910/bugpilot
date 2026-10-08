@@ -31,6 +31,7 @@ import {
   deleteWorkItemArtifacts,
   deletionProblem,
   resetSessionForm,
+  writeWorkItemFile,
 } from "../src/app/sessionReset.ts";
 import type { DeletionFileSystem } from "../src/app/sessionReset.ts";
 
@@ -74,11 +75,17 @@ const USED: FormState = {
   repositoryBuildSystem: "CMake",
   repositoryTestFramework: "Catch2",
   repositoryNotes: "Keep the plugin ABI stable.",
+  verifyRelevantTests: false,
+  verifyStaticChecks: false,
+  verifyFullSuite: true,
+  verifyReportNotRun: false,
+  branchNaming: "custom",
+  branchTemplate: "bugfix/{issue}-{slug}",
 };
 
 // --- the form ---------------------------------------------------------------
 
-test("every form field is classified, and only the AI Agent, branch policy and repository profile are kept", () => {
+test("every form field is classified, and only the AI Agent, branch policy, repository profile and project settings are kept", () => {
   // The Record makes a missing field a compile error; this makes an extra one a
   // test failure, and states the decision in one line. The branch policy is how
   // the developer works with branches, not anything about this issue (§37.127);
@@ -93,7 +100,9 @@ test("every form field is classified, and only the AI Agent, branch policy and r
     [
       "agent",
       "agentCommand",
+      "branchNaming",
       "branchPolicy",
+      "branchTemplate",
       "repositoryApplicationType",
       "repositoryBuildSystem",
       "repositoryFrameworks",
@@ -101,6 +110,11 @@ test("every form field is classified, and only the AI Agent, branch policy and r
       "repositoryNotes",
       "repositoryProfile",
       "repositoryTestFramework",
+      // The repository's project settings (Batch 3), copies of its own file.
+      "verifyFullSuite",
+      "verifyRelevantTests",
+      "verifyReportNotRun",
+      "verifyStaticChecks",
     ],
   );
   // The fields this feature names as the session's, by name.
@@ -424,4 +438,96 @@ test("why nothing was reset is said without any path but the work item's own fol
   }
   assert.match(deletionProblem({ kind: "refused", reason: "link" }, "JR-12345"), /Nothing was deleted\./);
   assert.match(deletionProblem({ kind: "failed", reason: "exit-1" }, "JR-12345"), /\.ai\/JR-12345\//);
+});
+
+// --- writing into the work item folder (pre-release Batch 2, D) -----------------
+
+test("the extension's write into .ai/<id>/ lands in the repository's own folder, creating it when needed", async () => {
+  const repo = repository();
+  try {
+    await writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "first\n" });
+    assert.equal(readFileSync(path.join(repo.root, ".ai", "JR-1", "user_feedback.md"), "utf8"), "first\n");
+    await writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "second\n" });
+    assert.equal(readFileSync(path.join(repo.root, ".ai", "JR-1", "user_feedback.md"), "utf8"), "second\n");
+    rmSync(path.join(repo.root, ".ai"), { recursive: true });
+    await writeWorkItemFile({ root: repo.root, workItemId: "JR-9", name: "user_feedback.md", contents: "new\n" });
+    assert.equal(readFileSync(path.join(repo.root, ".ai", "JR-9", "user_feedback.md"), "utf8"), "new\n");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("a linked .ai or work item folder is refused, nothing is written through it, and the reason names no absolute path", async () => {
+  for (const linked of [".ai", ".ai/JR-1"] as const) {
+    const repo = repository();
+    try {
+      const elsewhere = path.join(repo.outside, "target");
+      mkdirSync(path.join(elsewhere, "JR-1"), { recursive: true });
+      rmSync(path.join(repo.root, ...linked.split("/")), { recursive: true });
+      linkDirectory(linked === ".ai" ? elsewhere : path.join(elsewhere, "JR-1"), path.join(repo.root, ...linked.split("/")));
+      await assert.rejects(
+        writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "feedback\n" }),
+        (error: Error) => {
+          assert.match(error.message, /does not write through a link or junction, and \.ai\/JR-1\/ or \.ai\/ is one/);
+          assert.equal(error.message.includes(repo.root), false, error.message);
+          return true;
+        },
+        linked,
+      );
+      assert.equal(existsSync(path.join(elsewhere, "JR-1", "user_feedback.md")), false, `${linked}: written through the link`);
+    } finally {
+      repo.cleanup();
+    }
+  }
+});
+
+test("a linked .ai with no work item folder yet is refused before anything is created through it", async () => {
+  const repo = repository();
+  try {
+    const elsewhere = path.join(repo.outside, "target");
+    mkdirSync(elsewhere);
+    rmSync(path.join(repo.root, ".ai"), { recursive: true });
+    linkDirectory(elsewhere, path.join(repo.root, ".ai"));
+    await assert.rejects(writeWorkItemFile({ root: repo.root, workItemId: "JR-7", name: "user_feedback.md", contents: "x\n" }));
+    assert.equal(existsSync(path.join(elsewhere, "JR-7")), false, "a folder was created through the link");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("a user_feedback.md that is itself a link is refused, and its target is unchanged", async (t) => {
+  const repo = repository();
+  try {
+    const target = path.join(repo.outside, "precious.txt");
+    try {
+      symlinkSync(target, path.join(repo.root, ".ai", "JR-1", "user_feedback.md"), "file");
+    } catch (error) {
+      // A file link needs a privilege Windows grants only in Developer Mode.
+      if ((error as { code?: string }).code === "EPERM") return t.skip("file links need Developer Mode here");
+      throw error;
+    }
+    await assert.rejects(
+      writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name: "user_feedback.md", contents: "overwrite\n" }),
+      /\.ai\/JR-1\/user_feedback\.md is one/,
+    );
+    assert.equal(readFileSync(target, "utf8"), "do not delete\n");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("only a plain file name in a valid work item folder is written", async () => {
+  const repo = repository();
+  try {
+    for (const name of ["../escape.md", "..", "a/b.md", "a\\b.md", ""]) {
+      await assert.rejects(writeWorkItemFile({ root: repo.root, workItemId: "JR-1", name, contents: "x\n" }), /nothing was written/, name);
+    }
+    await assert.rejects(
+      writeWorkItemFile({ root: repo.root, workItemId: "../../escape-1", name: "user_feedback.md", contents: "x\n" }),
+      /id is not one BugPilot could have created/,
+    );
+    assert.equal(existsSync(path.join(repo.root, "..", "escape.md")), false);
+  } finally {
+    repo.cleanup();
+  }
 });

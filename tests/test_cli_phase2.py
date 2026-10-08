@@ -81,7 +81,7 @@ def test_every_line_is_its_own_object(tmp_path, monkeypatch, capsys):
 
 def test_list_json_shows_source_and_title(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    work_item = _prepare_manual(capsys, "三维视图切换层位后崩溃")
+    work_item = _prepare_manual(capsys, "三维视图切换图层后崩溃")
     main(["bug", "JR-12345", "--allow-mock", "--prepare-only", "--json"])
     capsys.readouterr()
 
@@ -90,7 +90,7 @@ def test_list_json_shows_source_and_title(tmp_path, monkeypatch, capsys):
     by_id = {entry["work_item_id"]: entry for entry in payload["work_items"]}
 
     assert by_id[work_item]["source"] == "manual"
-    assert by_id[work_item]["title"] == "三维视图切换层位后崩溃"
+    assert by_id[work_item]["title"] == "三维视图切换图层后崩溃"
     assert by_id["JR-12345"]["source"] == "jira"
     assert all(entry["prepared"] for entry in payload["work_items"])
 
@@ -104,12 +104,12 @@ def test_list_is_empty_before_anything_runs(tmp_path, monkeypatch, capsys):
 def test_list_human_output_shows_the_title(tmp_path, monkeypatch, capsys):
     """The terminal-side answer to local ids carrying no readable slug."""
     monkeypatch.chdir(tmp_path)
-    _prepare_manual(capsys, "3D view crashes after changing horizon")
+    _prepare_manual(capsys, "3D view crashes after changing layer")
 
     main(["list"])
     out = capsys.readouterr().out
     assert "manual" in out
-    assert "3D view crashes after changing horizon" in out
+    assert "3D view crashes after changing layer" in out
 
 
 def test_list_survives_a_directory_with_no_spec(tmp_path, monkeypatch, capsys):
@@ -390,28 +390,28 @@ def test_supplied_keywords_reach_the_extraction(tmp_path, monkeypatch, capsys):
     """--keywords was written into the options and read nowhere."""
     monkeypatch.chdir(tmp_path)
     main([
-        "bug", "--description", "something goes wrong", "--keywords", "OpenVdsStatistics",
+        "bug", "--description", "something goes wrong", "--keywords", "OpenCsvStatistics",
         "--prepare-only", "--json",
     ])
     work_item = json.loads(capsys.readouterr().out)["work_item_id"]
 
     retrieval = json.loads((tmp_path / ".ai" / work_item / "retrieval.json").read_text(encoding="utf-8"))
     # Searched as the developer's own keyword, at the strongest weight there is.
-    assert {"value": "OpenVdsStatistics", "source": "user"}.items() <= retrieval["terms"][0].items()
+    assert {"value": "OpenCsvStatistics", "source": "user"}.items() <= retrieval["terms"][0].items()
 
 
 def test_manual_email_draft_reads_the_issue(tmp_path, monkeypatch, capsys):
     """Title and problem come from issue.json, the same place a Jira item keeps them."""
     monkeypatch.chdir(tmp_path)
-    work_item = _prepare_manual(capsys, "三维视图切换层位后崩溃\n\n打开 VDS 后切换层位即崩溃。")
+    work_item = _prepare_manual(capsys, "三维视图切换图层后崩溃\n\n打开 CSV 后切换图层即崩溃。")
     main(["summarize-results", work_item])
     capsys.readouterr()
 
     from bugpilot.core.email_notify import build_email_draft
 
     draft = build_email_draft(tmp_path, work_item)
-    assert "三维视图切换层位后崩溃" in draft.subject
-    assert "打开 VDS 后切换层位即崩溃" in draft.body
+    assert "三维视图切换图层后崩溃" in draft.subject
+    assert "打开 CSV 后切换图层即崩溃" in draft.body
     assert "## Work Item" in draft.body
     assert "Not available in local artifacts." not in draft.body.split("## Bug Cause")[0]
 

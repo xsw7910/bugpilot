@@ -39,7 +39,7 @@ export interface JiraConnectionView {
 /** The code the CLI reports when Jira turned the stored credentials away. */
 export const JIRA_AUTH_FAILED = "JIRA_AUTH_FAILED";
 
-export function jiraConnection(configured: boolean, rejected: boolean): JiraConnectionView {
+export function jiraConnection(configured: boolean, rejected: boolean, siteMissing = false): JiraConnectionView {
   if (!configured) {
     return {
       state: "notConfigured",
@@ -47,6 +47,17 @@ export function jiraConnection(configured: boolean, rejected: boolean): JiraConn
       action: "Configure",
       actionLabel: "Configure Jira credentials",
       tooltip: "Jira credentials are not configured. Configure opens Jira credential setup.",
+    };
+  }
+  // Credentials without a site cannot fetch anything (pre-release Batch 3): the
+  // row says so, and Configure opens the dialog that now asks for the site.
+  if (siteMissing) {
+    return {
+      state: "notConfigured",
+      status: "No Jira site",
+      action: "Configure",
+      actionLabel: "Configure the Jira site",
+      tooltip: "Jira credentials are stored, but no Jira site is set. Configure opens Jira setup.",
     };
   }
   if (rejected) {
@@ -82,12 +93,16 @@ export const JIRA_API_TOKENS_URL = "https://id.atlassian.com/manage-profile/secu
 /** The dialog's words, one table: the markup renders them and the tests read them. */
 export const JIRA_SETUP_TEXT = {
   title: "Jira Setup",
-  intro: "Connect BugPilot to Jira using your Atlassian account email and API token.",
+  intro: "Connect BugPilot to your Jira site using your Atlassian account email and API token.",
+  siteLabel: "Jira site",
+  sitePlaceholder: "https://your-company.atlassian.net",
+  siteDescription: "Your Jira's https:// address. Saved in ~/.bugpilot/config.toml, where the bugpilot CLI reads it too.",
+  siteFromEnvironment: "Set by JIRA_BASE_URL in your environment, which BugPilot uses. Change it there.",
   emailLabel: "Jira email",
   emailPlaceholder: "Atlassian account email",
   emailDescription: "Email address for the Atlassian account that created the API token.",
   tokenLabel: "API token",
-  tokenStored: "A token is already stored. Enter a new token to replace it.",
+  tokenStored: "A token is already stored. Leave this blank to keep it, or enter a new one to replace it.",
   showToken: "Show API token",
   hideToken: "Hide API token",
   helpTitle: "Need an API token?",
@@ -110,6 +125,7 @@ export const JIRA_SETUP_TEXT = {
 
 /** What the dialog says about a field that cannot be saved, the host's and the page's alike. */
 export const JIRA_SETUP_PROBLEMS = {
+  siteMissing: "Enter your Jira site, such as https://your-company.atlassian.net.",
   emailMissing: "Enter your Atlassian account email.",
   emailInvalid: "Enter a valid email address.",
   tokenMissing: "Enter an API token.",
@@ -119,19 +135,22 @@ export const JIRA_SETUP_PROBLEMS = {
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * The first field Save cannot store, or undefined when both can be.
+ * The first field Save cannot store, or undefined when all can be.
  *
- * A token is required every time — on Replace too: the store keeps the two
- * together in one write, and nothing reads the stored token back to keep it.
- * No length rule for the token: Atlassian's tokens vary.
+ * The site must be there unless the environment sets it (and then it is not
+ * this dialog's); whether it is a usable https:// address is the CLI's
+ * question, the one check every Jira request uses. A token is required only
+ * when none is stored: a blank token keeps the stored one (pre-release
+ * Batch 3). No length rule for the token: Atlassian's tokens vary.
  */
 export function jiraSetupProblem(
-  email: string,
-  token: string,
-): { readonly field: "email" | "token"; readonly message: string } | undefined {
-  const address = email.trim();
+  entry: { readonly site: string; readonly email: string; readonly token: string },
+  state: { readonly tokenStored: boolean; readonly siteFromEnvironment: boolean },
+): { readonly field: "site" | "email" | "token"; readonly message: string } | undefined {
+  if (!state.siteFromEnvironment && entry.site.trim() === "") return { field: "site", message: JIRA_SETUP_PROBLEMS.siteMissing };
+  const address = entry.email.trim();
   if (address === "") return { field: "email", message: JIRA_SETUP_PROBLEMS.emailMissing };
   if (!EMAIL_SHAPE.test(address)) return { field: "email", message: JIRA_SETUP_PROBLEMS.emailInvalid };
-  if (token.trim() === "") return { field: "token", message: JIRA_SETUP_PROBLEMS.tokenMissing };
+  if (!state.tokenStored && entry.token.trim() === "") return { field: "token", message: JIRA_SETUP_PROBLEMS.tokenMissing };
   return undefined;
 }

@@ -31,6 +31,8 @@ import { migrateAgentChoice } from "./agents.ts";
 import type { AgentChoice } from "./agents.ts";
 import { repositoryProfileFingerprint, repositoryProfileModeOf } from "./repositoryProfile.ts";
 import type { RepositoryProfileMode } from "./repositoryProfile.ts";
+import { branchNamingOf, projectSettingsFingerprint } from "./projectSettings.ts";
+import type { BranchNaming } from "./projectSettings.ts";
 
 export type Source = "jira" | "manual";
 
@@ -213,6 +215,24 @@ export interface FormState {
   readonly repositoryBuildSystem: string;
   readonly repositoryTestFramework: string;
   readonly repositoryNotes: string;
+  /**
+   * The repository's Verification Policy (pre-release Batch 3): what level of
+   * validation task.md asks for — not how, which is the Fix Mode's. A copy of
+   * `<repo>/.bugpilot/project_settings.json`, loaded and saved like the
+   * Repository Profile, so no flag carries it. Kept by Reset Session.
+   */
+  readonly verifyRelevantTests: boolean;
+  readonly verifyStaticChecks: boolean;
+  readonly verifyFullSuite: boolean;
+  readonly verifyReportNotRun: boolean;
+  /**
+   * Branch naming, from the same file: the default `feature/{issue}-{slug}`,
+   * or the repository's template. Only the name a new branch would get —
+   * whether one is made is the branch policy's. The template is used only
+   * while Custom is chosen; its text is kept across a switch.
+   */
+  readonly branchNaming: BranchNaming;
+  readonly branchTemplate: string;
 }
 
 /** The CLI's `--branch-policy` values, in the order the settings page lists them. */
@@ -269,6 +289,12 @@ export const DEFAULT_FORM: FormState = {
   repositoryBuildSystem: "",
   repositoryTestFramework: "",
   repositoryNotes: "",
+  verifyRelevantTests: true,
+  verifyStaticChecks: true,
+  verifyFullSuite: false,
+  verifyReportNotRun: true,
+  branchNaming: "default",
+  branchTemplate: "",
 };
 
 /** A History Depth from anywhere outside this module: an unknown value is `recent`. */
@@ -318,6 +344,15 @@ export function restoreForm(saved: FormState | undefined): FormState {
     repositoryBuildSystem: textOf(saved.repositoryBuildSystem),
     repositoryTestFramework: textOf(saved.repositoryTestFramework),
     repositoryNotes: textOf(saved.repositoryNotes),
+    // A form saved before project settings existed gets their defaults, until
+    // the host reads the repository's own file over them: absent is the
+    // default of each switch, so the one that ships off stays off.
+    verifyRelevantTests: saved.verifyRelevantTests !== false,
+    verifyStaticChecks: saved.verifyStaticChecks !== false,
+    verifyFullSuite: saved.verifyFullSuite === true,
+    verifyReportNotRun: saved.verifyReportNotRun !== false,
+    branchNaming: branchNamingOf(saved.branchNaming),
+    branchTemplate: textOf(saved.branchTemplate),
     // A form saved while Build context could be unticked may say it was: the
     // two fixed steps are on whatever it says (§37.107). The three optional
     // ones keep what was saved — unticking Build context had cleared them, and
@@ -797,6 +832,9 @@ export function preparationFingerprint(form: FormState): string {
     // So is the Repository Profile: its mode and every Custom detail, read the
     // way the CLI stores them. The details are on screen only under Custom.
     repository: repositoryProfileFingerprint(form),
+    // And the project settings: the Verification Policy is a section of
+    // task.md, and the branch naming template names its branch (Batch 3).
+    project: projectSettingsFingerprint(form),
   });
 }
 

@@ -33,7 +33,7 @@ const THREE = historyFromPayload(
   {
     ok: true,
     work_items: [
-      { work_item_id: "JR-12345", source: "jira", title: "Fix VDS output", prepared: true },
+      { work_item_id: "JR-12345", source: "jira", title: "Fix CSV output", prepared: true },
       { work_item_id: "local_20260904160612", source: "manual", title: "Crash on import", prepared: true },
       { work_item_id: "JR-9999", source: "jira", title: null, prepared: false },
     ],
@@ -277,13 +277,13 @@ test("no history: History is one row saying so", async () => {
 });
 
 test("one work item: one row, the History view's row, which reopens it on click", async () => {
-  const one = historyFromPayload({ ok: true, work_items: [{ work_item_id: "JR-12345", source: "jira", title: "Fix VDS output", prepared: true }] });
+  const one = historyFromPayload({ ok: true, work_items: [{ work_item_id: "JR-12345", source: "jira", title: "Fix CSV output", prepared: true }] });
   const rows = await resultsChildren(HISTORY_GROUP, sources(NOTHING_OPEN, one).sources);
   assert.equal(rows.length, 1);
   const item = resultsItem(rows[0]!, undefined);
   const row = historyRow(one.kind === "ready" ? one.items[0]! : assert.fail("not ready"), NOW);
   assert.equal(item.label, "JR-12345");
-  assert.equal(item.description, "Fix VDS output");
+  assert.equal(item.description, "Fix CSV output");
   assert.equal(item.icon, row.icon);
   assert.equal(item.tooltip, row.tooltip.join("\n"));
   assert.equal(item.collapsible, "none", "a History row is a leaf in this version");
@@ -296,7 +296,7 @@ test("several work items: History keeps the list's order, newest first, and ever
   assert.deepEqual(labels(rows), ["local_20260904160612", "JR-12345", "JR-9999"]);
   assert.deepEqual(
     rows.map((node) => resultsItem(node, undefined).description),
-    ["Crash on import", "Fix VDS output", "incomplete run"],
+    ["Crash on import", "Fix CSV output", "incomplete run"],
   );
   // What it changed is in the hover, as before.
   assert.match(resultsItem(rows[0]!, undefined).tooltip ?? "", /Last changed an hour ago/);

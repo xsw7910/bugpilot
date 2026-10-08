@@ -69,13 +69,15 @@ test("the captured invocation is one-shot, read-only and isolated from the devel
   assert.equal(after("--setting-sources"), "");
   assert.ok(args.includes("--strict-mcp-config"));
   assert.ok(args.includes("--no-session-persistence"));
-  // The tools that exist at all: nothing that edits.
+  // The tools that exist at all, and the ones allowed: reading only. No shell
+  // (pre-release Batch 2, C): `Bash(git diff *)` admitted `git diff
+  // --output=<file>`, which writes any file, and an external diff driver or a
+  // textconv filter, which run programs. BugPilot collects the diff instead.
   const tools = args.slice(args.indexOf("--tools") + 1, args.indexOf("--allowedTools"));
-  assert.deepEqual(tools, ["Read", "Grep", "Glob", "Bash"]);
-  // The shell commands pre-approved: git's read-only ones, nothing else.
-  const allowed = args.slice(args.indexOf("--allowedTools") + 1).filter((tool) => tool.startsWith("Bash"));
-  assert.ok(allowed.every((tool) => /^Bash\(git (diff|status|log|show)( \*)?\)$/.test(tool)), allowed.join(", "));
-  for (const writer of ["Edit", "Write", "NotebookEdit", "--dangerously-skip-permissions", "bypassPermissions"]) {
+  assert.deepEqual(tools, ["Read", "Grep", "Glob"]);
+  assert.deepEqual(args.slice(args.indexOf("--allowedTools") + 1), ["Read", "Grep", "Glob"]);
+  assert.equal(args.some((arg) => /Bash|PowerShell|\bgit\b|^--output(=|$)|--ext-diff|textconv/i.test(arg)), false, args.join(" "));
+  for (const writer of ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent", "--dangerously-skip-permissions", "bypassPermissions", "acceptEdits", "--add-dir"]) {
     assert.equal(args.includes(writer), false, writer);
   }
   // The prompt is not an argument: it goes on stdin.

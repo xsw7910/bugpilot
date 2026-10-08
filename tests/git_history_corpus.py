@@ -134,10 +134,10 @@ def build_history() -> History:
             h.commit(f"bg-{churn_index[0]}", message, {path: _v(path, churn_index[0]) for path in files})
 
     base = [
-        "src/stack/AngleStack.cpp", "src/stack/AngleRange.cpp", "src/stack/StackMerge.cpp",
-        "src/stack/GatherSort.cpp", "src/volume/VolumeSelector.cpp", "src/volume/VolumeCache.cpp",
+        "src/blend/AngleBlend.cpp", "src/blend/AngleRange.cpp", "src/blend/BlendMerge.cpp",
+        "src/blend/BucketSort.cpp", "src/volume/VolumeSelector.cpp", "src/volume/VolumeCache.cpp",
         "src/volume/Interp.cpp", "src/volume/VolumeClip.cpp", "src/render/Renderer.cpp",
-        "src/render/ShaderCache.cpp", "src/io/SegyReader.cpp", "src/io/TraceBuffer.cpp",
+        "src/render/ShaderCache.cpp", "src/io/TiffReader.cpp", "src/io/TraceBuffer.cpp",
         "src/io/OldReader.cpp", "src/io/TraceIndex.cpp", "src/io/IndexWriter.cpp", "src/ui/ExportDialog.cpp",
         "src/ui/TemplateDialog.cpp", "src/ui/TemplateStore.cpp", "src/ui/AboutBox.cpp", "src/util/Log.cpp",
         "src/util/Strings.cpp", "src/volume/VolumeIO.cpp", "docs/export.md",
@@ -149,8 +149,8 @@ def build_history() -> History:
     churn(4)
 
     # 7. old but highly relevant, then recent weak commits on the same file (8).
-    h.commit("s7-old", "JR-107: fix GatherSort for split gathers",
-             {"src/stack/GatherSort.cpp": _v("gs", 1), "src/stack/GatherKey.cpp": _v("gk", 1)})
+    h.commit("s7-old", "JR-107: fix BucketSort for split buckets",
+             {"src/blend/BucketSort.cpp": _v("gs", 1), "src/blend/BucketKey.cpp": _v("gk", 1)})
     churn(6)
 
     # 19. a hot pair of files; the commit that matters is deep in both histories.
@@ -164,13 +164,13 @@ def build_history() -> History:
 
     # 13. a rename inside a relevant commit.
     h.commit("s13-rename", "JR-113: move the legacy reader into io",
-             {"src/io/SegyReader.cpp": _v("sr", 1)}, renames=(("src/io/OldReader.cpp", "src/io/LegacyReader.cpp"),))
+             {"src/io/TiffReader.cpp": _v("sr", 1)}, renames=(("src/io/OldReader.cpp", "src/io/LegacyReader.cpp"),))
     churn(4)
 
     # 1/11/15. a feature branch, two commits, merged with --no-ff.
     h.branch("feature/JR-101")
-    h.commit("s1-feature-a", "JR-101: clamp the angle range in AngleStack",
-             {"src/stack/AngleStack.cpp": _v("as", 1), "src/stack/AngleRange.cpp": _v("ar", 1)}, branch="feature/JR-101")
+    h.commit("s1-feature-a", "JR-101: clamp the angle range in AngleBlend",
+             {"src/blend/AngleBlend.cpp": _v("as", 1), "src/blend/AngleRange.cpp": _v("ar", 1)}, branch="feature/JR-101")
     h.commit("s1-feature-b", "JR-101: angle range tests",
              {"tests/AngleRangeTest.cpp": _v("art", 1)}, branch="feature/JR-101")
     churn(1)
@@ -187,17 +187,17 @@ def build_history() -> History:
     churn(3)
 
     # 2. a shared keyword.
-    h.commit("s2-keyword", "Fix poststack volume selection",
-             {"src/volume/VolumeSelector.cpp": _v("vs", 1), "src/volume/PoststackFilter.cpp": _v("pf", 1)})
+    h.commit("s2-keyword", "Fix postblend volume selection",
+             {"src/volume/VolumeSelector.cpp": _v("vs", 1), "src/volume/PostblendFilter.cpp": _v("pf", 1)})
     churn(2)
     # 3. an Additional Commit Keyword.
-    h.commit("s3-gitkw", "Rework the stackmerge pass",
-             {"src/stack/StackMerge.cpp": _v("sm", 1), "src/stack/MergePlan.cpp": _v("mp", 1)})
+    h.commit("s3-gitkw", "Rework the blendmerge pass",
+             {"src/blend/BlendMerge.cpp": _v("sm", 1), "src/blend/MergePlan.cpp": _v("mp", 1)})
     churn(2)
     # 4. a Focus File, and the commit that matters on it.
     h.commit("s4-focus", "Handle short traces in TraceBuffer",
-             {"src/io/SegyReader.cpp": _v("sr", 2), "src/io/TraceBuffer.cpp": _v("tb", 1)})
-    h.commit("s4-other", "SEG-Y header logging", {"src/io/SegyReader.cpp": _v("sr", 3)})
+             {"src/io/TiffReader.cpp": _v("sr", 2), "src/io/TraceBuffer.cpp": _v("tb", 1)})
+    h.commit("s4-other", "TIFF header logging", {"src/io/TiffReader.cpp": _v("sr", 3)})
     churn(2)
     # 5. an Additional File.
     h.commit("s5-additional", "Fix export filename quoting",
@@ -233,13 +233,13 @@ def build_history() -> History:
     h.commit("s17-planes", "Clamp clip planes", {"src/volume/VolumeClip.cpp": _v("vcl", 2)})
     churn(4)
     # 12. a reformat touching everything, naming the shared keyword.
-    h.commit("s12-bulk", "Reformat sources (poststack, angle range, clipping)",
+    h.commit("s12-bulk", "Reformat sources (postblend, angle range, clipping)",
              {f"src/legacy/import/f{i:03d}.cpp": _v(f"f{i}", 1) for i in range(230)}
              | {"src/volume/VolumeSelector.cpp": _v("vs", 3)})
     # 8. recent weak commits on the old relevant file.
     for i in range(6):
         h.commit(f"s8-weak-{i}", "Refactor sorting helpers",
-                 {"src/stack/GatherSort.cpp": _v("gs", 10 + i), f"src/util/Sort{i}.cpp": _v("so", i)}, days=2)
+                 {"src/blend/BucketSort.cpp": _v("gs", 10 + i), f"src/util/Sort{i}.cpp": _v("so", i)}, days=2)
     churn(3)
     return h
 
@@ -292,17 +292,17 @@ def _q(**kwargs) -> GitHistoryQuery:
 
 
 CASES: tuple[GitHistoryCase, ...] = (
-    GitHistoryCase("issue-id", "issue_id", _q(issue_id="JR-101", ranked_files=("src/stack/AngleStack.cpp",)),
-                   ("s1-feature-a", "s1-feature-b"), ("src/stack/AngleRange.cpp", "tests/AngleRangeTest.cpp"),
+    GitHistoryCase("issue-id", "issue_id", _q(issue_id="JR-101", ranked_files=("src/blend/AngleBlend.cpp",)),
+                   ("s1-feature-a", "s1-feature-b"), ("src/blend/AngleRange.cpp", "tests/AngleRangeTest.cpp"),
                    duplicates=("s1-merge",)),
     GitHistoryCase("shared-keyword", "shared_keyword",
-                   _q(shared_keywords=("poststack",), ranked_files=("src/volume/VolumeSelector.cpp",)),
-                   ("s2-keyword",), ("src/volume/PoststackFilter.cpp",), noise_commits=("s12-bulk",)),
+                   _q(shared_keywords=("postblend",), ranked_files=("src/volume/VolumeSelector.cpp",)),
+                   ("s2-keyword",), ("src/volume/PostblendFilter.cpp",), noise_commits=("s12-bulk",)),
     GitHistoryCase("commit-keyword", "additional_commit_keyword",
-                   _q(git_keywords=("stackmerge",), ranked_files=("src/stack/AngleStack.cpp",)),
-                   ("s3-gitkw",), ("src/stack/StackMerge.cpp", "src/stack/MergePlan.cpp")),
+                   _q(git_keywords=("blendmerge",), ranked_files=("src/blend/AngleBlend.cpp",)),
+                   ("s3-gitkw",), ("src/blend/BlendMerge.cpp", "src/blend/MergePlan.cpp")),
     GitHistoryCase("focus-file", "focus_file",
-                   _q(focus_files=("src/io/SegyReader.cpp",), extracted_terms=("TraceBuffer",)),
+                   _q(focus_files=("src/io/TiffReader.cpp",), extracted_terms=("TraceBuffer",)),
                    ("s4-focus",), ("src/io/TraceBuffer.cpp",)),
     GitHistoryCase("additional-file", "additional_file",
                    _q(git_files=("src/ui/ExportDialog.cpp",), ranked_files=("src/render/Renderer.cpp",)),
@@ -310,12 +310,12 @@ CASES: tuple[GitHistoryCase, ...] = (
     GitHistoryCase("generic-keyword", "generic_keyword",
                    _q(shared_keywords=("template",), ranked_files=("src/ui/TemplateDialog.cpp",)),
                    ("s6-target", "s6-dialog-fix"), ("src/ui/TemplateNames.cpp",)),
-    GitHistoryCase("old-relevant", "old_relevant", _q(issue_id="JR-107", ranked_files=("src/stack/GatherSort.cpp",)),
-                   ("s7-old",), ("src/stack/GatherKey.cpp",),
+    GitHistoryCase("old-relevant", "old_relevant", _q(issue_id="JR-107", ranked_files=("src/blend/BucketSort.cpp",)),
+                   ("s7-old",), ("src/blend/BucketKey.cpp",),
                    noise_commits=tuple(f"s8-weak-{i}" for i in range(6))),
     GitHistoryCase("recent-weak", "recent_weak",
-                   _q(extracted_terms=("GatherSort",), ranked_files=("src/stack/GatherSort.cpp",)),
-                   ("s7-old",), ("src/stack/GatherKey.cpp",), noise_commits=tuple(f"s8-weak-{i}" for i in range(6))),
+                   _q(extracted_terms=("BucketSort",), ranked_files=("src/blend/BucketSort.cpp",)),
+                   ("s7-old",), ("src/blend/BucketKey.cpp",), noise_commits=tuple(f"s8-weak-{i}" for i in range(6))),
     GitHistoryCase("regression", "regression",
                    _q(extracted_terms=("InterpCache",), ranked_files=("src/volume/Interp.cpp",)),
                    ("s9-regression",), ("src/volume/InterpCache.cpp",)),
@@ -325,12 +325,12 @@ CASES: tuple[GitHistoryCase, ...] = (
                    ("s11-feature", "s11-merge"), ("src/render/ShaderVariant.cpp",)),
     GitHistoryCase("bulk", "bulk", _q(shared_keywords=("clipping",), ranked_files=("src/volume/VolumeClip.cpp",)),
                    ("s17-clip", "s17-planes"), (), noise_commits=("s12-bulk",)),
-    GitHistoryCase("rename", "rename", _q(issue_id="JR-113", ranked_files=("src/io/SegyReader.cpp",)),
+    GitHistoryCase("rename", "rename", _q(issue_id="JR-113", ranked_files=("src/io/TiffReader.cpp",)),
                    ("s13-rename",), ("src/io/LegacyReader.cpp",)),
     GitHistoryCase("docs-only", "documentation", _q(issue_id="JR-114", ranked_files=("src/ui/ExportDialog.cpp",)),
                    ("s14-code", "s14-docs"), ("src/ui/ExportHeader.cpp",)),
-    GitHistoryCase("manual-no-id", "manual", _q(shared_keywords=("angle range",), ranked_files=("src/stack/AngleStack.cpp",)),
-                   ("s1-feature-a", "s1-feature-b"), ("src/stack/AngleRange.cpp", "tests/AngleRangeTest.cpp"),
+    GitHistoryCase("manual-no-id", "manual", _q(shared_keywords=("angle range",), ranked_files=("src/blend/AngleBlend.cpp",)),
+                   ("s1-feature-a", "s1-feature-b"), ("src/blend/AngleRange.cpp", "tests/AngleRangeTest.cpp"),
                    noise_commits=("s12-bulk",), duplicates=("s1-merge",)),
     GitHistoryCase("shared-supporting", "multiple_commits", _q(issue_id="JR-116", ranked_files=("src/render/Renderer.cpp",)),
                    ("s16-a", "s16-b"), ("src/render/ShaderCache.cpp",)),

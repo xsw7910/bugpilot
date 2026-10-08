@@ -38,15 +38,15 @@ function commit(overrides: Record<string, unknown> = {}): Record<string, unknown
   return {
     hash: HASH_A,
     short_hash: HASH_A.slice(0, 10),
-    subject: "Add poststack support to Angle Stack",
+    subject: "Add postblend support to Angle Blend",
     date: "2026-03-01",
     score: 135,
     matched_terms: [
       { value: "JR-12345", source: "issue_id" },
-      { value: "poststack", source: "shared_keyword" },
+      { value: "postblend", source: "shared_keyword" },
     ],
-    files: [{ path: "src/stack/AngleStack.cpp", source: "shared_focus_file" }],
-    reasons: ["exact issue ID match: JR-12345", "matched shared keyword: poststack"],
+    files: [{ path: "src/blend/AngleBlend.cpp", source: "shared_focus_file" }],
+    reasons: ["exact issue ID match: JR-12345", "matched shared keyword: postblend"],
     ...overrides,
   };
 }
@@ -90,16 +90,16 @@ test("a valid section reads as typed commits, in the record's order", () => {
   assert.ok(result);
   assert.equal(result.status, "completed");
   assert.equal(result.incomplete, false);
-  assert.deepEqual(result.commits.map((c) => c.subject), ["Add poststack support to Angle Stack", "Second"]);
+  assert.deepEqual(result.commits.map((c) => c.subject), ["Add postblend support to Angle Blend", "Second"]);
   const first = result.commits[0]!;
   assert.equal(first.hash, HASH_A);
   assert.equal(first.shortHash, "aaaaaaaaaa");
   assert.equal(first.date, "2026-03-01");
   assert.deepEqual(first.terms, [
     { value: "JR-12345", source: "issue_id" },
-    { value: "poststack", source: "shared_keyword" },
+    { value: "postblend", source: "shared_keyword" },
   ]);
-  assert.deepEqual(first.files, [{ path: "src/stack/AngleStack.cpp", source: "shared_focus_file" }]);
+  assert.deepEqual(first.files, [{ path: "src/blend/AngleBlend.cpp", source: "shared_focus_file" }]);
   // Nothing the row does not show is carried: no score, no reasons.
   assert.deepEqual(Object.keys(first).sort(), ["date", "files", "hash", "shortHash", "subject", "terms"]);
 });
@@ -195,10 +195,10 @@ test("a row is the short hash, the subject, and three short lines", () => {
   const [row] = relatedCommitRows(read(file(section()))!);
   assert.deepEqual(row, {
     shortHash: "aaaaaaaaaa",
-    subject: "Add poststack support to Angle Stack",
-    matched: "Matched: JR-12345, poststack",
-    changed: "Changed: AngleStack.cpp",
-    changedPaths: "src/stack/AngleStack.cpp",
+    subject: "Add postblend support to Angle Blend",
+    matched: "Matched: JR-12345, postblend",
+    changed: "Changed: AngleBlend.cpp",
+    changedPaths: "src/blend/AngleBlend.cpp",
     why: "Why: issue ID · shared keyword · focus file",
   });
   // No score, no reasons, no date: what a developer reads, not how it ranked.
@@ -238,7 +238,7 @@ test("a broad match is called a broad term, last, never a shared keyword", () =>
 
   const both = commit({
     matched_terms: [
-      { value: "poststack", source: "shared_keyword" },
+      { value: "postblend", source: "shared_keyword" },
       { value: "template", source: "shared_keyword", broad: true },
     ],
     files: [],
@@ -281,7 +281,7 @@ test("a finished Git history with its record says what it found, and lists it", 
   assert.equal(row.statusText, "Completed");
   assert.equal(row.summary, "1 related commit found");
   assert.equal(row.gitHistory?.commits.length, 1);
-  assert.equal(row.gitHistory?.commits[0]!.subject, "Add poststack support to Angle Stack");
+  assert.equal(row.gitHistory?.commits[0]!.subject, "Add postblend support to Angle Blend");
 });
 
 test("without a record the row says Completed and nothing else", () => {
@@ -328,12 +328,12 @@ test("Related commits survives a 200px panel: text wraps, the hash ends a line c
 /** A supporting file as core writes it. */
 function supporting(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    path: "src/stack/StackInputModel.cpp",
+    path: "src/blend/BlendInputModel.cpp",
     source: "git_history",
     score: 22,
     change: "modified",
     commit_hashes: [HASH_A, HASH_B],
-    reasons: ["changed in 2 related commits", "changed with focus file `src/stack/AngleStack.cpp`"],
+    reasons: ["changed in 2 related commits", "changed with focus file `src/blend/AngleBlend.cpp`"],
     ...overrides,
   };
 }
@@ -352,10 +352,10 @@ test("a Batch 3 section has no supporting files, and its row is as it was", () =
 });
 
 test("supporting files are read in the record's order and counted on the summary line", () => {
-  const result = read(file(section({ supporting_files: [supporting(), supporting({ path: "src/Gather.cpp", change: "added", commit_hashes: [HASH_A] })] })))!;
+  const result = read(file(section({ supporting_files: [supporting(), supporting({ path: "src/Bucket.cpp", change: "added", commit_hashes: [HASH_A] })] })))!;
   assert.deepEqual(result.supportingFiles, [
-    { path: "src/stack/StackInputModel.cpp", change: "modified", commitCount: 2 },
-    { path: "src/Gather.cpp", change: "added", commitCount: 1 },
+    { path: "src/blend/BlendInputModel.cpp", change: "modified", commitCount: 2 },
+    { path: "src/Bucket.cpp", change: "added", commitCount: 1 },
   ]);
   assert.equal(describeGitHistory(result), "1 related commit found · 2 supporting files");
   const partial = read(file(section({ summary: { incomplete: true }, supporting_files: [supporting()] })))!;
@@ -393,7 +393,7 @@ test("a supporting row is the file's name, its path, and how history found it", 
   const long = `${"deep/".repeat(40)}Leaf.cpp`;
   const result = read(file(section({ supporting_files: [supporting(), supporting({ path: long, change: "renamed", commit_hashes: [HASH_B] })] })))!;
   assert.deepEqual(supportingFileRows(result), [
-    { path: "src/stack/StackInputModel.cpp", name: "StackInputModel.cpp", detail: "Changed in 2 related commits" },
+    { path: "src/blend/BlendInputModel.cpp", name: "BlendInputModel.cpp", detail: "Changed in 2 related commits" },
     { path: long, name: "Leaf.cpp", detail: "Changed in 1 related commit · renamed" },
   ]);
 });
@@ -402,7 +402,7 @@ test("supporting files sit under Git history; Code search's Relevant files are u
   const record = read(file(section({ supporting_files: [supporting()] })))!;
   const search = { relevantFiles: 1, searchTerms: 1, content: { files: [{ path: "src/a.cpp", name: "a.cpp", documentation: false, matched: [] }], terms: [] } };
   const steps = buildWorkflow(input({ gitHistory: record, search }));
-  assert.deepEqual(gitRow(steps).gitHistory?.supportingFiles?.map((f) => f.path), ["src/stack/StackInputModel.cpp"]);
+  assert.deepEqual(gitRow(steps).gitHistory?.supportingFiles?.map((f) => f.path), ["src/blend/BlendInputModel.cpp"]);
   const code = steps.find((step) => step.id === "codeSearch")!;
   assert.deepEqual(code.search?.files.map((f) => f.path), ["src/a.cpp"]);
 });

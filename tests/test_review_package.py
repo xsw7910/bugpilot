@@ -28,7 +28,7 @@ REPORT = (
     "## Review Notes\n\n"
     "- Check the other enum comparisons in the widget module.\n"
     "\n"
-    "- The legacy VDS path is untested.\n"
+    "- The legacy CSV path is untested.\n"
 )
 
 RUN_JSON = json.dumps({
@@ -50,7 +50,7 @@ def _work_item(
 ) -> Path:
     target = root / ".ai" / work_item
     target.mkdir(parents=True)
-    save_issue(root, IssueArtifact(id=work_item, source=source, title="VDS rejected"))
+    save_issue(root, IssueArtifact(id=work_item, source=source, title="CSV rejected"))
     (target / "context.md").write_text("# Bug Context\n", encoding="utf-8")
     (target / "run.json").write_text(RUN_JSON.replace("JR-12345", work_item), encoding="utf-8")
     save_retrieval(
@@ -94,7 +94,7 @@ def test_the_json_carries_the_prompt_and_the_checklist(tmp_path, monkeypatch, ca
         # The report's own lines, blank ones dropped, as written otherwise.
         "review_risks": [
             "- Check the other enum comparisons in the widget module.",
-            "- The legacy VDS path is untested.",
+            "- The legacy CSV path is untested.",
         ],
     }
 
@@ -186,7 +186,7 @@ def test_the_rendered_checklist_is_unchanged_by_the_refactor(tmp_path):
         "- src/WidgetController.h\n"
         "- Risks from the report's Review Notes:\n"
         "  - Check the other enum comparisons in the widget module.\n"
-        "  - The legacy VDS path is untested.\n"
+        "  - The legacy CSV path is untested.\n"
     )
 
 

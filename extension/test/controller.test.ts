@@ -7,7 +7,11 @@ import { COMMANDS } from "../src/commands.ts";
 
 import { Controller } from "../src/app/controller.ts";
 import type { RepositoryProfileOutcome, RepositoryProfilePayload } from "../src/app/repositoryProfile.ts";
-import type { ControllerPorts, RunOptions } from "../src/app/controller.ts";
+import { MAX_INSTRUCTION_CHARS } from "../src/app/instructions.ts";
+import type { ProjectSettingsOutcome, ProjectSettingsPayload } from "../src/app/projectSettings.ts";
+import type { InstructionScope, InstructionsOutcome } from "../src/app/instructions.ts";
+import { createHash } from "node:crypto";
+import type { ControllerPorts, RunOptions, WorkItemFolder } from "../src/app/controller.ts";
 import { DEFAULT_FORM, restoreForm } from "../src/app/form.ts";
 import { JIRA_API_TOKENS_URL } from "../src/app/jiraConnection.ts";
 import type { FormState } from "../src/app/form.ts";
@@ -95,7 +99,7 @@ interface Harness {
   readonly states: PanelState[];
   readonly streamRuns: StreamRun[];
   readonly jsonRuns: StreamRun[];
-  readonly written: { path: string; contents: string }[];
+  readonly written: { path: string; contents: string; workItem?: WorkItemFolder }[];
   readonly opened: string[];
   readonly clipboard: string[];
   readonly notices: { kind: string; message: string }[];
@@ -106,6 +110,8 @@ interface Harness {
   readonly ranCommands: string[];
   /** Every pair Jira Setup stored through the credential port (§37.124). */
   readonly storedCredentials: { email: string; token: string }[];
+  /** Sites `jira-site set` was asked to save (Batch 3). */
+  readonly savedSites: string[];
   /** Every address opened in the browser. */
   readonly externals: string[];
   readonly terminals: { name: string; cwd: string; commandLine: string }[];
@@ -149,6 +155,12 @@ interface HarnessOptions {
   readonly streamThrows?: Error;
   /** The Repository Profile port; absent means the host has none. */
   readonly repositoryProfile?: NonNullable<ControllerPorts["repositoryProfile"]>;
+  /** The User / Project instructions port; absent means the host has none. */
+  readonly instructions?: NonNullable<ControllerPorts["instructions"]>;
+  /** The Jira site the fake CLI reports, whether the environment sets it, and a refusal to save one (Batch 3). */
+  readonly jiraSite?: { readonly site?: string; readonly fromEnvironment?: boolean; readonly refuse?: string };
+  /** The project settings port (Batch 3); absent means the host has none. */
+  readonly projectSettings?: NonNullable<ControllerPorts["projectSettings"]>;
   /** A function may answer later, which is how a test holds a request open. */
   readonly json?: Envelope | (() => Envelope | Promise<Envelope>);
   readonly jsonThrows?: Error;
@@ -237,7 +249,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const states: PanelState[] = [];
   const streamRuns: StreamRun[] = [];
   const jsonRuns: StreamRun[] = [];
-  const written: { path: string; contents: string }[] = [];
+  const written: { path: string; contents: string; workItem?: WorkItemFolder }[] = [];
   const opened: string[] = [];
   const clipboard: string[] = [];
   const notices: { kind: string; message: string }[] = [];
@@ -247,6 +259,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const saved: FormState[] = [];
   const savedWorkItems: (string | undefined)[] = [];
   const storedCredentials: { email: string; token: string }[] = [];
+  const savedSites: string[] = [];
+  let jiraSite = options.jiraSite?.site;
   const externals: string[] = [];
   let jiraStored = options.credentialsConfigured ?? true;
   let jiraEmail = options.jiraEmail ?? "me@example.com";
@@ -308,8 +322,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         const key = Object.keys(files).find((name) => file.endsWith(name));
         return key ? files[key] : undefined;
       },
-      writeFile: async (file, contents) => {
-        written.push({ path: file, contents });
+      writeFile: async (file, contents, workItem) => {
+        written.push({ path: file, contents, ...(workItem === undefined ? {} : { workItem }) });
       },
     },
     ui: {
@@ -378,6 +392,21 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         jiraEmail = pair.email;
       },
     },
+    // A fake `bugpilot jira-site` (Batch 3): the site the CLI reports, and its
+    // refusal when the test gives one.
+    jiraSite: {
+      load: async () => ({
+        kind: "loaded",
+        ...(jiraSite === undefined ? {} : { site: jiraSite }),
+        fromEnvironment: options.jiraSite?.fromEnvironment === true,
+      }),
+      save: async (site) => {
+        if (options.jiraSite?.refuse) return { kind: "failed", message: options.jiraSite.refuse };
+        savedSites.push(site);
+        jiraSite = site;
+        return { kind: "loaded", site, fromEnvironment: options.jiraSite?.fromEnvironment === true };
+      },
+    },
     descriptionFilePath: () => "/tmp/bugpilot-description.md",
     ...(options.extensionVersion === undefined
       ? {}
@@ -406,6 +435,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     saveWorkItem: (workItemId) => savedWorkItems.push(workItemId),
     ...(options.deleteArtifacts === undefined ? {} : { deleteWorkItemArtifacts: options.deleteArtifacts }),
     ...(options.repositoryProfile === undefined ? {} : { repositoryProfile: options.repositoryProfile }),
+    ...(options.instructions === undefined ? {} : { instructions: options.instructions }),
+    ...(options.projectSettings === undefined ? {} : { projectSettings: options.projectSettings }),
     ...(options.fixModes === undefined
       ? {}
       : {
@@ -467,6 +498,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     confirms,
     ranCommands,
     storedCredentials,
+    savedSites,
     externals,
     terminals,
     openTerminals,
@@ -934,11 +966,14 @@ test("the ready message re-pushes state so a reloaded page catches up", async ()
 
 // --- Jira Setup (§37.124) ------------------------------------------------------
 
+/** The site every Jira Setup save below enters (Batch 3); the fake CLI accepts it. */
+const SITE = "https://your-company.atlassian.net";
+
 test("Configure opens Jira Setup: no email to start with, no token stored", async () => {
   const h = harness({ credentialsConfigured: false });
   await h.controller.refreshEnvironment();
   await h.controller.handle({ type: "action", id: "setCredentials" });
-  assert.deepEqual(h.last().jiraSetup, { request: 1, tokenStored: false, saving: false });
+  assert.deepEqual(h.last().jiraSetup, { request: 1, siteFromEnvironment: false, tokenStored: false, saving: false });
   // Nothing stored, nothing logged, no prompt of the host's.
   assert.deepEqual(h.storedCredentials, []);
   assert.deepEqual(h.notices, []);
@@ -948,7 +983,7 @@ test("Replace opens the same dialog with the stored email — never the token, a
   const h = harness({ jiraEmail: "dev@example.com" });
   await h.controller.refreshEnvironment();
   await h.controller.handle({ type: "action", id: "setCredentials" });
-  assert.deepEqual(h.last().jiraSetup, { request: 1, email: "dev@example.com", tokenStored: true, saving: false });
+  assert.deepEqual(h.last().jiraSetup, { request: 1, email: "dev@example.com", siteFromEnvironment: false, tokenStored: true, saving: false });
   for (const state of h.states) assert.equal(JSON.stringify(state).includes(TOKEN), false, "the stored token reached the page");
   // Asked again: the same dialog, a new request.
   await h.controller.openJiraSetup();
@@ -961,11 +996,12 @@ test("Save stores both through the existing store in one write, closes the dialo
   assert.equal(h.last().jira.state, "notConfigured");
   await h.controller.handle({ type: "action", id: "setCredentials" });
   const token = "ATATT-new-token-value-0123456789";
-  await h.controller.handle({ type: "saveJiraCredentials", email: "  dev@example.com ", token: ` ${token} ` });
+  await h.controller.handle({ type: "saveJiraCredentials", site: SITE, email: "  dev@example.com ", token: ` ${token} ` });
   assert.deepEqual(h.storedCredentials, [{ email: "dev@example.com", token }]);
   assert.equal(h.last().jiraSetup, undefined, "the dialog stayed open after a save");
   assert.equal(h.last().jira.state, "configured");
-  assert.ok(h.logged.includes("Jira credentials stored for this machine."), h.logged.join("\n"));
+  assert.ok(h.logged.includes("Jira setup saved for this machine."), h.logged.join("\n"));
+  assert.deepEqual(h.savedSites, [SITE]);
   // The token is in no log line and in no state the page was sent.
   for (const line of h.logged) assert.equal(line.includes(token), false, line);
   for (const state of h.states) assert.equal(JSON.stringify(state).includes(token), false, "the new token reached the page");
@@ -977,12 +1013,13 @@ test("while saving the dialog waits: a second Save and a Cancel do nothing", asy
     release = resolve;
   });
   const h = harness({ credentialSaveHold: () => held });
+  await h.controller.refreshEnvironment();
   await h.controller.openJiraSetup();
-  const saving = h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "first-token-value" });
+  const saving = h.controller.handle({ type: "saveJiraCredentials", site: SITE, email: "dev@example.com", token: "first-token-value" });
   // The push that marks it saving went out before the store answered.
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(h.last().jiraSetup?.saving, true);
-  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "second-token-value" });
+  await h.controller.handle({ type: "saveJiraCredentials", site: SITE, email: "dev@example.com", token: "second-token-value" });
   await h.controller.handle({ type: "closeJiraSetup" });
   assert.equal(h.last().jiraSetup?.saving, true, "a Cancel closed it mid-save");
   release();
@@ -1010,22 +1047,24 @@ test("Authentication failed: Cancel keeps it; a successful Save clears it, as a 
   await h.controller.handle({ type: "closeJiraSetup" });
   assert.equal(h.last().jira.state, "authFailed", "a Cancel forgot what Jira said");
   await h.controller.handle({ type: "action", id: "setCredentials" });
-  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "replacement-token-value" });
+  await h.controller.handle({ type: "saveJiraCredentials", site: SITE, email: "dev@example.com", token: "replacement-token-value" });
   assert.equal(h.last().jira.state, "configured");
   assert.equal(h.last().jiraSetup, undefined);
 });
 
 test("a field Save cannot store is said in the dialog, by field, once per answer; nothing is stored", async () => {
-  const h = harness();
+  const h = harness({ credentialsConfigured: false });
+  await h.controller.refreshEnvironment();
   await h.controller.openJiraSetup();
   const cases = [
+    { site: "  ", email: "dev@example.com", token: "t0ken-value", field: "site", message: "Enter your Jira site, such as https://your-company.atlassian.net." },
     { email: "  ", token: "t0ken-value", field: "email", message: "Enter your Atlassian account email." },
     { email: "not an address", token: "t0ken-value", field: "email", message: "Enter a valid email address." },
     { email: "dev@example.com", token: "   ", field: "token", message: "Enter an API token." },
   ] as const;
   const tokens: number[] = [];
   for (const entry of cases) {
-    await h.controller.handle({ type: "saveJiraCredentials", email: entry.email, token: entry.token });
+    await h.controller.handle({ type: "saveJiraCredentials", site: "site" in entry ? entry.site : SITE, email: entry.email, token: entry.token });
     const error = h.last().jiraSetup?.error;
     assert.equal(error?.field, entry.field);
     assert.equal(error?.message, entry.message);
@@ -1035,15 +1074,16 @@ test("a field Save cannot store is said in the dialog, by field, once per answer
   assert.equal(new Set(tokens).size, tokens.length, "an answer reused its token");
   assert.deepEqual(h.storedCredentials, []);
   // No length rule for a token: Atlassian's vary.
-  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "x" });
+  await h.controller.handle({ type: "saveJiraCredentials", site: SITE, email: "dev@example.com", token: "x" });
   assert.deepEqual(h.storedCredentials, [{ email: "dev@example.com", token: "x" }]);
 });
 
 test("a store that refuses says why in the dialog — without the token — and keeps it open", async () => {
   const token = "ATATT-refused-token-0123456789";
   const h = harness({ credentialSaveThrows: new Error(`Keychain refused ${token}`) });
+  await h.controller.refreshEnvironment();
   await h.controller.openJiraSetup();
-  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token });
+  await h.controller.handle({ type: "saveJiraCredentials", site: SITE, email: "dev@example.com", token });
   const setup = h.last().jiraSetup;
   assert.equal(setup?.saving, false);
   assert.equal(setup?.error?.field, undefined);
@@ -1057,7 +1097,7 @@ test("a save or a close with no dialog open does nothing", async () => {
   const h = harness();
   await h.controller.refreshEnvironment();
   const before = h.states.length;
-  await h.controller.handle({ type: "saveJiraCredentials", email: "dev@example.com", token: "stray-token-value" });
+  await h.controller.handle({ type: "saveJiraCredentials", site: SITE, email: "dev@example.com", token: "stray-token-value" });
   await h.controller.handle({ type: "closeJiraSetup" });
   assert.deepEqual(h.storedCredentials, []);
   assert.equal(h.states.length, before);
@@ -2995,9 +3035,9 @@ function retrievalWithHistory(count: number, extra: Record<string, unknown> = {}
         subject: `Commit ${index}`,
         date: "2026-01-01",
         score: 30,
-        matched_terms: [{ value: "poststack", source: "shared_keyword" }],
+        matched_terms: [{ value: "postblend", source: "shared_keyword" }],
         files: [{ path: "src/a.cpp", source: "code_search_ranked_file" }],
-        reasons: ["matched shared keyword: poststack"],
+        reasons: ["matched shared keyword: postblend"],
       })),
       warnings: [],
       ...extra,
@@ -3053,7 +3093,7 @@ test("a work item prepared before the record existed, or with one that cannot be
 
 test("supporting files reach the Git history row, and never Code search's Relevant files", async () => {
   const supporting = [
-    { path: "src/stack/StackInputModel.cpp", source: "git_history", score: 22, change: "modified", commit_hashes: ["0".repeat(40), "1".repeat(40)], reasons: ["changed in 2 related commits"] },
+    { path: "src/blend/BlendInputModel.cpp", source: "git_history", score: 22, change: "modified", commit_hashes: ["0".repeat(40), "1".repeat(40)], reasons: ["changed in 2 related commits"] },
   ];
   const h = harness({
     events: successfulRun,
@@ -3066,12 +3106,12 @@ test("supporting files reach the Git history row, and never Code search's Releva
   const row = gitRowOf(h.last());
   assert.equal(row.summary, "2 related commits found · 1 supporting file");
   assert.deepEqual(row.gitHistory?.supportingFiles, [
-    { path: "src/stack/StackInputModel.cpp", name: "StackInputModel.cpp", detail: "Changed in 2 related commits" },
+    { path: "src/blend/BlendInputModel.cpp", name: "BlendInputModel.cpp", detail: "Changed in 2 related commits" },
   ]);
   assert.deepEqual(codeRow(h.last()).search?.files.map((file) => file.path), ["a.cpp", "b.cpp"]);
   // Opened through its own checked open; with no stat port, as before.
-  await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
-  assert.match(h.opened.at(-1) ?? "", /StackInputModel\.cpp$/);
+  await h.controller.handle({ type: "openSupportingFile", path: "src/blend/BlendInputModel.cpp" });
+  assert.match(h.opened.at(-1) ?? "", /BlendInputModel\.cpp$/);
 });
 
 // --- Supporting files: the open checks the current checkout (post-v2 hardening) ---------
@@ -3098,7 +3138,7 @@ function checkout(entries: Readonly<Record<string, GitignoreEntry | Error>>) {
 }
 
 const SUPPORTING = [
-  { path: "src/stack/StackInputModel.cpp", source: "git_history", score: 22, change: "modified", commit_hashes: ["0".repeat(40), "1".repeat(40)], reasons: ["changed in 2 related commits"] },
+  { path: "src/blend/BlendInputModel.cpp", source: "git_history", score: 22, change: "modified", commit_hashes: ["0".repeat(40), "1".repeat(40)], reasons: ["changed in 2 related commits"] },
 ];
 
 async function withSupportingFiles(entries: Readonly<Record<string, GitignoreEntry | Error>>) {
@@ -3115,9 +3155,9 @@ async function withSupportingFiles(entries: Readonly<Record<string, GitignoreEnt
 }
 
 test("a supporting file still in the checkout opens", async () => {
-  const { h, asked } = await withSupportingFiles({ "src/stack/StackInputModel.cpp": "file" });
-  await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
-  const target = nodePath.resolve(ROOT, "src/stack/StackInputModel.cpp");
+  const { h, asked } = await withSupportingFiles({ "src/blend/BlendInputModel.cpp": "file" });
+  await h.controller.handle({ type: "openSupportingFile", path: "src/blend/BlendInputModel.cpp" });
+  const target = nodePath.resolve(ROOT, "src/blend/BlendInputModel.cpp");
   assert.deepEqual(asked, [target]);
   assert.deepEqual(h.opened, [target]);
   assert.deepEqual(h.notices, []);
@@ -3127,7 +3167,7 @@ test("a supporting file gone from the checkout is not opened, says so, and stays
   const { h } = await withSupportingFiles({});
   const before = { state: JSON.stringify(h.last()), states: h.states.length, written: h.written.length, runs: h.streamRuns.length + h.jsonRuns.length };
 
-  await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+  await h.controller.handle({ type: "openSupportingFile", path: "src/blend/BlendInputModel.cpp" });
 
   assert.deepEqual(h.opened, [], "a missing file was handed to the editor");
   assert.deepEqual(h.notices, [{ kind: "warning", message: SUPPORTING_FILE_MISSING }]);
@@ -3138,21 +3178,21 @@ test("a supporting file gone from the checkout is not opened, says so, and stays
     { state: JSON.stringify(h.last()), states: h.states.length, written: h.written.length, runs: h.streamRuns.length + h.jsonRuns.length },
     before,
   );
-  assert.deepEqual(gitRowOf(h.last()).gitHistory?.supportingFiles?.map((file) => file.path), ["src/stack/StackInputModel.cpp"]);
+  assert.deepEqual(gitRowOf(h.last()).gitHistory?.supportingFiles?.map((file) => file.path), ["src/blend/BlendInputModel.cpp"]);
 });
 
 test("a directory, or a symbolic link, is not opened as a supporting file", async () => {
   for (const entry of ["other", "symlink"] as const) {
-    const { h } = await withSupportingFiles({ "src/stack/StackInputModel.cpp": entry });
-    await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+    const { h } = await withSupportingFiles({ "src/blend/BlendInputModel.cpp": entry });
+    await h.controller.handle({ type: "openSupportingFile", path: "src/blend/BlendInputModel.cpp" });
     assert.deepEqual(h.opened, [], entry);
     assert.deepEqual(h.notices, [{ kind: "warning", message: SUPPORTING_FILE_NOT_A_FILE }], entry);
   }
 });
 
 test("a stat that fails does not crash the panel, and opens nothing", async () => {
-  const { h } = await withSupportingFiles({ "src/stack/StackInputModel.cpp": new Error("EACCES: permission denied") });
-  await h.controller.handle({ type: "openSupportingFile", path: "src/stack/StackInputModel.cpp" });
+  const { h } = await withSupportingFiles({ "src/blend/BlendInputModel.cpp": new Error("EACCES: permission denied") });
+  await h.controller.handle({ type: "openSupportingFile", path: "src/blend/BlendInputModel.cpp" });
   assert.deepEqual(h.opened, []);
   assert.deepEqual(h.notices, [{ kind: "warning", message: SUPPORTING_FILE_UNCHECKED }]);
   assert.ok(h.logged.some((line) => /^ERROR Could not check a supporting file: EACCES/.test(line)));
@@ -4832,6 +4872,9 @@ test("Open Fix Report opens fix_report.md in the current work item, and nothing 
 
 const REVIEW_PROMPT = "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n";
 
+/** The current changes BugPilot collected, as `--include-changes` returns them. */
+const REVIEW_CHANGES = "## Current Changes\n\nThis review runs without a shell.\n\n### git diff HEAD\n\n```diff\n-old\n+new\n```\n";
+
 /** What `review-package --json` answers for a work item with a report. */
 const REVIEW_PACKAGE: Envelope = {
   ok: true,
@@ -4839,10 +4882,11 @@ const REVIEW_PACKAGE: Envelope = {
   warnings: [],
   work_item_id: "JR-12345",
   prompt: REVIEW_PROMPT,
+  changes: REVIEW_CHANGES,
   validation: {
     steps: ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
     regression_files: ["src/widgets/WidgetController.cpp"],
-    review_risks: ["- The legacy VDS path is untested."],
+    review_risks: ["- The legacy CSV path is untested."],
   },
 };
 
@@ -5010,7 +5054,7 @@ test("the Validation checklist is fetched when asked for, once, and shown as the
     checklist: {
       steps: ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
       files: ["src/widgets/WidgetController.cpp"],
-      risks: ["The legacy VDS path is untested."],
+      risks: ["The legacy CSV path is untested."],
     },
   });
   // Asking again changes nothing and runs nothing.
@@ -5259,7 +5303,8 @@ test("Review with AI hands review-package's prompt to the selected agent in a te
   await h.controller.handle(REVIEW);
 
   // The canonical prompt, from the read-only query — asked for once, built
-  // nowhere in this extension.
+  // nowhere in this extension. Without the changes: only a captured review
+  // reads them, and a terminal reviewer looks at the diff itself (Batch 4.1).
   assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [["review-package", "JR-12345", "--json"]]);
   // The agent the form selects (auto: Claude CLI), in one terminal, in the
   // repository root where `.ai/JR-12345/` and the diff are.
@@ -6560,10 +6605,65 @@ test("a supported agent reviews one-shot: the prompt on stdin, the repository as
   assert.equal(calls[0]!.command, "claude");
   assert.deepEqual(calls[0]!.args, [...CLAUDE_CAPTURED_REVIEW.args]);
   assert.equal(calls[0]!.cwd, ROOT);
-  // The prompt review-package gave, exactly, on stdin; never on a command line.
-  assert.equal(calls[0]!.input, REVIEW_PROMPT);
-  assert.equal(calls[0]!.args.some((arg) => arg.includes("Final Review Request")), false);
+  // The prompt review-package gave, exactly, then the changes BugPilot
+  // collected — the reviewer has no shell to look them up — on stdin; never on
+  // a command line.
+  assert.equal(calls[0]!.input, `${REVIEW_PROMPT}\n${REVIEW_CHANGES}`);
+  assert.equal(calls[0]!.args.some((arg) => arg.includes("Final Review Request") || arg.includes("Current Changes")), false);
   assert.deepEqual(h.terminals, [], "a captured review opened a terminal");
+});
+
+test("a captured review without the collected changes does not start: there would be nothing to review", async () => {
+  const { options, calls } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)));
+  const { changes: _dropped, ...older } = REVIEW_PACKAGE as Envelope & { changes?: string };
+  const h = await openedForReview({ ...options, json: older });
+
+  await h.controller.handle(REVIEW);
+
+  assert.deepEqual(calls, [], "a reviewer was started without the changes");
+  assert.equal(reviewOf(h.last())?.state, "failed");
+  assert.match(JSON.stringify(reviewOf(h.last())), /did not return the current changes/);
+});
+
+test("the changes are collected only for a captured review: once, after the reviewer is known (Batch 4.1)", async () => {
+  const { options, calls } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)));
+  const h = await openedForReview(options);
+  await h.controller.handle(REVIEW);
+  // The prompt first, for the gate and the agent; then, for this reviewer, the
+  // prompt with the changes it reads on stdin.
+  assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [
+    ["review-package", "JR-12345", "--json"],
+    ["review-package", "JR-12345", "--json", "--include-changes"],
+  ]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.input, `${REVIEW_PROMPT}\n${REVIEW_CHANGES}`);
+});
+
+test("a terminal review by a custom command never collects the changes (Batch 4.1)", async () => {
+  const h = await openedForReview(
+    reviewOptions({ form: { ...DEFAULT_FORM, issueKey: "JR-12345", agent: "custom", agentCommand: "my-reviewer --prompt {prompt}" } }),
+  );
+  await h.controller.handle(REVIEW);
+  assert.equal(h.terminals.length, 1);
+  assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [["review-package", "JR-12345", "--json"]]);
+});
+
+test("a clipboard review through an agent's extension never collects the changes (Batch 4.1)", async () => {
+  const h = await openedForReview(
+    reviewOptions({ agentOnPath: false, extensions: CLAUDE_EXTENSION, form: { ...DEFAULT_FORM, issueKey: "JR-12345", agent: "claude-extension" } }),
+  );
+  await h.controller.handle(REVIEW);
+  assert.equal(h.clipboard.length, 1);
+  assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [["review-package", "JR-12345", "--json"]]);
+  assert.equal(h.clipboard[0]!.includes(REVIEW_CHANGES), false, "the clipboard prompt carried collected changes");
+});
+
+test("a terminal review gets the plain prompt only: the changes never reach a command line", async () => {
+  const h = await openedForReview();
+  await h.controller.handle(REVIEW);
+  assert.equal(h.terminals.length, 1);
+  assert.equal(h.terminals[0]!.commandLine.includes("Current Changes"), false);
+  assert.equal(h.terminals[0]!.commandLine.includes("+new"), false);
 });
 
 test("started is not finished: while the reviewer runs the row says Reviewing…, and nothing else may start", async () => {
@@ -7960,6 +8060,9 @@ test("next action 7: feedback goes into user_feedback.md, bug --retry builds the
     {
       path: nodePath.join(ROOT, ".ai", "JR-12345", "user_feedback.md"),
       contents: "# User Feedback: JR-12345\n\n## Required Next Attempt\n\nThe previous fix changed the wrong class.\nKeep the public API.\n",
+      // Named as a work item file, so the host writes it only through real
+      // directories inside the repository (pre-release Batch 2, D).
+      workItem: { root: ROOT, workItemId: "JR-12345" },
     },
   ]);
   // The CLI's own retry path, the same invocation the palette's Retry uses —
@@ -8330,7 +8433,7 @@ test("settings 9b: every applied Git History Setting makes the context stale, an
   for (const change of [
     { gitUseSharedKeywords: false },
     { gitUseSharedFocusFiles: false },
-    { gitKeywords: "stackmerge" },
+    { gitKeywords: "blendmerge" },
     { gitFiles: "src/legacy/" },
     { gitSearchMessages: false },
     { gitSearchFileHistory: false },
@@ -8365,9 +8468,9 @@ test("settings 9c: changing the AI Agent beside Git History Settings still leave
 test("settings 9d: Rebuild Context runs with the applied Git History Settings, and Code search's inputs as they were", async () => {
   const h = await preparedHarness();
   const edited = jiraForm({
-    keywords: "poststack",
+    keywords: "postblend",
     focusFiles: "src/Focus.cpp",
-    gitKeywords: "stackmerge",
+    gitKeywords: "blendmerge",
     gitFiles: "src/Legacy.cpp",
     gitUseSharedKeywords: false,
     gitHistoryDepth: "broader",
@@ -8379,7 +8482,7 @@ test("settings 9d: Rebuild Context runs with the applied Git History Settings, a
   assert.equal(h.streamRuns.length, 2);
   const args = h.streamRuns[1]!.args;
   for (const expected of [
-    "--git-keyword=stackmerge",
+    "--git-keyword=blendmerge",
     "--git-file=src/Legacy.cpp",
     "--git-no-shared-keywords",
     "--git-history-depth=broader",
@@ -8389,7 +8492,7 @@ test("settings 9d: Rebuild Context runs with the applied Git History Settings, a
     assert.ok(args.includes(expected), `${expected} missing from the rebuild`);
   }
   // Code search gets its own keywords and focus files, and none of Git history's.
-  assert.deepEqual(args.filter((arg) => arg.startsWith("--keywords=")), ["--keywords=poststack"]);
+  assert.deepEqual(args.filter((arg) => arg.startsWith("--keywords=")), ["--keywords=postblend"]);
   assert.deepEqual(args.filter((arg) => arg.startsWith("--focus-file=")), ["--focus-file=src/Focus.cpp"]);
 });
 
@@ -8398,7 +8501,7 @@ test("settings 9e: a shared Keyword change is stale whether or not Git history u
   const h = await preparedHarness();
   await h.controller.handle(applySettings(jiraForm({ gitUseSharedKeywords: false })));
   await h.controller.handle(next("rebuildContext", jiraForm({ gitUseSharedKeywords: false })));
-  await h.controller.handle(applySettings(jiraForm({ gitUseSharedKeywords: false, keywords: "poststack" })));
+  await h.controller.handle(applySettings(jiraForm({ gitUseSharedKeywords: false, keywords: "postblend" })));
   assert.equal(h.last().primary.action, "rebuildContext");
 });
 
@@ -8422,7 +8525,7 @@ test("settings 9f: every applied Similar Fixes Setting makes the context stale, 
 test("settings 9g: Rebuild Context runs with the applied Similar Fixes Settings; the shared inputs go out once, as before", async () => {
   const h = await preparedHarness();
   const edited = jiraForm({
-    keywords: "poststack",
+    keywords: "postblend",
     focusFiles: "src/Focus.cpp",
     similarUseSharedKeywords: false,
     similarKeywords: "legacyexporter, export crash",
@@ -8444,7 +8547,7 @@ test("settings 9g: Rebuild Context runs with the applied Similar Fixes Settings;
   }
   // Off for Similar fixes is not off for everybody: the shared Keywords and
   // Focus files still go out, once, for Code search and Git history.
-  assert.deepEqual(args.filter((arg) => arg.startsWith("--keywords=")), ["--keywords=poststack"]);
+  assert.deepEqual(args.filter((arg) => arg.startsWith("--keywords=")), ["--keywords=postblend"]);
   assert.deepEqual(args.filter((arg) => arg.startsWith("--focus-file=")), ["--focus-file=src/Focus.cpp"]);
   assert.equal(args.some((arg) => arg.startsWith("--git-keyword=") || arg.startsWith("--git-no-shared")), false);
 });
@@ -11278,4 +11381,572 @@ test("after a profile Apply, Rebuild Context prepares again and the context is c
 
   assert.equal(h.streamRuns.length, 2, "Rebuild Context did not start a run");
   assert.equal(h.last().primary.action, "fixWithAI", "the rebuilt context still reads as stale");
+});
+
+
+// --- Pre-release Batch 2: User and Project instructions (E–G) -----------------
+
+/** A fake `bugpilot instructions`: two files in memory, hashed by content like the CLI. */
+function instructionsPort(initial: { user?: string; project?: string } = {}) {
+  const files: Record<InstructionScope, string> = { user: initial.user ?? "", project: initial.project ?? "" };
+  const saves: { scope: InstructionScope; text: string }[] = [];
+  let loads = 0;
+  const state = (text: string) => ({
+    configured: text.trim() !== "",
+    characters: text.trim().length,
+    sha256: text.trim() === "" ? "" : createHash("sha256").update(text.trim()).digest("hex"),
+    text: text.trim(),
+  });
+  const snapshot = (): InstructionsOutcome => ({
+    kind: "loaded",
+    snapshot: { user: state(files.user), project: state(files.project), maxCharacters: MAX_INSTRUCTION_CHARS },
+  });
+  return {
+    files,
+    saves,
+    loads: () => loads,
+    port: {
+      load: async () => {
+        loads += 1;
+        return snapshot();
+      },
+      save: async (scope: InstructionScope, text: string) => {
+        saves.push({ scope, text });
+        files[scope] = text;
+        return snapshot();
+      },
+    } satisfies NonNullable<ControllerPorts["instructions"]>,
+  };
+}
+
+test("instructions: the rows say what each file holds, read when the environment resolves", async () => {
+  const instructions = instructionsPort({ project: "Run relevant module tests." });
+  const h = harness({ instructions: instructions.port });
+  await h.controller.refreshEnvironment();
+
+  assert.deepEqual(h.last().instructions, {
+    user: { status: "No user instructions configured.", editable: true },
+    project: { status: "Configured · 26 characters", editable: true },
+  });
+  assert.equal(h.last().instructionsEditor, undefined);
+  assert.deepEqual(instructions.saves, [], "reading is not saving");
+});
+
+test("instructions: Edit reads the file again and opens on it; Cancel writes nothing", async () => {
+  const instructions = instructionsPort({ user: "Prefer small focused changes." });
+  const h = harness({ instructions: instructions.port });
+  await h.controller.refreshEnvironment();
+  const loadsBefore = instructions.loads();
+  instructions.files.user = "Explain non-obvious decisions.";
+
+  await h.controller.handle({ type: "openInstructions", scope: "user" });
+
+  assert.equal(instructions.loads(), loadsBefore + 1, "Edit did not read the file again");
+  const editor = h.last().instructionsEditor;
+  assert.equal(editor?.scope, "user");
+  assert.equal(editor?.title, "User instructions");
+  assert.equal(editor?.scopeLine, "Applies to all repositories for this user.");
+  assert.equal(editor?.text, "Explain non-obvious decisions.");
+  assert.equal(editor?.saving, false);
+
+  await h.controller.handle({ type: "closeInstructions" });
+  assert.equal(h.last().instructionsEditor, undefined);
+  assert.deepEqual(instructions.saves, [], "Cancel wrote a file");
+});
+
+test("instructions: opening an empty scope creates nothing and says it is empty", async () => {
+  const instructions = instructionsPort();
+  const h = harness({ instructions: instructions.port });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle({ type: "openInstructions", scope: "project" });
+  assert.equal(h.last().instructionsEditor?.text, "");
+  assert.equal(h.last().instructionsEditor?.empty, "No project instructions configured.");
+  await h.controller.handle({ type: "closeInstructions" });
+  assert.deepEqual(instructions.saves, []);
+  assert.equal(instructions.files.project, "");
+});
+
+test("instructions: Save writes the scope it was opened for, closes, and the row says so", async () => {
+  const instructions = instructionsPort();
+  const h = harness({ instructions: instructions.port });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openInstructions", scope: "project" });
+
+  // A save for the other scope is not this editor's: dropped.
+  await h.controller.handle({ type: "saveInstructions", scope: "user", text: "Wrong scope." });
+  assert.deepEqual(instructions.saves, []);
+
+  await h.controller.handle({ type: "saveInstructions", scope: "project", text: "Maintain Windows and Linux compatibility." });
+  assert.deepEqual(instructions.saves, [{ scope: "project", text: "Maintain Windows and Linux compatibility." }]);
+  assert.equal(h.last().instructionsEditor, undefined);
+  assert.equal(h.last().instructions.project.status, "Configured · 41 characters");
+  // The text never reaches the log.
+  assert.equal(h.logged.some((line) => line.includes("Windows and Linux")), false);
+});
+
+test("instructions: saving empty text is how they are removed", async () => {
+  const instructions = instructionsPort({ user: "Prefer small focused changes." });
+  const h = harness({ instructions: instructions.port });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openInstructions", scope: "user" });
+
+  await h.controller.handle({ type: "saveInstructions", scope: "user", text: "" });
+
+  assert.deepEqual(instructions.saves, [{ scope: "user", text: "" }]);
+  assert.equal(h.last().instructions.user.status, "No user instructions configured.");
+});
+
+test("instructions: too long is refused before the CLI, and a refusal keeps the editor with the reason", async () => {
+  const h = harness({
+    instructions: {
+      load: instructionsPort().port.load,
+      save: async () => ({ kind: "failed", message: "Project instructions were not saved: .bugpilot is a symbolic link or junction." }),
+    },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openInstructions", scope: "project" });
+
+  await h.controller.handle({ type: "saveInstructions", scope: "project", text: "x".repeat(MAX_INSTRUCTION_CHARS + 1) });
+  assert.match(h.last().instructionsEditor?.error?.message ?? "", /more than the 20,000 BugPilot includes/);
+
+  await h.controller.handle({ type: "saveInstructions", scope: "project", text: "Do not add dependencies without approval." });
+  const editor = h.last().instructionsEditor;
+  assert.equal(editor?.saving, false);
+  assert.equal(editor?.error?.message, "Project instructions were not saved: .bugpilot is a symbolic link or junction.");
+});
+
+test("instructions: a changed file makes a prepared context stale, the same content does not", async () => {
+  const instructions = instructionsPort({ project: "Run relevant module tests." });
+  const h = await preparedHarness({ instructions: instructions.port, events: successfulRun });
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  // Saved again with the same text — and the files re-read at an environment
+  // check: content, not time, decides.
+  await h.controller.handle({ type: "openInstructions", scope: "project" });
+  await h.controller.handle({ type: "saveInstructions", scope: "project", text: "Run relevant module tests." });
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().primary.action, "fixWithAI", "the same instructions read as a change");
+
+  // Edited outside BugPilot: noticed at the next check.
+  instructions.files.user = "Explain non-obvious decisions.";
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().primary.action, "rebuildContext", "a changed user instructions file did not ask for a rebuild");
+
+  // Rebuild Context reads them again, and the context is current.
+  await h.controller.handle(next("rebuildContext"));
+  assert.equal(h.last().primary.action, "fixWithAI");
+});
+
+test("instructions: a Run reads them just before it starts, so its baseline is what it used", async () => {
+  const instructions = instructionsPort();
+  const order: string[] = [];
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    events: successfulRun,
+    instructions: {
+      load: async () => {
+        order.push("load");
+        return instructions.port.load();
+      },
+      save: instructions.port.save,
+    },
+    onStream: () => order.push("run"),
+  });
+  await h.controller.refreshEnvironment();
+  order.length = 0;
+  instructions.files.project = "Prefer pytest tests for changed behavior.";
+
+  await h.controller.handle(next("run"));
+
+  assert.deepEqual(order, ["load", "run"]);
+  assert.equal(h.last().primary.action, "fixWithAI", "the run's own instructions read as stale");
+});
+
+test("instructions: Reset Session keeps both files and writes nothing", async () => {
+  const instructions = instructionsPort({ user: "Be brief.", project: "Run relevant module tests." });
+  const h = await preparedHarness({ instructions: instructions.port });
+  const before = h.last().instructions;
+
+  await h.controller.handle({ type: "resetSession", deleteGeneratedFiles: false });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(instructions.saves, [], "Reset Session wrote an instructions file");
+  assert.deepEqual(instructions.files, { user: "Be brief.", project: "Run relevant module tests." });
+  assert.deepEqual(h.last().instructions, before);
+});
+
+test("instructions: a CLI without the command is out of date, blocked before any Run", async () => {
+  const h = harness({
+    instructions: {
+      load: async () => ({ kind: "outdated", rejected: ["instructions"] }),
+      save: async () => ({ kind: "outdated", rejected: ["instructions"] }),
+    },
+  });
+  await h.controller.refreshEnvironment();
+
+  const readiness = h.last().readiness;
+  assert.equal(readiness.kind, "blocked");
+  if (readiness.kind === "blocked") assert.match(readiness.action ?? "", /does not accept: instructions/);
+  assert.equal(h.last().instructions.user.editable, false);
+  await h.controller.run(jiraForm());
+  assert.equal(h.streamRuns.length, 0);
+});
+
+test("instructions: a page that loads again closes an editor it no longer shows", async () => {
+  const h = harness({ instructions: instructionsPort().port });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openInstructions", scope: "user" });
+  assert.ok(h.last().instructionsEditor);
+
+  await h.controller.handle({ type: "ready" });
+  assert.equal(h.last().instructionsEditor, undefined);
+});
+
+
+// --- Pre-release Batch 3: project settings (Verification Policy, branch naming) ---
+
+const DEFAULT_SETTINGS: ProjectSettingsPayload = {
+  verification: { relevant_tests: true, static_checks: true, full_suite: false, report_not_run: true },
+  branch_naming: { template: "" },
+};
+
+function settingsPort(initial: ProjectSettingsPayload = DEFAULT_SETTINGS) {
+  const saves: ProjectSettingsPayload[] = [];
+  let current = initial;
+  const snapshot = (): ProjectSettingsOutcome => ({ kind: "loaded", snapshot: { settings: current, saved: true, warnings: [] } });
+  return {
+    saves,
+    set: (settings: ProjectSettingsPayload) => {
+      current = settings;
+    },
+    port: {
+      load: async () => snapshot(),
+      save: async (settings: ProjectSettingsPayload) => {
+        saves.push(settings);
+        current = settings;
+        return snapshot();
+      },
+    } satisfies NonNullable<ControllerPorts["projectSettings"]>,
+  };
+}
+
+test("project settings: the repository's file is put on the form when the environment resolves", async () => {
+  const settings = settingsPort({
+    verification: { relevant_tests: true, static_checks: false, full_suite: true, report_not_run: true },
+    branch_naming: { template: "bugfix/{issue}-{slug}" },
+  });
+  const h = harness({ projectSettings: settings.port });
+  await h.controller.refreshEnvironment();
+
+  const form = h.last().form!;
+  assert.equal(form.verifyStaticChecks, false);
+  assert.equal(form.verifyFullSuite, true);
+  assert.equal(form.branchNaming, "custom");
+  assert.equal(form.branchTemplate, "bugfix/{issue}-{slug}");
+  assert.deepEqual(settings.saves, [], "reading is not saving");
+});
+
+test("project settings: Apply writes a change to the file, and a Run sends no flag for it", async () => {
+  const settings = settingsPort();
+  const h = harness({ projectSettings: settings.port, events: successfulRun });
+  await h.controller.refreshEnvironment();
+
+  const changed = jiraForm({ verifyFullSuite: true, branchNaming: "custom", branchTemplate: " fix/{issue} " });
+  await h.controller.handle(applySettings(changed));
+
+  assert.equal(settings.saves.length, 1);
+  assert.deepEqual(settings.saves[0], {
+    verification: { relevant_tests: true, static_checks: true, full_suite: true, report_not_run: true },
+    branch_naming: { template: "fix/{issue}" },
+  });
+  await h.controller.run(changed);
+  assert.equal(h.streamRuns[0]!.args.some((arg) => /verif|template|branch-naming/i.test(arg)), false);
+});
+
+test("project settings: an unchanged Apply writes nothing; a template under Default is not a change", async () => {
+  const settings = settingsPort();
+  const h = harness({ projectSettings: settings.port });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(applySettings(jiraForm({ maxFiles: "5", branchNaming: "default", branchTemplate: "left/{issue}" })));
+  assert.deepEqual(settings.saves, []);
+});
+
+test("project settings: a refused template is said in the CLI's words, and the form goes back to the file's", async () => {
+  const h = harness({
+    projectSettings: {
+      load: async () => ({ kind: "loaded", snapshot: { settings: DEFAULT_SETTINGS, saved: false, warnings: [] } }),
+      save: async () => ({ kind: "failed", message: "A branch naming template cannot contain '..' or '//'." }),
+    },
+  });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(applySettings(jiraForm({ branchNaming: "custom", branchTemplate: "../{issue}", maxFiles: "5" })));
+
+  assert.ok(h.notices.some((notice) => notice.kind === "error" && /project settings were not saved: A branch naming template cannot contain/.test(notice.message)));
+  assert.equal(h.last().form?.branchNaming, "default", "the page shows a template no run will use");
+  // The other settings were applied all the same.
+  assert.equal(h.last().form?.maxFiles, "5");
+});
+
+test("project settings: a change makes a prepared context stale, the same value does not, Reset Session keeps them", async () => {
+  const settings = settingsPort();
+  const h = await preparedHarness({ projectSettings: settings.port, events: successfulRun });
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  // The same values again: not stale.
+  await h.controller.handle(applySettings(jiraForm({ verifyRelevantTests: true })));
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  const full = jiraForm({ verifyFullSuite: true });
+  await h.controller.handle(applySettings(full));
+  assert.equal(h.last().primary.action, "rebuildContext", "a new verification policy did not ask for a rebuild");
+  await h.controller.handle(next("rebuildContext", full));
+  assert.equal(h.last().primary.action, "fixWithAI", "the rebuilt context still reads as stale");
+
+  await h.controller.handle(applySettings(jiraForm({ verifyFullSuite: true, branchNaming: "custom", branchTemplate: "fix/{issue}" })));
+  assert.equal(h.last().primary.action, "rebuildContext", "a branch template did not ask for a rebuild");
+
+  await h.controller.handle({ type: "resetSession", deleteGeneratedFiles: false });
+  await new Promise((resolve) => setImmediate(resolve));
+  const form = h.last().form!;
+  assert.equal(form.verifyFullSuite, true, "Reset Session discarded the project's verification policy");
+  assert.equal(form.branchNaming, "custom");
+  assert.equal(form.branchTemplate, "fix/{issue}");
+});
+
+test("project settings: a Run waits for a save Apply is still making", async () => {
+  let finishSave: () => void = () => {};
+  const order: string[] = [];
+  const h = harness({
+    events: successfulRun,
+    projectSettings: {
+      load: async () => ({ kind: "loaded", snapshot: { settings: DEFAULT_SETTINGS, saved: false, warnings: [] } }),
+      save: async (settings) => {
+        await new Promise<void>((resolve) => {
+          finishSave = resolve;
+        });
+        order.push("saved");
+        return { kind: "loaded", snapshot: { settings, saved: true, warnings: [] } };
+      },
+    },
+    onStream: () => order.push("run"),
+  });
+  await h.controller.refreshEnvironment();
+
+  const applying = h.controller.handle(applySettings(jiraForm({ verifyFullSuite: true })));
+  await new Promise((resolve) => setImmediate(resolve));
+  const running = h.controller.run(jiraForm({ verifyFullSuite: true }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, [], "the run started before the settings were written");
+  finishSave();
+  await applying;
+  await running;
+  assert.deepEqual(order, ["saved", "run"]);
+});
+
+test("settings freshness: a Run after one Apply that changes the profile and the project settings reads both new files", async () => {
+  // Pre-release Batch 4.1. The two saves ran one after the other, each with its
+  // own in-flight flag: a Run waiting on the profile save resumed in the gap
+  // before the settings save had started, and ran on the old settings file.
+  let finishProfile: () => void = () => {};
+  let finishSettings: () => void = () => {};
+  const order: string[] = [];
+  const settings = settingsPort();
+  const h = harness({
+    events: successfulRun,
+    repositoryProfile: {
+      load: profilePort({ mode: "auto", custom: NO_DETAILS }).port.load,
+      save: async (profile) => {
+        await new Promise<void>((resolve) => {
+          finishProfile = resolve;
+        });
+        order.push("profile saved");
+        return { kind: "loaded", snapshot: { profile, detected: "", saved: true, warnings: [] } };
+      },
+    },
+    projectSettings: {
+      load: settings.port.load,
+      save: async (payload) => {
+        await new Promise<void>((resolve) => {
+          finishSettings = resolve;
+        });
+        order.push("settings saved");
+        return settings.port.save(payload);
+      },
+    },
+    onStream: () => order.push("run"),
+  });
+  await h.controller.refreshEnvironment();
+  const ticks = async (count: number) => {
+    for (let i = 0; i < count; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  const changed = jiraForm({ repositoryProfile: "generic", verifyFullSuite: true });
+  const applying = h.controller.handle(applySettings(changed));
+  await ticks(1);
+  const running = h.controller.run(changed);
+  await ticks(1);
+  assert.deepEqual(order, [], "the run started before the profile was written");
+  finishProfile();
+  await ticks(5);
+  assert.deepEqual(order, ["profile saved"], "the run started before the project settings were written");
+  finishSettings();
+  await applying;
+  await running;
+  assert.deepEqual(order, ["profile saved", "settings saved", "run"]);
+  assert.equal(settings.saves.at(-1)?.verification.full_suite, true);
+});
+
+test("settings freshness: a Run waiting on a refused settings save records the file's settings, not the refused ones", async () => {
+  // The run reads the file, so the baseline it records must be the file's too:
+  // otherwise the next push compares the restored form against settings no run
+  // used, and says Rebuild Context for a context that is current.
+  let finishSave: () => void = () => {};
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    events: successfulRun,
+    projectSettings: {
+      load: async () => ({ kind: "loaded", snapshot: { settings: DEFAULT_SETTINGS, saved: false, warnings: [] } }),
+      save: async () => {
+        await new Promise<void>((resolve) => {
+          finishSave = resolve;
+        });
+        return { kind: "failed", message: "The branch template must include {issue}." };
+      },
+    },
+  });
+  await h.controller.refreshEnvironment();
+
+  const refused = jiraForm({ branchNaming: "custom", branchTemplate: "fix/{slug}" });
+  const applying = h.controller.handle(applySettings(refused));
+  await new Promise((resolve) => setImmediate(resolve));
+  const running = h.controller.run(refused);
+  await new Promise((resolve) => setImmediate(resolve));
+  finishSave();
+  await applying;
+  await running;
+  assert.equal(h.streamRuns.length, 1, "the run did not start");
+  assert.equal(h.last().form?.branchNaming, "default", "the form kept a template the file does not hold");
+  assert.equal(h.last().primary.action, "fixWithAI", "the run recorded the refused settings as the ones it used");
+});
+
+test("settings freshness: an edit made while a Run waits for Apply stays on the host's form, and reads as stale", async () => {
+  // Release-freeze review: the rebase after the wait assigned the run's form to
+  // the host's, so a hint typed during the wait was lost and the context read
+  // as current although the run never used it.
+  let finishSave: () => void = () => {};
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    events: successfulRun,
+    projectSettings: {
+      load: async () => ({ kind: "loaded", snapshot: { settings: DEFAULT_SETTINGS, saved: false, warnings: [] } }),
+      save: async (settings) => {
+        await new Promise<void>((resolve) => {
+          finishSave = resolve;
+        });
+        return { kind: "loaded", snapshot: { settings, saved: true, warnings: [] } };
+      },
+    },
+  });
+  await h.controller.refreshEnvironment();
+
+  const applied = jiraForm({ verifyFullSuite: true });
+  const applying = h.controller.handle(applySettings(applied));
+  await new Promise((resolve) => setImmediate(resolve));
+  const running = h.controller.run(applied);
+  await new Promise((resolve) => setImmediate(resolve));
+  await h.controller.handle({ type: "formChanged", form: { ...applied, hint: "Look at the export dialog" } });
+  finishSave();
+  await applying;
+  await running;
+  assert.equal(h.streamRuns.length, 1, "the run did not start");
+  assert.equal(h.last().form?.hint, "Look at the export dialog", "the edit made while the run waited was lost");
+  assert.equal(h.last().form?.verifyFullSuite, true);
+  assert.equal(h.last().primary.action, "rebuildContext", "an edit the run did not use reads as current");
+});
+
+test("project settings: a CLI without the command is out of date, blocked before any Run", async () => {
+  const h = harness({
+    projectSettings: {
+      load: async () => ({ kind: "outdated", rejected: ["project-settings"] }),
+      save: async () => ({ kind: "outdated", rejected: ["project-settings"] }),
+    },
+  });
+  await h.controller.refreshEnvironment();
+
+  const readiness = h.last().readiness;
+  assert.equal(readiness.kind, "blocked");
+  if (readiness.kind === "blocked") assert.match(readiness.action ?? "", /does not accept: project-settings/);
+  await h.controller.run(jiraForm());
+  assert.equal(h.streamRuns.length, 0);
+});
+
+
+// --- Batch 3: the Jira site in Jira Setup -----------------------------------------
+
+test("Jira Setup starts with the site the CLI uses, the stored email, and never the token", async () => {
+  const h = harness({ jiraEmail: "dev@example.com", jiraSite: { site: SITE } });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "action", id: "setCredentials" });
+  assert.deepEqual(h.last().jiraSetup, { request: 1, email: "dev@example.com", site: SITE, siteFromEnvironment: false, tokenStored: true, saving: false });
+});
+
+test("with a token stored, a blank token keeps it: the site and email are saved, the token is not asked for", async () => {
+  const h = harness({ jiraEmail: "old@example.com", jiraSite: { site: SITE } });
+  await h.controller.refreshEnvironment();
+  await h.controller.openJiraSetup();
+  await h.controller.handle({ type: "saveJiraCredentials", site: "https://other.example.com", email: "dev@example.com", token: "   " });
+  assert.equal(h.last().jiraSetup, undefined, "the dialog stayed open");
+  assert.deepEqual(h.savedSites, ["https://other.example.com"]);
+  // An empty token is the store's "keep the one you have" (the host's CredentialStore.saveKeepingToken).
+  assert.deepEqual(h.storedCredentials, [{ email: "dev@example.com", token: "" }]);
+});
+
+test("with no token stored, one is required", async () => {
+  const h = harness({ credentialsConfigured: false, jiraSite: { site: SITE } });
+  await h.controller.refreshEnvironment();
+  await h.controller.openJiraSetup();
+  await h.controller.handle({ type: "saveJiraCredentials", site: SITE, email: "dev@example.com", token: "" });
+  assert.equal(h.last().jiraSetup?.error?.field, "token");
+  assert.equal(h.last().jiraSetup?.error?.message, "Enter an API token.");
+  assert.deepEqual(h.savedSites, []);
+  assert.deepEqual(h.storedCredentials, []);
+});
+
+test("a site the CLI refuses is said under the site field, in its words, and nothing is stored", async () => {
+  const h = harness({ jiraSite: { refuse: "The Jira site must start with https://. Example: https://your-company.atlassian.net" } });
+  await h.controller.refreshEnvironment();
+  await h.controller.openJiraSetup();
+  await h.controller.handle({ type: "saveJiraCredentials", site: "http://x.example.com", email: "dev@example.com", token: "new-token-value" });
+  const setup = h.last().jiraSetup;
+  assert.equal(setup?.saving, false);
+  assert.equal(setup?.error?.field, "site");
+  assert.match(setup?.error?.message ?? "", /must start with https:\/\//);
+  assert.deepEqual(h.storedCredentials, [], "the credentials were stored although the site was refused");
+});
+
+test("a site JIRA_BASE_URL sets is shown, not required, and not written", async () => {
+  const h = harness({ credentialsConfigured: false, jiraSite: { site: "https://env.example.com", fromEnvironment: true } });
+  await h.controller.refreshEnvironment();
+  await h.controller.openJiraSetup();
+  assert.equal(h.last().jiraSetup?.site, "https://env.example.com");
+  assert.equal(h.last().jiraSetup?.siteFromEnvironment, true);
+  await h.controller.handle({ type: "saveJiraCredentials", site: "", email: "dev@example.com", token: "new-token-value" });
+  assert.equal(h.last().jiraSetup, undefined);
+  assert.deepEqual(h.savedSites, [], "a site the environment owns was written to the config file");
+  assert.deepEqual(h.storedCredentials, [{ email: "dev@example.com", token: "new-token-value" }]);
+});
+
+test("credentials without a site: the Jira row says No Jira site and offers Configure", async () => {
+  const h = harness({ environment: { ...READY, report: { python_ok: true, jira_base_url_present: false } } });
+  await h.controller.refreshEnvironment();
+  const jira = h.last().jira;
+  assert.equal(jira.state, "notConfigured");
+  assert.equal(jira.status, "No Jira site");
+  assert.equal(jira.action, "Configure");
 });

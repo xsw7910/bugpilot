@@ -22,7 +22,7 @@ Git History section of ``context.md``. Deterministic throughout: no model, no
 embeddings, and the same repository and query always give the same list.
 
 Bounded throughout, because the target is a monorepo. Measured on one with
-221,216 commits: a full-history ``git log --grep`` walk costs ~2 s whether it
+well over 200,000 commits: a full-history ``git log --grep`` walk costs ~2 s whether it
 carries one pattern or several, a file-history walk ~0.7 s, a bare-file-name
 glob pathspec ~10 s (so bare names are resolved through the index instead, in
 ~0.3 s). Hence one walk per *kind* of term rather than one per term, a capped
@@ -46,6 +46,7 @@ from pathlib import Path
 
 from .code_files import is_documentation, is_searchable
 from .config import issue_dir
+from .executables import child_environment, find_executable
 from .git_ops import (
     TIMEOUT_EXIT_CODE,
     command_available,
@@ -81,7 +82,7 @@ COMMITS_PER_FOCUS_FILE = 10
 MAX_FOCUS_HISTORY_FILES = 5
 #: Additional Files (Git History Settings) whose history is read, the same way.
 MAX_ADDITIONAL_HISTORY_FILES = 5
-#: Paths one bare Focus File name (``AngleStack.cpp``) may resolve to.
+#: Paths one bare Focus File name (``AngleBlend.cpp``) may resolve to.
 MAX_PATHS_PER_FOCUS_NAME = 3
 #: Shared Keywords searched in commit messages. All of them ride one git walk,
 #: so the cap bounds the pattern list, not the number of walks.
@@ -106,7 +107,7 @@ MAX_OVERLAP_CHECK_COMMITS = 60
 MAX_RELATED_COMMITS = DEFAULT_MAX_RELATED_COMMITS
 #: A commit touching more files than this is a bulk change — an import, a
 #: reformat, a mass rename — and touching a Focus File proves nothing about it.
-#: Found on a real monorepo: its initial import commit (some 73,000 files)
+#: Found on a large monorepo: its initial import commit (tens of thousands of files)
 #: touched the Focus File and four ranked files, and outranked two real fixes.
 #: Its file matches are not counted; its message still is.
 BULK_COMMIT_FILES = 200
@@ -658,7 +659,7 @@ def _issue_id_pattern(issue_id: str) -> re.Pattern[str]:
 
 def _term_pattern(term: str) -> re.Pattern[str]:
     # Whole words: git's fixed-string search is a substring prefilter, this is
-    # the decision. `Stack` must not count as a match inside `AngleStackModel`.
+    # the decision. `Blend` must not count as a match inside `AngleBlendModel`.
     return re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", re.IGNORECASE)
 
 
@@ -771,7 +772,7 @@ def _collapse_merge_wrappers(
 
     A feature branch's merge carries the branch's message and changes again, so
     it took a second slot in the list and lent the same files twice — seen on
-    every merged case of a real monorepo. A merge is a *wrapper*, and goes, when
+    every merged case of a large monorepo. A merge is a *wrapper*, and goes, when
     all three hold: it is clean (no change of its own — a conflict resolution
     is a change, and such a merge stays), at least one commit it brought in is
     among the related commits found, and every piece of its evidence is also on
@@ -954,12 +955,16 @@ def _changed_file_count(repo_root: Path, commit: str) -> int | None:
     """
     if not _HASH_RE.fullmatch(commit):
         return None
+    git = find_executable("git")
+    if git is None:
+        return None
     try:
         process = subprocess.Popen(
             # A merge against its first parent — what it brought in, as the
             # feedback reads it; plain diff-tree lists nothing for a merge.
-            ["git", "diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "--diff-merges=first-parent", commit],
+            [git, "diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "--diff-merges=first-parent", commit],
             cwd=repo_root,
+            env=child_environment(),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             encoding="utf-8",
@@ -1443,13 +1448,17 @@ def _changed_files(repo_root: Path, commit: str) -> list[tuple[str, str]] | None
     """
     if not _HASH_RE.fullmatch(commit):
         return None
+    git = find_executable("git")
+    if git is None:
+        return None
     try:
         process = subprocess.Popen(
             [
-                "git", "-c", "core.quotepath=off", "log", "-1", "--no-show-signature", "--format=",
+                git, "-c", "core.quotepath=off", "log", "-1", "--no-show-signature", "--format=",
                 "--name-status", "-M", "--diff-merges=first-parent", commit,
             ],
             cwd=repo_root,
+            env=child_environment(),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             encoding="utf-8",

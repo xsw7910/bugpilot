@@ -34,8 +34,8 @@ CORE_PREPARE = {"issue.json", "retrieval.json", "context.md", "task.md", "run.js
 
 FIXED_REPORT = (
     "# Fix Report: JR-12345\n\n"
-    "## Summary\n\nFixed: the filter no longer rejects VDS.\n\n"
-    "## Analysis\n\nvalidate() filtered the VDS output type.\n\n"
+    "## Summary\n\nFixed: the filter no longer rejects CSV.\n\n"
+    "## Analysis\n\nvalidate() filtered the CSV output type.\n\n"
     "## Changes\n\nRemoved the filter in src/WidgetController.cpp.\n\n"
     "### Files touched\n\n- src/WidgetController.cpp\n\n"
     "## Tests\n\npytest tests/widgets -q: 12 passed.\n\n"
@@ -46,7 +46,7 @@ FIXED_REPORT = (
 def _package(root: Path, work_item: str = "JR-12345") -> Path:
     target = root / ".ai" / work_item
     target.mkdir(parents=True)
-    save_issue(root, IssueArtifact(id=work_item, source="jira", title="VDS rejected"))
+    save_issue(root, IssueArtifact(id=work_item, source="jira", title="CSV rejected"))
     (target / "context.md").write_text("# Bug Context\n", encoding="utf-8")
     return target
 
@@ -61,7 +61,7 @@ def test_the_report_parses_into_its_sections(tmp_path):
     report = read_fix_report(tmp_path, "JR-12345")
 
     assert report is not None
-    assert report.summary == "Fixed: the filter no longer rejects VDS."
+    assert report.summary == "Fixed: the filter no longer rejects CSV."
     assert report.analysis.startswith("validate() filtered")
     # A `###` subheading stays inside its section.
     assert "### Files touched" in report.changes
@@ -169,10 +169,10 @@ def test_the_overview_names_the_empty_sections(tmp_path, monkeypatch, capsys):
 def test_prepare_stays_five_and_the_report_makes_six(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "WidgetController.cpp").write_text(
-        "bool WidgetController::validate(OutputType t){return t!=OutputType::VDS;}\n",
+        "bool WidgetController::validate(OutputType t){return t!=OutputType::CSV;}\n",
         encoding="utf-8",
     )
-    spec = bug_spec_from_description("WidgetController rejects the VDS output type.", title="VDS")
+    spec = bug_spec_from_description("WidgetController rejects the CSV output type.", title="CSV")
     workflow.run_investigation(
         tmp_path,
         InvestigationRequest(spec=spec, options=InvestigationOptions(keywords=["WidgetController"])),

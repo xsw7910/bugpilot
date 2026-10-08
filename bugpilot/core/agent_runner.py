@@ -25,14 +25,15 @@ What to use instead:
 
 from __future__ import annotations
 
+import os
 import shlex
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import AppConfig, load_config
+from .executables import child_environment, find_executable
 from .handoff import handoff_prompt, retry_handoff_prompt
 
 # Kept as format strings because callers use `.format(...)` on them, but the
@@ -86,8 +87,9 @@ def run_agent(
             skipped_reason=f"{command[0]} was not found on PATH.",
         )
     # Inherit the terminal so the agent runs interactively and the developer can
-    # watch it work. Run in the target repo root (the current working directory).
-    completed = subprocess.run(launch, cwd=repo_root)
+    # watch it work. Run in the target repo root (the current working directory),
+    # with the current directory out of the agent's own program lookups.
+    completed = subprocess.run(launch, cwd=repo_root, env=child_environment())
     return AgentRunResult(
         agent=agent,
         ran=True,
@@ -119,14 +121,18 @@ def _warn_deprecated(agent: str) -> None:
 def _resolve_launch_command(command: list[str]) -> list[str] | None:
     """Resolve the executable to a runnable form for the current OS.
 
-    shutil.which honors PATHEXT (so it finds `claude.cmd` on Windows), but
-    CreateProcess cannot launch a bare name or a .cmd/.bat directly. Resolve the
-    full path and, for Windows batch shims, run it through `cmd /c`.
+    `find_executable` honors PATHEXT (so it finds `claude.cmd` on Windows) and,
+    unlike shutil.which, never looks in the current directory — the repository
+    (pre-release Batch 2). CreateProcess cannot launch a .cmd/.bat directly, so a
+    Windows batch shim runs through the system's own cmd.exe, by absolute path.
     """
-    resolved = shutil.which(command[0])
+    resolved = find_executable(command[0])
     if resolved is None:
         return None
     rest = command[1:]
     if sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat")):
-        return ["cmd", "/c", resolved, *rest]
+        shell = find_executable(os.environ.get("ComSpec") or "") or find_executable("cmd")
+        if shell is None:
+            return None
+        return [shell, "/c", resolved, *rest]
     return [resolved, *rest]

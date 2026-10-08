@@ -66,7 +66,7 @@ def test_builtin_modes_are_domain_independent():
             *(section for _, section in mode.instruction_sections()),
         )
     ).casefold()
-    for forbidden in ("seismic", "openvds", "geophysical"):
+    for forbidden in ("c++", "qt ", "python", "typescript", "java", ".csv", "opencsv"):
         assert forbidden not in text
 
 

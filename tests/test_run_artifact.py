@@ -43,7 +43,7 @@ PREPARED_KEYS = {"schema_version", "work_item_id", "status", "steps", "generated
 def _repo(root: Path) -> Path:
     (root / "src").mkdir()
     (root / "src" / "WidgetController.cpp").write_text(
-        "bool WidgetController::validate(OutputType type) {\n  return type != OutputType::VDS;\n}\n",
+        "bool WidgetController::validate(OutputType type) {\n  return type != OutputType::CSV;\n}\n",
         encoding="utf-8",
     )
     return root
@@ -51,7 +51,7 @@ def _repo(root: Path) -> Path:
 
 def _manual(root: Path) -> str:
     spec = bug_spec_from_description(
-        "WidgetController rejects the VDS output type.", title="VDS rejected"
+        "WidgetController rejects the CSV output type.", title="CSV rejected"
     )
     request = InvestigationRequest(
         spec=spec, options=InvestigationOptions(hint="Check validate", keywords=["WidgetController"])
@@ -139,7 +139,7 @@ def test_a_failed_run_records_the_step_and_the_message(tmp_path, monkeypatch):
     assert data["status"] == "failed"
     assert data["steps"]["fetch"] == "fail"
     assert data["error"]["step"] == "fetch"
-    assert "Jira environment variables are missing" in data["error"]["message"]
+    assert "Jira is not configured" in data["error"]["message"]
     # Bounded and structured: where and why, not a trace.
     assert set(data["error"]) == {"message", "step"}
 

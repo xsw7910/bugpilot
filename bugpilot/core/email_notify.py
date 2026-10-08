@@ -24,7 +24,7 @@ from urllib.parse import urlencode
 from .config import EmailConfig, GraphConfig, issue_dir, load_config
 from .fix_report import read_fix_report
 from .issue import read_issue_quietly
-from .jira import sanitize_comment_text
+from .jira import JiraSiteError, normalize_jira_site, sanitize_comment_text
 from .models import SOURCE_MANUAL
 
 GRAPH_TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
@@ -286,7 +286,13 @@ def _jira_link(repo_root: Path, issue_key: str) -> str:
     base_url = load_config(repo_root).jira_base_url
     if not base_url:
         return ""
-    return f"Link: {base_url.rstrip('/')}/browse/{issue_key}"
+    # The site Jira requests accept, or no link: an http:// or credential-bearing
+    # value never reaches a recipient's mailbox (pre-release Batch 2, B).
+    try:
+        site = normalize_jira_site(base_url)
+    except JiraSiteError:
+        return ""
+    return f"Link: {site}/browse/{issue_key}"
 
 
 def _first_meaningful_line(text: str) -> str:

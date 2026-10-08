@@ -8,10 +8,10 @@ prose. Measured, before this existed:
     "The data process output is wrong and the volume is not updated correctly."
       high: ['correctly', 'data', 'process', 'output', 'volume']
 
-    "VDS cannot be selected as process output."
-      high: ['selected', 'VDS', 'process', 'output']
+    "CSV cannot be selected as the export format."
+      high: ['selected', 'CSV', 'export', 'format']
 
-``selected`` outranked ``VDS`` because length >= 8 scores a point and an
+``selected`` outranked ``CSV`` because length >= 8 scores a point and an
 all-caps acronym scores none. Both then searched at weight 6, so the ranker was
 told a filler word mattered as much as the only real term in the sentence.
 
@@ -82,11 +82,11 @@ MAX_ACRONYM_LENGTH = 6
 
 
 def _is_acronym(value: str) -> bool:
-    """`VDS`, `OVDS`, `SEGY`, `API` — a name, with no lowercase to prove it.
+    """`CSV`, `OCSV`, `TIFF`, `API` — a name, with no lowercase to prove it.
 
     `_is_identifier_shaped` cannot see these: it looks for a camelCase hump, and
     an acronym has no lowercase at all. Measured cost of missing them: in
-    "VDS cannot be selected as process output", `VDS` weighed the same as
+    "CSV cannot be selected as the export format", `CSV` weighed the same as
     `selected`. Bounded by length so a shouted sentence does not become a pile
     of identifiers.
     """

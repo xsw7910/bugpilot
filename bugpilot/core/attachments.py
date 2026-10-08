@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from .safe_paths import refuse_link
+
 ATTACHMENTS_DIR = "attachments"
 
 # Per file. A crash dump or a video of the repro is not an attachment, it is a
@@ -114,11 +116,15 @@ def copy_attachments(
 
         name = _unique_name(source.name, used)
         try:
+            # Never into, or through, a link (pre-release Batch 2): the folder and
+            # the file are checked before the copy, which would follow either.
+            refuse_link(directory)
             directory.mkdir(parents=True, exist_ok=True)
+            refuse_link(directory)
             # copyfile, not copy2: the metadata of the developer's original is
             # theirs, and a copied mtime makes the artifact look older than the
             # run that produced it.
-            shutil.copyfile(source, directory / name)
+            shutil.copyfile(source, refuse_link(directory / name))
         except OSError as exc:
             result.skipped.append((raw, f"could not be copied: {exc.strerror or exc}"))
             continue

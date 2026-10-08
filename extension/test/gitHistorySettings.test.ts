@@ -66,7 +66,7 @@ test("the defaults are Batch 1's: every switch on, nothing added, recent, the CL
 
 test("a form at the defaults sends no Git flag: the command line is Batch 1's", () => {
   assert.deepEqual(gitFlags(argsOf(form())), []);
-  assert.deepEqual(gitFlags(argsOf(form({ keywords: "poststack", focusFiles: "src/a.cpp" }))), []);
+  assert.deepEqual(gitFlags(argsOf(form({ keywords: "postblend", focusFiles: "src/a.cpp" }))), []);
 });
 
 test("the depths and the count's ceiling are the CLI's", () => {
@@ -82,8 +82,8 @@ test("each setting becomes its own flag, and only when it differs from the defau
     form({
       gitUseSharedKeywords: false,
       gitUseSharedFocusFiles: false,
-      gitKeywords: "stackmerge, gather order\nstackmerge",
-      gitFiles: "src/legacy/\nAngleStack.cpp",
+      gitKeywords: "blendmerge, gather order\nblendmerge",
+      gitFiles: "src/legacy/\nAngleBlend.cpp",
       gitSearchMessages: false,
       gitSearchFileHistory: false,
       gitHistoryDepth: "broader",
@@ -92,8 +92,8 @@ test("each setting becomes its own flag, and only when it differs from the defau
   );
   assert.deepEqual(gitFlags(args), [
     "--git-file=src/legacy/",
-    "--git-file=AngleStack.cpp",
-    "--git-keyword=stackmerge",
+    "--git-file=AngleBlend.cpp",
+    "--git-keyword=blendmerge",
     "--git-keyword=gather order",
     "--git-no-shared-keywords",
     "--git-no-shared-focus-files",
@@ -126,15 +126,15 @@ test("every Git flag the panel builds is one the CLI declares", () => {
 });
 
 test("Git history's own inputs never reach Code search's flags", () => {
-  const args = argsOf(form({ keywords: "poststack", focusFiles: "src/Focus.cpp", gitKeywords: "stackmerge", gitFiles: "src/Legacy.cpp" }));
+  const args = argsOf(form({ keywords: "postblend", focusFiles: "src/Focus.cpp", gitKeywords: "blendmerge", gitFiles: "src/Legacy.cpp" }));
   const values = (name: string) => args.filter((arg) => arg.startsWith(`${name}=`)).map((arg) => arg.slice(name.length + 1));
-  assert.deepEqual(values("--keywords"), ["poststack"]);
+  assert.deepEqual(values("--keywords"), ["postblend"]);
   assert.deepEqual(values("--focus-file"), ["src/Focus.cpp"]);
-  assert.deepEqual(values("--git-keyword"), ["stackmerge"]);
+  assert.deepEqual(values("--git-keyword"), ["blendmerge"]);
   assert.deepEqual(values("--git-file"), ["src/Legacy.cpp"]);
   // And turning shared guidance off here leaves Code search's as it was.
-  const off = argsOf(form({ keywords: "poststack", focusFiles: "src/Focus.cpp", gitUseSharedKeywords: false, gitUseSharedFocusFiles: false }));
-  assert.ok(off.includes("--keywords=poststack"));
+  const off = argsOf(form({ keywords: "postblend", focusFiles: "src/Focus.cpp", gitUseSharedKeywords: false, gitUseSharedFocusFiles: false }));
+  assert.ok(off.includes("--keywords=postblend"));
   assert.ok(off.includes("--focus-file=src/Focus.cpp"));
 });
 
@@ -169,7 +169,7 @@ test("an unknown depth reads as recent and sends no flag", () => {
 // --- persistence ---------------------------------------------------------------------
 
 test("a form saved before the Git History Settings restores with their defaults", () => {
-  const legacy = { ...DEFAULT_FORM, issueKey: "JR-12345", keywords: "poststack" } as Partial<FormState>;
+  const legacy = { ...DEFAULT_FORM, issueKey: "JR-12345", keywords: "postblend" } as Partial<FormState>;
   for (const key of [...GIT_SWITCH_FIELDS, "gitKeywords", "gitFiles", "gitHistoryDepth", "gitMaxCommits"] as const) {
     delete legacy[key];
   }
@@ -182,15 +182,15 @@ test("a form saved before the Git History Settings restores with their defaults"
   assert.equal(restored.gitHistoryDepth, "recent");
   assert.equal(restored.gitMaxCommits, "");
   // The rest of the old form came back untouched, and runs as it did.
-  assert.equal(restored.keywords, "poststack");
+  assert.equal(restored.keywords, "postblend");
   assert.deepEqual(gitFlags(argsOf(restored)), []);
 });
 
 test("saved Git History Settings survive a restart, Additional keywords and files included", () => {
   const saved = form({
     gitUseSharedKeywords: false,
-    gitKeywords: "stackmerge, ångström",
-    gitFiles: "src/legacy/\nAngleStack.cpp",
+    gitKeywords: "blendmerge, ångström",
+    gitFiles: "src/legacy/\nAngleBlend.cpp",
     gitSearchFileHistory: false,
     gitHistoryDepth: "broader",
     gitMaxCommits: "5",
@@ -221,7 +221,7 @@ test("a page message carries the Git History Settings, shape-checked", () => {
       ...form(),
       gitUseSharedKeywords: false,
       gitSearchFileHistory: false,
-      gitKeywords: "stackmerge",
+      gitKeywords: "blendmerge",
       gitFiles: "src/legacy/",
       gitHistoryDepth: "broader",
       gitMaxCommits: "7",
@@ -232,7 +232,7 @@ test("a page message carries the Git History Settings, shape-checked", () => {
   assert.equal(message.form.gitUseSharedKeywords, false);
   assert.equal(message.form.gitUseSharedFocusFiles, true);
   assert.equal(message.form.gitSearchFileHistory, false);
-  assert.equal(message.form.gitKeywords, "stackmerge");
+  assert.equal(message.form.gitKeywords, "blendmerge");
   assert.equal(message.form.gitFiles, "src/legacy/");
   assert.equal(message.form.gitHistoryDepth, "broader");
   assert.equal(message.form.gitMaxCommits, "7");

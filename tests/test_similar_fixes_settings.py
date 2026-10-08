@@ -30,14 +30,14 @@ from bugpilot.core.models import (
     SimilarFixesOptions,
 )
 
-ISSUE_TEXT = "Saving a seismic volume crashes the application."
+ISSUE_TEXT = "Saving a spectral volume crashes the application."
 
 #: One memory per kind of evidence the settings can switch. None of them shares
 #: a word with another's evidence, or with the issue text unless it says so.
 MEMORIES = {
-    "brick-handling": "# Brick handling\n\nTouched OpenVdsBrick handling in the reader.\n",
+    "brick-handling": "# Brick handling\n\nTouched OpenCsvBrick handling in the reader.\n",
     "legacy-exporter": "# Legacy exporter\n\nThe legacyexporter regressed after a refactor.\n",
-    "seismic-crash": "# Seismic volume crash\n\nA seismic volume crash on save.\n",
+    "spectral-crash": "# Spectral volume crash\n\nA spectral volume crash on save.\n",
     "path-only": "# Path only\n\nsrc/OnlyFocus.cpp src/OnlyGitFile.cpp ONLYGITWORD ONLYIGNORED\n",
 }
 
@@ -85,14 +85,14 @@ def test_the_default_terms_are_the_extraction_the_step_always_scored():
     # Before the settings the step scored the merged extraction's high-value and
     # normal keywords — shared Keywords at their head. At the defaults it still
     # does, each term once.
-    extracted = _extraction(["OpenVdsBrick", "seismic"])
+    extracted = _extraction(["OpenCsvBrick", "spectral"])
     before = [*extracted["high_value_keywords"], *extracted["normal_keywords"]]
     unique_before = list(dict.fromkeys(term.casefold() for term in before))
 
     terms = workflow.similar_fixes_terms(extracted)
 
     assert [term.casefold() for term in terms] == unique_before
-    assert terms[0] == "OpenVdsBrick"
+    assert terms[0] == "OpenCsvBrick"
 
 
 def test_a_command_line_without_similar_flags_gets_the_defaults(tmp_path, monkeypatch):
@@ -107,7 +107,7 @@ def test_every_similar_flag_reaches_the_options_and_nothing_else(tmp_path, monke
         [
             "--similar-fixes-keyword=legacyexporter", "--similar-fixes-keyword=ångström",
             "--similar-fixes-no-shared-keywords", "--max-similar-fixes=2",
-            "--keywords=poststack", "--focus-file=src/Focus.cpp",
+            "--keywords=postblend", "--focus-file=src/Focus.cpp",
         ],
     )
 
@@ -115,7 +115,7 @@ def test_every_similar_flag_reaches_the_options_and_nothing_else(tmp_path, monke
         use_shared_keywords=False, keywords=("legacyexporter", "ångström"), max_results=2
     )
     # Code Search's inputs and Git History's settings are untouched by any of them.
-    assert captured.options.keywords == ["poststack"]
+    assert captured.options.keywords == ["postblend"]
     assert captured.options.focus_files == ["src/Focus.cpp"]
     assert captured.options.git_history == GitHistoryOptions()
     # And the step still runs: the settings are not a switch.
@@ -148,49 +148,49 @@ def test_invalid_settings_normalize_to_safe_defaults():
 
 def test_shared_keywords_on_reach_the_memory_search(tmp_path):
     _seed(tmp_path, MEMORIES)
-    options = InvestigationOptions(keywords=["OpenVdsBrick"])
+    options = InvestigationOptions(keywords=["OpenCsvBrick"])
 
     found = _search(tmp_path, options)
 
     assert _file("brick-handling") in found
-    assert "OpenVdsBrick" in workflow.similar_fixes_terms(_extraction(["OpenVdsBrick"]), options.similar_fixes)
+    assert "OpenCsvBrick" in workflow.similar_fixes_terms(_extraction(["OpenCsvBrick"]), options.similar_fixes)
 
 
 def test_shared_keywords_off_leaves_them_out_and_nothing_else(tmp_path):
     _seed(tmp_path, MEMORIES)
     settings = SimilarFixesOptions(use_shared_keywords=False, keywords=("legacyexporter",))
-    options = InvestigationOptions(keywords=["OpenVdsBrick"], similar_fixes=settings)
+    options = InvestigationOptions(keywords=["OpenCsvBrick"], similar_fixes=settings)
 
     found = _search(tmp_path, options)
-    terms = workflow.similar_fixes_terms(_extraction(["OpenVdsBrick"]), settings)
+    terms = workflow.similar_fixes_terms(_extraction(["OpenCsvBrick"]), settings)
 
     # The shared Keyword is gone ...
-    assert "openvdsbrick" not in [term.casefold() for term in terms]
+    assert "opencsvbrick" not in [term.casefold() for term in terms]
     assert _file("brick-handling") not in found
     # ... the issue's own terms and the Additional Keyword are not.
-    assert _file("seismic-crash") in found
+    assert _file("spectral-crash") in found
     assert _file("legacy-exporter") in found
-    assert {"seismic", "volume", "legacyexporter"} <= {term.casefold() for term in terms}
+    assert {"spectral", "volume", "legacyexporter"} <= {term.casefold() for term in terms}
 
 
 def test_shared_keywords_off_keeps_a_term_the_issue_itself_names():
-    # "seismic" is a shared Keyword and an issue term. Off removes the shared
+    # "spectral" is a shared Keyword and an issue term. Off removes the shared
     # Keyword, not the issue's word for the same thing.
-    extracted = _extraction(["seismic", "OpenVdsBrick"])
+    extracted = _extraction(["spectral", "OpenCsvBrick"])
     terms = workflow.similar_fixes_terms(extracted, SimilarFixesOptions(use_shared_keywords=False))
 
-    assert "seismic" in [term.casefold() for term in terms]
-    assert "openvdsbrick" not in [term.casefold() for term in terms]
+    assert "spectral" in [term.casefold() for term in terms]
+    assert "opencsvbrick" not in [term.casefold() for term in terms]
 
 
 def test_shared_keywords_off_leaves_the_extraction_for_the_other_steps_alone():
-    extracted = _extraction(["OpenVdsBrick"])
+    extracted = _extraction(["OpenCsvBrick"])
     snapshot = json.dumps(extracted, sort_keys=True)
 
     workflow.similar_fixes_terms(extracted, SimilarFixesOptions(use_shared_keywords=False))
 
     assert json.dumps(extracted, sort_keys=True) == snapshot
-    assert extracted["high_value_keywords"][0] == "OpenVdsBrick"
+    assert extracted["high_value_keywords"][0] == "OpenCsvBrick"
 
 
 # --- Additional keywords ----------------------------------------------------------------------
@@ -211,7 +211,7 @@ def test_additional_keywords_never_reach_code_search_or_git_history(tmp_path):
     _seed(root, MEMORIES)
     spec = bug_spec_from_description(ISSUE_TEXT, title="Crash on save")
     options = InvestigationOptions(
-        keywords=["seismic"], similar_fixes=SimilarFixesOptions(keywords=("legacyexporter",))
+        keywords=["spectral"], similar_fixes=SimilarFixesOptions(keywords=("legacyexporter",))
     )
 
     workflow.run_investigation(
@@ -225,7 +225,7 @@ def test_additional_keywords_never_reach_code_search_or_git_history(tmp_path):
     searched = [*query.shared_keywords, *query.git_keywords, *query.extracted_terms]
     assert "legacyexporter" not in [term.casefold() for term in searched]
     # The shared Keywords themselves are unchanged by it.
-    assert options.keywords == ["seismic"]
+    assert options.keywords == ["spectral"]
     # And the past fix it names is in the context.
     context = (root / ".ai" / spec.work_item_id / "context.md").read_text(encoding="utf-8")
     assert _file("legacy-exporter") in context.split("## Similar Fixes", 1)[1]
@@ -253,23 +253,23 @@ def test_other_steps_inputs_never_reach_the_memory_search(tmp_path):
 
 def test_a_term_several_inputs_name_is_scored_once():
     extracted = {
-        "issue_terms": ["openvdsbrick", "Volume"],
-        "supplied_keywords": ["OpenVdsBrick"],
-        "high_value_keywords": ["OpenVdsBrick", "Volume"],
+        "issue_terms": ["opencsvbrick", "Volume"],
+        "supplied_keywords": ["OpenCsvBrick"],
+        "high_value_keywords": ["OpenCsvBrick", "Volume"],
         "normal_keywords": [],
     }
-    settings = SimilarFixesOptions(keywords=("  OPENVDSBRICK ", "", "volume", "Export"))
+    settings = SimilarFixesOptions(keywords=("  OPENCSVBRICK ", "", "volume", "Export"))
 
     terms = workflow.similar_fixes_terms(extracted, settings)
 
     # Shared first, then additional, then the issue's; the first spelling wins.
-    assert terms == ["OpenVdsBrick", "volume", "Export"]
+    assert terms == ["OpenCsvBrick", "volume", "Export"]
 
 
 def test_a_duplicated_term_adds_no_weight(tmp_path):
     _seed(tmp_path, {"brick-handling": MEMORIES["brick-handling"]})
-    extracted = {"issue_terms": ["openvdsbrick"], "supplied_keywords": ["OpenVdsBrick"]}
-    terms = workflow.similar_fixes_terms(extracted, SimilarFixesOptions(keywords=("OPENVDSBRICK",)))
+    extracted = {"issue_terms": ["opencsvbrick"], "supplied_keywords": ["OpenCsvBrick"]}
+    terms = workflow.similar_fixes_terms(extracted, SimilarFixesOptions(keywords=("OPENCSVBRICK",)))
 
     _id, _report, results = search_memory(tmp_path, "JR-12345", terms=terms)
 
@@ -282,7 +282,7 @@ def test_a_duplicated_term_adds_no_weight(tmp_path):
 
 @pytest.mark.parametrize(("count", "kept"), [(1, 1), (2, 2), (5, 5), (20, 7)])
 def test_max_similar_fixes_is_how_many_are_kept(tmp_path, count, kept):
-    _seed(tmp_path, {f"past-{index}": f"# Past fix {index}\n\nseismic {'volume ' * index}\n" for index in range(7)})
+    _seed(tmp_path, {f"past-{index}": f"# Past fix {index}\n\nspectral {'volume ' * index}\n" for index in range(7)})
     options = InvestigationOptions(similar_fixes=SimilarFixesOptions(max_results=count))
 
     found = _search(tmp_path, options)
@@ -293,18 +293,18 @@ def test_max_similar_fixes_is_how_many_are_kept(tmp_path, count, kept):
 
 
 def test_the_default_keeps_five(tmp_path):
-    _seed(tmp_path, {f"past-{index}": f"# Past fix {index}\n\nseismic\n" for index in range(7)})
+    _seed(tmp_path, {f"past-{index}": f"# Past fix {index}\n\nspectral\n" for index in range(7)})
 
     assert len(_search(tmp_path, InvestigationOptions())) == 5
-    _id, _report, results = search_memory(tmp_path, "JR-12345", terms=["seismic"])
+    _id, _report, results = search_memory(tmp_path, "JR-12345", terms=["spectral"])
     assert len(results) == 5
 
 
 def test_a_library_count_below_one_keeps_the_default(tmp_path):
-    _seed(tmp_path, {f"past-{index}": f"# Past fix {index}\n\nseismic\n" for index in range(7)})
+    _seed(tmp_path, {f"past-{index}": f"# Past fix {index}\n\nspectral\n" for index in range(7)})
 
     for count in (0, -1):
-        _id, _report, results = search_memory(tmp_path, "JR-12345", terms=["seismic"], max_results=count)
+        _id, _report, results = search_memory(tmp_path, "JR-12345", terms=["spectral"], max_results=count)
         assert len(results) == 5
 
 
@@ -345,7 +345,7 @@ def test_no_memory_is_a_quick_clean_no_result(tmp_path, memory):
     report = workflow.memory_search_step(
         tmp_path,
         "JR-12345",
-        keywords=_extraction(["seismic"]),
+        keywords=_extraction(["spectral"]),
         options=InvestigationOptions(similar_fixes=SimilarFixesOptions(keywords=("legacyexporter",), max_results=20)),
     )
     elapsed = time.perf_counter() - started

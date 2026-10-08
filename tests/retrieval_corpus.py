@@ -213,9 +213,9 @@ CORPUS_FORMAT = """
   "cases": [
     {
       "id": "JR-12345",
-      "issue_text": "VDS cannot be selected as process output.",
-      "hint": "maybe output type validation",
-      "expected_files": ["src/process/OutputSelector.cpp"],
+      "issue_text": "CSV cannot be selected as the export format.",
+      "hint": "maybe format validation",
+      "expected_files": ["src/export/FormatSelector.cpp"],
       "notes": "fixed in MR !456; the header change was incidental"
     }
   ]

@@ -51,8 +51,12 @@ def run_setup(
         # an internal hostname and points a stranger's first run at somebody
         # else's Jira.
         existing = user_config.load_user_config().jira_base_url
-        if existing:
-            out(f"(press Enter to keep {existing})")
+        if _valid_site(existing):
+            out(f"(press Enter to keep {_valid_site(existing)})")
+            out("")
+        elif existing:
+            # Not echoed: a refused value may carry a user name or password.
+            out("The saved Jira site is not an https:// address BugPilot accepts; enter the https:// one.")
             out("")
         base_url = _read_url(prompt, "Jira URL:", out, existing)
         if base_url is None:
@@ -138,24 +142,34 @@ def _read_url(
     the moment the caller is not a person, and an unhandled EOFError turns a
     piped stdin into a traceback; the existing tests found both.
     """
+    # The same rule every Jira request applies (pre-release Batch 2): https://
+    # only, no credentials in the URL. A saved site that breaks it is not kept by
+    # pressing Enter.
+    kept = _valid_site(existing)
     out(label)
     for _ in range(_MAX_PROMPT_ATTEMPTS):
         try:
             value = (reader("> ") or "").strip()
         except EOFError:
-            return existing or None
+            return kept
         if value == "":
-            if existing:
-                return existing
+            if kept:
+                return kept
             out("  This value is required. Please try again.")
             continue
-        # A trailing slash is harmless — every call site rstrips it — but the
-        # scheme is not optional.
-        if value.startswith("http://") or value.startswith("https://"):
-            return value.rstrip("/")
-        out("  That does not look like a URL. Include https://, for example")
-        out("  https://your-company.atlassian.net")
+        try:
+            return jira.normalize_jira_site(value)
+        except jira.JiraSiteError as exc:
+            out(f"  {exc} For example:")
+            out("  https://your-company.atlassian.net")
     return None
+
+
+def _valid_site(value: str | None) -> str | None:
+    try:
+        return jira.normalize_jira_site(value) if value else None
+    except jira.JiraSiteError:
+        return None
 
 
 def _read_required(reader: PromptFn, label: str, out: OutFn) -> str | None:

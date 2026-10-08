@@ -216,9 +216,9 @@ export function supportingFileRows(result: GitHistoryResult): readonly Supportin
 export interface RelatedCommitRow {
   readonly shortHash: string;
   readonly subject: string;
-  /** "Matched: poststack, angle stack" — absent when no message evidence. */
+  /** "Matched: postblend, angle blend" — absent when no message evidence. */
   readonly matched?: string;
-  /** "Changed: AngleStack.cpp, Gather.cpp + 1 more" — the known candidate files only. */
+  /** "Changed: AngleBlend.cpp, Bucket.cpp + 1 more" — the known candidate files only. */
   readonly changed?: string;
   /** Every changed candidate path, one per line, for the tooltip. */
   readonly changedPaths?: string;

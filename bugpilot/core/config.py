@@ -201,8 +201,42 @@ def _parse_recipients(raw: str | None) -> tuple[str, ...]:
 
 
 def issue_dir(repo_root: Path, issue_key: str) -> Path:
+    """Where a work item's files are read from. Writers use :func:`writable_issue_dir`."""
     return repo_root / ".ai" / issue_key
+
+
+def writable_issue_dir(repo_root: Path, issue_key: str, *, create: bool = True) -> Path:
+    """``.ai/<issue_key>/``, checked before anything is written into it (pre-release Batch 2).
+
+    The id is validated — it becomes a path segment — and every component is
+    checked by ``safe_paths.writable_dir``: a link or junction at ``.ai`` or
+    ``.ai/<id>`` raises ``UnsafePathError`` and nothing is written. With
+    ``create=False`` a missing folder is returned for the caller to report.
+    """
+    from .safe_paths import writable_dir
+
+    _checked_id(issue_key)
+    return writable_dir(repo_root, (".ai", issue_key), create=create)
+
+
+def _checked_id(issue_key: str) -> None:
+    """The id as a path segment: anything but a work item id is an unsafe path."""
+    from .identity import validate_work_item_id
+    from .safe_paths import UnsafePathError
+
+    try:
+        validate_work_item_id(issue_key)
+    except ValueError as exc:
+        raise UnsafePathError(str(exc)) from exc
 
 
 def memory_dir(repo_root: Path) -> Path:
     return repo_root / ".ai_memory" / "bugs"
+
+
+def writable_memory_file(repo_root: Path, issue_key: str, *, create: bool = True) -> Path:
+    """``.ai_memory/bugs/<issue_key>.md``, checked like :func:`writable_issue_dir`."""
+    from .safe_paths import refuse_link, writable_dir
+
+    _checked_id(issue_key)
+    return refuse_link(writable_dir(repo_root, (".ai_memory", "bugs"), create=create) / f"{issue_key}.md")

@@ -107,20 +107,20 @@ def test_branch_name_generation():
     assert branch_name("JR-23456", "Output panel - min/max values are not converted to dB") == (
         "feature/JR-23456-output-panel-min-max-values-not-converted-to-db"
     )
-    assert branch_name("JR-12345", "Fix crash: OpenVDS import fails on .vds file") == (
-        "feature/JR-12345-fix-crash-openvds-import-fails-on-vds-file"
+    assert branch_name("JR-12345", "Fix crash: OpenCSV import fails on .csv file") == (
+        "feature/JR-12345-fix-crash-opencsv-import-fails-on-csv-file"
     )
     assert branch_name("JR-12345") == "feature/JR-12345-jira-workflow"
 
 
 def test_summary_slug_rules():
-    assert summary_slug("[Export] As a user, I can export a 2D, pre-stack SEG-Y file from a map view") == (
-        "export-as-a-user-i-can-export-a-2d-pre-stack-seg-y-file-from-a-map-view"
+    assert summary_slug("[Export] As a user, I can export a 2D, multi-page TIFF file from a map view") == (
+        "export-as-a-user-i-can-export-a-2d-multi-page-tiff-file-from-a-map-view"
     )
     assert summary_slug("Output panel - min/max values are not converted to dB") == (
         "output-panel-min-max-values-not-converted-to-db"
     )
-    assert summary_slug("Fix --- crash /// OpenVDS") == "fix-crash-openvds"
+    assert summary_slug("Fix --- crash /// OpenCSV") == "fix-crash-opencsv"
     assert summary_slug("") == ""
     assert len(summary_slug("word " * 40)) <= 85
 
@@ -169,7 +169,7 @@ def test_run_json_generation(tmp_path):
 def test_bug_command_runs_in_temporary_directory(tmp_path, monkeypatch):
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
-        "bugpilot.core.jira.urllib.request.urlopen",
+        "bugpilot.core.jira._open",
         lambda request, timeout: _good_jira_response()(),
     )
     monkeypatch.chdir(tmp_path)
@@ -184,7 +184,7 @@ def test_bug_is_the_default_command(tmp_path, monkeypatch):
     # `bugpilot JR-12345` behaves as `bugpilot bug JR-12345`.
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
-        "bugpilot.core.jira.urllib.request.urlopen",
+        "bugpilot.core.jira._open",
         lambda request, timeout: _good_jira_response()(),
     )
     monkeypatch.chdir(tmp_path)
@@ -196,7 +196,7 @@ def test_bug_is_the_default_command(tmp_path, monkeypatch):
 def test_bug_command_prints_progress_and_key_artifacts(tmp_path, monkeypatch, capsys):
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
-        "bugpilot.core.jira.urllib.request.urlopen",
+        "bugpilot.core.jira._open",
         lambda request, timeout: _good_jira_response()(),
     )
     monkeypatch.chdir(tmp_path)
@@ -243,7 +243,7 @@ def test_bug_command_fetch_failure_prints_clear_error(tmp_path, monkeypatch, cap
 def test_bug_command_progress_does_not_print_jira_token(tmp_path, monkeypatch, capsys):
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
-        "bugpilot.core.jira.urllib.request.urlopen",
+        "bugpilot.core.jira._open",
         lambda request, timeout: _good_jira_response()(),
     )
     monkeypatch.chdir(tmp_path)
@@ -269,7 +269,7 @@ def test_the_prepare_lifecycle_is_traced_through_logging_not_a_file(tmp_path, mo
     assert "[START] doctor" in log_text
     assert "[END] doctor: pass" in log_text
     assert "[START] fetch" in log_text
-    assert "[WARN] Jira fetch failed: missing_env - Jira environment variables are missing." in log_text
+    assert "[WARN] Jira fetch failed: missing_env - Jira is not configured:" in log_text
     assert "[WARN] Using mock/demo Jira data" in log_text
     assert "[END] fetch: pass" in log_text
     assert "[START] parse" in log_text
@@ -1404,7 +1404,7 @@ def test_bug_default_keeps_old_artifacts(tmp_path, monkeypatch):
     """The public default (pre-release Batch 1): prepare, keep, launch nothing."""
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
-        "bugpilot.core.jira.urllib.request.urlopen",
+        "bugpilot.core.jira._open",
         lambda request, timeout: _good_jira_response()(),
     )
     issue_dir = tmp_path / ".ai" / "JR-12345"
@@ -1523,7 +1523,7 @@ def test_missing_env_default_no_mock_fails_without_mock_artifacts(tmp_path, monk
     error = capsys.readouterr().err
     issue_dir = tmp_path / ".ai" / "JR-12345"
 
-    assert "ERROR: Jira environment variables are missing." in error
+    assert "ERROR: Jira is not configured:" in error
     assert "Mock fallback is disabled by default." in error
     assert "Use --allow-mock only for demo/testing fallback." in error
     # Only the stub recorded before the fetch: guidance, and no mock content.
@@ -1548,7 +1548,7 @@ def test_missing_env_allow_mock_marks_fallback(tmp_path, monkeypatch, capsys):
     issue = load_issue(tmp_path, "JR-12345")
     context = (issue_dir / "context.md").read_text(encoding="utf-8")
 
-    assert "WARN: Jira environment variables are missing." in output
+    assert "WARN: Jira is not configured:" in output
     assert issue.source == "jira"
     assert issue.details.mock is True
     assert issue.title
@@ -1569,7 +1569,7 @@ def test_missing_env_no_mock_fails_without_mock_artifacts(tmp_path, monkeypatch,
     issue_dir = tmp_path / ".ai" / "JR-12345"
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
 
-    assert "ERROR: Jira environment variables are missing." in error
+    assert "ERROR: Jira is not configured:" in error
     assert "Mock fallback is disabled by default." in error
     assert load_issue(tmp_path, "JR-12345").title == ""
     assert not (issue_dir / "jira.json").exists()
@@ -1578,7 +1578,7 @@ def test_missing_env_no_mock_fails_without_mock_artifacts(tmp_path, monkeypatch,
     # The failure is recorded where a reader will find it, not in a trace file.
     assert status["status"] == "failed"
     assert status["error"]["step"] == "fetch"
-    assert "Jira environment variables are missing" in status["error"]["message"]
+    assert "Jira is not configured" in status["error"]["message"]
 
 
 def test_fetch_default_no_mock_fails_without_mock_fallback(tmp_path, monkeypatch, capsys):
@@ -1605,7 +1605,7 @@ def test_fetch_allow_mock_generates_mock_files(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
     issue = load_issue(tmp_path, "JR-12345")
 
-    assert "WARN: Jira environment variables are missing." in output
+    assert "WARN: Jira is not configured:" in output
     assert issue.source == "jira"
     assert issue.details.mock is True
     for name in LEGACY_ISSUE_FILES:
@@ -1646,13 +1646,13 @@ def _http_error(status_code: int) -> urllib.error.HTTPError:
 
 def test_jira_http_401_403_classifies_auth_or_permission(tmp_path, monkeypatch):
     _set_jira_env(monkeypatch)
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(_http_error(401)))
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: (_ for _ in ()).throw(_http_error(401)))
 
     fallback = fetch_issue(tmp_path, "JR-12345", allow_mock=True)
     assert fallback.source == "mock"
     assert fallback.error_type == "auth_or_permission"
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(_http_error(403)))
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: (_ for _ in ()).throw(_http_error(403)))
     with pytest.raises(JiraFetchError) as exc_info:
         fetch_issue(tmp_path, "JR-12345", allow_mock=False)
     assert exc_info.value.result.error_type == "auth_or_permission"
@@ -1660,7 +1660,7 @@ def test_jira_http_401_403_classifies_auth_or_permission(tmp_path, monkeypatch):
 
 def test_jira_http_404_classifies_not_found(tmp_path, monkeypatch):
     _set_jira_env(monkeypatch)
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(_http_error(404)))
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: (_ for _ in ()).throw(_http_error(404)))
 
     result = fetch_issue(tmp_path, "JR-12345")
 
@@ -1670,7 +1670,7 @@ def test_jira_http_404_classifies_not_found(tmp_path, monkeypatch):
 
 def test_jira_http_429_classifies_rate_limited(tmp_path, monkeypatch):
     _set_jira_env(monkeypatch)
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(_http_error(429)))
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: (_ for _ in ()).throw(_http_error(429)))
 
     result = fetch_issue(tmp_path, "JR-12345")
 
@@ -1679,13 +1679,13 @@ def test_jira_http_429_classifies_rate_limited(tmp_path, monkeypatch):
 
 def test_jira_timeout_classifies_timeout(tmp_path, monkeypatch):
     _set_jira_env(monkeypatch)
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(socket.timeout()))
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: (_ for _ in ()).throw(socket.timeout()))
 
     result = fetch_issue(tmp_path, "JR-12345")
 
     assert result.error_type == "timeout"
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(TimeoutError()))
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: (_ for _ in ()).throw(TimeoutError()))
 
     result = fetch_issue(tmp_path, "JR-12345")
 
@@ -1694,7 +1694,7 @@ def test_jira_timeout_classifies_timeout(tmp_path, monkeypatch):
 
 def test_jira_network_error_classifies_network_error(tmp_path, monkeypatch):
     _set_jira_env(monkeypatch)
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(urllib.error.URLError("dns failed")))
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: (_ for _ in ()).throw(urllib.error.URLError("dns failed")))
 
     result = fetch_issue(tmp_path, "JR-12345")
 
@@ -1714,7 +1714,7 @@ def test_jira_invalid_response_classifies_invalid_response(tmp_path, monkeypatch
         def read(self):
             return b"{not json"
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: BadResponse())
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: BadResponse())
 
     result = fetch_issue(tmp_path, "JR-12345")
 
@@ -1746,7 +1746,7 @@ def test_jira_success_path_marks_real_source(tmp_path, monkeypatch):
                 }
             ).encode("utf-8")
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: GoodResponse())
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: GoodResponse())
 
     result = fetch_issue(tmp_path, "JR-12345")
 
@@ -2505,7 +2505,7 @@ def test_parser_uses_versions_for_environment():
 def test_jira_validate_success_generates_required_files(tmp_path, monkeypatch):
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
-        "bugpilot.core.jira.urllib.request.urlopen",
+        "bugpilot.core.jira._open",
         lambda request, timeout: _good_jira_response()(),
     )
     monkeypatch.chdir(tmp_path)
@@ -2559,7 +2559,7 @@ def test_jira_field_report_includes_diagnostic_fields():
 def test_bug_fresh_no_mock_uses_real_jira_normalized_fields(tmp_path, monkeypatch):
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
-        "bugpilot.core.jira.urllib.request.urlopen",
+        "bugpilot.core.jira._open",
         lambda request, timeout: _good_jira_response()(),
     )
     monkeypatch.chdir(tmp_path)
@@ -2922,7 +2922,7 @@ def test_jira_comment_preview_does_not_call_jira(tmp_path, monkeypatch, capsys):
         called["value"] = True
         return _JiraPostResponse()
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["jira-comment", "JR-12345"]) == 0
     out = capsys.readouterr().out
@@ -2942,7 +2942,7 @@ def test_jira_comment_execute_posts_comment_and_writes_artifacts(tmp_path, monke
         requests.append(request)
         return _JiraPostResponse()
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["jira-comment", "JR-12345", "--execute"]) == 0
     out = capsys.readouterr().out
@@ -2977,13 +2977,13 @@ def test_jira_comment_execute_missing_env_fails_without_post(tmp_path, monkeypat
         called["value"] = True
         return _JiraPostResponse()
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["jira-comment", "JR-12345", "--execute"]) == 1
     err = capsys.readouterr().err
 
     assert called["value"] is False
-    assert "Jira environment variables are missing" in err
+    assert "Jira is not configured" in err
 
 
 def test_jira_comment_preview_does_not_require_env(tmp_path, monkeypatch):
@@ -3006,7 +3006,7 @@ def test_jira_comment_execute_redacts_before_post(tmp_path, monkeypatch):
         posted["body"] = request.data.decode("utf-8")
         return _JiraPostResponse()
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["jira-comment", "JR-12345", "--execute"]) == 0
 
@@ -3045,7 +3045,7 @@ def test_jira_comment_execute_http_errors_are_clear(tmp_path, monkeypatch, capsy
     def fake_urlopen(request, timeout):
         raise _http_error(status_code)
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["jira-comment", "JR-12345", "--execute"]) == 1
     err = capsys.readouterr().err.lower()
@@ -3057,7 +3057,7 @@ def test_jira_comment_execute_status_includes_generated_files(tmp_path, monkeypa
     issue_dir = _write_jira_comment_draft(tmp_path)
     _set_jira_env(monkeypatch)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", lambda request, timeout: _JiraPostResponse())
+    monkeypatch.setattr("bugpilot.core.jira._open", lambda request, timeout: _JiraPostResponse())
 
     assert main(["jira-comment", "JR-12345", "--execute"]) == 0
     status = json.loads((issue_dir / "run.json").read_text(encoding="utf-8"))
@@ -3083,7 +3083,7 @@ def test_summarize_results_auto_posts_jira_comment_with_flag(tmp_path, monkeypat
         requests.append(request)
         return _JiraPostResponse()
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["summarize-results", "JR-12345", "--jira-comment"]) == 0
     out = capsys.readouterr().out
@@ -3107,7 +3107,7 @@ def test_summarize_results_auto_posts_when_env_enabled(tmp_path, monkeypatch):
         requests.append(request)
         return _JiraPostResponse()
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["summarize-results", "JR-12345"]) == 0
     assert len(requests) == 1
@@ -3124,7 +3124,7 @@ def test_summarize_results_no_jira_comment_overrides_env(tmp_path, monkeypatch):
         called["value"] = True
         return _JiraPostResponse()
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["summarize-results", "JR-12345", "--no-jira-comment"]) == 0
     assert called["value"] is False
@@ -3141,7 +3141,7 @@ def test_summarize_results_default_does_not_post(tmp_path, monkeypatch):
         called["value"] = True
         return _JiraPostResponse()
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     assert main(["summarize-results", "JR-12345"]) == 0
     assert called["value"] is False
@@ -3155,7 +3155,7 @@ def test_summarize_results_auto_post_failure_is_non_fatal(tmp_path, monkeypatch,
     def fake_urlopen(request, timeout):
         raise _http_error(500)
 
-    monkeypatch.setattr("bugpilot.core.jira.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("bugpilot.core.jira._open", fake_urlopen)
 
     # summarize-results must still succeed even if the Jira post fails.
     assert main(["summarize-results", "JR-12345", "--jira-comment"]) == 0

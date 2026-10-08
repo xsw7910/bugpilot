@@ -88,6 +88,7 @@ import { handoffError, reviewHandoffError, runError } from "./failures.ts";
 import { retrievalTerms } from "./retrievalDetails.ts";
 import { diagnostics } from "./diagnostics.ts";
 import { JIRA_API_TOKENS_URL, JIRA_AUTH_FAILED, jiraConnection, jiraSetupProblem } from "./jiraConnection.ts";
+import type { JiraSiteOutcome } from "./jiraSite.ts";
 import type { ResolvedAgent } from "./diagnostics.ts";
 import type { RetrievalTerm } from "./retrievalDetails.ts";
 import type { UserFacingError } from "./failures.ts";
@@ -132,6 +133,16 @@ import type {
   RepositoryProfilePayload,
   RepositoryProfileSnapshot,
 } from "./repositoryProfile.ts";
+import {
+  INSTRUCTION_SCOPES,
+  INSTRUCTION_TEXT,
+  MAX_INSTRUCTION_CHARS,
+  instructionsFingerprint,
+  instructionsStatusLine,
+} from "./instructions.ts";
+import type { InstructionScope, InstructionsOutcome, InstructionsSnapshot } from "./instructions.ts";
+import { formWithProjectSettings, projectSettingsOfForm, sameProjectSettings } from "./projectSettings.ts";
+import type { ProjectSettingsOutcome, ProjectSettingsPayload, ProjectSettingsSnapshot } from "./projectSettings.ts";
 import {
   deleteArgsFor,
   draftFromDefinition,
@@ -210,10 +221,30 @@ export type DirectoryListing =
   | { readonly kind: "missing" }
   | { readonly kind: "unreadable"; readonly detail: string };
 
+/** The instruction editor while it is open (pre-release Batch 2): which scope, what it opened with. */
+interface InstructionsEditorState {
+  readonly scope: InstructionScope;
+  readonly token: number;
+  readonly text: string;
+  readonly saving: boolean;
+  readonly error?: { readonly token: number; readonly message: string };
+}
+
 export interface FilesPort {
   listDirectory(directory: string): Promise<DirectoryListing>;
   readFile(file: string): Promise<string | undefined>;
-  writeFile(file: string, contents: string): Promise<void>;
+  /**
+   * `workItem`, when `file` is in `.ai/<work item>/`: the host then writes it
+   * only through real directories inside the repository, never through a link
+   * (pre-release Batch 2, D; `writeWorkItemFile` in `sessionReset.ts`).
+   */
+  writeFile(file: string, contents: string, workItem?: WorkItemFolder): Promise<void>;
+}
+
+/** The repository and work item a file in `.ai/<work item>/` belongs to. */
+export interface WorkItemFolder {
+  readonly root: string;
+  readonly workItemId: string;
 }
 
 export interface UiPort {
@@ -278,7 +309,17 @@ export interface ControllerPorts {
    */
   readonly jiraCredentials: {
     status(): Promise<{ readonly configured: boolean; readonly email?: string }>;
+    /** An empty token keeps the stored one (Batch 3); the store refuses when there is none. */
     save(credentials: { readonly email: string; readonly token: string }): Promise<void>;
+  };
+  /**
+   * The Jira site, through `bugpilot jira-site` (pre-release Batch 3): read
+   * when Jira Setup opens, written by its Save. Absent: the dialog cannot set
+   * the site, and says so if asked to.
+   */
+  readonly jiraSite?: {
+    readonly load: () => Promise<JiraSiteOutcome>;
+    readonly save: (site: string) => Promise<JiraSiteOutcome>;
   };
   /** Where a description too long for argv is written. */
   readonly descriptionFilePath: () => string;
@@ -354,6 +395,25 @@ export interface ControllerPorts {
   readonly repositoryProfile?: {
     readonly load: () => Promise<RepositoryProfileOutcome>;
     readonly save: (profile: RepositoryProfilePayload) => Promise<RepositoryProfileOutcome>;
+  };
+  /**
+   * The repository's project settings — Verification Policy and branch naming —
+   * through `bugpilot project-settings` (pre-release Batch 3): read when the
+   * environment resolves, written on Apply, like the Repository Profile.
+   */
+  readonly projectSettings?: {
+    readonly load: () => Promise<ProjectSettingsOutcome>;
+    readonly save: (settings: ProjectSettingsPayload) => Promise<ProjectSettingsOutcome>;
+  };
+  /**
+   * The User and Project / Team Instructions, through `bugpilot instructions`
+   * (pre-release Batch 2): read when the environment resolves, before a Run and
+   * when the editor opens; written by the editor's Save, the text on stdin.
+   * Absent: the rows say nothing and Edit does not open.
+   */
+  readonly instructions?: {
+    readonly load: () => Promise<InstructionsOutcome>;
+    readonly save: (scope: InstructionScope, text: string) => Promise<InstructionsOutcome>;
   };
   /**
    * One issue's title and description, for improving a hint.
@@ -572,7 +632,7 @@ export function warningsFromReport(report: Record<string, unknown>, fix: Gitigno
     warnings.push({
       title: "Jira Site",
       message:
-        "No Jira site is configured, so an issue key cannot be fetched. Run `bugpilot setup`, or set JIRA_BASE_URL. A bug you describe by hand needs neither.",
+        "No Jira site is configured, so an issue key cannot be fetched. Set it in Jira Setup (the Jira row's Configure), or set JIRA_BASE_URL. A bug you describe by hand needs neither.",
     });
   }
   if (report["ai_artifacts_ignored"] === false) {
@@ -882,6 +942,33 @@ export class Controller {
   #savedProfile: RepositoryProfileSnapshot | undefined;
   /** A save of the Repository Profile in flight: a Run waits for it, so it reads the new file. */
   #profileSave: Promise<void> | undefined;
+  /** The project settings as the repository's file last said them; `undefined` until read (Batch 3). */
+  #savedProjectSettings: ProjectSettingsSnapshot | undefined;
+  /** A save of the project settings in flight: a Run waits for it too. */
+  #projectSettingsSave: Promise<void> | undefined;
+  /**
+   * An Apply that writes either file, from its first await to its last
+   * (pre-release Batch 4.1). The two saves above run one after the other, so a
+   * Run waiting on the first resumed before the second had begun and read the
+   * old file; it waits for the whole Apply instead.
+   */
+  #settingsApply: Promise<void> | undefined;
+  /**
+   * What `bugpilot instructions` last said: each scope's state, text and hash
+   * (pre-release Batch 2). `undefined` until read. The text is held for the
+   * editor only — no log line, notice or state push outside it carries it.
+   */
+  #instructions: InstructionsSnapshot | undefined;
+  /**
+   * The instructions' fingerprint when the package on screen was prepared:
+   * `#preparedWith`'s partner, set and cleared with it. `undefined` when it was
+   * not known then — a stale check needs both sides.
+   */
+  #preparedInstructions: string | undefined;
+  /** The instruction editor while it is open: its scope, the text it opened with, a save in flight. */
+  #instructionsEditor: InstructionsEditorState | undefined;
+  #instructionsEditorToken = 0;
+  #instructionsErrorToken = 0;
   #root: string | undefined;
   #jiraConfigured = false;
   /**
@@ -901,9 +988,11 @@ export class Controller {
     | {
         readonly request: number;
         readonly email?: string;
+        readonly site?: string;
+        readonly siteFromEnvironment: boolean;
         readonly tokenStored: boolean;
         readonly saving: boolean;
-        readonly error?: { readonly token: number; readonly field?: "email" | "token"; readonly message: string };
+        readonly error?: { readonly token: number; readonly field?: "site" | "email" | "token"; readonly message: string };
       }
     | undefined;
   #jiraSetupRequests = 0;
@@ -1107,47 +1196,76 @@ export class Controller {
    */
   async openJiraSetup(): Promise<void> {
     const status = await this.#ports.jiraCredentials.status();
+    const site = await this.#readJiraSite();
     this.#jiraSetupRequests += 1;
     this.#jiraSetup = {
       request: this.#jiraSetupRequests,
       ...(status.email === undefined ? {} : { email: status.email }),
+      ...(site.site === undefined ? {} : { site: site.site }),
+      siteFromEnvironment: site.fromEnvironment,
       tokenStored: status.configured,
       saving: false,
     };
     this.#push();
   }
 
+  /** The site the dialog starts with: the CLI's answer, or nothing it could say. */
+  async #readJiraSite(): Promise<{ readonly site?: string; readonly fromEnvironment: boolean }> {
+    const port = this.#ports.jiraSite;
+    if (!port || this.#readiness.kind !== "ready") return { fromEnvironment: false };
+    const outcome = await port.load();
+    if (outcome.kind !== "loaded") return { fromEnvironment: false };
+    return { ...(outcome.site === undefined ? {} : { site: outcome.site }), fromEnvironment: outcome.fromEnvironment };
+  }
+
   /**
-   * Jira Setup's Save: both fields checked, then stored by the existing store
-   * in one write, then exactly what a save always did — Authentication failed
-   * forgotten and the environment re-read. The dialog closes only once the
-   * store has them; a refusal is said in it, by field, and stores nothing.
-   * The token is neither kept nor logged, and a store error is redacted of it.
+   * Jira Setup's Save: the site through the CLI first — its check is the one
+   * every Jira request uses, and a refusal stores nothing at all — then the
+   * email and token in one SecretStorage write. A blank token keeps the stored
+   * one; with none stored it is required. A site that `JIRA_BASE_URL` sets is
+   * not this dialog's to change and is not written.
    */
-  async saveJiraCredentials(email: string, token: string): Promise<void> {
+  async saveJiraCredentials(email: string, token: string, site = ""): Promise<void> {
     const setup = this.#jiraSetup;
     if (setup === undefined || setup.saving) return;
-    const problem = jiraSetupProblem(email, token);
-    if (problem) {
-      this.#jiraSetup = { ...setup, error: { token: ++this.#jiraSetupAnswers, ...problem } };
+    const fail = (field: "site" | "email" | "token" | undefined, message: string): void => {
+      this.#jiraSetup = {
+        ...(this.#jiraSetup ?? setup),
+        saving: false,
+        error: { token: ++this.#jiraSetupAnswers, ...(field === undefined ? {} : { field }), message },
+      };
       this.#push();
+    };
+    const problem = jiraSetupProblem({ site, email, token }, setup);
+    if (problem) {
+      fail(problem.field, problem.message);
       return;
     }
-    this.#jiraSetup = { request: setup.request, ...(setup.email === undefined ? {} : { email: setup.email }), tokenStored: setup.tokenStored, saving: true };
+    const { error: _previous, ...rest } = setup;
+    this.#jiraSetup = { ...rest, saving: true };
     this.#push();
+    if (!setup.siteFromEnvironment) {
+      const port = this.#ports.jiraSite;
+      if (!port || this.#readiness.kind !== "ready") {
+        fail("site", "The Jira site could not be saved: BugPilot is not ready in this repository.");
+        return;
+      }
+      const outcome = await port.save(site.trim());
+      if (outcome.kind !== "loaded") {
+        fail(
+          "site",
+          outcome.kind === "outdated" ? `The Jira site was not saved. ${CLI_OUTDATED_SUMMARY}` : oneSentence(outcome.message),
+        );
+        return;
+      }
+    }
     try {
       await this.#ports.jiraCredentials.save({ email: email.trim(), token: token.trim() });
     } catch (error) {
-      const reason = redactKnown((error as Error).message, [token.trim()]);
-      this.#jiraSetup = {
-        ...this.#jiraSetup,
-        saving: false,
-        error: { token: ++this.#jiraSetupAnswers, message: `The credentials could not be stored: ${reason}` },
-      };
-      this.#push();
+      fail(undefined, `The credentials could not be stored: ${redactKnown((error as Error).message, [token.trim()])}`);
       return;
     }
-    this.#ports.log.info("Jira credentials stored for this machine.");
+    this.#ports.log.info("Jira setup saved for this machine.");
     this.#jiraSetup = undefined;
     await this.credentialsSaved();
   }
@@ -1331,6 +1449,8 @@ export class Controller {
         : new Set();
     await this.#loadFixModes();
     await this.#loadRepositoryProfile();
+    await this.#loadProjectSettings();
+    await this.#loadInstructions();
     // The revision is deliberately *not* bumped here. Bumping it makes the page
     // rewrite every field from the host's copy, which moves the caret and
     // discards anything typed inside the 400ms `formChanged` debounce — and
@@ -1346,6 +1466,8 @@ export class Controller {
     switch (message.type) {
       case "ready":
         this.#revision += 1;
+        // A rebuilt page starts on the form: an editor it no longer shows is closed.
+        this.#instructionsEditor = undefined;
         this.#push();
         // The page loads whenever the panel is shown again — a hidden webview is
         // destroyed — so this is the "visible again" safety net for an artifact
@@ -1422,10 +1544,19 @@ export class Controller {
         await this.resetSession({ deleteGeneratedFiles: message.deleteGeneratedFiles });
         return;
       case "saveJiraCredentials":
-        await this.saveJiraCredentials(message.email, message.token);
+        await this.saveJiraCredentials(message.email, message.token, message.site);
         return;
       case "closeJiraSetup":
         this.closeJiraSetup();
+        return;
+      case "openInstructions":
+        await this.openInstructions(message.scope);
+        return;
+      case "closeInstructions":
+        this.closeInstructions();
+        return;
+      case "saveInstructions":
+        await this.saveInstructions(message.scope, message.text);
         return;
       case "parseReviewOutput":
         this.parseReviewOutput(message.text);
@@ -1588,10 +1719,38 @@ export class Controller {
       await this.refreshEnvironment();
       if (this.#readiness.kind !== "ready" || !this.#root) return;
     }
+    // An Apply is still writing the profile or the project settings: the run
+    // reads both files, so it waits for the whole Apply (Batch 4.1) — and then
+    // records the settings the files now hold. A refused save put the file's
+    // values back on the host's form; the run uses those, so its baseline must
+    // say so rather than claim the refused ones. Only the run's copy is
+    // rebased: the host's form already holds the files' values, and any edit
+    // made while the run waited stays there, to read as stale afterwards.
+    if (this.#settingsApply) {
+      await this.#settingsApply;
+      if (this.#readiness.kind !== "ready") return;
+      form = formWithProjectSettings(
+        formWithRepositoryProfile(form, repositoryProfileOfForm(this.#form)),
+        projectSettingsOfForm(this.#form),
+      );
+    }
     // A profile Apply is still writing: the run reads the file, so it waits for
     // the one on screen to be there.
     if (this.#profileSave) {
       await this.#profileSave;
+      if (this.#readiness.kind !== "ready") return;
+    }
+    // Likewise the project settings: the run reads that file too.
+    if (this.#projectSettingsSave) {
+      await this.#projectSettingsSave;
+      if (this.#readiness.kind !== "ready") return;
+    }
+    // The instructions as this run will read them, so the baseline below is
+    // what the task gets — an edit made outside BugPilot since the last check
+    // included (pre-release Batch 2). Only where there is something to read: a
+    // host without the port starts its run without waiting a turn for nothing.
+    if (this.#ports.instructions !== undefined) {
+      await this.#loadInstructions();
       if (this.#readiness.kind !== "ready") return;
     }
     // Reset while the environment was checked, or being reset now: this form's
@@ -1644,6 +1803,7 @@ export class Controller {
     // this run was given — set now, so no push after the run can compare against
     // the one before it and flicker Rebuild Context.
     this.#preparedWith = preparationFingerprint(form);
+    this.#preparedInstructions = this.#instructionsFingerprint();
     // Fresh deletes the folder being watched: watch it again once the run ends.
     this.#artifactWatchStale = true;
     // A re-prepare of the same Jira work item keeps fix_report.md — only Fresh
@@ -2048,6 +2208,7 @@ export class Controller {
       await this.#ports.files.writeFile(
         this.#itemFile(workItemId, USER_FEEDBACK_ARTIFACT),
         userFeedbackMarkdown(workItemId, text),
+        { root, workItemId },
       );
       if (epoch !== this.#fixEpoch) return false;
       const credentials = await this.#ports.credentials();
@@ -2490,16 +2651,31 @@ export class Controller {
       this.#push();
       return;
     }
+    // Registered before the first await, so a Run pressed at any point of the
+    // Apply finds it (Batch 4.1).
+    const apply = this.#applySettings(form);
+    this.#settingsApply = apply;
+    try {
+      await apply;
+    } finally {
+      if (this.#settingsApply === apply) this.#settingsApply = undefined;
+    }
+  }
+
+  async #applySettings(form: FormState): Promise<void> {
     const before = JSON.stringify(this.#primaryView());
     const previous = this.#form;
     await this.#formChanged(form);
     // The Repository Profile is the repository's file, not the form: a change
-    // to it is written there, where every run reads it.
+    // to it is written there, where every run reads it. So are the project
+    // settings, in their own file (Batch 3).
     const baseline = this.#savedProfile?.profile ?? repositoryProfileOfForm(previous);
-    if (!sameRepositoryProfile(form, baseline)) {
-      await this.#saveRepositoryProfile(previous);
-      return;
-    }
+    const profileChanged = !sameRepositoryProfile(form, baseline);
+    const settingsBaseline = this.#savedProjectSettings?.settings ?? projectSettingsOfForm(previous);
+    const settingsChanged = !sameProjectSettings(form, settingsBaseline);
+    if (profileChanged) await this.#saveRepositoryProfile(previous);
+    if (settingsChanged) await this.#saveProjectSettings(previous);
+    if (profileChanged || settingsChanged) return;
     // Pushed whether or not the primary action moved: the rows' summaries are
     // the settings just applied, and they are on screen now.
     if (JSON.stringify(this.#primaryView()) === before) this.#push();
@@ -2898,6 +3074,7 @@ export class Controller {
     // would use. A form about another bug still reads as stale: that is decided
     // by which work item it names, not by this.
     this.#preparedWith = preparationFingerprint(this.#form);
+    this.#preparedInstructions = this.#instructionsFingerprint();
     // The tree too: Results' Current group follows the shown work item, and
     // without this it kept whatever it last read — "Scanning .ai/ …" if that
     // was mid-load (§37.82, seen in a real window).
@@ -3003,6 +3180,193 @@ export class Controller {
       await save;
     } finally {
       if (this.#profileSave === save) this.#profileSave = undefined;
+    }
+    this.#push();
+  }
+
+  /**
+   * Read the User and Project Instructions (pre-release Batch 2): their state
+   * for the settings rows and their hash for the stale check. A CLI without
+   * the command is too old for this extension — its runs would leave the
+   * instructions out — and is blocked like one without the profile.
+   */
+  async #loadInstructions(): Promise<void> {
+    if (this.#readiness.kind !== "ready" || !this.#ports.instructions) return;
+    this.#applyInstructionsOutcome(await this.#ports.instructions.load());
+  }
+
+  /** What a read or a save of the instructions came back with, applied. False when nothing was read. */
+  #applyInstructionsOutcome(outcome: InstructionsOutcome): boolean {
+    if (outcome.kind === "outdated") {
+      this.#instructions = undefined;
+      this.#instructionsEditor = undefined;
+      this.#blockOutdatedCli(outcome.rejected);
+      return false;
+    }
+    if (outcome.kind === "failed") {
+      // The last good read is kept: a failed read says nothing about the files.
+      this.#ports.log.error(`Reading the instructions failed: ${oneSentence(outcome.message)}`);
+      return false;
+    }
+    this.#instructions = outcome.snapshot;
+    // The state, never the text.
+    for (const scope of INSTRUCTION_SCOPES) {
+      const problem = outcome.snapshot[scope].problem;
+      if (problem) this.#ports.log.info(`${INSTRUCTION_TEXT[scope].title} are not used: ${problem}`);
+    }
+    return true;
+  }
+
+  /**
+   * An instruction row's Edit: read the file again — it may have changed since
+   * the environment check — and open the editor on what it holds. Nothing is
+   * written: an editor opened and closed leaves no file behind.
+   */
+  async openInstructions(scope: InstructionScope): Promise<void> {
+    const port = this.#ports.instructions;
+    if (!port || this.#readiness.kind !== "ready") {
+      this.#ports.ui.notify("warning", "Instructions can be edited once BugPilot is ready in this repository.");
+      return;
+    }
+    const outcome = await port.load();
+    if (!this.#applyInstructionsOutcome(outcome) || this.#instructions === undefined) {
+      if (outcome.kind === "failed") {
+        this.#ports.ui.notify("error", `${INSTRUCTION_TEXT[scope].title} could not be read: ${oneSentence(outcome.message)}`);
+      }
+      this.#push();
+      return;
+    }
+    this.#instructionsEditorToken += 1;
+    this.#instructionsEditor = {
+      scope,
+      token: this.#instructionsEditorToken,
+      text: this.#instructions[scope].text,
+      saving: false,
+    };
+    this.#push();
+  }
+
+  /** Back, Cancel or Escape in the editor: nothing is written. */
+  closeInstructions(): void {
+    if (this.#instructionsEditor === undefined) return;
+    this.#instructionsEditor = undefined;
+    this.#push();
+  }
+
+  /**
+   * The editor's Save: the CLI writes the file — or removes it, for empty text
+   * — and reads both back. A prepared context goes stale through its hash, the
+   * way any other preparation input does. A refusal keeps the editor open with
+   * the reason, and the text as typed.
+   */
+  async saveInstructions(scope: InstructionScope, text: string): Promise<void> {
+    const editor = this.#instructionsEditor;
+    if (editor === undefined || editor.scope !== scope || editor.saving) return;
+    const title = INSTRUCTION_TEXT[scope].title;
+    const fail = (message: string): void => {
+      const current = this.#instructionsEditor;
+      if (current === undefined || current.token !== editor.token) return;
+      this.#instructionsErrorToken += 1;
+      this.#instructionsEditor = { ...current, saving: false, error: { token: this.#instructionsErrorToken, message } };
+    };
+    if (text.length > MAX_INSTRUCTION_CHARS) {
+      fail(
+        `${title} were not saved: they are ${text.length.toLocaleString("en-US")} characters or more, ` +
+          `more than the ${MAX_INSTRUCTION_CHARS.toLocaleString("en-US")} BugPilot includes. Shorten them.`,
+      );
+      this.#push();
+      return;
+    }
+    const port = this.#ports.instructions;
+    if (!port || this.#readiness.kind !== "ready") {
+      fail(`${title} were not saved: BugPilot is not ready in this repository.`);
+      this.#push();
+      return;
+    }
+    this.#instructionsEditor = { ...editor, saving: true };
+    this.#push();
+    const outcome = await port.save(scope, text);
+    if (outcome.kind === "loaded") {
+      this.#instructions = outcome.snapshot;
+      // Closed only if it is still the editor that saved; a Back pressed
+      // meanwhile already closed it.
+      if (this.#instructionsEditor?.token === editor.token) this.#instructionsEditor = undefined;
+      this.#push();
+      return;
+    }
+    if (outcome.kind === "outdated") {
+      this.#applyInstructionsOutcome(outcome);
+    } else {
+      fail(oneSentence(outcome.message));
+    }
+    this.#push();
+  }
+
+  /**
+   * Read the repository's project settings and put them on the form (Batch 3),
+   * as the profile is: the file wins, and an old CLI without the command is
+   * blocked as out of date before any Run.
+   */
+  async #loadProjectSettings(): Promise<void> {
+    this.#savedProjectSettings = undefined;
+    if (this.#readiness.kind !== "ready" || !this.#ports.projectSettings) return;
+    this.#applyProjectSettingsOutcome(await this.#ports.projectSettings.load());
+  }
+
+  #applyProjectSettingsOutcome(outcome: ProjectSettingsOutcome): boolean {
+    if (outcome.kind === "outdated") {
+      this.#savedProjectSettings = undefined;
+      this.#blockOutdatedCli(outcome.rejected);
+      return false;
+    }
+    if (outcome.kind === "failed") {
+      this.#ports.log.error(`Reading the project settings failed: ${oneSentence(outcome.message)}`);
+      return false;
+    }
+    this.#savedProjectSettings = outcome.snapshot;
+    for (const warning of outcome.snapshot.warnings) this.#ports.log.info(`Project settings: ${warning}`);
+    if (!sameProjectSettings(this.#form, outcome.snapshot.settings)) {
+      this.#replaceForm(formWithProjectSettings(this.#form, outcome.snapshot.settings));
+    }
+    return true;
+  }
+
+  /**
+   * Write the form's project settings to the repository's file, on Apply. A
+   * refusal — a branch template the CLI will not accept, a link — is said in
+   * the CLI's words, and the form goes back to the file's settings.
+   */
+  async #saveProjectSettings(previous: FormState): Promise<void> {
+    const port = this.#ports.projectSettings;
+    const saved = this.#savedProjectSettings;
+    const restore = (): void => {
+      this.#replaceForm(formWithProjectSettings(this.#form, saved?.settings ?? projectSettingsOfForm(previous)));
+    };
+    if (!port || this.#readiness.kind !== "ready" || !this.#root) {
+      this.#ports.ui.notify(
+        "warning",
+        "The project settings were not saved: BugPilot is not ready in this repository. The other settings were applied.",
+      );
+      restore();
+      this.#push();
+      return;
+    }
+    const save = (async () => {
+      const outcome = await port.save(projectSettingsOfForm(this.#form));
+      if (this.#applyProjectSettingsOutcome(outcome)) return;
+      this.#ports.ui.notify(
+        "error",
+        outcome.kind === "outdated"
+          ? `The project settings were not saved. ${CLI_OUTDATED_SUMMARY}`
+          : `The project settings were not saved: ${outcome.kind === "failed" ? oneSentence(outcome.message) : ""}`,
+      );
+      restore();
+    })();
+    this.#projectSettingsSave = save;
+    try {
+      await save;
+    } finally {
+      if (this.#projectSettingsSave === save) this.#projectSettingsSave = undefined;
     }
     this.#push();
   }
@@ -3558,6 +3922,30 @@ export class Controller {
     return path.join(this.#root ?? "", ".ai", workItemId, name);
   }
 
+  #instructionsView(): PanelState["instructions"] {
+    const editable = this.#ports.instructions !== undefined && this.#readiness.kind === "ready";
+    return {
+      user: { status: instructionsStatusLine("user", this.#instructions?.user), editable },
+      project: { status: instructionsStatusLine("project", this.#instructions?.project), editable },
+    };
+  }
+
+  #instructionsEditorView(editor: InstructionsEditorState): NonNullable<PanelState["instructionsEditor"]> {
+    const problem = this.#instructions?.[editor.scope].problem;
+    return {
+      token: editor.token,
+      scope: editor.scope,
+      title: INSTRUCTION_TEXT[editor.scope].title,
+      scopeLine: INSTRUCTION_TEXT[editor.scope].scopeLine,
+      empty: INSTRUCTION_TEXT[editor.scope].empty,
+      text: editor.text,
+      maxCharacters: this.#instructions?.maxCharacters ?? MAX_INSTRUCTION_CHARS,
+      ...(problem ? { problem: `The saved file is not used: ${problem} Saving replaces it.` } : {}),
+      saving: editor.saving,
+      ...(editor.error ? { error: editor.error } : {}),
+    };
+  }
+
   /** Drop what the rows report about a work item that is no longer shown. */
   #forgetSummary(): void {
     this.#issue = undefined;
@@ -3727,6 +4115,10 @@ export class Controller {
     this.#review = { state: "starting" };
     this.#push();
 
+    // The prompt alone: the current changes are collected only for a review
+    // that reads them (below). A terminal or clipboard reviewer looks at the
+    // diff itself, and a large repository's `git status` and `git diff` are not
+    // worth running for nothing (pre-release Batch 4.1).
     const result = await this.#reviewPackage(workItemId, root);
     if (!this.#reviewStillWanted(epoch)) return;
     if (typeof result === "string") {
@@ -3757,10 +4149,32 @@ export class Controller {
     }
     const captured = capturedReviewOf(resolution, this.#ports.runCapturedReview !== undefined);
     if (captured) {
+      // The captured reviewer has no shell (`CLAUDE_CAPTURED_REVIEW`), so the
+      // changes it reviews are the ones BugPilot collects, on stdin after the
+      // prompt — asked for now that it is known to be this reviewer, with the
+      // prompt they go with. Without them there is nothing to review: said,
+      // not guessed at.
+      const withChanges = await this.#reviewPackage(workItemId, root, { includeChanges: true });
+      if (!this.#reviewStillWanted(epoch)) return;
+      if (typeof withChanges === "string") {
+        this.#reviewFailed(reviewHandoffError("prompt", withChanges));
+        return;
+      }
+      if (withChanges.changes === undefined) {
+        this.#reviewFailed(reviewHandoffError("prompt", "bugpilot did not return the current changes for the review."));
+        return;
+      }
       this.#resolvedAgent = { kind: "resolved", label: captured.label };
       this.#agents.succeeded(resolution.adapter.id);
       // Held so Reset Session, having cancelled it, can wait for it to end.
-      const task = this.#runCapturedReview(workItemId, root, epoch, fix, captured, result.prompt);
+      const task = this.#runCapturedReview(
+        workItemId,
+        root,
+        epoch,
+        fix,
+        captured,
+        `${withChanges.prompt}\n${withChanges.changes}`,
+      );
       this.#reviewTask = task;
       try {
         await task;
@@ -4001,9 +4415,13 @@ export class Controller {
   }
 
   /** `review-package --json`, read: the package, or why there is none, in one sentence. */
-  async #reviewPackage(workItemId: string, root: string): Promise<ReviewPackage | string> {
+  async #reviewPackage(
+    workItemId: string,
+    root: string,
+    options: { readonly includeChanges?: boolean } = {},
+  ): Promise<ReviewPackage | string> {
     try {
-      const envelope = await this.#ports.runner.runJson(reviewPackageArgs(workItemId), {
+      const envelope = await this.#ports.runner.runJson(reviewPackageArgs(workItemId, options), {
         cwd: root,
         timeoutMs: 60_000,
       });
@@ -4728,6 +5146,7 @@ export class Controller {
     this.#artifactsListedFor = undefined;
     this.#progress = { state: "idle", rows: viewFromStatus(undefined).rows, artifacts: [] };
     this.#preparedWith = undefined;
+    this.#preparedInstructions = undefined;
     this.#preparedFixMode = undefined;
     this.#stoppedByUser = false;
     // Every result and draft of the old session: the rows' summaries, Fix
@@ -4995,7 +5414,15 @@ export class Controller {
     if (!this.#prepared() || workItemId === undefined) return false;
     const preparedScope = JIRA_ISSUE_KEY_RE.test(workItemId) ? workItemId : MANUAL_WORK_ITEM_SCOPE;
     if (workItemScopeOf(form) !== preparedScope) return true;
-    return this.#preparedWith !== undefined && preparationFingerprint(form) !== this.#preparedWith;
+    if (this.#preparedWith !== undefined && preparationFingerprint(form) !== this.#preparedWith) return true;
+    // The instructions are files, not form fields: compared by content hash,
+    // never by file time, and only when both sides are known (pre-release Batch 2).
+    const instructions = this.#instructionsFingerprint();
+    return this.#preparedInstructions !== undefined && instructions !== undefined && instructions !== this.#preparedInstructions;
+  }
+
+  #instructionsFingerprint(): string | undefined {
+    return this.#instructions === undefined ? undefined : instructionsFingerprint(this.#instructions);
   }
 
   /**
@@ -5151,6 +5578,8 @@ export class Controller {
       revision: this.#revision,
       fixModes: this.#fixModes,
       repositoryProfile: repositoryProfileView(this.#savedProfile),
+      instructions: this.#instructionsView(),
+      ...(this.#instructionsEditor === undefined ? {} : { instructionsEditor: this.#instructionsEditorView(this.#instructionsEditor) }),
       ...(this.#preparedFixMode === undefined ? {} : { preparedFixMode: this.#preparedFixMode }),
       ...(this.#manageOpen
         ? {
@@ -5183,7 +5612,7 @@ export class Controller {
       agents: this.#agents.status(this.#form.agentCommand),
       warnings: this.#notices(),
       ...(this.#noticeStatus === undefined ? {} : { noticeStatus: this.#noticeStatus }),
-      jira: jiraConnection(this.#jiraConfigured, this.#jiraRejected),
+      jira: jiraConnection(this.#jiraConfigured, this.#jiraRejected, this.#report?.["jira_base_url_present"] === false),
       ...(this.#jiraSetup === undefined ? {} : { jiraSetup: { ...this.#jiraSetup } }),
       primary,
       ...(this.#sessionFeedback === undefined

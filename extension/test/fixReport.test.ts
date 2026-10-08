@@ -25,7 +25,7 @@ The check compared the wrong enum.
 
 ### Root cause
 
-WidgetController::validate() compared against VDS_LEGACY.
+WidgetController::validate() compared against CSV_LEGACY.
 
 ## Changes
 

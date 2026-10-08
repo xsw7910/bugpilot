@@ -192,6 +192,16 @@
       ]
     },
     {
+      "name": "review-package --include-changes (Review with AI)",
+      "argv": [
+        "review-package",
+        "JR-12345",
+        "--json",
+        "--include-changes",
+        "--json"
+      ]
+    },
+    {
       "name": "record-review",
       "argv": [
         "record-review",
@@ -229,6 +239,70 @@
         "repository-profile",
         "set",
         "--from-file={PAYLOAD_FILE}",
+        "--json"
+      ]
+    },
+    {
+      "name": "jira-site show",
+      "argv": [
+        "jira-site",
+        "show",
+        "--json"
+      ]
+    },
+    {
+      "name": "jira-site set",
+      "argv": [
+        "jira-site",
+        "set",
+        "--stdin",
+        "--json"
+      ]
+    },
+    {
+      "name": "project-settings show",
+      "argv": [
+        "project-settings",
+        "show",
+        "--json"
+      ]
+    },
+    {
+      "name": "project-settings set",
+      "argv": [
+        "project-settings",
+        "set",
+        "--from-file={PAYLOAD_FILE}",
+        "--json"
+      ]
+    },
+    {
+      "name": "instructions show",
+      "argv": [
+        "instructions",
+        "show",
+        "--json"
+      ]
+    },
+    {
+      "name": "instructions set (stdin)",
+      "argv": [
+        "instructions",
+        "set",
+        "--scope",
+        "project",
+        "--stdin",
+        "--json"
+      ]
+    },
+    {
+      "name": "instructions set --clear",
+      "argv": [
+        "instructions",
+        "set",
+        "--scope",
+        "user",
+        "--clear",
         "--json"
       ]
     }
