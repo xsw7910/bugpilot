@@ -1,17 +1,41 @@
 # BugPilot for VS Code
 
-Turn a Jira bug into focused code context — the issue details, the candidate
-files, the relevant git history, and a task file for your coding agent — without
-leaving the editor.
+Turn a Jira issue or a bug you describe into focused code context for your AI
+coding agent — the issue details, the candidate files, the relevant git
+history, and a task file — without leaving the editor.
 
 The extension is a shell over the `bugpilot` CLI. It does not bundle it, and it
 never hands your code to an agent by itself: it prepares the package and you
 decide who reads it.
 
-## Installing the extension
+## Requirements
 
-Install it from the Marketplace, or build the `.vsix` yourself from this
-repository:
+- **The BugPilot CLI.** The extension runs it for everything it prepares, and
+  does not bundle it — see [Installing](#installing).
+- **Python 3.10 or later**, for the CLI.
+- **Git**, with the repository you fix bugs in checked out.
+- **ripgrep** (`rg`) on `PATH`, for code search.
+- Optional: **a Jira Cloud site** and an API token, to work from Jira issues. A
+  bug you describe needs neither.
+- Optional: **an AI coding agent** — Claude CLI, Codex CLI, the Claude or Codex
+  extension, or a command of your own — for **Fix with AI** and **Review with
+  AI**. Without one, BugPilot prepares the context and you hand it over.
+
+## Installing
+
+**The CLI.** BugPilot is not on PyPI yet. Until it is, install it from a
+checkout of the repository:
+
+```powershell
+git clone https://github.com/xsw7910/bugpilot.git
+cd bugpilot
+pipx install .        # or: python -m pip install .
+```
+
+Once it is published, `pipx install bugpilot` will do instead.
+
+**The extension.** From the Marketplace once it is listed there, or build the
+`.vsix` yourself from the same checkout:
 
 ```powershell
 cd extension
@@ -28,23 +52,13 @@ code --extensions-dir .\tmp-ext --user-data-dir .\tmp-data --install-extension b
 
 ## Before you start
 
-You also need the CLI on the machine:
+Check the CLI, and that it speaks the machine-readable protocol:
 
 ```powershell
-pipx install bugpilot        # or: python -m pip install bugpilot
-
-# tell it where your Jira lives, and store your credentials
-bugpilot setup
-
-# check it, and check that it speaks the machine-readable protocol
 bugpilot doctor --json
 ```
 
-There is no built-in Jira site: `bugpilot setup` asks for yours, or set
-`JIRA_BASE_URL`. Setting credentials in the panel alone is not enough for a Jira
-issue — the panel says so when the site is missing.
-
-That last command must print a single JSON object. If it prints
+That command must print a single JSON object. If it prints
 `unrecognized arguments: --json`, the `bugpilot` on your `PATH` is too old —
 which happens easily when an older pipx copy shadows a newer install. Upgrade
 that copy in place:
@@ -57,6 +71,9 @@ Or run **BugPilot: Choose Executable** and point the extension at the one you
 want.
 
 Jira access is optional. A bug you describe by hand needs no credentials.
+There is no built-in Jira site: enter yours in the panel's **Jira Setup** (see
+[First run](#first-run-in-about-five-minutes)), run `bugpilot setup` in a
+terminal, or set `JIRA_BASE_URL`.
 
 One thing to do in the repository you are fixing bugs in, before the first run:
 
@@ -88,17 +105,23 @@ editor and you save them; nothing is written behind your edits.
    configured with under **Diagnostics**.
 3. If a Jira issue: press **Configure** on the **Jira** row in Workflow, under
    **Advanced Settings** (or run **BugPilot: Set Jira Credentials**), once.
-   **Jira Setup** opens over the panel: your Atlassian account email and an API
-   token, together, with **Save** and **Cancel**. To get a token, press **Open
-   Atlassian API tokens** there, select **Create API token**, choose a name and
-   an expiration date, then copy the new token — Atlassian shows it only once —
-   and paste it into the dialog. Saved, they are kept in VS Code's
-   SecretStorage and reach the CLI as environment variables — never in a
-   command line, never in the panel: replacing them starts from your email and
-   an empty token field. The row then says **Configured**, and its button
-   **Replace**; if Jira turns the credentials away on a run, it says
-   **Authentication failed** until you replace them. Cancel or Escape leaves
-   whatever was stored as it was.
+   **Jira Setup** opens over the panel: your **Jira site**, your Atlassian
+   account email and an API token, together, with **Save** and **Cancel**. The
+   site is an `https://` address such as `https://your-company.atlassian.net`,
+   with no user name, query or fragment; it is saved where the CLI reads it,
+   `~/.bugpilot/config.toml`. If `JIRA_BASE_URL` is set in your environment,
+   that is the site BugPilot uses, and the dialog shows it without letting you
+   change it there. To get a token, press **Open Atlassian API tokens**, select
+   **Create API token**, choose a name and an expiration date, then copy the
+   new token — Atlassian shows it only once — and paste it into the dialog.
+   The email and token are kept in VS Code's SecretStorage and reach the CLI as
+   environment variables — never in a command line, never in the panel.
+   Opening it again shows your site and email and an empty token field: leave
+   the token blank to keep the one stored, or enter a new one to replace it.
+   The row then says **Configured**, and its button **Replace**; with no site
+   anywhere it says **No Jira site**; if Jira turns the credentials away on a
+   run, it says **Authentication failed** until you replace them. Cancel or
+   Escape leaves whatever was stored as it was.
 4. In the **Issue** field, type an issue key such as `JR-12345`, or describe the
    problem in your own words. The field is one line until you write more, and
    grows to about four lines before it scrolls. Once you type, the right end of
@@ -192,10 +215,11 @@ the top.
 | Code search | Ignore paths, Max files, Max search lines |
 | Git history | Use shared keywords, Use shared focus files, Additional commit keywords, Additional files, Search commit messages, Search related file history, History depth, Max related commits |
 | Similar fixes | Use shared keywords, Additional keywords, Max similar fixes |
-| Repository | Repository profile: Auto-detect, Generic or Custom (Languages, Frameworks, Application type, Build system, Test framework, Codebase notes) |
+| Repository | Repository profile: Auto-detect, Generic or Custom (Languages, Frameworks, Application type, Build system, Test framework, Codebase notes); Project instructions |
+| AI instructions | User instructions; Verification: Run relevant tests, Run existing static checks, Run full test suite, Report tests not run |
 | Build context | Delete previous artifacts first |
 | Fix with AI | AI Agent, custom agent command |
-| Branch | Branch policy |
+| Branch | Branch policy, Branch naming (and its Template) |
 
 **Keywords** and **Focus files** are entered once, under **Retrieval inputs**,
 and shared:
@@ -236,6 +260,39 @@ details you provide. It is the repository's setting rather than this panel's:
 where the CLI and the MCP server read it too (commit it to share it), and a
 profile someone else saved there is what the page shows. It needs a rebuild, and
 **Reset Session** keeps it.
+
+**Project instructions** (in Repository) and **User instructions** (in AI
+instructions) are your own guidance for the AI agent, in plain text or
+Markdown: the project's in `.bugpilot/instructions.md` in the repository,
+shared with it (commit it to share it), and yours in
+`~/.bugpilot/instructions.md`, for every repository. Each row says what its file
+holds — *No project instructions configured.*, *Configured · 1,204 characters*
+— and **Edit** opens its own page: Back, the title, one line on whom it applies
+to, the text, **Save** and **Cancel** (Ctrl+Enter saves, Escape cancels).
+Opening it creates nothing; Cancel and Back write nothing; saving empty text
+removes the file. Up to 20,000 characters each — the page counts, and a longer
+text is refused rather than cut. They are not part of Apply: Save writes the
+file straight away. `task.md` carries them after the Repository Context, the
+project's first: where the project's instructions and yours disagree, the
+project's win. BugPilot's safety rules win over both — an instruction that
+conflicts with them is ignored. The whole order, the earlier winning, is:
+safety rules, repository context, project / team instructions (with the
+Verification Policy), user instructions, Fix Mode, hint. Changing either needs a rebuild (an edit made outside the
+panel is noticed at the next environment check or Run), **Reset Session** keeps
+both, and the CLI and the MCP server read the same two files. Their text is
+never written to the Output channel.
+
+**Verification** (in AI instructions) is the project's Verification Policy:
+what checking it expects from a fix, as four switches — **Run relevant tests**
+(on), **Run existing static checks** (on), **Run full test suite** (off) and
+**Report tests not run** (on). `task.md` states it in a short section beside
+the project's instructions. It names no commands: the agent uses the
+repository's own, and your project instructions can name them. How a given
+attempt verifies is still the Fix Mode's — an investigation-only pass writes
+down what it would run. Like the Repository profile it belongs to the
+repository: **Apply** saves it in `.bugpilot/project_settings.json`, which the
+CLI and the MCP server read too (commit it to share it). It needs a rebuild,
+and **Reset Session** keeps it.
 
 A row with settings shows a short summary of them under its description — "4
 keywords · 2 focus paths · max 10 files", "shared keywords off · max 3 similar
@@ -359,6 +416,8 @@ Three things worth knowing:
 
 At most ten files, 10 MB each.
 
+## Workflow Steps
+
 Each step is both the choice and the outcome, and the two ends of the row say
 which is which: the checkbox on the left decides whether it runs; the right says
 how it went, in words — **Completed**, **Skipped**, **Running**, **Failed**,
@@ -390,6 +449,8 @@ opened — and is open again whenever the panel is rebuilt (after the sidebar wa
 hidden, or a window reload). If a step fails, its card appears on that row and
 the rows above it keep what they found.
 
+## Fix with AI
+
 **Fix with AI** is the last step, and it starts unticked. Tick it and Run does
 everything above it and then hands the finished package to your coding agent in
 a terminal; leave it alone and BugPilot stops once the context is ready, and the
@@ -399,24 +460,6 @@ means only that: BugPilot does not watch the agent, so it never says the fix
 worked, tests passed or files changed. Which agent it hands to is **Advanced
 Settings → Fix with AI → AI Agent**: Auto-detect, Codex CLI, Claude CLI, the
 Codex or Claude extension, or a custom command of your own (see below).
-
-Which branch the agent works on is **Advanced Settings → Branch → Branch
-policy**. BugPilot
-never runs `git branch` itself; it tells the agent:
-
-- **Use current branch** (the default): stay on the branch that is checked out
-  — no new branch for every run. Only on `main`/`master` or a detached HEAD
-  does the agent stop and ask before creating `feature/<work-item>-<summary>`.
-- **One branch per issue**: one branch for the work item, created once and
-  reused. A bug you describe yourself gets a new id on every Run, so its
-  branch is named from its title instead: the same bug, the same branch.
-- **Ask before editing**: the agent shows the current and the suggested branch
-  and asks which to use — never staying on `main`/`master`.
-
-Run, Rebuild Context, a retry and Start New Attempt never call for a new branch
-by themselves; only this setting decides. Under every choice `main` and
-`master` are never edited, committed to or pushed. The setting is written into
-`task.md`, so changing it needs **Rebuild Context**; Reset Session keeps it.
 
 After the handoff the button is **Open AI Session**: keep talking to the agent
 in its terminal. It brings that terminal forward and says **AI session
@@ -444,8 +487,51 @@ written. A re-run without
 **Delete previous artifacts first** keeps the last report, so during and after it the row can show the
 previous attempt's report until an agent writes a new one.
 
-Two review aids sit under the report, both built by the CLI from the work item's
-files. **Copy Review Prompt** puts a prompt on your clipboard asking a reviewer —
+BugPilot never involves a model by itself. A step you tick is the difference:
+preparing context and deciding to involve a model stay two separate acts.
+
+## Branch
+
+Which branch the agent works on is **Advanced Settings → Branch → Branch
+policy**. BugPilot never runs `git branch` itself; it tells the agent:
+
+- **Use current branch** (the default): stay on the branch that is checked out
+  — no new branch for every run. Only on `main`/`master` or a detached HEAD
+  does the agent stop and ask before creating one, named by **Branch naming**.
+- **One branch per issue**: one branch for the work item, created once and
+  reused. A bug you describe yourself gets a new id on every Run, so its
+  branch is named from its title instead: the same bug, the same branch.
+- **Ask before editing**: the agent shows the current and the suggested branch
+  and asks which to use — never staying on `main`/`master`.
+
+Run, Rebuild Context, a retry and Start New Attempt never call for a new branch
+by themselves; only this setting decides. Under every choice `main` and
+`master` are never edited, committed to or pushed. The setting is written into
+`task.md`, so changing it needs **Rebuild Context**; Reset Session keeps it.
+
+**Branch naming**, below Branch policy, is the name a new branch gets under any
+of them. **Default** is `feature/{issue}-{slug}` —
+`feature/JR-12345-widget-rejects-the-output-type` — except that a bug you
+describe is named from its title alone. **Custom template**
+shows a **Template** field for the repository's own pattern, such as
+`bugfix/{issue}-{slug}`. Only two placeholders are filled in: `{issue}`, the
+Jira key (for a bug you describe, `bug-` and a short hash of its title, so the
+same bug gets the same name), and `{slug}`, the title in lower case with
+hyphens. A template must include `{issue}` — two issues with the same title, or
+any two titles in a non-Latin script, would otherwise share a branch — and
+only letters, digits, `.`, `_`, `-` and `/` around the placeholders; one git
+could not use as a branch name is refused
+when you press Apply, with the reason, and the saved one stays. A template only
+names a branch: it never creates or switches one, and a work item that already
+has a branch keeps it. Like the Verification Policy, it is saved for the
+repository in `.bugpilot/project_settings.json`; it needs a rebuild, and Reset
+Session keeps it.
+
+## Review and verification
+
+Two review aids sit under the **Fix result** row, both built by the CLI from
+the work item's files. **Copy Review Prompt** puts a prompt on your clipboard
+asking a reviewer —
 any assistant, or a colleague — to review the result against `context.md`,
 `retrieval.json`, `fix_report.md` and the current diff; it prepares the review,
 it does not run one. **Validation checklist**, collapsed until you open it,
@@ -469,10 +555,14 @@ not "pass", not "approved", not "safe to merge".
 
 - **Claude CLI (chosen, or what Auto-detect found):** BugPilot runs it once,
   non-interactively (`claude -p --output-format json`), with the prompt on its
-  input and no terminal. The reviewer can read files and run `git diff`,
-  `git status`, `git log` and `git show`, and nothing else: it cannot edit
-  files or run other commands, and neither your Claude Code settings nor the
-  repository's widen that. While it runs, the row says **Reviewing with Claude
+  input and no terminal. BugPilot first collects the current changes itself —
+  `git status --short` and `git diff HEAD`, read-only, without the
+  repository's own diff drivers, filters or hooks, bounded and said when cut —
+  and gives them to the reviewer after the prompt. The reviewer can only read
+  and search files: it has no shell, so it cannot run any command, edit a file
+  or write anything, and neither your Claude Code settings nor the
+  repository's widen that. Its reply is shown only to you, in the panel, and
+  may quote any file it read. While it runs, the row says **Reviewing with Claude
   CLI…** with a spinner, that the review is read-only and in the background,
   and how long it has been running (*Elapsed: 00:18*) — no percentage, because
   the agent reports none, and none of its tool output. **Show details** says
@@ -573,9 +663,6 @@ recording starts. Plain Enter in a check's name never runs the panel.
 A run with **Delete previous artifacts first** ticked removes the report with the fix report; **Rebuild Context** and
 **Start New Attempt** leave it.
 History is not changed by it.
-
-BugPilot never involves a model by itself. A step you tick is the difference:
-preparing context and deciding to involve a model stay two separate acts.
 
 ## Results
 
@@ -760,7 +847,7 @@ hence the custom template rather than our guess.
 
 | Setting | What it does |
 | --- | --- |
-| `bugpilot.executablePath` | Path to the `bugpilot` executable. Empty means resolve it through `PATH`. |
+| `bugpilot.executablePath` | Absolute path to the `bugpilot` executable. Empty means find it on `PATH` — its absolute entries only, never the repository or the current folder. A relative path is refused. |
 
 ## Commands
 
@@ -786,6 +873,31 @@ worth knowing:
   workflow, and it starts unticked.
 - **It does not write to Jira.** No comments, no status changes.
 - **It does not touch git.** No commits, no pushes.
+- **It does not run programs from your repository.** `bugpilot`, `claude`,
+  `codex` and `taskkill` are found on `PATH`'s absolute entries and started by
+  that path; a `bugpilot.exe` in the repository is never what runs.
+
+## Privacy
+
+- **Generated files hold repository context.** `.ai/<work item>/` and
+  `.ai_memory/` contain code excerpts, file paths, git history, attachments and
+  the fetched issue text, and the prompts BugPilot builds for an agent or a
+  reviewer carry the same. Keep both folders out of source control (see
+  [Before you start](#before-you-start)) unless you mean to share them, and
+  hand them only to an agent you would show the code to.
+- **Project settings are shared; yours are not.** `.bugpilot/` in the
+  repository — Project instructions, the Repository profile, the Verification
+  Policy, Branch naming, project Fix Modes — is meant to be committed. User
+  instructions and user Fix Modes in `~/.bugpilot/` are yours alone.
+- **Jira credentials stay out of artifacts.** The token is kept in VS Code's
+  SecretStorage and is never written to a generated file, the Output channel or
+  a command line.
+
+## Licence
+
+BugPilot — this extension and the `bugpilot` CLI it runs — is licensed under the Business Source License 1.1 ([LICENSE.txt](https://github.com/xsw7910/bugpilot/blob/main/extension/LICENSE.txt)). It is source-available, not open source: you may copy, modify, redistribute and make non-production use of it, and the Additional Use Grant permits production use, including inside a company, provided you do not offer it to third parties on a hosted or embedded basis in competition with the Licensor's paid versions. Each version converts to the Apache License 2.0 on the Change Date, 2030-09-08, or on the fourth anniversary of that version's first public release if that comes first. This is a summary; the licence text is what applies.
+
+The codicons icon font in `media/codicons/` is Microsoft's and is licensed CC BY 4.0, not under BugPilot's licence ([THIRD_PARTY_NOTICES.md](https://github.com/xsw7910/bugpilot/blob/main/extension/THIRD_PARTY_NOTICES.md)).
 
 ## Troubleshooting
 
@@ -795,6 +907,10 @@ worth knowing:
 | "does not support the machine-readable output this extension needs" | An older CLI is being found first. Upgrade it, or set `bugpilot.executablePath` |
 | "BugPilot CLI is out of date" | The CLI found is older than this extension and does not accept what a Run sends. **Update Instructions** says how (`pipx upgrade bugpilot`); **Choose Executable** points at a newer one; then **Retry**. `bugpilot --version` shows which version runs |
 | "BugPilot CLI was not found" during a Run | The executable went away since the panel checked. Install it, or choose it again |
+| "The configured bugpilot path is not valid" | `bugpilot.executablePath` is a relative path, which BugPilot will not resolve against the repository. Use an absolute path, or leave it empty to use `PATH` |
+| "The Jira site must be an https:// address" | `JIRA_BASE_URL` or the saved site is `http://`, or carries a user name, password, query or fragment. Enter `https://your-company.atlassian.net` in **Jira Setup** (or run `bugpilot jira-site set`), or fix `JIRA_BASE_URL` |
+| "Jira redirected to a different site" | The Jira site answered with a redirect to a different host, scheme or port, and BugPilot did not send your credentials there. Check the site address |
+| "… instructions were not included" in a run's warnings | The instructions file is a link, not UTF-8, unreadable, or longer than 20,000 characters. It was left out of `task.md` whole; fix it, or open **Edit** and save |
 | "did not answer `doctor --json` in time" | Usually a frozen executable starting cold under antivirus. Try again |
 | "runs, but its environment check failed" | The CLI is fine; something it needs is not. The message names which |
 | A run stops with "ran longer than BugPilot waits" | Narrow the search: ignore vendored or generated directories, or lower Max files |

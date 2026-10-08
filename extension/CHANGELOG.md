@@ -4,6 +4,8 @@
 
 First release. What it does today:
 
+- **Licence.** The Business Source License 1.1, the same licence and the same text as the `bugpilot` CLI
+  (`LICENSE.txt`). The codicons icon font stays CC BY 4.0 (`THIRD_PARTY_NOTICES.md`).
 - **One workflow panel**, the **Workflow** view. A Jira issue key or a bug you describe, one primary
   button, and six steps: issue details, code search, git history, similar fixes,
   build context, and an optional **Fix with AI**. Each row is both the choice and
@@ -47,7 +49,9 @@ First release. What it does today:
 - **After a fix: review, then verification — kept apart.** Under the fix
   report, **Review with AI** asks for `## Summary`, `## Findings`,
   `## Validation Notes` and `## Recommendations` and for no verdict. With
-  Claude CLI it runs one read-only, non-interactive review, shows
+  Claude CLI it runs one read-only, non-interactive review — no shell and no
+  editing tool, so it cannot run a command or write a file; BugPilot collects
+  the current `git status` and `git diff` itself and gives them to it — shows
   **Reviewing…**, and opens the Review Result form filled in from the reply,
   marked *Prefilled from AI review*. While it runs, the row names the agent,
   shows a spinner and the elapsed time, and offers Show details and Cancel
@@ -71,17 +75,21 @@ First release. What it does today:
   Review with AI; the same report written again does not. Only that folder is
   watched; the refresh only reads, and keeps whatever is being typed.
 - **Jira Setup.** The Jira row, or **BugPilot: Set Jira Credentials**, opens
-  one dialog for your Atlassian email and API token, with a link to
-  Atlassian's token page. Credentials live in VS Code's SecretStorage and reach
-  the CLI as environment variables — never on a command line, never in the
-  panel. Jira is optional: a bug you describe in your own words needs none.
+  one dialog for your Jira site, Atlassian email and API token, with a link to
+  Atlassian's token page. The site must be an `https://` address; it is saved
+  where the CLI reads it (`~/.bugpilot/config.toml`), and a site set by
+  `JIRA_BASE_URL` is shown, not overwritten. The email and token live in VS
+  Code's SecretStorage and reach the CLI as environment variables — never on a
+  command line, never in the panel. The token is never shown again: leave it
+  blank to keep the stored one. Jira is optional: a bug you describe in your
+  own words needs none.
 - **Issue first.** The Issue field takes a Jira issue key (e.g. JR-12345) or a
   description, with Run directly under it; **Fix Mode** and **Hint** (with
   *Improve with AI ☑ using Issue details*) follow: what the bug is, how the AI
   should approach it, and any guidance.
 - **Advanced Settings.** One page with sections for Issue details, Retrieval
-  inputs, Code search, Git history, Similar fixes, Repository, Build context,
-  Fix with AI and Branch. A step's ⚙ opens its section, and the **⚙ Advanced Settings** row
+  inputs, Code search, Git history, Similar fixes, Repository, AI
+  instructions, Build context, Fix with AI and Branch. A step's ⚙ opens its section, and the **⚙ Advanced Settings** row
   opens the top. Changes apply with **Apply** and are discarded by Cancel or
   Back; each section is tagged *Requires rebuild* or *Next run only*, and the
   rows show a short summary of their settings. Fix Mode and Hint are on the
@@ -96,6 +104,30 @@ First release. What it does today:
   it and assumes nothing else. It is saved with the repository in
   `.bugpilot/repository_profile.json`, where the CLI and MCP server read it too,
   needs a rebuild when changed, and survives Reset Session.
+- **User and Project instructions.** Advanced Settings → Repository → *Project
+  instructions* (`.bugpilot/instructions.md`, shared with the repository) and
+  AI instructions → *User instructions* (`~/.bugpilot/instructions.md`, yours in
+  every repository), each with **Edit**, which opens its own page with Save and
+  Cancel. `task.md` carries them below BugPilot's safety rules, which always
+  win, with the project's above yours: where the two disagree, the project's
+  instructions win. Saving empty text removes the file; a change needs a
+  rebuild; Reset Session keeps both. The CLI and the MCP server read the same
+  two files.
+- **Verification Policy.** Advanced Settings → AI instructions → *Verification*:
+  run relevant tests, run existing static checks, run the full test suite (off
+  by default), report tests not run. `task.md` states the policy without
+  naming commands, as part of the project's layer; the Fix Mode still decides
+  how each attempt verifies. Saved with the repository in
+  `.bugpilot/project_settings.json`, read by the CLI and MCP server too; needs
+  a rebuild when changed, and survives Reset Session.
+- **Nothing runs from the repository.** `bugpilot`, `claude`, `codex` and
+  `taskkill` are found on `PATH`'s absolute entries only and started by that
+  path, so a `bugpilot.exe` or `claude.exe` planted in a repository never runs
+  because the repository is the working directory. A relative
+  `bugpilot.executablePath` is refused.
+- **Generated files stay in the repository.** The one file the extension
+  writes into `.ai/<work item>/` — `user_feedback.md` — is never written
+  through a link or junction, like everything the CLI writes there.
 - **An out-of-date CLI says so.** A bugpilot CLI older than the extension is
   reported as *BugPilot CLI is out of date*, with Update Instructions, Choose
   Executable and Retry — not as a run that crashed. A CLI that disappears
@@ -103,7 +135,11 @@ First release. What it does today:
 - **Branch policy.** Advanced Settings → Branch: *Use current branch* (the
   default), *One branch per issue*, or *Ask before editing*. It is an
   instruction in `task.md`: BugPilot itself never creates or switches a branch,
-  and `main`/`master` are never edited, committed or pushed.
+  and `main`/`master` are never edited, committed or pushed. *Branch naming*
+  names a new branch: `feature/{issue}-{slug}` by default, or the repository's
+  own template, which must include `{issue}` and may add `{slug}`, checked so
+  it always makes a valid branch name and saved in `.bugpilot/project_settings.json`. A work item keeps
+  the branch it already has.
 - **Fix Mode.** On the main page under the issue, a dropdown chooses how
   the agent approaches the bug: Standard Fix (the default), Conservative Fix,
   Investigate First, Test-Driven Fix or Deep Analysis, plus any custom mode you
