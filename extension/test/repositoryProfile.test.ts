@@ -1,5 +1,5 @@
 /**
- * The Repository Profile in the extension (pre-release Batch 1, F): the copy of
+ * The Repository Profile in the extension: the copy of
  * the CLI's model, the transport through `bugpilot repository-profile`, and the
  * Advanced Settings section.
  */

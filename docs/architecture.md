@@ -306,7 +306,7 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   Additional Commit Keywords, extracted identifiers) and file history (Focus
   Files, Additional Files, top Code Search files), merged once per commit with
   its reasons, bounded by the Git History Settings — and returns a structured
-  `GitHistoryRecord`. Data flow (Batch 3): Git retrieval → the record, written
+  `GitHistoryRecord`. Data flow: Git retrieval → the record, written
   by `workflow.git_context_step` atomically into `retrieval.json` as its
   `git_history` section (schema_version 1; status, search settings, summary
   counts, commits with source-tagged matched terms and files, reasons,
@@ -314,7 +314,7 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   History section (and for `bugpilot git-context`) → the extension's
   `gitHistory.ts` reads the same section for the Git history row ("N related
   commits found") and its Related commits disclosure. Nothing reads Git
-  history back out of `context.md`. Changed-file feedback (Batch 4): after
+  history back out of `context.md`. Changed-file feedback: after
   ranking, the strongest retained commits (≤5, each with evidence of its own,
   never a bulk commit) are asked for their changed file names — never a diff —
   and the files Code Search did not return become `git_history.supporting_files`,
@@ -323,7 +323,7 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   never trigger another search, and are shown in `context.md` under "Supporting
   Files From Related Commits" and in the panel under the Git history row's
   Supporting files — never among Code search's Relevant files. Ranking rules
-  added from corpus evidence (Batch 5): a clean merge that only repeats the
+  added from corpus evidence: a clean merge that only repeats the
   branch commits it brought in is not listed (a merge with a conflict
   resolution or evidence of its own stays, and lends only files its branch
   commits read for feedback did not), and a shared Keyword or extracted term matching

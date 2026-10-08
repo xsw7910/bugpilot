@@ -300,7 +300,7 @@ def test_a_fresh_rerun_without_a_flag_returns_to_standard(tmp_path, monkeypatch)
 
 
 def test_a_plain_rerun_keeps_the_chosen_mode(tmp_path, monkeypatch):
-    # Preparing again keeps the work item (pre-release Batch 1): only --fresh
+    # Preparing again keeps the work item: only --fresh
     # discards the package that recorded the mode.
     monkeypatch.chdir(tmp_path)
     assert prepare(tmp_path, "--fix-mode", "deep-analysis") == 0

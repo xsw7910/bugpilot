@@ -1,6 +1,5 @@
 /**
- * User Instructions and Project / Team Instructions, as the panel holds them
- * (pre-release Batch 2, E–G).
+ * User Instructions and Project / Team Instructions, as the panel holds them.
  *
  * Two optional Markdown files: `~/.bugpilot/instructions.md` (the developer's,
  * for every repository) and `<repo>/.bugpilot/instructions.md` (the

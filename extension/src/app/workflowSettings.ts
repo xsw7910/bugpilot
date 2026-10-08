@@ -11,7 +11,7 @@
  * controls moved; none was added, renamed or given a second copy.
  *
  * A section exists where a step has settings — Git history since the Git
- * History Settings (Git History Retrieval v2, Batch 2), Similar fixes since the
+ * History Settings (Git History Retrieval v2), Similar fixes since the
  * Similar Fixes Settings (§37.113) — and one more holds what several steps
  * share: Retrieval inputs, the Keywords and Focus files. Code search always
  * uses them, Git history and Similar fixes may (each by its own *Use shared…*
@@ -37,10 +37,10 @@ import type { WorkflowStepId } from "./workflow.ts";
  * step, and its own section because it changes task.md where Fix with AI's
  * agent settings do not — no section mixes the two.
  *
- * Repository (pre-release Batch 1) sits after the retrieval steps: what the
+ * Repository sits after the retrieval steps: what the
  * repository is, written into task.md. No one step's either, so no gear opens
  * it, and the repository's own setting rather than this session's. It also
- * holds the repository's Project instructions (pre-release Batch 2), and AI
+ * holds the repository's Project instructions, and AI
  * instructions after it the developer's own User instructions: two documents,
  * each edited on its own page and saved there, so neither section's form
  * fields include them — every change to either changes task.md.
@@ -194,7 +194,7 @@ export const SETTING_REQUIRES_REBUILD: Readonly<Record<SettingsField, boolean>> 
   agentCommand: false,
   // Written into task.md, as the Fix Mode is.
   branchPolicy: true,
-  // The Verification Policy section of task.md, and the branch it names (Batch 3).
+  // The Verification Policy section of task.md, and the branch it names.
   verifyRelevantTests: true,
   verifyStaticChecks: true,
   verifyFullSuite: true,

@@ -1,5 +1,5 @@
 /**
- * What Review Result shows of review_report.md (Batch 11): bounded lines in the
+ * What Review Result shows of review_report.md: bounded lines in the
  * reviewer's words, and which sections were recorded — never a verdict.
  */
 

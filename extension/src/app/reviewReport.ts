@@ -1,5 +1,5 @@
 /**
- * What Fix result shows of `review_report.md` (Batch 11): a line or two, and
+ * What Fix result shows of `review_report.md`: a line or two, and
  * which sections were recorded.
  *
  * The report is what somebody recorded after a review — `bugpilot record-review`

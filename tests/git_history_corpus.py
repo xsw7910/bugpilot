@@ -490,8 +490,8 @@ def report(results: list[CaseResult], title: str = "") -> str:
     return "\n".join(lines)
 
 
-class batch4_behaviour:
-    """Run as Batch 4 did: no merge collapsing, no broad terms. For before/after tables."""
+class baseline_behaviour:
+    """Run without merge collapsing or broad terms. For before/after tables."""
 
     def __enter__(self):
         self._collapse, self._broad = git_history._collapse_merge_wrappers, git_history._separate_broad_terms
@@ -506,7 +506,7 @@ class batch4_behaviour:
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     if "--baseline" in args:
-        with batch4_behaviour():
+        with baseline_behaviour():
             return _main(args)
     return _main(args)
 

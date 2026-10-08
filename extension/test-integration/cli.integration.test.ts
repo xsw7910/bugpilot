@@ -253,7 +253,7 @@ test("an unreachable Jira ends the stream with a terminal failure event", async 
   // Pointed at a closed local port. Environment variables win over
   // ~/.bugpilot/config.toml, so this cannot reach the real Jira even on a
   // machine where credentials are configured. https://, because an http:// site
-  // is refused before any connection (pre-release Batch 2, B) — a different
+  // is refused before any connection — a different
   // failure from the unreachable one this test is about.
   const tracker = new ProgressTracker(DEFAULT_FORM.plan);
   const outcome = await runner().runStreaming(
@@ -336,7 +336,7 @@ const FIX_MODE_RECORD_KEYS = [
 ];
 
 test("the Fix Mode a form carries reaches issue.json and task.md, for a built-in and a custom mode", async () => {
-  // Batch 7 moved the selector into Advanced settings. The form's `fixModeId`
+  // The selector lives in Advanced settings. The form's `fixModeId`
   // is the whole contract between the panel and a run, so this drives it end
   // to end: the panel's form, `buildPrepareArgs`, the real CLI, the artifacts.
   const root = repository();
@@ -398,7 +398,7 @@ test("the Fix Mode a form carries reaches issue.json and task.md, for a built-in
 // --- Fix result's review aids ---------------------------------------------
 
 test("review-package --json gives the review aids and leaves the work item untouched", async () => {
-  // What Copy Review Prompt and the Validation checklist run (Batch 9): the real
+  // What Copy Review Prompt and the Validation checklist run: the real
   // CLI, the extension's own reader, and a directory that must not change.
   const root = repository();
   const built = buildPrepareArgs(manualForm(), { root });
@@ -430,7 +430,7 @@ test("review-package --json gives the review aids and leaves the work item untou
   assert.ok(review, "the extension could not read review-package --json");
   assert.match(review.prompt, /^# Final Review Request\n/);
   assert.match(review.prompt, new RegExp(`\\.ai/${workItemId}/fix_report\\.md`));
-  // What Review with AI (Batch 10) may put on a command line: the real prompt passes the guard.
+  // What Review with AI may put on a command line: the real prompt passes the guard.
   assert.equal(isPlainPrompt(review.prompt), true, "Review with AI would refuse the canonical prompt");
   // It asks for the four sections Paste Review Output reads, and for no verdict.
   const reply = review.prompt.slice(review.prompt.indexOf("## Summary"));
@@ -448,7 +448,7 @@ test("review-package --json gives the review aids and leaves the work item untou
 });
 
 test("record-review through the extension's own port writes review_report.md, and nothing else", async () => {
-  // Save Review Result (Batch 11) end to end: the payload file, the real CLI,
+  // Save Review Result end to end: the payload file, the real CLI,
   // the extension's readers — and a work item in which only the one file appears.
   const root = repository();
   const built = buildPrepareArgs(manualForm(), { root });
@@ -513,7 +513,7 @@ test("record-review through the extension's own port writes review_report.md, an
 });
 
 test("record-verification through the extension's own port writes verification_report.md, and nothing else", async () => {
-  // Verification Evidence (Batch 12) end to end: the payload file, the real CLI's
+  // Verification Evidence end to end: the payload file, the real CLI's
   // writer, and the extension's parser reading back exactly what was entered —
   // shell-looking evidence included, which must arrive, and stay, as text.
   const root = repository();
@@ -652,7 +652,7 @@ test("Reset Session's Delete runs the real clean on .ai/<id>/ only, and never de
   assert.deepEqual(await deleteWorkItemArtifacts({ root, workItemId: "JR-3", clean: clean("JR-3") }), { kind: "missing" });
 });
 
-// --- pre-release Batch 1: the Repository Profile through the real CLI ----------
+// --- the Repository Profile through the real CLI -------------------------------
 
 test("the Repository Profile port reads, saves and reads back through the real CLI, and a run writes it into task.md", async () => {
   const root = repository();
@@ -698,7 +698,7 @@ test("the Repository Profile port reads, saves and reads back through the real C
   assert.equal(/Qt|C\+\+/.test(task), false, "the detected facts leaked into a Custom profile");
 });
 
-// --- pre-release Batch 2: User and Project instructions through the real CLI ----
+// --- User and Project instructions through the real CLI -------------------------
 
 test("the instructions port reads, saves by stdin, clears and reads back through the real CLI, and a run carries them", async () => {
   const root = repository();
@@ -756,7 +756,7 @@ test("the instructions port reads, saves by stdin, clears and reads back through
   assert.equal(existsSync(path.join(root, ".bugpilot", "instructions.md")), false);
 });
 
-// --- pre-release Batch 3: project settings through the real CLI -------------------
+// --- project settings through the real CLI ----------------------------------------
 
 test("the project settings port reads, saves and reads back through the real CLI, and a run writes the policy and branch", async () => {
   const root = repository();

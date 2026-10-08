@@ -1,4 +1,4 @@
-"""fix_report.md: the one post-agent report (plan §37, Batch 5).
+"""fix_report.md: the one post-agent report (plan §37).
 
 The agent owns the report; BugPilot reads it and renders every derivation in
 memory. These tests hold the section contract and its tolerant parsing, the
@@ -222,7 +222,7 @@ def test_the_post_fix_flow_writes_none_of_the_old_result_files(tmp_path, monkeyp
 
 
 def test_retry_reads_the_report_not_the_old_files(tmp_path, monkeypatch):
-    """A pre-Batch-5 attempt's five files are not read back — no fallback."""
+    """An older attempt's five files are not read back — no fallback."""
     target = _package(tmp_path)
     for name in ("bug_analysis.md", "test_result.md", "review_notes.md"):
         (target / name).write_text("legacy attempt text that must not surface", encoding="utf-8")

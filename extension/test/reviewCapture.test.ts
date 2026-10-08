@@ -1,5 +1,5 @@
 /**
- * Save Review Result's plumbing (Batch 11): what is sent to record-review, how
+ * Save Review Result's plumbing: what is sent to record-review, how
  * its answer is read, and the payload file the review travels in.
  */
 

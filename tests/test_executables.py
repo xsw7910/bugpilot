@@ -1,6 +1,6 @@
 """No program is ever started from the repository just because it is the cwd.
 
-Pre-release Batch 2, A. On Windows a bare program name is looked up in the
+On Windows a bare program name is looked up in the
 current directory before PATH — by CreateProcess and by ``shutil.which`` alike
 — unless ``NoDefaultCurrentDirectoryInExePath`` is set. BugPilot runs with the
 repository as its current directory, so a committed ``git.exe`` or ``rg.exe``

@@ -1,5 +1,5 @@
 /**
- * User and Project instructions, as the panel holds them (pre-release Batch 2):
+ * User and Project instructions, as the panel holds them:
  * the command lines, reading the CLI's answer as untrusted input, the stale
  * check's fingerprint, and the rows' wording.
  */

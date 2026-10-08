@@ -142,7 +142,7 @@ def _read_url(
     the moment the caller is not a person, and an unhandled EOFError turns a
     piped stdin into a traceback; the existing tests found both.
     """
-    # The same rule every Jira request applies (pre-release Batch 2): https://
+    # The same rule every Jira request applies: https://
     # only, no credentials in the URL. A saved site that breaks it is not kept by
     # pressing Enter.
     kept = _valid_site(existing)

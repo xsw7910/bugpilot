@@ -119,7 +119,7 @@ export function createUiPort(deps: UiPortDeps): UiPort {
     runInTerminal: (name, cwd, commandLine) => {
       // The shell resolves the agent's name; with this switch cmd.exe — and every
       // program started inside the terminal, such as an npm shim's `node` — skips
-      // the repository, the working directory (pre-release Batch 2, A).
+      // the repository, the working directory.
       const terminal = vscode.window.createTerminal({ name, cwd, env: { ...childEnvironmentAdditions() } });
       terminal.show();
       terminal.sendText(commandLine, true);
@@ -336,7 +336,7 @@ export async function mcpConfigured(
 
 
 /**
- * Whether an AI CLI is there to run (pre-release Batch 2, A): resolved under
+ * Whether an AI CLI is there to run: resolved under
  * `executablePath.ts`'s policy — PATH's absolute entries, never the working
  * directory — and not executed at all. A program Node can start (`.exe`) or a
  * launcher a terminal's shell runs (`claude.cmd`) both count: the question the

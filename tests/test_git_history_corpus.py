@@ -1,12 +1,12 @@
-"""Git History v2, Batch 5: the corpus, and the two rules it changed.
+"""Git History: the corpus, and the two rules it changed.
 
 The corpus (``git_history_corpus.py``) is one synthetic history and nineteen
-queries against it; the floors below are what Batch 5 measured, so a change
-that loses any of it fails here. The two rules Batch 5 changed — merge
-wrappers and broad terms — each have small histories of their own as well,
-which Batch 4 got wrong in the way each test names. Every history is written
-with ``git fast-import`` at fixed dates: nothing depends on the clock or on
-how fast git answers.
+queries against it; the floors below are what the current ranking measures,
+so a change that loses any of it fails here. The two rules the corpus changed
+— merge wrappers and broad terms — each have small histories of their own as
+well, which the earlier ranking got wrong in the way each test names. Every
+history is written with ``git fast-import`` at fixed dates: nothing depends on
+the clock or on how fast git answers.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ def merges(tmp_path_factory):
 
 
 def test_a_merge_that_only_repeats_its_branch_is_not_listed(merges):
-    # Batch 4 listed the wrapper as well, first (newest), taking a slot for a
+    # The earlier ranking listed the wrapper as well, first (newest), taking a slot for a
     # change its two commits already stand for.
     root, hashes = merges
     record = _record(root, GitHistoryQuery(issue_id="JR-12345"))
@@ -83,7 +83,7 @@ def test_a_merge_that_only_repeats_its_branch_is_not_listed(merges):
 
 
 def test_a_supporting_file_counts_one_change_once(merges):
-    # Batch 4 read the wrapper's files too (everything the branch brought), so
+    # The earlier ranking read the wrapper's files too (everything the branch brought), so
     # each file of the change was "changed in 2 related commits".
     root, hashes = merges
     query = GitHistoryQuery(issue_id="JR-12345", ranked_files=("src/Angle.cpp",), known_files=("src/Angle.cpp",))
@@ -95,8 +95,8 @@ def test_a_supporting_file_counts_one_change_once(merges):
 
 
 def test_a_merge_that_resolved_a_conflict_stays_and_lends_only_its_own_files(merges):
-    # The resolution is a change nobody else made: the merge stays. Batch 4
-    # had it lend its branch's file a second time.
+    # The resolution is a change nobody else made: the merge stays. The earlier
+    # ranking had it lend its branch's file a second time.
     root, hashes = merges
     record = _record(root, GitHistoryQuery(issue_id="JR-23456"))
     assert set(_labels(hashes, record.commits)) == {"conflict-feature", "resolution"}
@@ -209,7 +209,7 @@ _DIALOG = GitHistoryQuery(shared_keywords=("template",), ranked_files=("src/ui/D
 
 
 def test_a_broad_keyword_no_longer_fills_the_list_on_its_own(templates):
-    # Batch 4: 24 routine commits at 30 points each pushed the dialog's own
+    # Previously, 24 routine commits at 30 points each pushed the dialog's own
     # history (20 points) out of a ten-commit list.
     root, hashes = templates
     record = _record(root, _DIALOG)
@@ -271,7 +271,7 @@ def test_only_a_broad_term_carries_the_broad_mark_and_it_survives_a_round_trip(t
     assert git_history_from_dict(written) == record
 
 
-# --- review fixes (Batch 5) ----------------------------------------------------------------------
+# --- review fixes ----------------------------------------------------------------------
 
 
 def test_a_short_list_is_the_start_of_the_default_one_even_past_bulk_commits(tmp_path):
@@ -357,7 +357,7 @@ def test_a_merge_that_brought_in_a_bulk_change_is_bulk(tmp_path):
 
 
 def test_one_signal_each_ranks_in_the_plans_order():
-    # Plan §10, checked in Batch 5 and not retuned (no corpus case moved when
+    # Plan §10, checked on the corpus and not retuned (no corpus case moved when
     # any of these weights did): the issue ID; then the strong signals — a
     # commit keyword, an Additional File, a Focus File; a shared Keyword; a
     # Code Search file; an extracted term; and recency, which never outweighs
@@ -403,9 +403,10 @@ def test_the_corpus_covers_every_scenario():
     }
 
 
-def test_the_corpus_stays_at_least_as_good_as_batch_5_measured(results):
-    # Batch 4 on the same corpus: recall 0.889, top-5 precision 0.482, 31
-    # noise commits, 1 duplicate merge, supporting precision 0.886 (4 noise files).
+def test_the_corpus_stays_at_least_as_good_as_measured(results):
+    # The earlier ranking on the same corpus: recall 0.889, top-5 precision 0.482,
+    # 31 noise commits, 1 duplicate merge, supporting precision 0.886 (4 noise
+    # files).
     summary = corpus.summarise(list(results.values()))
     assert summary["commit_recall"] >= 0.917
     assert summary["top5_precision"] >= 0.542

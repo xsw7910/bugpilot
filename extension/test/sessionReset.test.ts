@@ -90,7 +90,7 @@ test("every form field is classified, and only the AI Agent, branch policy, repo
   // test failure, and states the decision in one line. The branch policy is how
   // the developer works with branches, not anything about this issue (§37.127);
   // the Repository Profile is a copy of the repository's own file, which a
-  // session reset never touches (pre-release Batch 1).
+  // session reset never touches.
   assert.deepEqual(Object.keys(FORM_FIELD_SCOPE).sort(), Object.keys(DEFAULT_FORM).sort());
   assert.deepEqual(
     Object.entries(FORM_FIELD_SCOPE)
@@ -110,7 +110,7 @@ test("every form field is classified, and only the AI Agent, branch policy, repo
       "repositoryNotes",
       "repositoryProfile",
       "repositoryTestFramework",
-      // The repository's project settings (Batch 3), copies of its own file.
+      // The repository's project settings, copies of its own file.
       "verifyFullSuite",
       "verifyRelevantTests",
       "verifyReportNotRun",
@@ -440,7 +440,7 @@ test("why nothing was reset is said without any path but the work item's own fol
   assert.match(deletionProblem({ kind: "failed", reason: "exit-1" }, "JR-12345"), /\.ai\/JR-12345\//);
 });
 
-// --- writing into the work item folder (pre-release Batch 2, D) -----------------
+// --- writing into the work item folder -----------------
 
 test("the extension's write into .ai/<id>/ lands in the repository's own folder, creating it when needed", async () => {
   const repo = repository();

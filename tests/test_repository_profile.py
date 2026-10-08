@@ -1,4 +1,4 @@
-"""Repository Profile (pre-release Batch 1, F): what task.md says the repository is.
+"""Repository Profile: what task.md says the repository is.
 
 The task used to describe every repository with one fixed language, framework
 and kind of application. These tests hold the replacement to its promises, on

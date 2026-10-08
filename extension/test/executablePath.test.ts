@@ -1,6 +1,6 @@
 /**
  * No program is started from the repository because it is the working
- * directory (pre-release Batch 2, A).
+ * directory.
  *
  * Node (libuv) on Windows looks for a bare name in the working directory before
  * PATH. Every program the extension starts is therefore resolved first — to an

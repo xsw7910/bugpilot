@@ -1,4 +1,4 @@
-"""Git History v2, Batch 4: changed-file feedback — supporting files from related commits.
+"""Git History: changed-file feedback — supporting files from related commits.
 
 The strongest retained commits are asked which files they changed; the ones
 Code Search did not return become *supporting files* in Git history's own
@@ -372,7 +372,7 @@ def test_the_section_round_trips_its_supporting_files_and_stays_version_1(repo):
     assert "@@" not in json.dumps(data) and "diff --git" not in json.dumps(data)
 
 
-def test_a_batch_3_section_without_the_list_reads_as_none():
+def test_an_older_section_without_the_list_reads_as_none():
     data = git_history_to_dict(GitHistoryRecord("completed"))
     data.pop("supporting_files")
     assert git_history_from_dict(data).supporting_files == ()

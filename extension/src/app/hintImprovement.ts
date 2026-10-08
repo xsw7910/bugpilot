@@ -172,7 +172,7 @@ export function hintCacheKey(input: {
  * a command line is the one place where untrusted text becomes a shell's
  * problem.
  *
- * And the CLI gets nothing to act with (pre-release Batch 2, C): the prompt
+ * And the CLI gets nothing to act with: the prompt
  * carries a Jira issue's own words, so whatever permission mode the developer
  * set for their own sessions must not apply to it.
  *

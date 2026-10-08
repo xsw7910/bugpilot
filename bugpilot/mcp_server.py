@@ -45,8 +45,8 @@ try:
 except ModuleNotFoundError as _missing:
     # `bugpilot-mcp` is installed with every bugpilot; the SDK only with the
     # `mcp` extra. Without it (or with a 1.x SDK, which has no `mcpserver`),
-    # `main` says how to add it instead of ending in a traceback (pre-release
-    # Batch 4.1). Any other missing module is a real error and is raised.
+    # `main` says how to add it instead of ending in a traceback. Any other
+    # missing module is a real error and is raised.
     if (_missing.name or "").split(".")[0] != "mcp":
         raise
     _MCP_MISSING = True

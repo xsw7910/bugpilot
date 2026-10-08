@@ -21,13 +21,13 @@ What is deliberately *not* here:
   Markdown.
 
 Git history's structured result lives here too, as the ``git_history`` section
-(Git History Retrieval v2, Batch 3): the place the artifact contract reserved
+(Git History Retrieval v2): the place the artifact contract reserved
 for it, so the work item keeps its five files. It is written by the Git history
 step into the retrieval Code Search wrote, and is absent when that step did not
 run — Code Search rewrites the file without it, so a section is never left over
 from an earlier run. It carries its own ``schema_version``: a reader that does
-not understand it ignores it, and the code search part stays readable. Since
-Batch 4 it also holds ``supporting_files`` — files Git history's commits
+not understand it ignores it, and the code search part stays readable. It
+also holds ``supporting_files`` — files Git history's commits
 changed that Code Search did not return, each marked ``source: "git_history"``
 — which stay in that section and never join ``related_files``.
 """
@@ -105,7 +105,7 @@ GIT_HISTORY_STATUSES = ("completed", "unavailable", "nothing_to_search")
 COMMIT_TERM_SOURCES = ("issue_id", "additional_commit_keyword", "shared_keyword", "extracted_term")
 #: Why a file counted as evidence for a commit.
 COMMIT_FILE_SOURCES = ("shared_focus_file", "additional_file", "code_search_ranked_file")
-#: The provenance of every supporting file (Batch 4): found through Git history's
+#: The provenance of every supporting file: found through Git history's
 #: commits, never by Code Search. One value, written out so no reader can mistake
 #: the list for search results.
 SUPPORTING_FILE_SOURCE = "git_history"
@@ -119,7 +119,7 @@ class CommitTerm:
 
     value: str
     source: str
-    #: Matched too many candidate commits to count fully (Batch 5): written as
+    #: Matched too many candidate commits to count fully: written as
     #: ``"broad": true`` only when set, so every other term reads as before.
     broad: bool = False
 
@@ -153,7 +153,7 @@ class RecordedCommit:
 
 @dataclass(frozen=True)
 class SupportingFile:
-    """A file the related commits changed that Code Search did not return (Batch 4).
+    """A file the related commits changed that Code Search did not return.
 
     Supporting evidence, not a search result: it lives in Git history's section
     and never in ``related_files``. The commits that changed it are named by
@@ -193,7 +193,7 @@ class GitHistoryRecord:
     #: Sentences a reader should see: why there is no result, or that it is partial.
     warnings: tuple[str, ...] = ()
     #: Files the strongest commits changed that Code Search did not find, best
-    #: first (Batch 4). Absent from a section written before Batch 4.
+    #: first. Absent from a section written by an older version.
     supporting_files: tuple[SupportingFile, ...] = ()
 
     @property
@@ -449,7 +449,7 @@ def git_history_from_dict(data: object) -> GitHistoryRecord | None:
             if isinstance(item, dict) and isinstance(item.get("hash"), str) and item.get("hash")
         ),
         warnings=_strings(data.get("warnings")),
-        # A Batch 3 section has no list: no supporting files, not an error.
+        # A section from an older version has no list: no supporting files, not an error.
         supporting_files=tuple(
             SupportingFile(
                 path=str(item.get("path")),

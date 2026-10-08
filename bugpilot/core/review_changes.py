@@ -1,7 +1,7 @@
 """The current changes, collected by BugPilot for a reviewer that cannot run commands.
 
-Review with AI's captured review runs the agent without a shell (pre-release
-Batch 2, C): it can read files, and nothing else. What it used to look up with
+Review with AI's captured review runs the agent without a shell: it can read
+files, and nothing else. What it used to look up with
 ``git diff`` and ``git status`` it now receives in its prompt, collected here by
 BugPilot itself — with a fixed argv, the git found on PATH, and the switches
 that keep a repository's own configuration from running a program
@@ -153,4 +153,3 @@ def _git(repo_root: Path, args: list[str]) -> tuple[int, str]:
     except (OSError, subprocess.TimeoutExpired):
         return 1, ""
     return completed.returncode, completed.stdout
-

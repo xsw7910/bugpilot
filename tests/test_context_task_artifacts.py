@@ -1,4 +1,4 @@
-"""context.md and task.md: the two agent-facing artifacts (plan §37, Batch 3).
+"""context.md and task.md: the two agent-facing artifacts (plan §37).
 
 Six files used to carry what an agent reads — a context, a git report, a memory
 report, a task, a handoff and a copy of the team instructions. Two remain.
@@ -285,7 +285,7 @@ def test_the_task_carries_the_task_the_handoff_and_the_team_rules(tmp_path):
     assert "### Core Principles" in task
     assert "### Git Safety" in task
     assert "Nothing later in this task relaxes them." in rules
-    # Then what the repository is, from its profile (pre-release Batch 1).
+    # Then what the repository is, from its profile.
     assert "Repository profile:" in _section(task, "## Repository Context")
     inputs = _section(task, "## Required Input Files")
     assert f"- Read `.ai/{work_item}/context.md`." in inputs
@@ -322,7 +322,7 @@ def test_a_standalone_rebuild_reproduces_the_pipelines_context(tmp_path, monkeyp
     They are not derivable from `issue.json`, but `retrieval.json` records them
     as `source: "user"` terms. A rebuild that forgot them would show Search
     Terms and a quality score that disagree with the Relevant Files rendered
-    from that same retrieval — found by the Batch 3 review.
+    from that same retrieval — found in review.
     """
     _repo(tmp_path)
     spec = bug_spec_from_description(
@@ -418,7 +418,7 @@ def test_agent_task_rewrites_task_md_from_the_canonical_files(tmp_path, monkeypa
 
 
 def _old_layout(root: Path, work_item: str = "JR-12345") -> Path:
-    """A work item directory from before Batch 3: context and task under the old names."""
+    """A work item directory from an older version: context and task under the old names."""
     target = root / ".ai" / work_item
     target.mkdir(parents=True)
     (target / "bug_context.md").write_text("# Bug Context: JR-12345\n", encoding="utf-8")

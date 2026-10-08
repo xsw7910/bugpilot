@@ -1,5 +1,5 @@
 /**
- * Git History Settings (Git History Retrieval v2, Batch 2), extension side:
+ * Git History Settings (Git History Retrieval v2), extension side:
  * the form fields, what they put on the command line, how an old saved form
  * reads them, the page's section and its copy of the model, and what the log
  * may show. The host's staleness rule for them is in `controller.test.ts`.
@@ -54,9 +54,9 @@ const PAGE_JS = readFileSync(new URL("../media/panel.js", import.meta.url), "utf
 const CSS = readFileSync(new URL("../media/panel.css", import.meta.url), "utf8");
 const MODELS_PY = readFileSync(new URL("../../bugpilot/core/models.py", import.meta.url), "utf8");
 
-// --- defaults are Batch 1 ----------------------------------------------------------
+// --- the defaults ------------------------------------------------------------------
 
-test("the defaults are Batch 1's: every switch on, nothing added, recent, the CLI's count", () => {
+test("the defaults: every switch on, nothing added, recent, the CLI's count", () => {
   for (const field of GIT_SWITCH_FIELDS) assert.equal(DEFAULT_FORM[field], true, field);
   assert.equal(DEFAULT_FORM.gitKeywords, "");
   assert.equal(DEFAULT_FORM.gitFiles, "");
@@ -64,7 +64,7 @@ test("the defaults are Batch 1's: every switch on, nothing added, recent, the CL
   assert.equal(DEFAULT_FORM.gitMaxCommits, "");
 });
 
-test("a form at the defaults sends no Git flag: the command line is Batch 1's", () => {
+test("a form at the defaults sends no Git flag at all", () => {
   assert.deepEqual(gitFlags(argsOf(form())), []);
   assert.deepEqual(gitFlags(argsOf(form({ keywords: "postblend", focusFiles: "src/a.cpp" }))), []);
 });

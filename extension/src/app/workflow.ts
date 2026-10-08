@@ -1,13 +1,13 @@
 /**
  * The one list the panel shows: investigation and the AI fix, as six steps —
- * and, since Batch 6, the place their results live.
+ * and the place their results live.
  *
  * Before phase 5 the panel had an "Investigate" fieldset of checkboxes, a
  * "Progress" checklist that repeated the same five labels, and a "Hand off"
  * card. Phase 5 merged those into one row per step, carrying both the choice
  * and the outcome. The results still lived elsewhere, though — a Context Ready
  * card above the rows held the counts, the files, the terms, the context
- * actions and the Fix with AI button. Batch 6 finishes the merge: **a step owns
+ * actions and the Fix with AI button. Now the merge is complete: **a step owns
  * its result, its canonical artifact and its actions**, so each row here is a
  * `WorkflowStepResult` and the page renders nothing about a run that is not on
  * one of them.
@@ -20,7 +20,7 @@
  * live stream, or `run.json` for a reopened work item), the files on disk, and
  * the two artifacts the host parses (`issue.json`, `retrieval.json`). Git
  * history reports from its structured section of `retrieval.json` (Git History
- * v2, Batch 3) — "6 related commits found" and a Related commits disclosure —
+ * v2) — "6 related commits found" and a Related commits disclosure —
  * and says only "Completed" for a work item prepared before that section
  * existed. Similar fixes says "Completed": its result lives inside
  * `context.md`, and nothing is parsed out of prose for a summary line.
@@ -73,7 +73,7 @@ export type WorkflowStepId =
  * they run in.
  *
  * `fixResult` is not among them: nobody ticks it and no run performs it. It is
- * a row that exists only while `fix_report.md` does (Batch 8), after these six.
+ * a row that exists only while `fix_report.md` does, after these six.
  */
 export const WORKFLOW_STEP_IDS: readonly Exclude<WorkflowStepId, "fixResult">[] = [
   "issueDetails",
@@ -116,13 +116,13 @@ export type StepActionId =
   | "reviewWithAI"
   // While a captured review runs (§37.82): end it, after the host asks.
   | "cancelReview"
-  // Review Result (Batch 11): record one, replace the one recorded, open it —
+  // Review Result: record one, replace the one recorded, open it —
   // and fill the form from a pasted structured review first, if wanted.
   | "pasteReviewOutput"
   | "recordReviewResult"
   | "replaceReviewResult"
   | "openReviewReport"
-  // Verification Evidence (Batch 12): record it, edit the recorded checks, open it.
+  // Verification Evidence: record it, edit the recorded checks, open it.
   | "recordVerification"
   | "editVerification"
   | "openVerificationReport";
@@ -135,7 +135,7 @@ export const REVIEW_RESULT_SAVED = "Review result saved";
 
 /**
  * Fix result's Review Result, present exactly while `review_report.md` is
- * listed (Batch 11).
+ * listed.
  *
  * Recorded, never inferred: this says somebody recorded what a review said, in
  * that person's words — the summary line and the findings line are the report's
@@ -154,7 +154,7 @@ export interface ReviewResultView {
 
 /**
  * Fix result's Verification Evidence, present exactly while
- * `verification_report.md` is listed (Batch 12).
+ * `verification_report.md` is listed.
  *
  * Counts of recorded statuses and the checks' names — what the user recorded,
  * scoped to each check. No global badge: the overall line is one of the four
@@ -182,7 +182,7 @@ export interface VerificationCheckView {
 }
 
 /**
- * The recorded checks, sent once for Edit (Batch 12): `token` changes per
+ * The recorded checks, sent once for Edit: `token` changes per
  * request, so the page opens the form for this request and not again on the
  * next push. `structured` is false when the report is not in BugPilot's shape —
  * the form then starts empty, and saving replaces the report.
@@ -197,7 +197,7 @@ export interface VerificationEdit {
 
 /**
  * Review with AI's attempt for the fix on screen, as this session saw it
- * (Batch 10; captured reviews since §37.80). Transient: the attempt's own
+ * (captured reviews: §37.80). Transient: the attempt's own
  * progress is never written. Whether the *current fix* has had an attempt
  * started is a separate, persisted fact (`reviewedCurrentFix`), which is what
  * hides the button across a reload.
@@ -337,7 +337,7 @@ export interface GitHistoryContent {
   /** In the record's order; never empty — a row with no commits has no disclosure. */
   readonly commits: readonly RelatedCommitRow[];
   /**
-   * Files those commits changed that Code Search did not return (Batch 4) —
+   * Files those commits changed that Code Search did not return —
    * Git history's evidence, its own disclosure under this row, never Code
    * search's Relevant files. Absent when there are none.
    */
@@ -699,7 +699,7 @@ function statusTextOf(step: RowDraft): string {
   // The agent runs in a terminal this extension does not own: started is all
   // that is known, and "Completed" would claim the fix was done.
   if (step.status === "success" && step.id === "fixWithAI") return "Started";
-  // A report on disk is something to read, never a verdict (Batch 8).
+  // A report on disk is something to read, never a verdict.
   if (step.id === "fixResult") return "Report available";
   return STATUS_TEXT[step.status];
 }

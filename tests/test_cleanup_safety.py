@@ -1,4 +1,4 @@
-"""`clean` and `bug --fresh` never delete through a link (pre-release Batch 1, E).
+"""`clean` and `bug --fresh` never delete through a link.
 
 A symlinked or junctioned `.ai`, `.ai/<id>` or `.ai_memory` used to pass the
 containment check — both sides were resolved through the same link — and

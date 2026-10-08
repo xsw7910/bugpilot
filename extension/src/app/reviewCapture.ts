@@ -1,5 +1,5 @@
 /**
- * Save Review Result (Batch 11): the four sections the developer typed — or
+ * Save Review Result: the four sections the developer typed — or
  * pasted and read by Paste Review Output, then checked — on their way to
  * `bugpilot record-review`.
  *

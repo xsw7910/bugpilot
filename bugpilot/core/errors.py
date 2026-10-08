@@ -25,7 +25,7 @@ JIRA_NETWORK_ERROR = "JIRA_NETWORK_ERROR"
 JIRA_INVALID_RESPONSE = "JIRA_INVALID_RESPONSE"
 JIRA_ERROR = "JIRA_ERROR"
 # The configured Jira site is not an https:// address BugPilot will send
-# credentials to (pre-release Batch 2).
+# credentials to.
 JIRA_INVALID_SITE = "JIRA_INVALID_SITE"
 # Jira redirected to another origin, and the credentials were not sent there.
 JIRA_REDIRECT_REFUSED = "JIRA_REDIRECT_REFUSED"

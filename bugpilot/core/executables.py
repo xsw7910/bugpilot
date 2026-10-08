@@ -6,7 +6,7 @@ Windows a bare program name is looked up in the current directory *before*
 ``PATH`` — by ``CreateProcess`` and by ``shutil.which`` alike, unless the
 ``NoDefaultCurrentDirectoryInExePath`` variable happens to be set — so a
 ``git.exe`` committed to a repository would run instead of Git the moment
-BugPilot touched it (pre-release Batch 2, A).
+BugPilot touched it.
 
 So no program is started by its bare name. :func:`find_executable` resolves a
 name to an absolute path using only the absolute entries of ``PATH``, in order,

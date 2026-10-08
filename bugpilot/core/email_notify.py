@@ -287,7 +287,7 @@ def _jira_link(repo_root: Path, issue_key: str) -> str:
     if not base_url:
         return ""
     # The site Jira requests accept, or no link: an http:// or credential-bearing
-    # value never reaches a recipient's mailbox (pre-release Batch 2, B).
+    # value never reaches a recipient's mailbox.
     try:
         site = normalize_jira_site(base_url)
     except JiraSiteError:

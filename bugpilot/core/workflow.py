@@ -128,7 +128,7 @@ class WorkflowResult:
 # and every entry point now lets a person type this list by hand.
 MAX_SUPPLIED_KEYWORDS = 20
 
-# What the agent must leave behind: one report (plan §37, Batch 5). The name
+# What the agent must leave behind: one report (plan §37). The name
 # and shape are the extension's `RESULT_FILES` mirror and the tests' contract.
 REQUIRED_COPILOT_RESULT_FILES = [
     FIX_REPORT_ARTIFACT,
@@ -186,7 +186,7 @@ def refine_investigation(
         save_issue(repo_root, issue)
     # And the search uses the same hint the task file will carry: the new one,
     # else the one issue.json records. Searching without the recorded hint
-    # while the regenerated task still named it was the Batch 1 finding (§37.5).
+    # while the regenerated task still named it was a real defect (§37.5).
     hint = _effective_hint(options.hint, issue.guidance.hint)
     search_options = replace(options, hint=hint) if hint else options
     # What the retrieval steps produce, handed to the steps after them in memory.
@@ -383,7 +383,7 @@ def run_investigation(
 
     # Every place this run will write is checked before the first write, so a
     # linked `.ai_memory` refuses the run up front rather than after task.md was
-    # written (pre-release Batch 2: no partial write through a link).
+    # written (no partial write through a link).
     if "memory_add" in resolved:
         writable_memory_file(repo_root, issue_key, create=False)
     target = _prepare_issue_dir(repo_root, issue_key)
@@ -487,7 +487,7 @@ def run_investigation(
     # a file that cannot be used is one of this run's warnings.
     instructions = load_instructions(repo_root)
     _log_instructions(target, instructions)
-    # And the repository's Verification Policy and branch naming (Batch 3).
+    # And the repository's Verification Policy and branch naming.
     project_settings = resolve_project_settings(repo_root)
     _log_project_settings(target, project_settings)
     command = f"bugpilot bug {issue_key}"
@@ -978,7 +978,7 @@ def git_context_step(
     section — the one source the context and the panel render the commits
     from — and handed to the context step in memory as well. How it searches is
     this run's Git History Settings (``options.git_history``); a standalone run
-    has none and uses the defaults, which are Batch 1's behaviour.
+    has none and uses the defaults.
 
     ``record=False`` — ``bugpilot git-context`` — only returns the outcome to
     print: neither the section nor ``run.json`` changes, as before v2, so the
@@ -1108,7 +1108,7 @@ def _git_history_query(
         git_files=tuple(path for path in settings.files if path.strip()),
         ranked_files=tuple(retrieval.top_files(RANKED_HISTORY_FILES)) if retrieval is not None else (),
         # Every file Code Search returned: never searched, only never offered
-        # again as a supporting file (Batch 4).
+        # again as a supporting file.
         known_files=tuple(item.file for item in retrieval.related_files) if retrieval is not None else (),
     )
 
@@ -1180,7 +1180,7 @@ def _task_branch(
     and is derived each time. The title names it; a hand-written bug's name
     comes from the title alone (see ``branch_name``).
 
-    The repository's branch naming template (Batch 3) shapes only a name that is
+    The repository's branch naming template shapes only a name that is
     derived: a recorded one is reused as it is, so changing the template never
     renames a work item's branch.
     """
@@ -2109,7 +2109,7 @@ def _build_result_overview(repo_root: Path, issue_key: str) -> str:
 
     Rendered, never persisted: everything here derives from `fix_report.md`,
     `retrieval.json` and the issue, and a second persisted copy of the report
-    was exactly the redundancy Batch 5 removed.
+    would only be redundant.
     """
     report = read_fix_report(repo_root, issue_key)
     if report is None:

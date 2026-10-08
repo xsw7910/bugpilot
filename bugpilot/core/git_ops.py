@@ -109,8 +109,8 @@ def branch_name(issue_key: str, description: str | None = None, template: str | 
     — the same bug, the same branch — or, for a title with nothing to slug
     (one in another script), from a hash of the title.
 
-    ``template`` is the repository's branch naming template (pre-release
-    Batch 3, ``project_settings.json``): ``{issue}`` and ``{slug}`` in a fixed
+    ``template`` is the repository's branch naming template
+    (``project_settings.json``): ``{issue}`` and ``{slug}`` in a fixed
     pattern such as ``bugfix/{issue}-{slug}``. None or empty is the default
     above, unchanged. A template only names a branch; whether one is created
     is the branch policy's, and a recorded name is reused before any template.
@@ -153,7 +153,7 @@ def branch_template_problem(template: str) -> str | None:
     beginning with ``.`` or ending in ``.lock`` or ``/``, and no leading
     ``refs/``, which names a ref rather than a branch.
 
-    ``{issue}`` must appear (pre-release Batch 4.1). ``{slug}`` alone named two
+    ``{issue}`` must appear. ``{slug}`` alone named two
     issues with the same title — or any two non-Latin titles, whose slug is
     empty — the same branch, so under "one branch per issue" one issue's work
     could land on another's branch.

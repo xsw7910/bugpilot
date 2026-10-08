@@ -303,7 +303,7 @@ export class ProgressTracker {
 
   /**
    * The CLI could not take part: too old for this extension's arguments, or not
-   * there at all (pre-release Batch 1, D).
+   * there at all.
    *
    * Not retryable, and not routed through `diagnose()`: running the same CLI
    * again fails the same way until it is updated or found, and this failure is

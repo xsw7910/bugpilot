@@ -1,4 +1,4 @@
-"""retrieval.json: the one canonical retrieval artifact (plan §37, Batch 2).
+"""retrieval.json: the one canonical retrieval artifact (plan §37).
 
 The search stage used to leave four files. It now leaves one typed artifact,
 written once and atomically, and every later reader — the context, git
@@ -36,7 +36,7 @@ from bugpilot.core.retrieval import (
 needs_rg = pytest.mark.skipif(shutil.which("rg") is None, reason="code search needs ripgrep")
 
 RETRIEVAL_KEYS = {"schema_version", "confidence", "reasons", "noise_indicators", "terms", "related_files"}
-#: A prepare run's Git history step adds its section (Git History v2, Batch 3).
+#: A prepare run's Git history step adds its section (Git History v2).
 PREPARED_RETRIEVAL_KEYS = RETRIEVAL_KEYS | {"git_history"}
 TERM_KEYS = {
     "value", "source", "weight", "effective_weight", "match_count", "classification", "derived_from", "status",

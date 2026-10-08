@@ -65,8 +65,8 @@ test("the page's sections, in order: the shared inputs just before the retrieval
     [...WORKFLOW_SETTINGS_SECTIONS],
     ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "repository", "ai-instructions", "build-context", "fix-with-ai", "branch"],
   );
-  // AI instructions (pre-release Batch 2) holds a document edited on its own
-  // page, and since Batch 3 the Verification Policy's four switches: all of it
+  // AI instructions holds a document edited on its own
+  // page, and the Verification Policy's four switches: all of it
   // task.md's, so wholly "Requires rebuild".
   assert.deepEqual([...SETTINGS_SECTION_FIELDS["ai-instructions"]], ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun"]);
   assert.deepEqual([...SETTINGS_SECTION_FIELDS.branch], ["branchPolicy", "branchNaming", "branchTemplate"]);
@@ -127,7 +127,7 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   repositoryBuildSystem: { repositoryBuildSystem: "Cargo" },
   repositoryTestFramework: { repositoryTestFramework: "cargo test" },
   repositoryNotes: { repositoryNotes: "No unsafe code." },
-  // The project settings (Batch 3): the Verification Policy is a section of
+  // The project settings: the Verification Policy is a section of
   // task.md, and a template names the branch — used only while Custom is chosen.
   verifyRelevantTests: { verifyRelevantTests: false },
   verifyStaticChecks: { verifyStaticChecks: false },

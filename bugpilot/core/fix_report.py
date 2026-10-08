@@ -1,4 +1,4 @@
-"""fix_report.md: the one post-agent workflow report (plan §37, Batch 5).
+"""fix_report.md: the one post-agent workflow report (plan §37).
 
 Five agent-written files used to carry the outcome — analysis, fix summary,
 test result, diff summary, review notes — and BugPilot then derived four more

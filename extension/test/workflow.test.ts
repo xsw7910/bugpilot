@@ -184,7 +184,7 @@ test("only Build context and Fix with AI ever offer actions, and never the folde
   assert.equal(canOpenFolder(["issue.json"]), true);
 });
 
-// --- each row's result (Batch 6) --------------------------------------------
+// --- each row's result --------------------------------------------
 
 const ISSUE = { id: "JR-12345", source: "jira", title: "WidgetController rejects the CSV output type" };
 
@@ -526,7 +526,7 @@ test("an AI step that could not start is not reported as a finished run", () => 
   });
 });
 
-// --- Fix result (Batch 8) ---------------------------------------------------
+// --- Fix result ---------------------------------------------------
 
 /** What a prepare leaves, and the same with the agent's report beside it. */
 const PREPARED_FILES = ["issue.json", "retrieval.json", "context.md", "task.md", "run.json"];
@@ -667,7 +667,7 @@ test("none of the header's words claim more than a report exists", () => {
   }
 });
 
-// --- Review with AI on Fix result (Batch 10) --------------------------------
+// --- Review with AI on Fix result --------------------------------
 
 const reviewed = (review?: WorkflowInput["review"]) =>
   finished({ artifacts: WITH_REPORT, fixReport: { readable: true, summary: "Fixed it." }, ...(review ? { review } : {}) });
@@ -715,7 +715,7 @@ test("a review handoff moves neither Fix with AI nor the workflow header", () =>
   }
 });
 
-// --- Batch 11: Review Result on Fix result ---------------------------------------
+// --- Review Result on Fix result -------------------------------------------------
 
 const WITH_REVIEW = [...WITH_REPORT, "review_report.md"];
 const REVIEWED = {
@@ -809,7 +809,7 @@ test("nothing on Review Result claims a review passed, finished or verified anyt
   }
 });
 
-// --- Batch 12: Verification Evidence on Fix result --------------------------------
+// --- Verification Evidence on Fix result ------------------------------------------
 
 const WITH_EVIDENCE = [...WITH_REPORT, "verification_report.md"];
 const EVIDENCE = {

@@ -100,7 +100,7 @@ class BugSpec:
         return self.source == SOURCE_JIRA and bool(self.source_ref)
 
 
-#: History Depth's options (Git History Settings). ``recent`` is Batch 1's bounds;
+#: History Depth's options (Git History Settings). ``recent`` is the default bounds;
 #: ``git_history.HISTORY_DEPTH_LIMITS`` says what each one reads.
 GIT_HISTORY_DEPTHS: tuple[str, ...] = ("recent", "broader")
 DEFAULT_MAX_RELATED_COMMITS = 10
@@ -113,7 +113,7 @@ MAX_RELATED_COMMITS_LIMIT = 25
 class GitHistoryOptions:
     """Git History Settings: how the Git history step searches. Code Search never reads them.
 
-    The defaults are Batch 1's behaviour exactly, so a run that sets none of
+    The defaults keep the original behaviour exactly, so a run that sets none of
     these finds what it found before they existed. ``keywords`` and ``files``
     are Git History's own — Additional Commit Keywords and Additional Files —
     and extend the shared Keywords and Focus Files rather than replace them.

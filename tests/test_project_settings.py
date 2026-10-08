@@ -1,4 +1,4 @@
-"""Project settings: the Verification Policy and branch naming (pre-release Batch 3).
+"""Project settings: the Verification Policy and branch naming.
 
 One file, ``<repo>/.bugpilot/project_settings.json``, read the same way by the
 CLI, the MCP prepare tools and the extension (through ``bugpilot
@@ -336,13 +336,13 @@ def test_generate_task_without_settings_writes_the_defaults():
 
 
 def test_change_scope_is_not_a_setting():
-    """Deferred in pre-release Batch 3: every Fix Mode already sets how broad a change may be."""
+    """Deliberately not a setting: every Fix Mode already sets how broad a change may be."""
     assert "change_scope" not in ProjectSettings().to_dict()
     assert "## Change Scope" not in generate_task("JR-1", "Saving crashes")
 
 
 def test_a_file_with_a_bom_is_read_like_any_other(tmp_path, monkeypatch, capsys):
-    """PowerShell 5's `Set-Content -Encoding UTF8` writes a BOM; it is not an error (Batch 4)."""
+    """PowerShell 5's `Set-Content -Encoding UTF8` writes a BOM; it is not an error."""
     root = _repo(tmp_path / "repo")
     (root / ".bugpilot").mkdir()
     data = {"verification": {"full_suite": True}, "branch_naming": {"template": "bugfix/{issue}-{slug}"}}
@@ -359,7 +359,7 @@ def test_a_file_with_a_bom_is_read_like_any_other(tmp_path, monkeypatch, capsys)
 
 
 def test_a_deeply_nested_file_is_the_defaults_not_a_crash(tmp_path, monkeypatch, capsys):
-    """Under the size cap, but deep enough that json raises RecursionError (Batch 4)."""
+    """Under the size cap, but deep enough that json raises RecursionError."""
     root = _repo(tmp_path / "repo")
     (root / ".bugpilot").mkdir()
     nested = "[" * 30_000 + "]" * 30_000  # 60 KB: under the 64 KB cap
@@ -375,7 +375,7 @@ def test_a_deeply_nested_file_is_the_defaults_not_a_crash(tmp_path, monkeypatch,
     assert "nested too deeply" in json.loads(capsys.readouterr().out)["error"]["message"]
 
 
-# --- pre-release Batch 4.1: {issue} is required ------------------------------------------
+# --- {issue} is required -----------------------------------------------------------------
 
 
 @pytest.mark.parametrize("template", ["{slug}", "fix/{slug}", "{slug}-fix", "users/dev/{slug}", "team/{slug}/wip"])
@@ -406,7 +406,7 @@ def test_non_latin_titles_give_different_branches():
 
 
 def test_a_saved_template_without_issue_is_not_used_and_a_recorded_branch_is_kept(tmp_path, monkeypatch, capsys):
-    """A file saved before Batch 4.1 with `{slug}` alone: the default name, with a warning —
+    """A file saved by an older version with `{slug}` alone: the default name, with a warning —
     and a work item that already recorded its branch keeps it, whatever the template says."""
     root = _repo(tmp_path / "r")
     _settings(root, {"branch_naming": {"template": "bugfix/{issue}-{slug}"}})

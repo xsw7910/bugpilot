@@ -151,7 +151,7 @@ export interface PanelState {
   readonly problems: readonly FieldProblem[];
   readonly progress: ProgressView;
   /**
-   * The six workflow rows, computed by the host — and, since Batch 6, the
+   * The six workflow rows, computed by the host — and the
    * result view: each row carries its own summary, artifact, actions, nested
    * content and failure.
    *
@@ -222,7 +222,7 @@ export interface PanelState {
    */
   readonly repositoryProfile?: RepositoryProfileView;
   /**
-   * The settings page's two instruction rows (pre-release Batch 2): each
+   * The settings page's two instruction rows: each
    * scope's state in one line. Never the text, which only the open editor gets.
    */
   readonly instructions: InstructionsView;
@@ -331,7 +331,7 @@ export interface JiraSetupView {
   readonly request: number;
   /** The stored Atlassian account email, to start the field with. */
   readonly email?: string;
-  /** The Jira site the CLI would use, to start the field with (Batch 3). Not a secret. */
+  /** The Jira site the CLI would use, to start the field with. Not a secret. */
   readonly site?: string;
   /** `JIRA_BASE_URL` sets the site: the field shows it and is not this dialog's to change. */
   readonly siteFromEnvironment: boolean;
@@ -450,21 +450,21 @@ export const PANEL_ACTIONS = [
   // Jira Setup's link (§37.124): the host opens Atlassian's API token page, a
   // fixed address of its own — the page names no URL.
   "openJiraTokenPage",
-  // Fix result's two review aids (Batch 9). Accepted only while a report is on
+  // Fix result's two review aids. Accepted only while a report is on
   // screen: the controller checks, the page merely asks.
   "copyReviewPrompt",
   "loadValidation",
-  // Fix result's reviewer handoff (Batch 10): this one action, never a generic
+  // Fix result's reviewer handoff: this one action, never a generic
   // "run an agent with this prompt". The page names no prompt and no agent; the
   // host builds both, and refuses unless the row is offering it.
   "reviewWithAI",
   // Cancel Review (§37.82): ends the captured review the host is running, after
   // the host asks. The page names no process; there is only ever one.
   "cancelReview",
-  // Review Result's file (Batch 11): an action, not a path — the host opens the
+  // Review Result's file: an action, not a path — the host opens the
   // canonical review_report.md of the work item on screen, and only while listed.
   "openReviewReport",
-  // Verification Evidence (Batch 12): open the canonical verification_report.md,
+  // Verification Evidence: open the canonical verification_report.md,
   // and ask for the recorded checks to edit — the host sends them back once,
   // parsed from the file, only while the report is listed and nothing is in flight.
   "openVerificationReport",
@@ -576,7 +576,7 @@ export type PanelMessage =
     }
   | { readonly type: "saveFixMode"; readonly draft: FixModeDraft }
   /**
-   * "Record what this review said" (Batch 11): four sections of the developer's
+   * "Record what this review said": four sections of the developer's
    * text, bounded. No work item, no path, no replace flag — the host knows which
    * work item is on screen, whether a report is already recorded, and asks
    * before replacing one.
@@ -597,7 +597,7 @@ export type PanelMessage =
   /** Jira Setup's Cancel, or Escape: close it and store nothing. */
   | { readonly type: "closeJiraSetup" }
   /**
-   * An instruction row's Edit (pre-release Batch 2): which scope, and nothing
+   * An instruction row's Edit: which scope, and nothing
    * else — the host knows where each file is, and the page never names a path.
    * Opening reads the file; it never creates one.
    */
@@ -631,7 +631,7 @@ export type PanelMessage =
   /** A verification form closed with nothing worth keeping in it. Bare. */
   | { readonly type: "discardVerificationDraft" }
   /**
-   * "Record these checks as verification evidence" (Batch 12): the rows of the
+   * "Record these checks as verification evidence": the rows of the
    * form, bounded, each with the status the developer chose. No work item and no
    * path. `replace` says the form was opened by Edit; the host passes
    * `--replace` only when that is so and a report is listed.
@@ -772,7 +772,7 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
       // above anything real (an Atlassian token is a few hundred characters).
       const email = message?.["email"];
       const token = message?.["token"];
-      // The site since Batch 3; a page from before it sends none, which reads
+      // The site; a page from an older version sends none, which reads
       // as empty — the host then asks for it rather than guessing one.
       const site = message?.["site"] ?? "";
       if (typeof site !== "string" || site.length > JIRA_SITE_CAP) return undefined;

@@ -122,8 +122,8 @@ def _resolve_launch_command(command: list[str]) -> list[str] | None:
     """Resolve the executable to a runnable form for the current OS.
 
     `find_executable` honors PATHEXT (so it finds `claude.cmd` on Windows) and,
-    unlike shutil.which, never looks in the current directory — the repository
-    (pre-release Batch 2). CreateProcess cannot launch a .cmd/.bat directly, so a
+    unlike shutil.which, never looks in the current directory — the repository.
+    CreateProcess cannot launch a .cmd/.bat directly, so a
     Windows batch shim runs through the system's own cmd.exe, by absolute path.
     """
     resolved = find_executable(command[0])

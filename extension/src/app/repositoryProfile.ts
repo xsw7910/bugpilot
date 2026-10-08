@@ -1,5 +1,5 @@
 /**
- * The Repository Profile, as the panel holds it (pre-release Batch 1, F).
+ * The Repository Profile, as the panel holds it.
  *
  * The profile says what the repository is — Auto-detect (the default), Generic,
  * or Custom details — and `task.md` describes the repository from it. It is

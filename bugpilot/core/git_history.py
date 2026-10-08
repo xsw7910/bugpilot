@@ -3,7 +3,7 @@
 v1 asked one question — "what recently changed in the files Code Search ranked
 highest?" — and so could not find a commit whose files the search missed, even
 one whose message named the issue. Git History Retrieval v2
-(``BugPilot_Git_History_Retrieval_v2_Plan.md``, Batches 1–5) has two candidate
+(``BugPilot_Git_History_Retrieval_v2_Plan.md``) has two candidate
 sources, merged.
 
 - **Commit-message search.** The work item's Jira key, the developer's shared
@@ -101,7 +101,7 @@ MIN_EXTRACTED_TERM_LENGTH = 4
 ISSUE_ID_MAX_COMMITS = 20
 TERM_SEARCH_MAX_COMMITS = 100
 #: Message-only candidates checked, in one command, for which of the *known*
-#: candidate files they touched. Never a discovery of new files (Batch 4).
+#: candidate files they touched. Never a discovery of new files.
 MAX_OVERLAP_CHECK_COMMITS = 60
 #: Commits kept — the Max Related Commits default in plan §6.2.
 MAX_RELATED_COMMITS = DEFAULT_MAX_RELATED_COMMITS
@@ -125,7 +125,7 @@ MAX_PARALLEL_GIT_COMMANDS = 4
 # match outranks everything else on its own; a Focus File or a shared Keyword
 # outranks any Code Search file; recency (5 at most) can never outweigh the
 # weakest real signal (one extracted term, 8). Evidence adds up, so a commit
-# found three ways beats one found once. Tuning from a corpus is Batch 5.
+# found three ways beats one found once.
 
 SCORE_ISSUE_ID = 100
 SCORE_FOCUS_FILE = 40
@@ -141,7 +141,7 @@ SCORE_EXTRA_SHARED_KEYWORD = 10
 SCORE_EXTRACTED_TERM = 8
 MAX_SCORED_EXTRACTED_TERMS = 3
 #: A shared Keyword or extracted term matching more related commits than this
-#: — twice the default list — cannot pick the relevant ones out (Batch 5).
+#: — twice the default list — cannot pick the relevant ones out.
 #: It still counts, a little, and says why; it no longer carries a commit alone.
 #: Fixed rather than read from Max Related Commits, so a shorter list is the
 #: first part of a longer one.
@@ -194,7 +194,7 @@ class GitHistoryQuery:
     #: Code Search's ranked paths, best first.
     ranked_files: tuple[str, ...] = ()
     #: Every file Code Search returned. Never searched — only what changed-file
-    #: feedback (Batch 4) must not offer again as "new".
+    #: feedback must not offer again as "new".
     known_files: tuple[str, ...] = ()
 
     def is_empty(self) -> bool:
@@ -213,8 +213,8 @@ class GitHistoryQuery:
 class GitHistoryLimits:
     """How far one search reads, and by which routes.
 
-    The defaults are Batch 1's — History Depth *Recent*, Max Related Commits 10,
-    both routes on. :func:`limits_for` builds one from the Git History Settings.
+    The defaults are History Depth *Recent*, Max Related Commits 10 and both
+    routes on. :func:`limits_for` builds one from the Git History Settings.
     """
 
     max_related_commits: int = MAX_RELATED_COMMITS
@@ -229,7 +229,7 @@ class GitHistoryLimits:
     search_file_history: bool = True
 
 
-#: What each History Depth reads. *Recent* is Batch 1's bounds. *Broader* reads
+#: What each History Depth reads. *Recent* is the default bounds. *Broader* reads
 #: three times as far back per file, and lets each message walk return three
 #: times as many matches; the message walks already cover all of ``HEAD``'s
 #: history, so it is the per-file and per-walk counts that a depth can move.
@@ -290,7 +290,7 @@ class CommitCandidate:
     focus_files: list[str] = field(default_factory=list)
     #: Additional Files it changed — kept apart from the Focus Files.
     git_files: list[str] = field(default_factory=list)
-    #: Shared Keywords and extracted terms it matched that are broad (Batch 5),
+    #: Shared Keywords and extracted terms it matched that are broad,
     #: each with how many related commits it matched.
     broad_keywords: list[tuple[str, int]] = field(default_factory=list)
     broad_terms: list[tuple[str, int]] = field(default_factory=list)
@@ -299,7 +299,7 @@ class CommitCandidate:
     #: Touched more than ``BULK_COMMIT_FILES`` files; its file matches were dropped.
     bulk: bool = False
     #: For a merge that stays in the list: the retained commits it brought in,
-    #: whose files it must not lend a second time (Batch 5).
+    #: whose files it must not lend a second time.
     merge_members: tuple[str, ...] = ()
     score: int = 0
     reasons: list[str] = field(default_factory=list)
@@ -535,7 +535,7 @@ def file_candidates(repo_root: Path, query: GitHistoryQuery) -> list[FileCandida
 
 #: Bare names resolved per kind (one ``git ls-files`` each): twice the files
 #: walked, so a few names that match nothing still leave room, and a pasted list
-#: of sixty never costs sixty index scans (review, Batch 5).
+#: of sixty never costs sixty index scans (review).
 MAX_NAME_LOOKUPS = 2 * MAX_FOCUS_HISTORY_FILES
 
 
@@ -594,8 +594,8 @@ def _whole_key_walk(issue_id: str, max_count: int) -> _Walk | None:
     Asked only when the fixed-string walk came back full and with near misses
     in it (:func:`_near_misses_filled`): a search for ``JR-12`` also returns
     every ``JR-120`` … ``JR-129`` commit, and twenty of those newer than the
-    fix used up the walk before the boundary check ever saw the fix (review,
-    Batch 5). A key of the usual shape holds no regex metacharacter, so git is
+    fix used up the walk before the boundary check ever saw the fix. A key of
+    the usual shape holds no regex metacharacter, so git is
     given the trailing boundary as an extended regex built from it. Only the
     trailing one: on a 221k-commit history the regex costs ~0.25 s over the
     fixed string, a leading boundary ~1 s more (nothing literal left to anchor
@@ -742,7 +742,7 @@ def find_related_commits(
     # The bulk and merge checks read at least what the default list needs, so a
     # shorter Max Related Commits only cuts the list: with a window of twice the
     # cap, a third bulk commit just past a two-commit window rose to the top
-    # with its file credit intact (review, Batch 5). A longer list widens it.
+    # with its file credit intact (review). A longer list widens it.
     window = BULK_CHECK_FACTOR * max(limits.max_related_commits, DEFAULT_MAX_RELATED_COMMITS)
     contenders = [candidate for candidate in evidenced if candidate.files]
     if _discount_bulk_commits(repo_root, contenders[:window]):
@@ -768,7 +768,7 @@ MAX_MERGE_MEMBERS = 100
 def _collapse_merge_wrappers(
     repo_root: Path, ranked: list[CommitCandidate], window: int, failures: list[str]
 ) -> list[CommitCandidate]:
-    """Take out merges that only repeat the commits they merged (Batch 5).
+    """Take out merges that only repeat the commits they merged.
 
     A feature branch's merge carries the branch's message and changes again, so
     it took a second slot in the list and lent the same files twice — seen on
@@ -1139,7 +1139,7 @@ def collect_git_history(
     query: GitHistoryQuery | None = None,
     settings: GitHistoryOptions | None = None,
 ) -> GitHistoryOutcome:
-    """Search, rank and record. The Git queries are Batch 1's, bounded by Batch 2's settings.
+    """Search, rank and record. The Git queries are bounded by the Git History Settings.
 
     ``query`` comes from what the caller already holds — the issue, the
     keywords, the options and the retrieval — so this reads no artifact.
@@ -1178,7 +1178,7 @@ def collect_git_history(
     )
     supporting: tuple[SupportingFile, ...] = ()
     # The file side of Git history: off with "Search related file history",
-    # like every other file lookup (Batch 2's rule).
+    # like every other file lookup.
     if limits.search_file_history:
         started = time.monotonic()
         supporting, stats = discover_supporting_files(repo_root, result, query)
@@ -1242,7 +1242,7 @@ def _recorded(commit: CommitCandidate) -> RecordedCommit:
     )
 
 
-# --- changed-file feedback (Batch 4) ----------------------------------------------------
+# --- changed-file feedback ----------------------------------------------------
 #
 # One pass, after ranking: the strongest retained commits are asked which files
 # they changed, and the ones Code Search did not return become supporting
@@ -1250,8 +1250,8 @@ def _recorded(commit: CommitCandidate) -> RecordedCommit:
 # into a walk — the results go into the record and stop there.
 
 #: Commits whose changed files are read: the best retained commits with evidence
-#: of their own. Measured on a monorepo: the key files of the case Batch 1 could
-#: not finish (no issue key, one Keyword) were already in the top three; the
+#: of their own. Measured on a monorepo: the key files of a case the plain search
+#: could not finish (no issue key, one Keyword) were already in the top three; the
 #: fifth was a ranked-file-only commit touching 80+ unrelated files.
 MAX_FEEDBACK_COMMITS = 5
 #: Supporting files kept, and rendered into the context.
@@ -1295,7 +1295,7 @@ def feedback_commits(commits: tuple[CommitCandidate, ...] | list[CommitCandidate
             or commit.extracted_terms
             or commit.focus_files
             or commit.git_files
-            # A broad term (Batch 5) is weak in the ranking but still the
+            # A broad term is weak in the ranking but still the
             # message's own evidence — what separates such a commit from one
             # kept only for touching a Code Search file. The generic-keyword
             # case's supporting file comes from exactly that pair.
@@ -1329,7 +1329,7 @@ def discover_supporting_files(
     found: dict[str, _Support] = {}
     files_read = 0
     # What each inspected commit changed, so a merge that stayed in the list
-    # (Batch 5) lends only files its inspected members did not already lend.
+    # lends only files its inspected members did not already lend.
     changed_by = {
         commit.hash: {path.lower() for _status, path in changed}
         for commit, changed in zip(inspected, changes)

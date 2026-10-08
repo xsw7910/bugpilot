@@ -100,7 +100,7 @@ test("nothing is counted that a developer could not act on", () => {
 });
 
 test("Code search's line reads as English, including at one", () => {
-  // The counts end up on Code search's row (Batch 6), terms first — what was
+  // The counts end up on Code search's row, terms first — what was
   // searched, then what it found.
   assert.equal(describeSearch({ relevantFiles: 8, searchTerms: 53 }), "53 terms · 8 relevant files");
   assert.equal(describeSearch({ relevantFiles: 1, searchTerms: 1 }), "1 term · 1 relevant file");

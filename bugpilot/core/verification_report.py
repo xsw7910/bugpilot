@@ -1,4 +1,4 @@
-"""verification_report.md: recorded verification evidence (plan §19, Batch 12).
+"""verification_report.md: recorded verification evidence (plan §19).
 
 BugPilot cannot prove a fix correct. What it can keep is the evidence the
 developer gathered: which checks, what each was recorded as — Passed, Failed or
@@ -286,7 +286,7 @@ def record_verification(
     Jira, no email, no memory. Runs nothing: every status is the user's.
     """
     validate_work_item_id(work_item_id)
-    # Checked for links before the report is written (pre-release Batch 2).
+    # Checked for links before the report is written.
     target = writable_issue_dir(repo_root, work_item_id, create=False)
     if not target.is_dir():
         raise WorkItemNotFoundError(f"Work item not found: .ai/{work_item_id}/")

@@ -1,6 +1,6 @@
 /**
  * Every command line this extension sends to the bugpilot CLI, as one shared
- * fixture (pre-release Batch 1, B).
+ * fixture.
  *
  * A stale CLI once passed every check this project had: the source tree
  * declared each flag, the start-up handshake (`doctor --json`) worked, and the
@@ -139,11 +139,11 @@ function contract(): { readonly name: string; readonly argv: readonly string[] }
     { name: "record-verification", argv: json(recordVerificationArgs("JR-12345", PAYLOAD, true)) },
     { name: "repository-profile show", argv: placeholders([...repositoryProfileArgs(), "--json"]) },
     { name: "repository-profile set", argv: placeholders([...repositoryProfileArgs(PAYLOAD), "--json"]) },
-    // User and Project instructions (pre-release Batch 2): the text goes on stdin, so none is here.
-    // Jira Setup's site (Batch 3): read when the dialog opens, written by Save — the site on stdin.
+    // User and Project instructions: the text goes on stdin, so none is here.
+    // Jira Setup's site: read when the dialog opens, written by Save — the site on stdin.
     { name: "jira-site show", argv: placeholders([...jiraSiteArgs(false)]) },
     { name: "jira-site set", argv: placeholders([...jiraSiteArgs(true)]) },
-    // Project settings (Batch 3): read when the environment resolves, written on Apply.
+    // Project settings: read when the environment resolves, written on Apply.
     { name: "project-settings show", argv: placeholders([...projectSettingsArgs(), "--json"]) },
     { name: "project-settings set", argv: placeholders([...projectSettingsArgs(PAYLOAD), "--json"]) },
     { name: "instructions show", argv: placeholders([...instructionsArgs()]) },

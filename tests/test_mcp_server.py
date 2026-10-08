@@ -969,7 +969,7 @@ def test_summarize_results_and_get_status_claim_no_validation_or_review(tmp_path
     assert "final_review_prompt" not in steps
 
 
-# --- pre-release Batch 4.1: the optional SDK ---------------------------------------
+# --- the optional SDK --------------------------------------------------------------
 
 
 def _mcp_entry(block: str):

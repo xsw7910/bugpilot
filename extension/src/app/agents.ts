@@ -194,7 +194,7 @@ export interface CapturedReviewInvocation {
  * - `--tools Read Grep Glob`: the only tools that exist in the session. No
  *   shell, so no command at all — `git diff --output=<file>`, an external diff
  *   driver or a textconv filter could write files or run programs from inside
- *   a `Bash(git diff *)` rule (pre-release Batch 2, C). The current changes
+ *   a `Bash(git diff *)` rule. The current changes
  *   come in the prompt instead, collected by BugPilot itself
  *   (`review-package --include-changes`);
  * - `--permission-mode dontAsk` with `--allowedTools`: anything not allowed is

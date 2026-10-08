@@ -8,7 +8,7 @@ import { diagnose, knownCodes } from "../src/errors.ts";
 test("a known code yields a summary and an action", () => {
   const diagnosis = diagnose("JIRA_NOT_CONFIGURED", "Jira environment variables are missing.");
   assert.match(diagnosis.summary, /not configured/);
-  // Jira Setup asks for the site as well as the credentials (pre-release Batch 3).
+  // Jira Setup asks for the site as well as the credentials.
   assert.match(diagnosis.action ?? "", /Open Jira Setup/);
   assert.match(diagnosis.action ?? "", /Jira site/);
   assert.equal(diagnosis.unknownCode, false);

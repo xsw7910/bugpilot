@@ -54,7 +54,7 @@ def _utf8_stdout() -> None:
     (cp1252) unless PYTHONIOENCODING or UTF-8 mode says otherwise: a "→" in an
     instructions file or a Chinese bug title failed the command with "'charmap'
     codec can't encode", and an "é" arrived as a byte the extension could not
-    decode (found in pre-release Batch 4). A console is unaffected — Python
+    decode. A console is unaffected — Python
     writes it as UTF-16 — and a stream that is UTF-8 already is left alone.
     """
     stream = sys.stdout

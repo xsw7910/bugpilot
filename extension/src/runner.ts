@@ -65,8 +65,8 @@ export interface RunResult {
 }
 
 /**
- * How a Runner turns a program name into the file it starts (pre-release
- * Batch 2, A). Production code gets one through `trustedRunner`; a test that
+ * How a Runner turns a program name into the file it starts. Production
+ * code gets one through `trustedRunner`; a test that
  * gives none spawns exactly the name it passed, as before.
  */
 export interface RunnerPolicy {

@@ -181,7 +181,7 @@ export function handoffError(reason: string): UserFacingError {
 export type ReviewHandoffCause = "prompt" | "command-line" | "agent" | "terminal" | "busy";
 
 /**
- * A review handoff that could not start (Batch 10), as a card under Fix result.
+ * A review handoff that could not start, as a card under Fix result.
  *
  * One title for every cause — what the developer needs first is that no
  * reviewer is running — and a message per cause, because each leads somewhere

@@ -1,5 +1,5 @@
 /**
- * What Fix result shows of `verification_report.md` (Batch 12): the counts of
+ * What Fix result shows of `verification_report.md`: the counts of
  * recorded statuses, the scoped overall phrase, and up to five checks — and,
  * when the file is in BugPilot's own shape, every check, for Edit.
  *

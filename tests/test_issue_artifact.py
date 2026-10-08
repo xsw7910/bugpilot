@@ -1,4 +1,4 @@
-"""issue.json: the one canonical issue artifact (plan §37, Batch 1).
+"""issue.json: the one canonical issue artifact (plan §37).
 
 A Jira issue and a hand-written description both become one ``IssueArtifact``,
 carried in memory through the run and persisted once as ``issue.json``. These
@@ -300,7 +300,7 @@ def test_keywords_survive_the_round_trip_through_issue_json(tmp_path, fake_jira)
 
     # Code Search's part, exactly. Git history's section is not the search's to
     # keep: it was ranked against the files the earlier search found, so a new
-    # search writes the file without it (Git History v2, Batch 3).
+    # search writes the file without it (Git History v2).
     live.pop("git_history", None)
     assert json.loads((target / "retrieval.json").read_text(encoding="utf-8")) == live
 

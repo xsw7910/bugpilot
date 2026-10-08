@@ -136,7 +136,7 @@ test("the prompt never travels in argv", () => {
   }
 });
 
-test("the CLI that improves a hint gets nothing to act with (pre-release Batch 2, C)", () => {
+test("the CLI that improves a hint gets nothing to act with", () => {
   // The prompt carries a Jira issue's own words: the developer's own
   // permission mode must not apply to it.
   const claude = HINT_PROVIDERS.find((provider) => provider.id === "claude")!;

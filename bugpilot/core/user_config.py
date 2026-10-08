@@ -134,7 +134,7 @@ def save_user_config(
 def save_jira_site(jira_base_url: str) -> Path:
     """Write only the Jira site, keeping whatever email and token the file holds.
 
-    For the VS Code extension's Jira Setup (pre-release Batch 3), which keeps
+    For the VS Code extension's Jira Setup, which keeps
     the email and token in VS Code's SecretStorage but the site here, where the
     CLI reads it too: one site for both, not two that can disagree. The caller
     validates the site (``jira.normalize_jira_site``).

@@ -49,7 +49,7 @@ import type { ResultsNode, ResultsSources } from "../src/app/results.ts";
 /**
  * One workflow row of a pushed state.
  *
- * Since Batch 6 the rows are the result view: what the Context Ready card used
+ * The rows are the result view: what the Context Ready card used
  * to carry is on the row that owns it — the files and terms on Code search, the
  * context actions on Build context, the button, Strategy, outcome and handoff
  * card on Fix with AI. These getters name that owner in every assertion.
@@ -110,7 +110,7 @@ interface Harness {
   readonly ranCommands: string[];
   /** Every pair Jira Setup stored through the credential port (§37.124). */
   readonly storedCredentials: { email: string; token: string }[];
-  /** Sites `jira-site set` was asked to save (Batch 3). */
+  /** Sites `jira-site set` was asked to save. */
   readonly savedSites: string[];
   /** Every address opened in the browser. */
   readonly externals: string[];
@@ -157,9 +157,9 @@ interface HarnessOptions {
   readonly repositoryProfile?: NonNullable<ControllerPorts["repositoryProfile"]>;
   /** The User / Project instructions port; absent means the host has none. */
   readonly instructions?: NonNullable<ControllerPorts["instructions"]>;
-  /** The Jira site the fake CLI reports, whether the environment sets it, and a refusal to save one (Batch 3). */
+  /** The Jira site the fake CLI reports, whether the environment sets it, and a refusal to save one. */
   readonly jiraSite?: { readonly site?: string; readonly fromEnvironment?: boolean; readonly refuse?: string };
-  /** The project settings port (Batch 3); absent means the host has none. */
+  /** The project settings port; absent means the host has none. */
   readonly projectSettings?: NonNullable<ControllerPorts["projectSettings"]>;
   /** A function may answer later, which is how a test holds a request open. */
   readonly json?: Envelope | (() => Envelope | Promise<Envelope>);
@@ -392,7 +392,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         jiraEmail = pair.email;
       },
     },
-    // A fake `bugpilot jira-site` (Batch 3): the site the CLI reports, and its
+    // A fake `bugpilot jira-site`: the site the CLI reports, and its
     // refusal when the test gives one.
     jiraSite: {
       load: async () => ({
@@ -524,7 +524,7 @@ const jiraForm = (overrides: Partial<FormState> = {}): FormState => ({
 /**
  * A whole prepare, every marker step in `WORKFLOW_STEPS` order.
  *
- * Complete on purpose since Batch 6: a row reports its result only once its own
+ * Complete on purpose: a row reports its result only once its own
  * step finished, so a fixture that skipped Build context's steps would describe
  * a run whose context appeared from nowhere.
  */
@@ -966,7 +966,7 @@ test("the ready message re-pushes state so a reloaded page catches up", async ()
 
 // --- Jira Setup (§37.124) ------------------------------------------------------
 
-/** The site every Jira Setup save below enters (Batch 3); the fake CLI accepts it. */
+/** The site every Jira Setup save below enters; the fake CLI accepts it. */
 const SITE = "https://your-company.atlassian.net";
 
 test("Configure opens Jira Setup: no email to start with, no token stored", async () => {
@@ -2074,7 +2074,7 @@ const CATALOG_WITH_CUSTOM = fixModesFromPayload({
 });
 
 test("the run request carries exactly the mode the form holds: Standard, a built-in, a custom mode", async () => {
-  // Batch 7 moved the selector; the request must not notice. One --fix-mode,
+  // Wherever the selector lives, the request must not notice. One --fix-mode,
   // spelled as the id the form holds, for each kind of mode.
   for (const fixModeId of ["standard", "investigate-first", "team-safe"]) {
     const h = harness({ fixModes: CATALOG_WITH_CUSTOM, events: successfulRun });
@@ -3016,7 +3016,7 @@ test("a finished run reports what it produced, each on the row that produced it"
   assert.equal(canFix(state), true);
 });
 
-// --- Git History v2, Batch 3: the row reads the structured record ---------------
+// --- Git History: the row reads the structured record ---------------------------
 
 const gitRowOf = (state: PanelState) => stepOf(state, "gitHistory");
 
@@ -3056,7 +3056,7 @@ test("a finished run reports Git history from its structured record", async () =
   assert.deepEqual(row.gitHistory?.commits.map((commit) => commit.subject), ["Commit 0", "Commit 1", "Commit 2"]);
   // One read of the file, two projections that agree with it.
   assert.equal(codeRow(h.last()).summary, "1 term · 2 relevant files");
-  // The gear Batch 2 added is still on the row's model.
+  // The settings gear is still on the row's model.
   assert.equal(SETTINGS_SECTION_OF_STEP.gitHistory, "git-history");
 });
 
@@ -3228,7 +3228,7 @@ test("rendering supporting files asks the disk nothing", async () => {
   assert.deepEqual(asked, [], "a render stat'ed a supporting file");
 });
 
-test("a Batch 3 record without supporting files still reads", async () => {
+test("a record from an older version without supporting files still reads", async () => {
   const h = harness({ events: successfulRun, directory: ["task.md", "context.md", "retrieval.json"], files: { "retrieval.json": retrievalWithHistory(2) } });
   await h.controller.refreshEnvironment();
   await h.controller.run(jiraForm());
@@ -3334,7 +3334,7 @@ test("no result is claimed while the run is still going", async () => {
   // The hard case: the previous run's task.md and context.md were in the
   // listing (the same work item, reopened first), and Build context finishes
   // before the run does. Two things keep Fix with AI from offering the old
-  // task meanwhile: the run clears that listing as it starts (Batch 8), and
+  // task meanwhile: the run clears that listing as it starts, and
   // the model's `!running` guard (pinned on its own in workflow.test.ts).
   const h = harness({
     ...PREPARED,
@@ -4051,7 +4051,7 @@ test("the Set Jira Credentials button on a failed run reaches the command", asyn
 });
 
 test("a card on the row that failed still reaches its command", async () => {
-  // Batch 6 moved a failure onto the row whose step was in flight and out of
+  // A failure sits on the row whose step was in flight, rather than in
   // `runError`. The offer is the card being on screen, wherever the page put
   // it, so moving it must neither drop the offer nor show the card twice.
   const h = harness({
@@ -4528,7 +4528,7 @@ test("both versions are reported, and they are not the same field", async () => 
   assert.equal(rowOf(h, "BugPilot CLI")?.detail, "bugpilot");
 });
 
-// --- Batch 6 review: a History switch never shows the last item's results ----
+// --- a History switch never shows the last item's results --------------------
 
 const issueJson = (id: string, title: string) =>
   JSON.stringify({ schema_version: 1, id, source: "jira", title });
@@ -4606,7 +4606,7 @@ test("an unreadable folder leaves nothing of the previous work item on the rows"
   assert.equal(mentionsFirst(h.last()), false, "JR-1's results were left on JR-2's rows");
 });
 
-// --- Batch 8: Fix result, from fix_report.md --------------------------------
+// --- Fix result, from fix_report.md -----------------------------------------
 
 /** The report an agent leaves, in the shape `task.md` asks for. */
 const fixReportMd = (summary: string, tests: string) =>
@@ -4662,7 +4662,7 @@ test("a reopened work item with a report rebuilds Fix result from the file alone
 });
 
 test("switching to a work item without a report never shows the last one's Fix result", async () => {
-  // The stale-state bug Batch 6 found, for the seventh row: `refreshArtifacts`
+  // The earlier stale-state bug, for the seventh row: `refreshArtifacts`
   // pushes before it reads, and that push must not carry JR-1's report.
   const { options, h } = reportedAndNot();
   await h.controller.refreshEnvironment();
@@ -4868,7 +4868,7 @@ test("Open Fix Report opens fix_report.md in the current work item, and nothing 
   assert.equal(h.opened.length, before, "a path outside the work item was opened");
 });
 
-// --- Batch 9: Fix result's review aids ----------------------------------------
+// --- Fix result's review aids -------------------------------------------------
 
 const REVIEW_PROMPT = "# Final Review Request\n\nReview the BugPilot result for work item JR-12345.\n";
 
@@ -5134,7 +5134,7 @@ test("reading the folder again forgets a checklist only when the report changed"
 });
 
 test("a re-run of the same work item keeps the review aids on the kept report", async () => {
-  // The Batch 8 rule: a non-Fresh re-run keeps the report, so the row — and its
+  // The rule: a non-Fresh re-run keeps the report, so the row — and its
   // aids — stay. The query is read-only, so asking mid-run touches nothing the
   // run is writing.
   // Held before `completed`: the run is genuinely in flight.
@@ -5239,7 +5239,7 @@ test("a clipboard that refuses is said, and the button comes back", async () => 
   assert.equal(h.notices.some((notice) => /Review prompt copied/.test(notice.message)), false);
 });
 
-// --- Batch 10: Review with AI ------------------------------------------------
+// --- Review with AI ----------------------------------------------------------
 
 /** What the terminal handoff does to any prompt: one line (agents.ts). */
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -5304,7 +5304,7 @@ test("Review with AI hands review-package's prompt to the selected agent in a te
 
   // The canonical prompt, from the read-only query — asked for once, built
   // nowhere in this extension. Without the changes: only a captured review
-  // reads them, and a terminal reviewer looks at the diff itself (Batch 4.1).
+  // reads them, and a terminal reviewer looks at the diff itself.
   assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [["review-package", "JR-12345", "--json"]]);
   // The agent the form selects (auto: Claude CLI), in one terminal, in the
   // repository root where `.ai/JR-12345/` and the diff are.
@@ -6067,7 +6067,7 @@ test("through an extension bridge, a switch while the prompt is being copied bri
   assert.equal(h.notices.length, noticesOnB);
 });
 
-// --- Batch 11: Review Result Capture -------------------------------------------
+// --- Review Result Capture -----------------------------------------------------
 
 const REVIEW_REPORT_MD = (summary = "The change reads correctly.") =>
   "# Review Report: JR-12345\n\n" +
@@ -6625,7 +6625,7 @@ test("a captured review without the collected changes does not start: there woul
   assert.match(JSON.stringify(reviewOf(h.last())), /did not return the current changes/);
 });
 
-test("the changes are collected only for a captured review: once, after the reviewer is known (Batch 4.1)", async () => {
+test("the changes are collected only for a captured review: once, after the reviewer is known", async () => {
   const { options, calls } = capturedReview(() => ok(claudeJson(CAPTURED_REVIEW)));
   const h = await openedForReview(options);
   await h.controller.handle(REVIEW);
@@ -6639,7 +6639,7 @@ test("the changes are collected only for a captured review: once, after the revi
   assert.equal(calls[0]!.input, `${REVIEW_PROMPT}\n${REVIEW_CHANGES}`);
 });
 
-test("a terminal review by a custom command never collects the changes (Batch 4.1)", async () => {
+test("a terminal review by a custom command never collects the changes", async () => {
   const h = await openedForReview(
     reviewOptions({ form: { ...DEFAULT_FORM, issueKey: "JR-12345", agent: "custom", agentCommand: "my-reviewer --prompt {prompt}" } }),
   );
@@ -6648,7 +6648,7 @@ test("a terminal review by a custom command never collects the changes (Batch 4.
   assert.deepEqual(reviewRuns(h).map((run) => [...run.args]), [["review-package", "JR-12345", "--json"]]);
 });
 
-test("a clipboard review through an agent's extension never collects the changes (Batch 4.1)", async () => {
+test("a clipboard review through an agent's extension never collects the changes", async () => {
   const h = await openedForReview(
     reviewOptions({ agentOnPath: false, extensions: CLAUDE_EXTENSION, form: { ...DEFAULT_FORM, issueKey: "JR-12345", agent: "claude-extension" } }),
   );
@@ -7082,7 +7082,7 @@ test("a recording pressed while a run is still being set up keeps that run from 
   await recording;
 });
 
-// --- Batch 12: Verification Evidence ---------------------------------------------
+// --- Verification Evidence -------------------------------------------------------
 
 const VERIFICATION_MD =
   "# Verification Report: JR-12345\n\n" +
@@ -8061,7 +8061,7 @@ test("next action 7: feedback goes into user_feedback.md, bug --retry builds the
       path: nodePath.join(ROOT, ".ai", "JR-12345", "user_feedback.md"),
       contents: "# User Feedback: JR-12345\n\n## Required Next Attempt\n\nThe previous fix changed the wrong class.\nKeep the public API.\n",
       // Named as a work item file, so the host writes it only through real
-      // directories inside the repository (pre-release Batch 2, D).
+      // directories inside the repository.
       workItem: { root: ROOT, workItemId: "JR-12345" },
     },
   ]);
@@ -11100,7 +11100,7 @@ test("Results 4: reopening a work item from History fills Current again — once
 });
 
 
-// --- Pre-release Batch 1: an out-of-date or missing CLI (D) -------------------
+// --- an out-of-date or missing CLI --------------------------------------------
 
 const ARGPARSE_REJECTION =
   "usage: bugpilot [-h] [--version] {setup,doctor,bug} ...\n" +
@@ -11198,7 +11198,7 @@ test("a CLI that vanished since start-up is said to be missing, and the environm
   assert.equal(h.last().readiness.kind, "blocked");
 });
 
-// --- Pre-release Batch 1: the Repository Profile (F) --------------------------
+// --- the Repository Profile ---------------------------------------------------
 
 const NO_DETAILS = {
   languages: "",
@@ -11384,7 +11384,7 @@ test("after a profile Apply, Rebuild Context prepares again and the context is c
 });
 
 
-// --- Pre-release Batch 2: User and Project instructions (E–G) -----------------
+// --- User and Project instructions --------------------------------------------
 
 /** A fake `bugpilot instructions`: two files in memory, hashed by content like the CLI. */
 function instructionsPort(initial: { user?: string; project?: string } = {}) {
@@ -11605,7 +11605,7 @@ test("instructions: a page that loads again closes an editor it no longer shows"
 });
 
 
-// --- Pre-release Batch 3: project settings (Verification Policy, branch naming) ---
+// --- project settings (Verification Policy, branch naming) ------------------------
 
 const DEFAULT_SETTINGS: ProjectSettingsPayload = {
   verification: { relevant_tests: true, static_checks: true, full_suite: false, report_not_run: true },
@@ -11748,7 +11748,7 @@ test("project settings: a Run waits for a save Apply is still making", async () 
 });
 
 test("settings freshness: a Run after one Apply that changes the profile and the project settings reads both new files", async () => {
-  // Pre-release Batch 4.1. The two saves ran one after the other, each with its
+  // Regression: the two saves ran one after the other, each with its
   // own in-flight flag: a Run waiting on the profile save resumed in the gap
   // before the settings save had started, and ran on the old settings file.
   let finishProfile: () => void = () => {};
@@ -11887,7 +11887,7 @@ test("project settings: a CLI without the command is out of date, blocked before
 });
 
 
-// --- Batch 3: the Jira site in Jira Setup -----------------------------------------
+// --- the Jira site in Jira Setup --------------------------------------------------
 
 test("Jira Setup starts with the site the CLI uses, the stored email, and never the token", async () => {
   const h = harness({ jiraEmail: "dev@example.com", jiraSite: { site: SITE } });

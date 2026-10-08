@@ -70,7 +70,7 @@
   ];
 
   /**
-   * The Verification Policy's switches (pre-release Batch 3) and their defaults,
+   * The Verification Policy's switches and their defaults,
    * as `VERIFICATION_FIELDS` in `projectSettings.ts` lists them. Not in
    * `SETTINGS_SWITCHES`: one of them ships off, so absent is each one's own
    * default rather than on.
@@ -391,7 +391,7 @@
    * Whether the last render saw a run in flight.
    *
    * Only used to notice the moment one *starts*, which is when the workflow
-   * opens itself. It no longer folds when the run ends: since Batch 6 the rows
+   * opens itself. It does not fold when the run ends: the rows
    * are the result, so folding them would hide what the run just produced.
    */
   let wasRunning = false;
@@ -434,7 +434,7 @@
   let reviewStartedAt = 0;
   let reviewDetailsOpen = false;
   let reviewDetailsSignature = "";
-  // Record Review Result (Batch 11): which work item the form was opened for,
+  // Record Review Result: which work item the form was opened for,
   // whether the host was recording at the last push, and what the Review Result
   // lines and the recording's status last said — so a push that changes nothing
   // rewrites nothing, and the live region does not repeat itself.
@@ -456,7 +456,7 @@
   const PREFILL_NOTE_AI = "Prefilled from AI review — review before saving.";
   const PREFILL_LEFT_OUT = " Text before the first section was left out.";
   const PREFILL_READY = "Review result ready to save.";
-  // Verification Evidence (Batch 12): the same bookkeeping, and the form's rows.
+  // Verification Evidence: the same bookkeeping, and the form's rows.
   // Each row is the page's own — built here, read on Save — so what is typed
   // survives every push until Cancel, another work item or a recorded save.
   let verificationEditorWorkItem;
@@ -1826,7 +1826,7 @@
   }
 
   /**
-   * Review Result, its form and Paste Review Output (Batch 11).
+   * Review Result, its form and Paste Review Output.
    *
    * The lines are the host's: "Review result saved", then the reviewer's own
    * first lines — never a verdict, because none is known. The form is the page's:
@@ -2029,7 +2029,7 @@
   }
 
   /**
-   * Verification Evidence and its form (Batch 12).
+   * Verification Evidence and its form.
    *
    * The lines are the host's: counts of recorded statuses, one generated phrase
    * scoped to the recorded checks, and up to five checks by name — never a badge
@@ -2547,7 +2547,7 @@
 
   /**
    * Git history's Supporting files: what the related commits also changed that
-   * Code search did not return (Batch 4).
+   * Code search did not return.
    *
    * The same row as a Relevant file — the name opens it — and a line saying how
    * history found it, so it is never mistaken for a search result. Present only
@@ -3502,7 +3502,7 @@
     // title, different way back, different place to land after saving.
     "fix-mode-new": "fix-mode-editor-view",
     "fix-mode-edit": "fix-mode-editor-view",
-    // User or Project instructions (pre-release Batch 2): one page, reached
+    // User or Project instructions: one page, reached
     // from the settings page and returning to it.
     instructions: "instructions-editor-view",
   };
@@ -3653,7 +3653,7 @@
     }
   }
 
-  // --- User and Project instructions (pre-release Batch 2) ------------------
+  // --- User and Project instructions ------------------
 
   /** The editor the host has open, as last drawn: its token, scope and limit. */
   let instructionsEditor;
@@ -4697,7 +4697,7 @@
   byId("form").addEventListener("submit", (event) => {
     event.preventDefault();
     // An implicit submission from inside a review or verification form — Enter
-    // in a one-line field — is not a request to prepare the bug (Batch 12).
+    // in a one-line field — is not a request to prepare the bug.
     if (fromReviewEditor({ target: document.activeElement })) return;
     submit();
   });
@@ -4718,7 +4718,7 @@
     // Start New Attempt's form: its feedback is not a preparation input, and
     // Ctrl+Enter there starts the attempt rather than pressing the primary action.
     if (typeof id === "string" && ATTEMPT_CONTROLS.includes(id)) return true;
-    // The Verification Evidence form (Batch 12): its buttons by id, its rows by
+    // The Verification Evidence form: its buttons by id, its rows by
     // the mark every row control carries.
     if (typeof id === "string" && VERIFICATION_CONTROLS.includes(id)) return true;
     return Boolean(target && target.getAttribute && target.getAttribute("data-editor") === "verification");
@@ -5099,7 +5099,7 @@
   byId("open-review-report").addEventListener("click", () => {
     if (!byId("open-review-report").hidden) vscode.postMessage({ type: "action", id: "openReviewReport" });
   });
-  // Verification Evidence (Batch 12). Record opens the form with one row; Edit
+  // Verification Evidence. Record opens the form with one row; Edit
   // asks the host for the recorded checks; Open is an action, not a file name.
   byId("record-verification").addEventListener("click", toggleVerificationRecord);
   byId("edit-verification").addEventListener("click", toggleVerificationEdit);

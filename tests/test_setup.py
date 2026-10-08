@@ -307,7 +307,7 @@ def test_setup_rejects_a_site_with_no_scheme(monkeypatch):
     ["http://jira.example.com", "https://user:pw@jira.example.com", "https://jira.example.com/?x=1", "javascript:alert(1)"],
 )
 def test_setup_refuses_a_site_credentials_must_not_go_to(monkeypatch, unsafe):
-    """Pre-release Batch 2: https:// only, nothing in the URL that is not the site."""
+    """https:// only, nothing in the URL that is not the site."""
     monkeypatch.setattr(
         "bugpilot.core.setup.jira.validate_credentials",
         lambda *_args, **_kwargs: JiraValidationResult(ok=True),

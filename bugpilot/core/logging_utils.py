@@ -1,4 +1,4 @@
-"""Diagnostic trace logging, unpersisted (plan §37, Batch 4).
+"""Diagnostic trace logging, unpersisted (plan §37).
 
 ``log()`` used to append every line to ``.ai/<id>/execution.log``. Nothing ever
 read that file — the steps map, the generated files and the warnings it echoed

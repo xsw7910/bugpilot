@@ -1,5 +1,5 @@
 /**
- * Git history's structured result (Git History v2, Batch 3), extension side:
+ * Git history's structured result (Git History v2), extension side:
  * the one reader of `retrieval.json.git_history`, the row's summary line, the
  * Related commits rows, and the Git history row in the workflow model.
  */
@@ -226,7 +226,7 @@ test("every evidence kind has its word, in strength order", () => {
 });
 
 test("a broad match is called a broad term, last, never a shared keyword", () => {
-  // Batch 5: the ranking gives a broad Keyword 2 points; "shared keyword" here
+  // The ranking gives a broad Keyword 2 points; "shared keyword" here
   // would claim the evidence the context's reason says was discounted.
   const broad = commit({
     matched_terms: [{ value: "template", source: "shared_keyword", broad: true }],
@@ -323,7 +323,7 @@ test("Related commits survives a 200px panel: text wraps, the hash ends a line c
   }
 });
 
-// --- Batch 4: supporting files ------------------------------------------------------------------
+// --- supporting files ---------------------------------------------------------------------------
 
 /** A supporting file as core writes it. */
 function supporting(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -344,7 +344,7 @@ test("the supporting-file provenance and changes are the ones core writes", () =
   assert.deepEqual(changes, [...SUPPORTING_FILE_CHANGES]);
 });
 
-test("a Batch 3 section has no supporting files, and its row is as it was", () => {
+test("a section from an older version has no supporting files, and its row is as it was", () => {
   const result = read(file(section()))!;
   assert.deepEqual(result.supportingFiles, []);
   assert.equal(describeGitHistory(result), "1 related commit found");

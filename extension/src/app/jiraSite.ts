@@ -1,5 +1,5 @@
 /**
- * The Jira site, for Jira Setup (pre-release Batch 3).
+ * The Jira site, for Jira Setup.
  *
  * The site is not a secret, so it is not kept with the email and token in
  * SecretStorage: it lives where the CLI reads it, `~/.bugpilot/config.toml`,

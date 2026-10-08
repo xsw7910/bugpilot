@@ -116,7 +116,7 @@ def copy_attachments(
 
         name = _unique_name(source.name, used)
         try:
-            # Never into, or through, a link (pre-release Batch 2): the folder and
+            # Never into, or through, a link: the folder and
             # the file are checked before the copy, which would follow either.
             refuse_link(directory)
             directory.mkdir(parents=True, exist_ok=True)

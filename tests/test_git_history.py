@@ -1,4 +1,4 @@
-"""Git History v2, Batch 1: candidate sources, merge, ranking and bounds.
+"""Git History: candidate sources, merge, ranking and bounds.
 
 Every repository here is built in a temporary directory with fixed commit dates,
 so the ranking is the same on every machine and nothing depends on the
@@ -106,7 +106,7 @@ def repo(tmp_path_factory):
 
 
 def generate_git_context(root, key, query=None, settings=None) -> str:
-    """Batch 1's document, now rendered from the structured record (Batch 3)."""
+    """The Git context document, rendered from the structured record."""
     return render_git_context(collect_git_history(root, key, query, settings))
 
 

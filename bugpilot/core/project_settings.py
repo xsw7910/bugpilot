@@ -1,4 +1,4 @@
-"""Project settings: the repository's Verification Policy and branch naming (pre-release Batch 3).
+"""Project settings: the repository's Verification Policy and branch naming.
 
 Two small things a team decides once for a repository and that every task
 then follows, kept beside the repository's other BugPilot configuration::
@@ -32,9 +32,8 @@ tools and the VS Code extension (through ``bugpilot project-settings``). No file
 means the defaults. A file that cannot be used — a link, unreadable, not JSON —
 is the defaults plus a warning; a single bad value is that value's default plus
 a warning. Change Scope was considered and deferred: every Fix Mode already
-sets how broad a change may be, so a second control would duplicate it (a
-pre-release Batch 3 decision); teams that need one write it in their project
-instructions.
+sets how broad a change may be, so a second control would duplicate it;
+teams that need one write it in their project instructions.
 """
 
 from __future__ import annotations

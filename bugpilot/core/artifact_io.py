@@ -21,7 +21,7 @@ def atomic_write_text(path: Path, text: str) -> None:
     stale checklist, while a raised exception costs the whole step.
 
     A target that is itself a symbolic link or junction is refused before
-    anything is written (pre-release Batch 2): the fallback below would follow it.
+    anything is written: the fallback below would follow it.
     """
     refuse_link(path)
     temp = path.with_name(path.name + f".tmp{os.getpid()}")

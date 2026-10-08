@@ -1,4 +1,4 @@
-"""User Instructions and Project / Team Instructions (pre-release Batch 2, E–G).
+"""User Instructions and Project / Team Instructions.
 
 Two optional Markdown files, each in one fixed place::
 
@@ -11,7 +11,7 @@ Two optional Markdown files, each in one fixed place::
 before the Fix Mode, and the task's precedence section puts them there too:
 BugPilot safety rules → Repository context → Project / team instructions → User
 instructions → AI Fix Mode → Developer hint: the repository's rules beat one
-developer's preference (pre-release Batch 3). Neither can loosen a BugPilot rule;
+developer's preference. Neither can loosen a BugPilot rule;
 the task says so, and says that a conflicting instruction is ignored. BugPilot
 does not try to read the instructions for meaning.
 

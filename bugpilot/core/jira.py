@@ -70,8 +70,7 @@ class JiraCommentPostError(Exception):
 
 
 ERROR_MESSAGES = {
-    # Names the two ways to configure Jira and nothing else: no value, no site
-    # (pre-release Batch 4.1; it used to name only the environment variables).
+    # Names the two ways to configure Jira and nothing else: no value, no site.
     "missing_env": (
         "Jira is not configured: no Jira site, email and API token were found in the environment or in "
         "~/.bugpilot/config.toml. Run `bugpilot setup`, or set JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN."
@@ -107,7 +106,7 @@ USER_AGENT = f"bugpilot/{__version__}"
 # --- the Jira site, and the one way a request reaches it ---------------------
 #
 # Every request carries the developer's email and API token as HTTP Basic
-# credentials, so two rules hold for all of them (pre-release Batch 2, B):
+# credentials, so two rules hold for all of them:
 #
 # - the site is https://, always. There is no switch that allows http://, for a
 #   loopback host or anything else: a test fakes the transport instead;

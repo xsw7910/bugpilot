@@ -1529,7 +1529,7 @@ html:has(#workflow-settings-view:not([hidden])) {
   cursor: default;
 }
 
-/* The Verification Policy's four switches under one quiet heading (Batch 3):
+/* The Verification Policy's four switches under one quiet heading:
    the heading reads like a setting's label; the switches sit under it. */
 .setting-group {
   margin-top: 10px;
@@ -1541,7 +1541,7 @@ html:has(#workflow-settings-view:not([hidden])) {
   color: var(--vscode-foreground);
 }
 
-/* An instruction row (pre-release Batch 2): the name and Edit on one line,
+/* An instruction row: the name and Edit on one line,
    Edit at the right, the file's state under them in one quiet line. In a
    200px sidebar the name wraps rather than pushing Edit off the panel. */
 .instruction-row .setting-header {
@@ -1806,7 +1806,7 @@ label {
 
 
 
-/* Every field, Jira Setup's site, email and password ones too (§37.124, pre-release Batch 3). */
+/* Every field, Jira Setup's site, email and password ones too (§37.124). */
 input[type="text"],
 input[type="url"],
 input[type="email"],
@@ -3206,7 +3206,7 @@ body.vscode-high-contrast-light .step-dot {
   font-family: var(--vscode-editor-font-family);
 }
 
-/* Review with AI's status (Batch 10): that a reviewer started, and with which
+/* Review with AI's status: that a reviewer started, and with which
    agent, in the row's own quiet type — no tick and no colour, because started
    is not finished. Always in the document, as a live region must be to be
    heard filling, so while empty it hands back the column gap it would add. */
@@ -3241,7 +3241,7 @@ body.vscode-high-contrast-light .step-dot {
   outline: none;
 }
 
-/* Review Result (Batch 11): what somebody recorded after a review, in the row's
+/* Review Result: what somebody recorded after a review, in the row's
    quiet type. No tick and no colour — recorded is not passed, and the lines
    are the reviewer's words, not BugPilot's judgement. */
 .review-result {
@@ -3424,7 +3424,7 @@ body.vscode-high-contrast-light .step-dot {
   overflow-wrap: anywhere;
 }
 
-/* Verification Evidence (Batch 12): counts of recorded statuses and the checks
+/* Verification Evidence: counts of recorded statuses and the checks
    by name, in the row's quiet type. No tick, no colour and no badge: each status
    is what the user recorded for one check, not BugPilot's judgement of the fix. */
 .verification-result {
@@ -3578,7 +3578,7 @@ body.vscode-high-contrast-light .step-dot {
 }
 
 /*
- * A row's result, under its summary line (Batch 6).
+ * A row's result, under its summary line.
  *
  * Indented to the label like the summary, so everything a step owns reads as
  * that step's. A column with a gap between whatever is visible — and no space

@@ -70,7 +70,7 @@ def test_an_identifier_bug_retrieves_its_implementation(tmp_path):
     """The floor: a bug naming real symbols must find the file defining them.
 
     Rank 7 at the §33.1 baseline, rank 1 after §33.7. Measured on a fixture
-    tree since Batch 4: the top-3 hedge against this repository's own churn
+    tree: the top-3 hedge against this repository's own churn
     ran out when the artifact consolidation legitimately rewrote the case's
     subject files (the plan's checkpoints record the reshuffle), and a floor
     should fail only when retrieval changes, never when prose does. The live

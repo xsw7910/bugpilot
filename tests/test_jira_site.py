@@ -1,4 +1,4 @@
-"""`bugpilot jira-site`: the one Jira site the CLI and the extension share (pre-release Batch 3).
+"""`bugpilot jira-site`: the one Jira site the CLI and the extension share.
 
 The extension's Jira Setup saves the site here — not in SecretStorage, where
 only the email and token belong — so the CLI and the panel can never point at
@@ -99,7 +99,7 @@ def test_save_jira_site_creates_the_file_when_there_is_none():
 
 @pytest.mark.parametrize("site", ["https://[your-company].atlassian.net", "https://[::1", "https://a]b.com"])
 def test_a_bracketed_host_is_refused_as_a_site_not_a_crash(site, capsys, monkeypatch):
-    """`urlsplit` raises a bare ValueError for these; every caller handles only JiraSiteError (Batch 4)."""
+    """`urlsplit` raises a bare ValueError for these; every caller handles only JiraSiteError."""
     from bugpilot.core.jira import JiraSiteError, normalize_jira_site
 
     monkeypatch.delenv("JIRA_BASE_URL", raising=False)

@@ -30,12 +30,12 @@ ROOT = Path(__file__).resolve().parents[1]
 # line here is a decision; leaving one out is a failing test.
 ALLOWED: dict[str, str] = {
     "review_report.read_review_report": (
-        "The CLI-side reader of the format record-review writes (Batch 11). Its "
+        "The CLI-side reader of the format record-review writes. Its "
         "tests pin the round trip the extension's parser mirrors; no Python "
         "command needs to read a recorded review yet, and none is invented for it."
     ),
     "verification_report.read_verification_report": (
-        "The CLI-side reader of the format record-verification writes (Batch 12). "
+        "The CLI-side reader of the format record-verification writes. "
         "The writer parses its own output back before writing; this reads a file "
         "on disk the same way, and its tests pin the round trip the extension's "
         "parser mirrors. No Python command needs to read recorded evidence yet."

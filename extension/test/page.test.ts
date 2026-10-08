@@ -2471,7 +2471,7 @@ test("the run message carries the applied Fix Mode", () => {
   assert.equal((run?.["form"] as { fixModeId?: string } | undefined)?.fixModeId, "investigate-first");
 });
 
-// --- Batch 7, and Workflow Settings: where the Fix Mode selector lives -----
+// --- Workflow Settings: where the Fix Mode selector lives ------------------
 
 /** The same catalog with a project custom mode in it, as `fix-mode list --json` reports one. */
 const WITH_CUSTOM = {
@@ -4644,7 +4644,7 @@ test("Workflow Steps folds and unfolds, and what the host pushes does not unfold
 });
 
 test("a run opens the workflow, and it stays open as the run finishes", () => {
-  // Since Batch 6 the rows are the result: folding them away as the run ends
+  // The rows are the result: folding them away as the run ends
   // would hide the very thing it produced. (Through UI-V1 the checklist folded
   // because a Context Ready card above it repeated its contents; that card is
   // gone.)
@@ -4768,7 +4768,7 @@ test("Run says it is running, and cannot be pressed again while it is", () => {
 });
 
 test("the post-run actions are on the rows a finished run leaves open", () => {
-  // UI-A1 simplified the initial state; Batch 6 moved every action onto the
+  // UI-A1 simplified the initial state, and every action is on the
   // row that owns it. Neither may make a finished run harder to act on.
   const p = load();
   p.send(prepared());
@@ -4844,7 +4844,7 @@ test("a problem in a regrouped field still opens Workflow Settings and lands", (
   assert.equal(p.focused, "focusFiles");
 });
 
-// --- Batch 6: the rows are the result ---------------------------------------
+// --- the rows are the result ------------------------------------------------
 
 test("nothing about a result is shown before the first run", () => {
   // §19: no empty card, no zero counts, no artifact waiting to be filled.
@@ -5059,7 +5059,7 @@ test("a result from one run does not survive into the next", () => {
   assert.equal(p.byId("run-label").textContent, "Running…");
 });
 
-// --- Fix result (Batch 8) ---------------------------------------------------
+// --- Fix result ---------------------------------------------------
 
 /** A finished work item whose agent left a report. */
 const reported = (
@@ -5229,7 +5229,7 @@ test("a report is a result: it alone makes a work item one worth opening the wor
   assert.equal(withReport.byId("description-fixResult").textContent, "Fixed it.");
 });
 
-// --- Fix result's review aids (Batch 9) --------------------------------------
+// --- Fix result's review aids --------------------------------------
 
 const CHECKLIST = {
   steps: ["Reproduce the original issue if possible.", "Confirm the failure no longer occurs."],
@@ -5491,7 +5491,7 @@ test("the order is the host's, and grouping keeps it inside each group", () => {
   assert.deepEqual(names, ["z.cpp", "a.cpp", "readme.md", "design.md"]);
 });
 
-// --- Git history: Related commits (Git History v2, Batch 3) ---------------
+// --- Git history: Related commits (Git History v2) ---------------
 
 const HOSTILE = `<script>alert("x")</script> & 'q' < > — 日本語 ü`;
 
@@ -6223,7 +6223,7 @@ test("Workflow has no Diagnostics and no version-and-path line; Results has them
   assert.equal(p.byId("jira-row").hidden, false);
 });
 
-// --- Review with AI, under Fix result (Batch 10) ------------------------------
+// --- Review with AI, under Fix result ------------------------------
 
 const REVIEW_FAILED = {
   kind: "agent" as const,
@@ -6675,7 +6675,7 @@ test("every row action and Improve, pressed on the page, reach the controller th
   assert.equal(l.hintPrompts.length, 1, "Improve never reached the hint improver");
 });
 
-// --- Add Review Result and Review Result, under Fix result (Batch 11) -----------
+// --- Add Review Result and Review Result, under Fix result -----------
 
 const REVIEW_PREVIEW = {
   readable: true,
@@ -7149,7 +7149,7 @@ test("the form says what belongs in each section, tied to its field", () => {
   }
 });
 
-// --- Verification Evidence, under Fix result (Batch 12) ------------------------
+// --- Verification Evidence, under Fix result ------------------------
 
 const VERIFICATION_PREVIEW = {
   readable: true,
@@ -9268,7 +9268,7 @@ for (const choice of ["keep", "delete"] as const) {
   });
 }
 
-// --- Pre-release Batch 1: the Repository section -------------------------------
+// --- the Repository section ----------------------------------------------------
 
 const REPOSITORY_DETAIL_IDS = [
   "repositoryLanguages",
@@ -9344,7 +9344,7 @@ test("repository 4: the host's form puts the repository's own profile on the pag
   assert.equal(p.byId("field-repositoryFrameworks").hidden, false);
 });
 
-// --- Pre-release Batch 2: User and Project instructions ------------------------
+// --- User and Project instructions ---------------------------------------------
 
 const INSTRUCTION_ROWS = {
   user: { status: "No user instructions configured.", editable: true },
@@ -9508,7 +9508,7 @@ test("instructions 8: a paste over the editor is never an attachment on the sett
   assert.equal(p.posted.length, before);
 });
 
-// --- Pre-release Batch 3: project settings on the settings page ------------------
+// --- project settings on the settings page ---------------------------------------
 
 test("project settings 1: the four switches start at their defaults — the full suite off — and Apply sends them", () => {
   const p = settingsPage();
@@ -9583,7 +9583,7 @@ test("project settings 4: Cancel puts the applied switches and naming back", () 
 });
 
 
-// --- Batch 3: the Jira site in Jira Setup ------------------------------------------
+// --- the Jira site in Jira Setup ---------------------------------------------------
 
 test("Replace with a stored token: the site and email prefilled, a blank token posted as blank — the host keeps the stored one", () => {
   const p = load();

@@ -1,6 +1,6 @@
-"""BugPilot never writes a generated file through a link (pre-release Batch 2, D).
+"""BugPilot never writes a generated file through a link.
 
-Batch 1 made deletion link-safe. A normal run could still write `issue.json`,
+Deletion was already link-safe. A normal run could still write `issue.json`,
 `task.md`, attachments and memory entries through a symlinked or junctioned
 `.ai`, `.ai/<id>` or `.ai_memory`, landing them wherever the link pointed. Every
 generated path is now checked by `safe_paths.writable_dir` / `refuse_link`

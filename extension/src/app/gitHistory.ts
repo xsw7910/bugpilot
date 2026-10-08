@@ -1,7 +1,7 @@
 /**
  * Git history's structured result, as the panel reads it.
  *
- * Git History v2 (Batch 3) records the ranked commits as the `git_history`
+ * Git History v2 records the ranked commits as the `git_history`
  * section of `retrieval.json` — the same record `context.md` is rendered from.
  * This is its one reader: the Git history row's summary line and its Related
  * commits disclosure are projections of what this returns, and nothing else in
@@ -9,7 +9,7 @@
  * read out of `context.md`: a work item prepared before the section existed
  * simply has none, and its row says "Completed" as it always did.
  *
- * Since Batch 4 it also reads the section's `supporting_files`: files the
+ * It also reads the section's `supporting_files`: files the
  * strongest related commits changed that Code Search did not return. They are
  * Git history's evidence and stay Git history's — shown under this row, never
  * among Code search's Relevant files.
@@ -63,7 +63,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export interface CommitTerm {
   readonly value: string;
   readonly source: CommitTermSource;
-  /** Matched too many candidate commits to count fully (`"broad": true`, Batch 5). */
+  /** Matched too many candidate commits to count fully (`"broad": true`). */
   readonly broad?: true;
 }
 
@@ -97,7 +97,7 @@ export interface GitHistoryResult {
   readonly incomplete: boolean;
   /** In the record's order — the ranking's. Never re-sorted here. */
   readonly commits: readonly GitHistoryCommit[];
-  /** In the record's order, best first; empty for a Batch 3 record. */
+  /** In the record's order, best first; empty for a record from an older version. */
   readonly supportingFiles: readonly SupportingFile[];
 }
 

@@ -388,7 +388,7 @@ def test_jira_progress_numbering_is_unchanged(tmp_path, monkeypatch, capsys):
     assert "[9/9] Generating agent task package..." in out
 
 
-# --- UTF-8 on any console code page (pre-release Batch 4) -------------------
+# --- UTF-8 on any console code page -------------------
 
 
 def _cp1252_stdout(monkeypatch):

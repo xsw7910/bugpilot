@@ -1,4 +1,4 @@
-"""Git History v2, Batch 2: the Git History Settings, end to end on the Python side.
+"""The Git History Settings, end to end on the Python side.
 
 Each setting is checked for the one thing it promises — and for the thing it
 must not do, which is touch Code Search. The repositories are built in temp
@@ -124,17 +124,17 @@ def _file_walks(commands: list[list[str]]) -> list[list[str]]:
     return [command for command in commands if any(arg.startswith(":(literal") for arg in command)]
 
 
-# --- 1. defaults are Batch 1 ----------------------------------------------------------
+# --- 1. the defaults ------------------------------------------------------------------
 
 
-def test_the_default_settings_are_batch_1s_limits():
+def test_the_default_settings_are_the_original_limits():
     assert limits_for(GitHistoryOptions()) == GitHistoryLimits()
     assert HISTORY_DEPTH_LIMITS["recent"] == GitHistoryLimits()
     assert InvestigationOptions().git_history == GitHistoryOptions()
 
 
 @needs_git
-def test_the_default_settings_give_batch_1s_results(repo):
+def test_the_default_settings_give_the_original_results(repo):
     root, _hashes = repo
     query = GitHistoryQuery(
         issue_id="JR-12345",
@@ -143,15 +143,15 @@ def test_the_default_settings_give_batch_1s_results(repo):
         ranked_files=("src/Renderer.cpp", "src/Bucket.cpp"),
     )
 
-    batch_1 = find_related_commits(root, query)
-    batch_2 = find_related_commits(root, query, limits_for(GitHistoryOptions()))
+    without_settings = find_related_commits(root, query)
+    with_defaults = find_related_commits(root, query, limits_for(GitHistoryOptions()))
 
-    assert [(c.hash, c.score, c.reasons) for c in batch_2.commits] == [
-        (c.hash, c.score, c.reasons) for c in batch_1.commits
+    assert [(c.hash, c.score, c.reasons) for c in with_defaults.commits] == [
+        (c.hash, c.score, c.reasons) for c in without_settings.commits
     ]
 
 
-def test_the_default_settings_build_batch_1s_query(tmp_path):
+def test_the_default_settings_build_the_original_query(tmp_path):
     retrieval = RetrievalArtifact(related_files=(RelatedFile("src/a.cpp", False, 9, "high", 1),))
     options = InvestigationOptions(keywords=["postblend"], focus_files=["src/Focus.cpp"])
     keywords = {"high_value_keywords": ["postblend", "BlendInputModel"], "normal_keywords": []}
@@ -164,7 +164,7 @@ def test_the_default_settings_build_batch_1s_query(tmp_path):
         extracted_terms=("BlendInputModel",),
         focus_files=("src/Focus.cpp",),
         ranked_files=("src/a.cpp",),
-        # Batch 4: every Code Search file, never searched — only excluded from supporting files.
+        # Every Code Search file, never searched — only excluded from supporting files.
         known_files=("src/a.cpp",),
     )
 
@@ -565,7 +565,7 @@ def _history(root: Path, work_item: str) -> str:
     return context.split("## Git History", 1)[1]
 
 
-# --- standalone git-context (Batch 5 review) ------------------------------------------------
+# --- standalone git-context -----------------------------------------------------------------
 
 
 @needs_rg

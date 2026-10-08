@@ -1,6 +1,6 @@
 """Link-safe paths for the things BugPilot deletes and writes.
 
-Writes (pre-release Batch 2, D) follow the same rule as deletion:
+Writes follow the same rule as deletion:
 :func:`writable_dir` and :func:`refuse_link` check every generated path under
 ``.ai/`` and ``.ai_memory/`` before anything is created or written there, and
 refuse a link or junction with one sentence rather than writing through it.
@@ -107,7 +107,7 @@ def owned_path(repo_root: Path, parts: Sequence[str]) -> Path:
 def writable_dir(repo_root: Path, parts: Sequence[str], *, create: bool = True) -> Path:
     """``repo_root / parts`` as a real directory BugPilot may write generated files into.
 
-    The write-side twin of :func:`owned_path` (pre-release Batch 2, D). Every
+    The write-side twin of :func:`owned_path`. Every
     component below the repository root — ``.ai``, ``.ai/<id>``, ``.ai_memory``,
     ``.ai_memory/bugs`` — is checked as it stands, never followed: a link or
     junction raises :class:`UnsafePathError` before anything is created or

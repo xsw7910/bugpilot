@@ -1,4 +1,4 @@
-"""review_report.md: a review's result, recorded (plan §19, Batch 11).
+"""review_report.md: a review's result, recorded (plan §19).
 
 The report exists only because somebody recorded it; its presence says a review
 result was recorded and nothing more. These tests hold the format, the refusals,

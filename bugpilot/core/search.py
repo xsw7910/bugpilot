@@ -395,7 +395,7 @@ def _run_rg(repo_root: Path, keyword: str, warnings: list[str]):
     args.append(".")
 
     # Started by its absolute PATH location: a repository's own rg.exe must not
-    # run because the repository is the working directory (pre-release Batch 2).
+    # run because the repository is the working directory.
     program = find_executable(args[0])
     if program is None:
         warnings.append(f"Search failed for keyword `{keyword}`: rg was not found on PATH.")

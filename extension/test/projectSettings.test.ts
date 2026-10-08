@@ -1,5 +1,5 @@
 /**
- * Project settings, as the panel holds them (pre-release Batch 3): the form's
+ * Project settings, as the panel holds them: the form's
  * copy of `.bugpilot/project_settings.json`, the CLI's answer read as untrusted
  * input, and the constants the two languages share.
  */

@@ -38,7 +38,7 @@ export type Source = "jira" | "manual";
 
 /**
  * History Depth's options, as `GIT_HISTORY_DEPTHS` in `bugpilot/core/models.py`
- * spells them (`test/gitHistorySettings.test.ts` compares the two). `recent` is Batch 1's
+ * spells them (`test/gitHistorySettings.test.ts` compares the two). `recent` is the default
  * bounds; `broader` reads three times as far back per file.
  */
 export const GIT_HISTORY_DEPTHS = ["recent", "broader"] as const;
@@ -151,7 +151,7 @@ export interface FormState {
   readonly agentCommand: string;
   // Git History Settings: how the Git history step searches. Git history's
   // alone — Code Search reads `keywords` and `focusFiles` above, and none of
-  // these. Every default is Batch 1's behaviour, and a form at the defaults
+  // these. Every default keeps the original behaviour, and a form at the defaults
   // sends no flag for them, so its command line is the one it always was.
 
   /** Git history also searches commits for `keywords`. */
@@ -184,7 +184,7 @@ export interface FormState {
   /**
    * Delete `.ai/<work_item>/` before running.
    *
-   * Off here and, since pre-release Batch 1, off in the CLI too (`--fresh` is
+   * Off here and off in the CLI too (`--fresh` is
    * explicit everywhere). Phase 3 learned this the hard way: a
    * re-prepare with fresh=True deleted an agent's `fix_report.md`. The
    * extension asks for it explicitly or does not do it.
@@ -199,7 +199,7 @@ export interface FormState {
    */
   readonly branchPolicy: BranchPolicy;
   /**
-   * The Repository Profile (pre-release Batch 1): how task.md describes this
+   * The Repository Profile: how task.md describes this
    * repository — Auto-detect, Generic, or the Custom details below.
    *
    * A copy of `<repo>/.bugpilot/repository_profile.json`, which is the setting:
@@ -216,7 +216,7 @@ export interface FormState {
   readonly repositoryTestFramework: string;
   readonly repositoryNotes: string;
   /**
-   * The repository's Verification Policy (pre-release Batch 3): what level of
+   * The repository's Verification Policy: what level of
    * validation task.md asks for — not how, which is the Fix Mode's. A copy of
    * `<repo>/.bugpilot/project_settings.json`, loaded and saved like the
    * Repository Profile, so no flag carries it. Kept by Reset Session.
@@ -694,7 +694,7 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
   // `--prepare-only` exists to prevent. `test/form.test.ts` pins that down.
 
   // Preserve artifacts unless the developer asked otherwise. `--resume` is the
-  // CLI's default too now (pre-release Batch 1), and still said: the intent is
+  // CLI's default too now, and still said: the intent is
   // legible in the log line, and phase 3 lost an agent's fix_report.md to a
   // default that was once the destructive one.
   args.push(form.fresh ? "--fresh" : "--resume");
@@ -708,7 +708,7 @@ export function buildPrepareArgs(form: FormState, options: BuildOptions): BuildR
 
 /**
  * The Git History Settings as flags: only what differs from the defaults, so a
- * form nobody configured sends the command line Batch 1 sent. Off-switches
+ * form nobody configured sends no Git History flag at all. Off-switches
  * rather than on-switches for the same reason. `--git-file` is pushed with the
  * other paths, above, through their one path rule.
  */
@@ -833,7 +833,7 @@ export function preparationFingerprint(form: FormState): string {
     // way the CLI stores them. The details are on screen only under Custom.
     repository: repositoryProfileFingerprint(form),
     // And the project settings: the Verification Policy is a section of
-    // task.md, and the branch naming template names its branch (Batch 3).
+    // task.md, and the branch naming template names its branch.
     project: projectSettingsFingerprint(form),
   });
 }

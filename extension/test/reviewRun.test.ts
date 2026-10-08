@@ -69,8 +69,8 @@ test("the captured invocation is one-shot, read-only and isolated from the devel
   assert.equal(after("--setting-sources"), "");
   assert.ok(args.includes("--strict-mcp-config"));
   assert.ok(args.includes("--no-session-persistence"));
-  // The tools that exist at all, and the ones allowed: reading only. No shell
-  // (pre-release Batch 2, C): `Bash(git diff *)` admitted `git diff
+  // The tools that exist at all, and the ones allowed: reading only. No shell:
+  // `Bash(git diff *)` admitted `git diff
   // --output=<file>`, which writes any file, and an external diff driver or a
   // textconv filter, which run programs. BugPilot collects the diff instead.
   const tools = args.slice(args.indexOf("--tools") + 1, args.indexOf("--allowedTools"));

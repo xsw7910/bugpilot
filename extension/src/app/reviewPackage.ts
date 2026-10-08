@@ -5,7 +5,7 @@
  * checklist that `summarize-results` also renders — and this file only reads
  * them back. Nothing here writes a prompt or a checklist to disk, runs a review
  * or decides whether a fix is right: the prompt goes to the clipboard, or to the
- * selected agent through Review with AI (Batch 10) — past the prompt gate every
+ * selected agent through Review with AI — past the prompt gate every
  * terminal handoff shares, `isPlainPrompt` in `agents.ts` — and the checklist
  * is guidance the developer reads.
  *
@@ -20,7 +20,7 @@ import type { Envelope } from "../protocol.ts";
 /**
  * The one command both aids come from. `includeChanges`: also the current git
  * status and diff, which BugPilot collects itself for a captured review that
- * cannot run commands (pre-release Batch 2, C) — asked for only by Review with
+ * cannot run commands — asked for only by Review with
  * AI, since the copy and the checklist do not need a diff.
  */
 export function reviewPackageArgs(workItemId: string, options: { readonly includeChanges?: boolean } = {}): readonly string[] {

@@ -206,7 +206,7 @@ def issue_dir(repo_root: Path, issue_key: str) -> Path:
 
 
 def writable_issue_dir(repo_root: Path, issue_key: str, *, create: bool = True) -> Path:
-    """``.ai/<issue_key>/``, checked before anything is written into it (pre-release Batch 2).
+    """``.ai/<issue_key>/``, checked before anything is written into it.
 
     The id is validated — it becomes a path segment — and every component is
     checked by ``safe_paths.writable_dir``: a link or junction at ``.ai`` or

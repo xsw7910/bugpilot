@@ -98,7 +98,7 @@ test("changing it makes a prepared context stale: task.md says it", () => {
 test("the Branch section: last, its own, no row's gear, and wholly 'Requires rebuild'", () => {
   assert.equal(WORKFLOW_SETTINGS_SECTIONS.at(-1), "branch");
   assert.equal(SETTINGS_SECTION_TITLES.branch, "Branch");
-  // Branch naming (pre-release Batch 3) is the same section: both name what task.md says about branches.
+  // Branch naming is the same section: both name what task.md says about branches.
   assert.deepEqual([...SETTINGS_SECTION_FIELDS.branch], ["branchPolicy", "branchNaming", "branchTemplate"]);
   // Not mixed into Fix with AI, whose agent settings need no rebuild.
   assert.deepEqual([...SETTINGS_SECTION_FIELDS["fix-with-ai"]], ["agent", "agentCommand"]);

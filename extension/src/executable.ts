@@ -66,7 +66,7 @@ export interface DiscoverOptions {
   readonly platform?: string;
   readonly timeoutMs?: number;
   /**
-   * Where a name or a configured path resolves (pre-release Batch 2, A):
+   * Where a name or a configured path resolves:
    * `executablePath.ts`'s policy by default — PATH's absolute entries, never
    * the working directory. Replaced in tests.
    */

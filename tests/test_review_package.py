@@ -1,6 +1,6 @@
 """`review-package --json`: the review prompt and the validation checklist, as a query.
 
-The extension's Fix result row asks for both (Batch 9). What it may not do is
+The extension's Fix result row asks for both. What it may not do is
 what the step versions do on the way: create the work item directory, record a
 step mark in `run.json` (a read-modify-write that would race a re-run of the same
 work item, and a `fail` mark that would turn its History row "failed"), or post
@@ -251,7 +251,7 @@ def test_the_json_prompt_is_the_human_prompt_for_every_kind_of_work_item(tmp_pat
         assert _json(capsys)["prompt"] == human, work_item
 
 
-# --- the prompt Review with AI puts on a command line (Batch 10) ---------------
+# --- the prompt Review with AI puts on a command line ---------------
 
 
 def test_the_prompt_stays_plain_enough_for_a_terminal_handoff():

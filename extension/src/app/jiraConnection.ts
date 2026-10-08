@@ -49,7 +49,7 @@ export function jiraConnection(configured: boolean, rejected: boolean, siteMissi
       tooltip: "Jira credentials are not configured. Configure opens Jira credential setup.",
     };
   }
-  // Credentials without a site cannot fetch anything (pre-release Batch 3): the
+  // Credentials without a site cannot fetch anything: the
   // row says so, and Configure opens the dialog that now asks for the site.
   if (siteMissing) {
     return {
@@ -140,8 +140,8 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * The site must be there unless the environment sets it (and then it is not
  * this dialog's); whether it is a usable https:// address is the CLI's
  * question, the one check every Jira request uses. A token is required only
- * when none is stored: a blank token keeps the stored one (pre-release
- * Batch 3). No length rule for the token: Atlassian's tokens vary.
+ * when none is stored: a blank token keeps the stored one. No length rule for
+ * the token: Atlassian's tokens vary.
  */
 export function jiraSetupProblem(
   entry: { readonly site: string; readonly email: string; readonly token: string },

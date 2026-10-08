@@ -6,7 +6,7 @@
  * is read once, parsed once and shape-checked once, here; the three views are
  * projections of what this returns and never open or parse the file themselves.
  * Git history's structured result is a section of the same file
- * (`git_history`, Git History v2 Batch 3): handed on here untouched, and
+ * (`git_history`): handed on here untouched, and
  * checked entry by entry by its one reader, `gitHistory.ts`.
  * Two parsers of one file would be two opinions about what a malformed one
  * means.

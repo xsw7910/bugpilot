@@ -1,7 +1,7 @@
 /**
  * What the Fix result row shows of `fix_report.md`: two lines, and nothing else.
  *
- * The report is agent-owned Markdown (plan §37, Batch 5): the coding agent — or
+ * The report is agent-owned Markdown (plan §37): the coding agent — or
  * `manual-result`, for a hand-made fix — writes `## Summary`, `## Analysis`,
  * `## Changes`, `## Tests` and `## Review Notes`, and BugPilot only reads it.
  * The row needs two of those, as one line each, in the agent's own words; the

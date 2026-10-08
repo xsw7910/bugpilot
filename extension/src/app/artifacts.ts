@@ -32,17 +32,17 @@ export const CONTEXT_ARTIFACT = "context.md";
 export const RUN_ARTIFACT = "run.json";
 export const TASK_ARTIFACT = "task.md";
 
-/** The one post-agent report (Batch 5), written by the agent, never by a prepare run. */
+/** The one post-agent report, written by the agent, never by a prepare run. */
 export const FIX_REPORT_ARTIFACT = "fix_report.md";
 
 /**
- * A review's result, as somebody recorded it (Batch 11) — only `record-review`
+ * A review's result, as somebody recorded it — only `record-review`
  * writes it. Not a result file the agent owes: never listed as missing.
  */
 export const REVIEW_REPORT_ARTIFACT = "review_report.md";
 
 /**
- * Verification evidence, as somebody recorded it (Batch 12) — only
+ * Verification evidence, as somebody recorded it — only
  * `record-verification` writes it. Optional like the review report: never listed
  * as missing, and its presence changes no outcome.
  */

@@ -594,7 +594,7 @@ test("a summarized package keeps its History outcome: the marks that stopped do 
   assert.equal(after.outcome === "failed" || after.outcome === "incomplete", false);
 });
 
-// --- Batch 11: review_report.md ------------------------------------------------
+// --- review_report.md ----------------------------------------------------------
 
 test("a recorded review follows the fix report; before it is saved it is Not written yet, never missing", () => {
   const list = buildArtifactList({ names: ["task.md", "fix_report.md", "review_report.md", "context.md"] });
@@ -623,7 +623,7 @@ test("History's outcome ignores a recorded review", () => {
   }
 });
 
-// --- Batch 12: verification_report.md -----------------------------------------
+// --- verification_report.md ---------------------------------------------------
 
 test("recorded evidence follows the review; before it is recorded it is Not written yet, never missing", () => {
   const list = buildArtifactList({

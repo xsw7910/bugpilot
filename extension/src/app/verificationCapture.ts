@@ -1,5 +1,5 @@
 /**
- * Record Verification Evidence (Batch 12): the checks the developer entered, on
+ * Record Verification Evidence: the checks the developer entered, on
  * their way to `bugpilot record-verification`.
  *
  * The extension never writes `verification_report.md` itself, and never runs a

@@ -34,7 +34,7 @@ def build_memory_entry(issue_key: str, issue: IssueArtifact, context_path: str) 
 
 
 def add_memory_entry(repo_root: Path, issue_key: str, content: str) -> Path:
-    # Checked like every generated path (pre-release Batch 2): never through a link.
+    # Checked like every generated path: never through a link.
     memory_path = writable_memory_file(repo_root, issue_key)
     atomic_write_text(memory_path, content)
     return memory_path

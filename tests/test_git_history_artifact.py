@@ -1,7 +1,7 @@
-"""Git History v2, Batch 3: the structured result in ``retrieval.json.git_history``.
+"""Git History: the structured result in ``retrieval.json.git_history``.
 
 The record is a projection of the ranking, never a second one: the same
-commits, order, scores and reasons Batch 1/2 produce, with each piece of
+commits, order, scores and reasons the ranking produces, with each piece of
 evidence still saying where it came from. ``context.md`` renders from it, the
 panel reads it, and it is written atomically beside the search it belongs to.
 Repositories are built in temp directories with fixed dates.
@@ -359,7 +359,7 @@ def test_a_prepared_run_records_the_section_and_the_context_renders_it(tmp_path)
 
 @needs_rg
 @needs_git
-def test_the_default_run_records_what_batch_2_ranked(tmp_path, monkeypatch):
+def test_the_default_run_records_exactly_what_the_ranking_produced(tmp_path, monkeypatch):
     seen = []
     real = git_history.find_related_commits
 
@@ -373,7 +373,7 @@ def test_the_default_run_records_what_batch_2_ranked(tmp_path, monkeypatch):
     spec = _prepare(root)
 
     (query, result), = seen
-    again = real(root, query)  # Batch 1/2 defaults, called directly
+    again = real(root, query)  # the default limits, called directly
     section = _section(root, spec.work_item_id)
     assert [c["hash"] for c in section["commits"]] == [c.hash for c in result.commits] == [c.hash for c in again.commits]
     assert [c["score"] for c in section["commits"]] == [c.score for c in again.commits]

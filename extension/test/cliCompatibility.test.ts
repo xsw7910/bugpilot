@@ -1,6 +1,6 @@
 /**
- * Telling an out-of-date bugpilot CLI from every other failure (pre-release
- * Batch 1, D). Exit code 2 alone is any argparse usage error; only argparse's
+ * Telling an out-of-date bugpilot CLI from every other failure. Exit code 2
+ * alone is any argparse usage error; only argparse's
  * own words for "never heard of that" make a CLI out of date.
  */
 

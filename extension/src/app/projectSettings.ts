@@ -1,5 +1,5 @@
 /**
- * Project settings, as the panel holds them (pre-release Batch 3): the
+ * Project settings, as the panel holds them: the
  * repository's Verification Policy and its branch naming template.
  *
  * Both are repository configuration, like the Repository Profile:

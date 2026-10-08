@@ -1,4 +1,4 @@
-"""verification_report.md: verification evidence, recorded (plan §19, Batch 12).
+"""verification_report.md: verification evidence, recorded (plan §19).
 
 The report exists only because somebody recorded it. Each status in it is what
 the user recorded for that one check; BugPilot ran nothing. These tests hold the

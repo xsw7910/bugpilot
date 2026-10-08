@@ -63,7 +63,7 @@ TEN_LOW_VALUE_FILES = tuple(
 
 LOW_QUALITY = "low"
 HIGH_QUALITY = "high"
-#: A Git history step that ran in a repository (Batch 3: the structured outcome, not Markdown).
+#: A Git history step that ran in a repository (the structured outcome, not Markdown).
 GIT = GitHistoryOutcome("JR-12345", GitHistoryRecord("completed"), RepositoryState("main", True, "clean"))
 NO_MEMORY = "No similar memory entries found."
 

@@ -1,6 +1,6 @@
 /**
  * Telling a bugpilot CLI that is too old for this extension from every other
- * failure (pre-release Batch 1, D).
+ * failure.
  *
  * The extension and the CLI ship separately, and an older CLI passes the
  * start-up handshake (`doctor --json` has existed since the first release) and

@@ -186,7 +186,7 @@ test("the card is never built by reading an error message", () => {
   }
 });
 
-// --- Review with AI (Batch 10) ------------------------------------------------
+// --- Review with AI ------------------------------------------------
 
 test("a review that did not start says so first, and what to do depends on why", () => {
   const agent = reviewHandoffError("agent", "claude is not on PATH.");

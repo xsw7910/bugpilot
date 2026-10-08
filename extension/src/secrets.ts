@@ -68,7 +68,7 @@ export class CredentialStore {
 
   /**
    * A new email with the token already stored (Jira Setup with the token left
-   * blank, pre-release Batch 3): one write, as `save` is. Refuses when nothing
+   * blank): one write, as `save` is. Refuses when nothing
    * usable is stored — there is no token to keep, and a half credential is
    * never saved.
    */

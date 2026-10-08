@@ -1,4 +1,4 @@
-"""User Instructions and Project / Team Instructions (pre-release Batch 2, E–G).
+"""User Instructions and Project / Team Instructions.
 
 Two optional files — ``~/.bugpilot/instructions.md`` for the developer,
 ``<repo>/.bugpilot/instructions.md`` for the repository — become two sections of
@@ -187,7 +187,7 @@ def test_sections_sit_between_the_repository_context_and_the_branch_rules(tmp_pa
 
 
 def test_the_precedence_is_the_six_layers_safety_first():
-    """Safety first, and the repository's own rules before one developer's (pre-release Batch 3)."""
+    """Safety first, and the repository's own rules before one developer's."""
     assert INSTRUCTION_LAYERS == (
         "BugPilot safety rules",
         "Repository context",

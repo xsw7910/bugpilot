@@ -3,7 +3,7 @@
  *
  * The extension starts a terminal and stops watching. Every test here defends
  * the distance between that and "the bug is fixed" — a claim the panel has no
- * way to check and a developer would believe. Since Batch 6 the words are the
+ * way to check and a developer would believe. The words are the
  * Fix with AI row's, so that is where they are checked.
  */
 
@@ -116,7 +116,7 @@ test("the headline names no vendor", () => {
   assert.equal(/claude|codex|copilot|gemini|openai|anthropic/i.test(row.summary), false);
 });
 
-// --- Review with AI (Batch 10) ------------------------------------------------
+// --- Review with AI ------------------------------------------------
 
 function reviewView(agent: string) {
   const steps = buildWorkflow({

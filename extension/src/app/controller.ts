@@ -221,7 +221,7 @@ export type DirectoryListing =
   | { readonly kind: "missing" }
   | { readonly kind: "unreadable"; readonly detail: string };
 
-/** The instruction editor while it is open (pre-release Batch 2): which scope, what it opened with. */
+/** The instruction editor while it is open: which scope, what it opened with. */
 interface InstructionsEditorState {
   readonly scope: InstructionScope;
   readonly token: number;
@@ -236,7 +236,7 @@ export interface FilesPort {
   /**
    * `workItem`, when `file` is in `.ai/<work item>/`: the host then writes it
    * only through real directories inside the repository, never through a link
-   * (pre-release Batch 2, D; `writeWorkItemFile` in `sessionReset.ts`).
+   * (`writeWorkItemFile` in `sessionReset.ts`).
    */
   writeFile(file: string, contents: string, workItem?: WorkItemFolder): Promise<void>;
 }
@@ -309,11 +309,11 @@ export interface ControllerPorts {
    */
   readonly jiraCredentials: {
     status(): Promise<{ readonly configured: boolean; readonly email?: string }>;
-    /** An empty token keeps the stored one (Batch 3); the store refuses when there is none. */
+    /** An empty token keeps the stored one; the store refuses when there is none. */
     save(credentials: { readonly email: string; readonly token: string }): Promise<void>;
   };
   /**
-   * The Jira site, through `bugpilot jira-site` (pre-release Batch 3): read
+   * The Jira site, through `bugpilot jira-site`: read
    * when Jira Setup opens, written by its Save. Absent: the dialog cannot set
    * the site, and says so if asked to.
    */
@@ -387,8 +387,8 @@ export interface ControllerPorts {
   /** Every physical definition, for the management view. */
   readonly listManagedFixModes?: () => Promise<ManagedFixModes>;
   /**
-   * The repository's Repository Profile, through `bugpilot repository-profile`
-   * (pre-release Batch 1): read when the environment resolves, written on
+   * The repository's Repository Profile, through `bugpilot repository-profile`:
+   * read when the environment resolves, written on
    * Apply. A port so the spawn stays with the host; absent, the form's copy is
    * all there is and Apply cannot save a change to it.
    */
@@ -398,7 +398,7 @@ export interface ControllerPorts {
   };
   /**
    * The repository's project settings — Verification Policy and branch naming —
-   * through `bugpilot project-settings` (pre-release Batch 3): read when the
+   * through `bugpilot project-settings`: read when the
    * environment resolves, written on Apply, like the Repository Profile.
    */
   readonly projectSettings?: {
@@ -406,8 +406,8 @@ export interface ControllerPorts {
     readonly save: (settings: ProjectSettingsPayload) => Promise<ProjectSettingsOutcome>;
   };
   /**
-   * The User and Project / Team Instructions, through `bugpilot instructions`
-   * (pre-release Batch 2): read when the environment resolves, before a Run and
+   * The User and Project / Team Instructions, through `bugpilot instructions`:
+   * read when the environment resolves, before a Run and
    * when the editor opens; written by the editor's Save, the text on stdin.
    * Absent: the rows say nothing and Edit does not open.
    */
@@ -436,12 +436,12 @@ export interface ControllerPorts {
   /** One management command, with its definition written to a temporary file. */
   readonly runFixModeCommand?: (request: FixModeRequest) => Promise<Envelope>;
   /**
-   * `record-review`, with the review in a temporary file (Batch 11). The one way
+   * `record-review`, with the review in a temporary file. The one way
    * the extension records a review: it never writes `review_report.md` itself.
    */
   readonly runReviewCommand?: (request: PayloadCommandRequest) => Promise<Envelope>;
   /**
-   * `record-verification`, with the checks in a temporary file (Batch 12). The one
+   * `record-verification`, with the checks in a temporary file. The one
    * way the extension records verification evidence: it never writes
    * `verification_report.md` itself, and never runs a check.
    */
@@ -506,7 +506,7 @@ export const SESSION_NOT_IN_WINDOW =
 export const ARTIFACT_REFRESH_RETRY_MS = 750;
 
 /**
- * The artifact writes the host performs itself, one at a time (Batch 12): recording
+ * The artifact writes the host performs itself, one at a time: recording
  * a review result, recording verification evidence, cleaning a work item, and
  * preparing a retry package (release stabilization: it writes into the folder too)
  * — which Start New Attempt does too, when it carries feedback — and Reset Session
@@ -801,7 +801,7 @@ export class Controller {
    */
   #validationEpoch = 0;
   /**
-   * Review with AI, for the report on screen (Batch 10). Transient: held here
+   * Review with AI, for the report on screen. Transient: held here
    * and nowhere else, so a reopened work item offers the button again. Its own
    * state — Fix with AI's `#fix`, `#handoffBusy` and `#handoffError` are
    * another action's.
@@ -815,7 +815,7 @@ export class Controller {
    * the prompt depends on the work item alone.
    */
   #reviewEpoch = 0;
-  /** `review_report.md`, projected, while the listing names it (Batch 11). */
+  /** `review_report.md`, projected, while the listing names it. */
   #reviewReport: ReviewReportPreview | undefined;
   /** A recording in flight, or why the last one did not record. Never persisted. */
   #reviewCapture: ReviewCapture | undefined;
@@ -858,7 +858,7 @@ export class Controller {
    * it ends builds the watcher again, on the directory as it is now.
    */
   #artifactWatchStale = false;
-  /** `verification_report.md`, projected, while the listing names it (Batch 12). */
+  /** `verification_report.md`, projected, while the listing names it. */
   #verificationReport: VerificationReportPreview | undefined;
   /** A verification recording in flight, or its outcome. Never persisted. */
   #verificationCapture: VerificationCapture | undefined;
@@ -888,7 +888,7 @@ export class Controller {
   /** The last Edit answer and the text it was parsed from. */
   #verificationEditBasis: { readonly token: number; readonly text: string | undefined } | undefined;
   /**
-   * The artifact write in flight, if any (Batch 11, generalized in Batch 12): a
+   * The artifact write in flight, if any: a
    * record-review, a record-verification or a clean process, or the confirmation
    * before one. Set before the first wait and cleared only in that operation's
    * `finally`. In flight is not the same as its outcome still being wanted:
@@ -942,20 +942,20 @@ export class Controller {
   #savedProfile: RepositoryProfileSnapshot | undefined;
   /** A save of the Repository Profile in flight: a Run waits for it, so it reads the new file. */
   #profileSave: Promise<void> | undefined;
-  /** The project settings as the repository's file last said them; `undefined` until read (Batch 3). */
+  /** The project settings as the repository's file last said them; `undefined` until read. */
   #savedProjectSettings: ProjectSettingsSnapshot | undefined;
   /** A save of the project settings in flight: a Run waits for it too. */
   #projectSettingsSave: Promise<void> | undefined;
   /**
-   * An Apply that writes either file, from its first await to its last
-   * (pre-release Batch 4.1). The two saves above run one after the other, so a
+   * An Apply that writes either file, from its first await to its last.
+   * The two saves above run one after the other, so a
    * Run waiting on the first resumed before the second had begun and read the
    * old file; it waits for the whole Apply instead.
    */
   #settingsApply: Promise<void> | undefined;
   /**
-   * What `bugpilot instructions` last said: each scope's state, text and hash
-   * (pre-release Batch 2). `undefined` until read. The text is held for the
+   * What `bugpilot instructions` last said: each scope's state, text and hash.
+   * `undefined` until read. The text is held for the
    * editor only — no log line, notice or state push outside it carries it.
    */
   #instructions: InstructionsSnapshot | undefined;
@@ -1677,7 +1677,7 @@ export class Controller {
    */
   async run(form: FormState, options: { readonly handOff?: boolean } = {}): Promise<void> {
     if (this.#running || this.#runPending) return;
-    // No run while an artifact write is in flight (Batches 11–12). A Fresh run
+    // No run while an artifact write is in flight. A Fresh run
     // deletes the work item folder, and a recording's late write would put its
     // report back into the new package; any run would drop the recording's
     // outcome, and one racing a clean prepares into a folder being deleted.
@@ -1720,7 +1720,7 @@ export class Controller {
       if (this.#readiness.kind !== "ready" || !this.#root) return;
     }
     // An Apply is still writing the profile or the project settings: the run
-    // reads both files, so it waits for the whole Apply (Batch 4.1) — and then
+    // reads both files, so it waits for the whole Apply — and then
     // records the settings the files now hold. A refused save put the file's
     // values back on the host's form; the run uses those, so its baseline must
     // say so rather than claim the refused ones. Only the run's copy is
@@ -1747,7 +1747,7 @@ export class Controller {
     }
     // The instructions as this run will read them, so the baseline below is
     // what the task gets — an edit made outside BugPilot since the last check
-    // included (pre-release Batch 2). Only where there is something to read: a
+    // included. Only where there is something to read: a
     // host without the port starts its run without waiting a turn for nothing.
     if (this.#ports.instructions !== undefined) {
       await this.#loadInstructions();
@@ -1820,7 +1820,7 @@ export class Controller {
     // The kept report is the same fix: its identity is kept with it.
     const reportIdentity = report === undefined ? undefined : this.#fixReportIdentity;
     // A recorded review and recorded evidence survive exactly when their fix
-    // report does (Batches 11–12): Fresh deletes the folder, and nothing else in a
+    // report does: Fresh deletes the folder, and nothing else in a
     // run touches any of the three.
     const review =
       report !== undefined && this.#artifactNames.includes(REVIEW_REPORT_ARTIFACT) ? this.#reviewReport : undefined;
@@ -1914,7 +1914,7 @@ export class Controller {
       );
 
       // A CLI too old for this Run's flags exits 2 with argparse's "unrecognized
-      // arguments" (pre-release Batch 1, D): said as that, with the update
+      // arguments": said as that, with the update
       // actions, rather than as a crash with a Retry that would fail the same way.
       const rejected = outcome.result.aborted ? undefined : rejectedByOutdatedCli(outcome.result);
       if (outcome.foreignVersion !== undefined) tracker.foreign(outcome.foreignVersion);
@@ -2652,7 +2652,7 @@ export class Controller {
       return;
     }
     // Registered before the first await, so a Run pressed at any point of the
-    // Apply finds it (Batch 4.1).
+    // Apply finds it.
     const apply = this.#applySettings(form);
     this.#settingsApply = apply;
     try {
@@ -2668,7 +2668,7 @@ export class Controller {
     await this.#formChanged(form);
     // The Repository Profile is the repository's file, not the form: a change
     // to it is written there, where every run reads it. So are the project
-    // settings, in their own file (Batch 3).
+    // settings, in their own file.
     const baseline = this.#savedProfile?.profile ?? repositoryProfileOfForm(previous);
     const profileChanged = !sameRepositoryProfile(form, baseline);
     const settingsBaseline = this.#savedProjectSettings?.settings ?? projectSettingsOfForm(previous);
@@ -3090,7 +3090,7 @@ export class Controller {
    * error card the blocked card already showed.
    */
   /**
-   * Read the repository's profile and put it on the form (pre-release Batch 1).
+   * Read the repository's profile and put it on the form.
    *
    * The file is the setting and the form a copy, so the file wins: a profile a
    * teammate committed, or one edited by hand, is what the settings page shows
@@ -3127,7 +3127,7 @@ export class Controller {
   }
 
   /**
-   * The CLI turned out to be too old for this extension (pre-release Batch 1, D):
+   * The CLI turned out to be too old for this extension:
    * the environment card says so, with Update Instructions, Choose Executable
    * and Retry, and the form waits until it is fixed. Retry re-checks, and an
    * old CLI is caught again by reading the profile.
@@ -3185,7 +3185,7 @@ export class Controller {
   }
 
   /**
-   * Read the User and Project Instructions (pre-release Batch 2): their state
+   * Read the User and Project Instructions: their state
    * for the settings rows and their hash for the stale check. A CLI without
    * the command is too old for this extension — its runs would leave the
    * instructions out — and is blocked like one without the profile.
@@ -3303,7 +3303,7 @@ export class Controller {
   }
 
   /**
-   * Read the repository's project settings and put them on the form (Batch 3),
+   * Read the repository's project settings and put them on the form,
    * as the profile is: the file wins, and an old CLI without the command is
    * blocked as out of date before any Run.
    */
@@ -4118,7 +4118,7 @@ export class Controller {
     // The prompt alone: the current changes are collected only for a review
     // that reads them (below). A terminal or clipboard reviewer looks at the
     // diff itself, and a large repository's `git status` and `git diff` are not
-    // worth running for nothing (pre-release Batch 4.1).
+    // worth running for nothing.
     const result = await this.#reviewPackage(workItemId, root);
     if (!this.#reviewStillWanted(epoch)) return;
     if (typeof result === "string") {
@@ -4471,7 +4471,7 @@ export class Controller {
   }
 
   /**
-   * Record what a completed review said, in `review_report.md` (Batch 11).
+   * Record what a completed review said, in `review_report.md`.
    *
    * The review happened elsewhere — Review with AI's terminal, another tool, a
    * person — and nothing here knows how it went; the developer is telling us.
@@ -4615,7 +4615,7 @@ export class Controller {
 
   /**
    * Record the checks the developer entered as verification evidence, in
-   * `verification_report.md` (Batch 12).
+   * `verification_report.md`.
    *
    * Nothing here runs a check or reads a result: every status is the one the
    * developer chose, and the report says so. `record-verification` does the
@@ -4958,7 +4958,7 @@ export class Controller {
 
   /**
    * Clean a work item's artifacts — the Clean command — never over an artifact
-   * recording in flight (Batch 12). A clean that raced a recording could delete
+   * recording in flight. A clean that raced a recording could delete
    * the folder under it, or the recording's late write could put a report back
    * into a folder the developer just emptied. Refused before the confirmation and
    * again after it, since a recording may be pressed while the question is open.
@@ -5416,7 +5416,7 @@ export class Controller {
     if (workItemScopeOf(form) !== preparedScope) return true;
     if (this.#preparedWith !== undefined && preparationFingerprint(form) !== this.#preparedWith) return true;
     // The instructions are files, not form fields: compared by content hash,
-    // never by file time, and only when both sides are known (pre-release Batch 2).
+    // never by file time, and only when both sides are known.
     const instructions = this.#instructionsFingerprint();
     return this.#preparedInstructions !== undefined && instructions !== undefined && instructions !== this.#preparedInstructions;
   }

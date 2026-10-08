@@ -1,4 +1,4 @@
-"""The current changes BugPilot collects for a reviewer without a shell (pre-release Batch 2, C).
+"""The current changes BugPilot collects for a reviewer without a shell.
 
 Review with AI's captured review has no shell: ``Bash(git diff *)`` admitted
 ``git diff --output=<file>``, which writes any file, and an external diff driver

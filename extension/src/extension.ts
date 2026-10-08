@@ -147,7 +147,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   };
 
-  // The repository's project settings (Batch 3): the CLI owns the file and
+  // The repository's project settings: the CLI owns the file and
   // judges a branch template; Apply hands the payload over in a temporary file.
   const projectSettingsCommand = async (settings?: ProjectSettingsPayload): Promise<ProjectSettingsOutcome> => {
     const root = controller.root;
@@ -155,7 +155,7 @@ export function activate(context: vscode.ExtensionContext): void {
     return runProjectSettings((args) => trustedRunner(executable).run(args, { cwd: root, timeoutMs: 30_000 }), settings);
   };
 
-  // User and Project instructions (pre-release Batch 2): the CLI owns the two
+  // User and Project instructions: the CLI owns the two
   // paths, the limit and the link checks. A save's text goes on stdin — never
   // on a command line, never in a temporary file — and nothing of it is logged.
   const instructionsCommand = async (save?: { scope: InstructionScope; text: string }): Promise<InstructionsOutcome> => {
@@ -204,11 +204,11 @@ export function activate(context: vscode.ExtensionContext): void {
       // only ask whether one is stored and for which email — never the token.
       jiraCredentials: {
         status: () => credentials.status(),
-        // A blank token keeps the stored one (Jira Setup, Batch 3).
+        // A blank token keeps the stored one (Jira Setup).
         save: (pair) => (pair.token === "" ? credentials.saveKeepingToken(pair.email) : credentials.save(pair)),
       },
       // The site is not a secret: it lives where the CLI reads it, written
-      // through the CLI, the typed value on stdin (Batch 3).
+      // through the CLI, the typed value on stdin.
       jiraSite: {
         load: () => jiraSiteCommand(),
         save: (site) => jiraSiteCommand(site),
@@ -576,7 +576,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!workItemId) return;
     // The controller asks (modal) and runs it, because it owns the one guard for
     // artifact writes: no clean over a review or verification recording in
-    // flight, and no recording or run while the clean runs (Batch 12).
+    // flight, and no recording or run while the clean runs.
     const cleaned = await controller.clean(workItemId, async () => {
       await runText(executable, root, ["clean", workItemId], channel, log);
     });

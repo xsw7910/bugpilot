@@ -15,7 +15,7 @@
  * made the workflow a disclosure beside Advanced settings, so what greets a
  * developer is the one sentence the tool is about — type the issue, press
  * Run — rather than every control the panel owns laid out at equal weight.
- * Batch 7 took Fix Mode out of that sentence too: Standard Fix is what almost
+ * Fix Mode is out of that sentence too: Standard Fix is what almost
  * every run uses, so choosing another is a setting — then under Advanced
  * settings → Strategy, now on the Workflow Settings page with the rest of Fix
  * with AI's settings — rather than a question asked before every Run.
@@ -604,7 +604,7 @@ interface ActionButton {
 
 /**
  * Build context's own actions: they act on `context.md`, the file that step
- * produced, so they sit on its row (Batch 6). Same ids, same messages, same
+ * produced, so they sit on its row. Same ids, same messages, same
  * tooltips as when they lived in the Context Ready card.
  *
  * Icon *and* label: a pair of bare glyphs under a row reads as decoration; the
@@ -629,7 +629,7 @@ const BUILD_CONTEXT_ACTIONS: readonly ActionButton[] = [
 ];
 
 /**
- * Fix result's one action (Batch 8): the report, in the editor.
+ * Fix result's one action: the report, in the editor.
  *
  * Not a new host action: it posts the same constrained `openArtifact` message
  * the row's file link does, with the file name the host put on the row — so it
@@ -1125,7 +1125,7 @@ const BRANCH_POLICY_HELP = [
 ].join(" ");
 
 /**
- * Branch naming (pre-release Batch 3): only the name a new branch would get —
+ * Branch naming: only the name a new branch would get —
  * whether one is made is the policy above. Default is BugPilot's own name;
  * Custom shows the template, which is the repository's (`project_settings.json`,
  * written on Apply) and judged by the CLI. The field is hidden until Custom is
@@ -1178,7 +1178,7 @@ ${BRANCH_POLICIES.map((policy) => `            <option value="${policy}" title="
         </div>`;
 
 /**
- * Repository (pre-release Batch 1): how task.md describes the repository.
+ * Repository: how task.md describes the repository.
  * Auto-detect, the default, reads high-confidence facts from the repository's
  * build and package files; Generic assumes nothing; Custom uses the details
  * typed below, which appear only when Custom is chosen. The profile is the
@@ -1256,7 +1256,7 @@ const INSTRUCTION_HELP: Readonly<Record<InstructionScope, string>> = {
 };
 
 /**
- * An instruction row (pre-release Batch 2): the name, Edit, and under them one
+ * An instruction row: the name, Edit, and under them one
  * quiet line of state the page fills from the host — the empty state until
  * there is something to say. A document is not edited in this narrow column:
  * Edit opens its own page.
@@ -1275,7 +1275,7 @@ function instructionRow(scope: InstructionScope): string {
 }
 
 /**
- * The Verification Policy (pre-release Batch 3): four switches under one
+ * The Verification Policy: four switches under one
  * heading, what each asks for in its tooltip. The repository's, saved in
  * `.bugpilot/project_settings.json` on Apply; how an attempt verifies stays
  * the Fix Mode's.
@@ -1314,7 +1314,7 @@ const REPOSITORY_SECTION = [
 ].join("\n");
 
 /**
- * The instruction editor (pre-release Batch 2): one page for either scope,
+ * The instruction editor: one page for either scope,
  * reached from a row's Edit, with the shared Back header. The title, the
  * scope line and the text are the host's, filled once per open; nothing on
  * this page is part of the form. Save writes the file — empty text removes it
@@ -1692,7 +1692,7 @@ function stepIcon(id: WorkflowStepId): string {
 }
 
 /**
- * One workflow row: the choice, the status, and — since Batch 6 — the result.
+ * One workflow row: the choice, the status, and the result.
  *
  * Every row has the same parts on its first line (§37.107, §37.108): a leading
  * slot — the checkbox, or a spacer as wide — then the step's icon and its
@@ -1768,7 +1768,7 @@ ${errorCard(`error-${id}`)}
 }
 
 /**
- * The seventh row, present only while `fix_report.md` is (Batch 8).
+ * The seventh row, present only while `fix_report.md` is.
  *
  * Built like the six so it reads as part of the same list, with two
  * differences that are the point: no checkbox — nobody chooses it and no run
@@ -1838,7 +1838,7 @@ function stepContent(id: WorkflowStepId): string {
     // structured record the host read out of retrieval.json — never from
     // context.md — and only while that record has commits to list.
     //
-    // Then Supporting files (Batch 4): what those commits also changed that Code
+    // Then Supporting files: what those commits also changed that Code
     // search did not return. A list of its own, under the row whose evidence it
     // is, so it can never be read as Code search's Relevant files.
     return `            <details class="commits" id="related-commits" hidden>
@@ -1857,7 +1857,7 @@ function stepContent(id: WorkflowStepId): string {
   }
   if (id === "fixResult") {
     // Read the report first; then, if wanted, prepare someone else's review of
-    // it (Batch 9), or start one with the selected agent (Batch 10). Each label
+    // it, or start one with the selected agent. Each label
     // says what its button does — one copies a prompt, one starts a reviewer;
     // neither is a review — in its own span, so the page can say it is busy
     // without dropping the icon. All three are the same quiet secondary style:
@@ -1870,7 +1870,7 @@ function stepContent(id: WorkflowStepId): string {
     // under the status (§37.82): the elapsed time — outside the live region,
     // so it is not read out every second — Show details, and Cancel Review.
     //
-    // Then Review Result (Batch 11): what somebody saved after a review, in
+    // Then Review Result: what somebody saved after a review, in
     // their words, and never more than that — "Review result saved" is the
     // whole claim. Add Review Result sits with the row's actions while none is
     // saved; once one is, Open and Replace sit with it. Paste Review Output
@@ -1882,7 +1882,7 @@ function stepContent(id: WorkflowStepId): string {
     // a <form>: the rows sit inside the panel's own form, where a nested one is
     // ignored and its submit button would submit the panel — a Run.
     //
-    // Then Verification Evidence (Batch 12): the checks the developer recorded
+    // Then Verification Evidence: the checks the developer recorded
     // and the status they gave each, counted — "Recorded checks: 2 passed,
     // 1 failed" — with the checks by name and one generated, scoped phrase; no
     // badge, and nothing that says verified. The form saves itself (§37.83): a

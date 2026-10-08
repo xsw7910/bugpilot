@@ -1,4 +1,4 @@
-"""run.json: the one canonical runtime artifact (plan §37, Batch 4).
+"""run.json: the one canonical runtime artifact (plan §37).
 
 The run used to leave a status file rewritten on every step and an append-only
 text log nothing read. One typed artifact remains. These tests hold its schema,

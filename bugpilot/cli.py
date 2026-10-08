@@ -596,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
             return _dispatch(args, repo_root)
         except UnsafePathError as exc:
             # A generated path that is a link or junction, or a work item id that
-            # is not one: one sentence, never a traceback (pre-release Batch 2).
+            # is not one: one sentence, never a traceback.
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
         except RunArtifactError as exc:

@@ -150,7 +150,7 @@ test("a doctor failure means unhealthy, not incompatible", async () => {
   assert.equal(verdict.kind, "unhealthy");
   if (verdict.kind === "unhealthy") assert.equal(verdict.code, "JIRA_NOT_CONFIGURED");
   // Advice comes from the shared code table, not a second explanation.
-  // Since Batch 3 the table points at Jira Setup, which also takes the site.
+  // The table points at Jira Setup, which also takes the site.
   assert.match(describeVerdict(verdict).action, /Open Jira Setup/);
 });
 
@@ -481,7 +481,7 @@ test("a compatible CLI that reports no version is still ready", async () => {
   assert.match(describeVerdict(verdict).summary, /Using bugpilot\./);
 });
 
-// --- Batch 3: Jira Setup keeps a stored token, and the site's transport -------------
+// --- Jira Setup keeps a stored token, and the site's transport ----------------------
 
 test("a blank token in Jira Setup keeps the stored one, in one write; with none stored it is refused", async () => {
   const store = memoryStore();

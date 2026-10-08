@@ -1,6 +1,6 @@
 /**
  * Reading `bugpilot review-package --json`: the review prompt and the
- * validation checklist the Fix result row offers (Batch 9).
+ * validation checklist the Fix result row offers.
  *
  * The CLI builds both; this reader only takes them back, bounded. A malformed
  * envelope is "not available", never a guess: without a prompt there is nothing
@@ -37,7 +37,7 @@ const envelope = (validation: unknown, prompt: unknown = PROMPT): Envelope => ({
 test("the command is the read-only JSON query, for exactly this work item", () => {
   assert.deepEqual([...reviewPackageArgs("JR-12345")], ["review-package", "JR-12345", "--json"]);
   // Review with AI's own: also the changes BugPilot collects for a reviewer
-  // without a shell (pre-release Batch 2, C).
+  // without a shell.
   assert.deepEqual([...reviewPackageArgs("JR-12345", { includeChanges: true })], ["review-package", "JR-12345", "--json", "--include-changes"]);
 });
 
@@ -127,7 +127,7 @@ test("HTML-looking text is returned as text", () => {
   assert.equal(parsed?.validation.risks[0], hostile);
 });
 
-// --- Review with AI's guard (Batch 10) ----------------------------------------
+// --- Review with AI's guard ----------------------------------------
 
 /** `_build_final_review_prompt`'s text, as `review-package` prints it. */
 const canonical = (id: string) =>

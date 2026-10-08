@@ -89,7 +89,7 @@ export const FORM_FIELD_SCOPE: Readonly<Record<keyof FormState, "session" | "pre
   repositoryBuildSystem: "preference",
   repositoryTestFramework: "preference",
   repositoryNotes: "preference",
-  // The repository's project settings (Batch 3): its configuration, not the session's.
+  // The repository's project settings: its configuration, not the session's.
   verifyRelevantTests: "preference",
   verifyStaticChecks: "preference",
   verifyFullSuite: "preference",
@@ -265,8 +265,8 @@ export async function deleteWorkItemArtifacts(options: {
 }
 
 /**
- * Write one file into `.ai/<work item>/` under the rule the delete above uses
- * (pre-release Batch 2, D): `.ai` and the work item folder are real
+ * Write one file into `.ai/<work item>/` under the rule the delete above uses:
+ * `.ai` and the work item folder are real
  * directories whose resolved path is the repository's own, and the file itself
  * is not a link — a link anywhere on the way could take the write somewhere
  * else, so it is refused and nothing is written. A missing folder is created,

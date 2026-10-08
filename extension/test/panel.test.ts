@@ -95,10 +95,10 @@ const MODEL_TEXT_FIELDS = Object.keys(DEFAULT_FORM).filter(
       "similarUseSharedKeywords",
       // The Branch section's select (§37.127).
       "branchPolicy",
-      // The Repository section's select (pre-release Batch 1); its details are text.
+      // The Repository section's select; its details are text.
       "repositoryProfile",
-      // The Verification Policy's four switches and Branch naming's select
-      // (pre-release Batch 3); the branch template is text.
+      // The Verification Policy's four switches and Branch naming's select;
+      // the branch template is text.
       "verifyRelevantTests",
       "verifyStaticChecks",
       "verifyFullSuite",
@@ -348,7 +348,7 @@ test("nothing is loaded from a remote origin", () => {
   // also leak the fact that a developer is looking at a particular bug. What
   // would load something is an address in an attribute, a stylesheet url() or
   // @import, or a script's fetch/import — never the words of Jira Setup's site
-  // placeholder and its "such as https://your-company.atlassian.net" (Batch 3),
+  // placeholder and its "such as https://your-company.atlassian.net",
   // which are text. The one address any of it names is that reserved example.
   assert.equal(/(?:src|href|action|data|poster|srcset)\s*=\s*["']?https?:\/\//i.test(HTML), false);
   assert.equal(/url\(\s*["']?https?:|@import/i.test(CSS), false);
@@ -450,7 +450,7 @@ test("there is one row for every workflow step, and one checkbox for every optio
     const box = new RegExp(`id="plan-${id}"`).test(HTML);
     assert.equal(box, !ALWAYS_RUNS.includes(id), `${id}: ${box ? "a checkbox" : "no checkbox"}`);
   }
-  // Then Fix result (Batch 8), last, and the one row nobody ticks.
+  // Then Fix result, last, and the one row nobody ticks.
   const rows = [...HTML.matchAll(/id="step-([A-Za-z]+)"/g)].map((match) => match[1]);
   assert.deepEqual(rows, [...WORKFLOW_STEP_IDS, "fixResult"], "the rows are in the model's order");
   const checkboxes = [...HTML.matchAll(/<input type="checkbox" id="(plan-[A-Za-z]+)"/g)].map((match) => match[1]);
@@ -524,7 +524,7 @@ test("the status icon is at the far right, away from the checkbox", () => {
   // going to run.
   assert.match(row, /id="status-codeSearch"[^>]*hidden/);
 
-  // A row's result sits below its head line, never inside it (Batch 6).
+  // A row's result sits below its head line, never inside it.
   const built = rowMarkup("buildContext");
   assert.ok(built.indexOf('id="status-buildContext"') < built.indexOf('id="actions-buildContext"'));
 });
@@ -556,7 +556,7 @@ test("every icon the panel asks for is one the vendored font declares", () => {
   }
 });
 
-test("each action lives on the row that owns it (Batch 6)", () => {
+test("each action lives on the row that owns it", () => {
   // Open Context and Copy act on context.md, which Build context produced; the
   // Fix with AI row holds Start New Attempt's form, whose Start acts on the
   // prepared task; Open Folder reveals every artifact, so it belongs to the work
@@ -633,7 +633,7 @@ test("a gear on exactly the rows that have settings, named for its step", () => 
   assert.deepEqual(Object.values(SETTINGS_ACTION_LABELS), [
     "Configure Issue Details",
     "Configure Code Search",
-    // Git History Settings (Git History Retrieval v2, Batch 2).
+    // Git History Settings (Git History Retrieval v2).
     "Configure Git History",
     // Similar Fixes Settings (§37.113).
     "Configure Similar Fixes",
@@ -789,7 +789,7 @@ const SETTINGS_HELP: Readonly<Record<string, string>> = {
   similarKeywords: "Extra terms used only for Similar Fixes. Separate them with commas or new lines.",
   similarMaxFixes: "How many similar past fixes to include, from 1 to 20. Empty uses the default, 5.",
   fresh: "Removes the work item's existing generated artifacts before running. Off by default to avoid accidental data loss.",
-  // The Repository Profile and its Custom details (pre-release Batch 1).
+  // The Repository Profile and its Custom details.
   repositoryProfile:
     "Describe the repository context BugPilot gives to the AI agent. Auto-detect uses high-confidence project files. Generic makes no language or framework assumptions. Custom uses the repository details you provide. Saved for the repository in .bugpilot/repository_profile.json.",
   repositoryLanguages: "The repository's main programming languages.",
@@ -798,13 +798,13 @@ const SETTINGS_HELP: Readonly<Record<string, string>> = {
   repositoryBuildSystem: "How the repository is built.",
   repositoryTestFramework: "How the repository is tested.",
   repositoryNotes: "Anything else the AI agent should know about the codebase, in a sentence or two.",
-  // The instruction rows' Edit (pre-release Batch 2): where each file is, whom
+  // The instruction rows' Edit: where each file is, whom
   // it applies to, and that it never overrides BugPilot.
   "project-instructions-edit":
     "Instructions for the AI agent shared with this repository: .bugpilot/instructions.md, which can be committed. They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
   "user-instructions-edit":
     "Your own instructions for the AI agent, in every repository: ~/.bugpilot/instructions.md. They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
-  // The Verification Policy's switches and Branch naming (pre-release Batch 3).
+  // The Verification Policy's switches and Branch naming.
   verifyRelevantTests: "Ask the agent to run the tests relevant to the changed behavior.",
   verifyStaticChecks: "Ask the agent to run the repository's existing linters, type checks or compiler warnings when they are available.",
   verifyFullSuite: "Ask the agent to run the repository's full test suite before reporting, if it can run here.",
@@ -918,9 +918,9 @@ test("every setting has a header row with a real label in it", () => {
   // picker, the attachment list and the Fresh checkbox, Git history's four
   // switches and its depth select, Similar fixes' switch, the repository
   // profile's select and the branch policy's select, and the two instruction
-  // rows' Edit (pre-release Batch 2). (Fix Mode and Hint are the main page's
+  // rows' Edit. (Fix Mode and Hint are the main page's
   // now, §37.84.)
-  // And since Batch 3 the Verification Policy's four switches and the Branch
+  // And the Verification Policy's four switches and the Branch
   // naming select (its template is a text field, counted above).
   assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 8 + 2 + 5, "a row is missing the pattern");
 
@@ -1826,7 +1826,7 @@ const BACK_PAGES = [
   ["fix-mode-manager-view", "manage-back", "manage-heading", "Manage Fix Modes", "Back to Workflow"],
   ["fix-mode-preview-view", "preview-back", "preview-heading", "", "Back to Fix Mode Manager"],
   ["fix-mode-editor-view", "editor-back", "editor-title", "", "Back to Fix Mode Manager"],
-  // User or Project instructions (pre-release Batch 2): the title is the scope's, set by the page.
+  // User or Project instructions: the title is the scope's, set by the page.
   ["instructions-editor-view", "instructions-back", "instructions-title", "Instructions", "Back to Advanced Settings — discards the changes"],
 ] as const;
 
@@ -2738,9 +2738,9 @@ test("a section's tag is a quiet fact beside its heading, never a badge, and wra
     "code-search": ["Requires rebuild", "Changes here require rebuilding context."],
     "git-history": ["Requires rebuild", "Changes here require rebuilding context."],
     "similar-fixes": ["Requires rebuild", "Changes here require rebuilding context."],
-    // Written into task.md's Repository Context (pre-release Batch 1).
+    // Written into task.md's Repository Context.
     repository: ["Requires rebuild", "Changes here require rebuilding context."],
-    // The User instructions, written into task.md (pre-release Batch 2).
+    // The User instructions, written into task.md.
     "ai-instructions": ["Requires rebuild", "Changes here require rebuilding context."],
     "build-context": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     "fix-with-ai": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
@@ -2824,7 +2824,7 @@ test("every advanced field is still there, with the id its state is stored under
 // --- UI-B1: Relevant Files --------------------------------------------------
 
 test("Relevant files is a collapsed disclosure inside Code search", () => {
-  // Batch 6: the files are the search's result, so they are on its row.
+  // The files are the search's result, so they are on its row.
   const row = rowMarkup("codeSearch");
   const files = /<details class="files" id="relevant-files"[\s\S]*?<\/details>/.exec(row)?.[0] ?? "";
   assert.notEqual(files, "", "Relevant files is not inside the Code search row");
@@ -3151,17 +3151,17 @@ test("each result control exists exactly once, inside the row that owns it", () 
 });
 
 test("Fix result is a row the markup keeps hidden, with no checkbox and no failure card", () => {
-  // Batch 8. It exists only while fix_report.md does, so the page shows it
+  // It exists only while fix_report.md does, so the page shows it
   // when the host's workflow includes it and never before.
   const row = rowMarkup("fixResult");
   assert.match(row, /^<li class="step" id="step-fixResult" hidden>/);
   // Nobody chooses it and no run performs it.
   assert.equal(/<input\b/.test(row), false, "Fix result has a checkbox");
-  // Its only labels are Review Result's text areas (Batch 11) — never
+  // Its only labels are Review Result's text areas — never
   // one for a checkbox.
   assert.equal(/<label\b[^>]*for="plan-/.test(row), false, "Fix result has a label for a checkbox");
   // A report that cannot be previewed is not a failure: no card of the row's
-  // own. The one card it holds is Review with AI's, about that action (Batch 10).
+  // own. The one card it holds is Review with AI's, about that action.
   assert.equal(row.includes('id="error-fixResult"'), false, "Fix result has a row failure card");
   assert.deepEqual([...row.matchAll(/class="failure"[^>]*/g)].length, 1);
   assert.match(row, /<div id="review-error" class="failure" role="alert" hidden>/);
@@ -3178,7 +3178,7 @@ test("Fix result is a row the markup keeps hidden, with no checkbox and no failu
 });
 
 test("Fix result's review aids: read the report, copy a review prompt, open the checklist", () => {
-  // Batch 9. In that order — the report first — and all on the row that owns
+  // In that order — the report first — and all on the row that owns
   // the report they are about.
   const row = rowMarkup("fixResult");
   const order = ['id="open-fix-report"', 'id="copy-review-prompt"', 'id="validation-checklist"'].map((id) => row.indexOf(id));
@@ -3189,7 +3189,7 @@ test("Fix result's review aids: read the report, copy a review prompt, open the 
   // runs. Secondary, like Open Fix Report, and hidden until a report is there.
   assert.match(row, /<button type="button" class="result-link" id="copy-review-prompt" title="Copy a prompt that asks a reviewer to review this result" hidden>/);
   assert.match(row, /<span id="copy-review-prompt-label">Copy Review Prompt<\/span>/);
-  // "Review Result" is Batch 11's, and says only that a result was recorded;
+  // "Review Result" says only that a result was recorded;
   // nothing on the panel claims a review ran, passed or verified anything.
   for (const overclaim of [
     "Run Review",
@@ -3328,7 +3328,7 @@ test("the page decides nothing about what a diagnostic means", () => {
   }
 });
 
-// --- Review with AI (Batch 10) ------------------------------------------------
+// --- Review with AI ------------------------------------------------
 
 test("Review with AI is Fix result's third action, then its status and its card, then the checklist", () => {
   const row = rowMarkup("fixResult");
@@ -3389,7 +3389,7 @@ test("the page may ask for Review with AI and nothing more general", () => {
 });
 
 test("Verification Evidence sits in Fix result after Review Result, as buttons in a group, never a form", () => {
-  // Batch 12. Record with the row's actions; the evidence, its Open and Edit,
+  // Record with the row's actions; the evidence, its Open and Edit,
   // then the form and the recording's own status and alert — all after
   // Review Result's.
   const row = rowMarkup("fixResult");
@@ -4162,7 +4162,7 @@ test("every page paints from one set of theme tokens: page, section, field (§37
   const fields = 'input[type="text"],\ninput[type="url"],\ninput[type="email"],\ninput[type="password"],\ntextarea,\nselect';
   assert.match(ruleBody(fields), /background: var\(--bugpilot-control-bg\);/);
   // Every typed text input the panel draws is in that rule: Jira Setup's url
-  // field once drew as the browser's white box in a dark theme (Batch 3).
+  // field once drew as the browser's white box in a dark theme.
   for (const type of new Set([...HTML.matchAll(/<input[^>]*\stype="([a-z]+)"/g)].map((match) => match[1]!))) {
     if (type === "checkbox" || type === "radio" || type === "file") continue;
     assert.ok(fields.includes(`input[type="${type}"]`), `input type="${type}" has no field style`);
@@ -4513,7 +4513,7 @@ test("Jira Setup is one modal dialog in the panel: site, email and token togethe
   assert.match(JIRA_DIALOG_HTML, /<h2 class="jira-title" id="jira-title">[\s\S]*?Jira Setup<\/h2>/);
   assert.match(JIRA_DIALOG_HTML, new RegExp(`<p class="muted jira-intro" id="jira-intro">${JIRA_SETUP_TEXT.intro}</p>`));
   assert.equal(JIRA_SETUP_TEXT.intro, "Connect BugPilot to your Jira site using your Atlassian account email and API token.");
-  // The site (Batch 3): labelled, a placeholder of the reserved example tenant,
+  // The site: labelled, a placeholder of the reserved example tenant,
   // described off screen, and a note shown only when the environment sets it.
   assert.match(JIRA_DIALOG_HTML, /<label class="jira-label" for="jira-site">Jira site<\/label>\s*<input type="url" id="jira-site" placeholder="https:\/\/your-company\.atlassian\.net" autocomplete="off" spellcheck="false" aria-describedby="jira-site-description jira-site-environment jira-site-error">/);
   assert.match(JIRA_DIALOG_HTML, /id="jira-site-environment" hidden>Set by JIRA_BASE_URL in your environment, which BugPilot uses\. Change it there\.<\/p>/);
@@ -4617,7 +4617,7 @@ test("no Jira credential is asked for anywhere but Jira Setup: the old prompts a
   // The palette command opens the dialog, bringing the panel forward first.
   assert.match(source, /register\(COMMANDS\.setCredentials, async \(\) => \{\s*if \(!panel\.visible\) await vscode\.commands\.executeCommand\(`\$\{PanelHost\.viewType\}\.focus`\);\s*await controller\.openJiraSetup\(\);/);
   // The store is the existing one, by its safe operations: a blank token keeps
-  // the stored one (Batch 3), anything else is the usual one-write save.
+  // the stored one, anything else is the usual one-write save.
   assert.match(source, /jiraCredentials: \{\s*status: \(\) => credentials\.status\(\),\s*\/\/[^\n]*\n\s*save: \(pair\) => \(pair\.token === "" \? credentials\.saveKeepingToken\(pair\.email\) : credentials\.save\(pair\)\),\s*\}/);
 });
 

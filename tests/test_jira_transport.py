@@ -1,6 +1,6 @@
 """Jira credentials go only to an https:// site, and never follow a redirect elsewhere.
 
-Pre-release Batch 2, B. Every Jira request carries the developer's email and API
+Every Jira request carries the developer's email and API
 token as HTTP Basic credentials. urllib's default redirect handler copies the
 `Authorization` header onto every redirect, to any host; and the site used to be
 accepted as `http://`. These tests drive urllib's real redirect machinery through
@@ -260,7 +260,7 @@ def test_the_token_never_reaches_messages_artifacts_or_the_log(monkeypatch, tmp_
 
 
 def test_the_not_configured_message_names_setup_and_nothing_secret():
-    """Pre-release Batch 4.1: the message says how to configure Jira — `bugpilot setup`
+    """The message says how to configure Jira — `bugpilot setup`
     or the three variables — and carries no value: no site, no email, no token."""
     message = jira.ERROR_MESSAGES["missing_env"]
     assert "bugpilot setup" in message

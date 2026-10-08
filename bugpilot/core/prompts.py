@@ -17,8 +17,8 @@ from .repository_profile import RepositoryContext, repository_context_section
 # later layer may refine how the agent works within the earlier ones, and where
 # two conflict the earlier one wins; none may loosen a BugPilot safety rule.
 # The repository's own instructions come before the developer's: a team's
-# "do not add dependencies" beats one person's "prefer library X" (pre-release
-# Batch 3). The task's sections and this list are rendered in the same order.
+# "do not add dependencies" beats one person's "prefer library X". The task's
+# sections and this list are rendered in the same order.
 INSTRUCTION_LAYERS: tuple[str, ...] = (
     "BugPilot safety rules",
     "Repository context",

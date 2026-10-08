@@ -859,7 +859,7 @@ def test_docs_copilot_team_instructions_exists():
     assert "Never push main/master" in text
     assert "Never force push" in text
     assert "Never commit .ai/ or .ai_memory/" in text
-    # Repository-neutral (pre-release Batch 1): what a repository is comes from
+    # Repository-neutral: what a repository is comes from
     # its Repository Profile, never from BugPilot's own rules.
     for assumption in ("C++", "Qt", "legacy", "Legacy", "desktop"):
         assert assumption not in text, assumption
@@ -1002,7 +1002,7 @@ def test_check_results_strict_passes_when_the_report_exists(tmp_path, monkeypatc
 
 
 def test_the_old_five_result_files_do_not_satisfy_check_results(tmp_path, monkeypatch, capsys):
-    """No fallback: a pre-Batch-5 directory has no report under this contract."""
+    """No fallback: a directory from an older version has no report under this contract."""
     issue_dir = tmp_path / ".ai" / "JR-12345"
     issue_dir.mkdir(parents=True)
     for file_name in ["bug_analysis.md", "fix_summary.md", "test_result.md", "diff_summary.md", "review_notes.md"]:
@@ -1401,7 +1401,7 @@ def test_bug_fresh_removes_old_later_phase_artifacts(tmp_path, monkeypatch):
 
 
 def test_bug_default_keeps_old_artifacts(tmp_path, monkeypatch):
-    """The public default (pre-release Batch 1): prepare, keep, launch nothing."""
+    """The public default: prepare, keep, launch nothing."""
     _set_jira_env(monkeypatch)
     monkeypatch.setattr(
         "bugpilot.core.jira._open",

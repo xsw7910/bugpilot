@@ -130,7 +130,7 @@ def _install_fake_smtp(monkeypatch):
     ["http://jira.example.test", "https://dev:secret@jira.example.test", "https://jira.example.test?x=1"],
 )
 def test_email_draft_links_only_a_site_jira_requests_would_accept(tmp_path, monkeypatch, site):
-    """An http:// or credential-bearing site never reaches a recipient (pre-release Batch 2, B)."""
+    """An http:// or credential-bearing site never reaches a recipient."""
     monkeypatch.setenv("JIRA_BASE_URL", site)
     issue_dir = _seed_result_artifacts(tmp_path)
     monkeypatch.chdir(tmp_path)

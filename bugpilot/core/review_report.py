@@ -1,4 +1,4 @@
-"""review_report.md: the recorded result of a review (plan §19, Batch 11).
+"""review_report.md: the recorded result of a review (plan §19).
 
 Review with AI opens a terminal and stops there. Nothing comes back from the
 reviewer, so BugPilot never knows that a review finished, let alone what it
@@ -117,7 +117,7 @@ def record_review(
     Touches nothing else: no ``run.json`` mark, no Jira, no email, no memory.
     """
     validate_work_item_id(work_item_id)
-    # Checked for links before the report is written (pre-release Batch 2).
+    # Checked for links before the report is written.
     target = writable_issue_dir(repo_root, work_item_id, create=False)
     if not target.is_dir():
         raise WorkItemNotFoundError(f"Work item not found: .ai/{work_item_id}/")

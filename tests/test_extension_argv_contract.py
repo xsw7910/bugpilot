@@ -1,4 +1,4 @@
-"""The CLI accepts every command line the VS Code extension sends (pre-release Batch 1, B).
+"""The CLI accepts every command line the VS Code extension sends.
 
 `tests/fixtures/extension_cli_argv.json` is generated from the extension's own
 argv builders by `extension/test/cliArgvContract.test.ts`. This test parses each

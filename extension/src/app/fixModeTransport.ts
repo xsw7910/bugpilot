@@ -38,7 +38,7 @@ export async function runFixModeCommand(
 /**
  * Any command whose input is a payload file: the same lifecycle, named per use.
  *
- * Record Review Result (Batch 11) sends a review this way for the same reasons
+ * Record Review Result sends a review this way for the same reasons
  * a Fix Mode goes: four multiline sections of someone's prose are neither argv
  * nor shell text.
  */

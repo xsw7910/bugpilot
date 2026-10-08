@@ -59,7 +59,7 @@ const TABLE: Record<string, Entry> = {
   },
   JIRA_INVALID_RESPONSE: { summary: "Jira returned something bugpilot could not read." },
   JIRA_ERROR: { summary: "Jira request failed.", retryable: true },
-  // Pre-release Batch 2: the site is https:// or nothing, and credentials never
+  // The site is https:// or nothing, and credentials never
   // follow a redirect to another site.
   JIRA_INVALID_SITE: {
     summary: "The Jira site must be an https:// address.",

@@ -7,7 +7,7 @@
  * furthest honest statement is that an agent was started, and every word here
  * is chosen to say that and nothing more.
  *
- * Since Batch 6 the words are spoken by the Fix with AI row itself
+ * The words are spoken by the Fix with AI row itself
  * (`workflow.ts`): this phrase is its summary, and the host's own record of the
  * launch — "Handed to Claude Code in a terminal." — is its detail line. The
  * headline is provider-neutral, for the same reason the button says "Fix with
@@ -24,7 +24,7 @@
 export const HANDOFF_STARTED_TITLE = "AI fix started";
 
 /**
- * The same narrow claim for Review with AI (Batch 10), said under Fix result.
+ * The same narrow claim for Review with AI, said under Fix result.
  *
  * A reviewer was started with the review prompt, and nothing further: whether
  * it finished, what it found, whether the result holds up — none of that comes

@@ -1,6 +1,5 @@
 /**
- * Finding the programs the extension starts without trusting the repository
- * (pre-release Batch 2, A).
+ * Finding the programs the extension starts without trusting the repository.
  *
  * The extension starts `bugpilot`, `claude`, `codex` and `taskkill`, mostly with
  * the repository as the working directory. Node (libuv) on Windows looks for a
