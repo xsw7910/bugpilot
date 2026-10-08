@@ -28,6 +28,7 @@ this one included, with the stricter repository policy below (§37.71).
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -575,24 +576,21 @@ def test_the_package_declares_a_licence_and_ships_it():
     assert (REPO / "LICENSE").exists()
 
 
-def test_the_licence_parameters_are_filled_in():
-    """BSL is a template. Unfilled, it is three blanks where the terms should be.
-
-    The Additional Use Grant is the one that decides what the licence actually
-    permits - without it, BSL forbids *all* production use, which would forbid
-    the internal company use this grant exists to allow.
-    """
-    licence = (REPO / "LICENSE").read_text(encoding="utf-8")
-    assert "Licensor:             Shiwei Xing" in licence
-    assert "Change Date:          2030-09-08" in licence
-    assert "Change License:       Apache License, Version 2.0" in licence
-    grant = licence.split("Additional Use Grant:")[1].split("Change Date:")[0]
-    assert "production use" in grant
-    assert "competitive offering" in grant
-    # No leftover template placeholders anywhere.
-    for placeholder in ("[Licensor Name]", "TODO", "XXX", "FIXME"):
-        assert placeholder not in licence, placeholder
-
+#: The canonical BUSL 1.1 text (the SPDX reference) that follows the parameters
+#: in every licence file, pinned as the SHA-256 of that text with "\n" line
+#: endings. Covenant 4: the licence may not be modified in any other way, so a
+#: change here is a change to the standard text, not to BugPilot's parameters.
+BUSL_BODY_SHA256 = "68700758dc1372b3e413ad9739bbc7d903c19520de0ab27d93a65d15eb798b00"
+BUSL_SEPARATOR = "\n" + "-" * 77 + "\n"
+BUSL_NOTICE = (
+    "Notice\n\n"
+    "The Business Source License (this document, or the “License”) is not an Open\n"
+    "Source license. However, the Licensed Work will eventually be made available\n"
+    "under an Open Source License, as stated in this License."
+)
+#: Until the first public release; then a real date, set immediately before it.
+CHANGE_DATE_PLACEHOLDER = "<FINALIZE FOR FIRST PUBLIC RELEASE>"
+BUSL_PARAMETERS = ("Licensor", "Licensed Work", "Additional Use Grant", "Change Date", "Change License")
 
 #: Licence text that is not BugPilot's: a third party's notice, kept as written.
 THIRD_PARTY_DIRECTORIES = ("extension/media/codicons/",)
@@ -604,34 +602,154 @@ def _licence_text(name: str) -> str:
     return (REPO / name).read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
-def test_every_component_ships_the_same_licence():
-    """One licence for every published component (pre-release Batch 3, option a).
+def _licence_parts(name: str) -> tuple[dict[str, str], str, str]:
+    """A licence file as (parameters, project lines, standard text).
 
-    The wheel ships `LICENSE`, the VS Code extension `extension/LICENSE.txt`, and
-    anything published from this repository later — a Claude Code plugin, say —
-    carries its own copy beside its manifest, found here by name. Each must be
-    the root `LICENSE` unchanged: a copy that drifts is a second licence nobody
-    chose. Compared as text, so a checkout's line endings do not matter.
+    The five BUSL parameters, each as single-spaced text; the project-specific
+    lines between them and the separator (contact, third-party note, Notice);
+    and the standard text after the separator.
     """
-    copies = [
+    head, separator, body = _licence_text(name).partition(BUSL_SEPARATOR)
+    assert separator, f"{name} has no separator before the standard text"
+    field = re.compile(r"^(%s):\s+(.*)$" % "|".join(map(re.escape, BUSL_PARAMETERS)))
+    values: dict[str, list[str]] = {}
+    project: list[str] = []
+    current = None
+    started = False
+    for line in head.splitlines():
+        if not started:
+            started = line == "Parameters"
+            continue
+        match = field.match(line)
+        if match:
+            current = match.group(1)
+            assert current not in values, f"{name} gives {current} twice"
+            values[current] = [match.group(2)]
+        elif current and (line == "" or line.startswith(" " * 22)):
+            values[current].append(line.strip())
+        else:
+            current = None
+            project.append(line)
+    parameters = {key: " ".join(" ".join(lines).split()) for key, lines in values.items()}
+    return parameters, "\n".join(project).strip("\n"), body.strip("\n")
+
+
+def _valid_change_date(value: str) -> bool:
+    """A real calendar date (YYYY-MM-DD), or exactly the pre-release placeholder."""
+    import datetime
+
+    if value == CHANGE_DATE_PLACEHOLDER:
+        return True
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _licence_files() -> list[str]:
+    return [
         name for name in _tracked_files()
         if LICENCE_FILE.search(name)
         and not any(name.startswith(prefix) for prefix in GENERATED_DIRECTORIES + THIRD_PARTY_DIRECTORIES)
     ]
+
+
+def test_the_licence_parameters_are_filled_in():
+    """BSL is a template. Unfilled, it is blanks where the terms should be.
+
+    The Additional Use Grant decides what the licence actually permits: without
+    it, BSL forbids *all* production use. Its competing-offering clause is a
+    limit of the grant ("This grant does not include …"), never a new
+    restriction on the copy / modify / redistribute rights BSL itself grants
+    (Covenant 2).
+    """
+    from bugpilot import __version__
+
+    parameters, project, _ = _licence_parts("LICENSE")
+    assert set(parameters) == set(BUSL_PARAMETERS)
+    assert parameters["Licensor"] == "Shiwei Xing"
+    # One version, this package's: BUSL applies to each version separately.
+    work = parameters["Licensed Work"]
+    assert work.startswith(f"BugPilot CLI and Tools Version {__version__}. "), work
+    assert "or later" not in work
+    # Its scope names what the repository really distributes, excludes the
+    # extension's own licence and third-party components, and names the owner.
+    assert "bugpilot-mcp" in _pyproject() and (REPO / "skills" / "bugpilot-investigate" / "SKILL.md").is_file()
+    assert (REPO / "installer").is_dir() and (REPO / "scripts").is_dir()
+    for part in ("bugpilot command-line tool", "bugpilot-mcp", "bugpilot-investigate", "scripts", "installer",
+                 "documentation", "extension/LICENSE.txt", "third-party components", "© 2026 Shiwei Xing"):
+        assert part in work, part
+    assert parameters["Change License"] == "Apache License, Version 2.0"
+    assert _valid_change_date(parameters["Change Date"]), parameters["Change Date"]
+    grant = parameters["Additional Use Grant"]
+    assert grant.startswith("You may make production use of the Licensed Work for the internal purposes of you or your organization, including commercial software development")
+    assert "while providing software development services to clients" in grant
+    assert "This grant does not include offering the Licensed Work" in grant
+    assert "You may not" not in grant
+    assert "separate commercial license from the Licensor" in grant
+    assert "https://github.com/xsw7910/bugpilot" in project
+    licence = _licence_text("LICENSE")
+    for placeholder in ("[Licensor Name]", "TODO", "XXX", "FIXME"):
+        assert placeholder not in licence, placeholder
+
+
+def test_a_change_date_is_a_real_date_or_the_pre_release_placeholder():
+    assert _valid_change_date(CHANGE_DATE_PLACEHOLDER)
+    assert _valid_change_date("2031-01-15")
+    for arbitrary in ("2030-02-30", "2031-1-15", "15/01/2031", "soon", "TBD", "", "<FINALIZE>", "2031-01-15 or later"):
+        assert not _valid_change_date(arbitrary), arbitrary
+
+
+def test_the_standard_busl_text_is_unchanged_in_every_licence():
+    """Only the parameters are BugPilot's; the Notice and everything after the separator are the standard text."""
+    for name in _licence_files():
+        _, project, body = _licence_parts(name)
+        assert project.endswith(BUSL_NOTICE), f"{name}: the standard Notice changed or moved"
+        assert body.startswith("Business Source License 1.1\n"), name
+        assert hashlib.sha256(body.encode("utf-8")).hexdigest() == BUSL_BODY_SHA256, f"{name}: the standard BUSL 1.1 text changed"
+
+
+def test_every_component_ships_the_same_licence():
+    """One licence for every published component, each naming itself.
+
+    The wheel ships `LICENSE`, the VS Code extension `extension/LICENSE.txt`, and
+    anything published from this repository later — a Claude Code plugin, say —
+    carries its own file beside its manifest, found here by name. Each must be
+    the root `LICENSE` in every parameter but the Licensed Work, which names that
+    component and one version, and in every other line: a file that drifts is a
+    second licence nobody chose. Compared as text, so line endings do not matter.
+    """
+    copies = _licence_files()
     assert "LICENSE" in copies and "extension/LICENSE.txt" in copies, copies
-    root = _licence_text("LICENSE")
+    root_parameters, root_project, root_body = _licence_parts("LICENSE")
+    works = set()
     for name in copies:
-        assert _licence_text(name) == root, f"{name} is not a copy of LICENSE"
+        parameters, project, body = _licence_parts(name)
+        for key in BUSL_PARAMETERS:
+            if key != "Licensed Work":
+                assert parameters.get(key) == root_parameters[key], f"{name}: {key} differs from LICENSE"
+        assert project == root_project, f"{name}: the lines after the parameters differ from LICENSE"
+        assert body == root_body, f"{name}: the standard text differs from LICENSE"
+        work = parameters["Licensed Work"]
+        assert re.match(r"BugPilot .+? Version \d+\.\d+\.\d+\. ", work) and "or later" not in work, work
+        works.add(work.split(" Version ", 1)[0])
+    assert len(works) == len(copies), "two components name the same Licensed Work"
+    manifest = json.loads((REPO / "extension" / "package.json").read_text(encoding="utf-8"))
+    extension_work = _licence_parts("extension/LICENSE.txt")[0]["Licensed Work"]
+    assert extension_work == f"BugPilot for VS Code Version {manifest['version']}. The Licensed Work is © 2026 Shiwei Xing.", extension_work
 
 
 def test_every_manifest_declares_that_licence():
-    """PyPI and the Marketplace show the manifest's field, not the file: they must agree.
+    """PyPI and the Marketplace show the manifest's field: it must name BUSL 1.1 or the file.
 
-    A future manifest — a Claude Code plugin's `.claude-plugin/plugin.json` —
-    that declares a licence is held to the same id.
+    The wheel declares the SPDX id (PEP 639, with the file in `license-files`); the
+    extension points at its file, whose parameters say what is permitted. A
+    future manifest — a Claude Code plugin's `.claude-plugin/plugin.json` — that
+    declares a licence is held to one of the two.
     """
-    import json
-
     assert 'license = "BUSL-1.1"' in _pyproject()
     manifests = [
         name for name in _tracked_files()
@@ -641,8 +759,10 @@ def test_every_manifest_declares_that_licence():
     assert "extension/package.json" in manifests, manifests
     for name in manifests:
         declared = json.loads((REPO / name).read_text(encoding="utf-8")).get("license")
-        if name == "extension/package.json" or declared is not None:
-            assert declared == "BUSL-1.1", f"{name} declares {declared!r}"
+        if name == "extension/package.json":
+            assert declared == "SEE LICENSE IN LICENSE.txt", f"{name} declares {declared!r}"
+        elif declared is not None:
+            assert declared == "BUSL-1.1" or declared.startswith("SEE LICENSE IN "), f"{name} declares {declared!r}"
 
 
 def test_third_party_attribution_ships_with_the_extension():

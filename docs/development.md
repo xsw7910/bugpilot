@@ -2,6 +2,8 @@
 
 How to work on BugPilot itself: the CLI and MCP server in Python, and the VS Code extension in TypeScript.
 
+External code contributions are not currently accepted. Bug reports and feature requests are welcome through [GitHub Issues](https://github.com/xsw7910/bugpilot/issues).
+
 ## Python: editable install and tests
 
 ```powershell
@@ -52,7 +54,9 @@ The output is `dist\bugpilot.exe`. `pyi_entry.py` is the entry point PyInstaller
 
 ## Licensing
 
-Everything published from this repository is under one licence, the Business Source License 1.1 in `LICENSE`. A component that is published on its own carries an unmodified copy of that file beside its manifest and declares `BUSL-1.1` there: the wheel ships `LICENSE` (`license-files` in `pyproject.toml`), the VS Code extension ships `extension/LICENSE.txt` (`"license": "BUSL-1.1"` in its `package.json`). A future component — a Claude Code plugin, say — follows the same pattern: a `LICENSE` copy in its directory and `"license": "BUSL-1.1"` in its `.claude-plugin/plugin.json`. `tests/test_publishable.py` finds every licence file and manifest by name and fails on a copy that differs from `LICENSE` or a manifest that declares anything else, so a new component is checked without a test change.
+Everything published from this repository uses one licence: the Business Source License 1.1 with one set of parameters (Licensor, Additional Use Grant, Change Date, Change License). Each component published on its own carries its own licence file, identical to `LICENSE` except for the Licensed Work, which names that component and its version (and, in `LICENSE`, what it covers): the wheel ships `LICENSE` (BugPilot CLI and Tools; `license = "BUSL-1.1"` and `license-files` in `pyproject.toml`), the VS Code extension ships `extension/LICENSE.txt` (BugPilot for VS Code; `"license": "SEE LICENSE IN LICENSE.txt"` in `package.json`, since the parameters decide what is permitted). A future component — a Claude Code plugin, say — follows the same pattern. `tests/test_publishable.py` finds every licence file by name and fails on one that differs from `LICENSE` anywhere but the Licensed Work, names a version other than the component's, or changes the standard BUSL 1.1 text, so a new component is checked without a test change. Commercial licences are arranged through the GitHub repository.
+
+The Licensed Work names one version, so every release updates it in each licence file. For BugPilot 0.1.0, the first public release date is 2026-10-08 and the BUSL Change Date is 2030-10-08.
 
 Third-party code keeps its own licence and attribution, next to the files it covers and listed in the component's notices file (`extension/THIRD_PARTY_NOTICES.md` for the codicons font, CC BY 4.0). Never append notices to a `LICENSE` copy.
 

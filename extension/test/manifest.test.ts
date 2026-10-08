@@ -32,6 +32,7 @@ function forbiddenWords(): string[] {
 const manifest = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ) as {
+  version: string;
   main: string;
   icon: string;
   publisher: string;
@@ -299,17 +300,23 @@ test("the manifest names a publisher, and not a company", () => {
   }
 });
 
-test("the licence is the repository's Business Source License, shipped where the extension page links to it", () => {
-  // One licence for the CLI and the extension (pre-release Batch 3, option a):
-  // the same SPDX id as pyproject.toml. vsce finds LICENSE.txt by name and ships
-  // it as the License asset with an SPDX id too — checked on a packaged .vsix.
-  assert.equal(manifest.license, "BUSL-1.1");
+test("the licence is BugPilot's Business Source License, shipped where the extension page links to it", () => {
+  // The parameters decide what is permitted, so the manifest points at the file
+  // rather than giving the SPDX id alone; vsce ships it as the License asset.
+  assert.equal(manifest.license, "SEE LICENSE IN LICENSE.txt");
   const file = new URL("../LICENSE.txt", import.meta.url);
   assert.ok(existsSync(file), "there is no licence file for the extension page to link to");
-  // A copy, never a variant: compared as text so a checkout's line endings do not matter.
+  // Compared as text so a checkout's line endings do not matter.
   const text = (url: URL) => readFileSync(url, "utf8").replace(/\r\n/g, "\n");
-  assert.equal(text(file), text(new URL("../../LICENSE", import.meta.url)), "LICENSE.txt is not a copy of the repository's LICENSE");
-  assert.match(text(file), /^Business Source License 1\.1\n/);
+  const licence = text(file);
+  assert.match(licence, /^Business Source License 1\.1\n/);
+  // One version per Licensed Work: this extension's, so a release updates it.
+  assert.match(licence, new RegExp(`^Licensed Work: +BugPilot for VS Code Version ${manifest.version.replace(/\./g, "\\.")}\\.$`, "m"));
+  // The CLI's licence and parameters, with only the Licensed Work naming this
+  // component: the whole Licensed Work block, which in LICENSE also states its scope.
+  const withoutWork = (t: string) => t.replace(/^Licensed Work:[\s\S]*?(?=^Additional Use Grant:)/m, "");
+  assert.match(licence, /^Change Date: +(<FINALIZE FOR FIRST PUBLIC RELEASE>|\d{4}-\d{2}-\d{2})$/m);
+  assert.equal(withoutWork(licence), withoutWork(text(new URL("../../LICENSE", import.meta.url))), "LICENSE.txt differs from LICENSE beyond the Licensed Work");
 
   // CC BY 4.0 asks for attribution wherever the font is redistributed, and the
   // licence must not appear to cover a font that is not the licensor's.

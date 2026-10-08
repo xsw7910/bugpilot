@@ -1,12 +1,13 @@
 {
   "name": "bugpilot",
   "displayName": "BugPilot",
-  "description": "Turn a Jira bug into focused code context, without leaving the editor.",
+  "//description": "Both ways in, equally: a Jira issue or a bug described by hand. The old line said 'a Jira bug' only, while most first runs need no Jira at all.",
+  "description": "Turn a Jira issue or a bug you describe into focused code context for your AI coding agent, without leaving the editor.",
   "version": "0.1.0",
   "publisher": "ShiweiX",
   "//icon": "The Marketplace and Extensions-list image. Must be a PNG - vsce refuses an SVG outright - and is drawn by scripts/make-icon.mjs so it can be regenerated rather than being an unexplained binary. Not the activity bar icon; that one is contributes.viewsContainers.activitybar[0].icon.",
   "icon": "media/icon.png",
-  "//license": "Proprietary, and pointed at a file rather than declared as an SPDX id. `UNLICENSED` says 'no rights granted at all', which is the wrong thing to tell someone installing it from the Marketplace: they need permission to use it. This form also makes vsce ship the file as the License asset the extension page links to.",
+  "//license": "See LICENSE.txt for the parameterized BUSL 1.1 terms.",
   "license": "SEE LICENSE IN LICENSE.txt",
   "repository": {
     "type": "git",
@@ -17,13 +18,16 @@
     "AI",
     "Other"
   ],
+  "//keywords": "What someone looking for this would type, and no more: the agents it hands work to by name, the two ways a bug arrives, and what it builds. No company, product or domain words.",
   "keywords": [
-    "jira",
-    "bug",
     "ai",
-    "agent",
-    "code search",
-    "context"
+    "debugging",
+    "bug fixing",
+    "jira",
+    "code context",
+    "developer tools",
+    "claude",
+    "codex"
   ],
   "type": "module",
   "//engines": "vscode is the minimum API level, pinned to @types/vscode so no newer API can be used by accident. node 22.18 is where type stripping landed, which the test script relies on.",
@@ -239,7 +243,7 @@
         "bugpilot.executablePath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Path to the `bugpilot` executable. Leave empty to resolve it through `PATH`.",
+          "markdownDescription": "Absolute path to the `bugpilot` executable. Leave empty to find it on `PATH` (its absolute entries only, never the workspace folder). A relative path is refused.",
           "scope": "machine-overridable"
         }
       }

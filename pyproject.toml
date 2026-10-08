@@ -10,13 +10,13 @@ name = "bugpilot"
 # One version, in bugpilot/__init__.py: `bugpilot --version`, `doctor --json`, the
 # MCP server and the wheel metadata all read it, so they cannot disagree.
 dynamic = ["version"]
-description = "Turn a Jira bug into focused code context for AI coding agents"
+description = "Turn a Jira issue or a bug you describe into focused code context for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
 # Name only, no email: a contact address on a public package is a public
 # address.
 authors = [{ name = "Shiwei Xing" }]
-keywords = ["jira", "bug", "ai", "agent", "code-search", "context"]
+keywords = ["ai", "debugging", "bug-fixing", "jira", "code-context", "developer-tools", "claude", "codex"]
 # No `License ::` classifier: with PEP 639 the SPDX expression above is the
 # licence declaration, and setuptools rejects both being given.
 classifiers = [
@@ -31,10 +31,11 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Bug Tracking",
 ]
-# Source-available, not open source in the OSI sense: non-production use is
-# free, production use inside a company is granted, and offering a competing
-# paid product is not. Converts to Apache-2.0 on 2030-09-08. The parameters that
-# decide all of that are at the top of LICENSE.
+# Source-available, not open source: the Business Source License 1.1 with
+# BugPilot's parameters at the top of LICENSE. Its Additional Use Grant covers
+# internal production use, including commercial and client development work;
+# a competing hosted, managed, embedded or redistributed offering needs a
+# separate commercial license. Apache-2.0 after the Change Date.
 license = "BUSL-1.1"
 license-files = ["LICENSE"]
 dependencies = []

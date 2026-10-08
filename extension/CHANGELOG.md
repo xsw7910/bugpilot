@@ -4,7 +4,7 @@
 
 First release. What it does today:
 
-- **Licence.** The Business Source License 1.1, the same licence and the same text as the `bugpilot` CLI
+- **Licence.** The Business Source License 1.1, with the same parameters as the `bugpilot` CLI
   (`LICENSE.txt`). The codicons icon font stays CC BY 4.0 (`THIRD_PARTY_NOTICES.md`).
 - **One workflow panel**, the **Workflow** view. A Jira issue key or a bug you describe, one primary
   button, and six steps: issue details, code search, git history, similar fixes,
