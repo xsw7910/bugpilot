@@ -648,7 +648,7 @@ For a manual description, show the corresponding task description.
 ```text
 ✓ Issue details
   JR-12345 · Jira issue
-  Output type cannot select VDS volume
+  Output type cannot select CSV volume
 
   issue.json
   [Open]
@@ -720,7 +720,7 @@ IMPLEMENTATION
 
 WidgetController.cpp
 src/widgets/...
-Matched: VDS · outputType
+Matched: CSV · outputType
 
 WidgetController.h
 src/widgets/...
@@ -1016,7 +1016,7 @@ Target UI:
 ▼ Investigation & AI Fix                 Context ready
 
 ✓ Issue details
-  JR-12345 · Output type cannot select VDS
+  JR-12345 · Output type cannot select CSV
 
 ✓ Code search
   11 terms · 6 relevant files

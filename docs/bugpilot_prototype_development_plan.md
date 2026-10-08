@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This document defines a prototype development and implementation plan for **bugpilot**, an internal AI-assisted development workflow tool.
+This document defines a prototype development and implementation plan for **bugpilot**, an AI-assisted bug-fixing workflow tool.
 
 The goal of this prototype is to demonstrate an end-to-end workflow that connects:
 
@@ -562,7 +562,7 @@ Behavior:
 Important:
 
 ```text
---agent-fix is experimental until the team validates the exact Copilot CLI invocation method in the company environment.
+--agent-fix is experimental until the team validates the exact Copilot CLI invocation method in the target environment.
 ```
 
 ---
@@ -580,7 +580,7 @@ bugpilot agent-check
 Purpose:
 
 ```text
-Validate whether the current company Copilot CLI can be used programmatically.
+Validate whether the installed Copilot CLI can be used programmatically.
 ```
 
 Checks:
@@ -870,9 +870,9 @@ Example:
 ```json
 {
   "high_value_keywords": [
-    "VdsImportDialog",
-    "OpenVDS",
-    ".vds"
+    "CsvImportDialog",
+    "OpenCSV",
+    ".csv"
   ],
   "normal_keywords": [
     "import",
@@ -1005,7 +1005,7 @@ bugpilot memory search JR-12345
 or:
 
 ```bash
-bugpilot memory search "VDS import crash"
+bugpilot memory search "CSV import crash"
 ```
 
 Purpose:
@@ -1191,7 +1191,7 @@ Recommended content:
 ```markdown
 # Agent Task
 
-You are an expert in legacy C++/Qt desktop application development.
+You are an expert software engineer working in an existing codebase.
 
 Your task is to analyze and fix Jira issue JR-12345.
 
@@ -1466,7 +1466,7 @@ Content should ask Copilot/Claude/Codex to review:
 ```text
 - correctness
 - regression risk
-- legacy C++/Qt ownership/lifetime issues
+- ownership/lifetime issues in legacy code
 - UI behavior
 - error handling
 - test coverage
@@ -1747,7 +1747,7 @@ If invocation fails, fall back to prepare-only instruction.
 Goal:
 
 ```text
-Validate what the company Copilot CLI can actually do from a script.
+Validate what the installed Copilot CLI can actually do from a script.
 ```
 
 Implement:
@@ -2059,7 +2059,7 @@ The expected branch is:
 feature/JR-12345-<summary-slug>
 ```
 
-`--agent-fix` remains experimental until Copilot CLI automatic invocation is validated in the company environment.
+`--agent-fix` remains experimental until Copilot CLI automatic invocation is validated in the target environment.
 
 
 
@@ -2100,7 +2100,7 @@ Code Search / Git Context / Existing BugPilot Context
        Claude / Codex / Copilot / Gemini
 ```
 
-Fix Mode must remain repository- and domain-independent. It must not contain product volume types, OpenVDS, geophysical, or other product-specific knowledge. Product/domain evidence continues to come through the normal BugPilot context inputs.
+Fix Mode must remain repository- and domain-independent. It must not contain product-specific data types, file formats, domain terms or other product-specific knowledge. Product/domain evidence continues to come through the normal BugPilot context inputs.
 
 ### 31.2 V1 Built-in Fix Modes
 
@@ -3152,7 +3152,7 @@ Phase 1 adds `tests/test_fix_modes.py` covering:
 - exact five V1 built-in IDs
 - Standard Fix default behavior
 - complete non-empty instruction sections
-- domain independence: no product volume type / OpenVDS / geophysical hard-coding
+- domain independence: no product data type, file format or domain term hard-coded
 - frozen built-in definitions
 - duplicate ID rejection
 - unknown mode does not silently fall back
@@ -3295,7 +3295,7 @@ git diff --check                                                             -> 
 [x] Built-in modes can be duplicated and customized.
 [x] Selected mode/version/source is recorded for auditability.
 [x] MCP can read/select modes but cannot modify them.
-[x] No VDS/geophysical-specific instructions are hard-coded into Fix Mode.
+[x] No product- or domain-specific instructions are hard-coded into Fix Mode.
 [x] Existing behavior remains backward compatible when no mode is explicitly selected.
 [x] Existing tests remain green and new Core/CLI/Extension/MCP tests are added as phases land.
 ```
@@ -3310,7 +3310,7 @@ git diff --check                                                             -> 
 - mode analytics/scoring
 - provider-specific mode forks
 - complex inheritance or conditional workflow DSL
-- Product-volume/OpenVDS/geophysical-specific memory or instructions
+- Product- or domain-specific memory or instructions
 ```
 
 ### 31.12 Implementation Log
@@ -3551,7 +3551,7 @@ Problems, ranked by effect on retrieval:
    weight 6. On a prose bug the five are prose:
      "The data process output is wrong and the volume is not updated correctly."
        high: ['correctly', 'data', 'process', 'output', 'volume']
-   `selected` outranks `VDS` because length >= 8 scores +1 and an all-caps
+   `selected` outranks `CSV` because length >= 8 scores +1 and an all-caps
    acronym scores 0.
 2. Documentation competes with implementation. `*.md` is an include glob, and
    prose terms match prose files. Measured, for
@@ -3744,7 +3744,7 @@ Two additions the measurements forced:
 
 ```text
 - acronyms. `_is_identifier_shaped` looks for a camelCase hump, and an acronym
-  has none, so `VDS` weighed exactly as much as `selected`. All-caps, 3-6
+  has none, so `CSV` weighed exactly as much as `selected`. All-caps, 3-6
   characters, not a stop word -> identifier. Bounded by length so a shouted
   sentence does not become a pile of identifiers.
 - hedges. A hint begins "maybe" or "possibly" more often than not, and those
@@ -3795,7 +3795,7 @@ Replace positional importance with evidence.
 ```
 
 Acceptance: `correctly`/`selected`/`changing`/`data`/`process` no longer reach
-the top weight by position; `OpenVDS`, `SamplePoststackReader`,
+the top weight by position; `OpenCSV`, `SamplePostblendReader`,
 `VolumeDescriptor`, `mapSampleIndexToSampleValue`, `sample_volume_cache.cpp` still do.
 
 ### 33.4 Repository Term Probing
@@ -4070,7 +4070,7 @@ search:
   "repo_root": "C:/path/to/the/product/checkout",
   "cases": [
     {"id": "JR-12345",
-     "issue_text": "VDS cannot be selected as process output.",
+     "issue_text": "CSV cannot be selected as the export format.",
      "hint": "maybe output type validation",
      "expected_files": ["src/process/OutputSelector.cpp"],
      "notes": "fixed in MR !456; the header change was incidental"}
@@ -4132,7 +4132,7 @@ now be run by populating one file.
 The §33.1 corpus is six hand-written cases against this repository. It was enough
 to find three real defects, and it is not enough to calibrate anything: six
 sentences cannot resolve a threshold, and every one of them is Python or
-TypeScript while the repository BugPilot was built for is C++/Qt.
+TypeScript, while many target repositories are C++/Qt.
 
 Scope:
 
@@ -6152,7 +6152,7 @@ RELIABLE, and rejected
   #artifactNames         a file list belongs behind Open Folder (§15)
   #form.agentCommand     a custom command line may carry paths, arguments or
                          a token; never displayed (§11, §25)
-  Jira base URL, account the URL is company-specific and the account is a
+  Jira base URL, account the URL is site-specific and the account is a
                          person; neither is diagnostic enough to be worth it
   the CLI's environment  that is where the token travels (§25)
 
@@ -6211,8 +6211,8 @@ keeps opening Diagnostics free.
 ```text
 v Diagnostics
 
-  Repository        seismic-platform
-                    C:/work/seismic-platform
+  Repository        sample-repo
+                    C:/path/to/sample-repo
   Jira              Credentials configured
   AI agent          Auto-detect
                     Resolved: Claude Code
@@ -6551,7 +6551,7 @@ Abridged from the real manual scratch run in §37.11 (`sample-repo`):
   "reasons": ["At least one high-confidence application source file was found."],
   "noise_indicators": [],
   "terms": [
-    { "value": "VDS", "source": "identifier", "weight": 8, "effective_weight": 8,
+    { "value": "CSV", "source": "identifier", "weight": 8, "effective_weight": 8,
       "match_count": 2, "classification": "specific", "derived_from": "", "status": "retained" },
     { "value": "validation", "source": "hint", "weight": 4, "effective_weight": 4,
       "match_count": 0, "classification": "zero", "derived_from": "", "status": "dropped" },
@@ -6561,10 +6561,10 @@ Abridged from the real manual scratch run in §37.11 (`sample-repo`):
   "related_files": [
     { "file": "src/WidgetController.cpp", "documentation": false, "score": 42,
       "confidence": "high", "match_count": 12,
-      "matched_keywords": ["Output", "VDS", "WidgetController", "outputType", "type"],
+      "matched_keywords": ["Output", "CSV", "WidgetController", "outputType", "type"],
       "reasons": ["keyword matches file name", "matched 2 distinct high-value keywords", "..."],
       "noise_flags": [],
-      "snippets": [ { "line": 4, "text": "return type != OutputType::VDS;" } ] }
+      "snippets": [ { "line": 4, "text": "return type != OutputType::CSV;" } ] }
   ]
 }
 ```
@@ -6808,27 +6808,13 @@ Tests:
 - Extension, `eleven files show ten rows and one more, and still count eleven`
   — the panel keeps its ten rows, `moreFiles` is 1, the count says 11.
 
-**B. Company-specific examples.** Replaced with the generic vocabulary
-(`WidgetController`, `src/widgets/…`):
+**B. Example identifiers.** Product-specific example classes, paths and
+identifiers in the canonical plan, the extension tests, a shipped comment in
+`search_terms.py` and the workflow and hint tests were replaced with the
+generic vocabulary (`WidgetController`, `src/widgets/…`, `WidgetFoo::bar`,
+`widget_txn.cxx`). The old values are not repeated here.
 
-The old values are not repeated here — the Batch 3 review pointed out that a
-table spelling out the removed identifiers would put them back into the file
-this commit publishes. They are the company product classes, platform paths and
-prefixed identifiers the batch removed; the removal diff itself is their record.
-
-| Where | Was | Now |
-|---|---|---|
-| canonical plan §4.2 retrieval example | a company class and its source path | `WidgetController`, `src/widgets/WidgetController.cpp` |
-| canonical plan §8.1 Relevant Files | two company classes and a company platform path | `WidgetController.cpp`, `WidgetController.h`, `src/widgets/...` |
-| canonical plan §8.2 Search details | a company class | `WidgetController` |
-| canonical plan §9 Git history | a commit subject naming a company data type | "Update widget output handling" |
-| `extension/test/controller.test.ts`, `page.test.ts` | a company platform path and its basename | `src/widgets/WidgetController.cpp` / `WidgetController.cpp` |
-| `extension/test/contextSummary.test.ts` | two company platform paths, both separators | `src/widgets/WidgetController.cpp`, `src\widgets\WidgetController.h` |
-| `bugpilot/core/search_terms.py` (shipped comment) | a company-prefixed example identifier | `` `WidgetFoo::bar` `` |
-| `tests/test_hint_retrieval.py` | a company class | `WidgetController` |
-| `tests/test_workflow.py` (three extraction tests) | company-prefixed identifiers and file names | `WidgetController::…`, `WidgetController`, `widget_txn.cxx`, `widget_controller.cxx` |
-
-`VDS` (a public format name, already in the generic fixtures) and `JR-…` keys
+`CSV` (a public format name, already in the generic fixtures) and `JR-…` keys
 (the project's generic prefix) stay. The tests keep every assertion; nested
 paths, both separators, click-to-open and the overflow line are still covered.
 
@@ -7152,7 +7138,7 @@ worth fixing, both fixed:
   to the pipeline's. A fresh `bugpilot search` still takes its own options,
   which replace the recording rather than replay it. Test:
   `test_a_standalone_rebuild_reproduces_the_pipelines_context`.
-- *The §37.12 table spelled out the removed company identifiers*, which would
+- *The §37.12 table spelled out the removed identifiers*, which would
   have put them back into this file at commit time; the "Was" column now
   describes them generically.
 
@@ -8906,173 +8892,74 @@ union's source at run time; the page loop now presses only what is offered,
 includes Open Folder, and cannot hang on an already-aborted signal; a stale
 file name in the fixture's comment.
 
-### 37.71 Publishability cleanup and git history audit (after `ee48f41`)
+### 37.71 Publishability cleanup (after `ee48f41`)
 
-A repository-sanitization pass, separate from the stabilization work. The
-current tree is cleaned and guarded; git history was audited read-only and **not
-rewritten**; nothing was pushed. Whether to rewrite history is the open
-decision.
-
-**Current tree.** A company product name and a customer name (from real ticket
-text in the implementation log) became `SampleProduct` and `ExampleCustomer`.
-Five likely-real ticket ids — three in docs and fixtures, two in a
-canonical-plan mockup — became synthetic ones (`JR-23456`, `JR-34567`,
-`JR-45678`). Distinct tickets stay distinct within each document, but one
-synthetic id can stand for different originals in different documents: they are
-examples, not references. Two real-looking issue titles in four workflow tests
-(branch name, two slug rules, task branch) and a design doc became made-up ones
-with the same slug features. The mapping itself is not recorded here: restating
-the originals would put them back. `HR`, the real prefix, became `JR` in two
-retrieval tests (the ids were synthetic; the tests read any id). A developer's
-checkout path in the README, the demo script and two HTML guides became
-`C:\path\to\sample-repo` or was dropped, and placeholder emails and a Jira
-tenant on real registered domains moved to reserved example domains.
-`MANIFEST.in` no longer says the tests carry real ticket numbers. No product
-behaviour changed.
+A repository-sanitization pass, separate from the stabilization work. Example
+data that had come from real work — names, ticket ids, issue titles, a checkout
+path, placeholder emails and a Jira site on real domains — was replaced with
+synthetic values. Distinct tickets stay distinct within each document; the
+mapping is not recorded, since restating the originals would put them back. No
+product behaviour changed.
 
 **The synthetic convention.** `JR` is the example prefix. A `JR-` id of one to
 three digits is always an example; a longer one must be `JR-9999`, `JR-11111`,
-`JR-12345`, `JR-23456`, `JR-34567`, `JR-45678`, `JR-77777` or `JR-99999`. `HR-`
-is not allowed at all. Emails use `example.com/.org/.net` or the `.test`,
-`.invalid`, `.example` and `.localhost` TLDs (plus the `your-company` setup
-placeholder, and two role addresses: `git@` on a public forge and the commit
-trailer's `noreply@`); paths use `C:\path\to\…` or `/path/to/…`, and home
-directories use a generic name (`dev`, `me`, `user`, …).
+`JR-12345`, `JR-23456`, `JR-34567`, `JR-45678`, `JR-77777` or `JR-99999`.
+Emails use `example.com/.org/.net` or the `.test`, `.invalid`, `.example` and
+`.localhost` TLDs (plus the `your-company` setup placeholder, and two role
+addresses: `git@` on a public forge and the commit trailer's `noreply@`); paths
+use `C:\path\to\…` or `/path/to/…`, and home directories use a generic name
+(`dev`, `me`, `user`, …).
 
-**The scanner.** `tests/test_publishable.py` now scans every text file git lists
-as tracked, or new and not ignored — `docs/` and `tests/` included — except
+**The scanner.** `tests/test_publishable.py` scans every text file git lists as
+tracked, or new and not ignored — `docs/` and `tests/` included — except
 generated and vendored content (`node_modules/`, `extension/out/`, lockfiles,
 the vendored codicons, the ignored visual harness) and binaries. Without git it
 skips rather than walk into `node_modules/` and the private word list. Beyond
-the published-surface checks (a Jira tenant with or without a scheme, an email
-on any real domain, the `HR` prefix, the local company word list) it flags an
-unlisted `JR` number, an upper-case key of four to six digits under any other
-prefix (standards such as `ISO-8601` aside), a developer's checkout root in any
-shell's spelling, a personal home directory, an internal host or private
-address, and the two names known to have leaked — kept as SHA-256 digests
-(obfuscation, not secrecy), matched alone or glued to a neighbour, across a line
-break and inside a longer identifier too. The guard file is scanned like the
-rest and must carry exactly its pinned, made-up samples; the checkout root it
-needs for one is spelt in two pieces. Run over the tree at `ee48f41` it flags
-all 90 disclosures this pass removed; over the cleaned tree, none. Four tests
-check what it must reject and allow, what it scans, and the guard's own samples.
+the published-surface checks (a Jira site with or without a scheme, an email on
+any real domain, a non-example ticket prefix, the local private word list) it
+flags an unlisted `JR` number, an upper-case key of four to six digits under
+any other prefix (standards such as `ISO-8601` aside), a developer's checkout
+root in any shell's spelling, a personal home directory, an internal host or
+private address, and names known to have leaked — kept as SHA-256 digests
+(obfuscation, not secrecy), matched alone or glued to a neighbour, across a
+line break and inside a longer identifier too. The guard file is scanned like
+the rest and must carry exactly its pinned, made-up samples.
 
-**History, read only.** 18 commits from one root (`64dc2f9`); `origin/main` and
-`origin/feature/fix-modes` hold the first four, pushed. Every removed value is
-in history — most of it in all 18 commits, so on the remote too — plus three ids
-that existed only in older commits (one likely-real, two under the real prefix).
-One commit message (`158d92a`, local only) carries one of the removed ids.
-Separately, 33 of 36 author/committer entries use the work email domain — five
-of them on three of the four pushed commits (`1062370`, `10e1d6d`, `10b148d`).
-No credential was found in any blob; the credential-like literals are the known
-placeholders and a dummy test token. The company's own domain appears in no file
-in history. A replacement map, a commit-message replacement and a mailmap for a
-future `git filter-repo` run were drafted in the audit report, not stored in the
-repository; none was run.
+### 37.72 Final genericization (after `b9ee482`)
 
-**Packages.** The built 0.1.0 wheel and sdist carry the checkout path through
-the README (`METADATA` / `PKG-INFO`); nothing else from this list shipped, since
-`docs/` and `tests/` are pruned; the `.vsix` is clean. They are unpublished and
-must be rebuilt anyway.
+The repository is generic and independent: no reference to the original
+project's naming remains in the tree, the tests, the docs, the publishability
+rules or the retrieval heuristics.
 
-**Not changed, for a decision.** The product-prefix family: an entry in
-`keywords._GENERIC_PARTS`, the tests that exercise it, the internal-looking
-identifiers recorded in §37.12, a term from real ticket text, and the vault name
-in `scripts/setup-email.ps1` — genericized in §37.72. Also the personal licensor
-and publisher names (legal attribution, not examples).
-
-### 37.72 Final genericization before the history rewrite (after `b9ee482`)
-
-The user's decision, now final: the repository is generic and independent. Every
-reference to the former employer's company, its product family and its internal
-naming — full names, abbreviations, class and path prefixes, internal components
-and identifiers — leaves the tree, the tests, the docs, the publishability rules
-and the retrieval heuristics, and will leave history, commit messages and author
-emails in one future rewrite. This section describes the family without naming
-it; the guard in `tests/test_publishable.py` holds it as digests.
-
-**Production.** One product-specific rule existed: the product's three-letter
-prefix in `keywords._GENERIC_PARTS`. It was dead. `_expanded_keywords`, the
-set's only reader, drops every part under four letters before it consults the
-set, so the entry never matched anything. It is removed, and nothing replaces
-it: the length rule is the general mechanism, and a longer product prefix is a
-specific word, worth recalling. Proof of equivalence: `extract_keywords` on 569
-inputs — chunks of every text file in the frozen `b9ee482` tree plus prefixed
-identifiers — is identical under the old and new module, and the fixture corpus
-over the frozen tree is identical line for line (MRR 0.295, 53 terms). No
-ranking changed; nothing was tuned. The `_expanded_keywords` docstring's example
-now uses a generic widget name.
+**Production.** One product-specific rule existed: a three-letter prefix in
+`keywords._GENERIC_PARTS`. It was dead. `_expanded_keywords`, the set's only
+reader, drops every part under four letters before it consults the set, so the
+entry never matched anything. It is removed, and nothing replaces it: the
+length rule is the general mechanism, and a longer prefix is a specific word,
+worth recalling. Proof of equivalence: `extract_keywords` on 569 inputs is
+identical under the old and new module, and the fixture corpus is identical
+line for line (MRR 0.295, 53 terms). No ranking changed; nothing was tuned.
 
 **Fixtures and docs.** One naming map, one word per category: a class prefix
 becomes `Sample` (`SampleFoo::bar`), a path segment `platform/sample`, a version
-tag `preSample12`, a snake_case prefix `sample_`, and the product as a word in
-prose `SampleProduct`. Names the product's own checkout confirmed as internal
-were replaced whole, not just re-prefixed: a function
-(`mapSampleIndexToSampleValue`), a module (`sample_volume_cache.cpp`), a volume
-class (`SamplePoststackReader`), an inversion widget (now the
-`WidgetController.cpp` the workflow tests already use), the product's widget
-naming pattern (`SampleQtExportDialog` in the keyword tests) and an internal
-component named in the Fix Mode domain-independence notes and test (now "product
-volume type" in the docs and `seismic` in the test). Every replacement was
-confirmed absent from that checkout. The keyword-expansion test now expects a
-long product prefix to be surfaced like any specific word, and a new test pins
-the length rule with a three-letter prefix.
+tag `preSample12`, a snake_case prefix `sample_`, and a product named in prose
+`SampleProduct`. The keyword-expansion test now expects a long prefix to be
+surfaced like any specific word, and a new test pins the length rule with a
+three-letter prefix.
 
 **The email script.** Its secret vault is now `bugpilot`. An existing install's
 next profile load finds no vault by that name and registers one as the default
-vault, replacing the old name as default. SecretStore keeps one store per user,
-so the password saved under the old name should still be found; if it is not,
-the script asks for it once. The old registration can then be removed. (Not
+vault. SecretStore keeps one store per user, so a password saved under the old
+name should still be found; if it is not, the script asks for it once. (Not
 verified on a live install.)
 
-**Retained on purpose.** `VolumeDescriptor`, `OutputSelector` and `outputType`
-are generic technical compounds, not the product family. Kept by the
-user's decision: they are generic engineering terms, outside the anonymization
-scope, which is now frozen. `OpenVDS`, `VDS` and `SEG-Y` are public formats.
-
-**Current tree.** Zero matches for every spelling of the family, including a
-plain case-insensitive search for the product prefix as a substring anywhere in
-tracked text.
-
-**The guard.** The leaked-name digests gained the company and the internal
-component. A new prefix digest flags a word that is the product prefix or starts
-with it — alone, as a class prefix, inside a version tag, as a snake_case or
-path segment, glued into the old project and vault names. Words are split at
-case and digit boundaries, so no substring matching is done; the bare prefix
-right after a number reads as a unit of time and passes. Stand-in digests test
-the rules in the tracked file. The real spellings that prove the real digests
-live in the gitignored `tests/forbidden_samples.txt` beside the word list
-(`forbidden_samples.example` is the template), so the repository carries no
-readable or encoded copy of any name. The old-project-name test uses the digests
-too. 15 tests.
-
-**History, read only.** 19 commits, 549 blobs, four pushed. The family is in
-every commit. Beyond what the tree held, older commits add two class names and
-three file names in the workflow tests, product paths in the extension tests
-(one in Windows spelling) and the customer name in a context-signal test. Every
-identifier that history shares with the product checkout gets a whole-name rule
-ahead of the general prefix rule — the widget, inversion-widget, volume and
-process class names and the transaction file become the generic names the later
-tree already uses — so none survives as a re-prefixed real name. File paths: 233
-distinct, none carrying the family, so no path rename is needed. Commit
-messages: two local commits (a class name, a ticket id). Identities: 35 author
-and committer entries use the company domain, five of them on pushed commits;
-the destination is the GitHub noreply address already on the root commit, and
-names stay as they are.
-
-**Rewrite inputs, prepared and not run.** A replace-text map, a message map and
-a one-line mailmap live outside the repository. Simulated the way `git
-filter-repo` applies them (every literal rule, then every regex rule), the map
-leaves no finding in any blob or message — nor any substring of the removed
-names — and changes no file in the current tree, so HEAD's tree survives the
-rewrite byte for byte. Applied to exported trees of three historical commits,
-the affected Python tests still pass (the private word list aside, which an
-export lacks).
-
-**Out of scope.** The personal licensor and publisher names: ownership, not the
-former employer. The stale 0.1.0 wheel and sdist carry the removed prefix and
-the old checkout path, and are rebuilt from the sanitized tree after the
-rewrite; the `.vsix` is clean but is rebuilt with them.
+**The guard.** Leaked names are held as digests, and a prefix digest flags a
+word that is or starts with a removed prefix — alone, as a class prefix, inside
+a version tag, as a snake_case or path segment. Words are split at case and
+digit boundaries, so no substring matching is done. The real spellings that
+prove the digests live in the gitignored `tests/forbidden_samples.txt` beside
+the word list (`forbidden_samples.example` is the template), so the repository
+carries no readable or encoded copy of any name. 15 tests.
 
 ### 37.73 Batch 11 — Review Result Capture (after `826a884`)
 
@@ -9389,14 +9276,10 @@ line for line as before, the live corpus 0.289. Packaging: wheel, sdist and VSIX
 rebuilt, `twine check` passed for both Python artifacts, the wheel installs in a
 clean venv (`import bugpilot`, `bugpilot --help`, `record-review --help`,
 `record-verification --help`), the VSIX activates in a clean profile with no
-manifest error, and a scan of all three found no local path, user name, company
+manifest error, and a scan of all three found no local path, user name, private
 domain, old naming, private word or sample, harness or scratch file. The wheel
 sits beside `installer/install.ps1`, as the documented layout has it (ignored by
 git).
-
-**External caveat.** The old history is still reachable through GitHub's
-`refs/pull/1/head`; a GitHub Support purge or recreating the repository is the
-remedy, outside this repository.
 
 ### 37.76 Next action — one primary CTA that follows the work item (after `647f24d`)
 
@@ -9558,7 +9441,7 @@ dialogs, the simple file dialog), opened on the real target workspace
 (`<repo-root>`) and driven over its DevTools port with real
 mouse and key input; screenshots read back for every visual judgment. The
 developer's own VS Code was not closed or reconfigured. Real preparations of a
-hand-described bug ran against the monorepo (≈2.5 min each); the AI agent was a
+hand-described bug ran against a large repository (≈2.5 min each); the AI agent was a
 harmless `cmd /c echo {prompt}`, so no agent ran in that repository; the hint
 improver ran `claude -p` in its own empty temporary folder. Every `.ai/` and
 `.ai_memory/bugs/` entry the pass created was removed afterwards; the
@@ -12167,7 +12050,7 @@ sent, the count unchecked, the fingerprint missing a setting, the page's
 switch list, the row's gear, an old saved form read as off.
 
 **Real CLI** (seeded `.ai_memory`, a hand-written bug that matches some of it,
-`--keywords=OpenVdsBrick`): on — the shared-keyword memory is found; off — it
+`--keywords=OpenCsvBrick`): on — the shared-keyword memory is found; off — it
 is gone and the issue's own matches stay; `--similar-fixes-keyword` — the
 memory only it names is found; `--max-similar-fixes=2` — two; with
 `--skip-similar-fixes` — `memory_search: skipped` and no Similar Fixes list;
