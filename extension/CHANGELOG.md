@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.1 — 2026-10-09
+
+- **Install BugPilot Runtime.** With no CLI found, the panel says *BugPilot CLI
+  is required.* and offers **Install BugPilot Runtime** as its main button
+  (also **BugPilot: Install Runtime**). One click creates a private Python
+  environment in VS Code's storage, one for each extension version, and
+  installs the BugPilot CLI from PyPI into it at exactly the extension's
+  version, checked with `bugpilot --version` before it is used. A progress
+  notification shows each step; a failure says why, with Retry, Choose
+  Executable and Show Details.
+- **Nothing is installed automatically.** Setup runs only when you press the
+  button. It needs Python 3.10 or later already installed, and never installs
+  Python.
+- **Your own CLI still works.** A `bugpilot` from pipx or pip on `PATH` is used
+  as before, and `bugpilot.executablePath` (**Choose Executable**) is still the
+  only one used when it is set. The order is the configured path, then the
+  runtime, then `PATH`. A CLI on `PATH` older than the extension is offered the
+  runtime as the way out.
+- **Diagnostics** adds **CLI source** and **BugPilot runtime** rows.
+- The `bugpilot` CLI 0.1.1 is 0.1.0 with a new version number, released so the
+  runtime can install the matching version.
+
+Requires Python 3.10 or later and the `bugpilot` CLI 0.1.1 or later — the
+BugPilot runtime installs it, or install it with `pipx install bugpilot`.
+
 ## 0.1.0 — 2026-10-08
 
 First release. What it does today:

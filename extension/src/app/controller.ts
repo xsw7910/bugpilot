@@ -934,6 +934,13 @@ export class Controller {
   #fixEpoch = 0;
   #readiness: Readiness = { kind: "checking" };
   /**
+   * Where the bugpilot in use came from, and how BugPilot's managed runtime
+   * stood, at the last environment check — for Diagnostics, which reads only
+   * state it already holds.
+   */
+  #cliSource: Extract<Environment, { kind: "ready" }>["source"];
+  #runtime: Extract<Environment, { kind: "ready" }>["runtime"];
+  /**
    * The Repository Profile as the repository's own file last said it, from
    * `bugpilot repository-profile` — `undefined` until read, or when it could not
    * be. The form holds the copy the page edits; this is what Apply compares it
@@ -1406,6 +1413,8 @@ export class Controller {
     const credentials = await this.#ports.credentials();
     this.#jiraConfigured = credentials.configured;
     this.#report = environment.kind === "ready" ? environment.report : undefined;
+    this.#cliSource = environment.kind === "ready" ? environment.source : undefined;
+    this.#runtime = environment.kind === "ready" || environment.kind === "unusable-cli" ? environment.runtime : undefined;
     this.#noticeStatus = undefined;
     // Another repository, or git ignores both now: whatever the quick fix said
     // is about something that is no longer on screen.
@@ -3137,7 +3146,7 @@ export class Controller {
       kind: "blocked",
       summary: CLI_OUTDATED_SUMMARY,
       action: `${CLI_OUTDATED_ACTION} ${outdatedCliDetail(rejected)}`,
-      actions: outdatedCliActions(),
+      actions: outdatedCliActions(this.#cliSource === "path"),
     };
     this.#offered = new Set(this.#readiness.actions.map((action) => action.command));
   }
@@ -3908,6 +3917,8 @@ export class Controller {
       root: this.#root,
       executable: ready?.executable,
       cliVersion: ready?.version,
+      cliSource: ready === undefined ? undefined : this.#cliSource,
+      runtime: this.#runtime,
       extensionVersion: this.#ports.extensionVersion,
       jiraConfigured: this.#jiraConfigured,
       jiraRejected: this.#jiraRejected,

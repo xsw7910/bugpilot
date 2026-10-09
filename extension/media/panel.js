@@ -1248,6 +1248,8 @@
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = action.title;
+        // The host marks the one thing to press (Install BugPilot Runtime).
+        if (action.primary === true) button.className = "primary";
         // The command id came from the host, and the host re-checks it against
         // its own table before executing.
         button.addEventListener("click", () =>

@@ -22,44 +22,69 @@ import type { SpawnFn } from "./runner.ts";
 /** Default command name, resolved on PATH's absolute entries (`executablePath.ts`). */
 export const DEFAULT_EXECUTABLE = "bugpilot";
 
-export type Verdict =
-  /** Found, and it implements the JSON contract. */
-  | {
-      readonly kind: "ready";
-      readonly executable: string;
-      readonly report: Record<string, unknown>;
-      /**
-       * The CLI's own version, when it reports one.
-       *
-       * Optional because an older-but-compatible bugpilot may not have the
-       * field. It is shown next to the resolved path: "which of my three
-       * bugpilots just ran" is a question this machine can genuinely raise.
-       */
-      readonly version?: string;
-    }
-  /** Nothing to run: not on PATH, or the configured path does not exist. */
-  | { readonly kind: "not-found"; readonly executable: string; readonly detail: string }
-  /** It ran, but does not speak the contract — almost always too old. */
-  | { readonly kind: "incompatible"; readonly executable: string; readonly detail: string }
-  /** Did not answer the handshake in time. Says nothing about the version. */
-  | { readonly kind: "unresponsive"; readonly executable: string; readonly detail: string }
+/**
+ * Where the bugpilot a verdict is about came from: the `bugpilot.executablePath`
+ * setting, BugPilot's own managed runtime (`managedRuntime.ts`), or PATH.
+ */
+export type CliSource = "configured" | "managed" | "path";
+
+/** Fields every verdict can carry, whatever its kind. */
+interface VerdictOrigin {
+  /** Which candidate this verdict is about. Set by `discoverExecutable`. */
+  readonly source?: CliSource;
   /**
-   * Speaks the contract, but `doctor` itself failed.
-   *
-   * A well-formed failure envelope *proves* the binary is compatible, so calling
-   * it incompatible would send the developer to update a fine bugpilot. The
-   * error code is what matters here and is passed through for `diagnose()`.
+   * Why the managed runtime was passed over for PATH, when there was one and
+   * it did not answer as the pinned version should.
    */
-  | {
-      readonly kind: "unhealthy";
-      readonly executable: string;
-      readonly code: string;
-      readonly message: string;
-    };
+  readonly managedRejected?: string;
+}
+
+export type Verdict = VerdictOrigin &
+  (
+    /** Found, and it implements the JSON contract. */
+    | {
+        readonly kind: "ready";
+        readonly executable: string;
+        readonly report: Record<string, unknown>;
+        /**
+         * The CLI's own version, when it reports one.
+         *
+         * Optional because an older-but-compatible bugpilot may not have the
+         * field. It is shown next to the resolved path: "which of my three
+         * bugpilots just ran" is a question this machine can genuinely raise.
+         */
+        readonly version?: string;
+      }
+    /** Nothing to run: not on PATH, or the configured path does not exist. */
+    | { readonly kind: "not-found"; readonly executable: string; readonly detail: string }
+    /** It ran, but does not speak the contract — almost always too old. */
+    | { readonly kind: "incompatible"; readonly executable: string; readonly detail: string }
+    /** Did not answer the handshake in time. Says nothing about the version. */
+    | { readonly kind: "unresponsive"; readonly executable: string; readonly detail: string }
+    /**
+     * Speaks the contract, but `doctor` itself failed.
+     *
+     * A well-formed failure envelope *proves* the binary is compatible, so calling
+     * it incompatible would send the developer to update a fine bugpilot. The
+     * error code is what matters here and is passed through for `diagnose()`.
+     */
+    | {
+        readonly kind: "unhealthy";
+        readonly executable: string;
+        readonly code: string;
+        readonly message: string;
+      }
+  );
 
 export interface DiscoverOptions {
   /** The `bugpilot.executablePath` setting, when the developer set one. */
   readonly configured?: string | undefined;
+  /**
+   * BugPilot's managed runtime, when one is installed: its CLI's absolute path
+   * and the exact version it must report. Tried after a configured path and
+   * before PATH.
+   */
+  readonly managed?: { readonly executable: string; readonly version: string } | undefined;
   /** Where to run the handshake. Any directory works; `doctor` needs no work item. */
   readonly cwd: string;
   readonly spawn?: SpawnFn;
@@ -76,14 +101,46 @@ export interface DiscoverOptions {
 /**
  * Resolve and verify the executable to use.
  *
- * Precedence is the configured path, then the bare command name for the OS to
- * resolve through PATH. A configured path wins even if it turns out to be
- * broken: silently falling back to a different bugpilot than the one the
- * developer named would make the failure impossible to diagnose.
+ * Precedence is the configured path, then BugPilot's managed runtime, then the
+ * bare command name resolved through PATH. A configured path wins even if it
+ * turns out to be broken: silently falling back to a different bugpilot than
+ * the one the developer named would make the failure impossible to diagnose.
+ * The managed runtime is BugPilot's own, so when it does not answer as the
+ * pinned version it is passed over for PATH, and the reason travels with the
+ * verdict for Diagnostics and the setup card.
  */
 export async function discoverExecutable(options: DiscoverOptions): Promise<Verdict> {
   const configured = options.configured?.trim();
-  const requested = configured && configured !== "" ? configured : DEFAULT_EXECUTABLE;
+  if (configured && configured !== "") return handshake(configured, "configured", options);
+  let managedRejected: string | undefined;
+  if (options.managed) {
+    const verdict = await handshake(options.managed.executable, "managed", options);
+    // Unhealthy proves the CLI works and its environment does not: that is
+    // the same answer from PATH, so the runtime is still the one to report.
+    if ((verdict.kind === "ready" && verdict.version === options.managed.version) || verdict.kind === "unhealthy") {
+      return verdict;
+    }
+    managedRejected =
+      verdict.kind === "ready"
+        ? `Its bugpilot reports ${verdict.version ?? "no version"}, not ${options.managed.version}.`
+        : verdict.kind === "not-found"
+          ? "Its bugpilot executable is missing."
+          : verdict.kind === "unresponsive"
+            ? "Its bugpilot did not answer in time."
+            : "Its bugpilot does not answer the way this extension needs.";
+  }
+  const fromPath = await handshake(DEFAULT_EXECUTABLE, "path", options);
+  return managedRejected === undefined ? fromPath : { ...fromPath, managedRejected };
+}
+
+/** Find one candidate and prove it speaks the contract. */
+async function handshake(requested: string, source: CliSource, options: DiscoverOptions): Promise<Verdict> {
+  const missing =
+    source === "configured"
+      ? `The configured bugpilot path does not exist: ${requested}`
+      : source === "managed"
+        ? `The BugPilot runtime's bugpilot is missing: ${requested}`
+        : "bugpilot is not on PATH.";
   // Resolved once, here, and the absolute path is what this handshake and every
   // later run start: detecting one bugpilot and running another from PATH — or
   // from the repository, the working directory — is how a hijack would look.
@@ -91,21 +148,20 @@ export async function discoverExecutable(options: DiscoverOptions): Promise<Verd
   if (located.kind === "invalid") {
     return {
       kind: "not-found",
+      source,
       executable: requested,
       detail: `The configured bugpilot path is not valid: ${located.reason}`,
     };
   }
   if (located.kind === "not-found") {
-    return {
-      kind: "not-found",
-      executable: requested,
-      detail:
-        configured && configured !== ""
-          ? `The configured bugpilot path does not exist: ${requested}`
-          : "bugpilot is not on PATH.",
-    };
+    return { kind: "not-found", source, executable: requested, detail: missing };
   }
   const executable = located.path;
+  const verdict = await probe(executable, missing, options);
+  return { ...verdict, source };
+}
+
+async function probe(executable: string, missing: string, options: DiscoverOptions): Promise<Verdict> {
   const runner = new Runner(executable, options.spawn, options.platform);
 
   let envelope: Envelope;
@@ -125,14 +181,7 @@ export async function discoverExecutable(options: DiscoverOptions): Promise<Verd
       };
     }
     if (isMissingBinary(error)) {
-      return {
-        kind: "not-found",
-        executable,
-        detail:
-          configured && configured !== ""
-            ? `The configured bugpilot path does not exist: ${executable}`
-            : "bugpilot is not on PATH.",
-      };
+      return { kind: "not-found", executable, detail: missing };
     }
     if (error instanceof ProtocolError && /cancelled/i.test(error.message)) {
       // A frozen exe cold-starting under antivirus can exceed the timeout.

@@ -22,6 +22,8 @@
  * row; its line here says where.
  */
 
+import type { CliSource } from "../executable.ts";
+import type { RuntimeStatus } from "../managedRuntime.ts";
 import { AGENT_LABELS } from "./agents.ts";
 import type { Source } from "./form.ts";
 import { jiraConnection } from "./jiraConnection.ts";
@@ -57,6 +59,10 @@ export interface DiagnosticsInput {
   /** Which bugpilot is being run, and its version, when the probe answered. */
   readonly executable?: string | undefined;
   readonly cliVersion?: string | undefined;
+  /** Where the bugpilot in use came from; `undefined` when none is usable. */
+  readonly cliSource?: CliSource | undefined;
+  /** BugPilot's managed runtime as the last environment check saw it. */
+  readonly runtime?: RuntimeStatus | undefined;
   /** This extension's own version, which is a different number. */
   readonly extensionVersion?: string | undefined;
   /** Whether a Jira credential is stored. Not whether Jira works. */
@@ -133,9 +139,49 @@ export function diagnostics(input: DiagnosticsInput): DiagnosticsView {
     });
   }
 
+  // Which of the three places the CLI came from — the question a machine with
+  // a pipx copy, a configured path and a managed runtime genuinely raises.
+  // Unknown is left out rather than guessed: only a usable CLI has a source,
+  // and no usable CLI at all is a fact worth a row.
+  if (input.cliSource !== undefined) rows.push({ label: "CLI source", value: CLI_SOURCE_NAMES[input.cliSource] });
+  else if (!input.executable) rows.push({ label: "CLI source", value: "Unavailable" });
+
+  // The managed runtime by its state and version, and the Python it was built
+  // with. No path: the runtime lives in the extension's own storage, and the
+  // CLI row above already names the executable when it is the one in use.
+  if (input.runtime) {
+    const described = describeRuntime(input.runtime);
+    rows.push({ label: "BugPilot runtime", value: described.value, ...(described.detail === undefined ? {} : { detail: described.detail }) });
+  }
+
   // `detail: undefined` is not a detail; drop the key rather than ship a row
   // with a hole in it.
   return { rows: rows.map(compact) };
+}
+
+const CLI_SOURCE_NAMES: Readonly<Record<CliSource, string>> = {
+  configured: "Configured path",
+  managed: "BugPilot runtime",
+  path: "PATH",
+};
+
+function describeRuntime(runtime: RuntimeStatus): { value: string; detail?: string } {
+  switch (runtime.kind) {
+    case "ready":
+      return { value: `Ready · ${runtime.version}`, detail: `Python ${runtime.pythonVersion}` };
+    case "not-installed":
+      return { value: "Not installed", detail: `Would install bugpilot ${runtime.version}` };
+    case "installing":
+      return { value: "Installing…", detail: `bugpilot ${runtime.version}` };
+    case "broken":
+      return { value: "Not working", detail: runtime.detail };
+    case "no-python":
+      return { value: "Needs Python 3.10 or later", detail: "No Python found" };
+    case "unsupported-python":
+      return { value: "Needs Python 3.10 or later", detail: `Found Python ${runtime.found}` };
+    case "install-failed":
+      return { value: "Setup failed", detail: runtime.detail };
+  }
 }
 
 function describeResolved(resolved: ResolvedAgent | undefined): string | undefined {

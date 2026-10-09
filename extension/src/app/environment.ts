@@ -14,7 +14,8 @@
 
 import { COMMANDS } from "../commands.ts";
 import { describeVerdict } from "../executable.ts";
-import type { Verdict } from "../executable.ts";
+import type { CliSource, Verdict } from "../executable.ts";
+import type { InstallStep, RuntimeStatus } from "../managedRuntime.ts";
 import { chooseRepoRoot } from "../workspace.ts";
 import type { Folder, WorkspaceProbe } from "../workspace.ts";
 
@@ -22,7 +23,17 @@ import type { Folder, WorkspaceProbe } from "../workspace.ts";
 export interface CommandAction {
   readonly title: string;
   readonly command: string;
+  /** The one thing to press: drawn as the primary button. */
+  readonly primary?: boolean;
 }
+
+/** What each install step is called while it runs: the setup card and the progress notification. */
+export const RUNTIME_STEP_TEXT: Readonly<Record<InstallStep, string>> = {
+  python: "Looking for Python 3.10 or later…",
+  venv: "Creating a private Python environment…",
+  pip: "Installing the BugPilot CLI from PyPI…",
+  validate: "Checking the installed CLI…",
+};
 
 export type Environment =
   | {
@@ -32,6 +43,9 @@ export type Environment =
       /** `doctor`'s report, so the panel can warn before the first run. */
       readonly report: Record<string, unknown>;
       readonly version?: string;
+      /** Where that bugpilot came from: the setting, the managed runtime, or PATH. */
+      readonly source?: CliSource;
+      readonly runtime?: RuntimeStatus;
     }
   /** Several repositories are open. There is no safe guess; the developer picks. */
   | { readonly kind: "choose-folder"; readonly candidates: readonly Folder[] }
@@ -44,6 +58,7 @@ export type Environment =
       readonly summary: string;
       readonly action: string;
       readonly actions: readonly CommandAction[];
+      readonly runtime?: RuntimeStatus;
     };
 
 export interface EnvironmentInput {
@@ -62,6 +77,11 @@ export interface EnvironmentInput {
     readonly cwd: string;
     readonly configured?: string | undefined;
   }) => Promise<Verdict>;
+  /**
+   * The managed runtime as it stands, read after discovery has tried it. What
+   * a missing CLI's card offers depends on it.
+   */
+  readonly runtime?: () => RuntimeStatus;
 }
 
 export async function resolveEnvironment(input: EnvironmentInput): Promise<Environment> {
@@ -82,6 +102,7 @@ export async function resolveEnvironment(input: EnvironmentInput): Promise<Envir
   }
 
   const verdict = await input.discover({ cwd: root, configured: input.configured });
+  const runtime = input.runtime?.();
   if (verdict.kind === "ready") {
     return {
       kind: "ready",
@@ -89,17 +110,103 @@ export async function resolveEnvironment(input: EnvironmentInput): Promise<Envir
       executable: verdict.executable,
       report: verdict.report,
       ...(verdict.version === undefined ? {} : { version: verdict.version }),
+      ...(verdict.source === undefined ? {} : { source: verdict.source }),
+      ...(runtime === undefined ? {} : { runtime }),
     };
   }
   const described = describeVerdict(verdict);
-  return {
-    kind: "unusable-cli",
-    root,
-    verdict,
+  const card = runtimeCard(verdict, runtime) ?? {
     summary: described.summary,
     action: described.action,
     actions: actionsFor(verdict),
   };
+  return {
+    kind: "unusable-cli",
+    root,
+    verdict,
+    ...card,
+    ...(runtime === undefined ? {} : { runtime }),
+  };
+}
+
+/**
+ * What a machine with no usable bugpilot is offered, now that BugPilot can
+ * install its own: the runtime first, an existing bugpilot second, the manual
+ * route third. For a missing CLI, and for one on PATH too old for this
+ * extension — the runtime is pinned to the extension's own version, so it is
+ * the easy way out of both. Only when nothing was configured: a configured
+ * path that is broken keeps its own card, because installing a runtime would
+ * not change which bugpilot runs.
+ */
+function runtimeCard(
+  verdict: Verdict,
+  runtime: RuntimeStatus | undefined,
+): { summary: string; action: string; actions: readonly CommandAction[] } | undefined {
+  if (runtime === undefined || verdict.source === "configured" || verdict.source === "managed") return undefined;
+  if (verdict.kind !== "not-found" && verdict.kind !== "incompatible") return undefined;
+  const choose: CommandAction = { title: "Choose Executable", command: COMMANDS.chooseExecutable };
+  const instructions: CommandAction = { title: "Install Instructions", command: COMMANDS.showInstallInstructions };
+  const details: CommandAction = { title: "Show Details", command: COMMANDS.showLog };
+  const install = (title: string): CommandAction => ({ title, command: COMMANDS.installRuntime, primary: true });
+  const needsPython = "Python 3.10 or later is required to install the BugPilot runtime.";
+  switch (runtime.kind) {
+    case "installing":
+      // Nothing to press: the install is running, and a second one would not
+      // start anyway.
+      return { summary: "Installing BugPilot Runtime…", action: RUNTIME_STEP_TEXT[runtime.step], actions: [] };
+    case "no-python":
+      return {
+        summary: needsPython,
+        action: "Install Python 3.10 or later, then install the runtime again — or choose a bugpilot you already have.",
+        actions: [install("Install BugPilot Runtime"), choose, instructions],
+      };
+    case "unsupported-python":
+      return {
+        summary: needsPython,
+        action: `The newest Python found is ${runtime.found}. Install Python 3.10 or later, then install the runtime again — or choose a bugpilot you already have.`,
+        actions: [install("Install BugPilot Runtime"), choose, instructions],
+      };
+    case "install-failed":
+      return {
+        summary: "BugPilot runtime setup could not be completed.",
+        action: `${runtime.detail} The BugPilot log has the details.`,
+        actions: [install("Retry"), choose, details],
+      };
+    case "broken":
+      return {
+        summary: "The BugPilot runtime is not working.",
+        action: `${runtime.detail} Install it again, or choose a bugpilot you already have.`,
+        actions: [install("Reinstall Runtime"), choose, details],
+      };
+    case "not-installed":
+    case "ready":
+      if (verdict.kind === "incompatible") {
+        // An old pipx copy on PATH: say what is wrong with it, and offer the
+        // runtime as the fix that needs no command line.
+        const described = describeVerdict(verdict);
+        return {
+          summary: described.summary,
+          action: `${described.action} Or install BugPilot Runtime: a private copy of the CLI at this extension's own version.`,
+          actions: [
+            install("Install BugPilot Runtime"),
+            instructions,
+            choose,
+            { title: "Retry", command: COMMANDS.checkEnvironment },
+          ],
+        };
+      }
+      return {
+        summary: "BugPilot CLI is required.",
+        action:
+          "Install BugPilot Runtime sets up a private copy of the BugPilot CLI for this extension, using a Python 3.10 or later already on this machine. Or choose a bugpilot you already have.",
+        actions: [
+          install("Install BugPilot Runtime"),
+          choose,
+          instructions,
+          { title: "Retry", command: COMMANDS.checkEnvironment },
+        ],
+      };
+  }
 }
 
 /**
@@ -142,12 +249,17 @@ export function actionsFor(verdict: Verdict): readonly CommandAction[] {
  * update it, point at a newer one, then check again. The same three as an
  * `incompatible` start-up verdict, with the first named for what it is here.
  */
-export function outdatedCliActions(): readonly CommandAction[] {
-  return [
+export function outdatedCliActions(offerRuntime = false): readonly CommandAction[] {
+  const update: readonly CommandAction[] = [
     { title: "Update Instructions", command: COMMANDS.showInstallInstructions },
     { title: "Choose Executable", command: COMMANDS.chooseExecutable },
     { title: "Retry", command: COMMANDS.checkEnvironment },
   ];
+  // Only for a CLI that came from PATH: a configured one is the developer's
+  // choice, and the runtime would not replace it.
+  return offerRuntime
+    ? [{ title: "Install BugPilot Runtime", command: COMMANDS.installRuntime, primary: true }, ...update]
+    : update;
 }
 
 /**
@@ -160,6 +272,12 @@ export function installInstructions(): readonly string[] {
   return [
     "bugpilot is a Python CLI. The extension drives it; it does not bundle it.",
     "",
+    "The simplest way: press Install BugPilot Runtime in the BugPilot panel (or run",
+    "\"BugPilot: Install Runtime\"). It creates a private Python environment for the",
+    "CLI in the extension's own storage, using a Python 3.10 or later already on",
+    "this machine.",
+    "",
+    "Or install it yourself:",
     "    pipx install bugpilot",
     "",
     "Or, from a checkout of the repository:",

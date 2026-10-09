@@ -1271,6 +1271,37 @@ test("only a command the host actually offered can be run", async () => {
   assert.ok(h.logged.some((line) => line.includes("Refusing to run a command")));
 });
 
+test("Install BugPilot Runtime on the missing-CLI card reaches its command, and Choose Executable is still there", async () => {
+  const h = harness({
+    environment: {
+      kind: "unusable-cli",
+      root: ROOT,
+      verdict: { kind: "not-found", source: "path", executable: "bugpilot", detail: "bugpilot is not on PATH." },
+      summary: "BugPilot CLI is required.",
+      action: "Install BugPilot Runtime sets up a private copy of the BugPilot CLI.",
+      actions: [
+        { title: "Install BugPilot Runtime", command: "bugpilot.installRuntime", primary: true },
+        { title: "Choose Executable", command: "bugpilot.chooseExecutable" },
+      ],
+      runtime: { kind: "not-installed", version: "0.1.1" },
+    },
+  });
+  await h.controller.refreshEnvironment();
+  const readiness = h.last().readiness;
+  assert.equal(readiness.kind, "blocked");
+  assert.deepEqual(readiness.kind === "blocked" && readiness.actions[0], {
+    title: "Install BugPilot Runtime",
+    command: "bugpilot.installRuntime",
+    primary: true,
+  });
+  await h.controller.handle({ type: "command", id: "bugpilot.installRuntime" });
+  await h.controller.handle({ type: "command", id: "bugpilot.chooseExecutable" });
+  assert.deepEqual(h.ranCommands, ["bugpilot.installRuntime", "bugpilot.chooseExecutable"]);
+  // Diagnostics carry the runtime's state even while no CLI is usable.
+  const runtimeRow = h.controller.diagnostics.rows.find((row) => row.label === "BugPilot runtime");
+  assert.equal(runtimeRow?.value, "Not installed");
+});
+
 test("nothing is offered while the environment is fine", async () => {
   const h = harness();
   await h.controller.refreshEnvironment();

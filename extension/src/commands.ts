@@ -18,6 +18,12 @@ export const COMMANDS = {
   showInstallInstructions: "bugpilot.showInstallInstructions",
   /** Point `bugpilot.executablePath` at a chosen file. */
   chooseExecutable: "bugpilot.chooseExecutable",
+  /**
+   * Create BugPilot's own runtime: a private venv in the extension's global
+   * storage with the CLI pinned to this extension's version. Only ever run
+   * because somebody pressed it.
+   */
+  installRuntime: "bugpilot.installRuntime",
   /** Store the Jira email and API token in SecretStorage. */
   setCredentials: "bugpilot.setCredentials",
   /**

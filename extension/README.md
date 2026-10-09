@@ -4,15 +4,18 @@ Turn a Jira issue or a bug you describe into focused code context for your AI
 coding agent — the issue details, the candidate files, the relevant git
 history, and a task file — without leaving the editor.
 
-The extension is a shell over the `bugpilot` CLI. It does not bundle it, and it
-never hands your code to an agent by itself: it prepares the package and you
-decide who reads it.
+The extension is a shell over the `bugpilot` CLI. It does not bundle it — one
+click installs it, when you ask — and it never hands your code to an agent by
+itself: it prepares the package and you decide who reads it.
 
 ## Requirements
 
-- **The BugPilot CLI, 0.1.0 or later.** The extension runs it for everything it
-  prepares, and does not bundle it — see [Installing](#installing).
-- **Python 3.10 or later**, for the CLI.
+- **Python 3.10 or later**, already installed. The BugPilot CLI is a Python
+  program, and BugPilot does not install Python.
+- **The BugPilot CLI**, at the extension's version or later. The extension runs
+  it for everything it prepares. It does not bundle it: **Install BugPilot
+  Runtime** sets up a private copy when you ask, or use one you installed
+  yourself — see [Installing](#installing).
 - **Git**, with the repository you fix bugs in checked out.
 - **ripgrep** (`rg`) on `PATH`, for code search.
 - Optional: **a Jira Cloud site** and an API token, to work from Jira issues. A
@@ -23,7 +26,38 @@ decide who reads it.
 
 ## Installing
 
-**The CLI.** Install it from PyPI with pipx:
+1. **Install BugPilot** from the Visual Studio Marketplace: search for
+   *BugPilot* in the Extensions view.
+2. **Open the Workflow view.** Open the repository you fix bugs in, then click
+   the BugPilot icon in the activity bar. With no CLI yet, the panel says
+   *BugPilot CLI is required.*
+3. **Click Install BugPilot Runtime**, the panel's main button.
+4. **Ready.** The Fix Modes load, and you can Run.
+
+**The BugPilot runtime.** BugPilot asks before installing anything: nothing is
+installed until you press **Install BugPilot Runtime**, or run **BugPilot:
+Install Runtime**. Then, with a progress notification, it:
+
+- looks for Python 3.10 or later — on Windows the `py` launcher's
+  interpreters first, then `python` and `python3` on `PATH`;
+- creates a private Python environment in VS Code's storage for this
+  extension, one for each extension version;
+- installs the BugPilot CLI from PyPI into that environment, at exactly this
+  extension's version, from its pre-built wheel;
+- runs the installed `bugpilot --version`, and uses the CLI only when the
+  version matches.
+
+It changes nothing outside the extension's storage — not your Python, your
+`PATH` or your pipx — and it never installs Python. pip reaches PyPI through the index
+and proxy settings it already uses. The runtime holds the CLI only; for the MCP
+server, install `bugpilot[mcp]` yourself, as below. If setup cannot finish,
+the panel says why, with **Retry**, **Choose Executable**, and **Show Details**
+for the BugPilot log, and nothing half-installed is used. The runtime always
+matches the extension's version, so after an update to a new version the panel
+asks again; the previous version's environment is left as it was.
+
+**Installing the CLI yourself.** pipx and pip still work — the way to go if you
+already have the CLI, or want it in a terminal too. With pipx:
 
 ```powershell
 pipx install bugpilot
@@ -39,23 +73,28 @@ For the MCP server as well, use `pipx install "bugpilot[mcp]"` or
 `python -m pip install "bugpilot[mcp]"` instead. Then check it:
 
 ```powershell
-bugpilot --version          # bugpilot 0.1.0
+bugpilot --version          # bugpilot 0.1.1
 ```
 
-This extension needs a CLI at least as new as itself: 0.1.0 or later. It finds
-the CLI on `PATH` — its absolute entries only — or at the absolute path in the
-`bugpilot.executablePath` setting, which **BugPilot: Choose Executable** sets.
+**Which CLI runs.** The extension uses the first of these:
 
-**The extension.** Install **BugPilot** from the Extensions view (search for
-*BugPilot*), then open the repository you fix bugs in. Building it from source
-is described in the repository's
+1. The absolute path in the `bugpilot.executablePath` setting, which
+   **BugPilot: Choose Executable** sets. When it is set, it is the only one
+   considered.
+2. The BugPilot runtime, once installed.
+3. `bugpilot` on `PATH` — its absolute entries only.
+
+A CLI you installed yourself must be at least as new as the extension.
+
+Building the extension from source is described in the repository's
 [docs/development.md](https://github.com/xsw7910/bugpilot/blob/main/docs/development.md).
 
 ## Before you start
 
 If the panel says *BugPilot CLI is out of date*, the `bugpilot` it found is
 older than the extension — often an older copy that comes first on `PATH`.
-Upgrade it:
+For a CLI found on `PATH`, the panel offers **Install BugPilot Runtime** first,
+which needs no command line. Or upgrade it:
 
 ```powershell
 pipx upgrade bugpilot       # or: python -m pip install --upgrade bugpilot
@@ -671,9 +710,12 @@ name; the full path on hover), **Jira** (Configured, Not configured or
 Authentication failed — the Workflow row's own words), the **AI agent** you
 chose (and, once a handoff has run, what it resolved to), the **Work item**,
 the **Extension**'s version and the **BugPilot CLI**'s (its executable on
-hover). It only reports state the extension already holds: nothing is
-checked, probed or sent when you open it. To set up Jira, use the Jira row in
-Workflow; Diagnostics shows the status and says where that is.
+hover), the **CLI source** (Configured path, BugPilot runtime or PATH), and
+the **BugPilot runtime** (Ready with its version, Not installed, Installing,
+Not working, Setup failed, or Needs Python 3.10 or later). It only reports
+state the extension already holds: nothing is checked, probed or sent when you
+open it. To set up Jira, use the Jira row in Workflow; Diagnostics shows the
+status and says where that is.
 
 The first time you open BugPilot, Results starts open at VS Code's own
 minimum for an open view — its title and about five rows — and Workflow takes
@@ -838,7 +880,7 @@ through the custom command you write.
 
 | Setting | What it does |
 | --- | --- |
-| `bugpilot.executablePath` | Absolute path to the `bugpilot` executable. Empty means find it on `PATH` — its absolute entries only, never the repository or the current folder. A relative path is refused. |
+| `bugpilot.executablePath` | Absolute path to the `bugpilot` executable; when set, it is the only one used. Empty means the BugPilot runtime if it is installed, otherwise `bugpilot` on `PATH` — its absolute entries only, never the repository or the current folder. A relative path is refused. |
 
 ## Commands
 
@@ -847,6 +889,7 @@ worth knowing:
 
 | Command | When you need it |
 | --- | --- |
+| Install Runtime | Set up the BugPilot runtime — the panel's **Install BugPilot Runtime** — or set it up again |
 | Check Environment | After installing or upgrading the CLI, or changing folders |
 | Doctor | What the CLI thinks of this machine: Python, git, ripgrep, Jira, agents |
 | Choose Executable | You have more than one bugpilot and want a specific one |
@@ -862,11 +905,15 @@ worth knowing:
 - **It does not launch an agent unless you ask.** Preparing context and giving
   it to a model are separate acts; the second one is the last step in the
   workflow, and it starts unticked.
+- **It does not install anything unless you ask.** The BugPilot runtime is
+  set up only when you press **Install BugPilot Runtime**, and BugPilot never
+  installs Python.
 - **It does not write to Jira.** No comments, no status changes.
 - **It does not touch git.** No commits, no pushes.
 - **It does not run programs from your repository.** `bugpilot`, `claude`,
   `codex` and `taskkill` are found on `PATH`'s absolute entries and started by
-  that path; a `bugpilot.exe` in the repository is never what runs.
+  that path; a `bugpilot.exe` in the repository is never what runs. The
+  BugPilot runtime's `bugpilot` lives in VS Code's storage, not the repository.
 
 ## Privacy
 
@@ -880,6 +927,10 @@ worth knowing:
   repository — Project instructions, the Repository profile, the Verification
   Policy, Branch naming, project Fix Modes — is meant to be committed. User
   instructions and user Fix Modes in `~/.bugpilot/` are yours alone.
+- **Install BugPilot Runtime downloads from PyPI.** pip fetches the
+  `bugpilot` package from PyPI, or from the index your pip configuration
+  names; nothing about your repository is sent. It happens only when you press
+  the button.
 - **Jira credentials stay out of artifacts.** The token is kept in VS Code's
   SecretStorage and is never written to a generated file, the Output channel or
   a command line.
@@ -894,9 +945,12 @@ The codicons icon font in `media/codicons/` is Microsoft's and is licensed CC BY
 
 | What you see | What it means |
 | --- | --- |
-| "bugpilot is not on PATH" | The CLI is not installed, or not in this terminal's `PATH`. Use **Install Instructions** |
+| "BugPilot CLI is required." | No CLI was found: no BugPilot runtime, and no `bugpilot` on `PATH`. Press **Install BugPilot Runtime**, or **Choose Executable** for one you already have. **Install Instructions** describes pipx and pip |
+| "Python 3.10 or later is required to install the BugPilot runtime." | No Python 3.10 or later was found — on Windows through the `py` launcher, then `python` and `python3` on `PATH`. Install one, then press **Install BugPilot Runtime** again; VS Code may need a restart to see a changed `PATH`. Or install the CLI another way and use **Choose Executable** |
+| "BugPilot runtime setup could not be completed." | Setup stopped, most often because PyPI could not be reached. The sentence below it says what happened, and **Show Details** opens the BugPilot log with pip's own output. Check the network and pip's index and proxy settings, then **Retry**. Nothing half-installed is used |
+| "The BugPilot runtime is not working." | Its environment is incomplete, or its `bugpilot` no longer answers — for instance after an interrupted setup. **Reinstall Runtime** rebuilds it; only this version's environment is replaced |
 | "does not support the machine-readable output this extension needs" | An older CLI is being found first. Upgrade it, or set `bugpilot.executablePath` |
-| "BugPilot CLI is out of date" | The CLI found is older than this extension and does not accept what a Run sends. **Update Instructions** says how (`pipx upgrade bugpilot`); **Choose Executable** points at a newer one; then **Retry**. `bugpilot --version` shows which version runs |
+| "BugPilot CLI is out of date" | The CLI found is older than this extension and does not accept what a Run sends. For a CLI found on `PATH`, **Install BugPilot Runtime** is offered first. **Update Instructions** says how to upgrade (`pipx upgrade bugpilot`); **Choose Executable** points at a newer one; then **Retry**. `bugpilot --version` shows which version runs |
 | "BugPilot CLI was not found" during a Run | The executable went away since the panel checked. Install it, or choose it again |
 | "The configured bugpilot path is not valid" | `bugpilot.executablePath` is a relative path, which BugPilot will not resolve against the repository. Use an absolute path, or leave it empty to use `PATH` |
 | "The Jira site must be an https:// address" | `JIRA_BASE_URL` or the saved site is `http://`, or carries a user name, password, query or fragment. Enter `https://your-company.atlassian.net` in **Jira Setup** (or run `bugpilot jira-site set`), or fix `JIRA_BASE_URL` |

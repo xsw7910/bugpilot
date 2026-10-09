@@ -12857,3 +12857,449 @@ checked state. Not measured, computed: Light+ (`#616161` foreground) mutes
 to about 3.2:1, below AA, in a theme whose own description colour is about
 4.2:1 on the same section; no single strength both mutes Light Modern visibly
 and keeps Light+ at AA.
+
+## 38. BugPilot 0.1.1 — Managed CLI Runtime
+
+### 38.1 Motivation
+
+BugPilot 0.1.0 is published on PyPI (2026-10-08) and on the Visual Studio
+Marketplace. A Marketplace install activates correctly, but a new user then
+sees "bugpilot is not on PATH" until they run `pipx install bugpilot` or point
+`bugpilot.executablePath` at a CLI: out of the box, the extension cannot run.
+
+The goal for 0.1.1 is one button, **Install BugPilot Runtime**, that creates
+and uses a private Python environment owned by the extension.
+
+### 38.2 Decisions
+
+- **Resolution priority:** `bugpilot.executablePath` → the managed runtime →
+  PATH. Explicit configuration stays authoritative, as in 0.1.0: a broken
+  configured path is reported, never silently replaced. A managed runtime that
+  does not answer `doctor --json` with exactly its pinned version is passed
+  over for PATH, and the reason is kept for Diagnostics and the setup card.
+  Every verdict says where its CLI came from: `configured`, `managed` or `path`.
+- **Location:** `<context.globalStorageUri>/runtime/<extension version>/venv`,
+  with `runtime.json` beside it. No hard-coded AppData path.
+- **Version pinning:** the runtime installs `bugpilot==<extension version>`,
+  read from the extension's package metadata
+  (`context.extension.packageJSON.version`). Never unpinned, never `latest`.
+  One directory per version, so an extension update never reuses an older
+  runtime.
+- **Explicit install only:** nothing is created or downloaded on activation.
+  The install runs only when the developer presses **Install BugPilot Runtime**
+  on the card, or runs **BugPilot: Install Runtime**.
+- **Python:** 3.10 or later, already on the machine; never downloaded. On
+  Windows: `py` (its `-0p` list, newest 3.10+ first, then `py -3`), then
+  `python`, then `python3`. Elsewhere: `python3`, then `python`. Each name is
+  resolved on PATH's absolute entries (`executablePath.ts`), and each candidate
+  is proven with a constant `-I -c` probe that reports `sys.executable` and the
+  version, so a Microsoft Store placeholder or a broken shim fails the probe.
+- **Commands:** argv only, absolute paths through `trustedRunner`, no shell,
+  the runtime root as the working directory, each with a timeout:
+  - `<python> -I -m venv <dir>/venv` (180 s);
+  - `<venv python> -I -m pip install --disable-pip-version-check --no-input --no-cache-dir --only-binary=:all: bugpilot==<version>` (300 s), with normal PyPI resolution, so pip's own index and proxy configuration applies (`--no-cache-dir` since Batch 2A, §38.4);
+  - `<venv bugpilot> --version` (60 s).
+- **Ready means `runtime.json`.** It is written last (temporary file, then
+  rename), and only after `bugpilot --version` printed the pinned version. The
+  venv is built in place rather than in a temporary directory and renamed,
+  because Windows console-script launchers embed the venv's absolute path.
+- **Recovery:** a version directory without a valid marker is an interrupted
+  install and reads as broken; the next install removes it first. Any failed
+  step removes the directory. Removal refuses anything that is not a direct,
+  version-named child of the runtime root, or that is a link or junction.
+- **Concurrency:** one install per window (a second request gets the same
+  install, and the command says one is already running). A `<version>.lock`
+  file, created exclusively and treated as stale after 15 minutes, covers other
+  windows.
+- **Logging:** the steps, the interpreter used, and on failure the last 40
+  lines of venv/pip output with any credential in a URL removed. The card and
+  the toast get one sentence.
+- **Not in this batch:** no PyInstaller or standalone binaries; no automatic
+  install; no cancellation. The progress notification is not cancellable
+  rather than pretending to be.
+
+### 38.3 Batch 1 — runtime manager and resolution (2026-10-09, uncommitted on `43b86db`)
+
+**Files.**
+
+- `extension/src/managedRuntime.ts` (new): `ManagedRuntimeManager` — layout,
+  status (not-installed, installing, ready, broken, no-python,
+  unsupported-python, install-failed), Python discovery, install, marker,
+  path-safe removal and the lock.
+- `extension/src/executable.ts`: `CliSource`; `discoverExecutable` tries
+  configured → managed → PATH; every verdict carries `source`, and
+  `managedRejected` when the runtime was passed over.
+- `extension/src/app/environment.ts`: the runtime-aware missing-CLI card,
+  `CommandAction.primary`, `RUNTIME_STEP_TEXT`, and install instructions that
+  mention the runtime.
+- `extension/src/extension.ts`: the manager under `globalStorageUri/runtime`,
+  bound to the extension version; the managed candidate passed to every
+  environment check; `bugpilot.installRuntime` with a progress notification,
+  and the readiness refreshed afterwards (Fix Modes load as for any ready CLI).
+- `extension/src/commands.ts`, `extension/package.json`: the command,
+  **BugPilot: Install Runtime**.
+- `extension/src/app/controller.ts`, `extension/src/app/diagnostics.ts`,
+  `extension/src/app/results.ts`: two Diagnostics rows, **CLI source**
+  (Configured path, BugPilot runtime, PATH, Unavailable) and **BugPilot
+  runtime** (state and version, with the Python version or the failure
+  reason; never a path).
+- `extension/media/panel.js`: an action marked primary is drawn as the primary
+  button.
+
+**The missing-CLI card, with nothing configured.**
+
+| State | Summary | Buttons |
+| --- | --- | --- |
+| 0.1.0 | bugpilot is not on PATH. | Install Instructions · Choose Executable · Retry |
+| Not installed | BugPilot CLI is required. | **Install BugPilot Runtime** · Choose Executable · Install Instructions · Retry |
+| Installing | Installing BugPilot Runtime… (and the step) | none |
+| No suitable Python | Python 3.10 or later is required to install the BugPilot runtime. | **Install BugPilot Runtime** · Choose Executable · Install Instructions |
+| Failed | BugPilot runtime setup could not be completed. (and one sentence) | **Retry** · Choose Executable · Show Details |
+| Broken | The BugPilot runtime is not working. (and the reason) | **Reinstall Runtime** · Choose Executable · Show Details |
+
+A broken configured path keeps its 0.1.0 card: installing a runtime would not
+change which bugpilot runs.
+
+**Tests.** `extension/test/managedRuntime.test.ts`, 33 tests: resolution
+priority (explicit path wins, also when broken; managed wins over PATH; PATH
+without a runtime; a missing or wrong-version runtime passed over with its
+reason); Python discovery (3.10+ accepted, older refused and named, none, a
+failing placeholder skipped, the `py` launcher's newest interpreter); setup
+(the exact venv and pip argv, absolute paths, working directory and timeouts;
+failed pip, missing CLI and wrong version never ready; venv without ensurepip;
+an interrupted install rebuilt; in-window dedupe; the cross-window lock and its
+stale takeover; credentials scrubbed from logged pip output); path safety (a
+non-version refused before anything runs; a junction refused and its target
+intact; no shell in the module); the card states; Diagnostics rows. Plus one
+page test (the primary button) and one controller test (the button reaches its
+command; Choose Executable still offered). No test touches Python, pip or the
+network.
+
+**Verified.** Extension suite 2114/2114 (2079 + 35), typecheck, `npm run smoke`
+(23 commands registered), package check (72 files, 59 built JavaScript),
+integration 16/16, `tests/test_publishable.py` and the argv contract (52/52),
+`git diff --check`. A manual run of the compiled manager on Windows (not a
+test) with Python 3.14.6:
+
+- `bugpilot==0.1.0` from PyPI: ready in 12.6 s, `runtime.json` written last, the lock released, discovery then reporting `source: managed`;
+- `bugpilot==0.1.1`, not yet published: pip "No matching distribution", reported as "PyPI has no bugpilot==0.1.1 for this Python.", and the directory removed.
+
+**Versioning.** The extension stays at 0.1.0 in this batch. The CLI and the
+extension are released in lockstep, and each licence file names its version
+(enforced by `tests/test_publishable.py`), so the bump to 0.1.1 —
+`extension/package.json`, `bugpilot/__init__.py`, both licence files' Licensed
+Work, the CHANGELOG — belongs to the release. Consequence: extension 0.1.1
+installs `bugpilot==0.1.1`, so the Python package 0.1.1 must be on PyPI before,
+or together with, the Marketplace release. Until then the runtime install fails
+with the message above.
+
+### 38.4 Batch 2A — real managed-runtime smoke and hardening (2026-10-09, uncommitted on `43b86db`)
+
+The extension still says 0.1.0, so the runtime pins `bugpilot==0.1.0`, which is
+on PyPI: the smoke installs the real release, through the real UI.
+
+**Environment.**
+
+- VS Code 1.139.1 (portable).
+- A fresh user-data-dir per scenario (so a fresh globalStorage), a fresh
+  extensions dir with only the development VSIX, no `bugpilot.executablePath`,
+  and an empty home.
+- A controlled PATH: Windows, Git, ripgrep and the directory holding Python
+  3.14.6's `python.exe` — never its `Scripts`. The machine's normal PATH has two
+  bugpilots (a pipx copy and a development install); in the controlled
+  environment `where.exe bugpilot` finds none, checked on every launch.
+- No pip configuration or `PIP_*` variable, so pip's index is PyPI.
+- Driven through the DevTools protocol with real clicks and the real command
+  palette.
+- Every python, bugpilot and shell process recorded with its command line and
+  parent.
+
+**Results.**
+
+| Scenario | Result |
+| --- | --- |
+| First launch, before any click | Card "BugPilot CLI is required." with **Install BugPilot Runtime** primary, then Choose Executable, Install Instructions, Retry; Run disabled; Fix Modes "unavailable"; Diagnostics "CLI source: Unavailable", "BugPilot runtime: Not installed"; nothing created in the 10 s after activation |
+| Install BugPilot Runtime (one click) | `bugpilot==0.1.0` from PyPI, ready in 12 s (runtime.json 11.8 s after the click); card "Installing BugPilot Runtime…" with the step and no buttons; progress notification with the steps; toast "BugPilot Runtime is ready (bugpilot 0.1.0)."; runtime.json written after the CLI existed; lock present during, gone after |
+| What ran | Direct children of the extension host, 0 shells: `<python 3.14>\python.exe -I -m venv <runtime>\0.1.0\venv`, `<venv>\python.exe -I -m pip install --disable-pip-version-check --no-input --only-binary=:all: bugpilot==0.1.0`, `<venv>\bugpilot.exe --version`, then `doctor --json` and the usual reads |
+| Repeated requests | A second click found no button (the card had already turned into "Installing…"); the palette command said "BugPilot Runtime is already being installed." One venv and one pip ran |
+| After install | `bugpilot --version` → `bugpilot 0.1.0`; Diagnostics "CLI source: BugPilot runtime", "BugPilot CLI 0.1.0" (its executable in the runtime, on hover), "BugPilot runtime: Ready · 0.1.0" with "Python 3.14.6" and no path; the five built-in Fix Modes loaded |
+| One prepare-only Run | All steps Completed, Context ready in 4.1 s; the five artifacts; `src/export/formats.py` ranked first (score 12, high); `run.json` prepared with the agent step skipped; Results > Current lists them; no terminal, no agent, no error notification |
+| Restart (same profile) | Ready 4.1 s after attaching, with no user action; Fix Modes loaded; CLI source still the runtime; runtime.json untouched; 5 processes started (`doctor --json` and the reads), no venv or pip |
+| Broken runtime (separate profile) | A version directory without runtime.json: "The BugPilot runtime is not working. An earlier installation did not finish." with **Reinstall Runtime**; Diagnostics "Not working". Reinstall succeeded; only `runtime/0.1.0` was rebuilt; files beside it in globalStorage and in the runtime root, and an older `runtime/0.0.9`, all untouched |
+| Install failure (separate profile) | PyPI made unreachable for that window only (`PIP_INDEX_URL` at a dead local port, with a fake credential in it): card "BugPilot runtime setup could not be completed." with one sentence and Retry · Choose Executable · Show Details; toast the same sentence; nothing marked ready; the version directory removed; lock released; Show Details opens the BugPilot log with the step and pip's own words; the fake credential never in the log; Retry ran the whole install again and ended in the same state, never stuck |
+| No Python (separate profile) | PATH without Python: "Python 3.10 or later is required to install the BugPilot runtime." with Install BugPilot Runtime · Choose Executable · Install Instructions; nothing created; Diagnostics "Needs Python 3.10 or later — No Python found" |
+| Two windows, one profile | Install requested in both: one window installed, the other was told "BugPilot Runtime is being installed in another VS Code window. Try again when it finishes."; one venv and one pip across both extension hosts; afterwards both report the runtime Ready, CLI source the runtime |
+
+**Issues found and fixed.**
+
+1. **pip's cache landed in the runtime root.** Where pip's user folders cannot
+   be resolved (here, a redirected `USERPROFILE`), pip falls back to a relative
+   `pip\Cache` — the working directory, which is the runtime root, outside the
+   version directory cleanup owns. The pip command now has `--no-cache-dir`: the
+   install neither reads nor writes a cache. Verified in the following profiles:
+   no `pip` directory appeared.
+2. **An unreachable PyPI was reported as a missing version.** pip that cannot
+   reach its index ends with "No matching distribution found … (from versions:
+   none)", which was matched first and said "PyPI has no bugpilot==0.1.0". Now
+   connection errors are recognised first, `(from versions: none)` says "pip
+   could not get bugpilot from its package index. Check the network, and pip's
+   index and proxy settings.", and "PyPI has no bugpilot==X" is kept for a
+   reachable index that lists other versions.
+
+**Security review.**
+
+- **Shell and command injection:** none. Argv only, through `trustedRunner`,
+  `.exe` files only; 0 shells in every process record. The pip requirement is
+  one argv element built from a validated version.
+- **Version as a path and a requirement:** validated against
+  `^\d+\.\d+\.\d+([.+-][0-9A-Za-z.-]+)?$` before any use. `layout()` now refuses
+  an invalid version itself, whoever calls it (new in 2A).
+- **Recursive delete:** only a direct, version-named child of the runtime root,
+  never a link or junction. Also refused now if the runtime root itself is a link
+  (new in 2A). Sentinels survived the real reinstall.
+- **runtime.json:** decides only whether the runtime is ready, never what runs —
+  the executable comes from the layout. Its Python version is validated before
+  Diagnostics shows it (new in 2A). Garbage or `null` reads as not ready.
+- **A fake executable:** never used without the `doctor --json` handshake
+  reporting the exact pinned version; the install validates with `--version`.
+- **Output and environment:** credentials in URLs removed from logged output (as
+  pip itself masks them); the environment is never logged. Children inherit the
+  extension host's environment, which proxies and pip's own configuration need;
+  Python runs with `-I`, the working directory is the runtime root, and Windows
+  children get `NoDefaultCurrentDirectoryInExePath`.
+- **Races:** one install per window, an exclusive lock file across windows —
+  proved with two real windows.
+- **Logging:** each install command is now logged as it starts, program name and
+  argv only (new in 2A) — the smoke's evidence of what ran.
+- **Residual, a release decision:** pip trusts PyPI over HTTPS for the pinned
+  version, without hash pinning.
+
+**Decisions.**
+
+- **An out-of-date CLI on PATH** (extension 0.1.1, PATH CLI 0.1.0): the
+  incompatible card at start-up, and the "out of date" card a Run raises, now
+  offer **Install BugPilot Runtime** first — only for a CLI that came from PATH.
+  Implemented and unit-tested; not exercised in the window (it needs an older CLI
+  than the extension).
+- **An explicit configured path** stays authoritative: when broken it keeps its
+  own card, gets no runtime offer and no fallback.
+- **Old runtimes:** left untouched and ignored after an upgrade; no automatic
+  deletion. Seen in the broken-runtime profile: `runtime/0.0.9` kept.
+- **Choose Python:** not implemented. Discovery found the interpreter on PATH;
+  the no-Python card already offers Install Instructions and Choose Executable.
+  Revisit only if users report a Python that is installed but not on PATH.
+
+**Observation, not changed.** The prepare command line carries `--json-lines`
+twice: `form.ts` adds it and `Runner.runStreaming` adds it again. This is
+already in 0.1.0, and harmless because argparse accepts the repeat.
+
+**Tests.** `extension/test/managedRuntime.test.ts` grew from 33 to 41: the
+logged commands, the layout refusing a bad version, a hostile or `null`
+runtime.json, a marker whose files are gone, a runtime root that is a link, the
+out-of-date card for a PATH CLI (and not for a configured one), and pip's
+unreachable-index outputs. Extension suite 2122/2122, typecheck, `npm run
+smoke` (23 commands), package check (72 files, 59 built JavaScript), integration
+16/16, `tests/test_publishable.py` and the argv contract (52/52),
+`git diff --check`.
+
+### 38.5 The intended 0.1.1 user experience
+
+Not released; recorded so the release documentation follows it. A Marketplace
+user who has never installed the CLI:
+
+    Install BugPilot (Marketplace)
+        ↓
+    Open BugPilot
+        ↓
+    "BugPilot CLI is required."
+        ↓
+    Install BugPilot Runtime
+        ↓
+    setup: Python found, private environment, bugpilot from PyPI, checked
+        ↓
+    ready: Fix Modes load, Run works
+
+- The managed runtime becomes the recommended Marketplace onboarding.
+- `pipx install bugpilot` stays supported for advanced and existing users. A
+  PATH CLI older than the extension is offered the runtime as the easy way out.
+- `bugpilot.executablePath` stays supported and authoritative.
+- The extension README's Requirements and Installing sections, and the
+  CHANGELOG (`extension/CHANGELOG.md`, the repository's only one), change to say
+  this at release; nothing claims 0.1.1 is out before it is. Done in Batch 2B
+  (§38.7).
+
+### 38.6 Remaining 0.1.1 release work
+
+Updated by Batch 2B (§38.7); the version bump, the documentation and the hash
+pinning decision are done. What is left is the release itself, in the order of
+§38.7:
+
+- Review, commit and push the 0.1.1 source.
+- Run the release workflow for 0.1.1; check that PyPI serves it.
+- The post-PyPI smoke: the final VSIX, built from the release commit, in a fresh
+  profile with no CLI — a real **Install BugPilot Runtime** of `bugpilot==0.1.1`
+  from PyPI, a restart, one prepare-only Run.
+- Only then publish the 0.1.1 VSIX. Global Azure DevOps PATs retire on
+  2026-12-01; a web upload or Entra ID is the route after that.
+- If the release slips past 2026-10-09, change the date of the CHANGELOG's
+  0.1.1 heading to the real one before building the final VSIX.
+- Later, not for 0.1.1: cancelling an install, cleaning up old version
+  directories, Choose Python, hash pinning (§38.7).
+
+### 38.7 Batch 2B — 0.1.1 release preparation (2026-10-09, uncommitted on `43b86db`)
+
+Nothing published, committed, pushed or tagged; 0.1.0 on PyPI and the
+Marketplace untouched.
+
+**Version locations.** Every 0.1.0 in the repository was classified, not
+replaced wholesale.
+
+| Kind | Where | 0.1.1 change |
+| --- | --- | --- |
+| Authoritative, Python | `bugpilot/__init__.py` `__version__` — the one source for `pyproject.toml` (`dynamic`), `bugpilot --version`, `doctor --json`, the MCP server and the Jira User-Agent | bumped |
+| Authoritative, extension | `extension/package.json` `version`, and the two root entries of `package-lock.json`, through `npm version 0.1.1 --no-git-tag-version` (no tag; CRLF kept) | bumped |
+| Runtime pin | none of its own: `ManagedRuntimeManager` gets `context.extension.packageJSON.version`, so the runtime installs `bugpilot==0.1.1` with no new constant; the built `out/managedRuntime.js` holds no version string | follows the manifest |
+| Licences | Licensed Work in `LICENSE` ("BugPilot CLI and Tools Version 0.1.1.") and `extension/LICENSE.txt` ("BugPilot for VS Code Version 0.1.1."). Change Date 2030-10-08, Change License Apache 2.0, the Additional Use Grant, the Licensor and the standard text unchanged | bumped |
+| Documentation | `README.md` (the expected `bugpilot --version`), `docs/architecture.md` (package version), `extension/README.md` | updated |
+| History, kept | the CHANGELOG's 0.1.0 entry, `docs/development.md`'s 0.1.0 release and Change Date line, the `bugpilot/cli.py` comment example, the release workflow's input example, this plan | unchanged |
+| Test fixtures, kept | 0.1.0 as an older or wrong CLI version in the extension tests | unchanged |
+| Not ours | `unicorn-magic@0.1.0` in `package-lock.json` | unchanged |
+
+**Documentation.**
+
+- `extension/README.md`: Requirements lists Python 3.10 or later first (already
+  installed; BugPilot never installs Python) and the CLI "at the extension's
+  version or later". Installing is now the Marketplace path — install, open the
+  Workflow view, **Click Install BugPilot Runtime**, ready — then what the
+  runtime does (asks first; `py`/`python`/`python3`; a private environment per
+  extension version in VS Code's storage; exactly the extension's version from
+  PyPI; checked before use; changes nothing else; asks again after an update),
+  then "Installing the CLI yourself" (pipx and pip, the MCP extra), then "Which
+  CLI runs" (configured path, runtime, PATH). Also: Before you start (the runtime
+  offered for an out-of-date PATH CLI), Diagnostics (CLI source, BugPilot
+  runtime), Settings, Commands (Install Runtime), What it does not do (installs
+  nothing unless asked), Privacy (the PyPI download), Troubleshooting (the four
+  runtime cards replace "bugpilot is not on PATH"). Nothing says 0.1.1 is
+  published.
+- `extension/CHANGELOG.md`: a 0.1.1 entry above 0.1.0 — the button, no
+  automatic install, Python 3.10+, your own CLI and `bugpilot.executablePath`
+  still work, the Diagnostics rows, and that the CLI 0.1.1 is 0.1.0 with a new
+  version number. No second changelog: `pyproject.toml` already says the
+  extension's is the repository's only one.
+- `extension/package.json`: the `bugpilot.executablePath` description said
+  "Leave empty to find it on PATH"; it now names the runtime between the two.
+- `docs/development.md`: a "Release order: PyPI before the Marketplace" section
+  (below), and "BugPilot 0.1.1 keeps that Change Date."
+- `README.md`: only the version line; its VS Code section was already accurate.
+- Comment-only: two `managedRuntime.ts` comments and three in its test cited
+  the development smoke or "Batch 2A"; reworded, as the 0.1.0 comment cleanup
+  did for its batch labels. No behaviour change.
+
+**Managed-runtime release audit.** Re-checked in the source, the built
+JavaScript and a real window: pinned to the extension version with no constant;
+nothing installed without a click (window and process record, below); `-I`
+everywhere; argv only, no shell; `--no-cache-dir`, `--only-binary=:all:`,
+`--no-input`, `--disable-pip-version-check`; `runtime.json` last and only after
+`bugpilot --version` matched; path-safe removal; the cross-window lock;
+credentials scrubbed from logged output; the configured path authoritative;
+PATH and pipx still used; Choose Executable on every runtime card. No code
+change was needed.
+
+**Hash pinning: not added for 0.1.1.** The runtime keeps
+`bugpilot==<version>` without `--require-hashes`.
+
+- What it would close: an attacker with publish rights adding another file to
+  an existing version — for instance a `py3-none-win_amd64` wheel, which pip
+  prefers to `py3-none-any`. A new version is no risk: the pin never moves.
+- Why not now: the hash exists only after the CI build publishes the wheel, so
+  it would have to be written into the extension after PyPI and before the VSIX
+  — a manual coupling in the release, and a new way for every install to fail
+  if it is wrong. The wheel is pure Python with no dependencies; pip fetches it
+  over HTTPS from PyPI, where files are immutable once uploaded; publishing is
+  Trusted Publishing only (no API token exists) behind a required-reviewer
+  environment.
+- Revisit if the runtime ever installs dependencies, or for a release whose
+  build can stamp the published wheel's SHA-256 into the extension
+  automatically.
+
+**Artifacts.** Built from a clean snapshot of the working tree (tracked and
+non-ignored files only, so the repository's stale `build/` and
+`bugpilot.egg-info/` played no part), with the workflow's own command,
+`python -m build --sdist --wheel --outdir <fresh>/dist .`.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| `bugpilot-0.1.1-py3-none-any.whl` | 273,405 | `c5616205e6156dda627c38dd59bd4a7d2b95a7c5ac526e3f736b1ca884eeaa2b` |
+| `bugpilot-0.1.1.tar.gz` | 250,647 | `f91caaf5bbade5a8b4604e0dafe64db3bc7cf7cf6f8aef51a64b2de3852aab79` |
+| `bugpilot-0.1.1.vsix` | 500,389 | `f15f5b9e01fa4feddd4eb42bb0db553cba5991b169d1e19d289a8f491548ee91` |
+
+- The smoke below ran on an earlier build of the VSIX that differs from this
+  one only in `readme.md` (one sentence made exact afterwards).
+- These are validation builds. The release workflow builds the published
+  files on Linux from the commit, where text files are LF rather than this
+  checkout's CRLF, so its hashes will differ; its run summary lists them.
+- `twine check --strict`: both PASSED. Metadata: Name bugpilot, Version 0.1.1,
+  License-Expression BUSL-1.1, License-File LICENSE (shipped, 0.1.1),
+  Requires-Python >=3.10, Author Shiwei Xing, Repository and Issues URLs,
+  entry points `bugpilot` and `bugpilot-mcp`.
+- Against the published 0.1.0 (downloaded, hashes matching PyPI's): the same
+  59 wheel files and 65 sdist files; ignoring line endings, only
+  `__init__.py`, METADATA/PKG-INFO, LICENSE and the README's version line
+  differ.
+- Clean install: a new venv, `pip install --no-index --no-deps` of the wheel;
+  `bugpilot --version` → `bugpilot 0.1.1`; `scripts/check_cli_contract.py`:
+  all 28 command lines accepted; a prepare-only `bugpilot bug` on a synthetic
+  repository: status prepared, five artifacts, the relevant file first.
+- VSIX: name bugpilot, displayName BugPilot, version 0.1.1, publisher ShiweiX,
+  `SEE LICENSE IN LICENSE.txt` (0.1.1); 74 entries, 72 under `extension/`, 59
+  built JavaScript; the README with the runtime onboarding, the CHANGELOG with
+  0.1.1; every required file present, no tests, sources, maps, node_modules,
+  scripts or nested VSIX. Against the Marketplace-preparation 0.1.0 VSIX: one
+  new file (`out/managedRuntime.js`), and every changed file traces to the
+  §38.3–38.7 source. `extension/bugpilot-0.1.0.vsix` untouched.
+- Scans of all three (the publishability guard's patterns plus secrets, home
+  paths, the work domain, scratch notes, debug code, internal batch labels):
+  nothing, except known non-findings — the generic identifiers kept since
+  0.1.0, 0.1.0 in history (the CHANGELOG, a `cli.py` comment), and the
+  scrubber's documentation example `https://user:secret@host`.
+
+**Pre-PyPI smoke** (VS Code 1.139.1 portable; fresh profiles with only the
+0.1.1 VSIX; controlled PATH; driven through the DevTools protocol).
+
+| Scenario | Result |
+| --- | --- |
+| A — `bugpilot.executablePath` at the clean 0.1.1 install; no bugpilot or Python on PATH | Ready with no card; the five Fix Modes; Diagnostics "Extension 0.1.1", "CLI source: Configured path", "BugPilot CLI 0.1.1" (that executable), "BugPilot runtime: Not installed — Would install bugpilot 0.1.1"; a prepare-only Run: all steps Completed, Context ready in 4.7 s, `formats.py` first (high), `run.json` prepared, no agent; no runtime directory; no install in the log (15/15) |
+| B — no CLI anywhere, Python 3.14 on PATH, PyPI reachable | "BugPilot CLI is required." with **Install BugPilot Runtime** the only primary button, then Choose Executable, Install Instructions, Retry; Run disabled; Fix Modes unavailable; no runtime directory 10 s after activation; Diagnostics "CLI source: Unavailable", runtime "Not installed — Would install bugpilot 0.1.1"; the process record: the extension host started nothing before the click (10/10) |
+| Optional — Install pressed in B (0.1.1 not on PyPI) | Failed in 13 s, as expected: one venv and one pip run by the extension host, no shell; pip: "(from versions: 0.1.0)"; card "BugPilot runtime setup could not be completed." / "PyPI has no bugpilot==0.1.1 for this Python." with Retry · Choose Executable · Show Details; the toast one sentence; the version directory removed, the lock released, nothing marked ready (9/9) |
+
+**Validation.** Python suite 1817/1817 (isolated home, no Jira variables),
+`tests/test_publishable.py` and the argv contract 52/52, CLI contract 28/28,
+`twine check --strict`; extension suite 2122/2122, focused runtime tests 77/77
+(managedRuntime 41), typecheck, integration 16/16, `npm run smoke` (23
+commands), package check (72 files, 59 built JavaScript), the argv contract
+test 2/2; `git diff --check` clean.
+
+**Release workflow.** `.github/workflows/release.yml` unchanged and right for
+0.1.1: manual (`workflow_dispatch`) only; the version input must match
+`^[0-9]+\.[0-9]+\.[0-9]+$`, and the build stops unless `dist` holds exactly
+`bugpilot-0.1.1-py3-none-any.whl` and `bugpilot-0.1.1.tar.gz` (replayed
+locally: 0.1.1 accepted, 0.1.0 stopped, a malformed version rejected);
+`twine check --strict`; the SHA-256 in the run summary; publish in the `pypi`
+environment with `id-token: write` (OIDC) and no token or secret.
+
+**Release order.** The Marketplace upload is manual, so the order is enforced
+by procedure — written into `docs/development.md` — not by automation:
+
+    A  finish and review the source
+    B  commit and push
+    C  run the PyPI release workflow for 0.1.1
+    D  verify: a new venv, pip install bugpilot==0.1.1, bugpilot --version
+    E  the final VSIX (built from the release commit): a real Install BugPilot
+       Runtime from PyPI in a fresh profile with no CLI
+    F  restart: ready without reinstalling; one prepare-only Run
+    G  only then upload 0.1.1 to the Marketplace
+
+Never publish the Marketplace extension before PyPI 0.1.1 is confirmed
+available: every new user's first click would fail with "PyPI has no
+bugpilot==0.1.1 for this Python." The post-PyPI smoke (E–F) is still required;
+the pre-PyPI smoke above does not replace it.

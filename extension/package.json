@@ -3,7 +3,7 @@
   "displayName": "BugPilot",
   "//description": "Both ways in, equally: a Jira issue or a bug described by hand. The old line said 'a Jira bug' only, while most first runs need no Jira at all.",
   "description": "Turn a Jira issue or a bug you describe into focused code context for your AI coding agent, without leaving the editor.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "ShiweiX",
   "//icon": "The Marketplace and Extensions-list image. Must be a PNG - vsce refuses an SVG outright - and is drawn by scripts/make-icon.mjs so it can be regenerated rather than being an unexplained binary. Not the activity bar icon; that one is contributes.viewsContainers.activitybar[0].icon.",
   "icon": "media/icon.png",
@@ -92,6 +92,11 @@
       {
         "command": "bugpilot.chooseExecutable",
         "title": "Choose Executable",
+        "category": "BugPilot"
+      },
+      {
+        "command": "bugpilot.installRuntime",
+        "title": "Install Runtime",
         "category": "BugPilot"
       },
       {
@@ -243,7 +248,7 @@
         "bugpilot.executablePath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Absolute path to the `bugpilot` executable. Leave empty to find it on `PATH` (its absolute entries only, never the workspace folder). A relative path is refused.",
+          "markdownDescription": "Absolute path to the `bugpilot` executable; when set, it is the only one used. Leave empty to use the BugPilot runtime if it is installed, otherwise to find `bugpilot` on `PATH` (its absolute entries only, never the workspace folder). A relative path is refused.",
           "scope": "machine-overridable"
         }
       }

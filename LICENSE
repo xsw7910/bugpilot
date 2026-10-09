@@ -4,7 +4,7 @@ Parameters
 
 Licensor:             Shiwei Xing
 
-Licensed Work:        BugPilot CLI and Tools Version 0.1.0.
+Licensed Work:        BugPilot CLI and Tools Version 0.1.1.
                       This includes the bugpilot command-line tool and
                       Python package, the bugpilot-mcp server, the
                       bugpilot-investigate skill for Claude Code, the helper

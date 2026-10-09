@@ -612,6 +612,33 @@ test("a blocked readiness renders one button per offered action", () => {
   });
 });
 
+test("the one action the host marks primary is drawn as the primary button", () => {
+  const p = load();
+  p.send(
+    state({
+      readiness: {
+        kind: "blocked",
+        summary: "BugPilot CLI is required.",
+        action: "Install BugPilot Runtime sets up a private copy of the BugPilot CLI.",
+        actions: [
+          { title: "Install BugPilot Runtime", command: "bugpilot.installRuntime", primary: true },
+          { title: "Choose Executable", command: "bugpilot.chooseExecutable" },
+        ],
+      },
+    }),
+  );
+  const buttons = p.byId("blocked-actions").children;
+  assert.deepEqual(
+    buttons.map((button) => [button.textContent, button.className]),
+    [
+      ["Install BugPilot Runtime", "primary"],
+      ["Choose Executable", ""],
+    ],
+  );
+  buttons[0]!.dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "command", id: "bugpilot.installRuntime" });
+});
+
 test("a ready readiness enables the form; which executable, and where, is Diagnostics' to say", () => {
   const p = load();
   p.send(state());

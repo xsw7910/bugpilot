@@ -15,7 +15,7 @@ import * as vscode from "vscode";
 
 import { COMMANDS, SETTINGS, VIEWS, workItemFromTree } from "./commands.ts";
 import type { CommandId } from "./commands.ts";
-import { installInstructions, resolveEnvironment } from "./app/environment.ts";
+import { installInstructions, resolveEnvironment, RUNTIME_STEP_TEXT } from "./app/environment.ts";
 import type { Environment } from "./app/environment.ts";
 import { TASK_ARTIFACT } from "./app/artifacts.ts";
 import { AttachmentReferenceRegistry, initializeAttachmentGc, runAttachmentGc } from "./app/attachmentStorage.ts";
@@ -36,6 +36,7 @@ import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
 import { diagnose } from "./errors.ts";
 import { discoverExecutable } from "./executable.ts";
+import { ManagedRuntimeManager } from "./managedRuntime.ts";
 import { trustedRunner } from "./runner.ts";
 import { childEnvironmentAdditions } from "./executablePath.ts";
 import { CredentialStore } from "./secrets.ts";
@@ -117,13 +118,37 @@ export function activate(context: vscode.ExtensionContext): void {
   // rejects; a failure only means nothing is collected this session.
   const attachmentGcTracking = initializeAttachmentGc(context.globalState, Date.now(), log);
 
+  // This extension's own version, which is not the CLI's — on a machine with a
+  // pipx copy and a checkout, telling them apart is the whole point of showing
+  // either. VS Code parses the manifest already. It is also the exact CLI
+  // version the managed runtime installs.
+  const extensionVersion: string | undefined =
+    typeof context.extension?.packageJSON?.version === "string" ? context.extension.packageJSON.version : undefined;
+
+  // BugPilot's own runtime (managedRuntime.ts): a private venv in global
+  // storage, one per extension version. Read on every environment check,
+  // created only by the Install Runtime command.
+  const runtime =
+    extensionVersion === undefined
+      ? undefined
+      : new ManagedRuntimeManager({ root: path.join(storageRoot, "runtime"), version: extensionVersion, log });
+
   const environment = async (): Promise<Environment> => {
+    const before = runtime?.status();
+    const managed = before?.kind === "ready" ? { executable: before.executable, version: before.version } : undefined;
     const resolved = await resolveEnvironment({
       folders: workspaceFolders(),
       probe: FILE_SYSTEM_PROBE,
       configured: configuredExecutable(),
       preferredRoot: context.workspaceState.get<string>(ROOT_STATE_KEY),
-      discover: (input) => discoverExecutable({ cwd: input.cwd, configured: input.configured }),
+      discover: async (input) => {
+        const verdict = await discoverExecutable({ cwd: input.cwd, configured: input.configured, managed });
+        // Only a runtime that was actually tried is judged by the answer.
+        if (managed && (input.configured ?? "").trim() === "") runtime?.noteHandshake(verdict.managedRejected);
+        if (verdict.managedRejected) log.error(`BugPilot runtime not used: ${verdict.managedRejected}`);
+        return verdict;
+      },
+      ...(runtime === undefined ? {} : { runtime: () => runtime.status() }),
     });
     if (resolved.kind === "ready") executable = resolved.executable;
     return resolved;
@@ -178,13 +203,7 @@ export function activate(context: vscode.ExtensionContext): void {
         runJson: (args, options) => trustedRunner(executable).runJson(args, options),
       },
       files: createFilesPort(),
-      // This extension's own version, which is not the CLI's — on a machine
-      // with a pipx copy and a checkout, telling them apart is the whole point
-      // of showing either. VS Code parses the manifest already.
-      extensionVersion:
-        typeof context.extension?.packageJSON?.version === "string"
-          ? context.extension.packageJSON.version
-          : undefined,
+      extensionVersion,
       ui: createUiPort({
         render: (state) => {
           panel.render(state);
@@ -452,6 +471,66 @@ export function activate(context: vscode.ExtensionContext): void {
     await setConfiguredExecutable(target.fsPath);
     log.info(`bugpilot.executablePath set to ${target.fsPath}`);
     await controller.refreshEnvironment();
+  });
+
+  // BugPilot's own runtime, created only because somebody pressed this. One
+  // install at a time: a second press while one runs says so instead of
+  // starting a second pip, and the manager's lock covers other windows.
+  register(COMMANDS.installRuntime, async () => {
+    if (runtime === undefined) {
+      void vscode.window.showErrorMessage("BugPilot could not read its own version, so it cannot install a runtime for it.");
+      return;
+    }
+    if (runtime.installing) {
+      void vscode.window.showInformationMessage("BugPilot Runtime is already being installed.");
+      return;
+    }
+    log.info(`Installing BugPilot runtime: bugpilot ${runtime.version} into the extension's storage.`);
+    const outcome = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "Installing BugPilot Runtime", cancellable: false },
+      (progress) =>
+        runtime.install((step) => {
+          progress.report({ message: RUNTIME_STEP_TEXT[step] });
+          // The setup card follows the steps: it shows the install running,
+          // with nothing to press.
+          void controller.refreshEnvironment();
+        }),
+    );
+    // Ready or not, the card and the readiness are what the disk says now: a
+    // ready runtime is found, the CLI handshake runs, and Fix Modes load.
+    await controller.refreshEnvironment();
+    switch (outcome.kind) {
+      case "ready":
+        void vscode.window.showInformationMessage(`BugPilot Runtime is ready (bugpilot ${outcome.status.version}).`);
+        return;
+      case "busy":
+        void vscode.window.showInformationMessage(
+          "BugPilot Runtime is being installed in another VS Code window. Try again when it finishes.",
+        );
+        return;
+      case "no-python":
+      case "unsupported-python": {
+        const choice = await vscode.window.showErrorMessage(
+          "Python 3.10 or later is required to install the BugPilot runtime.",
+          "Install Instructions",
+          "Choose Executable",
+        );
+        if (choice === "Install Instructions") await vscode.commands.executeCommand(COMMANDS.showInstallInstructions);
+        if (choice === "Choose Executable") await vscode.commands.executeCommand(COMMANDS.chooseExecutable);
+        return;
+      }
+      case "failed": {
+        // One sentence and the way on; pip's own output is in the log only.
+        const choice = await vscode.window.showErrorMessage(
+          `BugPilot runtime setup could not be completed. ${outcome.detail}`,
+          "Retry",
+          "Show Details",
+        );
+        if (choice === "Retry") await vscode.commands.executeCommand(COMMANDS.installRuntime);
+        if (choice === "Show Details") channel.show(true);
+        return;
+      }
+    }
   });
 
   // Jira Setup (§37.124), from the palette or a failed run's card: the panel's

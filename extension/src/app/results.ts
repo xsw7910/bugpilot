@@ -198,7 +198,7 @@ const HISTORY_GROUP_ITEM: ResultsItem = {
 const DIAGNOSTICS_GROUP_ITEM: ResultsItem = {
   label: "Diagnostics",
   id: "bugpilot.results.diagnostics",
-  tooltip: "What BugPilot is configured with: the repository, Jira, the AI agent, the work item and the versions. Nothing here checks anything.",
+  tooltip: "What BugPilot is configured with: the repository, Jira, the AI agent, the work item, the versions, where the CLI comes from and the BugPilot runtime. Nothing here checks anything.",
   accessibleName: "Diagnostics",
   icon: "pulse",
   collapsible: "collapsed",
@@ -216,4 +216,6 @@ const DIAGNOSTIC_ICONS: Readonly<Record<string, string>> = {
   "Work item": "issues",
   Extension: "extensions",
   "BugPilot CLI": "terminal",
+  "CLI source": "location",
+  "BugPilot runtime": "package",
 };
