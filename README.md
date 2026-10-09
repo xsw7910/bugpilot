@@ -23,19 +23,38 @@ It comes as a command-line tool (`bugpilot`), an MCP server (`bugpilot-mcp`) and
 
 ## Installation
 
-**Public installation (available after PyPI publication).** BugPilot is not on PyPI yet. Once it is published:
+Install BugPilot with pipx:
 
 ```powershell
 pipx install bugpilot
 ```
 
-**Local installation (today).** From a checkout of this repository:
+Or with pip:
+
+```powershell
+python -m pip install bugpilot
+```
+
+Verify:
+
+```powershell
+bugpilot --version
+```
+
+Expected:
+
+```text
+bugpilot 0.1.0
+```
+
+The MCP server needs the optional MCP SDK: `pipx install "bugpilot[mcp]"`, or `python -m pip install "bugpilot[mcp]"`.
+
+**Development installation.** To run BugPilot from a checkout of this repository instead:
 
 ```powershell
 git clone https://github.com/xsw7910/bugpilot.git
 cd bugpilot
 pipx install .              # or: python -m pip install .
-bugpilot --version          # bugpilot 0.1.0
 ```
 
 Add the MCP server with `pipx install ".[mcp]"`. Working on BugPilot itself (editable install, tests, a standalone executable) is in [Development](#development).

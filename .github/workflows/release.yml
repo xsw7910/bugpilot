@@ -1,0 +1,96 @@
+# Publish BugPilot to PyPI through Trusted Publishing (GitHub OIDC).
+#
+# Manual only: Actions > Release > Run workflow, from the release commit, with
+# that commit's version. Nothing here runs on a push, a tag or a pull request.
+# No PyPI token exists anywhere: PyPI trusts this workflow file in this
+# repository, publishing through the `pypi` environment. Setup and the checks
+# to run before approving the publish job: docs/development.md.
+#
+# A PyPI version can never be uploaded twice, so the publish job publishes
+# exactly the files the build job built and checked, and nothing else.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, as in bugpilot/__init__.py (for example 0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install the build tools
+        run: python -m pip install --upgrade build twine
+
+      - name: Build the wheel and the sdist
+        run: |
+          test ! -e dist
+          python -m build --sdist --wheel --outdir dist .
+
+      # The requested version, read through the environment and never pasted
+      # into the script, must be the one the source builds.
+      - name: Check that exactly the requested version was built
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must look like 1.2.3"; exit 1; }
+          expected=$(printf '%s\n' "bugpilot-${VERSION}-py3-none-any.whl" "bugpilot-${VERSION}.tar.gz" | sort)
+          actual=$(ls dist | sort)
+          [ "$actual" = "$expected" ] || { echo "::error::built: $(echo $actual), expected version $VERSION"; exit 1; }
+
+      - name: Check the distributions
+        run: python -m twine check --strict dist/*
+
+      - name: Record what was built
+        run: |
+          {
+            echo "### Built from \`${GITHUB_SHA}\`"
+            echo '```'
+            (cd dist && sha256sum *)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/bugpilot/${{ inputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-distributions
+          path: dist/
+
+      - name: Show what is about to be published
+        run: (cd dist && sha256sum *)
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

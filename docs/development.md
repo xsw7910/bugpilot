@@ -41,6 +41,17 @@ python -m pip wheel --no-deps -w dist .
 
 Build from a clean checkout of the commit you mean to release, and check the result with `scripts/check_cli_contract.py`.
 
+## Publishing to PyPI
+
+`.github/workflows/release.yml` publishes through PyPI Trusted Publishing: GitHub OIDC proves to PyPI which workflow is publishing, so no PyPI API token is stored anywhere — not in the repository, not in GitHub. It runs only by hand (**Actions → Release → Run workflow**), never on a push or a tag: run it from the release commit and give it that commit's version. It builds the wheel and the sdist, stops unless they are exactly that version, checks them with `twine check --strict`, and publishes those files from a separate job in the `pypi` environment.
+
+Neither of the two things it needs is set up by this repository; before the first publication the maintainer creates both:
+
+- **On PyPI**, a pending trusted publisher (**Account settings → Publishing → Add a new pending publisher**, GitHub tab): PyPI project name `bugpilot`, owner `xsw7910`, repository name `bugpilot`, workflow name `release.yml`, environment name `pypi`. The first successful run creates the project.
+- **On GitHub**, an environment named `pypi` (**Settings → Environments**), with required reviewers so the publish job waits for approval. It holds no secrets.
+
+While the publish job waits, download the run's `python-distributions` artifact (the run summary lists its SHA-256) and check it as a release: a clean install, `bugpilot --version`, `scripts/check_cli_contract.py`. A version uploaded to PyPI can never be replaced, so approval is the last point to stop.
+
 ## A standalone executable (Windows)
 
 One self-contained `bugpilot.exe` with its own Python runtime, for machines without Python:

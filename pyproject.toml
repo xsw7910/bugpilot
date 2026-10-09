@@ -50,6 +50,12 @@ mcp = ["mcp>=2"]
 bugpilot = "bugpilot.cli:main"
 bugpilot-mcp = "bugpilot.mcp_server:main"
 
+# The links PyPI shows beside the description. No Changelog: the repository's
+# only one, extension/CHANGELOG.md, is the VS Code extension's.
+[project.urls]
+Repository = "https://github.com/xsw7910/bugpilot"
+Issues = "https://github.com/xsw7910/bugpilot/issues"
+
 [tool.setuptools.packages.find]
 include = ["bugpilot*"]
 
