@@ -10,8 +10,8 @@ decide who reads it.
 
 ## Requirements
 
-- **The BugPilot CLI.** The extension runs it for everything it prepares, and
-  does not bundle it — see [Installing](#installing).
+- **The BugPilot CLI, 0.1.0 or later.** The extension runs it for everything it
+  prepares, and does not bundle it — see [Installing](#installing).
 - **Python 3.10 or later**, for the CLI.
 - **Git**, with the repository you fix bugs in checked out.
 - **ripgrep** (`rg`) on `PATH`, for code search.
@@ -23,48 +23,42 @@ decide who reads it.
 
 ## Installing
 
-**The CLI.** BugPilot is not on PyPI yet. Until it is, install it from a
-checkout of the repository:
+**The CLI.** Install it from PyPI with pipx:
 
 ```powershell
-git clone https://github.com/xsw7910/bugpilot.git
-cd bugpilot
-pipx install .        # or: python -m pip install .
+pipx install bugpilot
 ```
 
-Once it is published, `pipx install bugpilot` will do instead.
-
-**The extension.** From the Marketplace once it is listed there, or build the
-`.vsix` yourself from the same checkout:
+or with pip:
 
 ```powershell
-cd extension
-npm install
-npm run package        # builds, checks the package contents, writes bugpilot-<version>.vsix
-code --install-extension bugpilot-0.1.0.vsix
+python -m pip install bugpilot
 ```
 
-Reload VS Code afterwards. To try it without touching your normal profile:
+For the MCP server as well, use `pipx install "bugpilot[mcp]"` or
+`python -m pip install "bugpilot[mcp]"` instead. Then check it:
 
 ```powershell
-code --extensions-dir .\tmp-ext --user-data-dir .\tmp-data --install-extension bugpilot-0.1.0.vsix
+bugpilot --version          # bugpilot 0.1.0
 ```
+
+This extension needs a CLI at least as new as itself: 0.1.0 or later. It finds
+the CLI on `PATH` — its absolute entries only — or at the absolute path in the
+`bugpilot.executablePath` setting, which **BugPilot: Choose Executable** sets.
+
+**The extension.** Install **BugPilot** from the Extensions view (search for
+*BugPilot*), then open the repository you fix bugs in. Building it from source
+is described in the repository's
+[docs/development.md](https://github.com/xsw7910/bugpilot/blob/main/docs/development.md).
 
 ## Before you start
 
-Check the CLI, and that it speaks the machine-readable protocol:
+If the panel says *BugPilot CLI is out of date*, the `bugpilot` it found is
+older than the extension — often an older copy that comes first on `PATH`.
+Upgrade it:
 
 ```powershell
-bugpilot doctor --json
-```
-
-That command must print a single JSON object. If it prints
-`unrecognized arguments: --json`, the `bugpilot` on your `PATH` is too old —
-which happens easily when an older pipx copy shadows a newer install. Upgrade
-that copy in place:
-
-```powershell
-python -m pipx install --force .    # `pipx` itself is often not on PATH; the module is
+pipx upgrade bugpilot       # or: python -m pip install --upgrade bugpilot
 ```
 
 Or run **BugPilot: Choose Executable** and point the extension at the one you
@@ -580,11 +574,10 @@ not "pass", not "approved", not "safe to merge".
   not produce a usable structured result*, with the reason, and **Paste Review
   Output** is the way on (a reply that only needs a heading fixed is already in
   the box). Nothing is ever read from a terminal.
-- **Codex CLI, or a custom agent command,** is never run for its output — Codex
-  CLI's non-interactive mode has not been measured here, and a custom command is
-  a shell template — so the prompt goes to it in a terminal as before, the row
-  says **AI review started**, and you bring the reply back with Paste Review
-  Output.
+- **Codex CLI, or a custom agent command,** is not run for its output — only
+  Claude CLI's reply is read back, and a custom command is a shell template — so
+  the prompt goes to it in a terminal, the row says **AI review started**, and
+  you bring the reply back with Paste Review Output.
 - **The Codex or Claude extension** gets the prompt on your clipboard and its
   own view opened; the row says *BugPilot review prompt copied. Paste it into
   Codex to continue* (or Claude).
@@ -790,9 +783,9 @@ pasted review that has not been saved is not used. Start New
 Attempt reuses the prepared context — to prepare it again, use **Rebuild
 Context**.
 
-The command palette's **BugPilot: Retry After a Failed Fix** is still there: the
-CLI's own two-step loop, which creates the `user_feedback.md` template for you
-to fill in first.
+The command palette also has **BugPilot: Retry After a Failed Fix**: the CLI's
+own two-step loop, which creates the `user_feedback.md` template for you to fill
+in first.
 
 ## The AI Agent
 
@@ -822,8 +815,7 @@ an installed extension, by clipboard; and a custom command, if you set one.
 
 Neither extension offers a documented way for another extension to hand it a
 prompt, so both are *Limited integration*: BugPilot never types into their
-views. Changing the AI Agent never needs a context rebuild. Settings saved by an
-earlier version that chose *Claude Code* come back as Claude CLI.
+views. Changing the AI Agent never needs a context rebuild.
 
 A custom command is how you use Gemini, OpenCode, or an in-house agent:
 
@@ -837,11 +829,10 @@ with AI puts its prompt on your clipboard instead of opening a terminal that
 prints "command not found"; Review with AI says so on the row, next to Copy
 Review Prompt.
 
-Codex and Claude are built in because their interactive invocation is one
-positional prompt — measured on a real `claude` install, and the form `codex`
-documents. Nobody here knows the flags of the others, and a guessed command
-line fails in a terminal in a way that looks like a bug in this extension —
-hence the custom template rather than our guess.
+Codex and Claude are built in because each takes the prompt as one positional
+argument. Other agents' command lines differ, and a guessed one would fail in
+the terminal in a way that looks like a bug in this extension, so they run
+through the custom command you write.
 
 ## Settings
 

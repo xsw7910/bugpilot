@@ -1,11 +1,11 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-10-08
 
 First release. What it does today:
 
 - **Licence.** The Business Source License 1.1, with the same parameters as the `bugpilot` CLI
-  (`LICENSE.txt`). The codicons icon font stays CC BY 4.0 (`THIRD_PARTY_NOTICES.md`).
+  (`LICENSE.txt`). The codicons icon font is CC BY 4.0 (`THIRD_PARTY_NOTICES.md`).
 - **One workflow panel**, the **Workflow** view. A Jira issue key or a bug you describe, one primary
   button, and six steps: issue details, code search, git history, similar fixes,
   build context, and an optional **Fix with AI**. Each row is both the choice and
@@ -45,7 +45,7 @@ First release. What it does today:
   `user_feedback.md` and the retry package the CLI builds from it. A saved
   review's findings, or checks recorded as Failed or Not Run, can be copied in
   when you press Use Review Findings or Use Verification Evidence.
-  The CLI's two-step retry loop stays in the command palette.
+  The CLI's two-step retry loop is in the command palette too.
 - **After a fix: review, then verification — kept apart.** Under the fix
   report, **Review with AI** asks for `## Summary`, `## Findings`,
   `## Validation Notes` and `## Recommendations` and for no verdict. With
@@ -158,5 +158,5 @@ First release. What it does today:
   ending, and never behind unsaved edits in an open editor. The warning goes
   once git confirms both folders are ignored, without a reload.
 
-Requires the `bugpilot` CLI on the machine; the extension drives it and does not
-bundle it.
+Requires the `bugpilot` CLI 0.1.0 or later (`pipx install bugpilot`); the
+extension drives it and does not bundle it.
