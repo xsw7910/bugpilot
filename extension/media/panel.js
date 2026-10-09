@@ -1106,6 +1106,7 @@
     renderRun(state);
     renderRunHint(state);
     renderSessionFeedback(state);
+    renderManualHandoff(state);
     agentLines = (state.agents && state.agents.lines) || {};
     renderAgentStatus();
     repositoryLines = (state.repositoryProfile && state.repositoryProfile.lines) || {};
@@ -2452,7 +2453,40 @@
     "open-context": "openContext",
     "copy-context": "copyContext",
     "open-folder": "openFolder",
+    // A manual extension handoff's Copy Again: the host copies what it handed over.
+    "handoff-copy-again": "copyHandoffAgain",
   };
+
+  /** The manual handoff last drawn, so a redraw neither repeats nor re-announces it. */
+  let shownManualHandoff = 0;
+
+  /**
+   * A manual extension handoff's next step (§40), under the button: the host's
+   * words — what was copied, and where to paste it — with Copy Again beside
+   * them. Drawn only when the host's `seq` changes; the focus is never moved.
+   * The check is decoration: the words say it.
+   */
+  function renderManualHandoff(state) {
+    const handoff = state.manualHandoff;
+    byId("handoff-copy-again").hidden = !handoff;
+    byId("handoff-guidance").classList.toggle("is-shown", Boolean(handoff));
+    const seq = handoff ? handoff.seq : 0;
+    if (seq === shownManualHandoff) return;
+    shownManualHandoff = seq;
+    const line = byId("handoff-guidance-text");
+    line.replaceChildren();
+    if (!handoff) return;
+    const icon = document.createElement("span");
+    icon.className = "codicon codicon-check icon-success handoff-guidance-icon";
+    icon.setAttribute("aria-hidden", "true");
+    const title = document.createElement("span");
+    title.className = "handoff-guidance-title";
+    title.textContent = handoff.title;
+    const next = document.createElement("span");
+    next.className = "handoff-guidance-next";
+    next.textContent = handoff.next;
+    line.append(icon, title, " ", next);
+  }
 
   /** The press last acknowledged, so a redraw neither repeats nor re-announces it. */
   let shownSessionFeedback = 0;
@@ -2833,7 +2867,7 @@
   const PRIMARY_TITLES = {
     run: "Prepare the issue context for AI-assisted fixing",
     fixWithAI: "Open the prepared work item in the selected AI agent",
-    openSession: "Focus the existing BugPilot AI terminal",
+    openSession: "Return to the AI session, starting its agent again if it has exited",
     rebuildContext: "Rebuild the prepared context using the current settings",
   };
   const PRIMARY_SHORTCUT = "Ctrl+Enter";

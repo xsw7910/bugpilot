@@ -76,7 +76,7 @@ test("the line under the button is one state of a few words, never a sentence or
   }
   assert.equal(PRIMARY_TOOLTIPS.fixWithAI, "Open the prepared work item in the selected AI agent");
   assert.equal(PRIMARY_TOOLTIPS.rebuildContext, "Rebuild the prepared context using the current settings");
-  assert.equal(PRIMARY_TOOLTIPS.openSession, "Focus the existing BugPilot AI terminal");
+  assert.equal(PRIMARY_TOOLTIPS.openSession, "Return to the AI session, starting its agent again if it has exited");
   assert.equal(PRIMARY_SHORTCUT, "Ctrl+Enter");
 });
 

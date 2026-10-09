@@ -14,6 +14,7 @@
  * the point, so the controller opens the file and waits for a second press.
  */
 
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { isWithin } from "../workspace.ts";
@@ -70,6 +71,7 @@ import type { ReviewPackage } from "./reviewPackage.ts";
 import type { ContextCounts, RelevantFile } from "./contextSummary.ts";
 import type { FieldProblem, FormState } from "./form.ts";
 import { AgentService, capturedReviewOf } from "./agents.ts";
+import type { AgentActivity } from "./terminalActivity.ts";
 import { commandForLog, redactKnown, rejectedValueForLog, sensitiveValues, stderrForLog } from "./logSafety.ts";
 import type {
   AgentLaunch,
@@ -269,10 +271,26 @@ export interface UiPort {
    * `matches` — Open AI Session's way back to the agent a handoff started.
    *
    * Returns false when there is none: closed, or never opened in this window.
-   * Nothing is started in its place; the caller says so instead. Throws when
-   * there is one and the editor could not show it.
+   * Throws when there is one and the editor could not show it.
    */
   revealTerminal(matches: (name: string) => boolean): boolean;
+  /**
+   * Whether the agent typed into that terminal is still running there
+   * (`terminalActivity.ts`): `closed` when no such terminal is open. An open
+   * terminal alone is not an answer — its shell outlives the agent.
+   */
+  terminalActivity(matches: (name: string) => boolean): AgentActivity | "closed";
+  /**
+   * Type one command line into that terminal and bring it forward. False when
+   * none is open. Only for a terminal whose agent is known to have exited:
+   * typed into a running agent, the line would be a message to it.
+   */
+  sendToTerminal(matches: (name: string) => boolean, commandLine: string): boolean;
+  /**
+   * A non-modal notification with one action; true when the developer pressed
+   * it, false when it was dismissed or ignored.
+   */
+  offer(message: string, action: string): Promise<boolean>;
   /** Reveal a directory in the editor's own explorer. */
   openFolder(directory: string): Promise<void>;
   /**
@@ -333,6 +351,12 @@ export interface ControllerPorts {
    * "command not found" reads as a bug in this extension.
    */
   readonly canRun?: (executable: string) => Promise<boolean>;
+  /**
+   * Whether an AI CLI's own `--help` lists these flags (`flagProbe.ts`), asked
+   * once per executable and version. Absent: no flag beyond the CLI's plain
+   * invocation is ever passed.
+   */
+  readonly cliSupportsFlags?: (command: string, flags: readonly string[]) => Promise<boolean>;
   /**
    * The installed AI extensions, through VS Code's extension API, and a way to
    * run their commands (§37.94). Only `agents.ts` names an extension or a
@@ -481,6 +505,11 @@ export interface ControllerPorts {
   /** A timer, so a test can run the debounce by hand. Absent: `setTimeout`. */
   readonly schedule?: (callback: () => void, delayMs: number) => { cancel(): void };
   /**
+   * A new UUID for an AI session a fix handoff starts, so a test can name it.
+   * Absent: `crypto.randomUUID`.
+   */
+  readonly newSessionId?: () => string;
+  /**
    * The repository's `.gitignore`, through the editor and VS Code's file
    * system (§37.85): Repository Files' quick fix. Absent, the warning is shown
    * without it.
@@ -496,12 +525,39 @@ export const SESSION_FEEDBACK_MS = 1800;
 
 export const SESSION_FOCUSED = "AI session focused";
 export const SESSION_FOCUS_FAILED = "Could not open the existing AI session.";
-/** A terminal this panel opened, since closed. Neutral: the fix did not fail. */
-export const SESSION_CLOSED =
-  "AI session is no longer available — its terminal was closed. To continue, use ⋯ → Start New Attempt.";
+export const SESSION_RELAUNCH_FAILED = "Could not start the AI session again.";
 /** An attempt this window never saw start (a reload, another window). */
 export const SESSION_NOT_IN_WINDOW =
   "AI session is no longer available in this window. To continue, use ⋯ → Start New Attempt.";
+export const RESUME_SESSION_ACTION = "Resume AI Session";
+/**
+ * A manual extension handoff (a bridge): the handoff prompt is on the clipboard
+ * and the developer pastes it into the agent's own view. That next step is
+ * said in the panel, under the primary button, for as long as it is the next
+ * step; the notification only acknowledges the copy (§40).
+ */
+export const MANUAL_HANDOFF_COPIED = "Context copied.";
+export const MANUAL_HANDOFF_COPIED_AGAIN = "Context copied again.";
+export const MANUAL_HANDOFF_ACK = "AI fix context copied.";
+export const manualHandoffNext = (product: string) => `Paste it into ${product} to continue.`;
+export const RESTART_SESSION_ACTION = "Restart AI Session";
+
+/**
+ * What Open AI Session says after starting the attempt's agent again: which
+ * agent, whether its conversation continues, and where. Neutral: an agent that
+ * exited is not a failed fix.
+ */
+export function sessionRelaunched(agent: string, resumes: boolean, where: "same" | "new"): string {
+  if (where === "same") return resumes ? `${agent} had exited — resuming its session` : `${agent} had exited — started again on the same task`;
+  return resumes ? `Resuming ${agent} in a new terminal` : `Started ${agent} again in a new terminal`;
+}
+
+/** The offer made when BugPilot cannot tell whether the agent is still running. */
+export function sessionActivityUnknown(agent: string, terminal: string, resumes: boolean): string {
+  return `BugPilot cannot tell whether ${agent} is still running in “${terminal}”. If it has exited, ${
+    resumes ? "resume its session" : "start it again on the same task"
+  } in a new terminal.`;
+}
 /** A read that failed mid-write is tried once more, this much later. */
 export const ARTIFACT_REFRESH_RETRY_MS = 750;
 
@@ -583,12 +639,24 @@ export const STALE_HANDOFF =
 
 /**
  * The AI session a handoff started, as this panel saw it: which terminal, which
- * agent, and how many handoffs it has made for the work item.
+ * agent, and how many handoffs it has made for the work item — and how to start
+ * that agent again, in that repository, if it exits.
  */
 interface SessionRecord {
   readonly terminal: string;
+  /** The agent as the panel names it: for a custom command, its program. */
   readonly agent: string;
+  /** The agent as the log names it: the adapter, never a custom command's words (§37.95). */
+  readonly adapter: string;
   readonly attempts: number;
+  readonly root: string;
+  /**
+   * The command line that starts this attempt's agent again: its resume, when
+   * the agent was started under a session id it can be resumed by (Claude CLI);
+   * otherwise the handoff's own command line, the same task from the same
+   * prepared files. Never a new attempt: no feedback, no retry package.
+   */
+  readonly relaunch: { readonly commandLine: string; readonly resumes: boolean };
 }
 
 /** What a handoff hands over, and what the row says once it has. */
@@ -746,6 +814,27 @@ export class Controller {
    * Dropped by Clean and by a Fresh run, which delete what the agent was given.
    */
   readonly #sessions = new Map<string, SessionRecord>();
+  /** How often Open AI Session has started each session's agent again, so a late offer starts nothing twice. */
+  readonly #relaunches = new WeakMap<SessionRecord, number>();
+  /**
+   * The last handoff, when it was a manual one: what was copied, for which
+   * agent, so the panel can say what to do next and Copy Again can copy the
+   * same text. Kept for the attempt — replaced by the next handoff, dropped by
+   * a run, another work item, Reset Session, Clean, or the agent's report
+   * arriving — and never by an Open AI Session press or a redraw.
+   */
+  #manualHandoff:
+    | {
+        readonly workItemId: string;
+        readonly product: string;
+        readonly prompt: string;
+        readonly copiedAgain: boolean;
+        readonly seq: number;
+        /** fix_report.md's identity when it was handed over: a different one is the agent's answer. */
+        readonly report: string | undefined;
+      }
+    | undefined;
+  #manualHandoffSeq = 0;
   /**
    * Open AI Session's acknowledgement (§37.87): presentation only — never
    * persisted, never an artifact, and never a change to the attempt. One at a
@@ -1141,6 +1230,7 @@ export class Controller {
       probes: {
         canRun: async (command) => (await ports.canRun?.(command)) ?? false,
         ...(extensions ? { extension: (id: string) => extensions.get(id) } : {}),
+        ...(ports.cliSupportsFlags ? { supportsFlags: ports.cliSupportsFlags } : {}),
       },
       log: ports.log,
       ...(ports.lastAgent ? { lastAgent: ports.lastAgent } : {}),
@@ -1593,6 +1683,7 @@ export class Controller {
         if (message.id === "addArtifactsToGitignore") await this.addBugPilotPathsToGitignore();
         else if (message.id === "openContext") await this.openArtifact(CONTEXT_ARTIFACT);
         else if (message.id === "copyContext") await this.copyContext();
+        else if (message.id === "copyHandoffAgain") await this.copyHandoffAgain();
         else if (message.id === "openFolder") await this.openArtifactsFolder();
         else if (message.id === "fixWithAI") await this.fixWithAI();
         else if (message.id === "copyReviewPrompt") await this.copyReviewPrompt();
@@ -2067,14 +2158,27 @@ export class Controller {
   }
 
   /**
-   * Bring the AI session back: the terminal the last handoff for this work item
-   * opened.
+   * Back to the AI session of this work item's current attempt: its terminal,
+   * with its agent running in it.
    *
-   * A terminal is the only kind of session a handoff starts, and the only one
-   * this can find. When it is gone — closed, or never opened in this window —
-   * the answer is said, and nothing is started in its place: reopening a
-   * session is not the same act as starting another, and Start New Attempt is
-   * one press away for that.
+   * An open terminal is not a running agent: the handoff types the agent into
+   * a shell, and the shell stays after the agent exits (Ctrl+C, `/exit`). So
+   * the terminal's activity decides (`terminalActivity.ts`):
+   *
+   * - running: brought forward, never a second agent;
+   * - exited: the attempt's agent is started again in that terminal — resumed
+   *   where it can be (Claude CLI, by the session id BugPilot started it
+   *   under), otherwise the same task from the same prepared files;
+   * - closed: the same, in a new terminal of the same name;
+   * - unknown (no shell integration to ask): brought forward, and the restart
+   *   is offered for the developer to choose — typed into an agent that is
+   *   still running, the command line would be a message to it.
+   *
+   * Never a new attempt: no feedback, no retry package, no rebuild, nothing
+   * written; the attempt count and the terminal's name stay. Start New Attempt
+   * is still the separate, explicit way to start over. An attempt this window
+   * did not start (a reload, another window) has nothing to start again from:
+   * its terminal is shown if it is still open, and otherwise that is said.
    */
   openSession(): void {
     const workItemId = this.#workItemId;
@@ -2083,26 +2187,100 @@ export class Controller {
       return;
     }
     const session = this.#sessions.get(workItemId);
-    const base = fixTerminalName(workItemId);
+    if (!session) {
+      const base = fixTerminalName(workItemId);
+      this.#focusSession(workItemId, (name) => name === base || name.startsWith(`${base} (`));
+      return;
+    }
+    const matches = (name: string) => name === session.terminal;
+    switch (this.#ports.ui.terminalActivity(matches)) {
+      case "running":
+        this.#focusSession(workItemId, matches, session);
+        return;
+      case "exited":
+        this.#relaunchSession(workItemId, session, "same");
+        return;
+      case "closed":
+        this.#relaunchSession(workItemId, session, "new");
+        return;
+      case "unknown":
+        if (this.#focusSession(workItemId, matches, session)) void this.#offerRelaunch(workItemId, session);
+        return;
+    }
+  }
+
+  /**
+   * Bring the session's terminal forward and say so. False when it was not
+   * shown: it failed (said), it is gone and there is no session to start again
+   * (said), or it closed since the activity was read (started again).
+   */
+  #focusSession(workItemId: string, matches: (name: string) => boolean, session?: SessionRecord): boolean {
     let shown: boolean;
     try {
-      shown = this.#ports.ui.revealTerminal((name) =>
-        session ? name === session.terminal : name === base || name.startsWith(`${base} (`),
-      );
+      shown = this.#ports.ui.revealTerminal(matches);
     } catch (error) {
       // The terminal is there and the editor would not show it. Said, and
       // nothing else: the attempt, its terminal and the row stay as they are.
       this.#ports.log.error(`Could not show the AI session terminal for ${workItemId}: ${(error as Error)?.message ?? String(error)}`);
       this.#showSessionFeedback(workItemId, "failed", SESSION_FOCUS_FAILED);
+      return false;
+    }
+    if (!shown) {
+      if (session) this.#relaunchSession(workItemId, session, "new");
+      else this.#showSessionFeedback(workItemId, "unavailable", SESSION_NOT_IN_WINDOW);
+      return false;
+    }
+    // Always said: a terminal already in front changes nothing visible, and a
+    // press that changes nothing looks like one that did nothing. VS Code cannot
+    // tell "brought forward" from "already in front" reliably (`activeTerminal`
+    // is the panel's current tab, shown or not), so both are "focused".
+    this.#showSessionFeedback(workItemId, "focused", SESSION_FOCUSED);
+    return true;
+  }
+
+  /**
+   * Start the attempt's agent again: typed into its terminal when that
+   * terminal's agent is known to have exited, otherwise in a new terminal of
+   * the same name — the one Open AI Session goes back to next time.
+   */
+  #relaunchSession(workItemId: string, session: SessionRecord, where: "same" | "new"): void {
+    const matches = (name: string) => name === session.terminal;
+    let placed = where;
+    try {
+      if (placed === "same" && !this.#ports.ui.sendToTerminal(matches, session.relaunch.commandLine)) placed = "new";
+      if (placed === "new") this.#ports.ui.runInTerminal(session.terminal, session.root, session.relaunch.commandLine);
+    } catch (error) {
+      this.#ports.log.error(`Could not start the AI session for ${workItemId} again: ${(error as Error)?.message ?? String(error)}`);
+      this.#showSessionFeedback(workItemId, "failed", SESSION_RELAUNCH_FAILED);
       return;
     }
-    // Always said, found or not: a terminal already in front changes nothing
-    // visible, and a press that changes nothing looks like one that did nothing.
-    // VS Code cannot tell "brought forward" from "already in front" reliably
-    // (`activeTerminal` is the panel's current tab, shown or not), so both are
-    // "focused".
-    if (shown) this.#showSessionFeedback(workItemId, "focused", SESSION_FOCUSED);
-    else this.#showSessionFeedback(workItemId, "unavailable", session ? SESSION_CLOSED : SESSION_NOT_IN_WINDOW);
+    this.#relaunches.set(session, (this.#relaunches.get(session) ?? 0) + 1);
+    // The agent, never the command line (§37.95).
+    this.#ports.log.info(
+      `Starting ${session.adapter} again for ${workItemId}${session.relaunch.resumes ? ", resuming its session" : " on the same task"}, in ${placed === "same" ? "its terminal" : "a new terminal"}.`,
+    );
+    this.#showSessionFeedback(workItemId, "restarted", sessionRelaunched(session.agent, session.relaunch.resumes, placed));
+  }
+
+  /**
+   * No shell integration to ask: the developer is the one who can see whether
+   * the agent is still running. Offered, never assumed; and an answer that
+   * arrives after the attempt moved on — another work item, a new attempt, a
+   * restart already made from another press — starts nothing.
+   */
+  async #offerRelaunch(workItemId: string, session: SessionRecord): Promise<void> {
+    const before = this.#relaunches.get(session) ?? 0;
+    const accepted = await this.#ports.ui
+      .offer(
+        sessionActivityUnknown(session.agent, session.terminal, session.relaunch.resumes),
+        session.relaunch.resumes ? RESUME_SESSION_ACTION : RESTART_SESSION_ACTION,
+      )
+      .catch(() => false);
+    if (!accepted || this.#disposed) return;
+    if (this.#workItemId !== workItemId || this.#sessions.get(workItemId) !== session) return;
+    if ((this.#relaunches.get(session) ?? 0) !== before) return;
+    if (!offeredActions(this.#primaryView()).includes("openSession")) return;
+    this.#relaunchSession(workItemId, session, "new");
   }
 
   /** One acknowledgement at a time: a press replaces the last one, and its timer. */
@@ -2174,6 +2352,8 @@ export class Controller {
     const epoch = this.#fixEpoch;
     this.#handoffError = undefined;
     this.#attempt = { state: "starting" };
+    // A new attempt: what to paste for the last one no longer applies.
+    this.#manualHandoff = undefined;
     this.#handoffBusy = true;
     if (text !== "") this.#mutation = "attempt";
     this.#push();
@@ -2425,6 +2605,8 @@ export class Controller {
     // second reads as a click that was dropped. Set before the first wait, so a
     // second press finds it set.
     const epoch = this.#fixEpoch;
+    // A new handoff: the last one's paste step is replaced by this one's, if any.
+    this.#manualHandoff = undefined;
     this.#handoffBusy = true;
     this.#push();
     try {
@@ -2445,6 +2627,7 @@ export class Controller {
   /** Drop Fix with AI's outcome, its card, and any handoff or new attempt still being worked out. */
   #forgetFix(): void {
     this.#fix = undefined;
+    this.#manualHandoff = undefined;
     this.#handoffError = undefined;
     this.#handoffBusy = false;
     this.#attempt = undefined;
@@ -2495,6 +2678,10 @@ export class Controller {
       prompt: text,
       preparedContextPath: path.join(root, ".ai", workItemId, TASK_ARTIFACT),
       purpose: "fix",
+      // A fresh one per attempt: an agent that can be started under it can be
+      // resumed by it, which is how Open AI Session continues this attempt's
+      // conversation after the agent exited, rather than guessing the newest.
+      sessionId: this.#ports.newSessionId ? this.#ports.newSessionId() : randomUUID(),
     };
     const wanted = () => epoch === this.#fixEpoch;
     const result = await resolution.adapter.run(
@@ -2519,7 +2706,17 @@ export class Controller {
     this.#resolvedAgent = { kind: "resolved", label: result.label };
     this.#agents.succeeded(resolution.adapter.id);
     if (result.kind === "terminal") {
-      this.#sessions.set(workItemId, { terminal, agent: result.label, attempts });
+      this.#sessions.set(workItemId, {
+        terminal,
+        agent: result.label,
+        adapter: resolution.adapter.label,
+        attempts,
+        root,
+        relaunch:
+          result.resumeCommandLine === undefined
+            ? { commandLine: result.commandLine, resumes: false }
+            : { commandLine: result.resumeCommandLine, resumes: true },
+      });
       // A new session: what the last Open AI Session press said is about the old one.
       this.#clearSessionFeedback();
       // "success" means handed over, and the detail says so. The agent runs in
@@ -2533,8 +2730,45 @@ export class Controller {
     // Native or bridge: in another extension's own view, not a terminal this
     // panel could bring back, so no session is recorded — Open AI Session has
     // nothing to reopen, and the next step is the fix report arriving.
+    if (result.kind === "bridge") {
+      // On the clipboard, to be pasted: a step the developer must take, so it
+      // stays in the panel under the primary button rather than in a toast
+      // that disappears. The toast only acknowledges the copy.
+      this.#fix = { status: "success", detail: `Context copied for ${result.product}.` };
+      this.#manualHandoff = {
+        workItemId,
+        product: result.product,
+        prompt: text,
+        copiedAgain: false,
+        seq: ++this.#manualHandoffSeq,
+        report: this.#fixReportIdentity,
+      };
+      this.#ports.ui.notify("info", MANUAL_HANDOFF_ACK);
+      return;
+    }
+    // Native: the extension took the prompt itself; nothing is left to do.
     this.#fix = { status: "success", detail: result.message };
     this.#ports.ui.notify("info", result.message);
+  }
+
+  /**
+   * Copy Again: the same text the manual handoff copied — the handoff prompt,
+   * or a new attempt's retry prompt — to the clipboard once more. Nothing is
+   * prepared, written or started, and the guidance stays.
+   */
+  async copyHandoffAgain(): Promise<void> {
+    const handoff = this.#manualHandoff;
+    if (!handoff || handoff.workItemId !== this.#workItemId) return;
+    try {
+      await this.#ports.ui.copyToClipboard(handoff.prompt);
+    } catch (error) {
+      this.#ports.log.error(`Could not copy the handoff prompt again: ${(error as Error)?.message ?? String(error)}`);
+      this.#ports.ui.notify("error", "BugPilot could not copy the handoff prompt to the clipboard.");
+      return;
+    }
+    if (this.#manualHandoff !== handoff) return;
+    this.#manualHandoff = { ...handoff, copiedAgain: true, seq: ++this.#manualHandoffSeq };
+    this.#push();
   }
 
   /**
@@ -5008,6 +5242,8 @@ export class Controller {
     }
     // Everything the agent was given is gone; so is the session to reopen.
     this.#sessions.delete(workItemId);
+    // The prompt points at files that are gone.
+    if (this.#manualHandoff?.workItemId === workItemId) this.#manualHandoff = undefined;
     await this.refreshArtifacts();
     this.#push();
     return true;
@@ -5535,6 +5771,14 @@ export class Controller {
     ) {
       this.#clearSessionFeedback();
     }
+    // The agent wrote its report since the handoff: pasting was done.
+    if (
+      this.#manualHandoff !== undefined &&
+      (this.#manualHandoff.workItemId !== this.#workItemId ||
+        (this.#fixReportIdentity !== undefined && this.#fixReportIdentity !== this.#manualHandoff.report))
+    ) {
+      this.#manualHandoff = undefined;
+    }
     const session = this.#workItemId === undefined ? undefined : this.#sessions.get(this.#workItemId);
     const workflow = buildWorkflow({
       source: this.#form.source,
@@ -5633,6 +5877,15 @@ export class Controller {
               kind: this.#sessionFeedback.kind,
               message: this.#sessionFeedback.message,
               seq: this.#sessionFeedback.seq,
+            },
+          }),
+      ...(this.#manualHandoff === undefined
+        ? {}
+        : {
+            manualHandoff: {
+              title: this.#manualHandoff.copiedAgain ? MANUAL_HANDOFF_COPIED_AGAIN : MANUAL_HANDOFF_COPIED,
+              next: manualHandoffNext(this.#manualHandoff.product),
+              seq: this.#manualHandoff.seq,
             },
           }),
       ...(this.#attachmentPick === undefined ? {} : { attachmentPick: this.#attachmentPick }),

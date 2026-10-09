@@ -682,7 +682,8 @@ const MORE_ACTIONS: readonly { readonly id: NextActionId; readonly icon: string;
   {
     id: "openSession",
     icon: "terminal",
-    // Focus only: Open AI Session never starts or restarts a session (§37.87).
+    // Never a new attempt: the same session, its agent started again only when
+    // it is known to have exited, or its terminal closed.
     title: PRIMARY_TOOLTIPS.openSession,
   },
 ];
@@ -910,6 +911,16 @@ ${ISSUE_FIELD}
            the document, empty until the host answers a press, so the answer is
            announced without moving the keyboard focus. -->
       <p class="session-feedback" id="session-feedback" role="status" aria-live="polite"></p>
+      <!-- A manual extension handoff's next step (§40): the handoff prompt is on
+           the clipboard, and pasting it into the agent's own view is the
+           developer's to do — so it is said here, for as long as it is the
+           next step, not in a toast that disappears. The text is a live region
+           that is always in the document, empty until the host has something
+           to say, so it is announced without moving the focus. -->
+      <div class="handoff-guidance" id="handoff-guidance">
+        <p class="handoff-guidance-text" id="handoff-guidance-text" role="status" aria-live="polite"></p>
+        <button type="button" id="handoff-copy-again" title="Copy the same handoff prompt to the clipboard again" aria-describedby="handoff-guidance-text" hidden>Copy Again</button>
+      </div>
       <div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>
 ${RESET_MENU_ITEM}
 ${MORE_ACTIONS.map(menuItem).join("\n")}

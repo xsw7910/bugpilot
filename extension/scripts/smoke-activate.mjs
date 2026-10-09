@@ -168,6 +168,15 @@ assert.deepEqual(
 );
 assert.ok(context.subscriptions.length > 0, "nothing was registered for disposal");
 
+// The stub has no shell-execution events, like VS Code 1.90–1.92 (1.93 made
+// them stable API): activation must go on without them, and say that Open AI
+// Session will ask before starting an agent again.
+assert.equal("onDidStartTerminalShellExecution" in vscodeStub.window, false);
+assert.ok(
+  output.some((line) => line.includes("this VS Code does not report shell executions to extensions")),
+  "activation did not fall back to unknown terminal activity",
+);
+
 const manifest = require("../package.json");
 const declaredViews = (manifest.contributes.views.bugpilot ?? []).map((view) => view.id).sort();
 assert.deepEqual(

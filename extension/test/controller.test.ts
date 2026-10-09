@@ -29,6 +29,10 @@ import { SETTINGS_SECTION_OF_STEP } from "../src/app/workflowSettings.ts";
 import { MAX_REVIEW_OUTPUT } from "../src/app/reviewOutput.ts";
 import { CLAUDE_CAPTURED_REVIEW } from "../src/app/agents.ts";
 import type { InstalledExtension, LastAgentStore } from "../src/app/agents.ts";
+import type { AgentActivity } from "../src/app/terminalActivity.ts";
+import { LAUNCH_GRACE_MS } from "../src/app/terminalActivity.ts";
+import { createAgentTerminals } from "../src/host/agentTerminals.ts";
+import type { AgentTerminals, HostTerminalWindow } from "../src/host/agentTerminals.ts";
 import type { CapturedRun } from "../src/app/reviewRun.ts";
 import { ARTIFACT_REFRESH_DEBOUNCE_MS, ARTIFACT_REFRESH_RETRY_MS } from "../src/app/controller.ts";
 import { VERIFICATION_AUTOSAVE_MS } from "../src/app/verificationCapture.ts";
@@ -119,6 +123,18 @@ interface Harness {
   readonly openTerminals: string[];
   /** Every terminal Open AI Session brought forward, by name. */
   readonly revealed: string[];
+  /**
+   * What each open terminal's agent is doing, by name, as the host's shell
+   * integration would say (`terminalActivity.ts`): a launch makes it running; a
+   * test marks it exited (Ctrl+C) or unknown (no shell integration). Absent: unknown.
+   */
+  readonly agentActivity: Map<string, AgentActivity>;
+  /** Every command line typed into an already open terminal (Open AI Session's restart). */
+  readonly typed: { name: string; commandLine: string }[];
+  /** Every non-modal offer made, with its one action. */
+  readonly offers: { message: string; action: string }[];
+  /** Every capability question asked of an AI CLI's --help. */
+  readonly flagChecks: { command: string; flags: readonly string[] }[];
   readonly folders: string[];
   /** Which executables `canRun` was asked about, in order. */
   readonly probed: string[];
@@ -239,6 +255,18 @@ interface HarnessOptions {
   readonly gitignore?: GitignoreIo;
   /** Make bringing a found terminal forward throw, as an editor that cannot show it would. */
   readonly revealThrows?: Error;
+  /** How the developer answers an offer: a promise may settle later. Default: dismissed. */
+  readonly offerAnswer?: () => Promise<boolean>;
+  /**
+   * What Claude CLI's --help answers about --session-id and --resume: listed
+   * (default, as on 2.1.214), not listed (an older Claude), or a check that fails.
+   */
+  readonly claudeFlags?: boolean | Error;
+  /**
+   * The real host terminal module (`host/agentTerminals.ts`) over a fake
+   * `vscode.window`, instead of the harness's own terminal model.
+   */
+  readonly hostTerminals?: AgentTerminals;
   /** Reset Session's delete port; absent means the host has none. */
   readonly deleteArtifacts?: NonNullable<ControllerPorts["deleteWorkItemArtifacts"]>;
   /** Handed every streaming run's event callback, so a test can deliver an event late. */
@@ -268,6 +296,12 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const terminals: { name: string; cwd: string; commandLine: string }[] = [];
   const openTerminals: string[] = [];
   const revealed: string[] = [];
+  const agentActivity = new Map<string, AgentActivity>();
+  const typed: { name: string; commandLine: string }[] = [];
+  const offers: { message: string; action: string }[] = [];
+  const flagChecks: { command: string; flags: readonly string[] }[] = [];
+  const host = options.hostTerminals;
+  let sessions = 0;
   const folders: string[] = [];
   const probed: string[] = [];
   const extensionCommands: string[] = [];
@@ -353,14 +387,35 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       runInTerminal: (name, cwd, commandLine) => {
         if (options.terminalThrows) throw options.terminalThrows;
         terminals.push({ name, cwd, commandLine });
+        if (host) return host.runInTerminal(name, cwd, commandLine);
         openTerminals.push(name);
+        agentActivity.set(name, "running");
       },
       revealTerminal: (matches) => {
+        if (host) return host.revealTerminal(matches);
         const name = [...openTerminals].reverse().find((candidate) => matches(candidate));
         if (name === undefined) return false;
         if (options.revealThrows) throw options.revealThrows;
         revealed.push(name);
         return true;
+      },
+      terminalActivity: (matches) => {
+        if (host) return host.terminalActivity(matches);
+        const name = [...openTerminals].reverse().find((candidate) => matches(candidate));
+        return name === undefined ? "closed" : (agentActivity.get(name) ?? "unknown");
+      },
+      sendToTerminal: (matches, commandLine) => {
+        if (host) return host.sendToTerminal(matches, commandLine);
+        const name = [...openTerminals].reverse().find((candidate) => matches(candidate));
+        if (name === undefined) return false;
+        if (options.terminalThrows) throw options.terminalThrows;
+        typed.push({ name, commandLine });
+        agentActivity.set(name, "running");
+        return true;
+      },
+      offer: async (message, action) => {
+        offers.push({ message, action });
+        return options.offerAnswer ? options.offerAnswer() : false;
       },
       openFolder: async (directory) => {
         folders.push(directory);
@@ -465,6 +520,13 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     ...(options.watchArtifacts === undefined ? {} : { watchArtifacts: options.watchArtifacts }),
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.schedule === undefined ? {} : { schedule: options.schedule }),
+    newSessionId: () => sessionUuid(++sessions),
+    cliSupportsFlags: async (command, flags) => {
+      flagChecks.push({ command, flags });
+      const answer = options.claudeFlags ?? true;
+      if (answer instanceof Error) throw answer;
+      return command === "claude" && answer;
+    },
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return options.improveHint
@@ -503,6 +565,10 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     terminals,
     openTerminals,
     revealed,
+    agentActivity,
+    typed,
+    offers,
+    flagChecks,
     saved,
     savedWorkItems,
     fixModeCalls,
@@ -514,6 +580,11 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     release: () => release(),
   };
 }
+
+/** The n-th session id the harness hands out: one per fix handoff, in order. */
+const sessionUuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+/** Claude CLI's fix handoff: started under the n-th session id, so it can be resumed by it. */
+const claudeFix = (prompt: string, n = 1) => `claude --session-id ${sessionUuid(n)} ${JSON.stringify(prompt)}`;
 
 const jiraForm = (overrides: Partial<FormState> = {}): FormState => ({
   ...DEFAULT_FORM,
@@ -770,6 +841,9 @@ test("an unusable CLI is re-checked on Run before refusing", async () => {
       runCommand: async () => {},
       runInTerminal: () => {},
       revealTerminal: () => false,
+      terminalActivity: () => "closed",
+      sendToTerminal: () => false,
+      offer: async () => false,
       openFolder: async () => {},
       pickFiles: async () => [],
     },
@@ -1430,6 +1504,9 @@ test("overlapping environment refreshes share one probe", async () => {
       runCommand: async () => {},
       runInTerminal: () => {},
       revealTerminal: () => false,
+      terminalActivity: () => "closed",
+      sendToTerminal: () => false,
+      offer: async () => false,
       openFolder: async () => {},
       pickFiles: async () => [],
     },
@@ -1592,10 +1669,11 @@ test("Fix with AI starts the agent in the repository root", async () => {
   const terminal = h.terminals[0]!;
   assert.equal(terminal.cwd, ROOT);
   assert.match(terminal.name, /JR-12345/);
-  // One argument, quoted: the handoff contains spaces and a path.
+  // One argument, quoted: the handoff contains spaces and a path. The session
+  // id is BugPilot's, so Open AI Session can resume this conversation later.
   assert.equal(
     terminal.commandLine,
-    'claude "Read .ai/JR-12345/task.md and complete the workflow."',
+    'claude --session-id 00000000-0000-4000-8000-000000000001 "Read .ai/JR-12345/task.md and complete the workflow."',
   );
 });
 
@@ -1759,7 +1837,7 @@ test("the handed-over sentence is the same one Copy Handoff Prompt puts on the c
   await h.controller.copyHandoff();
   await h.controller.fixWithAI();
 
-  assert.equal(h.terminals[0]!.commandLine, `claude ${JSON.stringify(h.clipboard[0])}`);
+  assert.equal(h.terminals[0]!.commandLine, claudeFix(h.clipboard[0]!));
 });
 
 test("Fix with AI refuses a package with no task.md rather than sending an agent after it", async () => {
@@ -5990,7 +6068,7 @@ test("a work item id that is not one is refused on the way in, and never reaches
   // A handoff afterwards is for the work item on screen, and only it.
   await h.controller.handle(FIX);
   assert.deepEqual(h.terminals.map((terminal) => terminal.commandLine), [
-    `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`,
+    claudeFix("Read .ai/JR-12345/task.md and complete the workflow."),
   ]);
 });
 
@@ -7913,8 +7991,9 @@ test("finding the repository re-reads the Artifacts and History trees", async ()
 // the page does — `nextAction` and `startAttempt`, each carrying the form — and
 // check what the host decided, did, and refused.
 
-const TASK_HANDOFF = `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`;
-const RETRY_HANDOFF = `claude ${JSON.stringify("Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.")}`;
+/** The n-th fix handoff's command line: each attempt starts its own session. */
+const TASK_HANDOFF = (n = 1) => claudeFix("Read .ai/JR-12345/task.md and complete the workflow.", n);
+const RETRY_HANDOFF = (n = 2) => claudeFix("Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.", n);
 const RETRY_BUILT: Envelope = { ok: true, command: "bug", warnings: [], retry: true, feedback_created: false };
 
 const next = (action: "run" | "fixWithAI" | "openSession" | "rebuildContext" | "startNewAttempt", form: FormState = jiraForm()) =>
@@ -7975,7 +8054,7 @@ test("next action 3: Fix with AI hands over the prepared task.md, and prepares n
   assert.equal(h.streamRuns.length, runs, "Fix with AI prepared the context again");
   assert.equal(h.jsonRuns.length, queries, "Fix with AI asked bugpilot for anything");
   assert.deepEqual(h.written, [], "Fix with AI wrote a file");
-  assert.deepEqual(h.terminals, [{ name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: TASK_HANDOFF }]);
+  assert.deepEqual(h.terminals, [{ name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: TASK_HANDOFF() }]);
   // "Started", and nothing about what the agent did.
   assert.equal(fixRow(h.last()).statusText, "Started");
   assert.equal(fixRow(h.last()).detail, "Handed to Claude CLI in a terminal.");
@@ -8009,20 +8088,33 @@ test("next action 4: once the handoff starts, the button is Open AI Session, whi
   assert.equal(h.last().sessionFeedback?.message, "AI session focused");
 });
 
-test("next action 4: a session whose terminal is gone is said plainly, and nothing is started in its place", async () => {
+test("next action 4: a session whose terminal was closed is resumed in a new terminal of the same name — not a new attempt", async () => {
   const h = await attemptedHarness();
+  const fixDetail = fixRow(h.last()).detail;
+  const runs = { stream: h.streamRuns.length, json: h.jsonRuns.length };
   h.openTerminals.length = 0;
   await h.controller.handle(next("openSession"));
 
   assert.deepEqual(h.revealed, []);
-  assert.equal(h.terminals.length, 1, "a new session was started instead of saying the old one is gone");
+  assert.equal(h.terminals.length, 2);
+  // Same name, same repository, and Claude's own resume of the session it was started under.
+  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345", cwd: ROOT, commandLine: `claude --resume ${sessionUuid(1)}` });
   // Said under the button, neutrally (§37.87): not a toast, not a failure.
-  const feedback = h.last().sessionFeedback!;
-  assert.equal(feedback.kind, "unavailable");
-  assert.match(feedback.message, /^AI session is no longer available — its terminal was closed\./);
-  assert.match(feedback.message, /Start New Attempt/);
-  assert.doesNotMatch(feedback.message, /restored|reopened|resumed|reconnected|failed/i);
+  assert.deepEqual(
+    { kind: h.last().sessionFeedback?.kind, message: h.last().sessionFeedback?.message },
+    { kind: "restarted", message: "Resuming Claude CLI in a new terminal" },
+  );
   assert.equal(h.notices.length, 0);
+  // The attempt is the same one: nothing written, prepared or retried, and the row unchanged.
+  assert.deepEqual(h.written, []);
+  assert.deepEqual({ stream: h.streamRuns.length, json: h.jsonRuns.length }, runs);
+  assert.equal(fixRow(h.last()).detail, fixDetail);
+  assert.deepEqual(h.last().primary.more, ["startNewAttempt", "rebuildContext"]);
+
+  // Pressed again, its agent is running: brought forward, never a third terminal.
+  await h.controller.handle(next("openSession"));
+  assert.equal(h.terminals.length, 2);
+  assert.deepEqual(h.revealed, ["Fix with AI · JR-12345"]);
 });
 
 test("next action 4: an earlier attempt's report makes it Open AI Session too, which never invents a session", async () => {
@@ -8073,7 +8165,7 @@ test("next action 6: a new attempt with empty feedback writes nothing and hands 
   assert.deepEqual(h.written, [], "empty feedback wrote user_feedback.md");
   assert.equal(retryRuns(h).length, 0, "empty feedback ran bug --retry, which writes a template");
   assert.equal(h.terminals.length, 2);
-  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345 (2)", cwd: ROOT, commandLine: TASK_HANDOFF });
+  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345 (2)", cwd: ROOT, commandLine: TASK_HANDOFF(2) });
   assert.equal(fixRow(h.last()).detail, "New attempt handed to Claude CLI in a terminal.");
   assert.equal(fixRow(h.last()).attempt, undefined, "the form was not told the press was answered");
   assert.equal(h.last().primary.action, "openSession");
@@ -8101,7 +8193,7 @@ test("next action 7: feedback goes into user_feedback.md, bug --retry builds the
   assert.deepEqual(retryRuns(h).map((run) => run.args), [["bug", "JR-12345", "--retry", "--prepare-only", "--json"]]);
   assert.equal(retryRuns(h)[0]!.options.env?.["JIRA_TOKEN"], TOKEN);
   assert.equal(h.terminals.length, 2);
-  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345 (2)", cwd: ROOT, commandLine: RETRY_HANDOFF });
+  assert.deepEqual(h.terminals[1], { name: "Fix with AI · JR-12345 (2)", cwd: ROOT, commandLine: RETRY_HANDOFF() });
   assert.equal(fixRow(h.last()).detail, "New attempt, with your feedback, handed to Claude CLI in a terminal.");
   // The context was not rebuilt for it.
   assert.equal(h.streamRuns.length, 1);
@@ -9901,14 +9993,14 @@ test("Open AI Session pressed again and again: one terminal, one acknowledgement
   assert.equal(h.last().sessionFeedback!.message, "AI session focused");
 });
 
-test("Open AI Session with its terminal closed: a neutral word that stays, and nothing started", async () => {
+test("Open AI Session with its terminal closed: the restart is said and stays, and the workflow is what it was", async () => {
   const { h, live, open } = await sessionHarness();
   h.openTerminals.length = 0;
   const before = workflowOf(h.last());
   await open();
-  assert.equal(h.terminals.length, 1, "a new terminal was started");
-  assert.equal(h.last().sessionFeedback?.kind, "unavailable");
-  assert.equal(live().length, 0, "the guidance would vanish before it could be read");
+  assert.equal(h.terminals.length, 2);
+  assert.equal(h.last().sessionFeedback?.kind, "restarted");
+  assert.equal(live().length, 0, "the word would vanish before it could be read");
   assert.equal(workflowOf(h.last()), before, "the attempt changed");
   assert.equal(fixRow(h.last()).status, "success", "the row now reads as a failed fix");
 });
@@ -9928,12 +10020,317 @@ test("Open AI Session when the editor cannot show the terminal: a neutral messag
   assert.ok(h.logged.some((line) => /^ERROR Could not show the AI session terminal for JR-12345: Terminal has been disposed/.test(line)));
 });
 
+// --- Open AI Session after the agent exited ------------------------------------
+//
+// The handoff types the agent into a shell, and the shell outlives it: after
+// Ctrl+C the terminal is still open, so an open terminal says nothing about the
+// agent. These are the regression tests for that: revealing a terminal whose
+// agent had exited left the developer no way to start it again.
+
+const FIX_TERMINAL = "Fix with AI · JR-12345";
+
+test("Open AI Session after Claude CLI exited (Ctrl+C): resumed in its own terminal, once, and not a new attempt", async () => {
+  const { h, open } = await sessionHarness();
+  const runs = { stream: h.streamRuns.length, json: h.jsonRuns.length };
+  const before = workflowOf(h.last());
+  // The shell is back at its prompt: the terminal is open, the agent is not running.
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+  const logBefore = h.logged.length;
+  await open();
+
+  // Typed into the same terminal, which the host brings forward: Claude's resume
+  // of the session BugPilot started it under — not a new terminal, not the prompt again.
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: `claude --resume ${sessionUuid(1)}` }]);
+  assert.equal(h.terminals.length, 1, "a second terminal was opened for an exited agent");
+  assert.deepEqual(
+    { kind: h.last().sessionFeedback?.kind, message: h.last().sessionFeedback?.message },
+    { kind: "restarted", message: "Claude CLI had exited — resuming its session" },
+  );
+  assert.equal(h.notices.length, 0);
+  // The agent in the log, never its command line or session id (§37.95).
+  assert.deepEqual(h.logged.slice(logBefore), ["Starting Claude CLI again for JR-12345, resuming its session, in its terminal."]);
+  // The same attempt: nothing written, prepared, retried or rebuilt; the rows and button unchanged.
+  assert.deepEqual(h.written, []);
+  assert.deepEqual({ stream: h.streamRuns.length, json: h.jsonRuns.length }, runs);
+  assert.equal(workflowOf(h.last()), before);
+
+  // Pressed again, and again: the agent is running now, so it is only brought forward.
+  await open();
+  await open();
+  assert.equal(h.typed.length, 1, "a second press started the agent twice");
+  assert.deepEqual(h.revealed, [FIX_TERMINAL, FIX_TERMINAL]);
+  assert.equal(h.last().sessionFeedback?.message, "AI session focused");
+
+  // The attempt count did not move: the next new attempt is still the second.
+  await h.controller.handle(startAttempt(""));
+  assert.deepEqual(h.terminals[1], { name: `${FIX_TERMINAL} (2)`, cwd: ROOT, commandLine: TASK_HANDOFF(2) });
+});
+
+test("Open AI Session with the agent still running: brought forward, nothing typed, nothing started", async () => {
+  const { h, open } = await sessionHarness();
+  assert.equal(h.agentActivity.get(FIX_TERMINAL), "running");
+  await open();
+  assert.deepEqual(h.revealed, [FIX_TERMINAL]);
+  assert.deepEqual(h.typed, []);
+  assert.equal(h.terminals.length, 1);
+  assert.deepEqual(h.offers, []);
+});
+
+test("a new attempt's session is the one Open AI Session resumes, by its own session id", async () => {
+  const { h, open } = await sessionHarness();
+  await h.controller.handle(startAttempt(""));
+  h.agentActivity.set(`${FIX_TERMINAL} (2)`, "exited");
+  await open();
+  assert.deepEqual(h.typed, [{ name: `${FIX_TERMINAL} (2)`, commandLine: `claude --resume ${sessionUuid(2)}` }]);
+});
+
+test("Open AI Session after Codex CLI exited: the same task again, from the same prepared files — its session cannot be identified", async () => {
+  const codex = jiraForm({ agent: "codex-cli" });
+  const h = harness({ ...WITH_FILES, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", codex));
+  await h.controller.handle(next("fixWithAI", codex));
+  const handoff = `codex ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`;
+  // No session id for Codex: `codex resume` takes the last session or asks, which is not this one reliably.
+  assert.deepEqual(h.terminals, [{ name: FIX_TERMINAL, cwd: ROOT, commandLine: handoff }]);
+
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+  await h.controller.handle(next("openSession", codex));
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: handoff }]);
+  assert.equal(h.last().sessionFeedback?.message, "Codex CLI had exited — started again on the same task");
+  assert.deepEqual(h.written, []);
+  assert.equal(h.streamRuns.length, 1);
+});
+
+test("Open AI Session after a custom command exited: the developer's command line again, never logged", async () => {
+  const custom = jiraForm({ agent: "custom", agentCommand: "my-agent --prompt {prompt}" });
+  const h = harness({ ...WITH_FILES, agentOnPath: true });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", custom));
+  await h.controller.handle(next("fixWithAI", custom));
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+  const logBefore = h.logged.length;
+  await h.controller.handle(next("openSession", custom));
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: h.terminals[0]!.commandLine }]);
+  // A custom command can carry a token: the press logs the agent, never the command.
+  assert.deepEqual(h.logged.slice(logBefore), ["Starting Custom command again for JR-12345 on the same task, in its terminal."]);
+});
+
+test("Open AI Session when BugPilot cannot tell: focused, the restart offered, and nothing typed into that terminal", async () => {
+  const { h, open } = await sessionHarness();
+  // No shell integration: the agent may or may not still be running there.
+  h.agentActivity.set(FIX_TERMINAL, "unknown");
+  await open();
+  await settle();
+  assert.deepEqual(h.revealed, [FIX_TERMINAL]);
+  assert.equal(h.last().sessionFeedback?.message, "AI session focused");
+  assert.deepEqual(h.offers, [
+    {
+      message: `BugPilot cannot tell whether Claude CLI is still running in “${FIX_TERMINAL}”. If it has exited, resume its session in a new terminal.`,
+      action: "Resume AI Session",
+    },
+  ]);
+  // Dismissed: nothing started, and never typed into a terminal that may hold a running agent.
+  assert.deepEqual(h.typed, []);
+  assert.equal(h.terminals.length, 1);
+});
+
+test("an accepted offer resumes the session in a new terminal; one accepted after that starts nothing more", async () => {
+  const answers: ((value: boolean) => void)[] = [];
+  const { h, open } = await sessionHarness({ offerAnswer: () => new Promise<boolean>((resolve) => answers.push(resolve)) });
+  h.agentActivity.set(FIX_TERMINAL, "unknown");
+  await open();
+  await open();
+  assert.equal(answers.length, 2);
+
+  answers[0]!(true);
+  await settle();
+  assert.deepEqual(h.typed, []);
+  assert.equal(h.terminals.length, 2);
+  assert.deepEqual(h.terminals[1], { name: FIX_TERMINAL, cwd: ROOT, commandLine: `claude --resume ${sessionUuid(1)}` });
+  assert.equal(h.last().sessionFeedback?.message, "Resuming Claude CLI in a new terminal");
+
+  // The second offer, accepted after the restart: already done.
+  answers[1]!(true);
+  await settle();
+  assert.equal(h.terminals.length, 2, "two accepted offers started the agent twice");
+});
+
+test("an offer accepted after a new attempt started starts nothing for the old attempt", async () => {
+  let answer: (value: boolean) => void = () => {};
+  const { h, open } = await sessionHarness({ offerAnswer: () => new Promise<boolean>((resolve) => (answer = resolve)) });
+  h.agentActivity.set(FIX_TERMINAL, "unknown");
+  await open();
+  await h.controller.handle(startAttempt(""));
+  assert.equal(h.terminals.length, 2);
+  answer(true);
+  await settle();
+  assert.equal(h.terminals.length, 2, "the old attempt's session was started next to the new one");
+});
+
+test("a restart the editor cannot start is said, and nothing else changes", async () => {
+  // Read live by the harness, so the terminal can fail after the first handoff worked.
+  const options: WritableOptions = { ...WITH_FILES, agentOnPath: true };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run"));
+  await h.controller.handle(next("fixWithAI"));
+  const before = workflowOf(h.last());
+  options.terminalThrows = new Error("The terminal process failed to launch.");
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+  await h.controller.handle(next("openSession"));
+  assert.deepEqual(
+    { kind: h.last().sessionFeedback?.kind, message: h.last().sessionFeedback?.message },
+    { kind: "failed", message: "Could not start the AI session again." },
+  );
+  assert.deepEqual(h.typed, []);
+  assert.equal(workflowOf(h.last()), before);
+  assert.ok(h.logged.some((line) => /^ERROR Could not start the AI session for JR-12345 again: The terminal process failed to launch\./.test(line)));
+});
+
+// --- compatibility: VS Code 1.90–1.92, and a Claude CLI without resumable sessions ------
+
+/** A terminal as `vscode.window.createTerminal` would hand one back, recording what was done to it. */
+class HostTerminalDouble {
+  exitStatus: { code: number } | undefined = undefined;
+  shown = 0;
+  readonly sent: string[] = [];
+  readonly name: string;
+  constructor(name: string) {
+    this.name = name;
+  }
+  show(): void {
+    this.shown += 1;
+  }
+  sendText(text: string): void {
+    this.sent.push(text);
+  }
+}
+
+/**
+ * VS Code 1.90–1.92's `vscode.window`, as far as the terminals go: the
+ * shell-execution events are a proposed API there, present but refusing an
+ * extension that did not enable the proposal — or, before that, absent.
+ */
+function olderVsCodeWindow(api: "absent" | "gated") {
+  const terminals: HostTerminalDouble[] = [];
+  const refuse = () => {
+    throw new Error("Extension 'ShiweiX.bugpilot' CANNOT use API proposal: terminalShellIntegration.");
+  };
+  const window = {
+    terminals,
+    createTerminal: (options: { name: string }) => {
+      const terminal = new HostTerminalDouble(options.name);
+      terminals.push(terminal);
+      return terminal;
+    },
+    ...(api === "gated" ? { onDidStartTerminalShellExecution: refuse, onDidEndTerminalShellExecution: refuse } : {}),
+  };
+  return { window: window as unknown as HostTerminalWindow<HostTerminalDouble>, terminals };
+}
+
+for (const api of ["absent", "gated"] as const) {
+  test(`VS Code 1.90–1.92 (execution API ${api}): unknown after the launch — focused and asked, never typed into, one restart however often accepted`, async () => {
+    let now = 1_000_000;
+    const subscriptions: { dispose(): unknown }[] = [];
+    const vscode = olderVsCodeWindow(api);
+    // The host's terminal ports, built as activation builds them: nothing thrown, nothing subscribed.
+    const host = createAgentTerminals(vscode.window, { subscriptions, env: () => ({}), now: () => now });
+    assert.equal(host.tracksExecutions, false);
+    assert.deepEqual(subscriptions, []);
+
+    const answers: ((value: boolean) => void)[] = [];
+    const h = await attemptedHarness({ hostTerminals: host, offerAnswer: () => new Promise<boolean>((resolve) => answers.push(resolve)) });
+    const open = () => h.controller.handle(next("openSession"));
+    assert.equal(vscode.terminals.length, 1);
+    const agent = vscode.terminals[0]!;
+    assert.deepEqual(agent.sent, [TASK_HANDOFF()]);
+
+    // Right after the launch: running, so only brought forward — no offer, nothing typed.
+    await open();
+    await settle();
+    assert.equal(agent.shown, 2);
+    assert.equal(h.offers.length, 0);
+
+    // Nothing will ever say whether it exited: unknown.
+    now += LAUNCH_GRACE_MS;
+    await open();
+    await settle();
+    assert.equal(agent.shown, 3, "the terminal was not brought forward");
+    assert.equal(h.last().sessionFeedback?.message, "AI session focused");
+    assert.equal(h.offers.length, 1);
+    assert.equal(h.offers[0]!.action, "Resume AI Session");
+    assert.deepEqual(agent.sent, [TASK_HANDOFF()], "a command was typed into a terminal whose agent may still be running");
+
+    // Dismissed: nothing.
+    answers[0]!(false);
+    await settle();
+    assert.equal(vscode.terminals.length, 1);
+
+    // Two more presses, both accepted — the second late: one restart, in a new terminal.
+    await open();
+    await open();
+    answers[1]!(true);
+    await settle();
+    answers[2]!(true);
+    await settle();
+    assert.equal(vscode.terminals.length, 2, "two acceptances started the agent twice");
+    const restarted = vscode.terminals[1]!;
+    assert.equal(restarted.name, "Fix with AI · JR-12345");
+    assert.deepEqual(restarted.sent, [`claude --resume ${sessionUuid(1)}`]);
+    assert.deepEqual(agent.sent, [TASK_HANDOFF()]);
+    assert.equal(h.last().sessionFeedback?.message, "Resuming Claude CLI in a new terminal");
+  });
+}
+
+test("a Claude CLI without --session-id/--resume: started as it always was, and started fresh on the same task after it exits", async () => {
+  const { h, open } = await sessionHarness({ claudeFlags: false });
+  const plain = `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`;
+  // Asked, and told no: no flag it might not know is passed.
+  assert.deepEqual(h.flagChecks, [{ command: "claude", flags: ["--session-id", "--resume"] }]);
+  assert.deepEqual(h.terminals, [{ name: FIX_TERMINAL, cwd: ROOT, commandLine: plain }]);
+
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+  await open();
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: plain }]);
+  assert.equal(h.typed.some((entry) => entry.commandLine.includes("--resume")), false);
+  assert.equal(h.last().sessionFeedback?.message, "Claude CLI had exited — started again on the same task");
+  // Not a new attempt: nothing written, and the next new attempt is still the second.
+  assert.deepEqual(h.written, []);
+  await h.controller.handle(startAttempt(""));
+  assert.deepEqual(h.terminals[1], { name: `${FIX_TERMINAL} (2)`, cwd: ROOT, commandLine: plain });
+});
+
+test("a Claude capability check that fails leaves BugPilot usable: the plain command, no unsupported flag, a fresh restart", async () => {
+  const { h, open } = await sessionHarness({ claudeFlags: new Error("spawn EPERM") });
+  const plain = `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`;
+  assert.deepEqual(h.terminals, [{ name: FIX_TERMINAL, cwd: ROOT, commandLine: plain }]);
+  assert.equal(fixRow(h.last()).status, "success");
+  assert.equal(h.notices.length, 0);
+  h.openTerminals.length = 0;
+  await open();
+  assert.deepEqual(h.terminals[1], { name: FIX_TERMINAL, cwd: ROOT, commandLine: plain });
+  assert.equal(h.last().sessionFeedback?.message, "Started Claude CLI again in a new terminal");
+});
+
+test("a modern Claude CLI is asked once per handoff, and its restart reuses that attempt's own session id", async () => {
+  const { h, open } = await sessionHarness();
+  assert.deepEqual(h.flagChecks, [{ command: "claude", flags: ["--session-id", "--resume"] }]);
+  h.agentActivity.set(FIX_TERMINAL, "exited");
+  await open();
+  await open();
+  await open();
+  // Restarting asks nothing: the relaunch was decided when the attempt started.
+  assert.equal(h.flagChecks.length, 1);
+  assert.deepEqual(h.typed, [{ name: FIX_TERMINAL, commandLine: `claude --resume ${sessionUuid(1)}` }]);
+});
+
 test("Open AI Session's word goes with a new attempt, another work item, or a panel that no longer offers it", async () => {
   const { h, open } = await sessionHarness();
   h.openTerminals.length = 0;
   await open();
-  assert.equal(h.last().sessionFeedback?.kind, "unavailable");
-  // Start New Attempt opens a new terminal: the old "no longer available" is stale.
+  assert.equal(h.last().sessionFeedback?.kind, "restarted");
+  // Start New Attempt opens a new terminal: what the last press said is about the old one.
   await h.controller.handle(startAttempt(""));
   assert.equal(h.last().sessionFeedback, undefined);
 
@@ -10081,9 +10478,11 @@ test("an extension bridge: the prompt is copied, the agent's view opened, and th
   assert.deepEqual(h.extensionCommands, ["claude-vscode.sidebar.open"]);
   const row = fixRow(h.last());
   assert.equal(row.status, "success");
-  assert.equal(row.detail, "BugPilot AI fix context copied. Paste it into Claude to continue.");
+  assert.equal(row.detail, "Context copied for Claude.");
   assert.equal(row.error, undefined);
-  assert.equal(h.notices.at(-1)?.message, "BugPilot AI fix context copied. Paste it into Claude to continue.");
+  // What to do next is in the panel (§40); the toast only acknowledges the copy.
+  assert.equal(h.last().manualHandoff?.next, "Paste it into Claude to continue.");
+  assert.equal(h.notices.at(-1)?.message, "AI fix context copied.");
   // No terminal to reopen: Open AI Session is not what comes next.
   assert.notEqual(h.last().primary.action, "openSession");
   assert.deepEqual(h.probed, [], "a bridge spawned a CLI probe");
@@ -10176,7 +10575,7 @@ test("a repository path with spaces, parentheses and an ampersand is only ever t
   await h.controller.handle(next("fixWithAI"));
   assert.equal(h.terminals.length, 1);
   assert.equal(h.terminals[0]!.cwd, root);
-  assert.equal(h.terminals[0]!.commandLine, `claude ${JSON.stringify(HANDOFF)}`);
+  assert.equal(h.terminals[0]!.commandLine, claudeFix(HANDOFF));
   assert.equal(h.terminals[0]!.commandLine.includes("sample repo"), false);
 });
 
@@ -10481,6 +10880,7 @@ function assertFresh(state: PanelState, form: FormState = FRESH_FORM): void {
   assert.deepEqual(state.problems, []);
   assert.equal(state.runError, undefined);
   assert.equal(state.sessionFeedback, undefined);
+  assert.equal(state.manualHandoff, undefined);
   assert.deepEqual(state.workItemActions, []);
   assert.equal(state.hintImprovement?.suggestion, undefined);
   assert.equal(state.hintImprovement?.busy, false);
@@ -11980,4 +12380,231 @@ test("credentials without a site: the Jira row says No Jira site and offers Conf
   assert.equal(jira.state, "notConfigured");
   assert.equal(jira.status, "No Jira site");
   assert.equal(jira.action, "Configure");
+});
+
+// --- Manual extension handoff guidance (§40) ------------------------------------
+//
+// A Codex or Claude extension handoff puts the prompt on the clipboard, and the
+// developer pastes it into the agent's own view. That step is said in the panel,
+// under the primary button, until the attempt moves on — not only in a toast.
+
+/** The Codex extension as its 26.917 manifest declares it: no prompt-taking command. */
+const CODEX_EXTENSION: Readonly<Record<string, InstalledExtension>> = {
+  "openai.chatgpt": { version: "26.917.62051", active: true, commands: ["chatgpt.openSidebar", "chatgpt.newChat"] },
+};
+const BOTH_EXTENSIONS = { ...CODEX_EXTENSION, ...CLAUDE_EXTENSION };
+
+/** Prepared, the agent chosen in Advanced Settings, and Fix with AI pressed. */
+async function extensionHandoff(agent: "codex-extension" | "claude-extension", extra: HarnessOptions = {}) {
+  const form = jiraForm({ agent });
+  const h = await preparedHarness({ agentOnPath: false, extensions: BOTH_EXTENSIONS, form, ...extra });
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+  return { h, form };
+}
+
+const guidance = (state: PanelState) => state.manualHandoff;
+const pasteNotices = (h: Harness) => h.notices.filter((notice) => /Paste it into/.test(notice.message));
+const COPY_AGAIN: PanelMessage = { type: "action", id: "copyHandoffAgain" };
+
+for (const [agent, product, reveal] of [
+  ["codex-extension", "Codex", "chatgpt.openSidebar"],
+  ["claude-extension", "Claude", "claude-vscode.sidebar.open"],
+] as const) {
+  test(`${product} Extension: the prompt is copied, and the panel says to paste it — not a toast`, async () => {
+    const { h } = await extensionHandoff(agent);
+    assert.deepEqual(h.clipboard, [HANDOFF]);
+    assert.deepEqual(h.extensionCommands, [reveal]);
+    assert.deepEqual(h.terminals, [], "a manual handoff opened a terminal");
+
+    // The next step, in the panel, in the adapter's own name for the agent.
+    const shown = guidance(h.last());
+    assert.equal(shown?.title, "Context copied.");
+    assert.equal(shown?.next, `Paste it into ${product} to continue.`);
+    // The toast only acknowledges the copy; the instruction is not in it.
+    assert.deepEqual(pasteNotices(h), [], "the required step is still carried by a notification");
+    assert.deepEqual(h.notices.at(-1), { kind: "info", message: "AI fix context copied." });
+    // The row says what happened, briefly; the instruction is under the button.
+    assert.equal(fixRow(h.last()).status, "success");
+    assert.equal(fixRow(h.last()).detail, `Context copied for ${product}.`);
+  });
+
+  test(`${product} Extension: Copy Again copies the same text, and starts, writes or prepares nothing`, async () => {
+    const { h } = await extensionHandoff(agent);
+    const runs = { stream: h.streamRuns.length, json: h.jsonRuns.length };
+    const before = guidance(h.last())!;
+    const primary = h.last().primary;
+    await h.controller.handle(COPY_AGAIN);
+
+    assert.deepEqual(h.clipboard, [HANDOFF, HANDOFF]);
+    const after = guidance(h.last())!;
+    assert.equal(after.title, "Context copied again.");
+    assert.equal(after.next, `Paste it into ${product} to continue.`);
+    assert.notEqual(after.seq, before.seq, "a second copy would not be announced");
+    // Nothing else: no terminal, no view opened again, no file, no run, no new attempt.
+    assert.deepEqual(h.terminals, []);
+    assert.equal(h.extensionCommands.length, 1);
+    assert.deepEqual(h.written, []);
+    assert.deepEqual({ stream: h.streamRuns.length, json: h.jsonRuns.length }, runs);
+    assert.deepEqual(h.last().primary, primary);
+    assert.equal(h.notices.length, 1, "Copy Again raised a toast");
+  });
+}
+
+for (const [agent, label] of [["claude-cli", "Claude CLI"], ["codex-cli", "Codex CLI"]] as const) {
+  test(`${label}: started in a terminal, so there is nothing to paste and no guidance`, async () => {
+    const form = jiraForm({ agent });
+    const h = await preparedHarness({ form });
+    await h.controller.handle(applySettings(form));
+    await h.controller.handle(next("fixWithAI", form));
+    assert.equal(h.terminals.length, 1);
+    assert.equal(guidance(h.last()), undefined);
+    assert.deepEqual(h.clipboard, []);
+  });
+}
+
+test("the guidance stays through redraws, form changes and refreshes", async () => {
+  const { h, form } = await extensionHandoff("codex-extension");
+  const shown = guidance(h.last());
+  await h.controller.handle({ type: "formChanged", form: { ...form, hint: "Look at the dialog." } });
+  await h.controller.refreshArtifacts();
+  await h.controller.refreshEnvironment();
+  assert.deepEqual(guidance(h.last()), shown);
+});
+
+test("Open AI Session leaves the guidance alone, and does what it did before", async () => {
+  // An earlier attempt's report is there, so the button is Open AI Session and
+  // the new attempt is the manual handoff.
+  const form = jiraForm({ agent: "codex-extension" });
+  const h = await preparedHarness({
+    agentOnPath: false,
+    extensions: BOTH_EXTENSIONS,
+    form,
+    directory: [...WITH_FILES.directory, "fix_report.md"],
+    files: { ...WITH_FILES.files, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+  });
+  await h.controller.handle(applySettings(form));
+  assert.equal(h.last().primary.action, "openSession");
+  await h.controller.handle(startAttempt("", form));
+  const shown = guidance(h.last());
+  assert.equal(shown?.next, "Paste it into Codex to continue.");
+
+  await h.controller.handle(next("openSession", form));
+  // No terminal for an extension: said as before.
+  assert.match(h.last().sessionFeedback?.message ?? "", /^AI session is no longer available in this window\./);
+  assert.deepEqual(guidance(h.last()), shown, "Open AI Session cleared the guidance");
+});
+
+test("Start New Attempt replaces it: a manual one with its own text, a terminal one with none", async () => {
+  const form = jiraForm({ agent: "claude-extension" });
+  const options = {
+    agentOnPath: true,
+    extensions: BOTH_EXTENSIONS,
+    form,
+    json: RETRY_BUILT,
+    directory: [...WITH_FILES.directory, "fix_report.md"],
+    files: { ...WITH_FILES.files, "fix_report.md": fixReportMd("Fixed it.", "3 passed.") },
+  };
+  const h = await preparedHarness(options);
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(startAttempt("", form));
+  const first = guidance(h.last())!;
+
+  // With feedback: the retry prompt is what was copied, and what Copy Again copies.
+  await h.controller.handle(startAttempt("Keep the public API.", form));
+  const second = guidance(h.last())!;
+  assert.notEqual(second.seq, first.seq);
+  assert.equal(second.title, "Context copied.");
+  assert.equal(h.clipboard.at(-1), "Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.");
+  await h.controller.handle(COPY_AGAIN);
+  assert.equal(h.clipboard.at(-1), "Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.");
+
+  // Then Claude CLI: a terminal, nothing to paste.
+  const cli = jiraForm({ agent: "claude-cli" });
+  await h.controller.handle(applySettings(cli));
+  await h.controller.handle(startAttempt("", cli));
+  assert.equal(h.terminals.length, 1);
+  assert.equal(guidance(h.last()), undefined);
+});
+
+test("another Fix with AI to a different extension says where to paste now", async () => {
+  const { h } = await extensionHandoff("codex-extension");
+  const claude = jiraForm({ agent: "claude-extension" });
+  await h.controller.handle(applySettings(claude));
+  // Not attempted yet — no session, no report — so the button is still Fix with AI.
+  assert.equal(h.last().primary.action, "fixWithAI");
+  await h.controller.handle(next("fixWithAI", claude));
+  assert.equal(guidance(h.last())?.next, "Paste it into Claude to continue.");
+  assert.deepEqual(pasteNotices(h), []);
+});
+
+test("Rebuild Context, another work item, Reset Session and Clean each drop it", async () => {
+  // Rebuild Context: the context the prompt points at is prepared again.
+  {
+    const { h, form } = await extensionHandoff("codex-extension");
+    await h.controller.handle(applySettings({ ...form, hint: "A different hint." }));
+    assert.equal(h.last().primary.action, "rebuildContext");
+    await h.controller.handle(next("rebuildContext", { ...form, hint: "A different hint." }));
+    assert.equal(guidance(h.last()), undefined, "a rebuild kept the old paste step");
+  }
+  // Another work item: the guidance is about the one it was copied for.
+  {
+    const { h } = await extensionHandoff("codex-extension");
+    await h.controller.showWorkItem("JR-99");
+    assert.equal(guidance(h.last()), undefined, "another work item showed the paste step");
+  }
+  // Reset Session.
+  {
+    const { h } = await extensionHandoff("claude-extension");
+    await h.controller.handle(RESET_KEEP);
+    assert.equal(guidance(h.last()), undefined, "a reset kept the paste step");
+  }
+  // Clean: the files the prompt points at are gone.
+  {
+    const { h } = await extensionHandoff("claude-extension");
+    await h.controller.clean("JR-12345", async () => {});
+    assert.equal(guidance(h.last()), undefined, "Clean kept the paste step");
+  }
+});
+
+test("the agent's report arriving ends it: pasting was done", async () => {
+  const form = jiraForm({ agent: "codex-extension" });
+  const options: WritableOptions = { ...WITH_FILES, directory: [...WITH_FILES.directory], agentOnPath: false, extensions: BOTH_EXTENSIONS, form };
+  const h = harness(options);
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(next("run", form));
+  await h.controller.handle(applySettings(form));
+  await h.controller.handle(next("fixWithAI", form));
+  assert.ok(guidance(h.last()));
+
+  options.directory = [...WITH_FILES.directory, "fix_report.md"];
+  h.files["fix_report.md"] = fixReportMd("Fixed the dialog.", "2 passed.");
+  await h.controller.refreshArtifacts();
+  assert.equal(guidance(h.last()), undefined);
+});
+
+test("Copy Again with nothing to copy, or a clipboard that refuses, changes nothing else", async () => {
+  // A stale press: there is no manual handoff to copy for.
+  const h = await preparedHarness();
+  await h.controller.handle(COPY_AGAIN);
+  assert.deepEqual(h.clipboard, []);
+  assert.equal(h.notices.length, 0);
+
+  // The clipboard refuses the second copy: said, and the guidance stays as it was.
+  const form = jiraForm({ agent: "codex-extension" });
+  const options: WritableOptions = { ...WITH_FILES, agentOnPath: false, extensions: BOTH_EXTENSIONS, form };
+  const g = harness(options);
+  await g.controller.refreshEnvironment();
+  await g.controller.handle(next("run", form));
+  await g.controller.handle(applySettings(form));
+  await g.controller.handle(next("fixWithAI", form));
+  const shown = guidance(g.last());
+  options.clipboardThrows = new Error("Clipboard denied");
+  await g.controller.handle(COPY_AGAIN);
+  assert.deepEqual(g.notices.at(-1), { kind: "error", message: "BugPilot could not copy the handoff prompt to the clipboard." });
+  assert.deepEqual(guidance(g.last()), shown);
+});
+
+test("parsePanelMessage accepts Copy Again as an action", () => {
+  assert.deepEqual(parsePanelMessage({ type: "action", id: "copyHandoffAgain" }), COPY_AGAIN);
 });

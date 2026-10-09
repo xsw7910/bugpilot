@@ -9,6 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
@@ -38,7 +39,8 @@ import { diagnose } from "./errors.ts";
 import { discoverExecutable } from "./executable.ts";
 import { ManagedRuntimeManager } from "./managedRuntime.ts";
 import { trustedRunner } from "./runner.ts";
-import { childEnvironmentAdditions } from "./executablePath.ts";
+import { childEnvironmentAdditions, locateExecutable } from "./executablePath.ts";
+import { createFlagProbe } from "./app/flagProbe.ts";
 import { CredentialStore } from "./secrets.ts";
 import { PanelHost } from "./panel/provider.ts";
 import { reviewedFixStore } from "./app/reviewRun.ts";
@@ -212,6 +214,8 @@ export function activate(context: vscode.ExtensionContext): void {
           results?.syncDiagnostics();
         },
         refreshViews: () => results?.refresh(),
+        subscriptions: context.subscriptions,
+        log,
       }),
       log,
       environment,
@@ -349,6 +353,21 @@ export function activate(context: vscode.ExtensionContext): void {
         (value) => void context.workspaceState.update(REVIEWED_FIXES_STATE_KEY, value),
       ),
       canRun,
+      // Claude CLI's resumable sessions, used only where its own --help lists
+      // them: asked once per executable and version, argv only, 10 s at most,
+      // from the temp directory; a doubt is "no" (flagProbe.ts).
+      cliSupportsFlags: createFlagProbe({
+        locate: (command) => {
+          const located = locateExecutable(command, { purpose: "spawn" });
+          return located.kind === "found" ? located.path : undefined;
+        },
+        identity: async (file) => {
+          const found = await stat(file);
+          return `${found.size}:${found.mtimeMs}`;
+        },
+        run: (file, args) => trustedRunner(file).run([...args], { cwd: os.tmpdir(), timeoutMs: 10_000 }),
+        log: (message) => log.info(message),
+      }),
       extensions: createExtensionsPort(),
       // Pasted and dropped attachments, kept beside the long-description file.
       storeAttachment: createAttachmentStore(storageRoot),

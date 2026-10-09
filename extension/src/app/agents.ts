@@ -29,6 +29,8 @@
  * is used or refused, never swapped for another agent (`AgentService.resolve`).
  */
 
+import { resumeCommand } from "./session.ts";
+
 export type AgentId = "codex-cli" | "claude-cli" | "codex-extension" | "claude-extension" | "custom";
 export type AgentChoice = "auto" | AgentId;
 
@@ -115,6 +117,11 @@ export interface AiFixRequest {
   readonly preparedContextPath?: string;
   /** What is being handed over, for the words a bridge uses. */
   readonly purpose: "fix" | "review";
+  /**
+   * An id for the conversation, a UUID, for an agent that can be started under
+   * one and resumed by it later (Claude CLI's `--session-id`). Others ignore it.
+   */
+  readonly sessionId?: string;
 }
 
 /**
@@ -132,12 +139,20 @@ export interface AgentLaunch {
 }
 
 export type AiFixResult =
-  /** Started in a terminal this extension does not own. */
-  | { readonly kind: "terminal"; readonly label: string; readonly commandLine: string }
+  /**
+   * Started in a terminal this extension does not own. `resumeCommandLine`
+   * continues this conversation once the agent has exited, when the agent was
+   * started under a session id it can be resumed by.
+   */
+  | { readonly kind: "terminal"; readonly label: string; readonly commandLine: string; readonly resumeCommandLine?: string }
   /** Handed to an extension through a command that takes the prompt. */
   | { readonly kind: "native"; readonly label: string; readonly message: string }
-  /** On the clipboard, the agent's view brought forward where it could be: the developer pastes. */
-  | { readonly kind: "bridge"; readonly label: string; readonly message: string; readonly revealed: boolean }
+  /**
+   * On the clipboard, the agent's view brought forward where it could be: the
+   * developer pastes. `product` is what the developer calls the agent —
+   * "Paste it into Codex" — from the adapter's own definition.
+   */
+  | { readonly kind: "bridge"; readonly label: string; readonly product: string; readonly message: string; readonly revealed: boolean }
   | { readonly kind: "failed"; readonly reason: string };
 
 /** One way of reaching one agent. */
@@ -166,6 +181,12 @@ export interface AgentProbes {
    * every extension agent is reported not installed rather than guessed at.
    */
   extension?(id: string): InstalledExtension | undefined;
+  /**
+   * Whether the CLI's own `--help` lists every one of these flags
+   * (`flagProbe.ts`): asked once per executable and version, by the host.
+   * Absent, or failing, is no: a flag the CLI may not know is never passed.
+   */
+  supportsFlags?(command: string, flags: readonly string[]): Promise<boolean>;
 }
 
 export interface InstalledExtension {
@@ -269,17 +290,42 @@ export interface CliAgentDefinition {
   readonly command: string;
   readonly vendor: "codex" | "claude";
   readonly capturedReview?: CapturedReviewInvocation;
+  /**
+   * The CLI can be started under a session id of BugPilot's choosing and
+   * resumed by it — what Open AI Session needs to continue the same
+   * conversation after the agent exited. Only where both halves are documented
+   * by the CLI itself: Codex's `resume` picks the last session or asks, which
+   * is not this one reliably. Used only when the installed CLI's `--help` lists
+   * `flags`; otherwise the CLI is started as it always was.
+   */
+  readonly session?: {
+    readonly startFlag: string;
+    readonly flags: readonly string[];
+    readonly resume: (sessionId: string) => string;
+  };
 }
+
+/** A session id as BugPilot generates one, and the only shape put on a command line. */
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * The CLIs BugPilot knows the interactive invocation of: `<command> "<prompt>"`.
  *
  * Claude first: in Auto-detect's CLI tier the one with a captured review ranks
  * higher, because Review with AI can read its answer back, and the order here
- * is the tie-break after that.
+ * is the tie-break after that. Claude's `--session-id <uuid>` and
+ * `--resume <uuid>` are both in its own `--help` on 2.1.214; BugPilot sets no
+ * minimum Claude version, so each installation is asked (`supportsFlags`).
  */
 export const CLI_AGENTS: readonly CliAgentDefinition[] = [
-  { id: "claude-cli", label: "Claude CLI", command: "claude", vendor: "claude", capturedReview: CLAUDE_CAPTURED_REVIEW },
+  {
+    id: "claude-cli",
+    label: "Claude CLI",
+    command: "claude",
+    vendor: "claude",
+    capturedReview: CLAUDE_CAPTURED_REVIEW,
+    session: { startFlag: "--session-id", flags: ["--session-id", "--resume"], resume: resumeCommand },
+  },
   { id: "codex-cli", label: "Codex CLI", command: "codex", vendor: "codex" },
 ];
 
@@ -306,9 +352,29 @@ export function cliAgent(definition: CliAgentDefinition, probes: AgentProbes): A
     },
     async run(request, launch) {
       if (!isPlainPrompt(request.prompt)) return { kind: "failed", reason: REFUSED_PROMPT };
-      const commandLine = `${command} ${quote(flatten(request.prompt))}`;
+      // A session id goes on the command line only in the one shape BugPilot
+      // makes, and only to a CLI whose own --help lists both flags: anything
+      // else is left off, and the session is simply not resumable — started the
+      // way it always was, and started fresh after it exits.
+      const session = definition.session;
+      const sessionId =
+        session !== undefined &&
+        request.sessionId !== undefined &&
+        SESSION_ID.test(request.sessionId) &&
+        (await (probes.supportsFlags?.(command, session.flags) ?? Promise.resolve(false)).catch(() => false)) === true
+          ? request.sessionId
+          : undefined;
+      const commandLine =
+        sessionId === undefined
+          ? `${command} ${quote(flatten(request.prompt))}`
+          : `${command} ${session!.startFlag} ${sessionId} ${quote(flatten(request.prompt))}`;
       launch.runInTerminal(commandLine);
-      return { kind: "terminal", label, commandLine };
+      return {
+        kind: "terminal",
+        label,
+        commandLine,
+        ...(sessionId === undefined ? {} : { resumeCommandLine: session!.resume(sessionId) }),
+      };
     },
   };
 }
@@ -435,6 +501,7 @@ export function extensionAgent(definition: ExtensionAgentDefinition, probes: Age
       return {
         kind: "bridge",
         label,
+        product,
         revealed,
         message: `${purposeText(request)} copied. Paste it into ${product} to continue.`,
       };

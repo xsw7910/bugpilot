@@ -3826,6 +3826,36 @@ test("the acknowledgement wraps in a narrow sidebar and is never styled as an er
   assert.equal(/\.session-feedback[^{]*\{[^}]*errorForeground/s.test(CSS), false, "a closed terminal is not a failure");
 });
 
+// --- Manual extension handoff guidance (§40) --------------------------------
+
+test("a manual handoff's next step is a live region under the button, with a labelled Copy Again", () => {
+  const line = /<p class="handoff-guidance-text" id="handoff-guidance-text"[^>]*><\/p>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(line, "", "no guidance line");
+  assert.match(line, /role="status"/);
+  assert.match(line, /aria-live="polite"/);
+  // Not hidden: a live region added or unhidden with its text is not reliably read.
+  assert.equal(/ hidden/.test(line), false);
+  const copy = buttonTag("handoff-copy-again");
+  assert.match(copy, /type="button"/);
+  assert.match(copy, / hidden/, "Copy Again is shown before there is anything to copy");
+  assert.equal(attr(copy, "aria-describedby"), "handoff-guidance-text");
+  assert.equal(attr(copy, "title"), "Copy the same handoff prompt to the clipboard again");
+  assert.match(HTML, /id="handoff-copy-again"[^>]*>Copy Again<\/button>/);
+  // Under the button and its acknowledgement, before the settings below.
+  assert.ok(HTML.indexOf('id="session-feedback"') < HTML.indexOf('id="handoff-guidance"'));
+  assert.ok(HTML.indexOf('id="handoff-guidance"') < HTML.indexOf('id="field-fixModeId"'));
+});
+
+test("the guidance wraps in a narrow sidebar, is never a banner, and is never styled as an error", () => {
+  const rule = /\.handoff-guidance \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(rule, /flex-wrap: wrap/);
+  const text = /\.handoff-guidance-text \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(text, /overflow-wrap: anywhere/);
+  assert.match(text, /min-width: 0/);
+  assert.equal(/white-space: nowrap|(?<![a-z-])width:/.test(rule + text), false);
+  assert.equal(/\.handoff-guidance[^{]*\{[^}]*(errorForeground|background|border:)/s.test(CSS), false, "the guidance is styled as a banner or an error");
+});
+
 // --- Tooltip audit (§37.90) --------------------------------------------------
 
 /** The opening tag of the button with this id. */
@@ -3856,10 +3886,11 @@ test("Open Context and Copy say what they act on, in sentence case", () => {
   assert.equal(attr(buttonTag("copy-context"), "title"), "Copy context");
 });
 
-test("the compact next actions say what they really do: Open AI Session focuses, and never starts", () => {
+test("the compact next actions say what they really do: Open AI Session returns to the session, never a new attempt", () => {
   const session = attr(buttonTag("menu-openSession"), "title") ?? "";
-  assert.equal(session, "Focus the existing BugPilot AI terminal");
-  assert.doesNotMatch(session, /start|relaunch|restart|new/i);
+  assert.equal(session, "Return to the AI session, starting its agent again if it has exited");
+  // Start New Attempt is the separate, explicit action, and says so itself.
+  assert.doesNotMatch(session, /new|attempt/i);
   assert.equal(attr(buttonTag("menu-startNewAttempt"), "title"), "Start a new AI session using the current prepared context");
   assert.equal(attr(buttonTag("menu-rebuildContext"), "title"), "Rebuild the prepared context using the current settings");
   // The primary button uses the same words when it is one of them — the
@@ -4009,7 +4040,7 @@ test("each control sits in the group it belongs to (§37.119)", () => {
   const tree = ancestorsById(HTML);
   const groupOf = (id: string) => (tree.get(id) ?? []).find((ancestor) => (PANEL_GROUPS as readonly string[]).includes(ancestor));
   const expected: Record<string, readonly string[]> = {
-    "group-issue": ["field-issue", "issue-note", "issue-error", "run", "stop", "more-actions", "run-hint", "session-feedback", "more-menu", "menu-resetSession"],
+    "group-issue": ["field-issue", "issue-note", "issue-error", "run", "stop", "more-actions", "run-hint", "session-feedback", "handoff-guidance", "handoff-guidance-text", "handoff-copy-again", "more-menu", "menu-resetSession"],
     "group-fix-mode": ["field-fixModeId", "fixModeId", "manage-fix-modes", "fixModeId-description"],
     // Improve with AI and Include issue details belong to the Hint.
     "group-hint": ["field-hint", "hint", "improve-hint", "useIssueDetails-hint", "hint-improve-notice", "hint-improve-error", "hint-suggestion"],

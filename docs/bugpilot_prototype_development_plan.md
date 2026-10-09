@@ -10054,6 +10054,15 @@ icons updated); typecheck, smoke and `git diff --check` clean.
 
 ### 37.87 Open AI Session acknowledgement (after `d3779ee`, uncommitted)
 
+> **Superseded in part by §39 (after 0.1.1).** Two rules below no longer hold:
+> Open AI Session now starts the attempt's agent again when it is known to have
+> exited or its terminal was closed; and while its acknowledgement still goes
+> under the button in every other case, the one state BugPilot cannot read —
+> no shell-execution reports, so it cannot tell a running agent from an exited
+> one — asks in a notification instead. That notification is a deliberate
+> safety exception, not a lapse: the restart is a choice only the developer can
+> make there, and it is never typed into the existing terminal. See §39.
+
 **Status:** implemented, verified in the test suites and in a real VS Code
 window; not committed, not pushed, no version change. Extension only. Decisions
 in `BugPilot_Artifact_Simplification_Workflow_Result_Integration_Plan.md`,
@@ -13303,3 +13312,204 @@ Never publish the Marketplace extension before PyPI 0.1.1 is confirmed
 available: every new user's first click would fail with "PyPI has no
 bugpilot==0.1.1 for this Python." The post-PyPI smoke (E–F) is still required;
 the pre-PyPI smoke above does not replace it.
+
+## 39. After 0.1.1 — Open AI Session after the agent exited (uncommitted on `c8acef5`)
+
+**The bug.** Open AI Session, Ctrl+C in Claude CLI, Open AI Session again: the
+terminal came back with no agent in it, and nothing in the panel could start it
+again. Root cause: the handoff types the agent's command line into an
+interactive shell (`createTerminal` + `sendText`), and `revealTerminal` took
+"terminal open, shell not exited" (`exitStatus === undefined`) as "session
+running". The shell outlives the agent, so after the agent exits that test is
+still true; and §37.87 had made Open AI Session focus-only by design.
+
+### 39.1 Behaviour
+
+Open AI Session stays one button and is never a new attempt; what it does
+follows what is known about the agent (`src/app/terminalActivity.ts`, fed by
+the host's terminal module `src/host/agentTerminals.ts`):
+
+| Agent | Open AI Session | Said |
+| --- | --- | --- |
+| running — a command in progress, or typed < 15 s ago | brought forward; nothing typed or started | under the button: "AI session focused" |
+| exited — the shell reported the command ended | the attempt's agent typed into the same terminal | under the button: "Claude CLI had exited — resuming its session" / "… — started again on the same task" |
+| terminal closed | the same, in a new terminal of the same name | under the button: "Resuming Claude CLI in a new terminal" / "Started … again in a new terminal" |
+| unknown — no execution reports: VS Code 1.90–1.92, cmd.exe, integration off, a terminal from before a reload | brought forward, and the restart **asked** | under the button: "AI session focused"; and a notification: "BugPilot cannot tell whether … is still running in “…”. If it has exited, …" with **Resume AI Session** / **Restart AI Session** |
+
+**The notification rule (replaces §37.87's "under the button only").** In the
+three states BugPilot can read, Open AI Session acts and says so under the
+button, and shows no notification (the general rule is §40's). Only in the unknown state does it ask, in a
+notification, because the restart is a decision only the developer can make
+there: accepted, the agent starts in a **new** terminal; it is never typed into
+the existing one, where it would be a message to an agent that may still be
+running. That notification is an intentional safety exception, not a lapse,
+and is not to be widened to the other states.
+
+- **Not a new attempt.** No feedback, no retry package, no rebuild, nothing
+  written or deleted; the attempt count and terminal name stay. Start New
+  Attempt is still the separate, explicit action.
+- **Repeated presses.** A launch counts as running for 15 s and until shell
+  integration reports its end; an accepted offer starts nothing once a restart
+  was made since it was shown, the attempt changed, or another work item is open.
+- The log names the adapter, never the command line or the session id (§37.95).
+
+### 39.2 VS Code compatibility
+
+`engines.vscode` stays `^1.90.0`. The execution events
+`window.onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution`
+are stable API from 1.93. On 1.90–1.92 they are a *proposed* API: the members
+exist on `vscode.window`, and calling one throws "Extension … CANNOT use API
+proposal: terminalShellIntegration" for an extension that did not enable it
+(read in 1.92.2's `extensionHostProcess.js`: the method calls the proposal check
+first). `createAgentTerminals` therefore subscribes to both or neither, inside a
+`try`: absent, not a function, a throwing getter or a throwing call all mean
+"not available" — nothing is subscribed, activation goes on, the log says
+"Terminal activity: this VS Code does not report shell executions to extensions
+(VS Code 1.93 or later does), so Open AI Session asks before starting an agent
+again", and every agent is `unknown` after its launch grace.
+
+**A real bug, found and fixed here.** The first version of this change
+subscribed with `if (window.onDidStart…) window.onDidStart…(…)`. On VS Code
+1.92.2 that throws during `activate`, and the whole extension fails to load
+(exthost.log: "Activating extension ShiweiX.bugpilot failed … CANNOT use API
+proposal: terminalShellIntegration"; Workflow empty, Results "no data
+provider"). Reproduced in the real 1.92.2 with the old code put back into an
+installed copy; the guarded version activates there (§39.6).
+
+### 39.3 Claude CLI compatibility: capability fallback
+
+BugPilot sets no minimum Claude CLI version — not in the README, Diagnostics,
+agent detection (`canRun` only locates `claude`) or the tests; the captured
+review's flags were measured on 2.1.214 without a version gate. So the
+installed CLI is asked (`src/app/flagProbe.ts`): `claude --help`, by argv
+through the trusted runner, no shell, 10 s, from the temp directory, once per
+executable and build (path, size, modification time; an upgrade is asked
+again), the help text never logged — one line, "claude: its --help lists
+--session-id, --resume." or "… does not list …; not using …". Any doubt is
+"no": not startable without a shell (an npm `claude.cmd` shim on Windows),
+spawn error, timeout, non-zero exit, a flag not listed as its own word.
+
+| Claude CLI | Fix with AI | After it exits |
+| --- | --- | --- |
+| `--help` lists `--session-id` and `--resume` | `claude --session-id <uuid> "<prompt>"` (a fresh UUID per attempt) | `claude --resume <uuid>` — that conversation |
+| does not, or cannot be asked | `claude "<prompt>"`, as before this change | `claude "<prompt>"` again — the same task, from the same prepared files |
+
+The decision is made at the handoff and kept in the session record; a restart
+asks nothing. Codex CLI (`resume` takes the last session or a picker) and
+custom commands are never asked and always restart on the same task. Review
+with AI is unchanged.
+
+### 39.4 Limitations
+
+- No process monitoring: without execution reports BugPilot cannot tell and
+  asks. "Exited" means the shell's foreground command ended.
+- For 15 s after a launch a press only brings the terminal forward.
+- If VS Code ever failed to report an end, the agent would read as running;
+  closing its terminal is the way out (closed → started again). Not seen in
+  any run.
+- The session record is per window: after a reload there is nothing to start
+  again from. Persisting it — including Claude session ids — is future work
+  without an approved design.
+- A Claude CLI that cannot be asked without a shell (npm `claude.cmd` on
+  Windows) is not resumable; it restarts on the same task.
+- `claude --resume` fails, in the terminal, if Claude never wrote the session
+  (exited within its first moment); Start New Attempt is the way on.
+
+### 39.5 Tests
+
+Extension suite 2164: `test/terminalActivity.test.ts` 8; `test/agentTerminals.test.ts`
+8 — the API absent, a throwing call (1.90–1.92's proposal gate), a throwing
+getter, one event only, the second subscription failing (the first disposed),
+the API present, a foreign terminal, closed; `test/flagProbe.test.ts` 7 — lists
+both, lists neither, word boundaries, once per build and shared by concurrent
+questions, an upgrade asked again, every doubt false, each outcome logged once
+and never the help text; `test/agents.test.ts` +5 — modern, legacy, a failing
+or absent check (no flag passed), no session id or a malformed one (not asked),
+Codex and custom (never asked); `test/controller.test.ts` — the reported failure
+(fails on the old controller), running, closed, unknown and the offer
+(dismissed, accepted, accepted late or twice), Codex, custom, a new attempt's
+own session, a failed restart, an older Claude (plain launch, fresh restart,
+attempt count unchanged), a failing check, the modern Claude asked once, and
+VS Code 1.90–1.92 end to end through the real host module over a window whose
+API is absent or gated (focused and asked, never typed into, one restart however
+often accepted). `npm run smoke` asserts activation without the API. Mutation
+check: with the old unguarded subscription the gated tests fail with the
+proposal error.
+
+### 39.6 Real VS Code checks
+
+All in fresh profiles with a development VSIX of this change, the 0.1.1 CLI
+from PyPI as `bugpilot.executablePath`, a controlled PATH with no real agent,
+and stand-ins that start no model: a custom command that only sleeps, and two
+`claude.exe` stand-ins (console scripts) whose `--help` does or does not list
+the flags, which log their argv and wait. VS Code builds downloaded from
+Microsoft's update service, SHA-256 checked against its API and Authenticode
+signed by Microsoft Corporation.
+
+| VS Code | Scenario | Result |
+| --- | --- | --- |
+| 1.139.1 | custom agent: running → Ctrl+C → closed (12 checks) | focused, one agent; restarted in the same terminal (same parent shell); started in a new terminal; log names "Custom command" only |
+| 1.139.1 | shell integration off: unknown (5) | focused, nothing started; the offer shown; accepted → a new terminal, the old agent untouched |
+| 1.139.1 | modern Claude stand-in (11) | `--session-id <uuid>`; after Ctrl+C `--resume <same uuid>` in the same terminal; `--help` asked once; no id in the log |
+| 1.139.1 | legacy Claude stand-in (11) | plain `claude "<prompt>"`; after Ctrl+C the same command, no `--resume`; the stand-in never received either flag |
+| 1.92.2 | modern Claude stand-in (14) | activates, Workflow/Results load, the fallback logged, no error; launched with `--session-id`; focus only within the grace; after it focused and offered **Resume AI Session**, nothing typed; accepted → `--resume <same uuid>` in a new terminal, one launch only |
+| 1.92.2 | the previous, unguarded code | activation fails: "CANNOT use API proposal: terminalShellIntegration" |
+
+Diagnostics with an instrumented copy (events written to a file): with shell
+integration on, a start, an end 0.1 s after Ctrl+C, and the restart's start;
+with it off — from launch or toggled mid-session — no events at all, and the
+offer after the grace. One early run in an uninstrumented profile showed no
+offer after a mid-session toggle; three instrumented repeats of that sequence
+behaved as designed, and the one follow-up press that only focused fell within
+the launch grace.
+
+## 40. 0.1.2 — Manual extension handoff guidance (uncommitted on `c8acef5`)
+
+**The problem.** With the Codex or Claude extension as the AI Agent, Fix with AI
+copies the handoff prompt and opens the agent's own view, and the developer
+pastes it there. That step — the one thing only the developer can do — was said
+in a toast that disappears, and otherwise only as the Fix with AI row's second
+line, at the foot of Workflow Steps, usually below the fold and far from the
+button just pressed. The agent's view can also cover BugPilot's sidebar.
+
+**The rule.** Required next-step instructions belong in the persistent Workflow
+panel. Notifications are reserved for transient status, or for a choice only
+the developer can make — Open AI Session's unknown state (§39.1) is that case;
+a manual handoff's paste step is not, and stays inline.
+
+| AI Agent | Fix with AI | In the panel, under the primary button | Notification |
+| --- | --- | --- | --- |
+| Codex Extension | prompt copied, Codex's view opened | ✓ **Context copied.** / Paste it into Codex to continue. · **Copy Again** | "AI fix context copied." |
+| Claude Extension | the same | … Paste it into Claude to continue. · **Copy Again** | the same |
+| Codex CLI, Claude CLI, custom command | a terminal, unchanged | nothing | none, unchanged |
+
+- Decided by the adapter's result — a bridge: on the clipboard, to be pasted —
+  with the agent's name from its definition (`product`); an extension that took
+  the prompt itself (native) gets none.
+- **Copy Again** copies exactly what was handed over (the handoff prompt, or a
+  new attempt's retry prompt) and nothing else; the line says "Context copied
+  again." No run, file, attempt or agent view.
+- **Lifetime:** the controller's, for the current attempt. It survives redraws,
+  form and settings changes, refreshes, the sidebar being covered and Open AI
+  Session; the next handoff replaces it; Start New Attempt, Run / Rebuild
+  Context, another work item, Reset Session, Clean and the agent's report
+  arriving (a `fix_report.md` new or changed since the handoff) end it.
+- The primary button and Open AI Session are unchanged: after an extension
+  handoff the button stays Fix with AI until the agent's report.
+- A polite live region that is always in the document (announced without
+  moving the focus), the check `aria-hidden`, and Copy Again outlined like
+  ⋯ More so it reads in every theme, at rest and on hover.
+- Not changed: Review with AI through an extension still says its paste step in
+  the Fix result row and a toast — a candidate for the same rule.
+
+**Verified.** Extension suite 2183 (controller, page, panel and agents tests for
+both extensions, both CLIs, Copy Again, every way the state ends, the toast's
+wording). Real VS Code 1.139.1 with stand-in Codex and Claude extensions (the
+real ids, local, version 999.0.0 so VS Code never replaces them with the
+Marketplace builds) and a stand-in Claude CLI: the guidance appeared, survived
+the agent's view covering BugPilot and ten seconds, Copy Again restored the
+same prompt with no notification and no view opened, Claude's wording after
+switching, the report ending it, a new attempt bringing it back, Open AI
+Session leaving it, nothing for Claude CLI; Dark, Light, High Contrast and High
+Contrast Light at about 200, 280 and 360 px with no horizontal overflow, Copy
+Again at least 8.5:1 at rest and on hover.

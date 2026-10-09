@@ -252,6 +252,8 @@ test("the bridge copies the prompt, then brings the agent's own view forward, an
   assert.deepEqual(result, {
     kind: "bridge",
     label: "Claude Extension",
+    // What the developer calls the agent, from the definition: where the panel says to paste.
+    product: "Claude",
     revealed: true,
     message: "BugPilot AI fix context copied. Paste it into Claude to continue.",
   });
@@ -418,6 +420,83 @@ test("an explicit extension that is installed resolves to its bridge", async () 
   const { probes } = machine({ extensions: { "openai.chatgpt": CODEX_EXTENSION } });
   const resolution = await resolve(service(probes).agents, "codex-extension");
   assert.equal(resolution.kind === "ready" && resolution.capability.integration, "extension-bridge");
+});
+
+// --- resumable sessions (Open AI Session after the agent exited) ---------------------------
+
+const SESSION = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const CLAUDE_CLI = CLI_AGENTS.find((entry) => entry.id === "claude-cli")!;
+
+/** Claude CLI over a probe that answers what its --help lists; records every question. */
+function claudeWith(answer: boolean | Error | undefined) {
+  const asked: { command: string; flags: readonly string[] }[] = [];
+  const { probes } = machine({ onPath: ["claude"] });
+  const probed: AgentProbes =
+    answer === undefined
+      ? probes
+      : {
+          ...probes,
+          supportsFlags: async (command, flags) => {
+            asked.push({ command, flags });
+            if (answer instanceof Error) throw answer;
+            return answer;
+          },
+        };
+  return { claude: cliAgent(CLAUDE_CLI, probed), asked };
+}
+
+test("a Claude CLI whose --help lists both flags is started under the session id, and resumes exactly that session", async () => {
+  const { claude, asked } = claudeWith(true);
+  const { launch, terminals } = recordingLaunch();
+  const result = await claude.run({ ...REQUEST, sessionId: SESSION }, launch);
+  const expected = `claude --session-id ${SESSION} ${JSON.stringify(PROMPT)}`;
+  assert.deepEqual(terminals, [expected]);
+  assert.deepEqual(result, { kind: "terminal", label: "Claude CLI", commandLine: expected, resumeCommandLine: `claude --resume ${SESSION}` });
+  assert.deepEqual(asked, [{ command: "claude", flags: ["--session-id", "--resume"] }]);
+});
+
+test("a Claude CLI that does not list them is started as it always was, and offers no resume", async () => {
+  const { claude } = claudeWith(false);
+  const { launch, terminals } = recordingLaunch();
+  const result = await claude.run({ ...REQUEST, sessionId: SESSION }, launch);
+  assert.deepEqual(terminals, [`claude ${JSON.stringify(PROMPT)}`]);
+  assert.deepEqual(result, { kind: "terminal", label: "Claude CLI", commandLine: `claude ${JSON.stringify(PROMPT)}` });
+});
+
+test("a capability check that fails, or a host without one, never puts the flags on the command line", async () => {
+  for (const answer of [new Error("spawn EPERM"), undefined]) {
+    const { claude } = claudeWith(answer);
+    const { launch, terminals } = recordingLaunch();
+    const result = await claude.run({ ...REQUEST, sessionId: SESSION }, launch);
+    assert.deepEqual(terminals, [`claude ${JSON.stringify(PROMPT)}`], String(answer));
+    assert.equal(result.kind === "terminal" && result.resumeCommandLine, undefined, String(answer));
+  }
+});
+
+test("without a session id, or with one that is not a UUID, Claude CLI starts as before — and its --help is not asked", async () => {
+  const { claude, asked } = claudeWith(true);
+  for (const sessionId of [undefined, "", "x; rm -rf ~", "--fork-session", SESSION.toUpperCase(), `${SESSION} `]) {
+    const { launch, terminals } = recordingLaunch();
+    const result = await claude.run(sessionId === undefined ? REQUEST : { ...REQUEST, sessionId }, launch);
+    assert.deepEqual(terminals, [`claude ${JSON.stringify(PROMPT)}`], String(sessionId));
+    assert.equal(result.kind === "terminal" && result.resumeCommandLine, undefined, String(sessionId));
+  }
+  assert.deepEqual(asked, [], "Review with AI and malformed ids need no capability check");
+});
+
+test("Codex CLI and a custom command ignore a session id, and are never asked about the flags", async () => {
+  const asked: string[] = [];
+  const { probes } = machine({ onPath: ["codex", "my-agent"] });
+  const probed: AgentProbes = { ...probes, supportsFlags: async (command) => (asked.push(command), true) };
+  const codex = cliAgent(CLI_AGENTS.find((entry) => entry.id === "codex-cli")!, probed);
+  const custom = customCommandAgent(`my-agent --prompt ${PROMPT_PLACEHOLDER}`, probed);
+  for (const adapter of [codex, custom]) {
+    const { launch, terminals } = recordingLaunch();
+    const result = await adapter.run({ ...REQUEST, sessionId: SESSION }, launch);
+    assert.equal(terminals[0]!.includes(SESSION), false, adapter.label);
+    assert.equal(result.kind === "terminal" && result.resumeCommandLine, undefined, adapter.label);
+  }
+  assert.deepEqual(asked, []);
 });
 
 // --- the custom command -------------------------------------------------------------------

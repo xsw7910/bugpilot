@@ -6053,11 +6053,11 @@ test("under the button, at most one state, and none for Run or Fix with AI — t
 
   // A session this window started: why the button reopens it.
   p.send(prepared(STARTED));
-  shows("Open AI Session", "AI session started", "Focus the existing BugPilot AI terminal");
+  shows("Open AI Session", "AI session started", "Return to the AI session, starting its agent again if it has exited");
   assert.equal(p.byId("workflow-status").textContent, "AI fix started");
   // A report from one it did not: the header says so, and only the header.
   p.send(reported({ readable: true, summary: "Fixed it." }));
-  shows("Open AI Session", "", "Focus the existing BugPilot AI terminal");
+  shows("Open AI Session", "", "Return to the AI session, starting its agent again if it has exited");
   assert.equal(p.byId("workflow-status").textContent, "Fix report available");
 
   // A failure: the card says it, and nothing under the button competes with it.
@@ -6469,6 +6469,7 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
   const opened: string[] = [];
   const jsonArgs: string[][] = [];
   const hintPrompts: string[] = [];
+  let sessionIds = 0;
   const folders: string[] = [];
   const written: { path: string; contents: string }[] = [];
   const revealed: string[] = [];
@@ -6540,6 +6541,10 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
         if (name !== undefined) revealed.push(name);
         return name !== undefined;
       },
+      // Every launched agent still running: the page's loop never sees one exit.
+      terminalActivity: (matches) => ([...terminalNames].some((candidate) => matches(candidate)) ? "running" : "closed"),
+      sendToTerminal: () => false,
+      offer: async () => false,
       openFolder: async (directory) => { folders.push(directory.replaceAll("\\", "/")); },
       pickFiles: async () => [],
       runCommand: async () => {},
@@ -6550,6 +6555,10 @@ function loop(options: { holdRun?: boolean; deleteArtifacts?: ControllerPorts["d
     jiraCredentials: { status: async () => ({ configured: true, email: "me@example.com" }), save: async () => {} },
     descriptionFilePath: () => "/tmp/bugpilot-description.md",
     canRun: async () => true,
+    // The n-th fix handoff's session id, so a command line can be compared whole.
+    newSessionId: () => `00000000-0000-4000-8000-${String(++sessionIds).padStart(12, "0")}`,
+    // A Claude CLI whose --help lists --session-id and --resume, as 2.1.214's does.
+    cliSupportsFlags: async () => true,
     improveHint: async (request) => {
       hintPrompts.push(request.prompt);
       return { ok: true, text: "Look in the widget controller." };
@@ -6631,7 +6640,9 @@ test("Start New Attempt, pressed on the page, writes the feedback and hands over
   // The CLI's own retry loop builds the package from it…
   assert.deepEqual(l.jsonArgs.at(-1), ["bug", "JR-12345", "--retry", "--prepare-only", "--json"]);
   // …and that package is what the new session is told to read.
-  assert.deepEqual(l.terminals, [`claude ${JSON.stringify("Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.")}`]);
+  assert.deepEqual(l.terminals, [
+    `claude --session-id 00000000-0000-4000-8000-000000000001 ${JSON.stringify("Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.")}`,
+  ]);
   assert.equal(l.page.byId("attempt-editor").hidden, true, "the form stayed open after the host started the attempt");
   assert.equal(l.page.byId("run-label").textContent, "Open AI Session");
 
@@ -6697,7 +6708,7 @@ test("every row action and Improve, pressed on the page, reach the controller th
   assert.equal(l.jsonArgs.filter((args) => args[0] === "review-package").length, 3);
   assert.deepEqual(l.terminals, [
     `claude ${JSON.stringify("# Final Review Request Review the BugPilot result for work item JR-12345.")}`,
-    `claude ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`,
+    `claude --session-id 00000000-0000-4000-8000-000000000001 ${JSON.stringify("Read .ai/JR-12345/task.md and complete the workflow.")}`,
   ]);
   assert.equal(l.hintPrompts.length, 1, "Improve never reached the hint improver");
 });
@@ -8608,6 +8619,55 @@ test("the page sends only the intent: which terminal, and whether it is there, a
   assert.equal(p.byId("session-feedback").textContent, "");
 });
 
+// --- Manual extension handoff guidance (§40) --------------------------------
+
+const handedToExtension = (handoff?: PanelState["manualHandoff"]) =>
+  prepared({ fix: { status: "success", detail: "Context copied for Codex." } }, handoff === undefined ? {} : { manualHandoff: handoff });
+const guidanceText = (p: Page) =>
+  p.byId("handoff-guidance-text").children.map((child) => (typeof child === "string" ? child : child.textContent)).join("");
+
+test("a manual handoff's next step is under the button, in the host's words, with Copy Again", () => {
+  const p = load();
+  p.send(handedToExtension());
+  assert.equal(p.byId("handoff-copy-again").hidden, true);
+  assert.equal(guidanceText(p), "");
+  p.byId("run").focus();
+
+  p.send(handedToExtension({ title: "Context copied.", next: "Paste it into Codex to continue.", seq: 1 }));
+  assert.equal(guidanceText(p), "Context copied. Paste it into Codex to continue.");
+  // The check is decoration; the words say it.
+  const icon = p.byId("handoff-guidance-text").children[0] as FakeElement;
+  assert.ok(icon.classes.has("codicon-check"));
+  assert.equal(icon.getAttribute("aria-hidden"), "true");
+  assert.equal(p.byId("handoff-copy-again").hidden, false);
+  assert.ok(p.byId("handoff-guidance").classes.has("is-shown"));
+  assert.equal(p.focused, "run", "the guidance moved the keyboard focus");
+
+  // Gone when the host drops it.
+  p.send(handedToExtension());
+  assert.equal(guidanceText(p), "");
+  assert.equal(p.byId("handoff-copy-again").hidden, true);
+  assert.equal(p.byId("handoff-guidance").classes.has("is-shown"), false);
+});
+
+test("a redraw with the same guidance leaves it alone, so it is not announced again; a new copy is written", () => {
+  const p = load();
+  p.send(handedToExtension({ title: "Context copied.", next: "Paste it into Claude to continue.", seq: 3 }));
+  p.byId("handoff-guidance-text").replaceChildren();
+  p.send(handedToExtension({ title: "Context copied.", next: "Paste it into Claude to continue.", seq: 3 }));
+  assert.equal(guidanceText(p), "", "a redraw rewrote the live region");
+  p.send(handedToExtension({ title: "Context copied again.", next: "Paste it into Claude to continue.", seq: 4 }));
+  assert.equal(guidanceText(p), "Context copied again. Paste it into Claude to continue.");
+});
+
+test("Copy Again sends only the intent: what to copy is the host's", () => {
+  const p = load();
+  p.send(handedToExtension({ title: "Context copied.", next: "Paste it into Codex to continue.", seq: 1 }));
+  const before = p.posted.length;
+  p.byId("handoff-copy-again").dispatch("click");
+  assert.deepEqual(p.posted.slice(before), [{ type: "action", id: "copyHandoffAgain" }]);
+});
+
 // --- Fix result: Show more / Show less (§37.89) ------------------------------
 
 const LONG_SUMMARY =
@@ -8740,7 +8800,7 @@ test("the primary button's tooltip follows its action, and carries the shortcut"
   assert.equal(p.byId("run").getAttribute("title"), "Open the prepared work item in the selected AI agent (Ctrl+Enter)");
   p.send(prepared({ fix: { status: "success", detail: "Handed to Claude Code in a terminal." } }));
   assert.equal(p.byId("run-label").textContent, "Open AI Session");
-  assert.equal(p.byId("run").getAttribute("title"), "Focus the existing BugPilot AI terminal (Ctrl+Enter)");
+  assert.equal(p.byId("run").getAttribute("title"), "Return to the AI session, starting its agent again if it has exited (Ctrl+Enter)");
   p.send(state());
   assert.equal(p.byId("run-label").textContent, "Run");
   // Run's own, since its explanation left the line under it (§37.104).

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.2 — unreleased
+
+- **What to do after an extension handoff stays in the panel.** With the Codex
+  or Claude extension as the AI Agent, Fix with AI copies the handoff prompt
+  and opens the agent's own view. The step only you can take — *Context copied.
+  Paste it into Codex to continue.* — is now said under the primary button,
+  with **Copy Again**, until a new attempt, a rebuild, Reset Session, Clean or
+  the agent's report; it was a notification that disappeared. The notification
+  now only says *AI fix context copied.* Codex CLI, Claude CLI and a custom
+  command are unchanged: they start in a terminal, with nothing to paste.
+- **Open AI Session after the agent exited.** It used to bring the terminal
+  back with the agent no longer running in it — after Ctrl+C or `/exit` the
+  terminal stays open — and gave no way to start the agent again. Now, when the
+  agent is known to have exited, or its terminal was closed, it starts the
+  attempt's agent again: Claude CLI resumes the same conversation when its own
+  `--help` lists `--session-id` and `--resume` (BugPilot starts it with
+  `--session-id` and resumes that id), and otherwise starts again on the same
+  task, as do Codex CLI and a custom command. No Claude version is required,
+  and a flag the installed Claude CLI does not list is never passed. A running
+  agent is still only brought forward, never started twice. Whether it is
+  running comes from VS Code's shell integration (VS Code 1.93 or later);
+  without it — VS Code 1.90 to 1.92 among others — the restart is offered in a
+  notification rather than assumed. Not a new attempt: nothing is prepared,
+  rebuilt, written or deleted.
+
 ## 0.1.1 — 2026-10-09
 
 - **Install BugPilot Runtime.** With no CLI found, the panel says *BugPilot CLI

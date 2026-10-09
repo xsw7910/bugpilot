@@ -58,8 +58,9 @@ export const PRIMARY_TOOLTIPS = {
   run: "Prepare the issue context for AI-assisted fixing",
   fixWithAI: "Open the prepared work item in the selected AI agent",
   rebuildContext: "Rebuild the prepared context using the current settings",
-  // Focus only: Open AI Session never starts or restarts a session (§37.87).
-  openSession: "Focus the existing BugPilot AI terminal",
+  // Never a new attempt: the same session, its agent started again only when
+  // it is known to have exited, or its terminal closed (§37.87, Open AI Session).
+  openSession: "Return to the AI session, starting its agent again if it has exited",
 } as const satisfies Record<PrimaryActionId, string>;
 
 /** The primary button's shortcut: in its tooltip and `aria-keyshortcuts`, never on screen (§37.105). */

@@ -2364,8 +2364,62 @@ button:focus-visible {
   margin: 2px 0;
 }
 
-.session-feedback.is-focused {
+.session-feedback.is-focused,
+.session-feedback.is-restarted {
   color: var(--vscode-foreground);
+}
+
+/* A manual extension handoff's next step (§40), under the button: what was
+   copied and where to paste it, with Copy Again. No height until the host says
+   so; a quiet line with a check, never a banner. It wraps at any width, and
+   Copy Again drops under the words when the panel is narrow. */
+.handoff-guidance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.handoff-guidance.is-shown {
+  margin: 4px 0 2px;
+}
+
+.handoff-guidance-text {
+  flex: 1 1 12em;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.9em;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+.handoff-guidance-icon {
+  margin-right: 4px;
+  font-size: 14px;
+  vertical-align: text-bottom;
+}
+
+.handoff-guidance-title {
+  font-weight: 600;
+}
+
+.handoff-guidance-next {
+  display: block;
+}
+
+/* Copy Again: outlined like ⋯ More — a hairline border, no fill, the normal
+   foreground — so it reads in every theme, at rest and on hover, and never
+   competes with the primary button above it. */
+#handoff-copy-again {
+  padding: 2px 8px;
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+#handoff-copy-again:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
 }
 
 /* --- buttons -------------------------------------------------------------- */

@@ -25,6 +25,8 @@ import type { FixModeCatalog, ManagedFixModes } from "../app/fixModes.ts";
 import type { IssueDetails } from "../app/hintImprovement.ts";
 import { childEnvironmentAdditions, locateExecutable } from "../executablePath.ts";
 import { pickLatestSession, sessionIdFromFileName } from "../app/session.ts";
+import { createAgentTerminals } from "./agentTerminals.ts";
+import type { HostTerminalWindow } from "./agentTerminals.ts";
 import { trustedRunner } from "../runner.ts";
 import { writeWorkItemFile } from "../app/sessionReset.ts";
 import { CAPTURED_REVIEW_TIMEOUT_MS } from "../app/reviewRun.ts";
@@ -76,9 +78,23 @@ export function createFilesPort(): FilesPort {
 export interface UiPortDeps {
   readonly render: (state: PanelState) => void;
   readonly refreshViews: () => void;
+  /** Where the terminal-activity listeners are disposed with the extension. */
+  readonly subscriptions: { push(...items: vscode.Disposable[]): unknown };
+  readonly log?: { info(message: string): void };
 }
 
 export function createUiPort(deps: UiPortDeps): UiPort {
+  // `vscode.window` as the terminal module reads it: VS Code 1.93's execution
+  // events are looked up, and used, at run time (`agentTerminals.ts`).
+  const terminals = createAgentTerminals(vscode.window as unknown as HostTerminalWindow<vscode.Terminal>, {
+    subscriptions: deps.subscriptions,
+    env: () => ({ ...childEnvironmentAdditions() }),
+  });
+  deps.log?.info(
+    terminals.tracksExecutions
+      ? "Terminal activity: VS Code reports shell executions, so Open AI Session can tell a running agent from an exited one."
+      : "Terminal activity: this VS Code does not report shell executions to extensions (VS Code 1.93 or later does), so Open AI Session asks before starting an agent again.",
+  );
   return {
     render: deps.render,
     refreshViews: deps.refreshViews,
@@ -116,24 +132,11 @@ export function createUiPort(deps: UiPortDeps): UiPort {
       // Already checked against COMMANDS by the controller; this only executes.
       await vscode.commands.executeCommand(commandId);
     },
-    runInTerminal: (name, cwd, commandLine) => {
-      // The shell resolves the agent's name; with this switch cmd.exe — and every
-      // program started inside the terminal, such as an npm shim's `node` — skips
-      // the repository, the working directory.
-      const terminal = vscode.window.createTerminal({ name, cwd, env: { ...childEnvironmentAdditions() } });
-      terminal.show();
-      terminal.sendText(commandLine, true);
-    },
-    revealTerminal: (matches) => {
-      // The newest match that is still open: a later attempt's terminal is the
-      // session to go back to, and one whose shell has exited is not a session.
-      const terminal = [...vscode.window.terminals]
-        .reverse()
-        .find((candidate) => candidate.exitStatus === undefined && matches(candidate.name));
-      if (!terminal) return false;
-      terminal.show();
-      return true;
-    },
+    runInTerminal: terminals.runInTerminal,
+    revealTerminal: terminals.revealTerminal,
+    terminalActivity: terminals.terminalActivity,
+    sendToTerminal: terminals.sendToTerminal,
+    offer: async (message, action) => (await vscode.window.showInformationMessage(message, action)) === action,
     openFolder: async (directory) => {
       // The editor's own explorer rather than the OS file manager: the point is
       // to look at what the run wrote, and that is one click from here.

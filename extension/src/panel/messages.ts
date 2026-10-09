@@ -249,11 +249,19 @@ export interface PanelState {
   /**
    * What the last Open AI Session press came to (§37.87), shown under the
    * primary button. The host's answer, never the page's guess: `focused` for
-   * a while after a terminal was brought forward, `unavailable` or `failed`
-   * until the next press or until Open AI Session is no longer offered.
+   * a while after a terminal was brought forward; `restarted`, `unavailable` or
+   * `failed` until the next press or until Open AI Session is no longer offered.
    * `seq` changes with each press, so a redraw does not announce it again.
    */
   readonly sessionFeedback?: SessionFeedback;
+  /**
+   * A manual extension handoff's next step (§40): the handoff prompt is on the
+   * clipboard and the developer pastes it into the agent's own view. Shown
+   * under the primary button with Copy Again until the attempt moves on — the
+   * host's words, and the host's call when it goes. `seq` changes with each
+   * copy, so a redraw does not announce it again.
+   */
+  readonly manualHandoff?: ManualHandoffView;
   /**
    * A run failure no workflow row owns, classified and worded for a human.
    *
@@ -380,8 +388,17 @@ export interface SessionResetView {
  * things: joining them into one paragraph put a Jira misconfiguration under a
  * heading about repository files. The page renders one card per notice.
  */
+export interface ManualHandoffView {
+  /** "Context copied." — or "Context copied again." after Copy Again. */
+  readonly title: string;
+  /** "Paste it into Codex to continue." */
+  readonly next: string;
+  readonly seq: number;
+}
+
 export interface SessionFeedback {
-  readonly kind: "focused" | "unavailable" | "failed";
+  /** `restarted`: the attempt's agent had exited, or its terminal had closed, and was started again. */
+  readonly kind: "focused" | "restarted" | "unavailable" | "failed";
   readonly message: string;
   readonly seq: number;
 }
@@ -444,6 +461,9 @@ export type Readiness =
 export const PANEL_ACTIONS = [
   "openContext",
   "copyContext",
+  // A manual extension handoff's Copy Again: the host copies the text it handed
+  // over last; the page names none.
+  "copyHandoffAgain",
   "openFolder",
   "fixWithAI",
   "setCredentials",

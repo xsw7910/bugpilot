@@ -210,7 +210,7 @@ item — you never need to know what resume, retry or fresh mean to find it:
 | --- | --- | --- |
 | **Run** | Nothing is prepared yet | Prepares the context (and hands it over, if **Fix with AI** is ticked) |
 | **Fix with AI** | `task.md` is ready and no agent has had it | Hands the prepared `task.md` to your agent — no second preparation |
-| **Open AI Session** | An attempt has started | Brings back the terminal the agent is running in |
+| **Open AI Session** | An attempt has started | Brings back the agent's terminal — and starts the agent again there if it has exited |
 | **Rebuild Context** | You changed the issue, hint, keywords, focus files, Fix Mode or another preparation setting since | Prepares it again, keeping what the agent wrote |
 | **Running…** | Something is in flight | Nothing — it waits |
 
@@ -495,11 +495,39 @@ Settings → Fix with AI → AI Agent**: Auto-detect, Codex CLI, Claude CLI, the
 Codex or Claude extension, or a custom command of your own (see below).
 
 After the handoff the button is **Open AI Session**: keep talking to the agent
-in its terminal. It brings that terminal forward and says **AI session
-focused** under the button for a moment — also when the terminal was already in
-front, so a press never looks like it did nothing. It never starts a session or
-a second terminal: if that terminal has been closed, the line says **AI session
-is no longer available** and points to ⋯ → Start New Attempt.
+in its terminal. While the agent is running, it brings that terminal forward
+and says **AI session focused** under the button for a moment — also when the
+terminal was already in front, so a press never looks like it did nothing — and
+never starts a second agent.
+
+If the agent has exited — `/exit`, Ctrl+C — or its terminal was closed, Open AI
+Session starts it again for the same attempt, in the same terminal (or a new one
+of the same name), and says so under the button. Claude CLI resumes its
+conversation when the installed Claude CLI supports it: BugPilot asks its
+`claude --help` once per installation, and when that lists `--session-id` and
+`--resume`, starts the handoff under a session id of its own and resumes exactly
+that one (`claude --resume <id>`). Otherwise — an older Claude CLI, or one that
+cannot be asked without a shell, such as an npm-installed `claude.cmd` on
+Windows — Claude CLI is started the way it always was, and started again on the
+same task after it exits. BugPilot requires no particular Claude version. Codex
+CLI and a custom command start again on the same task, reading the same
+prepared files, because their sessions cannot be identified reliably. Nothing
+is prepared, rebuilt, written or deleted for it, and it is not a new attempt —
+that is still ⋯ → Start New Attempt.
+
+Telling whether the agent is still running needs VS Code's shell integration
+(VS Code 1.93 or later, with PowerShell, bash, zsh, fish or Git Bash; not
+cmd.exe). Without it — including on VS Code 1.90 to 1.92, which this extension
+still supports — BugPilot cannot tell: Open AI Session brings the terminal
+forward and offers **Resume AI Session** (or **Restart AI Session**) in a
+notification, which starts the agent in a new terminal — never typed into one
+where the agent may still be running. That notification is the only one Open
+AI Session shows; everything else it says is under the button. For about 15
+seconds after the agent is started, a press only brings it forward. If an agent
+has exited but a press still only brings its terminal forward, close that
+terminal and press again: the agent starts in a new one. After a window reload
+BugPilot no longer knows the attempt's agent, so it can only bring an open
+terminal back; otherwise it says the session is not available in this window.
 
 When the agent writes its report, `fix_report.md`, a **Fix result** row appears
 under Fix with AI: the report's first **Summary** line and its **Tests** line,
@@ -808,7 +836,7 @@ Reset waits for it.
 ## When a fix did not work
 
 If the agent is still running, tell it in its terminal — **Open AI Session**
-takes you there. For a clean start instead — the session ended, the approach
+takes you there, and starts the agent again first if it has exited. For a clean start instead — the session ended, the approach
 was wrong, a review or a check found problems — choose **⋯ → Start New
 Attempt**. A form opens under Fix with AI with one optional box: *What should
 the new attempt do differently?*
