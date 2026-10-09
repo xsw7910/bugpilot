@@ -13513,3 +13513,168 @@ switching, the report ending it, a new attempt bringing it back, Open AI
 Session leaving it, nothing for Claude CLI; Dark, Light, High Contrast and High
 Contrast Light at about 200, 280 and 360 px with no horizontal overflow, Copy
 Again at least 8.5:1 at rest and on hover.
+
+## 41. BugPilot 0.1.2 — release preparation (2026-10-09, uncommitted on `3307c5f`)
+
+Nothing published, committed, pushed or tagged. PyPI and the Marketplace stay
+at 0.1.1, and the published 0.1.1 files are untouched. §39 and §40 were
+committed together as `3307c5f` ("fix: improve AI session restart and handoff
+guidance"), which stays as it is; `origin/main` is still `c8acef5`, so the
+push carries both commits.
+
+**What 0.1.2 ships.** Two extension fixes, both in `3307c5f`:
+
+- Open AI Session after the agent exited (§39): running → the terminal is
+  brought forward and nothing is started; exited → started again in that
+  terminal, for the same attempt; terminal closed → started again in a new
+  terminal; unknown (no shell integration: cmd.exe, VS Code 1.90–1.92) → the
+  terminal brought forward and Resume/Restart AI Session offered in a
+  notification, never typing into a terminal where the agent may still run.
+  Claude CLI resumes its conversation (`--session-id` at the handoff,
+  `--resume` after) only when its `--help` lists both flags; otherwise, like
+  Codex CLI and a custom command, it starts again on the same task.
+- Manual extension handoff guidance (§40): after Fix with AI through the Codex
+  or Claude extension, *Context copied. Paste it into Codex|Claude to
+  continue.* with **Copy Again** stays under the primary button until a new
+  attempt, a rebuild or the agent's report; the toast only says *AI fix context
+  copied.*
+
+The `bugpilot` CLI 0.1.2 is 0.1.1 with a new version number
+(`git diff c8acef5 -- bugpilot/ tests/ pyproject.toml scripts/` is the version
+line only), released so the runtime of extension 0.1.2 —
+`bugpilot==<extension version>` — has a matching version on PyPI.
+
+**Version locations.** Every 0.1.1 classified, not replaced wholesale.
+
+| Kind | Where | 0.1.2 change |
+| --- | --- | --- |
+| Authoritative, Python | `bugpilot/__init__.py` `__version__` (the one source: `pyproject.toml` is `dynamic`) | bumped |
+| Authoritative, extension | `extension/package.json` and the two root entries of `package-lock.json`, through `npm version 0.1.2 --no-git-tag-version` (no tag; CRLF kept) | bumped |
+| Runtime pin | none of its own: `context.extension.packageJSON.version` → `ManagedRuntimeManager` → `bugpilot==0.1.2`; no version literal in `src/` or the built `out/` | follows the manifest |
+| Licences | Licensed Work "BugPilot CLI and Tools Version 0.1.2." and "BugPilot for VS Code Version 0.1.2."; Change Date 2030-10-08, Change License Apache 2.0, the Additional Use Grant, the Licensor and the standard text unchanged | bumped |
+| Documentation | `README.md` and `extension/README.md` (the expected `bugpilot --version`), `docs/architecture.md` (package version), `docs/development.md` ("BugPilot 0.1.1 and 0.1.2 keep that Change Date.") | updated |
+| Changelog | `extension/CHANGELOG.md`: "## 0.1.2 — 2026-10-09" with the two fixes and the CLI note; 0.1.1 and 0.1.0 kept | finalized |
+| History, kept | the CHANGELOG's 0.1.1/0.1.0 entries, the `cli.py` comment example, the release workflow's input example, this plan | unchanged |
+| Test fixtures, kept | 0.1.1 as a runtime or CLI version in `managedRuntime.test.ts` and `controller.test.ts` | unchanged |
+| Not ours | `secretlint ^10.1.2` in `package-lock.json`; `1.10.1.2.3` in `test_publishable.py` | unchanged |
+
+If the release slips past 2026-10-09, the CHANGELOG heading's date moves with
+it (0.1.1 was dated when it was prepared, too).
+
+**Compatibility, re-checked on the release build.** Source, built JavaScript and
+real windows: resolution order configured → managed → PATH unchanged
+(`executable.ts`, and in `out/executable.js`); `engines.vscode` still
+`^1.90.0`, the shell-integration events feature-detected and subscribed
+both-or-neither, so VS Code 1.90–1.92 (where the proposed API throws) falls
+back to the unknown state; the Claude capability probe asks `--help` once per
+executable build, every doubt is "no", and a legacy or unprobeable Claude keeps
+the plain command.
+
+**Artifacts.** Built from a clean snapshot of the working tree (tracked and
+non-ignored files only) with the workflow's command,
+`python -m build --sdist --wheel --outdir <fresh>/dist .`; the VSIX from a
+deleted-and-rebuilt `out/` with `vsce package --no-dependencies --out
+<fresh>/bugpilot-0.1.2.vsix`, so `extension/bugpilot-0.1.0.vsix` and
+`extension/bugpilot-0.1.1.vsix` are untouched.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| `bugpilot-0.1.2-py3-none-any.whl` | 273,408 | `7829ae4eafc92180e5dc1e235f778712e83066ca24d8b3611fa51d0dce096bef` |
+| `bugpilot-0.1.2.tar.gz` | 250,618 | `42cf7a7b99404558ccba9ff0d9311f3185cd10835d2f3a76c639c99af277e662` |
+| `bugpilot-0.1.2.vsix` | 510,990 | `ca4b754c8f93816363ea8fc9552bde0418e726675d3922b2c7350514608a8a9b` |
+
+- Validation builds only: the release workflow builds the published files on
+  Linux from the pushed commit (LF, not this checkout's CRLF), so its hashes
+  differ; its run summary lists them. The final VSIX is built from the pushed
+  commit after PyPI (below).
+- `twine check --strict`: both PASSED. Metadata: Name bugpilot, Version 0.1.2,
+  License-Expression BUSL-1.1, License-File LICENSE (shipped, 0.1.2),
+  Requires-Python >=3.10, Author Shiwei Xing, Repository and Issues URLs, entry
+  points `bugpilot` and `bugpilot-mcp`.
+- Against the published 0.1.1 (downloaded, hashes matching PyPI's): the same 59
+  wheel and 65 sdist files; ignoring line endings only `__init__.py`,
+  METADATA/PKG-INFO, LICENSE and the README's version line differ.
+- Clean install: a new venv, `pip install --no-index --no-deps` of the wheel
+  (bugpilot 0.1.2 and pip, nothing else); `bugpilot --version` →
+  `bugpilot 0.1.2`; `scripts/check_cli_contract.py --expect-version 0.1.2`: all
+  28 command lines accepted; a prepare-only `bugpilot bug` on a synthetic
+  repository: exit 0, the five artifacts, the relevant file in `context.md`,
+  no home path in them, the source tree untouched.
+- VSIX: name bugpilot, displayName BugPilot, version 0.1.2, publisher ShiweiX,
+  `SEE LICENSE IN LICENSE.txt` (0.1.2), CHANGELOG first entry 0.1.2, icon,
+  THIRD_PARTY_NOTICES and the codicons attribution; 77 entries, 62 built
+  JavaScript, including `managedRuntime.js`, `app/terminalActivity.js`,
+  `host/agentTerminals.js` and `app/flagProbe.js`; no node_modules, tests,
+  TypeScript sources, maps, docs, plans or nested archives. Against the 0.1.1
+  VSIX: those three new modules, and every changed file traces to `3307c5f` or
+  the version metadata.
+- Scans of all three (the publishability guard's patterns, plus secrets, home
+  and temp paths, the work domain and account, session ids, internal batch
+  labels, private Jira sites, forbidden archive members; checked against a
+  planted control first): nothing. Older-version mentions are history only
+  (the CHANGELOG, the `cli.py` comment example). The same scan of the published
+  0.1.1 files gives the same result.
+
+**Pre-PyPI smoke** (portable VS Code 1.139.1 unless noted; one fresh profile per
+row with only the 0.1.2 VSIX; controlled PATH with no bugpilot, pipx, claude or
+codex; stand-in agents only; driven through the DevTools protocol).
+
+| Scenario | Result |
+| --- | --- |
+| `bugpilot.executablePath` at the clean 0.1.2 install | Ready with no card, the five Fix Modes from the CLI, no runtime directory, no CLI problem logged (8/8); a prepare-only Run, then a custom stand-in agent: running → focused, one agent; Ctrl+C → started again in the same shell; closed → a new terminal; the log names the adapter, never the command (12/12) |
+| Claude CLI stand-in whose `--help` lists both flags | `claude --session-id <uuid> "<prompt>"`; running → focused; after Ctrl+C `claude --resume <same uuid>` in the same terminal; the probe asked once; no session id logged (11/11) |
+| Claude CLI stand-in without them | the plain command; after Ctrl+C started fresh on the same task, no `--resume` (11/11) |
+| VS Code 1.92.2, the first stand-in | activated, the fallback logged, no API-proposal error; unknown → focused, nothing typed, "BugPilot cannot tell whether Claude CLI is still running…"; Resume AI Session → `--resume <same uuid>` in a new terminal, the old one untouched; no second launch (14/14) |
+| Codex and Claude extension stand-ins (local, 999.0.0), then Claude CLI | the guidance under the button for Codex, then Claude; Copy Again with no notification and no view opened; the report ends it; Start New Attempt brings it back; Open AI Session leaves it; nothing for Claude CLI (13/14, 4/4, 5/5, 3/3 — below) |
+| No CLI anywhere, Python 3.14 on PATH | "BugPilot CLI is required." with Install BugPilot Runtime primary, Choose Executable, Install Instructions, Retry; Run disabled; no runtime directory 10 s after activation; pressed: one venv and one pip for exactly `bugpilot==0.1.2`, pip "(from versions: 0.1.0, 0.1.1)", card "BugPilot runtime setup could not be completed." / "PyPI has no bugpilot==0.1.2 for this Python." with Retry · Choose Executable · Show Details, the version directory removed (12/12) |
+
+The one miss is the harness, not BugPilot: Windows refused every clipboard read
+and write in the session while it was locked (`Get-Clipboard`: "Requested
+Clipboard operation did not succeed"; the clipboard sequence number did not
+move for VS Code or PowerShell), so the smoke could not read what Fix with AI
+and Copy Again copied. The extension code and media in this VSIX are
+byte-identical to the build whose §40 smoke read that exact prompt back from the
+clipboard, and the controller tests cover what is copied.
+
+**Validation.** Python suite 1816 passed and 1 failed (isolated home, no Jira
+variables): `test_the_cli_writes_utf8_json_through_a_pipe_whatever_the_code_page`
+runs `python -m bugpilot` from a temporary directory and this machine's Python
+no longer has bugpilot installed ("No module named bugpilot"); with the
+repository on `PYTHONPATH` it passes, and the installed 0.1.2 wheel writes the
+same UTF-8 JSON under `PYTHONIOENCODING=cp1252`. Publishability and the argv
+contract 52/52, CLI contract 28/28, `twine check --strict`. Extension suite
+2183/2183; focused: terminal activity, agent terminals, the flag probe and the
+agents 74/74, Open AI Session and the Claude capability in the controller 22/22,
+the handoff guidance in controller, page and panel 21/21; typecheck; `npm run
+smoke` (23 commands, 2 views); integration 16/16 (isolated home); package check
+(75 files, 62 built JavaScript); the rebuilt `out/` identical to the VSIX's;
+`git diff --check` clean.
+
+**Release workflow.** `.github/workflows/release.yml` unchanged and right for
+0.1.2: `workflow_dispatch` only; the input must match `^[0-9]+\.[0-9]+\.[0-9]+$`
+and `dist` must hold exactly `bugpilot-0.1.2-py3-none-any.whl` and
+`bugpilot-0.1.2.tar.gz` — replayed locally on the 0.1.2 build: 0.1.2 accepted;
+0.1.1 and 1.0.0 stopped by the filename check; `v0.1.2`, `0.1`, `0.1.2-rc1`, a
+trailing space and a quoted injection rejected by the pattern. `twine check
+--strict`, the SHA-256 in the run summary, the publish job in the `pypi`
+environment with `id-token: write` (OIDC); no token, secret or new input.
+
+**Release order.** As in `docs/development.md` (PyPI before the Marketplace):
+
+    A  review the release-prep changes
+    B  commit them (3307c5f stays as it is)
+    C  push both commits: 3307c5f and the release-prep commit
+    D  run Actions > Release with version 0.1.2; approve the pypi environment
+    E  verify: a new venv, pip install bugpilot==0.1.2, bugpilot --version
+       → bugpilot 0.1.2
+    F  build the final VSIX from the pushed commit
+    G  real managed-runtime smoke against live PyPI 0.1.2: a fresh profile with
+       no CLI, Install BugPilot Runtime, ready; restart, still ready without
+       reinstalling; one prepare-only Run
+    H  only then upload 0.1.2 to the Marketplace
+
+Do not publish the Marketplace extension before PyPI 0.1.2 exists: every new
+user's first Install BugPilot Runtime would fail with "PyPI has no
+bugpilot==0.1.2 for this Python." — the pre-PyPI smoke above shows exactly
+that. The post-PyPI smoke (E–G) is still required; the pre-PyPI smoke does not
+replace it.

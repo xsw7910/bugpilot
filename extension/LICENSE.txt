@@ -4,7 +4,7 @@ Parameters
 
 Licensor:             Shiwei Xing
 
-Licensed Work:        BugPilot for VS Code Version 0.1.1.
+Licensed Work:        BugPilot for VS Code Version 0.1.2.
                       The Licensed Work is © 2026 Shiwei Xing.
 
 Additional Use Grant: You may make production use of the Licensed Work

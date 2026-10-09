@@ -16,7 +16,7 @@ orchestrators, every core module, and the artifact pipeline that flows through
 not at an end user (see the [README](../README.md) and
 [extension/README.md](../extension/README.md) for that).
 
-- Package name: `bugpilot` (`pyproject.toml`), version `0.1.1`.
+- Package name: `bugpilot` (`pyproject.toml`), version `0.1.2`.
 - Package / import name: `bugpilot` (matches the CLI). Env vars are `BUGPILOT_*`; the artifact dirs stay `.ai/` / `.ai_memory/`.
 - Console script: `bugpilot = bugpilot.cli:main`.
 - Runtime dependencies: **none** — standard library only. `requires-python >= 3.10`.

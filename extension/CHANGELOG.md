@@ -1,29 +1,36 @@
 # Changelog
 
-## 0.1.2 — unreleased
+## 0.1.2 — 2026-10-09
 
+- **Open AI Session starts the agent again when it has exited.** After Ctrl+C
+  or `/exit` the terminal stays open with no agent in it, and Open AI Session
+  used to bring that terminal back and nothing more. Now it goes by what the
+  agent is doing:
+  - **running** — the terminal is brought forward; a second agent is never
+    started;
+  - **exited** — the agent starts again in that terminal, for the same attempt;
+  - **terminal closed** — the agent starts again in a new terminal;
+  - **unknown** — without VS Code's shell integration (cmd.exe, or VS Code
+    1.90 to 1.92, for example) BugPilot cannot tell, so it brings the terminal
+    forward and asks in a notification whether to resume or restart; it never
+    types into a terminal where the agent may still be running.
+
+  Claude CLI resumes the same conversation when the installed CLI supports it
+  (its `--help` lists `--session-id` and `--resume`); otherwise Claude CLI,
+  Codex CLI and a custom command start again on the same task. Nothing is
+  prepared again, and it is not a new attempt: that is still Start New Attempt.
 - **What to do after an extension handoff stays in the panel.** With the Codex
   or Claude extension as the AI Agent, Fix with AI copies the handoff prompt
-  and opens the agent's own view. The step only you can take — *Context copied.
-  Paste it into Codex to continue.* — is now said under the primary button,
-  with **Copy Again**, until a new attempt, a rebuild, Reset Session, Clean or
-  the agent's report; it was a notification that disappeared. The notification
-  now only says *AI fix context copied.* Codex CLI, Claude CLI and a custom
-  command are unchanged: they start in a terminal, with nothing to paste.
-- **Open AI Session after the agent exited.** It used to bring the terminal
-  back with the agent no longer running in it — after Ctrl+C or `/exit` the
-  terminal stays open — and gave no way to start the agent again. Now, when the
-  agent is known to have exited, or its terminal was closed, it starts the
-  attempt's agent again: Claude CLI resumes the same conversation when its own
-  `--help` lists `--session-id` and `--resume` (BugPilot starts it with
-  `--session-id` and resumes that id), and otherwise starts again on the same
-  task, as do Codex CLI and a custom command. No Claude version is required,
-  and a flag the installed Claude CLI does not list is never passed. A running
-  agent is still only brought forward, never started twice. Whether it is
-  running comes from VS Code's shell integration (VS Code 1.93 or later);
-  without it — VS Code 1.90 to 1.92 among others — the restart is offered in a
-  notification rather than assumed. Not a new attempt: nothing is prepared,
-  rebuilt, written or deleted.
+  and opens the agent's own view. *Context copied. Paste it into Codex to
+  continue.* now stays in the Workflow panel, under the primary button, with
+  **Copy Again**, until a new attempt, a rebuild or the agent's report. The
+  notification no longer carries that step; it only says *AI fix context
+  copied.* Codex CLI, Claude CLI and a custom command are unchanged.
+- The `bugpilot` CLI 0.1.2 is 0.1.1 with a new version number, released so the
+  runtime installs the matching version.
+
+Requires Python 3.10 or later and the `bugpilot` CLI 0.1.2 or later — the
+BugPilot runtime installs it, or install it with `pipx install bugpilot`.
 
 ## 0.1.1 — 2026-10-09
 
