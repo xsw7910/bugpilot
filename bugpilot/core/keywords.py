@@ -47,7 +47,7 @@ STOP_WORDS = {
     "result", "results", "description", "summary", "note", "notes", "please",
     "thanks", "following", "below", "above", "current", "currently", "version",
     "environment", "screenshot", "attached", "attachment",
-    "when", "where", "what", "which", "how", "why", "also", "still", "than",
+    "when", "where", "what", "which", "how", "why", "also", "still", "than", "out",
     "very", "just", "only", "there", "here", "again",
     # stack-trace / log framing words (never a useful search term)
     "traceback", "stacktrace", "exception", "raised", "caused", "recent",
@@ -91,6 +91,77 @@ _TOKEN_RE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.)[A-Za-z_][A-Za-z0-9_]*)+"
     r"|[A-Za-z][A-Za-z0-9_-]{2,}"
 )
+
+# --- noise that is never a name in the code (0.1.3, §42.3) -------------------
+#
+# Taken out of the text before it is tokenized, so none of it is searched. Kept
+# narrow on purpose: `utf-8`, `x86-64`, `qt-6` and `module.attr` all survive.
+
+#: A link: to a site, a ticket, a log. Its parts are never what the code calls things.
+_URL_RE = re.compile(r"\b(?:https?|ftp|file)://[^\s<>\"'()\[\]]+", re.IGNORECASE)
+_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
+#: Where a name ends: not inside a longer one. A full stop may follow — the end
+#: of a sentence — but not a full stop that continues the name.
+_NAME_END = r"(?![\w-])(?!\.[\w-])"
+#: A lowercase dotted name, a host if its last label says so.
+_DOTTED_RE = re.compile(r"(?<![\w.-])[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+" + _NAME_END)
+#: Suffixes that make any dotted lowercase name a host.
+_HOST_SUFFIXES = frozenset({"invalid", "localhost", "com", "net", "org", "corp", "intranet", "lan"})
+#: Suffixes that are also ordinary attribute names (`self.test`, `socket.io`):
+#: a host only with three labels or more, or a digit or hyphen in one.
+_AMBIGUOUS_HOST_SUFFIXES = frozenset({"example", "test", "local", "internal", "io", "dev"})
+#: A machine name: lowercase words joined by hyphens, numbered — `build-host-01`.
+#: Two words at least, so `utf-8`, `qt-6` and `x86-64` are never one.
+_MACHINE_RE = re.compile(r"(?<![\w.-])[a-z]+(?:-[a-z]+)+-\d{1,4}" + _NAME_END)
+
+
+def _is_host(value: str) -> bool:
+    labels = value.split(".")
+    if len(labels) < 2 or any(not label or label[0] == "-" or label[-1] == "-" for label in labels):
+        return False
+    suffix = labels[-1]
+    if suffix in _HOST_SUFFIXES:
+        return True
+    if suffix in _AMBIGUOUS_HOST_SUFFIXES:
+        return len(labels) >= 3 or any(ch.isdigit() or ch == "-" for label in labels[:-1] for ch in label)
+    return False
+
+
+def remove_noise(text: str) -> tuple[str, list[str]]:
+    """``text`` without links, addresses, host and machine names; and the names it took out.
+
+    A link or an e-mail address is dropped without being recorded: either can
+    carry a token or a person. Host and machine names are recorded, so a
+    context can say what was not searched.
+    """
+    if not text:
+        return text, []
+    removed: list[str] = []
+    text = _URL_RE.sub(" ", text)
+    text = _EMAIL_RE.sub(" ", text)
+
+    def host(match: re.Match[str]) -> str:
+        if not _is_host(match.group(0)):
+            return match.group(0)
+        if match.group(0) not in removed:
+            removed.append(match.group(0))
+        return " "
+
+    def machine(match: re.Match[str]) -> str:
+        if match.group(0) not in removed:
+            removed.append(match.group(0))
+        return " "
+
+    text = _DOTTED_RE.sub(host, text)
+    text = _MACHINE_RE.sub(machine, text)
+    return text, removed
+
+
+#: How far a word only the comments or the environment use ranks below the
+#: issue's own words of the same shape: comment prose under all issue prose, a
+#: comment identifier under every issue identifier.
+SECONDARY_RANK_PENALTY = 4
+
 
 # Quoted strings — UI labels, messages, exact error text — searched verbatim.
 # Straight single quotes are intentionally excluded (they collide with
@@ -324,20 +395,53 @@ def shape_expansions(text: str) -> list[str]:
     return shapes
 
 
-def extract_keywords(text: str, max_keywords: int = 15, priority_text: str = "") -> dict[str, object]:
+def text_tokens(text: str) -> set[str]:
+    """The lowercase tokens ``extract_keywords`` would read in ``text``, file stems included."""
+    tokens: set[str] = set()
+    for token in _TOKEN_RE.findall(text or ""):
+        for value in (token, _file_stem(token)):
+            base = (value or "").strip("._:-")
+            if len(base) >= 3:
+                tokens.add(base.lower())
+    return tokens
+
+
+def extract_keywords(
+    text: str, max_keywords: int = 15, priority_text: str = "", secondary_text: str = ""
+) -> dict[str, object]:
     """Rank keywords from ``text``. Tokens that also appear in ``priority_text``
-    (stack traces / error messages) are boosted so they lead the ranking."""
+    (stack traces / error messages) are boosted so they lead the ranking.
+
+    ``secondary_text`` is the comments and the environment (0.1.3,
+    §42.3): read, but not what the issue is about. Each of its words counts
+    once however often it is repeated — four comments saying "verified" are
+    not four times the evidence — and a word only it uses ranks below the
+    issue's own words of the same shape (``SECONDARY_RANK_PENALTY``). Links,
+    addresses, host and machine names are taken out of all three first
+    (:func:`remove_noise`).
+    """
+    text, noise = remove_noise(text)
+    priority_text, priority_noise = remove_noise(priority_text)
+    secondary_text, secondary_noise = remove_noise(secondary_text)
     best: dict[str, str] = {}   # lowercased key -> best original casing seen
     freq: Counter[str] = Counter()
     priority: set[str] = set()
+    core: set[str] = set()
+    secondary: set[str] = set()
 
-    def add(token: str, is_priority: bool = False) -> None:
+    def add(token: str, is_priority: bool = False, is_secondary: bool = False) -> None:
         base = token.strip("._:-")
         if len(base) < 3:
             return
         low = base.lower()
         if low in STOP_WORDS and not _is_identifier_shaped(base):
             return
+        if is_secondary:
+            if low in secondary:
+                return
+            secondary.add(low)
+        else:
+            core.add(low)
         freq[low] += 1
         prev = best.get(low)
         # Prefer a variant that carries case information (an identifier signal).
@@ -346,25 +450,27 @@ def extract_keywords(text: str, max_keywords: int = 15, priority_text: str = "")
         if is_priority:
             priority.add(low)
 
-    for token in _TOKEN_RE.findall(text):
-        add(token)
-        stem = _file_stem(token)
-        if stem:
-            add(stem)  # also search the class/name, not just the file reference
-    # Identifiers from stack traces / error messages are the strongest signal.
-    for token in _TOKEN_RE.findall(priority_text):
-        add(token, is_priority=True)
-        stem = _file_stem(token)
-        if stem:
-            add(stem, is_priority=True)
+    readings = ((text, False, False), (priority_text, True, False), (secondary_text, False, True))
+    for source, is_priority, is_secondary in readings:
+        # Identifiers from stack traces / error messages are the strongest signal.
+        for token in _TOKEN_RE.findall(source):
+            add(token, is_priority, is_secondary)
+            stem = _file_stem(token)
+            if stem:
+                add(stem, is_priority, is_secondary)  # also search the class/name, not just the file reference
 
     def sort_key(low: str) -> tuple[int, int]:
         boost = _PRIORITY_BOOST if low in priority else 0
-        return (_identifier_score(best[low]) + boost, freq[low])
+        penalty = SECONDARY_RANK_PENALTY if low not in core else 0
+        return (_identifier_score(best[low]) + boost - penalty, freq[low])
 
     ranked = sorted(best, key=sort_key, reverse=True)
     keywords = [best[low] for low in ranked]
     compounds = [best[low] for low in ranked if _identifier_score(best[low]) >= 5]
+    removed: list[str] = []
+    for value in [*noise, *priority_noise, *secondary_noise]:
+        if value not in removed:
+            removed.append(value)
     return {
         # The five original lists, unchanged: the context prints them and the
         # memory search scores with them. The tiering here is still positional,
@@ -373,7 +479,10 @@ def extract_keywords(text: str, max_keywords: int = 15, priority_text: str = "")
         "high_value_keywords": keywords[:5],
         "normal_keywords": keywords[5:max_keywords],
         "dropped_keywords": keywords[max_keywords:],
-        "phrase_keywords": _extract_phrases(text),
+        # A quoted message in a comment is still a quoted message: the issue's
+        # own first, then the comments'. What it is worth is decided later,
+        # from where it came from.
+        "phrase_keywords": _extract_phrases(f"{text}\n{secondary_text}"),
         "expanded_keywords": _expanded_keywords(compounds, existing=set(best)),
         # Which of them the software itself printed, in a stack trace or an
         # error message. The strongest signal a report carries, and the one
@@ -382,5 +491,10 @@ def extract_keywords(text: str, max_keywords: int = 15, priority_text: str = "")
         # Identifier shapes built from adjacent words (§33.7B). Candidates only:
         # each is a guess until the repository confirms it, which `search.py`
         # does before any of them can affect a ranking.
+        # From the issue's own words only: a phrase the comments use is not
+        # what the issue is about.
         "shape_candidates": shape_expansions(text),
+        # Host and machine names taken out before anything was ranked: never
+        # searched, and listed so the context can say so.
+        "noise_keywords": removed,
     }

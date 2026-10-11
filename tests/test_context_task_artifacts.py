@@ -282,19 +282,22 @@ def test_the_task_carries_the_task_the_handoff_and_the_team_rules(tmp_path):
     assert "### Objective" in task
     # BugPilot's safety rules, inline, where the agent reads them.
     rules = _section(task, "## BugPilot Safety Rules")
-    assert "### Core Principles" in task
-    assert "### Git Safety" in task
-    assert "Nothing later in this task relaxes them." in rules
+    assert "### Test and Check Integrity" in rules
+    assert "## BugPilot Working Guidance" in task
+    assert "### Git, Jira and Credentials" in rules
+    assert "nothing later in the task relaxes them" in rules
     # Then what the repository is, from its profile.
     assert "Repository profile:" in _section(task, "## Repository Context")
     inputs = _section(task, "## Required Input Files")
-    assert f"- Read `.ai/{work_item}/context.md`." in inputs
-    assert "Similar fixes and git history are included in `context.md`." in inputs
+    assert f"- Read `.ai/{work_item}/context.md`:" in inputs
+    assert "similar fixes and git history" in inputs
     outputs = _section(task, "## Required Output Files")
     assert f"Write one report: `.ai/{work_item}/fix_report.md`" in outputs
     for heading in ("`## Summary`", "`## Analysis`", "`## Changes`", "`## Tests`", "`## Review Notes`"):
         assert heading in outputs, heading
-    assert "- Do not update Jira." in _section(task, "## Forbidden Actions")
+    # No status comment asked for: the Safety Rules' Jira rule leaves no Jira write at all.
+    assert "Never transition, assign, or change Jira fields." in rules
+    assert "## Report Status to Jira" not in task
     assert "## Investigation Handoff" in task
     for name in LEGACY_FILES:
         assert name not in task, name
@@ -381,7 +384,7 @@ def test_the_context_command_gathers_git_and_memory_in_memory(tmp_path, monkeypa
     [
         (["git-context"], "# Git Context:"),
         (["memory", "search"], "# Memory Search:"),
-        (["agent-instructions"], "## Core Principles"),
+        (["agent-instructions"], "## Test and Check Integrity"),
     ],
 )
 def test_the_intermediate_commands_print_and_write_nothing(tmp_path, monkeypatch, capsys, argv, printed):

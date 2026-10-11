@@ -15,7 +15,9 @@ an ordinary reason — there is no Jira, no such work item — but argparse's us
 error (exit code 2: "unrecognized arguments", "invalid choice") means the CLI
 is older than the extension, and fails the check. It also checks that
 `bugpilot --version` prints `bugpilot <version>`, and with `--expect-version`
-which version.
+which version; and that `doctor --json` lists every capability the extension
+depends on (the fixture's `capabilities`), since a CLI too old for a feature
+can accept every argument and still ignore it.
 
 Standard library only; prints one line per command and exits non-zero on any
 mismatch.
@@ -64,7 +66,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expect-version", help="The version `bugpilot --version` must report.")
     args = parser.parse_args(argv)
 
-    commands = json.loads(FIXTURE.read_text(encoding="utf-8"))["commands"]
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    commands = fixture["commands"]
+    required_capabilities = list(fixture.get("capabilities", []))
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="bugpilot-contract-") as scratch:
         base = Path(scratch)
@@ -90,6 +94,19 @@ def main(argv: list[str] | None = None) -> int:
         elif args.expect_version and reported != f"bugpilot {args.expect_version}":
             failures.append(f"--version: printed {reported!r}, expected 'bugpilot {args.expect_version}'")
         print(f"{'ok' if not failures else 'FAIL'}  --version -> {reported}")
+
+        # The features the extension depends on, by name: an older CLI accepts
+        # every argument and still ignores a file it has never heard of.
+        doctor = subprocess.run([args.bugpilot, "doctor", "--json"], capture_output=True, text=True, env=env, cwd=repo,
+                                encoding="utf-8", errors="replace")
+        try:
+            reported_capabilities = json.loads(doctor.stdout)["report"].get("capabilities", [])
+        except (ValueError, KeyError, TypeError, AttributeError):
+            reported_capabilities = []
+        missing = [name for name in required_capabilities if name not in reported_capabilities]
+        if missing:
+            failures.append(f"doctor --json: no capability {', '.join(missing)}")
+        print(f"{'FAIL' if missing else 'ok'}  doctor --json capabilities -> {', '.join(reported_capabilities) or 'none'}")
 
         for entry in commands:
             concrete = []

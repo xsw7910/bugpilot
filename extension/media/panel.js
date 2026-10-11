@@ -70,10 +70,12 @@
   ];
 
   /**
-   * The Verification Policy's switches and their defaults,
-   * as `VERIFICATION_FIELDS` in `projectSettings.ts` lists them. Not in
-   * `SETTINGS_SWITCHES`: one of them ships off, so absent is each one's own
-   * default rather than on.
+   * The legacy Verification switches and their defaults, as
+   * `VERIFICATION_FIELDS` in `projectSettings.ts` lists them. No control edits
+   * them since 0.1.3 (§42.5) — the Verification Policy is text, edited in an
+   * editor tab — so the page carries the host's values through unchanged, and
+   * the host keeps its own over anything sent. One ships off, so absent is each
+   * one's own default rather than on.
    */
   const VERIFICATION_SWITCHES = {
     verifyRelevantTests: true,
@@ -182,8 +184,8 @@
       ],
       focus: ["repositoryProfile"],
     },
-    "ai-instructions": {
-      fields: ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun"],
+    "guidance-verification": {
+      fields: [],
       focus: ["user-instructions-edit"],
     },
     "build-context": { fields: ["fresh"], focus: ["fresh"] },
@@ -694,7 +696,10 @@
     settings.gitHistoryDepth = gitHistoryDepthOf(byId("gitHistoryDepth").value);
     settings.branchPolicy = branchPolicyOf(byId("branchPolicy").value);
     settings.repositoryProfile = repositoryProfileOf(byId("repositoryProfile").value);
-    for (const field of Object.keys(VERIFICATION_SWITCHES)) settings[field] = byId(field).checked;
+    // No controls: the applied values, as the host last sent them.
+    for (const [field, fallback] of Object.entries(VERIFICATION_SWITCHES)) {
+      settings[field] = committed && typeof committed[field] === "boolean" ? committed[field] : fallback;
+    }
     settings.branchNaming = branchNamingOf(byId("branchNaming").value);
     return settings;
   }
@@ -753,9 +758,6 @@
     byId("gitHistoryDepth").value = gitHistoryDepthOf(settings.gitHistoryDepth);
     byId("branchPolicy").value = branchPolicyOf(settings.branchPolicy);
     byId("repositoryProfile").value = repositoryProfileOf(settings.repositoryProfile);
-    for (const [field, fallback] of Object.entries(VERIFICATION_SWITCHES)) {
-      byId(field).checked = typeof settings[field] === "boolean" ? settings[field] : fallback;
-    }
     byId("branchNaming").value = branchNamingOf(settings.branchNaming);
     applyAgentVisibility();
     applyRepositoryVisibility();
@@ -3325,7 +3327,6 @@
     byId("gitHistoryDepth").disabled = !enabled;
     byId("branchPolicy").disabled = !enabled;
     byId("repositoryProfile").disabled = !enabled;
-    for (const field of Object.keys(VERIFICATION_SWITCHES)) byId(field).disabled = !enabled;
     byId("branchNaming").disabled = !enabled;
     applyStepBoxes();
   }
@@ -3541,6 +3542,8 @@
     // User or Project instructions: one page, reached
     // from the settings page and returning to it.
     instructions: "instructions-editor-view",
+    // The Verification Policy Preview, read-only: from the settings page and back to it.
+    "verification-preview": "verification-preview-view",
   };
 
   const VIEW_SECTIONS = [...new Set(Object.values(PANEL_VIEWS))];
@@ -3564,6 +3567,7 @@
     "fix-mode-new": "editor-title",
     "fix-mode-edit": "editor-title",
     instructions: "instructions-title",
+    "verification-preview": "verification-preview-title",
   };
 
   let activeView = "main";
@@ -3608,9 +3612,13 @@
    * one more thing that can disagree. This is the only place that decides.
    */
   function viewFor(state, editor) {
-    // The instruction editor is the host's, like the Fix Mode one, and is only
-    // ever reached from the settings page.
-    if (!state.manage) return settingsOpen ? (state.instructionsEditor ? "instructions" : "settings") : "main";
+    // The instruction editor and the Verification Policy Preview are the
+    // host's, like the Fix Mode views, and only ever reached from the settings page.
+    if (!state.manage) {
+      if (!settingsOpen) return "main";
+      if (state.instructionsEditor) return "instructions";
+      return state.verificationPreview ? "verification-preview" : "settings";
+    }
     if (editor) {
       if (editor.intent === "view") return "fix-mode-preview";
       return editor.intent === "create" ? "fix-mode-new" : "fix-mode-edit";
@@ -3655,6 +3663,11 @@
         focusElement(back);
         return;
       }
+    }
+    // And from the Preview: on the Preview button that opened it.
+    if (view === "settings" && previous === "verification-preview") {
+      focusElement(byId("verification-policy-preview"));
+      return;
     }
     // Coming back to a mode the developer was reading, put them back on the
     // button they left from rather than at the top of it again.
@@ -3703,6 +3716,8 @@
    * open (its `token`), never by a later push, so typing is never overwritten.
    */
   function renderInstructions(state) {
+    renderVerificationPolicy(state.verificationPolicy);
+    renderVerificationPreview(state.verificationPreview);
     const rows = state.instructions || {};
     for (const scope of ["user", "project"]) {
       const row = rows[scope] || { status: "", editable: false };
@@ -3741,6 +3756,81 @@
       instructionsErrorToken = editor.error.token;
       showInstructionsError(editor.error.message);
     }
+  }
+
+  // --- the Verification Policy (§42.5) ---------------------------------------
+
+  /**
+   * Words into an element only when they changed: the row's state is a live
+   * region, and rewriting the same words on every push would have a screen
+   * reader say them again each time.
+   */
+  function setText(element, text) {
+    if (element.textContent !== text) element.textContent = text;
+  }
+
+  /** A row note: shown with its words when there are any, hidden otherwise. */
+  function setNote(id, text) {
+    setText(byId(`${id}-text`), text || "");
+    byId(id).hidden = !text;
+  }
+
+  /**
+   * The Verification Policy row: every word of it the host's, from `bugpilot
+   * verification show --json`. The page decides nothing about the policy — not
+   * its source, not whether a problem is one, not whether the context is stale.
+   * An older host's state without the field leaves the row quiet and its
+   * actions off.
+   */
+  function renderVerificationPolicy(row) {
+    const view = row || {};
+    setText(byId("verification-policy-source"), view.source || "");
+    byId("verification-policy-source").hidden = !view.source;
+    setNote("verification-policy-problem", view.problem);
+    setNote("verification-policy-lint", view.lint);
+    setNote("verification-policy-default-changed", view.defaultChanged);
+    const unavailable = byId("verification-policy-unavailable");
+    setText(unavailable, view.unavailable || "");
+    unavailable.hidden = !view.unavailable;
+    byId("verification-policy-edit").disabled = !view.canEdit;
+    byId("verification-policy-reset").disabled = !view.canReset;
+    byId("verification-policy-preview").disabled = !view.canPreview;
+    byId("field-verification-policy").setAttribute("aria-busy", view.busy ? "true" : "false");
+    // The words the workflow uses for the same state.
+    setText(byId("verification-policy-stale"), view.stale ? "Needs rebuild" : "");
+  }
+
+  /** The read-only Preview: facts, notes, the lint in the CLI's words, and the text. */
+  function renderVerificationPreview(preview) {
+    if (!preview) return;
+    const facts = byId("verification-preview-facts");
+    facts.replaceChildren();
+    for (const fact of preview.facts || []) {
+      const term = document.createElement("dt");
+      term.textContent = fact.label;
+      const value = document.createElement("dd");
+      value.textContent = fact.value;
+      facts.append(term, value);
+    }
+    setNote("verification-preview-problem", preview.problem);
+    setNote("verification-preview-default-changed", preview.defaultChanged);
+    const lint = Array.isArray(preview.lint) ? preview.lint : [];
+    const count = typeof preview.lintCount === "number" ? preview.lintCount : lint.length;
+    byId("verification-preview-lint").hidden = count === 0;
+    byId("verification-preview-lint-title").textContent = `${count} policy ${count === 1 ? "warning" : "warnings"}`;
+    const list = byId("verification-preview-lint-list");
+    list.replaceChildren();
+    for (const line of lint) {
+      const item = document.createElement("li");
+      item.textContent = line;
+      list.append(item);
+    }
+    // Not rewritten while the same: a selection in it survives a push.
+    setText(byId("verification-preview-text"), preview.text || "");
+  }
+
+  function closeVerificationPreview() {
+    vscode.postMessage({ type: "closeVerificationPreview" });
   }
 
   /** How much is typed against the limit the CLI enforces — said before Save, not after. */
@@ -4833,6 +4923,18 @@
       vscode.postMessage({ type: "openInstructions", scope });
     });
   }
+  // The Verification Policy row: three bare requests. The host knows the file,
+  // runs the CLI, asks before deleting, and opens the editor tab.
+  byId("verification-policy-edit").addEventListener("click", () => vscode.postMessage({ type: "editVerificationPolicy" }));
+  byId("verification-policy-reset").addEventListener("click", () => vscode.postMessage({ type: "resetVerificationPolicy" }));
+  byId("verification-policy-preview").addEventListener("click", () => vscode.postMessage({ type: "previewVerificationPolicy" }));
+  byId("verification-preview-back").addEventListener("click", closeVerificationPreview);
+  byId("verification-preview-view").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeVerificationPreview();
+    }
+  });
   byId("instructions-back").addEventListener("click", closeInstructionsEditor);
   byId("instructions-cancel").addEventListener("click", closeInstructionsEditor);
   byId("instructions-save").addEventListener("click", saveInstructionsEditor);

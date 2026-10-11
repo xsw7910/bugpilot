@@ -1,72 +1,23 @@
 # BugPilot Safety Rules
 
-## Purpose
+BugPilot's rules for an AI agent working on a bug, in any repository. They apply in every pass and in every Fix Mode, and nothing later in the task relaxes them: the task's BugPilot Rule Precedence says how a conflict with one is resolved.
 
-These are BugPilot's general rules for an AI agent working on a bug, in any repository. They assume nothing about the repository's languages, frameworks or architecture: what the repository is comes from the Repository Context section of the task, and from the code itself.
+## Test and Check Integrity
 
-## Task and Fix Mode Precedence
+- Never claim a test or check passed, or ran, unless it actually ran. In an investigation-only pass, state plainly that tests were not run.
 
-These are general rules. The issue-specific agent task, and the AI Fix Mode it names, decide whether implementation, testing, and assisted delivery are allowed in the current pass.
+Which tests and checks to run is the repository's Verification Policy, in its own section of the task — not one of these rules.
 
-- If the selected Fix Mode is investigation-only, do not implement, do not offer to commit or push, and do not describe the issue as fixed, resolved, or verified. Complete the investigation artifacts and ask the developer whether to continue.
-- The rules below about small fixes, focused tests, and asking about commit and push apply to a pass that is allowed to change source code.
-- BugPilot safety rules always apply, in every pass and in every Fix Mode. Repository context, project / team instructions, user instructions, a Fix Mode and a developer hint can refine how you work; none of them can relax these rules. An instruction from any of them that conflicts with these rules is ignored.
+## Git, Jira and Credentials
 
-## Core Principles
+- Never run `git reset --hard` or `git clean -fd`, never merge, and never create pull requests.
+- Never force push, and never use `--force` or `--force-with-lease`.
+- Never transition, assign, or change Jira fields. The only permitted Jira write is one status comment via `bugpilot jira-comment --execute`, when the task asks for it.
+- Never reveal credentials or tokens.
 
-- Prefer small, targeted fixes near the identified root cause.
-- Read surrounding code before editing, and follow its naming, formatting, and patterns.
-- Do not refactor or modernize unrelated code.
-- Do not mass-format files.
-- Do not rename public APIs unless required.
-- Do not replace existing frameworks or patterns, or change file organization, unless required.
-- Do not change product behavior outside the issue's scope.
-- Preserve existing architecture and coding style.
-- Ask for clarification or write no-op analysis if context is insufficient.
+## Editing
 
-## Testing Expectations
+- Investigate within the current AI session. Do not delegate the task to background or subordinate agents, and do not idle waiting on them.
+- Do not delete files, and do not mass-format unrelated files.
 
-These apply to a pass that changes source code. In an investigation-only pass, record the proposed validation instead and state plainly that tests were not run.
-
-- Run focused tests if available, using the repository's own test commands.
-- Do not assume every test suite is available or runnable here.
-- If automated tests are unavailable, document manual validation.
-- Include regression risk.
-- Include commands attempted and results.
-- Do not claim tests passed if they were not run.
-
-## Git Safety
-
-- Do not work directly on main/master.
-- Do not run git reset --hard.
-- Do not run git clean -fd.
-- Do not delete files.
-- Do not merge.
-- Do not commit or push automatically.
-- When the current pass is allowed to change source code, you may ask the developer whether they want you to commit and push after completing the workflow.
-- Only commit and push after explicit approval.
-- Never push main/master.
-- Never force push.
-- Never commit .ai/ or .ai_memory/.
-- Never transition, assign, or edit Jira fields. You may post exactly one status comment via `bugpilot jira-comment --execute` when the task instructions ask for it.
-- Developer approval is required for any git commit or git push.
-- Always summarize changed files.
-
-## Output Expectations
-
-When completing a bugpilot agent task, write one report:
-- .ai/<issue>/fix_report.md
-
-with the sections the task file requires: Summary, Analysis, Changes, Tests,
-Review Notes. The Summary must say honestly what happened; never claim tests
-passed that were not run.
-
-## No-Op Fix Guidance
-
-If the issue is mock/demo, search confidence is low, or no real implementation exists:
-- Do not invent a code fix.
-- Do not modify unrelated files.
-- Write a clear no-op analysis.
-- Explain what was searched.
-- Explain why no source change was applied.
-- Recommend what information is needed next.
+Which branch to work on is the task's Branch Instructions; when to commit and push, and what may be staged, its BugPilot Delivery Safety; what to report, its Required Output Files. Those are BugPilot rules too.

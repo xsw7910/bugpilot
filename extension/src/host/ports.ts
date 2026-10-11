@@ -7,7 +7,7 @@
  * enough to read in one go.
  */
 
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import * as vscode from "vscode";
@@ -485,6 +485,59 @@ export function watchArtifactDirectory(directory: string, onEvent: (name: string
       watcher.dispose();
     },
   };
+}
+
+/** The `.bugpilot/` files a task is written from: what the policy watcher reports. */
+export const POLICY_FILE_NAMES = ["instructions.md", "verification.md", "project_settings.json"] as const;
+
+/**
+ * Watch a repository's `.bugpilot/` folder for the policy files (§42.2) —
+ * created, changed or deleted, by an editor tab, `git pull`, a branch switch or
+ * any other tool. Those three names only, not recursively; the callback gets
+ * the file name, and the controller debounces and rereads through the CLI.
+ */
+export function watchPolicyDirectory(directory: string, onEvent: (name: string) => void): vscode.Disposable {
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(directory), `{${POLICY_FILE_NAMES.join(",")}}`),
+  );
+  const fire = (uri: vscode.Uri) => onEvent(path.basename(uri.fsPath));
+  const listeners = [watcher.onDidCreate(fire), watcher.onDidChange(fire), watcher.onDidDelete(fire)];
+  return {
+    dispose: () => {
+      for (const listener of listeners) listener.dispose();
+      watcher.dispose();
+    },
+  };
+}
+
+/**
+ * Whether `.bugpilot/verification.md` is there at all — a file or anything
+ * else, a link included. Asked only for a CLI too old to read it (§42.2); the
+ * contents are never read here.
+ */
+export async function verificationFileExists(root: string): Promise<boolean> {
+  try {
+    await stat(path.join(root, ".bugpilot", "verification.md"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What `.bugpilot/verification.md` is, without following a link (§42.5): a
+ * regular file the settings row's Edit may open in an editor tab, nothing, or
+ * something else — a link, a folder — which Edit leaves alone, as the CLI's
+ * own writes refuse it. The contents are never read here.
+ */
+export async function verificationFileKind(root: string): Promise<"absent" | "file" | "other"> {
+  try {
+    const entry = await lstat(path.join(root, ".bugpilot", "verification.md"));
+    return entry.isFile() && !entry.isSymbolicLink() ? "file" : "other";
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "other";
+  }
 }
 
 /**

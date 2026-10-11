@@ -44,7 +44,7 @@ bugpilot --version
 Expected:
 
 ```text
-bugpilot 0.1.2
+bugpilot 0.1.3
 ```
 
 The MCP server needs the optional MCP SDK: `pipx install "bugpilot[mcp]"`, or `python -m pip install "bugpilot[mcp]"`.
@@ -149,19 +149,49 @@ bugpilot instructions set --scope user --clear
 5. AI Fix Mode
 6. Developer hint
 
-So a team's "do not add new dependencies" beats one developer's "prefer library X". No instruction can loosen a safety rule: the task tells the agent to ignore one that tries — "commit directly to main", say — and to record the conflict.
+So a team's "do not add new dependencies" beats one developer's "prefer library X". The safety rules are written into `task.md` unchanged and before every editable layer, and no instruction file can delete or replace them; the task tells the agent to resolve a conflict in the safety rule's favour — "commit directly to main", say — and to record it in its review notes. That is an instruction to the agent, not a sandbox: review what the agent did before you commit it.
 
 ## Verification Policy and branch naming
 
-Two project settings, saved in `.bugpilot/project_settings.json` (commit it to share it):
+**Verification Policy** — what checking the project expects from a fix. `task.md` states it in one `## Verification Policy` section and names where it came from. It comes from one of three places, the first that exists:
 
-- **Verification Policy** — what level of checking the project expects from a fix: run relevant tests (on), run existing static checks (on), run the full test suite (off), report what was not run (on). `task.md` states it in four lines; it names no commands — your project instructions can. How an attempt verifies stays the Fix Mode's.
-- **Branch naming** — the name a new branch gets when the branch policy calls for one: `feature/{issue}-{slug}` by default, or a template such as `bugfix/{issue}-{slug}`. Only `{issue}` and `{slug}` are substituted; `{issue}` is required, so two issues never share a branch, and a template that could make an unsafe ref is refused. It never creates or switches a branch, and a work item keeps the branch it already has.
+1. `.bugpilot/verification.md` (`verification-file`) — the repository's own text, which **replaces** BugPilot's default; nothing is appended to it. Commit it to share it.
+2. The four Verification switches in `.bugpilot/project_settings.json` (`legacy-project-settings`), as 0.1.2 saved them: run relevant tests (on), run existing static checks (on), run the full test suite (off), report what was not run (on).
+3. BugPilot's default (`bugpilot-default`): those four switches at their defaults.
+
+The last two also ask the agent to describe its manual validation when automated tests are unavailable, and to report the regression risk and the commands it attempted (in 0.1.2 these were BugPilot rules; they are the policy's now, so a repository's own text can replace them). Reading never creates the file; the first `bugpilot verification set` does, and from then on it is the policy. How a given attempt verifies stays the Fix Mode's, and whatever the policy says, the agent must never claim a test or check ran unless it did — that rule is BugPilot's, not the policy's.
+
+`verification.md` starts with front matter that BugPilot writes for you:
+
+```markdown
+---
+schema_version: 1
+based_on_version: 1
+mode: replace
+---
+Run the tests next to the changed module (for example `tests/test_format_a.py`).
+Run the static checks the repository already has. Do not run the full suite.
+Report which checks you did not run, and why.
+```
+
+A file that cannot be used — no or malformed front matter, an unknown key, an empty body, more than 20,000 characters, not UTF-8, or a link or junction — is never reinterpreted: BugPilot uses its default instead and says why, in the CLI output and in run warnings. A line that looks like it asks for something a safety rule forbids (force push, committing or pushing without approval, staging `.ai/`, ignoring the safety rules, reporting tests that did not run, hiding failures) gets a non-blocking warning; the policy is kept as written, and the warning is a hint, not a complete check.
 
 ```powershell
-bugpilot project-settings                                   # current values, or the defaults
+bugpilot verification show                       # the effective policy and where it comes from (--json: source, file state, lint, problems)
+bugpilot verification set --from-file policy.md  # a policy body (front matter is added) or a whole document; also --stdin
+bugpilot verification reset                      # remove .bugpilot/verification.md (clear is the same); the switches or the default apply again
+```
+
+In the VS Code extension the policy is a row in **Advanced Settings › Guidance & Verification**: it shows the source in force (*BugPilot default*, *Legacy project settings* or *Repository verification.md*), and **Edit** opens `verification.md` in an editor tab — the CLI creates it first, from the policy in force, if it is not there — **Reset** removes it after asking, and **Preview** shows the policy read-only. Problems and warnings are shown on the row, and a policy that changed since the context was prepared shows **Needs rebuild**. The extension's four Verification switches are gone; see [extension/README.md](https://github.com/xsw7910/bugpilot/blob/main/extension/README.md).
+
+**Branch naming** — the name a new branch gets when the branch policy calls for one: `feature/{issue}-{slug}` by default, or a template such as `bugfix/{issue}-{slug}`, saved in `.bugpilot/project_settings.json`. Only `{issue}` and `{slug}` are substituted; `{issue}` is required, so two issues never share a branch, and a template that could make an unsafe ref is refused. It never creates or switches a branch, and a work item keeps the branch it already has.
+
+```powershell
+bugpilot project-settings                                   # current values, or the defaults, and the verification source
 bugpilot project-settings set --from-file settings.json     # {"verification": {...}, "branch_naming": {"template": "bugfix/{issue}-{slug}"}}
 ```
+
+**Mixed versions.** 0.1.2 and earlier never read `verification.md`. A 0.1.2 client can still save the four switches with `project-settings set`; they are accepted and kept (the 0.1.3 extension shows no switches and writes back the saved values unchanged), but while `verification.md` exists it decides, and `project-settings` says so (`verification_source: verification-file`, plus a warning on `set`). A 0.1.3 extension that finds `verification.md` next to a CLI whose `bugpilot doctor --json` has no `verification-text` capability reports the CLI as out of date rather than preparing a task without the repository's policy.
 
 ## Fix Modes
 

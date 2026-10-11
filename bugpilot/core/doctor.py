@@ -16,8 +16,19 @@ from .git_ops import (
     working_tree_status,
 )
 
+#: What this CLI can do that an older one cannot, by name. A version number
+#: alone cannot say it: an older CLI accepts every argument a client sends and
+#: still ignores a file it has never heard of — `.bugpilot/verification.md` read
+#: by 0.1.2 is exactly that. A client that depends on one of these checks for
+#: it, and treats its absence as an out-of-date CLI. Names are never removed.
+CAPABILITIES: tuple[str, ...] = (
+    # `.bugpilot/verification.md`, `bugpilot verification`, and
+    # `verification_source` in `project-settings` (0.1.3).
+    "verification-text",
+)
 
-def collect_doctor_report(repo_root: Path) -> dict[str, str | bool | dict[str, bool] | None]:
+
+def collect_doctor_report(repo_root: Path) -> dict[str, str | bool | dict[str, bool] | list[str] | None]:
     config = load_config(repo_root)
     email_config = load_email_config()
     graph_config = load_graph_config()
@@ -30,6 +41,7 @@ def collect_doctor_report(repo_root: Path) -> dict[str, str | bool | dict[str, b
         # carry a pipx copy, an editable install and a frozen exe at once, and
         # the extension shows this next to the path it resolved.
         "version": __version__,
+        "capabilities": list(CAPABILITIES),
         "python_version": platform.python_version(),
         "python_ok": sys.version_info >= (3, 10),
         "git_available": command_available("git"),
@@ -62,5 +74,7 @@ def doctor_report_lines(repo_root: Path) -> list[str]:
     JSON-RPC frames — can consume :func:`collect_doctor_report` safely.
     """
     report = collect_doctor_report(repo_root)
-    return ["bugpilot doctor"] + [f"{key}: {value}" for key, value in report.items()]
+    return ["bugpilot doctor"] + [
+        f"{key}: {', '.join(value) if isinstance(value, list) else value}" for key, value in report.items()
+    ]
 

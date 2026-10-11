@@ -489,6 +489,9 @@ def parse_issue(issue: dict) -> dict[str, object]:
         summary=str(fields.get("summary", "") or ""),
         fix_versions=fix_versions if isinstance(fix_versions, list) else [],
         affected_versions=affected_versions if isinstance(affected_versions, list) else [],
+        # Jira's own Environment field: an issue fetch returns it, and it was
+        # never read (0.1.3, §42.3).
+        environment_field=adf_to_markdown(fields.get("environment")),
     )
     return {
         "issue_key": issue.get("key"),

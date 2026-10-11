@@ -31,10 +31,16 @@ import type { SettingsField } from "../src/app/workflowSettings.ts";
  */
 const MAIN_PAGE_FIELDS = ["source", "issueKey", "description", "fixModeId", "hint", "useIssueDetails", "plan", "fixWithAI"];
 
+/**
+ * What no page edits (0.1.3, §42.5): the legacy Verification switches, on the
+ * form only so the repository's project_settings.json is written back unchanged.
+ */
+const COMPATIBILITY_FIELDS = ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun"];
+
 test("every settings field has exactly one home, and the form's own fields have none", () => {
   const placed = WORKFLOW_SETTINGS_SECTIONS.flatMap((section) => [...SETTINGS_SECTION_FIELDS[section]]);
   assert.equal(new Set(placed).size, placed.length, "a setting is in two sections");
-  const expected = Object.keys(DEFAULT_FORM).filter((key) => !MAIN_PAGE_FIELDS.includes(key));
+  const expected = Object.keys(DEFAULT_FORM).filter((key) => !MAIN_PAGE_FIELDS.includes(key) && !COMPATIBILITY_FIELDS.includes(key));
   assert.deepEqual([...placed].sort(), expected.sort());
   for (const field of placed) assert.ok(SETTINGS_SECTION_FIELDS[sectionOfField(field)].includes(field));
 });
@@ -42,12 +48,12 @@ test("every settings field has exactly one home, and the form's own fields have 
 test("the gears map rows to sections one to one, and a section is titled by its step", () => {
   const steps = Object.keys(SETTINGS_SECTION_OF_STEP);
   for (const step of steps) assert.ok((WORKFLOW_STEP_IDS as readonly string[]).includes(step), step);
-  // Every section but the shared inputs, Repository, AI instructions and
-  // Branch is one step's, in the workflow's order.
+  // Every section but the shared inputs, Repository, Guidance & Verification
+  // and Branch is one step's, in the workflow's order.
   assert.deepEqual(
     Object.values(SETTINGS_SECTION_OF_STEP),
     WORKFLOW_SETTINGS_SECTIONS.filter(
-      (section) => section !== "retrieval-inputs" && section !== "repository" && section !== "ai-instructions" && section !== "branch",
+      (section) => section !== "retrieval-inputs" && section !== "repository" && section !== "guidance-verification" && section !== "branch",
     ),
   );
   // Git history has a gear, and Similar fixes too since §37.113; Fix result
@@ -63,14 +69,16 @@ test("the gears map rows to sections one to one, and a section is titled by its 
 test("the page's sections, in order: the shared inputs just before the retrieval steps that read them (§37.113)", () => {
   assert.deepEqual(
     [...WORKFLOW_SETTINGS_SECTIONS],
-    ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "repository", "ai-instructions", "build-context", "fix-with-ai", "branch"],
+    ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "repository", "guidance-verification", "build-context", "fix-with-ai", "branch"],
   );
-  // AI instructions holds a document edited on its own
-  // page, and the Verification Policy's four switches: all of it
-  // task.md's, so wholly "Requires rebuild".
-  assert.deepEqual([...SETTINGS_SECTION_FIELDS["ai-instructions"]], ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun"]);
+  // Guidance & Verification (§42.5) holds three documents, each saved where it
+  // is edited — no form field at all — and all of it task.md's, so wholly
+  // "Requires rebuild".
+  assert.deepEqual([...SETTINGS_SECTION_FIELDS["guidance-verification"]], []);
+  assert.equal(sectionRebuildTag("guidance-verification"), "Requires rebuild");
   assert.deepEqual([...SETTINGS_SECTION_FIELDS.branch], ["branchPolicy", "branchNaming", "branchTemplate"]);
-  assert.equal(SETTINGS_SECTION_TITLES["ai-instructions"], "AI instructions");
+  assert.equal(SETTINGS_SECTION_TITLES["guidance-verification"], "Guidance & Verification");
+  assert.equal(Object.values(SETTINGS_SECTION_TITLES).includes("AI instructions"), false);
   assert.equal(SETTINGS_SECTION_TITLES["retrieval-inputs"], "Retrieval inputs");
   // One Keywords and one Focus files, shared, and no row's gear opens them.
   assert.deepEqual([...SETTINGS_SECTION_FIELDS["retrieval-inputs"]], ["keywords", "focusFiles"]);
@@ -127,12 +135,7 @@ const CHANGED: Readonly<Record<SettingsField, Partial<FormState>>> = {
   repositoryBuildSystem: { repositoryBuildSystem: "Cargo" },
   repositoryTestFramework: { repositoryTestFramework: "cargo test" },
   repositoryNotes: { repositoryNotes: "No unsafe code." },
-  // The project settings: the Verification Policy is a section of
-  // task.md, and a template names the branch — used only while Custom is chosen.
-  verifyRelevantTests: { verifyRelevantTests: false },
-  verifyStaticChecks: { verifyStaticChecks: false },
-  verifyFullSuite: { verifyFullSuite: true },
-  verifyReportNotRun: { verifyReportNotRun: false },
+  // The project settings' template names the branch — used only while Custom is chosen.
   branchNaming: { branchNaming: "custom", branchTemplate: "fix/{issue}" },
   branchTemplate: { branchNaming: "custom", branchTemplate: "bugfix/{issue}-{slug}" },
 };
@@ -177,6 +180,21 @@ test("a section's tag says in a few words what its sentence says, from the same 
     // Short enough to sit beside a heading in a 200px sidebar.
     assert.ok(sectionRebuildTag(section).length <= 16, sectionRebuildTag(section));
   }
+});
+
+test("the Verification switches left the settings page (§42.5), and still count in the fingerprint until the file decides", () => {
+  for (const field of ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun"]) {
+    assert.equal(isSettingsField(field), false, `${field} is still a settings field`);
+  }
+  // The fingerprint rule is unchanged: while the switches decide, a change to
+  // them (saved by an older BugPilot) changes the task; once the file decides,
+  // it does not.
+  const base = { ...DEFAULT_FORM, issueKey: "JR-1" };
+  assert.notEqual(preparationFingerprint({ ...base, verifyFullSuite: true }), preparationFingerprint(base));
+  assert.equal(
+    preparationFingerprint({ ...base, verifyFullSuite: true }, { verificationFile: true }),
+    preparationFingerprint(base, { verificationFile: true }),
+  );
 });
 
 test("Fix Mode and Hint left the settings page, and still make a prepared context stale exactly as before", () => {

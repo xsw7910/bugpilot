@@ -11,12 +11,16 @@ from .code_files import is_documentation, is_implementation, is_searchable, sear
 from .executables import child_environment, find_executable
 from .git_ops import command_available
 from .models import InvestigationOptions
-from .retrieval import RelatedFile, RetrievalArtifact, RetrievalTerm, Snippet
+from .retrieval import ConfidenceDetails, RelatedFile, RetrievalArtifact, RetrievalTerm, Snippet
 from .search_terms import (
+    COMMENT_IDENTIFIER_WEIGHT,
+    CORE_ORIGINS,
     WEIGHT_IDENTIFIER,
     WEIGHT_PROSE,
+    WEIGHT_SHAPE,
     WEIGHT_WEAK,
     SearchTerm,
+    is_secondary_only,
     shape_candidates,
     terms_from_extraction,
 )
@@ -88,6 +92,14 @@ RESERVED_IMPLEMENTATION_SLOTS = 3
 # Large enough to outrank keyword evidence: an explicit --focus-file is a
 # stronger signal than any automatic ranking heuristic.
 FOCUS_FILE_BONUS = 25
+#: The most that terms only the comments or the environment use add to one
+#: file, together: what one identifier a comment names is worth (§42.3).
+#: Repeating a pipeline's name in four comments made its module outrank the
+#: file the issue described.
+SECONDARY_EVIDENCE_CAP = COMMENT_IDENTIFIER_WEIGHT
+#: Per issue concept beyond the first that one matched line holds (§42.3).
+CONCEPTS_TOGETHER_POINTS = 2
+MAX_CONCEPTS_TOGETHER_BONUS = 6
 #: Written once: `_select_with_reserved_slots` reads it to know what not to demote.
 FOCUS_REASON = "developer marked this file as a focus area"
 LOW_VALUE_KEYWORDS = {
@@ -197,6 +209,8 @@ class Match:
     #: What the term was worth (§33.3). 0 means a caller built this Match without
     #: a term — the legacy tier path below still scores those.
     weight: int = 0
+    #: The report fields the term came from (§42.3); empty without a term.
+    origins: tuple[str, ...] = ()
 
 
 @dataclass
@@ -210,6 +224,15 @@ class FileScore:
     reasons: list[str] = field(default_factory=list)
     noise_flags: list[str] = field(default_factory=list)
     keyword_quality_counts: dict[str, int] = field(default_factory=lambda: {"high": 0, "medium": 0, "low": 0})
+    #: Each matched term (lowercase) -> what it was worth, where it came from
+    #: and its source: what Search Confidence reads (§42.3).
+    evidence: dict[str, tuple[int, tuple[str, ...], str]] = field(default_factory=dict)
+    #: The matched lines, by line number: where concepts are seen together.
+    lines: dict[int, str] = field(default_factory=dict)
+    #: The most of the issue's own concepts any one matched line holds.
+    concepts_together: int = 0
+    #: Matched terms the file is named after (`WidgetFoo` in `WidgetFoo.cpp`).
+    names: set[str] = field(default_factory=set)
 
 
 def run_code_search(
@@ -272,13 +295,14 @@ def _retrieval(
     options: InvestigationOptions,
 ) -> RetrievalArtifact:
     related = _related_files(ranked, options.max_search_lines)
-    confidence, reasons, noise_indicators = _overall_quality(related, warnings)
+    confidence, reasons, noise_indicators, details = _search_confidence(ranked, probes, warnings)
     return RetrievalArtifact(
         confidence=confidence,
         reasons=tuple(reasons),
         noise_indicators=tuple(noise_indicators),
         terms=tuple(_term_diagnostics(probes)),
         related_files=tuple(related),
+        confidence_details=details,
     )
 
 
@@ -301,6 +325,7 @@ def _term_diagnostics(probes: list[TermSearchResult]) -> list[RetrievalTerm]:
             # simply present in the text.
             derived_from=probe.term.derived_from,
             status="dropped" if probe.total_match_count == 0 else "retained",
+            origins=probe.term.origins,
         )
         for probe in probes
     ]
@@ -375,7 +400,7 @@ def _probe_term(repo_root: Path, term: SearchTerm, warnings: list[str]) -> TermS
 
     result = TermSearchResult(term=term, total_match_count=total)
     weight = result.effective_weight
-    result.retained_matches = [replace(match, weight=weight) for match in matches]
+    result.retained_matches = [replace(match, weight=weight, origins=term.origins) for match in matches]
     return result
 
 
@@ -526,36 +551,59 @@ def _rank_related_files(
         stats = per_keyword[match.file].get(match.keyword.lower())
         if stats is None:
             per_keyword[match.file][match.keyword.lower()] = [1, weight, quality]
+            item.evidence[match.keyword.lower()] = (weight, match.origins, match.tier)
         else:
             stats[0] += 1
         item.matched_keywords.add(match.keyword)
         item.match_count += 1
+        item.lines.setdefault(match.line_number, match.line)
         if len(item.snippets) < MAX_SNIPPETS_PER_FILE:
             item.snippets.append(match)
-        if match.tier == "phrase" and "exact phrase match" not in item.reasons:
-            item.reasons.append("exact phrase match")
+        if match.tier == "phrase":
+            # A quoted message is exact text; a quoted message only a comment
+            # carried is worth less (§42.3) and says so.
+            reason = "matched a phrase quoted in a comment" if is_secondary_only(match.origins) else "exact phrase match"
+            if reason not in item.reasons:
+                item.reasons.append(reason)
 
     for file, keyword_map in per_keyword.items():
         item = scores[file]
         base = Path(file).name.lower()
         distinct_high = 0
+        secondary_points = 0
         for keyword, (count, weight, quality) in keyword_map.items():
             # Diminishing returns: repeated hits of the SAME keyword add little,
             # so 100x a common name can't outweigh a few specific matches.
-            item.score += int(round(weight * (1.0 + min(count - 1, 4) * 0.25)))
+            points = int(round(weight * (1.0 + min(count - 1, 4) * 0.25)))
+            if is_secondary_only(item.evidence[keyword][1]):
+                secondary_points += points
+            else:
+                item.score += points
             item.keyword_quality_counts[quality] += 1  # distinct keywords, not raw hits
             if quality == "high":
                 distinct_high += 1
                 stem = keyword.split("::", 1)[0].rsplit(".", 1)[0]
                 if len(stem) >= 4 and stem in base:
                     item.score += 6  # the file *is* the matched class/name
+                    item.names.add(keyword)
                     if "keyword matches file name" not in item.reasons:
                         item.reasons.append("keyword matches file name")
+        # Comments and the environment are evidence, never the subject (§42.3):
+        # whatever they matched in one file adds up to one comment identifier's worth.
+        item.score += min(secondary_points, SECONDARY_EVIDENCE_CAP)
+        if secondary_points > SECONDARY_EVIDENCE_CAP:
+            item.reasons.append(f"comment and environment terms capped at {SECONDARY_EVIDENCE_CAP} points")
         # Breadth: matching several DISTINCT high-value keywords is a strong,
         # precision-friendly signal that this is the right spot.
         if distinct_high >= 2:
             item.score += (distinct_high - 1) * 3
             item.reasons.append(f"matched {distinct_high} distinct high-value keywords")
+        # Together: the issue's own concepts on one line — "the preview pane
+        # keeps the renderer" — is a phrase the code wrote, wherever it is.
+        item.concepts_together = _concepts_together(item)
+        if item.concepts_together >= 2:
+            item.score += min((item.concepts_together - 1) * CONCEPTS_TOGETHER_POINTS, MAX_CONCEPTS_TOGETHER_BONUS)
+            item.reasons.append(f"{item.concepts_together} issue concepts on one line")
 
     _apply_header_implementation_bonus(scores)
     for item in scores.values():
@@ -566,6 +614,45 @@ def _rank_related_files(
     # honored in one view of the results and ignored in another.
     ordered = sorted(list(scores.values()), key=lambda item: (-item.score, item.file))
     return _select_with_reserved_slots(ordered, max_files)
+
+
+def _concept_keys(item: FileScore) -> list[str]:
+    """The file's matched terms the issue itself says (or the developer typed), at least prose-strong."""
+    return [
+        keyword
+        for keyword, (weight, origins, _source) in item.evidence.items()
+        if weight >= WEIGHT_PROSE and _is_core(origins)
+    ]
+
+
+def _is_core(origins: tuple[str, ...]) -> bool:
+    """The issue's own words or the developer's keyword. No recorded origins — an
+    extraction that did not record them, a caller's own — reads as the issue's, as before."""
+    return not origins or any(origin in CORE_ORIGINS or origin == "user-keyword" for origin in origins)
+
+
+def _concepts_together(item: FileScore) -> int:
+    """The most of the issue's concepts any one matched line of the file holds.
+
+    Read from the lines the search already kept, so it costs no search. A term
+    counts on a line where a word starts with it — `reopen` in "Reopening",
+    `format` in `output_format` or `outputFormat` — and not inside a word: `out`
+    in "timeout" is not the word out.
+    """
+    keys = _concept_keys(item)
+    if len(keys) < 2:
+        return 0
+    return max((sum(1 for key in keys if _starts_a_word(key, line)) for line in item.lines.values()), default=0)
+
+
+def _starts_a_word(key: str, line: str) -> bool:
+    lower = line.lower()
+    start = lower.find(key)
+    while start >= 0:
+        if start == 0 or not line[start - 1].isalnum() or (line[start - 1].islower() and line[start].isupper()):
+            return True
+        start = lower.find(key, start + 1)
+    return False
 
 
 def _select_with_reserved_slots(ordered: list[FileScore], max_files: int) -> list[FileScore]:
@@ -734,32 +821,179 @@ def _assign_confidence(item: FileScore) -> None:
         item.reasons.append("keyword match candidate")
 
 
-def _overall_quality(related: list[RelatedFile], warnings: list[str]) -> tuple[str, list[str], list[str]]:
-    """Confidence, the reasons for it, and the noisy-path flags seen."""
-    high_files = [item.file for item in related if item.confidence == "high"]
-    medium_files = [item.file for item in related if item.confidence == "medium"]
-    low_files = [item.file for item in related if item.confidence == "low"]
-    noise_indicators = sorted({flag for item in related for flag in item.noise_flags})
-    reasons: list[str] = []
-    if high_files:
-        confidence = "high"
-        reasons.append("At least one high-confidence application source file was found.")
-    elif medium_files:
-        confidence = "medium"
-        reasons.append("Some plausible application or implementation files were matched.")
-    else:
-        confidence = "low"
-        reasons.append("No high-confidence application source file was found.")
+# --- Search Confidence v2 (0.1.3, §42.3) -------------------------------------------------
+#
+# v1 said High as soon as one file was rated high — one strong-looking file, for
+# whatever reason, carried the whole search. v2 reads the evidence behind the
+# best-ranked files: how much of what the issue itself says the top file holds,
+# whether that includes something strong (an identifier, a quoted phrase, a
+# confirmed shape, a keyword), whether it stands clear of the next file or the
+# next files agree with it, and whether it is there for the issue's words or for
+# the comments', the environment's or the hint's. Ranking is untouched: this only
+# reads it. The levels and their meaning for an agent are the same three.
 
-    if related and len(low_files) >= max(1, len(related) // 2) and not high_files:
-        reasons.append("Matches are mostly from low-value keywords or weak candidates.")
-        confidence = "low" if not medium_files else confidence
-    if noise_indicators:
-        reasons.append("Several matches appear in build/CI/license/vendor/docs/generated paths.")
-        if not high_files:
-            confidence = "low"
-    if not related:
-        confidence = "low"
-        reasons.append("No related files were found.")
-    reasons.extend(warnings)
-    return confidence, reasons, noise_indicators
+#: How many of the best-ranked files are read.
+CONFIDENCE_TOP_FILES = 3
+#: What the top file's evidence adds up to (3 per strong concept, and 3 more when
+#: the file is named after one, up to 6; 1 per plain one, up to 6; 2 for a
+#: phrase) for High, and for Medium.
+HIGH_CONFIDENCE_POINTS = 6
+MEDIUM_CONFIDENCE_POINTS = 2
+#: Plain words alone — no identifier, keyword, quoted phrase, confirmed shape or
+#: concepts together — are Medium only when this many of them agree on the file.
+MEDIUM_PLAIN_CONCEPTS = 4
+#: Weaknesses that compound: two of them leave nothing to stand on.
+_COMPOUNDING_LIMITS = ("hint_dominated", "no_clear_leader", "low_coverage", "top_file_in_noisy_path")
+#: The share of the issue's matched concepts the top file must hold for High.
+HIGH_CONFIDENCE_COVERAGE = 0.5
+#: The top file's score over the second's that makes it stand out on its own.
+CLEAR_MARGIN = 1.5
+#: Concepts on one line that read as a phrase the code wrote.
+PHRASE_CONCEPTS_TOGETHER = 3
+
+#: Every reason code, and the sentence the context shows for it.
+CONFIDENCE_REASONS = {
+    "no_related_files": "No related files were found.",
+    "no_core_concepts_matched": (
+        "Nothing the issue itself says matched the repository: only generic words, or words from "
+        "comments or the environment."
+    ),
+    "top_file_has_no_core_concepts": "The best-ranked file matched none of the issue's own concepts.",
+    "secondary_evidence_dominates": (
+        "The best-ranked file is there mostly for words from the comments or the environment."
+    ),
+    "core_concepts_concentrated": "The best-ranked file holds most of the issue's concepts that matched anything.",
+    "strong_terms_in_top_file": (
+        "Identifiers, quoted phrases, confirmed shapes or keywords from the issue matched the best-ranked file."
+    ),
+    "phrase_evidence": "The issue's concepts appear together in the best-ranked file.",
+    "file_named_by_issue": "The best-ranked file is named after an identifier the issue uses.",
+    "clear_margin": "The best-ranked file stands clear of the next one.",
+    "top_results_agree": "The next files share the best-ranked file's strongest concept.",
+    "hint_dominated": "The best-ranked file is there mostly for the developer hint, which is a hypothesis.",
+    "top_file_is_test": "The best-ranked file is a test: a lead, not the implementation.",
+    "top_file_in_noisy_path": "The best-ranked file is in a build, CI, vendor, documentation or generated path.",
+    "low_coverage": "The best-ranked file holds less than half of the issue's matched concepts.",
+    "no_clear_leader": "No file stands clear of the others, and the next files share no strong concept with the first.",
+    "mixed_support": "Some of what the issue says matched the best-ranked file, but not enough to be sure.",
+    "sparse_core_support": "Only a little of what the issue says matched the best-ranked file.",
+}
+NOISY_RESULTS_REASON = "Several matches appear in build/CI/license/vendor/docs/generated paths."
+
+
+def _search_confidence(
+    ranked: list[FileScore], probes: list[TermSearchResult], warnings: list[str]
+) -> tuple[str, list[str], list[str], ConfidenceDetails]:
+    """The level, the sentences that explain it, the noisy-path flags seen, and the details."""
+    noise_indicators = sorted({flag for item in ranked for flag in item.noise_flags})
+    matched_core = {
+        probe.term.key
+        for probe in probes
+        if probe.total_match_count and probe.effective_weight >= WEIGHT_PROSE and _is_core(probe.term.origins)
+    }
+
+    def finish(level: str, codes: list[str], **details) -> tuple[str, list[str], list[str], ConfidenceDetails]:
+        sentences = [CONFIDENCE_REASONS[code] for code in codes]
+        if noise_indicators:
+            sentences.append(NOISY_RESULTS_REASON)
+        sentences.extend(warnings)
+        return level, sentences, noise_indicators, ConfidenceDetails(
+            reasons=tuple(codes), core_terms_matched=len(matched_core), **details
+        )
+
+    if not ranked:
+        return finish("low", ["no_related_files"])
+    top = ranked[0]
+    concepts = set(_concept_keys(top))
+    strong = {key for key in concepts if top.evidence[key][0] >= WEIGHT_SHAPE}
+    phrase = (
+        any(top.evidence[key][2] in ("phrase", "shape_expansion") for key in concepts)
+        or top.concepts_together >= PHRASE_CONCEPTS_TOGETHER
+    )
+    support = _source_support(top)
+    second = ranked[1].score if len(ranked) > 1 else None
+    margin = None if second is None else (round(top.score / second, 2) if second > 0 else None)
+    agreeing = sum(1 for item in ranked[1:CONFIDENCE_TOP_FILES] if strong & set(_concept_keys(item)))
+    top_3 = set().union(*(set(_concept_keys(item)) for item in ranked[:CONFIDENCE_TOP_FILES]))
+    details = dict(
+        core_terms_in_top_file=len(concepts),
+        core_terms_in_top_3=len(top_3),
+        strong_terms_in_top_file=len(strong),
+        phrase_in_top_file=phrase,
+        source_support=tuple(support.items()),
+        top_file_margin=margin,
+        agreeing_top_files=agreeing,
+    )
+
+    if not matched_core:
+        return finish("low", ["no_core_concepts_matched"], **details)
+    if not concepts:
+        return finish("low", ["top_file_has_no_core_concepts"], **details)
+    if support["comment_only"] + support["environment_only"] > len(concepts) and not strong:
+        return finish("low", ["secondary_evidence_dominates"], **details)
+
+    # The file *is* what the issue names: worth a second strong concept.
+    named = bool(top.names & strong)
+    points = min(3 * len(strong) + (3 if named else 0), 6) + min(len(concepts - strong), 6) + (2 if phrase else 0)
+    coverage = len(concepts) / len(matched_core)
+    clear = second is None or second <= 0 or top.score >= CLEAR_MARGIN * second
+    codes = []
+    if coverage >= HIGH_CONFIDENCE_COVERAGE:
+        codes.append("core_concepts_concentrated")
+    if strong:
+        codes.append("strong_terms_in_top_file")
+    if phrase:
+        codes.append("phrase_evidence")
+    if named:
+        codes.append("file_named_by_issue")
+    if clear:
+        codes.append("clear_margin")
+    elif agreeing:
+        codes.append("top_results_agree")
+    limits = []
+    if support["hint"] >= len(concepts):
+        limits.append("hint_dominated")
+    if _is_test_path(top.file):
+        limits.append("top_file_is_test")
+    if top.noise_flags:
+        limits.append("top_file_in_noisy_path")
+    if coverage < HIGH_CONFIDENCE_COVERAGE:
+        limits.append("low_coverage")
+    if not (clear or agreeing):
+        limits.append("no_clear_leader")
+    if points < HIGH_CONFIDENCE_POINTS:
+        limits.append("mixed_support")
+    if not limits:
+        return finish("high", codes, **details)
+    compounding = sum(1 for code in limits if code in _COMPOUNDING_LIMITS)
+    # A strong term from the hint counts here and nowhere else: enough for a
+    # lead, never for High.
+    hint_strong = any(
+        weight >= WEIGHT_SHAPE and "hint" in origins and not _is_core(origins)
+        for weight, origins, _source in top.evidence.values()
+    )
+    substantive = bool(strong) or phrase or hint_strong or len(concepts) >= MEDIUM_PLAIN_CONCEPTS
+    if points >= MEDIUM_CONFIDENCE_POINTS and substantive and compounding < 2:
+        return finish("medium", codes + limits, **details)
+    return finish("low", codes + [code for code in limits if code != "mixed_support"] + ["sparse_core_support"], **details)
+
+
+def _source_support(item: FileScore) -> dict[str, int]:
+    """The file's distinct matched terms by where they came from, the issue's own first.
+
+    A term without recorded origins comes from an extraction that did not
+    record them (a caller's own), and is read as the issue's, as it always was.
+    """
+    support = {"core": 0, "user_keyword": 0, "hint": 0, "comment_only": 0, "environment_only": 0}
+    for _weight, origins, _source in item.evidence.values():
+        if "user-keyword" in origins:
+            support["user_keyword"] += 1
+        elif not origins or any(origin in CORE_ORIGINS for origin in origins):
+            support["core"] += 1
+        elif "hint" in origins:
+            support["hint"] += 1
+        elif set(origins) == {"environment"}:
+            support["environment_only"] += 1
+        elif is_secondary_only(origins):
+            support["comment_only"] += 1
+    return support

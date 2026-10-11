@@ -46,6 +46,8 @@ const vscodeStub = {
     showInputBox: async () => undefined,
     showTextDocument: async () => undefined,
     createTerminal: () => ({ show: () => {}, sendText: () => {} }),
+    // The window coming back to focus rereads the policy files (0.1.3, §42.2).
+    onDidChangeWindowState: () => disposable,
     createWebviewPanel: () => ({
       webview: { options: {}, html: "", asWebviewUri: (uri) => uri, cspSource: "vscode-webview:", onDidReceiveMessage: () => disposable, postMessage: async () => true },
       reveal: () => {},

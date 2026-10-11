@@ -67,7 +67,7 @@ from .retrieval import (
     SupportingFile,
 )
 from .search import EXCLUDE_DIRS, FOCUS_REASON, _matches_any_path, _noise_flags
-from .search_terms import WEIGHT_IDENTIFIER, terms_from_extraction
+from .search_terms import WEIGHT_IDENTIFIER, WEIGHT_PROSE, WEIGHT_STRONG, is_secondary_only, terms_from_extraction
 
 # --- bounds ---------------------------------------------------------------------
 
@@ -193,6 +193,10 @@ class GitHistoryQuery:
     git_files: tuple[str, ...] = ()
     #: Code Search's ranked paths, best first.
     ranked_files: tuple[str, ...] = ()
+    #: Ranked paths whose Code Search evidence is too weak to earn their commits
+    #: anything (:func:`weak_ranked_files`): not walked, and the others keep
+    #: their Code Search rank.
+    weak_ranked_files: tuple[str, ...] = ()
     #: Every file Code Search returned. Never searched — only what changed-file
     #: feedback must not offer again as "new".
     known_files: tuple[str, ...] = ()
@@ -368,7 +372,10 @@ def select_extracted_terms(
     class, a function, a file name, a stack-trace name), then quoted phrases;
     prose never, because "output" or "selected" matches half of any history.
     A term Code Search found *broad* in the repository is dropped too: a word
-    on hundreds of lines of code is on hundreds of commits.
+    on hundreds of lines of code is on hundreds of commits. And a term only the
+    comments or the environment use (0.1.3, §42.3) — a pipeline's
+    name four comments repeated, a quoted line from a build log — cannot find
+    commits on its own, unless the software printed it in a stack trace.
     """
     if not keywords:
         return ()
@@ -387,6 +394,8 @@ def select_extracted_terms(
         value = _clean_term(term.value)
         if value is None or term.weight < WEIGHT_IDENTIFIER:
             continue
+        if term.secondary_only and term.weight < WEIGHT_STRONG:
+            continue
         key = value.lower()
         if len(value) < MIN_EXTRACTED_TERM_LENGTH or value.isdigit():
             continue
@@ -396,6 +405,35 @@ def select_extracted_terms(
         if len(chosen) >= MAX_EXTRACTED_TERMS:
             break
     return tuple(chosen)
+
+
+def weak_ranked_files(retrieval: RetrievalArtifact | None, count: int = RANKED_HISTORY_FILES) -> tuple[str, ...]:
+    """The top ranked files whose history earns a commit nothing (0.1.3, §42.3).
+
+    File history credited a commit for touching any of the top five files,
+    however they got there: a pipeline module four comments named, platform
+    notes an environment line matched. Now a file earns that credit only when
+    Code Search rated it above ``low`` (not generic words alone, not a build,
+    docs or vendor path) and a term the issue itself says — or the developer
+    typed or hinted — matched it with at least a plain word's weight. Only
+    what is recorded is judged: a term an older ``retrieval.json`` recorded
+    without origins counts, as it did, and a file with no matched terms
+    recorded is not judged at all.
+    """
+    if retrieval is None:
+        return ()
+    terms = {term.value.lower(): term for term in retrieval.terms}
+
+    def counts(keyword: str) -> bool:
+        term = terms.get(keyword.lower())
+        return term is None or (term.effective_weight >= WEIGHT_PROSE and not is_secondary_only(term.origins))
+
+    return tuple(
+        item.file
+        for item in retrieval.related_files[:count]
+        if item.confidence == "low"
+        or (item.matched_keywords and not any(counts(keyword) for keyword in item.matched_keywords))
+    )
 
 
 def focus_files_from_retrieval(retrieval: RetrievalArtifact | None) -> tuple[str, ...]:
@@ -520,9 +558,10 @@ def file_candidates(repo_root: Path, query: GitHistoryQuery) -> list[FileCandida
             if taken >= cap:
                 break
 
+    weak = {path.lower() for path in (safe_relative_path(item) for item in query.weak_ranked_files) if path}
     for rank, raw in enumerate(query.ranked_files[:RANKED_HISTORY_FILES], start=1):
         path = safe_relative_path(raw)
-        if path is None or path.lower() in seen:
+        if path is None or path.lower() in seen or path.lower() in weak:
             continue
         seen.add(path.lower())
         focus = _matches_any_path(path, focus_patterns)

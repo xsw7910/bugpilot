@@ -27,6 +27,8 @@ import { deleteWorkItemArtifacts } from "./app/sessionReset.ts";
 import { fixModeCommandPort, payloadCommandPort } from "./app/fixModeTransport.ts";
 import { runRepositoryProfile } from "./app/repositoryProfile.ts";
 import { runInstructions } from "./app/instructions.ts";
+import { runVerificationPolicy } from "./app/verificationPolicy.ts";
+import type { VerificationCommand, VerificationOutcome } from "./app/verificationPolicy.ts";
 import { runProjectSettings } from "./app/projectSettings.ts";
 import { runJiraSite } from "./app/jiraSite.ts";
 import type { JiraSiteOutcome } from "./app/jiraSite.ts";
@@ -49,6 +51,9 @@ import {
   improveHintWithProvider,
   runCapturedReview,
   watchArtifactDirectory,
+  watchPolicyDirectory,
+  verificationFileExists,
+  verificationFileKind,
   createGitignoreIo,
   loadIssueDetails,
   canRun,
@@ -193,6 +198,31 @@ export function activate(context: vscode.ExtensionContext): void {
       save,
     );
   };
+  // The repository's Verification Policy (0.1.3): read, created and removed
+  // through the CLI, which owns the file, its front matter and the precedence.
+  // A new file's text goes on stdin — the text the CLI itself reported, never
+  // composed here — and nothing of the policy reaches the log.
+  const verificationCommand = async (command: VerificationCommand): Promise<VerificationOutcome> => {
+    const root = controller.root;
+    if (!root) return { kind: "failed", message: "No repository is open." };
+    return runVerificationPolicy(
+      (args, input) => trustedRunner(executable).run(args, { cwd: root, timeoutMs: 30_000, ...(input === undefined ? {} : { input }) }),
+      command,
+    );
+  };
+  const verificationPolicyPort = {
+    load: () => verificationCommand({ kind: "show" }),
+    create: (text: string) => verificationCommand({ kind: "set", text }),
+    reset: () => verificationCommand({ kind: "reset" }),
+    fileExists: async () => {
+      const root = controller.root;
+      return root ? verificationFileExists(root) : false;
+    },
+    fileKind: async () => {
+      const root = controller.root;
+      return root ? verificationFileKind(root) : ("absent" as const);
+    },
+  };
 
   // Annotated because the panel's message callback above refers to it: without
   // a type here the inference is circular. It is only *called* later, so the
@@ -297,6 +327,7 @@ export function activate(context: vscode.ExtensionContext): void {
         load: () => instructionsCommand(),
         save: (scope, text) => instructionsCommand({ scope, text }),
       },
+      verificationPolicy: verificationPolicyPort,
       // The payload file and its cleanup live in the app layer; the controller
       // only says what the command is and what definition it carries, and the
       // port refuses outright when there is no repository to run it against.
@@ -345,6 +376,9 @@ export function activate(context: vscode.ExtensionContext): void {
       // The shown work item's `.ai/<id>/`, and nothing wider: an agent's
       // fix_report.md shows up without a reload (§37.81).
       watchArtifacts: watchArtifactDirectory,
+      // The repository's `.bugpilot/` policy files: an edit in an editor tab,
+      // a `git pull` or a branch switch makes a prepared context stale (§42.2).
+      watchPolicies: watchPolicyDirectory,
       // Repository Files' quick fix: the open .gitignore through the editor,
       // the file through VS Code's file system (§37.85).
       gitignore: createGitignoreIo(),
@@ -409,6 +443,11 @@ export function activate(context: vscode.ExtensionContext): void {
     results,
     // The artifact watcher and any refresh still scheduled (§37.81).
     { dispose: () => controller.dispose() },
+    // Back to focus: a policy file may have changed while BugPilot was not
+    // looking — the user's own instructions live outside any watched folder.
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) void controller.windowFocused();
+    }),
     // A folder opened or removed changes the answer to "which repository", and
     // a changed executable path changes which binary runs. Without these the
     // panel keeps showing a stale answer until Check Environment is run by

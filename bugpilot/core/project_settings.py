@@ -22,6 +22,11 @@ how this attempt investigates, implements and verifies; the policy is the
 project's floor, rendered as four short lines in ``task.md``. It names no
 commands — the repository's own, or its Project / Team Instructions, do.
 
+Since 0.1.3 the policy is text: ``.bugpilot/verification.md`` (`verification.py`)
+replaces it whole when it exists, and the switches here are its legacy source —
+used when there is no file, kept readable and writable for BugPilot 0.1.2 and
+earlier, and deciding nothing once the file is there (``verification_source``).
+
 **Branch naming** is only the name a new branch would get
 (``git_ops.render_branch_template``): ``{issue}`` and ``{slug}``. Whether a
 branch is created is the branch policy's, and a work item's recorded branch is
@@ -45,6 +50,12 @@ from pathlib import Path
 from .artifact_io import atomic_write_text
 from .git_ops import branch_template_problem
 from .safe_paths import is_link_or_junction
+from .verification import (
+    SOURCE_FILE,
+    ResolvedVerification,
+    resolve_verification,
+    verification_from_switches,
+)
 
 PROJECT_CONFIG_DIR = ".bugpilot"
 SETTINGS_FILE_NAME = "project_settings.json"
@@ -210,11 +221,24 @@ def is_saved(repo_root: Path) -> bool:
 
 @dataclass(frozen=True)
 class ResolvedProjectSettings:
-    """The settings one task is written with, whether they came from the file, and what was wrong."""
+    """The settings one task is written with, whether they came from the file, and what was wrong.
+
+    ``verification`` is the effective Verification Policy (`verification.py`):
+    the repository's ``verification.md`` when it has one, else what the saved
+    switches — or BugPilot's default — say. ``None`` (settings built by hand)
+    is read from the switches alone.
+    """
 
     settings: ProjectSettings = field(default_factory=ProjectSettings)
     saved: bool = False
     warnings: tuple[str, ...] = ()
+    verification: ResolvedVerification | None = None
+
+    @property
+    def effective_verification(self) -> ResolvedVerification:
+        if self.verification is not None:
+            return self.verification
+        return _switches(self.settings.verification, saved=self.saved)
 
     @property
     def log_line(self) -> str:
@@ -226,7 +250,19 @@ class ResolvedProjectSettings:
 
 def resolve_project_settings(repo_root: Path) -> ResolvedProjectSettings:
     settings, warnings = load_project_settings(repo_root)
-    return ResolvedProjectSettings(settings=settings, saved=is_saved(repo_root) and not warnings_mean_defaults(warnings), warnings=tuple(warnings))
+    saved = is_saved(repo_root) and not warnings_mean_defaults(warnings)
+    return ResolvedProjectSettings(
+        settings=settings,
+        saved=saved,
+        warnings=tuple(warnings),
+        verification=resolve_verification(repo_root, _switches(settings.verification, saved=saved)),
+    )
+
+
+def _switches(policy: VerificationPolicy, *, saved: bool) -> ResolvedVerification:
+    return verification_from_switches(
+        policy.relevant_tests, policy.static_checks, policy.full_suite, policy.report_not_run, saved=saved
+    )
 
 
 def warnings_mean_defaults(warnings: list[str]) -> bool:
@@ -234,46 +270,28 @@ def warnings_mean_defaults(warnings: list[str]) -> bool:
     return any(warning.endswith("Using the defaults.") for warning in warnings)
 
 
-# --- task.md ---------------------------------------------------------------------------
+#: Said with a `project-settings set` once ``verification.md`` exists: the
+#: switches are still saved, for BugPilot 0.1.2 and earlier, but decide nothing here.
+VERIFICATION_FILE_WINS = (
+    "The Verification switches were saved for BugPilot 0.1.2 and earlier, but .bugpilot/verification.md "
+    "is this repository's effective Verification Policy: the switches do not change it."
+)
 
 
-def verification_policy_section(policy: VerificationPolicy | None, *, saved: bool = False) -> str:
-    """``## Verification Policy`` for ``task.md``: four short lines, no commands.
+def project_settings_payload(
+    settings: ProjectSettings,
+    *,
+    saved: bool,
+    warnings: list[str],
+    verification_source: str | None = None,
+) -> dict[str, object]:
+    """``bugpilot project-settings show --json``.
 
-    ``None`` is the defaults. The section is always present, so what the project
-    expects is said rather than assumed.
+    ``verification_source`` says which policy is effective (`bugpilot-default`,
+    `legacy-project-settings` or `verification-file`; `verification.py`),
+    so a client can tell when the switches it shows no longer decide anything.
     """
-    policy = policy or VerificationPolicy()
-    source = "repository configuration (project settings)" if saved else "BugPilot defaults (no project settings saved)"
-    lines = [
-        "- Run the tests relevant to the changed behavior."
-        if policy.relevant_tests
-        else "- Running tests for the changed behavior is not required by this project.",
-        "- Run the repository's existing static checks (linters, type checks, compiler warnings) when they are available."
-        if policy.static_checks
-        else "- Static checks are not required by this project.",
-        "- Run the repository's full test suite before reporting, if it can run in this environment."
-        if policy.full_suite
-        else "- The repository's full test suite is not required.",
-        "- Report the relevant verification you did not run, and why."
-        if policy.report_not_run
-        else "- Listing verification you did not run is optional; never claim a check ran unless it did.",
-    ]
-    return (
-        "## Verification Policy\n\n"
-        f"Source: {source}.\n\n"
-        "What this project expects from a pass that changes source code. It is part of the project / team layer in "
-        "BugPilot Rule Precedence below; the AI Fix Mode decides how this attempt verifies within it, and in an "
-        "investigation-only pass you record the verification you would run instead.\n\n"
-        + "\n".join(lines)
-        + "\n\nUse the repository's own test and check commands; do not invent commands the repository gives no "
-        "evidence of. Project / team instructions may name them.\n\n"
-    )
-
-
-def project_settings_payload(settings: ProjectSettings, *, saved: bool, warnings: list[str]) -> dict[str, object]:
-    """``bugpilot project-settings show --json``."""
-    return {
+    payload: dict[str, object] = {
         "settings": settings.to_dict(),
         "saved": saved,
         "path": SHOWN_PATH,
@@ -281,3 +299,10 @@ def project_settings_payload(settings: ProjectSettings, *, saved: bool, warnings
         "default_branch_template": DEFAULT_BRANCH_TEMPLATE_LABEL,
         "warnings": warnings,
     }
+    if verification_source is not None:
+        payload["verification_source"] = verification_source
+    return payload
+
+
+def verification_file_wins(source: str) -> bool:
+    return source == SOURCE_FILE

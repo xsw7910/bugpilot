@@ -57,8 +57,8 @@ import type { BranchPolicy } from "../app/form.ts";
 import { REPOSITORY_FIELDS, REPOSITORY_PROFILE_LABELS, REPOSITORY_PROFILE_MODES } from "../app/repositoryProfile.ts";
 import type { RepositoryField, RepositoryProfileMode } from "../app/repositoryProfile.ts";
 import { INSTRUCTION_TEXT, MAX_INSTRUCTION_CHARS } from "../app/instructions.ts";
-import { DEFAULT_BRANCH_TEMPLATE, MAX_BRANCH_TEMPLATE_CHARS, VERIFICATION_FIELDS } from "../app/projectSettings.ts";
-import type { VerificationField } from "../app/projectSettings.ts";
+import { DEFAULT_BRANCH_TEMPLATE, MAX_BRANCH_TEMPLATE_CHARS } from "../app/projectSettings.ts";
+import { VERIFICATION_FILE } from "../app/verificationPolicy.ts";
 import type { InstructionScope } from "../app/instructions.ts";
 import {
   DELETE_FILES_HELPER,
@@ -1008,6 +1008,8 @@ ${settingsView()}
 
 ${INSTRUCTIONS_VIEW}
 
+${VERIFICATION_PREVIEW_VIEW}
+
   <section id="fix-mode-manager-view" class="view" aria-labelledby="manage-heading" hidden>
 ${pageHeader({
   backId: "manage-back",
@@ -1255,22 +1257,29 @@ const REPOSITORY_DETAIL_FIELDS: readonly TextField[] = REPOSITORY_FIELDS.map((en
 
 /**
  * What each instruction scope is, for its row's tooltip and description: where
- * the file is, whom it applies to, and that it never overrides BugPilot.
+ * the file is, whom it applies to, and that BugPilot's own rules win a conflict.
  */
 const INSTRUCTION_HELP: Readonly<Record<InstructionScope, string>> = {
   user:
     "Your own instructions for the AI agent, in every repository: ~/.bugpilot/instructions.md. " +
-    "They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
+    "They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
   project:
     "Instructions for the AI agent shared with this repository: .bugpilot/instructions.md, which can be committed. " +
-    "They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
+    "Use this for project conventions, preferred commands, or important constraints. " +
+    "They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
+};
+
+/** Each scope in a few words, on screen under its name (0.1.3, §42.5): which document is which, at a glance. */
+const INSTRUCTION_DESCRIPTION: Readonly<Record<InstructionScope, string>> = {
+  user: "Personal guidance used across repositories.",
+  project: "Optional repository-specific guidance for AI.",
 };
 
 /**
- * An instruction row: the name, Edit, and under them one
+ * An instruction row: the name and Edit, what the document is for, and one
  * quiet line of state the page fills from the host — the empty state until
  * there is something to say. A document is not edited in this narrow column:
- * Edit opens its own page.
+ * Edit opens its own page, the one place each is edited.
  */
 function instructionRow(scope: InstructionScope): string {
   const id = `${scope}-instructions`;
@@ -1278,50 +1287,58 @@ function instructionRow(scope: InstructionScope): string {
   return `        <div class="field instruction-row" id="field-${id}">
           <div class="setting-header">
             <label for="${id}-edit" title="${INSTRUCTION_HELP[scope]}"><span class="codicon codicon-${scope === "user" ? "checklist" : "file-text"} setting-icon icon-muted" aria-hidden="true"></span>${text.title}</label>
-            <button type="button" class="instruction-edit" id="${id}-edit" aria-label="${text.editLabel}" title="${INSTRUCTION_HELP[scope]}" aria-describedby="${id}-edit-hint ${id}-status">Edit</button>
+            <button type="button" class="instruction-edit" id="${id}-edit" aria-label="${text.editLabel}" title="${INSTRUCTION_HELP[scope]}" aria-describedby="${id}-edit-hint ${id}-description ${id}-status">Edit</button>
             <p class="visually-hidden" id="${id}-edit-hint">${INSTRUCTION_HELP[scope]}</p>
           </div>
+          <p class="hint instruction-description" id="${id}-description">${INSTRUCTION_DESCRIPTION[scope]}</p>
           <p class="hint instruction-status" id="${id}-status">${text.empty}</p>
         </div>`;
 }
 
 /**
- * The Verification Policy: four switches under one
- * heading, what each asks for in its tooltip. The repository's, saved in
- * `.bugpilot/project_settings.json` on Apply; how an attempt verifies stays
- * the Fix Mode's.
+ * The Verification Policy (0.1.3, §42.5): what the repository expects a pass
+ * that changes code to verify, as text — `.bugpilot/verification.md`, or
+ * BugPilot's default, or the legacy switches older versions saved. The row is
+ * state and three actions, never a place to type: Edit opens the file in an
+ * editor tab (the CLI creates it first, from the policy in force, if it is not
+ * there), Reset removes it after asking, and Preview shows the effective policy
+ * read-only. Every word of state is the host's, from `bugpilot verification
+ * show --json`; how an attempt verifies stays the Fix Mode's.
+ *
+ * The state is one polite live region — source, problem, lint, the
+ * default-changed note — and "Needs rebuild" another, so a change is
+ * announced, and each is said in words, never by colour alone.
  */
-const VERIFICATION_HELP: Readonly<Record<VerificationField, { readonly label: string; readonly help: string }>> = {
-  verifyRelevantTests: { label: "Run relevant tests", help: "Ask the agent to run the tests relevant to the changed behavior." },
-  verifyStaticChecks: {
-    label: "Run existing static checks",
-    help: "Ask the agent to run the repository's existing linters, type checks or compiler warnings when they are available.",
-  },
-  verifyFullSuite: {
-    label: "Run full test suite",
-    help: "Ask the agent to run the repository's full test suite before reporting, if it can run here.",
-  },
-  verifyReportNotRun: {
-    label: "Report tests not run",
-    help: "Ask the agent to list the relevant verification it did not run, and why.",
-  },
-};
+const VERIFICATION_POLICY_HELP =
+  `The verification this repository expects from a pass that changes code: ${VERIFICATION_FILE}, which can be committed, ` +
+  "or BugPilot's default without it. It replaces BugPilot's default whole. The Fix Mode decides how each attempt verifies within it, " +
+  "and BugPilot's safety rules still apply. Changing it requires rebuilding context.";
 
-const VERIFICATION_GROUP_HELP =
-  "The verification this repository expects from a fix. The Fix Mode decides how each attempt verifies within it. " +
-  "Saved for the repository in .bugpilot/project_settings.json.";
-
-const VERIFICATION_GROUP = `        <div class="setting-group" id="field-verification" role="group" aria-labelledby="verification-label" aria-describedby="verification-description">
-          <p class="setting-group-label" id="verification-label" title="${VERIFICATION_GROUP_HELP}"><span class="codicon codicon-beaker setting-icon icon-muted" aria-hidden="true"></span>Verification</p>
-          <p class="visually-hidden" id="verification-description">${VERIFICATION_GROUP_HELP}</p>
-${VERIFICATION_FIELDS.map((entry) => settingSwitch(entry.field, VERIFICATION_HELP[entry.field].label, VERIFICATION_HELP[entry.field].help, entry.default)).join("\n")}
+const VERIFICATION_ROW = `        <div class="field policy-row" id="field-verification-policy" role="group" aria-labelledby="verification-policy-label" aria-describedby="verification-policy-description">
+          <div class="policy-header">
+            <span class="policy-label" id="verification-policy-label" title="${VERIFICATION_POLICY_HELP}"><span class="codicon codicon-beaker setting-icon icon-muted" aria-hidden="true"></span>Verification policy</span>
+          </div>
+          <p class="hint policy-description" id="verification-policy-description">Minimum verification expected for code changes.</p>
+          <p class="visually-hidden" id="verification-policy-help">${VERIFICATION_POLICY_HELP}</p>
+          <div class="policy-state" id="verification-policy-state" role="status">
+            <p class="hint policy-source" id="verification-policy-source"></p>
+            <p class="policy-note is-problem" id="verification-policy-problem" hidden><span class="codicon codicon-error policy-note-icon" aria-hidden="true"></span><span><strong class="policy-note-kind">Problem:</strong> <span id="verification-policy-problem-text"></span></span></p>
+            <p class="policy-note is-warning" id="verification-policy-lint" hidden><span class="codicon codicon-warning policy-note-icon" aria-hidden="true"></span><span id="verification-policy-lint-text"></span></p>
+            <p class="policy-note is-info" id="verification-policy-default-changed" hidden><span class="codicon codicon-history policy-note-icon" aria-hidden="true"></span><span id="verification-policy-default-changed-text"></span></p>
+            <p class="hint policy-unavailable" id="verification-policy-unavailable" hidden></p>
+          </div>
+          <div class="policy-actions" role="group" aria-label="Verification Policy actions">
+            <button type="button" id="verification-policy-edit" aria-label="Edit Verification Policy in an editor tab" title="Opens ${VERIFICATION_FILE} in an editor tab. If it does not exist yet, BugPilot creates it from the policy in force first." aria-describedby="verification-policy-source verification-policy-help">Edit</button>
+            <button type="button" id="verification-policy-reset" aria-label="Reset Verification Policy" title="Deletes ${VERIFICATION_FILE} after asking, so the policy that applies without it is used again." aria-describedby="verification-policy-source">Reset</button>
+            <button type="button" id="verification-policy-preview" aria-label="Preview Verification Policy (read-only)" title="Shows the Verification Policy in force, read-only." aria-describedby="verification-policy-source">Preview</button>
+          </div>
+          <p class="policy-stale-line" role="status"><span class="policy-stale" id="verification-policy-stale"></span></p>
         </div>`;
 
 /** The Custom details are drawn hidden; the page shows them while Custom is chosen. */
 const REPOSITORY_SECTION = [
   REPOSITORY_PROFILE_FIELD,
   ...REPOSITORY_DETAIL_FIELDS.map((entry) => field(entry).replace(`<div class="field" id="field-${entry.id}">`, `<div class="field" id="field-${entry.id}" hidden>`)),
-  instructionRow("project"),
 ].join("\n");
 
 /**
@@ -1340,7 +1357,7 @@ ${pageHeader({ backId: "instructions-back", backTitle: "Back to Advanced Setting
     <p class="hint instructions-problem" id="instructions-problem" hidden></p>
     <label class="visually-hidden" for="instructions-text" id="instructions-text-label">Instructions</label>
     <textarea id="instructions-text" class="instructions-text" rows="14" spellcheck="true" placeholder="Plain text or Markdown" aria-describedby="instructions-scope instructions-guide instructions-count instructions-error"></textarea>
-    <p class="visually-hidden" id="instructions-guide">Plain text or Markdown, up to ${MAX_INSTRUCTION_CHARS.toLocaleString("en-US")} characters. They refine how the AI agent works and never override BugPilot's safety rules. Saving empty text removes the file. Ctrl+Enter saves; Escape cancels.</p>
+    <p class="visually-hidden" id="instructions-guide">Plain text or Markdown, up to ${MAX_INSTRUCTION_CHARS.toLocaleString("en-US")} characters. They refine how the AI agent works; BugPilot's safety rules come first in the task and win any conflict. Saving empty text removes the file. Ctrl+Enter saves; Escape cancels.</p>
     <p class="hint instructions-count" id="instructions-count"></p>
     <p class="error" id="instructions-error" role="alert" hidden></p>
 
@@ -1348,6 +1365,30 @@ ${pageHeader({ backId: "instructions-back", backTitle: "Back to Advanced Setting
       <button type="button" id="instructions-cancel">Cancel</button>
       <button type="button" id="instructions-save" class="primary">Save</button>
     </div>
+  </section>`;
+
+/**
+ * The Verification Policy Preview (0.1.3, §42.5): the policy in force, read
+ * only, from `bugpilot verification show --json` — where it comes from, the
+ * default's versions, a problem, the lint in the CLI's words and the text. Not
+ * the task: no other section of task.md is here. Text, not a disabled box, so
+ * it reads as something to read rather than a field refusing input; Back and
+ * Escape return to the row's Preview button.
+ */
+const VERIFICATION_PREVIEW_VIEW = `  <section id="verification-preview-view" class="view verification-preview" aria-labelledby="verification-preview-title" aria-describedby="verification-preview-lede" hidden>
+${pageHeader({ backId: "verification-preview-back", backTitle: "Back to Advanced Settings", titleId: "verification-preview-title", title: "Verification Policy Preview" })}
+
+    <p class="muted view-lede" id="verification-preview-lede"><span class="codicon codicon-eye policy-readonly-icon" aria-hidden="true"></span>Read-only. Edit in Advanced Settings opens the file in an editor tab.</p>
+    <dl class="preview-facts" id="verification-preview-facts"></dl>
+    <p class="policy-note is-problem" id="verification-preview-problem" hidden><span class="codicon codicon-error policy-note-icon" aria-hidden="true"></span><span><strong class="policy-note-kind">Problem:</strong> <span id="verification-preview-problem-text"></span></span></p>
+    <p class="policy-note is-info" id="verification-preview-default-changed" hidden><span class="codicon codicon-history policy-note-icon" aria-hidden="true"></span><span id="verification-preview-default-changed-text"></span></p>
+    <section class="policy-lint" id="verification-preview-lint" aria-labelledby="verification-preview-lint-title" hidden>
+      <h3 class="policy-lint-title" id="verification-preview-lint-title"></h3>
+      <p class="hint">Warnings only: the policy is kept as written, and BugPilot's rules still apply. They are not a security check.</p>
+      <ul class="policy-lint-list" id="verification-preview-lint-list"></ul>
+    </section>
+    <h3 class="policy-text-title" id="verification-preview-text-title">Policy text</h3>
+    <pre class="policy-text" id="verification-preview-text" tabindex="0" role="region" aria-labelledby="verification-preview-text-title"></pre>
   </section>`;
 
 /**
@@ -1409,8 +1450,8 @@ function sectionBody(section: WorkflowSettingsSection): string {
       return SIMILAR_FIXES_SECTION;
     case "repository":
       return REPOSITORY_SECTION;
-    case "ai-instructions":
-      return `${instructionRow("user")}\n${VERIFICATION_GROUP}`;
+    case "guidance-verification":
+      return [instructionRow("user"), instructionRow("project"), VERIFICATION_ROW].join("\n");
     case "build-context":
       return FRESH_FIELD;
     case "fix-with-ai":

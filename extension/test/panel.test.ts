@@ -97,8 +97,8 @@ const MODEL_TEXT_FIELDS = Object.keys(DEFAULT_FORM).filter(
       "branchPolicy",
       // The Repository section's select; its details are text.
       "repositoryProfile",
-      // The Verification Policy's four switches and Branch naming's select;
-      // the branch template is text.
+      // The legacy Verification switches, which no control edits since 0.1.3
+      // (§42.5), and Branch naming's select; the branch template is text.
       "verifyRelevantTests",
       "verifyStaticChecks",
       "verifyFullSuite",
@@ -269,6 +269,10 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   closeJiraSetup: { type: "closeJiraSetup" },
   openInstructions: { type: "openInstructions", scope: "project" },
   closeInstructions: { type: "closeInstructions" },
+  editVerificationPolicy: { type: "editVerificationPolicy" },
+  resetVerificationPolicy: { type: "resetVerificationPolicy" },
+  previewVerificationPolicy: { type: "previewVerificationPolicy" },
+  closeVerificationPreview: { type: "closeVerificationPreview" },
   saveInstructions: { type: "saveInstructions", scope: "user", text: "Prefer small focused changes." },
   parseReviewOutput: { type: "parseReviewOutput", text: "## Summary\nReads correctly.\n" },
   discardReviewDraft: { type: "discardReviewDraft" },
@@ -799,16 +803,12 @@ const SETTINGS_HELP: Readonly<Record<string, string>> = {
   repositoryTestFramework: "How the repository is tested.",
   repositoryNotes: "Anything else the AI agent should know about the codebase, in a sentence or two.",
   // The instruction rows' Edit: where each file is, whom
-  // it applies to, and that it never overrides BugPilot.
+  // it applies to, and that BugPilot's safety rules win a conflict with it.
   "project-instructions-edit":
-    "Instructions for the AI agent shared with this repository: .bugpilot/instructions.md, which can be committed. They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
+    "Instructions for the AI agent shared with this repository: .bugpilot/instructions.md, which can be committed. Use this for project conventions, preferred commands, or important constraints. They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
   "user-instructions-edit":
-    "Your own instructions for the AI agent, in every repository: ~/.bugpilot/instructions.md. They refine how it works and never override BugPilot's safety rules. Changing them requires rebuilding context.",
-  // The Verification Policy's switches and Branch naming.
-  verifyRelevantTests: "Ask the agent to run the tests relevant to the changed behavior.",
-  verifyStaticChecks: "Ask the agent to run the repository's existing linters, type checks or compiler warnings when they are available.",
-  verifyFullSuite: "Ask the agent to run the repository's full test suite before reporting, if it can run here.",
-  verifyReportNotRun: "Ask the agent to list the relevant verification it did not run, and why.",
+    "Your own instructions for the AI agent, in every repository: ~/.bugpilot/instructions.md. They refine how it works; BugPilot's safety rules come first in the task and win any conflict. Changing them requires rebuilding context.",
+  // Branch naming. (The Verification Policy's switches left in 0.1.3, §42.5.)
   branchNaming:
     "The name a new branch gets, when the branch policy calls for one. It never creates or switches a branch itself, and a work item keeps the branch it already has. Saved for the repository in .bugpilot/project_settings.json.",
   branchTemplate:
@@ -888,10 +888,10 @@ test("the settings page's labels are short, sentence case, and never say optiona
   );
   // Title, Attachments; Retrieval inputs' two; Code search's three; Git
   // history's eight; Similar fixes' three; the repository profile and its six
-  // details, and Project instructions; User instructions and the Verification
-  // Policy's four switches; Fresh; the agent and its command; the branch
-  // policy, Branch naming and its template.
-  assert.equal(labels.length, 37, `${labels.length} labels`);
+  // details; User and Project instructions (the Verification Policy is a row
+  // of state and actions, not a labelled control, §42.5); Fresh; the agent and
+  // its command; the branch policy, Branch naming and its template.
+  assert.equal(labels.length, 33, `${labels.length} labels`);
   for (const label of labels) {
     assert.equal(/optional/i.test(label), false, `"${label}" says optional — an empty box already does`);
     // Sentence case: a capital first, then lower case — except AI, an acronym,
@@ -920,9 +920,10 @@ test("every setting has a header row with a real label in it", () => {
   // profile's select and the branch policy's select, and the two instruction
   // rows' Edit. (Fix Mode and Hint are the main page's
   // now, §37.84.)
-  // And the Verification Policy's four switches and the Branch
-  // naming select (its template is a text field, counted above).
-  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 8 + 2 + 5, "a row is missing the pattern");
+  // And the Branch naming select (its template is a text field, counted
+  // above). The Verification Policy row has its own header (§42.5): a name over
+  // state and three buttons, with no one control for a label to name.
+  assert.equal(rows.length, SETTINGS_FIELD_IDS.length + 3 + 8 + 2 + 1, "a row is missing the pattern");
 
   for (const row of rows) {
     const label = /<label[^>]*for="([^"]+)"/.exec(row);
@@ -951,6 +952,18 @@ test("helper text survives only where a tooltip could not carry it", () => {
   const hidden = [...SETTINGS_VIEW.matchAll(/<p class="visually-hidden" id="([a-zA-Z-]+)-hint">/g)].map((match) => match[1]);
   assert.deepEqual(visible, ["agentCommand"], "a helper line came back on screen");
   assert.deepEqual([...hidden].sort(), Object.keys(SETTINGS_HELP).sort(), "an explanation was lost rather than moved");
+  // The one named exception (0.1.3, §42.5): Guidance & Verification's three
+  // documents each say in a few words which document is which, on screen —
+  // three things a task carries, easy to confuse by name alone. One short line
+  // each, never the explanation, which stays the tooltip and description.
+  const described = [...SETTINGS_VIEW.matchAll(/<p class="hint (?:instruction|policy)-description" id="([a-z-]+)-description">([^<]+)<\/p>/g)].map(
+    (match) => [match[1], match[2]],
+  );
+  assert.deepEqual(described, [
+    ["user-instructions", "Personal guidance used across repositories."],
+    ["project-instructions", "Optional repository-specific guidance for AI."],
+    ["verification-policy", "Minimum verification expected for code changes."],
+  ]);
   // The main form keeps none (§37.104): Issue, Fix Mode, Hint and Include issue
   // details explain themselves by placeholder, tooltip and accessible
   // description instead — the panel shows the controls and their state.
@@ -1828,10 +1841,12 @@ const BACK_PAGES = [
   ["fix-mode-editor-view", "editor-back", "editor-title", "", "Back to Fix Mode Manager"],
   // User or Project instructions: the title is the scope's, set by the page.
   ["instructions-editor-view", "instructions-back", "instructions-title", "Instructions", "Back to Advanced Settings — discards the changes"],
+  // The Verification Policy, read-only (§42.5): nothing to discard.
+  ["verification-preview-view", "verification-preview-back", "verification-preview-title", "Verification Policy Preview", "Back to Advanced Settings"],
 ] as const;
 
 test("every page with a way back uses the one shared page header (§37.120)", () => {
-  // Exactly these five, and nowhere else: the main view has no way back.
+  // Exactly these six, and nowhere else: the main view has no way back.
   assert.equal([...HTML.matchAll(/<div class="page-header">/g)].length, BACK_PAGES.length);
   const main = /<section id="main-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
   assert.equal(main.includes("page-header"), false);
@@ -2537,7 +2552,7 @@ test("Workflow Settings is one section per step that has settings, in the workfl
     "git-history",
     "similar-fixes",
     "repository",
-    "ai-instructions",
+    "guidance-verification",
     "build-context",
     "fix-with-ai",
     "branch",
@@ -2740,8 +2755,8 @@ test("a section's tag is a quiet fact beside its heading, never a badge, and wra
     "similar-fixes": ["Requires rebuild", "Changes here require rebuilding context."],
     // Written into task.md's Repository Context.
     repository: ["Requires rebuild", "Changes here require rebuilding context."],
-    // The User instructions, written into task.md.
-    "ai-instructions": ["Requires rebuild", "Changes here require rebuilding context."],
+    // The User and Project instructions and the Verification Policy, written into task.md.
+    "guidance-verification": ["Requires rebuild", "Changes here require rebuilding context."],
     "build-context": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     "fix-with-ai": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     // Written into task.md, as the Fix Mode is (§37.127).
@@ -4660,4 +4675,84 @@ test("the page is never given a token: Jira Setup's view carries the email and w
   assert.deepEqual(fields, ["request", "email", "site", "siteFromEnvironment", "tokenStored", "saving", "error", "token", "field", "message"]);
   // The one `token` there is the error's answer counter, a number.
   assert.match(view, /readonly token: number;/);
+});
+
+
+// --- Guidance & Verification (0.1.3, §42.5) ------------------------------------------
+
+test("Guidance & Verification: three documents in order, one edit path each, and no switch or AI Behavior row", () => {
+  const section = settingsSection("guidance-verification");
+  assert.match(section, /<h3 class="settings-section-title" id="settings-title-guidance-verification"[^>]*>Guidance &amp; Verification<\/h3>|<h3 class="settings-section-title" id="settings-title-guidance-verification"[^>]*>Guidance & Verification<\/h3>/);
+  const rows = ["field-user-instructions", "field-project-instructions", "field-verification-policy"].map((id) => section.indexOf(`id="${id}"`));
+  assert.ok(rows.every((at) => at > 0), JSON.stringify(rows));
+  assert.deepEqual([...rows].sort((a, b) => a - b), rows);
+  // Each document has exactly one Edit in the whole page: the Project row
+  // moved here from Repository, it was not copied.
+  for (const id of ["user-instructions-edit", "project-instructions-edit", "verification-policy-edit"]) {
+    assert.equal([...HTML.matchAll(new RegExp(`id="${id}"`, "g"))].length, 1, id);
+  }
+  assert.equal(settingsSection("repository").includes("project-instructions"), false, "Project instructions left behind in Repository");
+  // The switches and their note are gone; nothing here is a form field.
+  for (const gone of ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun", "verification-note", 'type="checkbox"']) {
+    assert.equal(section.includes(gone), false, gone);
+  }
+  // 0.1.4's are not here: no AI Behavior, Evidence, Output, Delivery or protected-rule viewer, no task preview.
+  for (const later of ["AI Behavior", "Evidence Policy", "Output Requirements", "Delivery Behavior", "Protected Rules", "Effective AI Task", "Effective Context"]) {
+    assert.equal(HTML.includes(later), false, later);
+  }
+});
+
+test("the Verification Policy row: a name, what it is for, state in words, three named actions — never a box to type in", () => {
+  const row = /<div class="field policy-row" id="field-verification-policy"[\s\S]*?<p class="policy-stale-line" role="status"><span class="policy-stale" id="verification-policy-stale"><\/span><\/p>\s*<\/div>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(row, "", "no Verification Policy row");
+  assert.match(row, /role="group" aria-labelledby="verification-policy-label" aria-describedby="verification-policy-description"/);
+  assert.match(row, /id="verification-policy-label"[^>]*>.*Verification policy<\/span>/);
+  assert.match(row, /<p class="hint policy-description" id="verification-policy-description">Minimum verification expected for code changes\.<\/p>/);
+  // The state is one polite live region; "Needs rebuild" another.
+  assert.match(row, /<div class="policy-state" id="verification-policy-state" role="status">/);
+  // Not colour alone: a problem says "Problem:", and every note has a glyph.
+  assert.match(row, /id="verification-policy-problem" hidden><span class="codicon codicon-error policy-note-icon" aria-hidden="true"><\/span><span><strong class="policy-note-kind">Problem:<\/strong>/);
+  assert.match(row, /id="verification-policy-lint" hidden><span class="codicon codicon-warning policy-note-icon"/);
+  assert.match(row, /id="verification-policy-default-changed" hidden><span class="codicon codicon-history policy-note-icon"/);
+  // Each action names what it does to what, for a screen reader and on hover.
+  for (const [id, name, word] of [
+    ["verification-policy-edit", "Edit Verification Policy in an editor tab", "Edit"],
+    ["verification-policy-reset", "Reset Verification Policy", "Reset"],
+    ["verification-policy-preview", "Preview Verification Policy (read-only)", "Preview"],
+  ] as const) {
+    assert.match(row, new RegExp(`<button type="button" id="${id}" aria-label="${name.replace(/[()]/g, "\\$&")}" title="[^"]+" aria-describedby="verification-policy-source[^"]*">${word}</button>`), id);
+  }
+  for (const control of ["<textarea", "<input", "<select", "contenteditable"]) assert.equal(row.includes(control), false, control);
+  // Every id a control names is in the document.
+  for (const described of row.matchAll(/aria-describedby="([^"]+)"/g)) {
+    for (const target of described[1]!.split(" ")) assert.ok(HTML.includes(`id="${target}"`), `names a missing #${target}`);
+  }
+});
+
+test("the Verification Policy Preview: read-only text with its facts and the lint, not the task, behind the shared header", () => {
+  const view = /<section id="verification-preview-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
+  assert.notEqual(view, "");
+  assert.match(view, /<h2 id="verification-preview-title" class="page-title" tabindex="-1">Verification Policy Preview<\/h2>/);
+  assert.match(view, /Read-only\. Edit in Advanced Settings opens the file in an editor tab\./);
+  assert.match(view, /<pre class="policy-text" id="verification-preview-text" tabindex="0" role="region" aria-labelledby="verification-preview-text-title"><\/pre>/);
+  assert.match(view, /<dl class="preview-facts" id="verification-preview-facts"><\/dl>/);
+  assert.match(view, /They are not a security check\./, "the lint must not read as a guarantee");
+  for (const control of ["<textarea", "<input", "<select", "contenteditable", 'id="verification-preview-save"']) assert.equal(view.includes(control), false, control);
+});
+
+test("the Verification Policy row wraps at 200px: no width, no absolute position, actions on as many lines as they need", () => {
+  const rules = [...CSS.matchAll(/\.(?:policy-[a-z-]+)[^{]*\{([^}]*)\}/g)].map((match) => match[1]!).join("\n");
+  assert.notEqual(rules, "");
+  assert.equal(/[^-]width: \d+px/.test(rules), false, "a fixed width breaks the 200px sidebar");
+  assert.equal(/position: absolute/.test(rules), false);
+  assert.equal(COLOUR_LITERAL.test(rules), false, "a colour a theme cannot override");
+  assert.match(ruleBody(".policy-actions"), /display: flex;[\s\S]*flex-wrap: wrap;/);
+  assert.match(ruleBody(".policy-note"), /overflow-wrap: anywhere;/);
+  assert.match(ruleBody(".policy-text"), /white-space: pre-wrap;[\s\S]*overflow-wrap: anywhere;/);
+  // The problem is the one note in the error colour; the lint never is.
+  assert.match(ruleBody(".policy-note.is-problem"), /color: var\(--vscode-errorForeground\);/);
+  assert.equal(/errorForeground/.test(ruleBody(".policy-note.is-warning .policy-note-icon")), false);
+  // "Needs rebuild" is the workflow status's own pill, High Contrast included.
+  assert.match(ruleBody(".policy-stale"), /border-radius: 9px;/);
+  assert.match(CSS, /body\.vscode-high-contrast \.policy-stale,\s*body\.vscode-high-contrast-light \.policy-stale \{[^}]*border-color: var\(--vscode-contrastBorder/s);
 });

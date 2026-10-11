@@ -166,42 +166,74 @@ def _check_scope(scope: str) -> None:
         raise InstructionsError(f"Unknown instructions scope {scope!r}. Choose one of: {', '.join(INSTRUCTION_SCOPES)}.")
 
 
-def _link_problem(scope: str, path: Path) -> str | None:
-    """A link at the file or at the folder holding it: read from somewhere else, so not at all."""
-    shown = display_path(scope)
+def link_problem(path: Path, shown: str, rule: str) -> str | None:
+    """A link at the file or at the folder holding it: read from somewhere else, so not at all.
+
+    ``shown`` is the file as a person names it; ``rule`` finishes the sentence —
+    "instructions are", "the Verification Policy is" — read and written only
+    as a real file. Shared by every text document BugPilot reads from
+    ``.bugpilot/`` or the user's configuration, so all of them refuse alike.
+    """
     for candidate, name in ((path.parent, shown.rsplit("/", 1)[0]), (path, shown)):
         if is_link_or_junction(candidate):
-            return f"{name} is a symbolic link or junction, and instructions are read and written only as a real file"
+            return f"{name} is a symbolic link or junction, and {rule} read and written only as a real file"
     return None
+
+
+def _link_problem(scope: str, path: Path) -> str | None:
+    return link_problem(path, display_path(scope), "instructions are")
 
 
 # --- reading -------------------------------------------------------------------
 
 
-def read_instructions(scope: str, repo_root: Path) -> InstructionFile:
-    """One scope's file, as a task would carry it. Never raises for the file's own state."""
-    path = instructions_path(scope, repo_root)
-    problem = _link_problem(scope, path)
-    if problem:
-        return InstructionFile(scope, problem=problem + ".")
+@dataclass(frozen=True)
+class TextDocument:
+    """A small UTF-8 document as read: its normalized text, or why it cannot be used.
+
+    ``exists`` is whether something is at the path at all — a file that cannot
+    be used still exists, and is still the developer's choice of source.
+    """
+
+    text: str = ""
+    problem: str | None = None
+    exists: bool = False
+
+
+def read_text_document(path: Path, link: str | None) -> TextDocument:
+    """One document, read by the rules every BugPilot text document follows. Never raises for its own state.
+
+    Not a link (``link`` is the caller's `link_problem` verdict), a regular file,
+    at most `MAX_INSTRUCTION_CHARS` once normalized, UTF-8 (a BOM allowed):
+    anything else is left out whole, never cut short.
+    """
+    if link:
+        return TextDocument(problem=link + ".", exists=True)
     try:
         if not path.exists():
-            return InstructionFile(scope)
+            return TextDocument()
         if not path.is_file():
-            return InstructionFile(scope, problem="it is not a regular file.")
+            return TextDocument(problem="it is not a regular file.", exists=True)
         if path.stat().st_size > _MAX_FILE_BYTES:
-            return InstructionFile(scope, problem=_too_long_problem(None))
+            return TextDocument(problem=_too_long_problem(None), exists=True)
         raw = path.read_bytes()
     except OSError as exc:
-        return InstructionFile(scope, problem=f"it could not be read ({exc.strerror or type(exc).__name__}).")
+        return TextDocument(problem=f"it could not be read ({exc.strerror or type(exc).__name__}).", exists=True)
     try:
         decoded = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return InstructionFile(scope, problem="it is not UTF-8 text.")
+        return TextDocument(problem="it is not UTF-8 text.", exists=True)
     text = normalize_instructions(decoded)
     if len(text) > MAX_INSTRUCTION_CHARS:
-        return InstructionFile(scope, problem=_too_long_problem(len(text)))
-    return InstructionFile(scope, text=text)
+        return TextDocument(problem=_too_long_problem(len(text)), exists=True)
+    return TextDocument(text=text, exists=True)
+
+
+def read_instructions(scope: str, repo_root: Path) -> InstructionFile:
+    """One scope's file, as a task would carry it. Never raises for the file's own state."""
+    path = instructions_path(scope, repo_root)
+    document = read_text_document(path, _link_problem(scope, path))
+    return InstructionFile(scope, text=document.text, problem=document.problem)
 
 
 def load_instructions(repo_root: Path) -> ResolvedInstructions:
@@ -262,12 +294,16 @@ _ATX_HEADING = re.compile(r"^( {0,3})(#{1,6})(?=[ \t]|$)")
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
-def _contained(text: str) -> str:
+def contained_markdown(text: str) -> str:
     """The text with its headings two levels down, and any open code fence closed.
 
     The task's own sections are ``##``; inside one, the file's ``#`` and ``##``
     become ``###`` and ``####``, so nothing in it reads as a section of the task.
     """
+    return _contained(text)
+
+
+def _contained(text: str) -> str:
     lines = []
     fence: str | None = None
     for line in text.split("\n"):

@@ -16,7 +16,7 @@ orchestrators, every core module, and the artifact pipeline that flows through
 not at an end user (see the [README](../README.md) and
 [extension/README.md](../extension/README.md) for that).
 
-- Package name: `bugpilot` (`pyproject.toml`), version `0.1.2`.
+- Package name: `bugpilot` (`pyproject.toml`), version `0.1.3`.
 - Package / import name: `bugpilot` (matches the CLI). Env vars are `BUGPILOT_*`; the artifact dirs stay `.ai/` / `.ai_memory/`.
 - Console script: `bugpilot = bugpilot.cli:main`.
 - Runtime dependencies: **none** — standard library only. `requires-python >= 3.10`.
@@ -277,7 +277,25 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   lower-tier **expanded** sub-tokens (`_expanded_keywords`, generic parts like
   Widget/Dialog dropped), and **boosts** any token found in `priority_text`
   (stack traces / error messages passed by `keywords_step`). Output keys:
-  `high_value` / `normal` / `dropped` / `phrase` / `expanded`.
+  `high_value` / `normal` / `dropped` / `phrase` / `expanded`. Since 0.1.3
+  (§42.3) it reads the issue by field: `text` is the issue itself
+  (`IssueArtifact.core_text`: title, description without its field sections,
+  steps, actual, expected) and `secondary_text` the comments and environment,
+  whose words count once however often they repeat and rank below the issue's
+  own (`SECONDARY_RANK_PENALTY`). `remove_noise` takes links, e-mail
+  addresses, host names (`*.example.invalid`, `*.com`, …) and numbered machine
+  names (`build-host-01`) out first — never `utf-8`, `x86-64`, `qt-6` or
+  `module.attr` — and lists the names in `noise_keywords`.
+- **`search_terms.py`** — what each term is worth. `SearchTerm` carries its
+  `origins` (`TERM_ORIGINS`: title, description, reproduction, actual,
+  expected, comment, environment, hint, user-keyword), read from
+  `IssueArtifact.field_texts` by `term_origins` (a hand-written bug's derived
+  title is not a field of its own). `weigh` keeps the weight scale: a term only
+  the comments use drops to a hint's weight (identifier) or 1 (prose), a plain
+  word the title and description agree on rises to `WEIGHT_AGREED` (3), a
+  stack-trace term keeps 8 wherever it was pasted, `--keywords` keep 8, and a
+  term only the environment uses is not searched. `qualified_parts` searches
+  `Class.method` by its parts too.
 - **`search.py`** — ripgrep-driven code search.
   `run_code_search(repo_root, issue_key, keywords)` → `(markdown, related_files,
   quality)`. It shells out to `rg --fixed-strings --ignore-case --line-number`
@@ -289,8 +307,19 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   distinct high-value keywords and a bonus when a keyword matches the file's own
   name. `_apply_header_implementation_bonus`, `_apply_path_adjustments`
   (`_noise_flags` / `NOISE_PATH_INDICATORS`), and `_assign_confidence` /
-  `_overall_quality` finish; a file-name / phrase / multi-keyword match counts as
-  high confidence even outside an app-source path. Caps bound the artifacts
+  `_search_confidence` finish; a file-name / phrase / multi-keyword match counts as
+  high per-file confidence even outside an app-source path. Since 0.1.3
+  (§42.3): what comment- and environment-only terms match in one file adds up
+  to `SECONDARY_EVIDENCE_CAP` at most; the issue's concepts on one matched line
+  (`_concepts_together`, word starts only) earn up to 6; and **Search Confidence
+  v2** (`_search_confidence`) reads the best-ranked files instead of "any high
+  file": how much of the issue's matched concepts the top file holds, whether
+  that includes a strong term, a phrase or the file's own name, whether it
+  stands clear of the next file (`CLEAR_MARGIN`) or the next files agree, and
+  whether it is there for the issue's words or for the comments', the
+  environment's or the hint's. The levels stay High / Medium / Low; the reason
+  codes and counts are `retrieval.json`'s additive `confidence_details`
+  (version 2), the sentences its `reasons`. Caps bound the artifacts
   (`MAX_TOTAL_RELATED_FILES = 10`, `MAX_TOTAL_CODE_SEARCH_LINES = 300`).
 - **`memory.py` (~124 lines)** — the `.ai_memory/bugs` store.
   `build_memory_entry` / `add_memory_entry` write `<key>.md`; `search_memory`
@@ -330,10 +359,22 @@ parsing goes through `_clean_env` / `_env_int` / `_env_bool` / `_parse_recipient
   more than 20 candidate commits is *broad* — it adds 2 points and says so, but
   no longer keeps a commit in the list on its own. The corpus is
   `tests/git_history_corpus.py` (`python tests/git_history_corpus.py` prints
-  the table; `test_git_history_corpus.py` holds its floors).
-- **`context.py` (~183 lines)** — `build_context(...)` assembles `bug_context.md`
-  from every prior artifact and computes a 0–100 `_quality_score`. Imports no
-  other core module; depends purely on files on disk.
+  the table; `test_git_history_corpus.py` holds its floors). Since 0.1.3
+  (§42.3) two gates sit in front of it: a term only the comments or the
+  environment use is never a commit-message term unless a stack trace printed
+  it (`select_extracted_terms`), and a ranked file earns its commits file-history
+  credit only with relevant evidence (`weak_ranked_files`: not Code Search's
+  `low`, and matched by a term the issue itself says); the other files keep
+  their rank.
+- **`context.py`** — `build_context(...)` assembles `context.md` from what the
+  steps before it produced. **Context Quality v2** (`context_quality`, §42.3)
+  scores Issue completeness (description, reproduction steps, actual and
+  expected result, environment, errors/stack traces/logs, attachments),
+  Retrieval quality (Search Confidence, the top file's share of the issue's
+  concepts, a strong or phrase match) and Repository context (git, related
+  commits, similar fixes); the overall is 40 / 40 / 20 of them, at most
+  `MISSING_CORE_EVIDENCE_CAP` (75) when the report has none of steps, actual
+  and expected result. Each component is shown, with the yes/no lines.
 
 ### 5.4 Task generation — `prompts.py`, `fix_modes.py`, `fix_mode_state.py`, `delivery_instructions.py`
 
@@ -428,7 +469,7 @@ and before the pipeline runs — and is shown separately from the current select
   every field before touching it, so a hand-edited custom mode fails as a
   `FixModeError` naming the field rather than an `AttributeError` from inside a
   `strip()`. It also contains the mode text: editable sections may not carry
-  Markdown headings (a mode could otherwise forge `## Forbidden Actions` above
+  Markdown headings (a mode could otherwise forge `## BugPilot Safety Rules` above
   the real one) and are capped at `MAX_FIX_MODE_TEXT_LENGTH`. Imports no other
   core module and holds no product-specific knowledge: a mode says *how* to
   work, never what the bug is, and never what BugPilot forbids.
@@ -475,30 +516,68 @@ and before the pipeline runs — and is shown separately from the current select
   the offer, never the staging and branch rules. Mode text controls
   *how* the agent works; everything below it in the file is BugPilot-owned and a
   mode cannot relax it. The `jira_comment` parameter threads through
-  `_copilot_task`, `_copilot_handoff`, and `delivery_instructions_block` to
-  include or omit the "Report Status to Jira (before commit)" instruction.
+  `_copilot_task` to include or omit the "Report Status to Jira" section.
+  Since 0.1.3 (§42.4) every protected rule is defined once, in the
+  section that owns it — the Safety Rules (integrity, destructive Git, force
+  push, merges, pull requests, Jira, credentials, editing), Branch Instructions
+  (never main/master; the branch policy), Evidence Rules (invented evidence,
+  low confidence, no-op), Required Output Files (the report contract),
+  Delivery Safety (approval, branch checks, staging, never push main/master)
+  and Rule Precedence (how a conflict resolves) — and other sections refer to
+  it rather than restate it; `tests/task_golden.CANONICAL_RULES` checks it.
   `copilot_team_instructions()` returns the bundled safety rules
   (`_fallback_team_instructions()`), which `docs/agent_team_instructions.md`
-  mirrors. Project / Team and User Instructions (`instructions.py`) are rendered
-  after the Repository Context, project first, with the project's Verification
-  Policy between them (`project_settings.py`); `INSTRUCTION_LAYERS` states the
-  precedence, and is the only place it is defined.
+  mirrors; they name no agent's tools. `WORKING_GUIDANCE` (the former Core
+  Principles) is rendered as `## BugPilot Working Guidance` right after them:
+  BugPilot's default way of working, which any editable layer may refine — not
+  a safety rule. Project / Team and User Instructions (`instructions.py`) are
+  rendered after the Repository Context, project first, with the project's
+  Verification Policy between them (`verification.py`); `INSTRUCTION_LAYERS`
+  states the precedence, and is the only place it is defined.
+  `TASK_SECTION_CLASSES` classifies every `## ` heading a task can carry
+  (protected, AI-behaviour candidate, generated evidence, project instructions,
+  Verification Policy, user instructions, Fix Mode, developer hint); a test
+  fails on a heading it does not list.
+- **`verification.py`** — the Verification Policy since 0.1.3, resolved in one
+  place: `<repo>/.bugpilot/verification.md` (`verification-file`, replacement
+  semantics) if it exists, else the switches saved in `project_settings.json`
+  (`legacy-project-settings`), else BugPilot's default (`bugpilot-default`).
+  The file is front matter (`schema_version: 1`, `based_on_version`,
+  `mode: replace`; parsed without a YAML dependency) and a Markdown body, read
+  and written through `instructions.read_text_document` (UTF-8, 20,000
+  characters, normalised, no links or junctions, atomic writes). A file that
+  cannot be used is reported, never reinterpreted, and the default applies.
+  `lint_policy` adds non-blocking warnings for lines that look like they ask
+  for something a safety rule forbids. `verification_section` renders the one
+  `## Verification Policy` section with its source; `verification_payload` is
+  `bugpilot verification show --json`. The text is never logged.
 - **`project_settings.py`** — `<repo>/.bugpilot/project_settings.json`: the
-  Verification Policy (four switches rendered as a short `task.md` section that
-  names no commands) and the branch naming template (`{issue}`, `{slug}`;
+  legacy Verification switches (resolved into a `ResolvedVerification` by
+  `verification.py`; `ResolvedProjectSettings.effective_verification`) and the
+  branch naming template (`{issue}`, `{slug}`;
   validated and rendered by `git_ops.branch_template_problem` /
   `render_branch_template`). Read and written only as a real file inside the
   repository; an unusable file falls back to the defaults with a warning.
-  `bugpilot project-settings` and the extension's Advanced Settings edit it.
+  `bugpilot project-settings` and the extension's Advanced Settings edit it
+  (since 0.1.3 the extension only the branch template: it carries the switches
+  through unchanged); `bugpilot verification show|set|clear|reset` reads and
+  writes `verification.md`. The extension's Verification policy row
+  (`extension/src/app/verificationPolicy.ts`) only calls that command — `show`
+  for the row and its read-only Preview, `set --stdin` with the text `show`
+  reported when Edit finds no file, `reset` for Reset — and opens the file in
+  an editor tab; it composes no policy and writes no file itself.
 - **`delivery_instructions.py` (~110 lines)** — delivery text, split in two
   because only one half depends on the workflow. `delivery_safety_block` is the
-  BugPilot-owned gate — branch-name checks, the forbidden add-list (`.ai/`,
-  `.ai_memory/`, `jira.json`, secret-bearing files), no force push, no merge/PR
-  — and is rendered for every Fix Mode. `assisted_delivery_block` is the offer:
-  the delivery summary, the commit question, and the commit/push commands, for a
-  pass that produced a fix. `delivery_instructions_block` composes both, for
-  callers that always deliver (the retry prompt). `jira_comment` toggles the last
-  Jira-rule sentence in the safety block.
+  BugPilot-owned gate — explicit approval, the branch checks before staging, the
+  forbidden add-list (`.ai/`, `.ai_memory/`, `issue.json`,
+  `jira_field_report.md`, secret-bearing files), never push main/master — and is
+  rendered for every Fix Mode. In `task.md` (`standalone=False`) it relies on the
+  Safety Rules above for force pushes, merges, pull requests and Jira; a
+  document without that section (the retry prompt) gets them in the block.
+  `assisted_delivery_block` is the offer: the delivery summary, the commit
+  question, and the commit/push commands, for a pass that produced a fix.
+  `delivery_instructions_block` composes both, for callers that always deliver
+  (the retry prompt).
 
 ### 5.5 Agent handoff & setup — `agent_runner.py`, `copilot.py`, `setup.py`
 
@@ -531,7 +610,9 @@ file. Errors are deliberately built to never echo secrets.
 - **`doctor.py` (~41 lines)** — `collect_doctor_report` (data) and
   `doctor_report_lines` (rendering):
   Python version, `git`/`rg` availability, repo state, and *presence* (never
-  values) of Jira/SMTP/Graph configuration.
+  values) of Jira/SMTP/Graph configuration. `capabilities` (`CAPABILITIES`,
+  since 0.1.3: `verification-text`) names what this CLI can read, so a newer
+  extension can tell an older CLI from a broken one without parsing versions.
 - **`cleanup.py` (~73 lines)** — `clean_issue_artifacts` deletes `.ai/<key>/`
   (and optionally the memory file) behind `_ensure_child` containment guards so
   it can never delete outside `.ai` / `.ai_memory/bugs`. `validate_issue_key`

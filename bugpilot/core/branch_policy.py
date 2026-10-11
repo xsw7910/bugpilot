@@ -124,29 +124,27 @@ def branch_instructions(policy: str, branch: str, issue_key: str = "") -> str:
     if policy == BRANCH_POLICY_PER_ISSUE:
         lines += [
             f"- Branch name: `{branch}`",
-            "- Check the current branch before editing.",
             "- Never work directly on main/master.",
-            f"- Create or switch to `{branch}` before editing files — from a detached HEAD too. "
-            f"If it already exists{_existing_branch_clause(issue_key)}, switch to it rather than creating another.",
+            f"- Check the current branch, then create or switch to `{branch}` before editing files — "
+            f"from a detached HEAD too — and edit only there. If it already exists"
+            f"{_existing_branch_clause(issue_key)}, switch to it rather than creating another.",
             f"{_NO_NEW_BRANCH_FOR_REPREPARING} Reuse this one.",
         ]
     elif policy == BRANCH_POLICY_ASK:
         lines += [
             f"- Suggested branch name: `{branch}`",
-            "- Check the current branch before editing.",
             "- Never work directly on main/master.",
-            "- Before editing, tell the developer the current branch and the suggested branch "
+            "- Before editing, check the current branch, tell the developer it and the suggested branch "
             f"`{branch}`, and ask whether to stay on the current branch or to create or switch to "
-            "the suggested one; then do as they answer.",
+            "the suggested one; then edit only on the branch they choose.",
             "- If the current branch is `main` or `master`, or HEAD is detached, staying is not an "
             f"option: ask only whether to create or switch to `{branch}`.",
             _NO_NEW_BRANCH_FOR_REPREPARING,
         ]
     else:
         lines += [
-            "- Check the current branch before editing.",
-            "- Work on the branch that is currently checked out. Do not create or switch branches.",
-            "- Edit only on the current branch.",
+            "- Check the current branch before editing, and edit only on the branch that is checked "
+            "out. Do not create or switch branches.",
             "- Never work directly on main/master.",
             _NO_NEW_BRANCH_FOR_REPREPARING,
             "- If the current branch is `main` or `master`, or HEAD is detached, stop before editing "
@@ -172,33 +170,21 @@ def retry_branch_section(policy: str, branch: str | None = None) -> str:
     )
 
 
-def branch_editing_guardrail(policy: str, branch: str | None = None) -> str:
-    """The editing guardrail's branch line."""
-    if policy == BRANCH_POLICY_PER_ISSUE:
-        named = f", `{branch}`" if branch else " named above"
-        return f"- Edit only on the work item's branch{named}; never on main/master.\n"
-    if policy == BRANCH_POLICY_ASK:
-        return "- Edit only on the branch the developer chose; never on main/master.\n"
-    return (
-        "- Edit only on the current branch, never on main/master. Do not create or switch branches "
-        "unless the developer explicitly approves it from main/master or a detached HEAD.\n"
-    )
-
-
 def delivery_branch_checks(policy: str, issue_key: str, branch: str | None) -> str:
     """The branch checks before staging, after "not main/master" and "not detached"."""
     if policy == BRANCH_POLICY_PER_ISSUE:
         if branch:
             return (
                 f"- Verify the current branch is the work item's branch: `{branch}`"
-                f"{_existing_branch_clause(issue_key)}.\n"
-                f"- If needed, ask whether to create or switch to `{branch}` before editing or delivery.\n"
+                f"{_existing_branch_clause(issue_key)}. If it is not, stop and ask the developer "
+                f"whether to create or switch to `{branch}` before committing.\n"
             )
         # No name to hold the branch to: the old checks, which still say the
         # branch is this work item's.
         return (
             "- Verify the current branch starts with `feature/` or another accepted feature prefix.\n"
-            f"- Verify the current branch includes `{issue_key}`.\n"
+            f"- Verify the current branch includes `{issue_key}`. If it does not, stop and ask the "
+            "developer before committing.\n"
         )
     if policy == BRANCH_POLICY_ASK:
         return (
@@ -209,15 +195,3 @@ def delivery_branch_checks(policy: str, issue_key: str, branch: str | None) -> s
         "- Commit on the current branch. It does not have to start with `feature/` "
         f"or include `{issue_key}`.\n"
     )
-
-
-def delivery_branch_stop(policy: str, issue_key: str, branch: str | None = None) -> str:
-    """The commit offer's last branch rule, if the policy has one."""
-    if policy != BRANCH_POLICY_PER_ISSUE:
-        return ""
-    if branch:
-        return (
-            f"If the current branch is not `{branch}`{_existing_branch_clause(issue_key)}, "
-            "stop and ask the developer before committing.\n\n"
-        )
-    return f"If {issue_key} is not in the current branch name, stop and ask the developer before committing.\n\n"

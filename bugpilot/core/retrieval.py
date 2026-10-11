@@ -63,10 +63,15 @@ class RetrievalTerm:
     match_count: int
     #: ``zero``, ``specific`` or ``broad``, decided by ``search.py``.
     classification: str
-    #: The phrase a generated shape was built from; empty for everything else.
+    #: The phrase a generated shape was built from, or the qualified name a
+    #: part was split out of; empty for everything else.
     derived_from: str = ""
     #: ``retained`` or ``dropped`` (a term that matched nothing).
     status: str = "retained"
+    #: The report fields the term came from (``search_terms.TERM_ORIGINS``):
+    #: ``title``, ``description``, ``comment``, ``hint``, ``user-keyword`` …
+    #: Absent from a file written before 0.1.3, and read as unknown.
+    origins: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -202,6 +207,38 @@ class GitHistoryRecord:
 
 
 @dataclass(frozen=True)
+class ConfidenceDetails:
+    """How Search Confidence reached its level — v2, 0.1.3 (§42.3).
+
+    Additive: ``confidence`` is still the one field a reader needs, and a file
+    without this section (written before 0.1.3) reads as having none.
+    """
+
+    #: Machine-readable reason codes, in the order they were decided.
+    reasons: tuple[str, ...] = ()
+    #: Core issue concepts the search matched anywhere in the repository.
+    core_terms_matched: int = 0
+    #: …of which the top file matched, and the top three files together.
+    core_terms_in_top_file: int = 0
+    core_terms_in_top_3: int = 0
+    #: Strong ones (identifiers, quoted phrases, confirmed shapes, keywords) the top file matched.
+    strong_terms_in_top_file: int = 0
+    #: The top file matched a phrase, a confirmed shape, or several concepts on one line.
+    phrase_in_top_file: bool = False
+    #: The top file's distinct matched terms by where they came from:
+    #: ``core``, ``user_keyword``, ``hint``, ``comment_only``, ``environment_only``.
+    source_support: tuple[tuple[str, int], ...] = ()
+    #: The top file's score over the second's; ``None`` with fewer than two files.
+    top_file_margin: float | None = None
+    #: Other top-three files sharing a strong concept with the top file.
+    agreeing_top_files: int = 0
+
+
+#: The version of ``confidence_details``, independent of the file's own.
+CONFIDENCE_DETAILS_VERSION = 2
+
+
+@dataclass(frozen=True)
 class RetrievalArtifact:
     confidence: str = "low"
     #: Why the confidence is what it is, followed by any search warnings.
@@ -213,6 +250,8 @@ class RetrievalArtifact:
     #: Git history's section; ``None`` when that step has not run since Code
     #: Search last wrote the file.
     git_history: GitHistoryRecord | None = None
+    #: How the confidence was reached; ``None`` in a file written before 0.1.3.
+    confidence_details: ConfidenceDetails | None = None
 
     def top_files(self, count: int) -> list[str]:
         """The first ``count`` ranked paths."""
@@ -265,9 +304,49 @@ def read_retrieval_quietly(repo_root: Path, work_item_id: str) -> RetrievalArtif
 
 def retrieval_to_dict(retrieval: RetrievalArtifact) -> dict[str, object]:
     data = _code_search_dict(retrieval)
+    if retrieval.confidence_details is not None:
+        data["confidence_details"] = confidence_details_to_dict(retrieval.confidence_details)
     if retrieval.git_history is not None:
         data["git_history"] = git_history_to_dict(retrieval.git_history)
     return data
+
+
+def confidence_details_to_dict(details: ConfidenceDetails) -> dict[str, object]:
+    """The ``confidence_details`` section. Key order is fixed, so equal details serialize equally."""
+    return {
+        "version": CONFIDENCE_DETAILS_VERSION,
+        "reasons": list(details.reasons),
+        "core_term_coverage": {
+            "matched": details.core_terms_matched,
+            "top_file": details.core_terms_in_top_file,
+            "top_3": details.core_terms_in_top_3,
+        },
+        "strong_terms_in_top_file": details.strong_terms_in_top_file,
+        "phrase_in_top_file": details.phrase_in_top_file,
+        "source_support": dict(details.source_support),
+        "top_file_margin": details.top_file_margin,
+        "agreeing_top_files": details.agreeing_top_files,
+    }
+
+
+def confidence_details_from_dict(data: object) -> ConfidenceDetails | None:
+    """The section, or ``None`` when it is absent or of another version: never a reason to fail."""
+    if not isinstance(data, dict) or data.get("version") != CONFIDENCE_DETAILS_VERSION:
+        return None
+    coverage = data.get("core_term_coverage") if isinstance(data.get("core_term_coverage"), dict) else {}
+    support = data.get("source_support") if isinstance(data.get("source_support"), dict) else {}
+    margin = data.get("top_file_margin")
+    return ConfidenceDetails(
+        reasons=_strings(data.get("reasons")),
+        core_terms_matched=_int(coverage.get("matched")),
+        core_terms_in_top_file=_int(coverage.get("top_file")),
+        core_terms_in_top_3=_int(coverage.get("top_3")),
+        strong_terms_in_top_file=_int(data.get("strong_terms_in_top_file")),
+        phrase_in_top_file=data.get("phrase_in_top_file") is True,
+        source_support=tuple((str(key), _int(value)) for key, value in support.items()),
+        top_file_margin=float(margin) if isinstance(margin, (int, float)) and not isinstance(margin, bool) else None,
+        agreeing_top_files=_int(data.get("agreeing_top_files")),
+    )
 
 
 def _code_search_dict(retrieval: RetrievalArtifact) -> dict[str, object]:
@@ -286,6 +365,7 @@ def _code_search_dict(retrieval: RetrievalArtifact) -> dict[str, object]:
                 "classification": term.classification,
                 "derived_from": term.derived_from,
                 "status": term.status,
+                "origins": list(term.origins),
             }
             for term in retrieval.terms
         ],
@@ -330,6 +410,7 @@ def retrieval_from_dict(data: object, work_item_id: str) -> RetrievalArtifact:
                 classification=str(item.get("classification") or ""),
                 derived_from=str(item.get("derived_from") or ""),
                 status=str(item.get("status") or ""),
+                origins=_strings(item.get("origins")),
             )
             for item in _list(data.get("terms"))
             if isinstance(item, dict) and str(item.get("value") or "").strip()
@@ -356,6 +437,7 @@ def retrieval_from_dict(data: object, work_item_id: str) -> RetrievalArtifact:
         # A section this version cannot read is no section — never a reason to
         # lose the search it sits beside.
         git_history=git_history_from_dict(data.get("git_history")),
+        confidence_details=confidence_details_from_dict(data.get("confidence_details")),
     )
 
 

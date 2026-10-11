@@ -25,13 +25,14 @@ from bugpilot.core.models import InvestigationRequest
 from bugpilot.core.project_settings import (
     ProjectSettings,
     ProjectSettingsError,
+    ResolvedProjectSettings,
     VerificationPolicy,
     load_project_settings,
     save_project_settings,
     settings_from_mapping,
-    verification_policy_section,
 )
 from bugpilot.core.prompts import generate_task
+from bugpilot.core.verification import verification_section
 
 DEFAULT_LINES = (
     "- Run the tests relevant to the changed behavior.",
@@ -79,9 +80,15 @@ def test_no_file_means_the_defaults_and_says_so(tmp_path, monkeypatch, capsys):
     assert load_project_settings(tmp_path / "r") == (ProjectSettings(), [])
 
 
+def _saved_switches_section(policy: VerificationPolicy) -> str:
+    """The section a task gets from saved switches, through the path a run takes."""
+    resolved = ResolvedProjectSettings(settings=ProjectSettings(verification=policy), saved=True)
+    return verification_section(resolved.effective_verification)
+
+
 def test_every_switch_says_what_it_means_and_nothing_invents_a_command():
-    on = verification_policy_section(VerificationPolicy(True, True, True, True), saved=True)
-    off = verification_policy_section(VerificationPolicy(False, False, False, False), saved=True)
+    on = _saved_switches_section(VerificationPolicy(True, True, True, True))
+    off = _saved_switches_section(VerificationPolicy(False, False, False, False))
     assert "- Run the repository's full test suite before reporting, if it can run in this environment." in on
     assert "- Running tests for the changed behavior is not required by this project." in off
     assert "- Static checks are not required by this project." in off

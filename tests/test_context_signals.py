@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 
-from bugpilot.core.context import _caution_markdown, _quality_score
+from bugpilot.core.context import _caution_markdown, context_quality
 from bugpilot.core.issue import IssueArtifact, IssueDetails
 from bugpilot.core.git_history import GitHistoryOutcome, RepositoryState
 from bugpilot.core.retrieval import GitHistoryRecord, RelatedFile, RetrievalArtifact
@@ -70,7 +70,8 @@ NO_MEMORY = "No similar memory entries found."
 
 def _score(confidence, related=TEN_LOW_VALUE_FILES):
     retrieval = RetrievalArtifact(confidence=confidence, related_files=tuple(related))
-    return _quality_score(JR_12345, {"high_value_keywords": ["a"]}, retrieval, NO_MEMORY, GIT)
+    quality = context_quality(JR_12345, {"high_value_keywords": ["a"]}, retrieval, NO_MEMORY, GIT)
+    return quality.overall, list(quality.signals)
 
 
 # --- the headline must not contradict the section beneath it ----------------

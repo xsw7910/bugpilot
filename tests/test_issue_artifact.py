@@ -37,7 +37,7 @@ from bugpilot.core.issue import (
     save_issue,
 )
 from bugpilot.core.jira import JiraFetchResult, parse_issue
-from bugpilot.core.keywords import extract_keywords
+from bugpilot.core.keywords import text_tokens
 from bugpilot.core.models import InvestigationOptions, InvestigationPlan, InvestigationRequest
 
 ISSUE_KEYS = {
@@ -258,23 +258,24 @@ def test_a_manual_issue_cannot_write_back_to_jira():
 # --- retrieval inputs are unchanged ---------------------------------------------
 
 
-def _keywords_the_old_way(parsed: dict) -> dict:
-    """What keywords_step did with the parsed dict before this batch."""
-    priority_parts: list[str] = []
-    for field in ("stack_traces", "error_messages", "log_signals"):
-        value = parsed.get(field)
-        if isinstance(value, list):
-            priority_parts.extend(str(item) for item in value)
-        elif value:
-            priority_parts.append(str(value))
-    return extract_keywords(str(parsed.get("combined_text", "")), priority_text="\n".join(priority_parts))
+def _reads_everything_the_parser_read(parsed: dict, issue) -> None:
+    """The issue, read by field (0.1.3, §42.3), still reads every word the parser produced.
+
+    Keyword extraction no longer reads one flattened text: the issue's own
+    fields, the comments and environment apart, and the stack traces and error
+    messages as priority text — less the log signals, which are the parser's
+    own labels ("Comment mentions log"), never text the software printed.
+    """
+    read = text_tokens(f"{issue.core_text}\n{issue.secondary_text}")
+    assert text_tokens(str(parsed["combined_text"])) <= read
+    assert issue.priority_text == "\n".join([*parsed["stack_traces"], *parsed["error_messages"]])
 
 
 def test_jira_keyword_extraction_sees_the_same_input():
     parsed = parse_issue(copy.deepcopy(PAYLOAD))
     issue = issue_from_jira(copy.deepcopy(PAYLOAD), "JR-12345", IssueGuidance())
 
-    assert extract_keywords(issue.combined_text, priority_text=issue.priority_text) == _keywords_the_old_way(parsed)
+    _reads_everything_the_parser_read(parsed, issue)
 
 
 def test_manual_keyword_extraction_sees_the_same_input():
@@ -284,7 +285,7 @@ def test_manual_keyword_extraction_sees_the_same_input():
     parsed = parse_issue(manual_issue_payload(spec))
     issue = issue_from_spec(spec, IssueGuidance())
 
-    assert extract_keywords(issue.combined_text, priority_text=issue.priority_text) == _keywords_the_old_way(parsed)
+    _reads_everything_the_parser_read(parsed, issue)
 
 
 def test_keywords_survive_the_round_trip_through_issue_json(tmp_path, fake_jira):

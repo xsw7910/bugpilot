@@ -29,7 +29,9 @@ from .branch_policy import usable_branch_name
 from .config import issue_dir, writable_issue_dir
 from .input_adapters import manual_issue_payload
 from .jira import parse_issue
+from .jira_parse import free_description
 from .models import SOURCE_JIRA, SOURCE_MANUAL, BugSpec
+from .search_terms import SECONDARY_ORIGINS
 
 
 class IssueArtifactError(ValueError):
@@ -146,18 +148,47 @@ class IssueArtifact:
         return self.source_ref is not None
 
     @property
-    def combined_text(self) -> str:
-        """Title, description and comments: the text keywords are mined from."""
+    def field_texts(self) -> tuple[tuple[str, str], ...]:
+        """The report's text by the field it came from: what a search term's origin is read from.
+
+        The description is its own lines only — the reproduction steps, actual
+        and expected result and environment it carries are their own fields —
+        and each comment is one ``comment`` entry (0.1.3, §42.3).
+        """
+        details = self.details
+        return (
+            ("title", self.title),
+            ("description", free_description(self.description)),
+            ("reproduction", "\n".join(details.reproduction_steps)),
+            ("actual", details.actual_result),
+            ("expected", details.expected_result),
+            ("environment", details.environment),
+            *(("comment", comment.body) for comment in self.comments),
+        )
+
+    @property
+    def core_text(self) -> str:
+        """What the issue itself says: title, description, steps, actual and expected result."""
         return "\n".join(
-            [self.title, self.description, "\n".join(c.body for c in self.comments)]
-        ).strip()
+            text for origin, text in self.field_texts if origin not in SECONDARY_ORIGINS and text.strip()
+        )
+
+    @property
+    def secondary_text(self) -> str:
+        """Comments and the environment: evidence, but not what the issue is about."""
+        return "\n".join(
+            text for origin, text in self.field_texts if origin in SECONDARY_ORIGINS and text.strip()
+        )
 
     @property
     def priority_text(self) -> str:
-        """Stack traces, error messages and log signals, in that order."""
-        return "\n".join(
-            [*self.signals.stack_traces, *self.signals.error_messages, *self.signals.log_signals]
-        )
+        """Stack traces and error messages: text the software itself printed.
+
+        Not the log signals: those are this parser's own labels ("Comment
+        mentions log"), and mining them made "mentions" a stack-trace-strength
+        search term (§42.3).
+        """
+        return "\n".join([*self.signals.stack_traces, *self.signals.error_messages])
 
     def with_guidance(self, guidance: IssueGuidance) -> IssueArtifact:
         return replace(self, guidance=guidance)

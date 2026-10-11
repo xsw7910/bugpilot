@@ -74,10 +74,12 @@ _HEADING_RE = re.compile(r"^#{1,4}\s+(.+)$")
 # Regex for plain-text label at start of line, e.g. "Steps to Reproduce:"
 _LABEL_RE = re.compile(r"^([A-Za-z][A-Za-z /()_-]{1,50}):\s*$")
 
-# Patterns for inline environment/version detection
+# Patterns for inline environment/version detection. A version or build value
+# has a digit in it: without that rule "Released build verified" made the
+# environment "verified" (0.1.3, §42.3).
 _ENV_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"\bVersion\s*[:\s]\s*([\w.\-]+)", re.IGNORECASE),
-    re.compile(r"\bBuild\s*[:\s]\s*([\w.\-]+)", re.IGNORECASE),
+    re.compile(r"\bVersion\s*[:\s]\s*([\w.\-]*\d[\w.\-]*)", re.IGNORECASE),
+    re.compile(r"\bBuild\s*[:\s]\s*([\w.\-]*\d[\w.\-]*)", re.IGNORECASE),
     re.compile(r"\bOS\s*[:\s]\s*([^\n,;]{1,40})", re.IGNORECASE),
     re.compile(r"\b(Windows\s*\d+(?:\.\d+)*)", re.IGNORECASE),
     re.compile(r"\b(Linux)\b", re.IGNORECASE),
@@ -137,6 +139,7 @@ def extract_parsed_details(
     summary: str = "",
     fix_versions: list[str] | None = None,
     affected_versions: list[str] | None = None,
+    environment_field: str = "",
 ) -> dict:
     """Extract structured bug investigation fields from ADF-converted Jira text.
 
@@ -149,6 +152,7 @@ def extract_parsed_details(
         summary         — issue title, included in environment/error scans
         fix_versions    — Jira fixVersions list, merged into environment
         affected_versions — Jira versions list, merged into environment
+        environment_field — Jira's Environment field, as Markdown
     """
     description = description if isinstance(description, str) else ""
     summary = summary if isinstance(summary, str) else ""
@@ -176,7 +180,11 @@ def extract_parsed_details(
     stack_section_text = _get("stack_trace_section")
 
     reproduction_steps = _extract_reproduction_steps(repro_section)
-    environment = env_section.strip() if env_section.strip() else _detect_environment(combined_text)
+    # Jira's own Environment field and an Environment section of the
+    # description are both the environment (§42.3); only without either is it
+    # guessed from the text.
+    stated = [part for part in (environment_field.strip(), env_section.strip()) if part]
+    environment = "\n".join(dict.fromkeys(stated)) if stated else _detect_environment(combined_text)
 
     # Augment environment with structured Jira version fields
     version_hints = [v for v in (fix_versions or []) + (affected_versions or []) if v]
@@ -262,6 +270,38 @@ def _extract_sections(text: str) -> dict[str, str]:
     return sections
 
 
+#: The sections a parsed issue keeps as fields of their own.
+_FIELD_SECTIONS = frozenset({"reproduction_steps", "actual_result", "expected_result", "environment"})
+
+
+def free_description(description: str) -> str:
+    """The description without the sections that are fields of their own.
+
+    Reproduction steps, actual and expected result and environment are read
+    out of the description into their own fields, and a search term's origin
+    is the field it came from (§42.3): "Windows" in an Environment section is
+    environment, not description. Every other line stays, headings and all.
+    """
+    if not description:
+        return ""
+    lines = description.splitlines()
+    starts: list[tuple[str, int]] = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        match = _HEADING_RE.match(stripped) or _LABEL_RE.match(stripped)
+        if match is None:
+            continue
+        canonical = _match_alias(match.group(1).lower().strip().rstrip(":"))
+        if canonical:
+            starts.append((canonical, index))
+    dropped: set[int] = set()
+    for position, (canonical, start) in enumerate(starts):
+        if canonical in _FIELD_SECTIONS:
+            end = starts[position + 1][1] if position + 1 < len(starts) else len(lines)
+            dropped.update(range(start, end))
+    return "\n".join(line for index, line in enumerate(lines) if index not in dropped).strip()
+
+
 def _match_alias(label: str) -> str | None:
     """Return the canonical section key for a heading label, or None."""
     # Exact match first
@@ -317,7 +357,9 @@ def _detect_environment(text: str) -> str:
         for m in pattern.finditer(text):
             # group(1) if the pattern has a capture group, else group(0)
             val = (m.group(1) if m.lastindex else m.group(0)).strip()
-            if val and val not in seen:
+            # A piece of a value already found is no value of its own: the
+            # year.minor pattern finds "2027.0" inside build "2027.0.1" (§42.3).
+            if val and not any(val in found for found in seen):
                 seen.append(val)
     return ", ".join(seen)
 

@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.1.3 — 2026-10-10
+
+- **The Verification Policy is text you edit in an editor tab.** Advanced
+  Settings' *AI instructions* section is now **Guidance & Verification**:
+  User instructions, Project instructions (moved here from Repository) and the
+  Verification policy. The policy row shows where the policy in force comes
+  from — *BugPilot default*, *Legacy project settings* or *Repository
+  verification.md* — with three actions:
+  - **Edit** opens `.bugpilot/verification.md` in an editor tab. If it is not
+    there yet, the CLI creates it first from the policy in force, so the first
+    Edit moves saved switches into the file. Opening the settings never
+    creates it.
+  - **Reset** deletes the file, after asking.
+  - **Preview** shows the policy in force, read-only, with any warnings.
+
+  A file BugPilot cannot use is shown as a problem on the row, and BugPilot's
+  default applies until it is fixed. Lines that may conflict with a BugPilot
+  rule are counted on the row and listed in the Preview, as warnings only.
+- **The four Verification switches are gone from the panel.** What BugPilot
+  0.1.2 saved in `.bugpilot/project_settings.json` is kept unchanged for
+  teammates on older versions.
+- **More relevant code search.** Each term knows which part of the report it
+  came from: words repeated in comments, and environment details such as an OS
+  name or a pipeline, no longer outrank the issue itself. A file where several
+  of the issue's concepts meet on one line ranks higher, and `Class.method`
+  names find the class and the method. Git history no longer searches for a
+  term only the comments or the environment use, unless it came from a stack
+  trace.
+- **Search Confidence is stricter, and says why.** One strong match no longer
+  makes it High: the top file must hold most of what the issue says and lead
+  clearly, and matches that come mostly from comments or the hint count for
+  less. Its reasons explain the level; `retrieval.json` records the details.
+- **A more realistic Context Quality.** A report without reproduction steps,
+  an actual result and an expected result now scores at most 75.
+- **A shorter, clearer `task.md`.** Every BugPilot rule is stated once, in the
+  section that owns it — about a fifth shorter. What to verify moved from the
+  safety rules into the Verification Policy, where a repository's own policy
+  can replace it; never claiming a check ran that did not is still a BugPilot
+  rule.
+- **Policy changes are noticed.** BugPilot watches `.bugpilot/` and reads the
+  instructions and the Verification Policy again when the window regains focus
+  and before Run, Rebuild Context, Fix with AI and Start New Attempt. A changed
+  policy shows **Needs rebuild**, and nothing stale is handed to an agent.
+
+Reading or editing `verification.md` needs the `bugpilot` CLI 0.1.3: with an
+older CLI and the file present, the panel reports the CLI as out of date
+instead of preparing a task without the repository's policy. Requires Python
+3.10 or later and the `bugpilot` CLI 0.1.3 or later — the BugPilot runtime
+installs it, or install it with `pipx install bugpilot`.
+
 ## 0.1.2 — 2026-10-09
 
 - **Open AI Session starts the agent again when it has exited.** After Ctrl+C

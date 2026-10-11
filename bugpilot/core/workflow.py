@@ -40,6 +40,7 @@ from .git_history import (
     collect_git_history,
     focus_files_from_retrieval,
     select_extracted_terms,
+    weak_ranked_files,
 )
 from .git_ops import branch_name, current_branch, inside_git_repo, run_command, working_tree_status
 from .jira import JiraCommentPostError, JiraCommentPostResult, JiraFetchError, JiraFetchResult, enrich_issue, fetch_issue, jira_field_report_markdown, post_jira_comment, prepare_jira_comment_text, sanitize_comment_text
@@ -102,6 +103,7 @@ from .project_settings import ResolvedProjectSettings, resolve_project_settings
 from .repository_profile import RepositoryContext, resolve_repository_context
 from .retrieval import RetrievalArtifact, read_retrieval_quietly, save_retrieval
 from .search import run_code_search
+from .search_terms import shape_phrase, term_origins
 
 
 @dataclass
@@ -628,7 +630,8 @@ def run_investigation(
         + list(selection.warnings)
         + list(repository.warnings)
         + list(instructions.warnings)
-        + list(project_settings.warnings),
+        + list(project_settings.warnings)
+        + list(project_settings.effective_verification.warnings),
         jira_result=jira_result,
         clean_result=clean_result,
         fresh=fresh,
@@ -776,8 +779,12 @@ def extract_issue_keywords(issue: IssueArtifact, supplied: list[str] | None = No
     searched, and what each term found, is ``retrieval.json.terms``.
     """
     # Boost keywords found in stack traces / error messages — the richest
-    # source of real class/function/file names.
-    keywords = extract_keywords(issue.combined_text, priority_text=issue.priority_text)
+    # source of real class/function/file names. The comments and the
+    # environment are read apart from the issue itself (§42.3): repeating a
+    # word in four comments does not make it the issue's subject.
+    keywords = extract_keywords(
+        issue.core_text, priority_text=issue.priority_text, secondary_text=issue.secondary_text
+    )
     # What the issue alone yields, before the developer's words are put at its
     # head: Similar fixes searches with these whatever its settings say, and
     # adds the shared Keywords only when told to (`similar_fixes_terms`).
@@ -803,6 +810,21 @@ def extract_issue_keywords(issue: IssueArtifact, supplied: list[str] | None = No
     # The shared Keywords this extraction carries, as searched: what a step
     # that may leave them out (Similar fixes) leaves out.
     keywords["supplied_keywords"] = words
+    # Which of the report's fields each candidate term appears in (§42.3):
+    # what `search_terms.weigh` reads to tell the issue's words from the
+    # comments' and the environment's.
+    candidates = [
+        str(item)
+        for key in (
+            "high_value_keywords", "normal_keywords", "dropped_keywords", "phrase_keywords",
+            "expanded_keywords", "priority_keywords",
+        )
+        for item in keywords.get(key, [])  # type: ignore[union-attr]
+    ]
+    candidates += [shape_phrase(str(item)) for item in keywords.get("shape_candidates", [])]  # type: ignore[union-attr]
+    keywords["term_origins"] = {
+        key: list(found) for key, found in term_origins(issue.field_texts, candidates).items()
+    }
     return keywords
 
 
@@ -1107,6 +1129,9 @@ def _git_history_query(
         focus_files=focus_files if settings.use_shared_focus_files else (),
         git_files=tuple(path for path in settings.files if path.strip()),
         ranked_files=tuple(retrieval.top_files(RANKED_HISTORY_FILES)) if retrieval is not None else (),
+        # What file history may not credit: ranked, but on comment, environment
+        # or generic words alone (§42.3).
+        weak_ranked_files=weak_ranked_files(retrieval),
         # Every file Code Search returned: never searched, only never offered
         # again as a supporting file.
         known_files=tuple(item.file for item in retrieval.related_files) if retrieval is not None else (),
@@ -1211,6 +1236,12 @@ def _task_repository(repo_root: Path, target: Path, repository: RepositoryContex
 def _log_project_settings(target: Path, project_settings: ResolvedProjectSettings) -> None:
     log(target, project_settings.log_line)
     for warning in project_settings.warnings:
+        log(target, f"[WARN] {warning}")
+    # The Verification Policy's source and length, and its lint by line number:
+    # never its text, which is the repository's own.
+    verification = project_settings.effective_verification
+    log(target, verification.log_line)
+    for warning in verification.lint:
         log(target, f"[WARN] {warning}")
 
 

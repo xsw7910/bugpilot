@@ -34,7 +34,9 @@ import { LAUNCH_GRACE_MS } from "../src/app/terminalActivity.ts";
 import { createAgentTerminals } from "../src/host/agentTerminals.ts";
 import type { AgentTerminals, HostTerminalWindow } from "../src/host/agentTerminals.ts";
 import type { CapturedRun } from "../src/app/reviewRun.ts";
-import { ARTIFACT_REFRESH_DEBOUNCE_MS, ARTIFACT_REFRESH_RETRY_MS } from "../src/app/controller.ts";
+import { ARTIFACT_REFRESH_DEBOUNCE_MS, ARTIFACT_REFRESH_RETRY_MS, STALE_HANDOFF_POLICIES } from "../src/app/controller.ts";
+import { VERIFICATION_ROW_EMPTY } from "../src/app/verificationPolicy.ts";
+import type { VerificationOutcome, VerificationSource } from "../src/app/verificationPolicy.ts";
 import { VERIFICATION_AUTOSAVE_MS } from "../src/app/verificationCapture.ts";
 import { feedbackFromVerification } from "../src/app/nextAction.ts";
 import { parseVerificationReport } from "../src/app/verificationReport.ts";
@@ -173,6 +175,10 @@ interface HarnessOptions {
   readonly repositoryProfile?: NonNullable<ControllerPorts["repositoryProfile"]>;
   /** The User / Project instructions port; absent means the host has none. */
   readonly instructions?: NonNullable<ControllerPorts["instructions"]>;
+  /** `bugpilot verification show`, and whether the file exists; absent means the host has no such port. */
+  readonly verificationPolicy?: NonNullable<ControllerPorts["verificationPolicy"]>;
+  /** The `.bugpilot/` watcher; absent means the host has none. */
+  readonly watchPolicies?: NonNullable<ControllerPorts["watchPolicies"]>;
   /** The Jira site the fake CLI reports, whether the environment sets it, and a refusal to save one. */
   readonly jiraSite?: { readonly site?: string; readonly fromEnvironment?: boolean; readonly refuse?: string };
   /** The project settings port; absent means the host has none. */
@@ -491,6 +497,8 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     ...(options.deleteArtifacts === undefined ? {} : { deleteWorkItemArtifacts: options.deleteArtifacts }),
     ...(options.repositoryProfile === undefined ? {} : { repositoryProfile: options.repositoryProfile }),
     ...(options.instructions === undefined ? {} : { instructions: options.instructions }),
+    ...(options.verificationPolicy === undefined ? {} : { verificationPolicy: options.verificationPolicy }),
+    ...(options.watchPolicies === undefined ? {} : { watchPolicies: options.watchPolicies }),
     ...(options.projectSettings === undefined ? {} : { projectSettings: options.projectSettings }),
     ...(options.fixModes === undefined
       ? {}
@@ -12084,12 +12092,14 @@ test("project settings: Apply writes a change to the file, and a Run sends no fl
   const h = harness({ projectSettings: settings.port, events: successfulRun });
   await h.controller.refreshEnvironment();
 
+  // A page from before 0.1.3 may still send the switches: they are not its to
+  // change (§42.5), and what is written back is the file's own.
   const changed = jiraForm({ verifyFullSuite: true, branchNaming: "custom", branchTemplate: " fix/{issue} " });
   await h.controller.handle(applySettings(changed));
 
   assert.equal(settings.saves.length, 1);
   assert.deepEqual(settings.saves[0], {
-    verification: { relevant_tests: true, static_checks: true, full_suite: true, report_not_run: true },
+    verification: { relevant_tests: true, static_checks: true, full_suite: false, report_not_run: true },
     branch_naming: { template: "fix/{issue}" },
   });
   await h.controller.run(changed);
@@ -12123,22 +12133,21 @@ test("project settings: a refused template is said in the CLI's words, and the f
 });
 
 test("project settings: a change makes a prepared context stale, the same value does not, Reset Session keeps them", async () => {
-  const settings = settingsPort();
+  const settings = settingsPort({ ...DEFAULT_SETTINGS, verification: { ...DEFAULT_SETTINGS.verification, full_suite: true } });
   const h = await preparedHarness({ projectSettings: settings.port, events: successfulRun });
   assert.equal(h.last().primary.action, "fixWithAI");
 
-  // The same values again: not stale.
-  await h.controller.handle(applySettings(jiraForm({ verifyRelevantTests: true })));
+  // The same values again: not stale. Switches a page sends are not a change
+  // at all: they are the file's (§42.5).
+  await h.controller.handle(applySettings(jiraForm({ verifyFullSuite: false })));
   assert.equal(h.last().primary.action, "fixWithAI");
+  assert.deepEqual(settings.saves, []);
 
-  const full = jiraForm({ verifyFullSuite: true });
-  await h.controller.handle(applySettings(full));
-  assert.equal(h.last().primary.action, "rebuildContext", "a new verification policy did not ask for a rebuild");
-  await h.controller.handle(next("rebuildContext", full));
-  assert.equal(h.last().primary.action, "fixWithAI", "the rebuilt context still reads as stale");
-
-  await h.controller.handle(applySettings(jiraForm({ verifyFullSuite: true, branchNaming: "custom", branchTemplate: "fix/{issue}" })));
+  const template = jiraForm({ branchNaming: "custom", branchTemplate: "fix/{issue}" });
+  await h.controller.handle(applySettings(template));
   assert.equal(h.last().primary.action, "rebuildContext", "a branch template did not ask for a rebuild");
+  await h.controller.handle(next("rebuildContext", template));
+  assert.equal(h.last().primary.action, "fixWithAI", "the rebuilt context still reads as stale");
 
   await h.controller.handle({ type: "resetSession", deleteGeneratedFiles: false });
   await new Promise((resolve) => setImmediate(resolve));
@@ -12167,9 +12176,10 @@ test("project settings: a Run waits for a save Apply is still making", async () 
   });
   await h.controller.refreshEnvironment();
 
-  const applying = h.controller.handle(applySettings(jiraForm({ verifyFullSuite: true })));
+  const template = jiraForm({ branchNaming: "custom", branchTemplate: "fix/{issue}" });
+  const applying = h.controller.handle(applySettings(template));
   await new Promise((resolve) => setImmediate(resolve));
-  const running = h.controller.run(jiraForm({ verifyFullSuite: true }));
+  const running = h.controller.run(template);
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(order, [], "the run started before the settings were written");
   finishSave();
@@ -12215,7 +12225,7 @@ test("settings freshness: a Run after one Apply that changes the profile and the
     for (let i = 0; i < count; i += 1) await new Promise((resolve) => setImmediate(resolve));
   };
 
-  const changed = jiraForm({ repositoryProfile: "generic", verifyFullSuite: true });
+  const changed = jiraForm({ repositoryProfile: "generic", branchNaming: "custom", branchTemplate: "fix/{issue}" });
   const applying = h.controller.handle(applySettings(changed));
   await ticks(1);
   const running = h.controller.run(changed);
@@ -12228,7 +12238,7 @@ test("settings freshness: a Run after one Apply that changes the profile and the
   await applying;
   await running;
   assert.deepEqual(order, ["profile saved", "settings saved", "run"]);
-  assert.equal(settings.saves.at(-1)?.verification.full_suite, true);
+  assert.equal(settings.saves.at(-1)?.branch_naming.template, "fix/{issue}");
 });
 
 test("settings freshness: a Run waiting on a refused settings save records the file's settings, not the refused ones", async () => {
@@ -12286,7 +12296,7 @@ test("settings freshness: an edit made while a Run waits for Apply stays on the 
   });
   await h.controller.refreshEnvironment();
 
-  const applied = jiraForm({ verifyFullSuite: true });
+  const applied = jiraForm({ branchNaming: "custom", branchTemplate: "fix/{issue}" });
   const applying = h.controller.handle(applySettings(applied));
   await new Promise((resolve) => setImmediate(resolve));
   const running = h.controller.run(applied);
@@ -12297,7 +12307,7 @@ test("settings freshness: an edit made while a Run waits for Apply stays on the 
   await running;
   assert.equal(h.streamRuns.length, 1, "the run did not start");
   assert.equal(h.last().form?.hint, "Look at the export dialog", "the edit made while the run waited was lost");
-  assert.equal(h.last().form?.verifyFullSuite, true);
+  assert.equal(h.last().form?.branchTemplate, "fix/{issue}");
   assert.equal(h.last().primary.action, "rebuildContext", "an edit the run did not use reads as current");
 });
 
@@ -12607,4 +12617,789 @@ test("Copy Again with nothing to copy, or a clipboard that refuses, changes noth
 
 test("parsePanelMessage accepts Copy Again as an action", () => {
   assert.deepEqual(parsePanelMessage({ type: "action", id: "copyHandoffAgain" }), COPY_AGAIN);
+});
+
+
+// --- The Verification Policy and policy freshness (0.1.3, §42.2) -----------------------
+
+/** A CLI whose doctor report says it reads `.bugpilot/verification.md`. */
+const READS_VERIFICATION: Environment = { ...READY, report: { python_ok: true, capabilities: ["verification-text"] } };
+
+/**
+ * A fake `bugpilot verification`: a source, and a hash of the effective policy
+ * like the CLI's. `set` writes the file from the text it is given (front matter
+ * the CLI's business), `reset` removes it and falls back to what the switches
+ * say, exactly as the CLI resolves it — the panel decides none of it.
+ */
+function verificationPolicyPort(
+  initial: { source?: VerificationSource; text?: string; exists?: boolean; legacyText?: string; defaultText?: string } = {},
+) {
+  const defaultText = initial.defaultText ?? "the default policy";
+  const state: {
+    source: VerificationSource;
+    text: string;
+    exists: boolean;
+    problem?: string;
+    lint: string[];
+    basedOn?: number;
+    kind?: "file" | "other";
+    /** What applies without the file: the saved switches' text, or none for the default. */
+    legacyText?: string;
+    refuse?: string;
+  } = {
+    source: initial.source ?? "bugpilot-default",
+    text: initial.text ?? defaultText,
+    exists: initial.exists ?? initial.source === "verification-file",
+    lint: [],
+    ...(initial.legacyText === undefined ? {} : { legacyText: initial.legacyText }),
+  };
+  let loads = 0;
+  const creates: string[] = [];
+  let resets = 0;
+  const snapshot = (): VerificationOutcome => {
+    const problem = state.source === "verification-file" ? state.problem : undefined;
+    const text = problem ? defaultText : state.text;
+    const basedOn = state.source === "verification-file" && !problem ? (state.basedOn ?? 1) : undefined;
+    const sha256 = createHash("sha256").update(`${state.source}\n${problem ?? ""}\n${basedOn ?? ""}\n${text}`).digest("hex");
+    return {
+      kind: "loaded",
+      snapshot: {
+        source: state.source,
+        sha256,
+        ...(problem === undefined ? {} : { problem }),
+        lintCount: problem ? 0 : state.lint.length,
+        lint: problem ? [] : state.lint,
+        text,
+        fileExists: state.exists,
+        ...(basedOn === undefined ? {} : { basedOnVersion: basedOn }),
+        defaultVersion: 1,
+        defaultChanged: basedOn !== undefined && basedOn < 1,
+        differsFromDefault: text !== defaultText,
+      },
+    };
+  };
+  return {
+    state,
+    loads: () => loads,
+    creates,
+    resets: () => resets,
+    port: {
+      load: async (): Promise<VerificationOutcome> => {
+        loads += 1;
+        return snapshot();
+      },
+      create: async (text: string): Promise<VerificationOutcome> => {
+        creates.push(text);
+        if (state.refuse) return { kind: "failed", message: state.refuse };
+        state.source = "verification-file";
+        state.text = text;
+        state.exists = true;
+        state.kind = "file";
+        delete state.problem;
+        delete state.basedOn;
+        return snapshot();
+      },
+      reset: async (): Promise<VerificationOutcome> => {
+        resets += 1;
+        if (state.refuse) return { kind: "failed", message: state.refuse };
+        state.exists = false;
+        delete state.problem;
+        delete state.kind;
+        state.lint = [];
+        state.source = state.legacyText === undefined ? "bugpilot-default" : "legacy-project-settings";
+        state.text = state.legacyText ?? defaultText;
+        return snapshot();
+      },
+      fileExists: async () => state.exists,
+      fileKind: async () => (state.exists ? (state.kind ?? "file") : "absent"),
+    } satisfies NonNullable<ControllerPorts["verificationPolicy"]>,
+  };
+}
+
+function policyHarnessOptions(verification = verificationPolicyPort(), instructions = instructionsPort()): HarnessOptions {
+  return {
+    environment: READS_VERIFICATION,
+    instructions: instructions.port,
+    verificationPolicy: verification.port,
+    events: successfulRun,
+  };
+}
+
+test("verification policy: a CLI that reads the file is asked at the environment check; the row names each source in words", async () => {
+  const file = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = harness(policyHarnessOptions(file));
+  await h.controller.refreshEnvironment();
+
+  assert.equal(file.loads(), 1);
+  const row = h.last().verificationPolicy;
+  assert.equal(row.source, "Source: Repository verification.md");
+  assert.deepEqual([row.canEdit, row.canReset, row.canPreview], [true, true, true]);
+  assert.deepEqual([row.problem, row.lint, row.defaultChanged, row.unavailable, row.stale], ["", "", "", "", false]);
+
+  const legacy = verificationPolicyPort({ source: "legacy-project-settings", text: "the switches' text" });
+  const h2 = harness(policyHarnessOptions(legacy));
+  await h2.controller.refreshEnvironment();
+  assert.equal(h2.last().verificationPolicy.source, "Source: Legacy project settings");
+  assert.equal(h2.last().verificationPolicy.canReset, false, "nothing to reset without the file");
+
+  const h3 = harness(policyHarnessOptions(verificationPolicyPort()));
+  await h3.controller.refreshEnvironment();
+  assert.equal(h3.last().verificationPolicy.source, "Source: BugPilot default");
+  assert.doesNotMatch(JSON.stringify(h3.last().verificationPolicy), /bugpilot-default|legacy-project-settings|verification-file/, "a raw source name on screen");
+});
+
+test("verification policy: a file that cannot be used is a problem on the row, never the policy in force", async () => {
+  const file = verificationPolicyPort({ source: "verification-file" });
+  file.state.problem = "it has no front matter.";
+  const h = harness(policyHarnessOptions(file));
+  await h.controller.refreshEnvironment();
+
+  const row = h.last().verificationPolicy;
+  assert.equal(row.source, "Source: BugPilot default (.bugpilot/verification.md is not used)");
+  assert.equal(
+    row.problem,
+    ".bugpilot/verification.md is not used: it has no front matter. BugPilot's default applies until it is fixed. Edit opens the file; Reset removes it.",
+  );
+  assert.equal(row.lint, "", "a problem is not a lint warning");
+  assert.deepEqual([row.canEdit, row.canReset, row.canPreview], [true, true, true], "the file must stay fixable and removable");
+});
+
+test("verification policy: a CLI that cannot read verification.md is out of date while the repository has one", async () => {
+  const file = verificationPolicyPort({ source: "verification-file" });
+  const h = harness({ ...policyHarnessOptions(file), environment: READY });
+  await h.controller.refreshEnvironment();
+
+  const readiness = h.last().readiness;
+  assert.equal(readiness.kind, "blocked");
+  if (readiness.kind === "blocked") {
+    assert.equal(readiness.summary, "BugPilot CLI is out of date.");
+    assert.match(readiness.action ?? "", /cannot read \.bugpilot\/verification\.md.*verification-text capability/);
+  }
+  assert.equal(file.loads(), 0, "an old CLI was asked a command it does not have");
+  assert.deepEqual(h.last().verificationPolicy, VERIFICATION_ROW_EMPTY, "a second incompatibility state on the row");
+  await h.controller.run(jiraForm());
+  assert.equal(h.streamRuns.length, 0, "a run started on a CLI that ignores the repository's policy");
+});
+
+test("verification policy: without verification.md an older CLI still prepares as before", async () => {
+  const none = verificationPolicyPort({ exists: false });
+  const h = harness({ ...policyHarnessOptions(none), environment: READY });
+  await h.controller.refreshEnvironment();
+
+  assert.equal(h.last().readiness.kind, "ready");
+  assert.equal(none.loads(), 0);
+  // Nothing to show, nothing to press, and one line saying why.
+  const row = h.last().verificationPolicy;
+  assert.equal(row.source, "");
+  assert.deepEqual([row.canEdit, row.canReset, row.canPreview], [false, false, false]);
+  assert.match(row.unavailable, /cannot read \.bugpilot\/verification\.md\. Update it to edit the Verification Policy here\./);
+  await h.controller.editVerificationPolicy();
+  assert.deepEqual(none.creates, [], "an old CLI was asked to write the file");
+});
+
+test("policy freshness: an edit outside BugPilot after preparing is noticed when the window comes back to focus", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = await preparedHarness(policyHarnessOptions(policy));
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  policy.state.text = "Run the integration suite too.";
+  await h.controller.windowFocused();
+
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.equal(h.last().overall.text, "Needs rebuild");
+});
+
+test("policy freshness: the same content read again is not a change, and reading writes nothing", async () => {
+  const instructions = instructionsPort({ project: "Run module tests." });
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = await preparedHarness(policyHarnessOptions(policy, instructions));
+
+  await h.controller.windowFocused();
+  await h.controller.windowFocused();
+  await h.controller.handle({ type: "openInstructions", scope: "project" });
+  await h.controller.handle({ type: "closeInstructions" });
+
+  assert.equal(h.last().primary.action, "fixWithAI", "reading the same policies read as a change");
+  assert.deepEqual(instructions.saves, [], "a read wrote an instructions file");
+});
+
+test("policy freshness: Fix with AI reads the policies first, and hands nothing over when one changed", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = await preparedHarness(policyHarnessOptions(policy));
+  const loadsBefore = policy.loads();
+
+  policy.state.text = "Edited in an editor tab.";
+  await h.controller.handle(next("fixWithAI"));
+
+  assert.equal(policy.loads(), loadsBefore + 1, "Fix with AI did not read the policy again");
+  assert.equal(h.terminals.length, 0, "an agent was handed a task the policy has since changed");
+  assert.ok(h.notices.some((notice) => notice.message === STALE_HANDOFF_POLICIES), JSON.stringify(h.notices));
+  assert.equal(h.last().primary.action, "rebuildContext");
+
+  // Rebuild Context reads it again, and the hand-off works.
+  await h.controller.handle(next("rebuildContext"));
+  await h.controller.handle(next("fixWithAI"));
+  assert.equal(h.terminals.length, 1);
+});
+
+test("policy freshness: the user's own instructions, outside any watched folder, are read before Fix with AI", async () => {
+  const instructions = instructionsPort({ user: "Be brief." });
+  const h = await preparedHarness(policyHarnessOptions(verificationPolicyPort(), instructions));
+
+  instructions.files.user = "Explain every decision.";
+  await h.controller.handle(next("fixWithAI"));
+
+  assert.equal(h.terminals.length, 0);
+  assert.ok(h.notices.some((notice) => notice.message === STALE_HANDOFF_POLICIES));
+});
+
+test("policy freshness: a Run and a Rebuild Context read the Verification Policy just before they start", async () => {
+  const policy = verificationPolicyPort();
+  const order: string[] = [];
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    ...policyHarnessOptions(policy),
+    verificationPolicy: {
+      load: async () => {
+        order.push("load");
+        return policy.port.load();
+      },
+      fileExists: policy.port.fileExists,
+    },
+    onStream: () => order.push("run"),
+  });
+  await h.controller.refreshEnvironment();
+  order.length = 0;
+  policy.state.text = "Changed before the run.";
+
+  await h.controller.handle(next("run"));
+  assert.deepEqual(order, ["load", "run"]);
+  assert.equal(h.last().primary.action, "fixWithAI", "the run's own policy read as stale");
+
+  order.length = 0;
+  policy.state.text = "Changed again.";
+  await h.controller.windowFocused();
+  order.length = 0;
+  await h.controller.handle(next("rebuildContext"));
+  assert.deepEqual(order, ["load", "run"]);
+  assert.equal(h.last().primary.action, "fixWithAI");
+});
+
+test("policy freshness: Start New Attempt reads the policies first, and starts nothing when one changed", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = await attemptedHarness(policyHarnessOptions(policy));
+
+  policy.state.text = "Pulled with git.";
+  await h.controller.startNewAttempt("", jiraForm());
+
+  assert.equal(h.terminals.length, 1, "a second attempt started on a stale task");
+  assert.match(
+    JSON.stringify(fixRow(h.last()).attempt),
+    /the instructions or the Verification Policy changed since this context was prepared/,
+  );
+});
+
+test("policy freshness: a .bugpilot/ file change rereads once a burst of events is over", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const watchers: { directory: string; fire: (name: string) => void; disposed: boolean }[] = [];
+  const timers: { callback: () => void; cancelled: boolean; ran: boolean }[] = [];
+  const h = await preparedHarness({
+    ...policyHarnessOptions(policy),
+    watchPolicies: (directory, onEvent) => {
+      const watcher = { directory, fire: onEvent, disposed: false };
+      watchers.push(watcher);
+      return { dispose: () => { watcher.disposed = true; } };
+    },
+    schedule: (callback) => {
+      const timer = { callback, cancelled: false, ran: false };
+      timers.push(timer);
+      return { cancel: () => { timer.cancelled = true; } };
+    },
+  });
+  const live = watchers.filter((watcher) => !watcher.disposed);
+  assert.equal(live.length, 1);
+  assert.equal(live[0]!.directory, nodePath.join(ROOT, ".bugpilot"));
+  const loadsBefore = policy.loads();
+
+  policy.state.text = "Switched with a branch.";
+  for (const name of ["verification.md", "verification.md", "instructions.md"]) live[0]!.fire(name);
+  const pending = timers.filter((timer) => !timer.cancelled && !timer.ran);
+  assert.equal(pending.length, 1, "one reread for a burst of events");
+  pending[0]!.ran = true;
+  pending[0]!.callback();
+  for (let i = 0; i < 6; i += 1) await tick();
+
+  assert.equal(policy.loads(), loadsBefore + 1);
+  assert.equal(h.last().primary.action, "rebuildContext");
+  h.controller.dispose();
+  assert.ok(watchers.every((watcher) => watcher.disposed), "the watcher outlived the controller");
+});
+
+test("policy freshness: once verification.md decides, switches an older BugPilot saves no longer make the context stale", async () => {
+  const full = { ...DEFAULT_SETTINGS, verification: { ...DEFAULT_SETTINGS.verification, full_suite: true } };
+  const file = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const settings = settingsPort();
+  const h = await preparedHarness({ ...policyHarnessOptions(file), projectSettings: settings.port });
+  // project_settings.json rewritten by BugPilot 0.1.2, read again at the next check.
+  settings.set(full);
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().form?.verifyFullSuite, true, "the file's switches are on the form, for writing back unchanged");
+  assert.equal(h.last().primary.action, "fixWithAI", "inert switches read as a change to the task");
+
+  // While the switches decide, the same rewrite changes the policy the CLI reports.
+  const legacy = verificationPolicyPort({ source: "legacy-project-settings", text: "the switches' text" });
+  const legacySettings = settingsPort();
+  const h2 = await preparedHarness({ ...policyHarnessOptions(legacy), projectSettings: legacySettings.port });
+  legacySettings.set(full);
+  legacy.state.text = "the switches' text, full suite on";
+  await h2.controller.refreshEnvironment();
+  assert.equal(h2.last().primary.action, "rebuildContext", "while the switches decide, changing them is a change");
+});
+
+
+// --- The Verification Policy row: Edit, Reset, Preview (0.1.3, §42.5) ------------------
+
+const POLICY_FILE = nodePath.join(ROOT, ".bugpilot", "verification.md");
+const EDIT_POLICY = { type: "editVerificationPolicy" } as const;
+const RESET_POLICY = { type: "resetVerificationPolicy" } as const;
+const PREVIEW_POLICY = { type: "previewVerificationPolicy" } as const;
+const CLOSE_PREVIEW = { type: "closeVerificationPreview" } as const;
+
+test("verification row: opening the settings, a reread and a page load never create the file", async () => {
+  const policy = verificationPolicyPort();
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "ready" });
+  await h.controller.windowFocused();
+
+  assert.deepEqual(policy.creates, [], "viewing wrote the policy file");
+  assert.equal(policy.resets(), 0);
+  assert.equal(policy.state.exists, false);
+  assert.deepEqual(h.opened, []);
+});
+
+test("verification row: Edit from the default has the CLI create the file from the default, then opens it in an editor tab", async () => {
+  const policy = verificationPolicyPort();
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(EDIT_POLICY);
+
+  assert.deepEqual(policy.creates, ["the default policy"], "the seed is the text the CLI reported, nothing composed");
+  assert.deepEqual(h.opened, [POLICY_FILE]);
+  assert.equal(h.last().verificationPolicy.source, "Source: Repository verification.md");
+  assert.equal(h.last().verificationPolicy.canReset, true);
+  assert.equal(h.last().verificationPolicy.busy, false);
+  // The log says where it came from, never what it says.
+  assert.ok(h.logged.some((line) => /created \.bugpilot\/verification\.md from the BugPilot default policy/.test(line)), JSON.stringify(h.logged));
+  assert.equal(h.logged.some((line) => line.includes("the default policy")), false, "the policy text reached the log");
+});
+
+test("verification row: Edit of a file that is there opens it and writes nothing", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(EDIT_POLICY);
+  assert.deepEqual(policy.creates, []);
+  assert.deepEqual(h.opened, [POLICY_FILE]);
+
+  // A file the CLI cannot use is opened too: Edit is how it gets fixed.
+  policy.state.problem = "its front matter is not closed by a --- line.";
+  await h.controller.handle(EDIT_POLICY);
+  assert.deepEqual(policy.creates, [], "a broken file was overwritten instead of opened");
+  assert.deepEqual(h.opened, [POLICY_FILE, POLICY_FILE]);
+});
+
+test("verification row: the first Edit from legacy switches migrates their text into the file", async () => {
+  const legacyText = "- Run the tests relevant to the changed behavior.\n- The repository's full test suite is not required.";
+  const policy = verificationPolicyPort({ source: "legacy-project-settings", text: legacyText, legacyText });
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().verificationPolicy.source, "Source: Legacy project settings");
+
+  await h.controller.handle(EDIT_POLICY);
+
+  assert.deepEqual(policy.creates, [legacyText], "the file did not start from the switches' own text");
+  assert.equal(h.last().verificationPolicy.source, "Source: Repository verification.md");
+  assert.deepEqual(h.opened, [POLICY_FILE]);
+  assert.ok(h.logged.some((line) => /from the Legacy project settings policy/.test(line)));
+});
+
+test("verification row: Edit is not a change — the context stays current until the file's text changes", async () => {
+  const policy = verificationPolicyPort();
+  const h = await preparedHarness(policyHarnessOptions(policy));
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  await h.controller.handle(EDIT_POLICY);
+  assert.equal(policy.state.source, "verification-file");
+  assert.equal(h.last().primary.action, "fixWithAI", "creating the file from the policy in force read as a change");
+  assert.equal(h.last().verificationPolicy.stale, false);
+  // Opening it again, and reading it again, are not changes either.
+  await h.controller.handle(EDIT_POLICY);
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  // Saved with new text in the editor tab: now it is.
+  policy.state.text = "Run the integration suite too.";
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.equal(h.last().overall.text, "Needs rebuild");
+  assert.equal(h.last().verificationPolicy.stale, true, "the row did not say Needs rebuild");
+});
+
+test("verification row: a migration Edit keeps a legacy-prepared context current, though the switches leave the form's fingerprint", async () => {
+  const legacyText = "the switches' text";
+  const policy = verificationPolicyPort({ source: "legacy-project-settings", text: legacyText, legacyText });
+  const h = await preparedHarness({ ...policyHarnessOptions(policy), projectSettings: settingsPort().port });
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  await h.controller.handle(EDIT_POLICY);
+  assert.equal(h.last().primary.action, "fixWithAI", "the migration alone read as a change to the task");
+  assert.equal(h.last().verificationPolicy.stale, false);
+});
+
+test("verification row: a context already stale before Edit stays stale", async () => {
+  const policy = verificationPolicyPort();
+  const h = await preparedHarness(policyHarnessOptions(policy));
+  policy.state.text = "Changed by git pull.";
+  policy.state.source = "legacy-project-settings";
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.action, "rebuildContext");
+
+  await h.controller.handle(EDIT_POLICY);
+  assert.equal(h.last().primary.action, "rebuildContext", "Edit carried a stale baseline forward");
+});
+
+test("verification row: Reset asks first, and Keep File keeps it", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = harness({ ...policyHarnessOptions(policy), confirm: false });
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(RESET_POLICY);
+
+  assert.equal(h.confirms.length, 1);
+  assert.match(h.confirms[0]!.message, /This deletes \.bugpilot\/verification\.md\./);
+  assert.deepEqual([h.confirms[0]!.confirmLabel, h.confirms[0]!.keepLabel], ["Delete File", "Keep File"]);
+  assert.equal(policy.resets(), 0, "the file was removed without consent");
+  assert.equal(policy.state.exists, true);
+});
+
+test("verification row: Reset has the CLI remove the file, and the row shows whatever the CLI says applies now", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(RESET_POLICY);
+  assert.equal(policy.resets(), 1);
+  assert.equal(h.last().verificationPolicy.source, "Source: BugPilot default");
+  assert.equal(h.last().verificationPolicy.canReset, false);
+
+  // With legacy switches saved, the CLI falls back to them — the panel never guesses.
+  const legacy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests.", legacyText: "the switches' text" });
+  const h2 = harness(policyHarnessOptions(legacy));
+  await h2.controller.refreshEnvironment();
+  await h2.controller.handle(RESET_POLICY);
+  assert.equal(h2.last().verificationPolicy.source, "Source: Legacy project settings");
+  assert.ok(h2.logged.some((line) => /reset; the policy is now the Legacy project settings policy/.test(line)));
+});
+
+test("verification row: Reset says Needs rebuild only when the policy in force changed", async () => {
+  // Prepared with the file's own text: removing it changes the policy.
+  const changed = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = await preparedHarness(policyHarnessOptions(changed));
+  await h.controller.handle(RESET_POLICY);
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.equal(h.last().verificationPolicy.stale, true);
+
+  // Prepared on the default, frozen into the file by Edit, then reset: the
+  // same text all along, so nothing to rebuild.
+  const same = verificationPolicyPort();
+  const g = await preparedHarness(policyHarnessOptions(same));
+  await g.controller.handle(EDIT_POLICY);
+  await g.controller.handle(RESET_POLICY);
+  assert.equal(same.resets(), 1);
+  assert.equal(g.last().primary.action, "fixWithAI", "a reset to the same policy read as a change");
+  assert.equal(g.last().verificationPolicy.stale, false);
+});
+
+test("verification row: back to the policy the context was prepared with is no change, after an Edit and an edit in between", async () => {
+  // Found in the real window (§42.5): Edit froze the default into the file, an
+  // editor save changed it, and Reset brought the default back — the policy the
+  // context was prepared with — yet the row still said Needs rebuild.
+  const policy = verificationPolicyPort();
+  const h = await preparedHarness({ ...policyHarnessOptions(policy), projectSettings: settingsPort().port });
+  await h.controller.handle(EDIT_POLICY);
+  assert.equal(h.last().primary.action, "fixWithAI");
+  policy.state.text = "Also run the export dialog integration tests.";
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.equal(h.last().verificationPolicy.stale, true);
+
+  await h.controller.handle(RESET_POLICY);
+
+  assert.equal(policy.state.source, "bugpilot-default");
+  assert.equal(h.last().primary.action, "fixWithAI", "the prepared policy itself read as a change");
+  assert.equal(h.last().verificationPolicy.stale, false);
+  assert.equal(h.last().overall.text === "Needs rebuild", false);
+});
+
+test("verification row: Preview reads the policy now, holds it read-only, and never makes a context stale", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = await preparedHarness(policyHarnessOptions(policy));
+  const loads = policy.loads();
+
+  await h.controller.handle(PREVIEW_POLICY);
+
+  assert.equal(policy.loads(), loads + 1, "Preview did not read the policy as it is now");
+  const preview = h.last().verificationPreview;
+  assert.ok(preview);
+  assert.equal(preview.text, "Run the unit tests.");
+  assert.deepEqual(preview.facts, [
+    { label: "Source", value: "Repository verification.md" },
+    { label: "File", value: ".bugpilot/verification.md" },
+    { label: "Based on default", value: "version 1" },
+    { label: "Current default", value: "version 1" },
+    { label: "Same as default", value: "No" },
+  ]);
+  assert.equal(h.last().primary.action, "fixWithAI", "a Preview made the context stale");
+  assert.deepEqual(policy.creates, []);
+  assert.equal(policy.resets(), 0);
+  assert.equal(h.logged.some((line) => line.includes("Run the unit tests.")), false, "the policy text reached the log");
+
+  await h.controller.handle(CLOSE_PREVIEW);
+  assert.equal(h.last().verificationPreview, undefined);
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  // A page that loads again starts on the form.
+  await h.controller.handle(PREVIEW_POLICY);
+  await h.controller.handle({ type: "ready" });
+  assert.equal(h.last().verificationPreview, undefined);
+});
+
+test("verification row: lint is a count on the row and the CLI's lines in the Preview, never in the log", async () => {
+  const line = "Line 7 of .bugpilot/verification.md may conflict with a BugPilot rule (force push). The BugPilot rule still applies; the policy is kept as written.";
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Force push when CI is red." });
+  policy.state.lint = [line, line.replace("Line 7", "Line 9")];
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+
+  const row = h.last().verificationPolicy;
+  assert.equal(row.lint, "2 policy warnings · details in Preview");
+  assert.equal(row.problem, "", "a lint warning is not a problem");
+  assert.equal(row.canEdit, true, "a warning blocked editing");
+  await h.controller.handle(PREVIEW_POLICY);
+  assert.deepEqual(h.last().verificationPreview?.lint, policy.state.lint);
+  assert.equal(h.last().verificationPreview?.lintCount, 2);
+  assert.ok(h.logged.some((entry) => /2 line\(s\) may conflict with a BugPilot rule; the settings row's Preview lists them\./.test(entry)));
+  assert.equal(h.logged.some((entry) => entry.includes("Force push when CI is red")), false);
+  // Reading again says nothing new to the log.
+  const logged = h.logged.length;
+  await h.controller.windowFocused();
+  assert.equal(h.logged.filter((entry) => /may conflict/.test(entry)).length, 1);
+  assert.ok(h.logged.length >= logged);
+});
+
+test("verification row: default_changed is a note with Reset beside it, and the Preview names both versions", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  policy.state.basedOn = 0;
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+
+  const row = h.last().verificationPolicy;
+  assert.equal(row.defaultChanged, "BugPilot's default Verification Policy has changed since this file was created.");
+  assert.equal(row.canReset, true);
+  await h.controller.handle(PREVIEW_POLICY);
+  const facts = h.last().verificationPreview?.facts ?? [];
+  assert.deepEqual(facts.find((fact) => fact.label === "Based on default"), { label: "Based on default", value: "version 0" });
+  assert.equal(h.last().verificationPreview?.defaultChanged, row.defaultChanged);
+});
+
+test("verification row: a link or anything but a regular file is never opened", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file" });
+  policy.state.kind = "other";
+  policy.state.problem = ".bugpilot/verification.md is a link; the Verification Policy is never read through a link.";
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(EDIT_POLICY);
+
+  assert.deepEqual(h.opened, []);
+  assert.deepEqual(policy.creates, []);
+  assert.ok(h.notices.some((notice) => notice.kind === "warning" && /does not open \.bugpilot\/verification\.md: it is a link or not a regular file/.test(notice.message)));
+});
+
+test("verification row: a refused create is said in the CLI's words, and opens nothing", async () => {
+  const policy = verificationPolicyPort();
+  policy.state.refuse = "The Verification Policy was not saved: .bugpilot is a link.";
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+
+  await h.controller.handle(EDIT_POLICY);
+
+  assert.deepEqual(h.opened, []);
+  assert.ok(h.notices.some((notice) => notice.kind === "error" && notice.message === ".bugpilot/verification.md was not created: The Verification Policy was not saved: .bugpilot is a link."), JSON.stringify(h.notices));
+  assert.equal(h.last().verificationPolicy.busy, false);
+  assert.equal(h.last().verificationPolicy.source, "Source: BugPilot default");
+});
+
+test("verification row: a CLI that turns out not to have the command is out of date, as everywhere else", async () => {
+  const policy = verificationPolicyPort();
+  const h = harness({
+    ...policyHarnessOptions(policy),
+    verificationPolicy: { ...policy.port, create: async () => ({ kind: "outdated", rejected: ["verification"] }) },
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle(EDIT_POLICY);
+
+  assert.equal(h.last().readiness.kind, "blocked");
+  assert.deepEqual(h.opened, []);
+});
+
+test("verification row: a double click on Edit creates the file once", async () => {
+  const policy = verificationPolicyPort();
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+
+  await Promise.all([h.controller.handle(EDIT_POLICY), h.controller.handle(EDIT_POLICY)]);
+  assert.equal(policy.creates.length, 1);
+});
+
+test("verification row: Edit's create and Reset wait for a run in flight; opening a file that is there does not", async () => {
+  const policy = verificationPolicyPort();
+  const h = harness({ ...WITH_FILES, agentOnPath: true, ...policyHarnessOptions(policy), hold: true });
+  await h.controller.refreshEnvironment();
+  const running = h.controller.run(jiraForm());
+  for (let i = 0; i < 6; i += 1) await tick();
+  assert.equal(h.last().verificationPolicy.canEdit, false, "Edit offered a write while a run is in flight");
+  assert.equal(h.last().verificationPolicy.canPreview, true, "reading needs no wait");
+
+  await h.controller.handle(EDIT_POLICY);
+  assert.deepEqual(policy.creates, [], "the file was written under a running preparation");
+  assert.ok(h.notices.some((notice) => /\.bugpilot\/verification\.md was not created\./.test(notice.message)), JSON.stringify(h.notices));
+
+  // A file that is there opens: nothing is written.
+  policy.state.source = "verification-file";
+  policy.state.exists = true;
+  await h.controller.handle(EDIT_POLICY);
+  assert.deepEqual(h.opened, [POLICY_FILE]);
+  assert.equal(h.last().verificationPolicy.canReset, false, "Reset offered while a run is in flight");
+  await h.controller.handle(RESET_POLICY);
+  assert.equal(policy.resets(), 0);
+  assert.equal(h.confirms.length, 0, "asked to delete the file during a run");
+  h.release();
+  await running;
+  assert.equal(h.last().verificationPolicy.canReset, true);
+});
+
+test("verification row: a Run started while Edit is creating the file prepares on the file Edit leaves", async () => {
+  let finishCreate: () => void = () => {};
+  const order: string[] = [];
+  const policy = verificationPolicyPort();
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    ...policyHarnessOptions(policy),
+    verificationPolicy: {
+      ...policy.port,
+      load: async () => {
+        order.push(`load:${policy.state.source}`);
+        return policy.port.load();
+      },
+      create: async (text) => {
+        await new Promise<void>((resolve) => {
+          finishCreate = resolve;
+        });
+        order.push("created");
+        return policy.port.create(text);
+      },
+    },
+    onStream: () => order.push("run"),
+  });
+  await h.controller.refreshEnvironment();
+  order.length = 0;
+
+  const editing = h.controller.handle(EDIT_POLICY);
+  for (let i = 0; i < 4; i += 1) await tick();
+  const running = h.controller.handle(next("run"));
+  for (let i = 0; i < 4; i += 1) await tick();
+  assert.ok(!order.includes("run"), "the run started under the write");
+  finishCreate();
+  await editing;
+  await running;
+  assert.deepEqual(order, ["load:bugpilot-default", "created", "load:verification-file", "run"]);
+  assert.equal(h.last().primary.action, "fixWithAI");
+});
+
+test("verification row: external saves, deletion and a malformed file fixed refresh the row on focus", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = harness(policyHarnessOptions(policy));
+  await h.controller.refreshEnvironment();
+
+  // Broken in an editor tab and saved.
+  policy.state.problem = "its front matter has no mode.";
+  await h.controller.windowFocused();
+  assert.match(h.last().verificationPolicy.problem, /its front matter has no mode\. BugPilot's default applies until it is fixed\./);
+  // Fixed and saved.
+  delete policy.state.problem;
+  await h.controller.windowFocused();
+  assert.equal(h.last().verificationPolicy.problem, "");
+  assert.equal(h.last().verificationPolicy.source, "Source: Repository verification.md");
+  // Deleted outside BugPilot.
+  policy.state.exists = false;
+  policy.state.source = "bugpilot-default";
+  policy.state.text = "the default policy";
+  await h.controller.windowFocused();
+  assert.equal(h.last().verificationPolicy.source, "Source: BugPilot default");
+  assert.equal(h.last().verificationPolicy.canReset, false);
+});
+
+test("verification row: Fix with AI after the file was edited following an Edit hands nothing over", async () => {
+  const policy = verificationPolicyPort();
+  const h = await preparedHarness(policyHarnessOptions(policy));
+  await h.controller.handle(EDIT_POLICY);
+  // Saved in the editor tab; the watcher has not fired yet.
+  policy.state.text = "Also run the slow suite.";
+
+  await h.controller.handle(next("fixWithAI"));
+
+  assert.equal(h.terminals.length, 0, "an agent was handed a task the policy has since changed");
+  assert.ok(h.notices.some((notice) => notice.message === STALE_HANDOFF_POLICIES));
+  assert.equal(h.last().verificationPolicy.stale, true);
+});
+
+test("verification row: Start New Attempt after a Reset that changed the policy starts nothing", async () => {
+  const policy = verificationPolicyPort({ source: "verification-file", text: "Run the unit tests." });
+  const h = await attemptedHarness(policyHarnessOptions(policy));
+  await h.controller.handle(RESET_POLICY);
+
+  await h.controller.startNewAttempt("", jiraForm());
+
+  assert.equal(h.terminals.length, 1, "a second attempt started on a stale task");
+  assert.match(JSON.stringify(fixRow(h.last()).attempt), /the instructions or the Verification Policy changed since this context was prepared/);
+});
+
+test("verification row: a page cannot change the legacy switches the host holds for older versions", async () => {
+  const saved = { ...DEFAULT_SETTINGS, verification: { ...DEFAULT_SETTINGS.verification, full_suite: true } };
+  const settings = settingsPort(saved);
+  const h = harness({ projectSettings: settings.port });
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().form?.verifyFullSuite, true);
+
+  // A page restored from an older state, sending the switches it had.
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ verifyFullSuite: false, verifyRelevantTests: false }) });
+  await h.controller.handle(applySettings(jiraForm({ verifyFullSuite: false, verifyRelevantTests: false, maxFiles: "5" })));
+
+  assert.deepEqual(settings.saves, [], "switches no control shows were written to project_settings.json");
+  assert.equal(h.last().form?.verifyFullSuite, true);
+  assert.equal(h.last().form?.verifyRelevantTests, true);
+  assert.equal(h.last().form?.maxFiles, "5", "the rest of the Apply was lost");
+});
+
+test("parsePanelMessage accepts the Verification Policy row's four bare messages, and nothing on them", () => {
+  for (const type of ["editVerificationPolicy", "resetVerificationPolicy", "previewVerificationPolicy", "closeVerificationPreview"] as const) {
+    assert.deepEqual(parsePanelMessage({ type }), { type });
+    // A path or text sent along is dropped: the host knows the file.
+    assert.deepEqual(parsePanelMessage({ type, path: "/elsewhere", text: "Force push." }), { type });
+  }
 });

@@ -53,6 +53,12 @@ ALLOWED: dict[str, str] = {
         "Same: the words the skill and the MCP tool descriptions must share, "
         "checked against both by test_handoff.py."
     ),
+    "prompts.TASK_SECTION_CLASSES": (
+        "The record of which class every task.md section belongs to (protected, "
+        "AI-behaviour candidate, Verification Policy, ...; §42.2). It is a "
+        "classification, not behaviour: test_verification_policy.py fails on a "
+        "task heading it does not list, so a new section has to be classified."
+    ),
     "handoff.skill_steps": (
         "Renders the numbered steps of SKILL.md, which is a file rather than a "
         "caller. test_handoff.py compares the file against it step by step, so "

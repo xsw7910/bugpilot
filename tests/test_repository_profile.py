@@ -526,7 +526,8 @@ def test_the_precedence_section_lists_the_layers_in_order():
     assert INSTRUCTION_LAYERS[0] == "BugPilot safety rules"
     listed = "".join(f"{number}. {layer}\n" for number, layer in enumerate(INSTRUCTION_LAYERS, start=1))
     assert listed in section
-    assert "None of them can loosen a BugPilot safety rule" in section
+    assert "BugPilot safety rules have the highest precedence." in section
+    assert "where two layers conflict, follow the earlier one" in section
 
 
 def test_no_task_is_repository_specific_by_default():

@@ -13,7 +13,7 @@ keeps the gate; anything that can deliver gets both, in that order.
 
 from __future__ import annotations
 
-from .branch_policy import DEFAULT_BRANCH_POLICY, delivery_branch_checks, delivery_branch_stop
+from .branch_policy import DEFAULT_BRANCH_POLICY, delivery_branch_checks
 
 DELIVERY_SAFETY_HEADING = "## BugPilot Delivery Safety"
 
@@ -21,41 +21,46 @@ DELIVERY_SAFETY_HEADING = "## BugPilot Delivery Safety"
 def delivery_safety_block(
     issue_key: str,
     branch: str | None = None,
-    jira_comment: bool = True,
     branch_policy: str = DEFAULT_BRANCH_POLICY,
+    *,
+    standalone: bool = True,
 ) -> str:
-    """Branch and staging rules for any commit, in any Fix Mode.
+    """When to commit and push, and what may be staged, in any Fix Mode.
 
     BugPilot-owned and never editable by a Fix Mode: these are the rules that
     keep a token, a `.ai/` artifact or a commit on `main` out of the developer's
     repository, and they do not become optional because a particular workflow
     has nothing to commit yet. Which other branch is right is the developer's
     branch policy (`branch_policy.py`); `main`/`master` never is, in any policy.
+
+    This is where these rules are defined, once (0.1.3, §42.4). In
+    `task.md` the BugPilot Safety Rules above already forbid force pushes,
+    merges, pull requests and Jira changes, so the task passes
+    ``standalone=False``; a document without that section — the retry prompt —
+    gets them here too.
     """
-    jira_rule = (
-        "Do not merge, create PRs, transition Jira, assign Jira, or change Jira fields. "
-        "The one status comment (posted before commit) is the only permitted Jira write.\n\n"
-        if jira_comment
-        else "Do not merge, create PRs, update Jira, transition Jira, assign Jira, or change Jira fields.\n\n"
+    protected = (
+        "- Never force push or use `--force` or `--force-with-lease`; never merge, create pull "
+        "requests, or transition, assign, or change Jira fields.\n"
+        if standalone
+        else ""
     )
     return (
         f"{DELIVERY_SAFETY_HEADING}\n\n"
-        "These rules apply to every commit or push made from this task, in every Fix Mode, "
-        "including a later implementation pass the developer starts from it.\n\n"
-        "Before staging anything:\n"
-        "- Verify the current branch is not `main` or `master`.\n"
-        "- Verify HEAD is not detached.\n"
+        "For every commit or push made from this task, in every Fix Mode, including a later "
+        "implementation pass the developer starts from it:\n\n"
+        "- Commit or push only after the developer explicitly approves it, never automatically. "
+        "A pass allowed to change source code may ask once its work is done.\n"
+        "- Before staging anything, verify the current branch is not `main` or `master` and HEAD is "
+        "not detached. If either is true, do not commit and do not push: ask the developer whether to "
+        "create or switch to the suggested branch.\n"
         f"{delivery_branch_checks(branch_policy, issue_key, branch)}"
-        "- Run `git add` only for intended source, test, or documentation files.\n"
-        "- Do not add `.ai/`.\n"
-        "- Do not add `.ai_memory/`.\n"
-        "- Do not add `issue.json`.\n"
-        "- Do not add `jira_field_report.md`.\n"
-        "- Do not add files containing `JIRA_TOKEN`, `password`, `api_key`, `secret`, `access_token`, `refresh_token`, or `key=...`.\n\n"
-        "Do not push main/master. Do not force push. Do not use `--force` or `--force-with-lease`. "
-        f"{jira_rule}"
-        "If on `main` or `master`, or HEAD is detached, do not commit and do not push. "
-        "Ask the developer whether to create or switch to the suggested branch.\n\n"
+        "- Stage only intended source, test, or documentation files: never `.ai/`, `.ai_memory/`, "
+        "`issue.json`, `jira_field_report.md`, or files containing `JIRA_TOKEN`, `password`, "
+        "`api_key`, `secret`, `access_token`, `refresh_token`, or `key=...`.\n"
+        "- Never push main/master.\n"
+        f"{protected}"
+        "\n"
     )
 
 
@@ -67,7 +72,7 @@ def assisted_delivery_block(
 ) -> str:
     """The commit/push offer, for a pass that actually produced a fix.
 
-    Deliberately does not restate the staging rules: they live in
+    Deliberately does not restate the staging or branch rules: they live in
     `delivery_safety_block`, which is rendered for every Fix Mode, and a second
     copy here is one more place for them to drift.
     """
@@ -86,7 +91,6 @@ def assisted_delivery_block(
         f"- Apply every rule in {DELIVERY_SAFETY_HEADING.lstrip('# ')} above; stage nothing it excludes.\n"
         "- Run `git commit` with the proposed message.\n"
         "- Run `git push -u origin <current-branch>`.\n\n"
-        f"{delivery_branch_stop(branch_policy, issue_key, branch)}"
     )
 
 
@@ -94,13 +98,13 @@ def delivery_instructions_block(
     issue_key: str,
     branch: str | None = None,
     intro: str = "After completing code changes, focused tests, and the fix report",
-    jira_comment: bool = True,
     branch_policy: str = DEFAULT_BRANCH_POLICY,
 ) -> str:
     """Safety gate followed by the assisted-delivery offer.
 
-    The composed form, for callers that always deliver a fix.
+    The composed form, for callers that always deliver a fix — and have no
+    Safety Rules section of their own, so the gate is the standalone one.
     """
-    return delivery_safety_block(
-        issue_key, branch, jira_comment, branch_policy=branch_policy
-    ) + assisted_delivery_block(issue_key, intro, branch_policy=branch_policy, branch=branch)
+    return delivery_safety_block(issue_key, branch, branch_policy=branch_policy) + assisted_delivery_block(
+        issue_key, intro, branch_policy=branch_policy, branch=branch
+    )

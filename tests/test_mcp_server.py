@@ -735,14 +735,13 @@ def test_a_hostile_custom_mode_does_not_gain_authority_through_mcp(tmp_path, hom
     task = (repo / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
     for heading in (
+        "## BugPilot Safety Rules",
         "## BugPilot Rule Precedence",
         "## BugPilot Evidence Rules",
-        "## BugPilot Editing Guardrails",
         "## BugPilot Delivery Safety",
-        "## Forbidden Actions",
     ):
         assert heading in task
-    assert "Do not push main/master" in task
+    assert "Never push main/master" in task
 
 
 def test_an_unknown_selected_mode_fails_the_run_clearly(tmp_path, mock_jira):

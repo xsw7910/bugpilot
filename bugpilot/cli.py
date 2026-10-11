@@ -50,11 +50,23 @@ from bugpilot.core.instructions import (
 from bugpilot.core.project_settings import (
     DEFAULT_BRANCH_TEMPLATE_LABEL,
     SHOWN_PATH as SETTINGS_SHOWN_PATH,
+    VERIFICATION_FILE_WINS,
     load_project_settings,
     project_settings_payload,
+    resolve_project_settings,
     save_project_settings,
     settings_from_mapping,
     settings_path,
+    verification_file_wins,
+)
+from bugpilot.core.verification import (
+    SHOWN_PATH as VERIFICATION_SHOWN_PATH,
+    SOURCE_FILE as VERIFICATION_SOURCE_FILE,
+    SOURCE_LEGACY as VERIFICATION_SOURCE_LEGACY,
+    VerificationError,
+    remove_verification,
+    save_verification,
+    verification_payload,
 )
 from bugpilot.core.review_changes import collect_review_changes, review_changes_markdown
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
@@ -544,7 +556,7 @@ def build_parser() -> argparse.ArgumentParser:
             "User Instructions live in ~/.bugpilot/instructions.md and apply to every repository; "
             "Project / Team Instructions live in .bugpilot/instructions.md in the repository and can be "
             "committed with it. The CLI, the MCP server and the VS Code extension all read these two files. "
-            "They refine how the AI agent works and never override BugPilot's safety rules."
+            "They refine how the AI agent works; BugPilot's safety rules come first in the task and win any conflict."
         ),
     )
     instructions_parser.add_argument(
@@ -570,6 +582,38 @@ def build_parser() -> argparse.ArgumentParser:
         "--clear", action="store_true", help="For `set`: remove the instructions file."
     )
     _add_json_flag(instructions_parser)
+
+    verification_parser = subparsers.add_parser(
+        "verification",
+        help="Show or set the repository's Verification Policy text (.bugpilot/verification.md).",
+        description=(
+            "The Verification Policy says what a pass that changes source code is expected to verify. "
+            "With .bugpilot/verification.md, its text replaces BugPilot's default whole; without it, the "
+            "Verification switches in .bugpilot/project_settings.json (BugPilot 0.1.2 and earlier) apply, or "
+            "the default. The CLI, the MCP server and the VS Code extension all read it the same way, and "
+            "the task puts BugPilot's own rules ahead of it."
+        ),
+    )
+    verification_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["show", "set", "clear", "reset"],
+        default="show",
+        help=(
+            "show (the default) prints the effective policy and where it comes from; set writes "
+            ".bugpilot/verification.md; clear and reset are the same: they remove it, so the switches or "
+            "BugPilot's default apply again."
+        ),
+    )
+    verification_source = verification_parser.add_mutually_exclusive_group()
+    verification_source.add_argument(
+        "--from-file", metavar="PATH", dest="from_file",
+        help="For `set`: the policy text, or a whole verification.md with its front matter (UTF-8).",
+    )
+    verification_source.add_argument(
+        "--stdin", action="store_true", help="For `set`: read the policy text from standard input."
+    )
+    _add_json_flag(verification_parser)
 
     return parser
 
@@ -644,6 +688,9 @@ def _dispatch(args, repo_root: Path) -> int:
 
     if args.command == "project-settings":
         return _run_project_settings_command(args, repo_root)
+
+    if args.command == "verification":
+        return _run_verification_command(args, repo_root)
 
     if args.command == "jira-site":
         return _run_jira_site_command(args)
@@ -1964,9 +2011,20 @@ def _run_project_settings_command(args, repo_root: Path) -> int:
 
     settings, warnings = load_project_settings(repo_root)
     saved = settings_path(repo_root).is_file()
+    # Which Verification Policy is effective. Once `.bugpilot/verification.md`
+    # exists the switches are kept — older BugPilot versions still read and write
+    # them — but no longer decide anything for this one, and a save says so.
+    verification_source = resolve_project_settings(repo_root).effective_verification.source
+    if args.action == "set" and verification_file_wins(verification_source):
+        warnings = [*warnings, VERIFICATION_FILE_WINS]
     if args.json_output:
         cli_json.emit(
-            cli_json.success("project-settings", **project_settings_payload(settings, saved=saved, warnings=warnings))
+            cli_json.success(
+                "project-settings",
+                **project_settings_payload(
+                    settings, saved=saved, warnings=warnings, verification_source=verification_source
+                ),
+            )
         )
         return 0
 
@@ -1976,12 +2034,77 @@ def _run_project_settings_command(args, repo_root: Path) -> int:
     print(f"Project settings ({origin}):")
     for warning in warnings:
         print(f"WARN: {warning}")
+    print(f"  verification source: {verification_source}")
     for key, value in settings.verification.to_dict().items():
         print(f"  verification.{key}: {str(value).lower()}")
     template = settings.branch_template or f"(default) {DEFAULT_BRANCH_TEMPLATE_LABEL}"
     print(f"  branch_naming.template: {template}")
     print()
     print("Change them with: bugpilot project-settings set --from-file <json>")
+    return 0
+
+
+def _run_verification_command(args, repo_root: Path) -> int:
+    """`bugpilot verification [show|set|clear|reset]`: the repository's Verification Policy text.
+
+    `show` is read-only. `set` writes `.bugpilot/verification.md` — from a policy
+    body, which gets front matter, or from a whole document whose front matter
+    must parse — through the instructions' checks (no links, UTF-8, the size
+    limit). `clear` and `reset` are one operation: they remove the file, and the
+    answer says which policy applies instead. The text is never logged; the
+    extension sends it on standard input.
+    """
+
+    def fail(message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("verification", errors.INVALID_INPUT, message)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    if args.action != "set" and (args.from_file or args.stdin):
+        return fail("--from-file and --stdin are for `bugpilot verification set`.")
+    note = ""
+    try:
+        if args.action == "set":
+            if args.stdin:
+                text = _read_instruction_text(sys.stdin.buffer)
+            elif args.from_file:
+                with open(args.from_file, "rb") as source:
+                    text = _read_instruction_text(source)
+            else:
+                return fail("`bugpilot verification set` needs --from-file PATH or --stdin.")
+            save_verification(repo_root, text)
+            note = f"Saved the Verification Policy: {VERIFICATION_SHOWN_PATH}"
+        elif args.action in ("clear", "reset"):
+            removed = remove_verification(repo_root)
+            note = (
+                f"Removed {VERIFICATION_SHOWN_PATH}." if removed else f"There is no {VERIFICATION_SHOWN_PATH} to remove."
+            )
+    except (OSError, ValueError) as exc:
+        if isinstance(exc, VerificationError) or isinstance(exc, ValueError):
+            return fail(str(exc))
+        return fail(f"The text could not be read: {exc.strerror or exc}.")
+
+    resolved = resolve_project_settings(repo_root).effective_verification
+    if args.json_output:
+        cli_json.emit(cli_json.success("verification", **verification_payload(resolved), warnings=list(resolved.warnings)))
+        return 0
+
+    if note:
+        print(note)
+    origin = {
+        VERIFICATION_SOURCE_FILE: VERIFICATION_SHOWN_PATH,
+        VERIFICATION_SOURCE_LEGACY: f"the Verification switches in {SETTINGS_SHOWN_PATH}",
+    }.get(resolved.source, "BugPilot's default")
+    print(f"Verification Policy ({resolved.source}: {origin}):")
+    for warning in resolved.warnings:
+        print(f"WARN: {warning}")
+    print("---")
+    print(resolved.text)
+    print("---")
+    if resolved.source != VERIFICATION_SOURCE_FILE:
+        print(f"Replace it with: bugpilot verification set --from-file <file>  (writes {VERIFICATION_SHOWN_PATH})")
     return 0
 
 

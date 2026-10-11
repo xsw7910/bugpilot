@@ -48,6 +48,7 @@ import { deleteWorkItemArtifacts } from "../src/app/sessionReset.ts";
 import { repositoryProfileOfForm, runRepositoryProfile } from "../src/app/repositoryProfile.ts";
 import { runInstructions } from "../src/app/instructions.ts";
 import { projectSettingsOfForm, runProjectSettings } from "../src/app/projectSettings.ts";
+import { runVerificationPolicy, samePolicyText } from "../src/app/verificationPolicy.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -797,4 +798,90 @@ test("the project settings port reads, saves and reads back through the real CLI
   assert.match(task, /## Verification Policy\n\nSource: repository configuration \(project settings\)\./);
   assert.match(task, /- Run the repository's full test suite before reporting, if it can run in this environment\./);
   assert.match(task, /`bugfix\/bug-[0-9a-f]{8}-/);
+});
+
+// --- the Verification Policy through the real CLI (0.1.3, §42.5) -----------------
+
+test("the Verification Policy port reads, creates from the CLI's own text, resets and reads back through the real CLI", async () => {
+  const root = repository();
+  const run = (args: readonly string[], input?: string) =>
+    runner().run([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000, ...(input === undefined ? {} : { input }) });
+  const file = path.join(root, ".bugpilot", "verification.md");
+  const show = async () => {
+    const outcome = await runVerificationPolicy(run);
+    assert.equal(outcome.kind, "loaded", JSON.stringify(outcome));
+    if (outcome.kind !== "loaded") throw new Error("not loaded");
+    return outcome.snapshot;
+  };
+
+  // Viewing writes nothing: no file, no folder.
+  const fresh = await show();
+  assert.equal(fresh.source, "bugpilot-default");
+  assert.equal(fresh.fileExists, false);
+  assert.equal(fresh.differsFromDefault, false);
+  assert.equal(existsSync(path.join(root, ".bugpilot")), false, "reading created a folder");
+
+  // Legacy switches saved by an older client: the CLI reports their text.
+  const saved = await runProjectSettings(run, projectSettingsOfForm({ ...DEFAULT_FORM, verifyFullSuite: true }));
+  assert.equal(saved.kind, "loaded", JSON.stringify(saved));
+  const legacy = await show();
+  assert.equal(legacy.source, "legacy-project-settings");
+  assert.match(legacy.text, /full test suite before reporting/);
+
+  // Edit's migration: the CLI writes the file from the text it reported, front matter its own.
+  const created = await runVerificationPolicy(run, { kind: "set", text: legacy.text });
+  assert.equal(created.kind, "loaded", JSON.stringify(created));
+  if (created.kind !== "loaded") return;
+  assert.equal(created.snapshot.source, "verification-file");
+  assert.equal(samePolicyText(legacy, created.snapshot), true, "the migration changed the policy text");
+  const document = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+  assert.match(document, /^---\nschema_version: 1\nbased_on_version: 1\nmode: replace\n---\n\n/);
+  assert.ok(document.includes(legacy.text));
+  assert.equal(created.snapshot.basedOnVersion, 1);
+  assert.equal(created.snapshot.defaultChanged, false);
+
+  // Saved with new text in an editor tab: a different policy, and a lint warning for a line that looks wrong.
+  writeFileSync(file, `${document.trimEnd()}\n- Force push when CI is red.\n`, "utf8");
+  const edited = await show();
+  assert.notEqual(edited.sha256, created.snapshot.sha256);
+  assert.equal(edited.lintCount, 1);
+  assert.match(edited.lint[0]!, /^Line \d+ of \.bugpilot\/verification\.md may conflict with a BugPilot rule \(force push\)\./);
+  assert.equal(edited.lint[0]!.includes("CI is red"), false, "a lint line quoted the policy");
+
+  // A run carries the file's policy, by its own source line.
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.ok(built.ok);
+  if (!built.ok) return;
+  const outcome = await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+    () => {},
+  );
+  assert.equal(outcome.terminated, true, outcome.result.stderr);
+  const [workItem] = readdirSync(path.join(root, ".ai"));
+  const task = readFileSync(path.join(root, ".ai", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
+  assert.match(task, /## Verification Policy\n\nSource: repository Verification Policy \(\.bugpilot\/verification\.md\)\./);
+  assert.ok(task.includes("- Force push when CI is red."));
+
+  // Broken in the editor: the default applies, the file is not pretended active.
+  writeFileSync(file, "Run the unit tests.\n", "utf8");
+  const broken = await show();
+  assert.equal(broken.source, "verification-file");
+  assert.equal(broken.fileExists, true);
+  assert.match(broken.problem ?? "", /no front matter/);
+  assert.equal(broken.text, fresh.text, "a broken file's text was used");
+
+  // Reset: the file goes, and the CLI says what applies without it — the legacy switches here.
+  const reset = await runVerificationPolicy(run, { kind: "reset" });
+  assert.equal(reset.kind, "loaded", JSON.stringify(reset));
+  if (reset.kind !== "loaded") return;
+  assert.equal(existsSync(file), false);
+  assert.equal(reset.snapshot.source, "legacy-project-settings");
+  assert.equal(reset.snapshot.text, legacy.text);
+
+  // An empty create is the CLI's to refuse, never a quiet reset.
+  const empty = await runVerificationPolicy(run, { kind: "set", text: "  \n" });
+  assert.equal(empty.kind, "failed");
+  if (empty.kind === "failed") assert.match(empty.message, /has no policy text/);
+  assert.equal(existsSync(file), false);
 });

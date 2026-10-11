@@ -1529,18 +1529,6 @@ html:has(#workflow-settings-view:not([hidden])) {
   cursor: default;
 }
 
-/* The Verification Policy's four switches under one quiet heading:
-   the heading reads like a setting's label; the switches sit under it. */
-.setting-group {
-  margin-top: 10px;
-}
-
-.setting-group-label {
-  margin: 0 0 4px;
-  font-weight: 600;
-  color: var(--vscode-foreground);
-}
-
 /* An instruction row: the name and Edit on one line,
    Edit at the right, the file's state under them in one quiet line. In a
    200px sidebar the name wraps rather than pushing Edit off the panel. */
@@ -1557,8 +1545,182 @@ html:has(#workflow-settings-view:not([hidden])) {
   flex: none;
 }
 
+.instruction-description,
 .instruction-status {
   margin: 0;
+}
+
+/* The Verification Policy row (§42.5): its name, what it is for, one quiet
+   line of source, a note when there is something to say, and three actions
+   that wrap onto as many lines as a 200px sidebar needs — never a box to type
+   in. Everything wraps; nothing has a width. */
+.policy-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+.policy-description,
+.policy-source,
+.policy-unavailable {
+  margin: 0;
+}
+
+.policy-source[hidden],
+.policy-unavailable[hidden] {
+  display: none;
+}
+
+/* A note says what it is in words — "Problem:", "2 policy warnings" — and its
+   glyph carries the tone, so no state is colour alone. A problem is the one
+   in the error colour: the file is not used. A lint warning or the default's
+   new version is information, in the helper's colour. */
+.policy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+
+.policy-note[hidden] {
+  display: none;
+}
+
+.policy-note > span:last-child {
+  min-width: 0;
+}
+
+.policy-note-icon {
+  flex: none;
+  font-size: 14px;
+  line-height: inherit;
+}
+
+.policy-note.is-problem {
+  color: var(--vscode-errorForeground);
+}
+
+.policy-note.is-problem .policy-note-icon {
+  color: var(--bugpilot-icon-danger);
+}
+
+.policy-note.is-warning .policy-note-icon {
+  color: var(--bugpilot-icon-warning);
+}
+
+.policy-note.is-info .policy-note-icon {
+  color: var(--bugpilot-icon-primary);
+}
+
+.policy-note-kind {
+  font-weight: 600;
+}
+
+.policy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.policy-actions button {
+  flex: none;
+}
+
+.policy-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px 8px;
+  margin-bottom: 2px;
+}
+
+/* "Needs rebuild", in the workflow status's own pill (§37.108): the same
+   words and the same look for the same state, here for the policy alone. */
+.policy-stale-line {
+  margin: 6px 0 0;
+}
+
+.policy-stale {
+  display: inline-block;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.policy-stale:empty {
+  display: none;
+}
+
+body.vscode-high-contrast .policy-stale,
+body.vscode-high-contrast-light .policy-stale {
+  border-color: var(--vscode-contrastBorder, var(--vscode-foreground));
+  background: none;
+}
+
+/* Empty, it takes no room — but stays in the page, so the live region is
+   there to announce "Needs rebuild" when it arrives. */
+.policy-stale-line:has(.policy-stale:empty) {
+  margin: 0;
+}
+
+/* The Verification Policy Preview: facts, notes, the lint, then the text as
+   text — wrapped, selectable, scrollable by keyboard — never a disabled box. */
+.policy-readonly-icon {
+  margin-right: 4px;
+  vertical-align: text-bottom;
+}
+
+.policy-lint {
+  margin-top: 8px;
+}
+
+.policy-lint[hidden] {
+  display: none;
+}
+
+.policy-lint-title,
+.policy-text-title {
+  margin: 10px 0 2px;
+  font-size: var(--vscode-font-size);
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.policy-lint-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.policy-text {
+  margin: 4px 0 0;
+  padding: 8px;
+  border: 1px solid var(--bugpilot-section-border);
+  border-radius: 4px;
+  background: var(--bugpilot-section-bg);
+  font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+  font-size: var(--vscode-editor-font-size, var(--vscode-font-size));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: none;
+}
+
+.policy-text:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
 }
 
 /* The instruction editor: one tall box, the count under it, the footer of the

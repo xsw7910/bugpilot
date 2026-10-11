@@ -34,6 +34,8 @@ import type { SearchContent, WorkflowInput, WorkflowStepResult } from "../src/ap
 import type { GitHistoryResult } from "../src/app/gitHistory.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
 import type { ProgressView } from "../src/app/progress.ts";
+import { VERIFICATION_ROW_EMPTY } from "../src/app/verificationPolicy.ts";
+import type { VerificationPreviewView, VerificationRowView } from "../src/app/verificationPolicy.ts";
 
 const PAGE_SOURCE = readFileSync(new URL("../media/panel.js", import.meta.url), "utf8");
 
@@ -379,6 +381,14 @@ const primaryOf = (input: Partial<NextActionInput> = {}) =>
     ...input,
   });
 
+/** The Verification Policy row as a ready host builds it with no file and nothing saved (§42.5). */
+const VERIFICATION_DEFAULT_ROW: VerificationRowView = {
+  ...VERIFICATION_ROW_EMPTY,
+  source: "Source: BugPilot default",
+  canEdit: true,
+  canPreview: true,
+};
+
 /**
  * A state as the host would build it.
  *
@@ -412,6 +422,7 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
       user: { status: "No user instructions configured.", editable: true },
       project: { status: "No project instructions configured.", editable: true },
     },
+    verificationPolicy: VERIFICATION_DEFAULT_ROW,
     problems: [],
     progress,
     workflow,
@@ -9574,6 +9585,148 @@ test("instructions 6: closed by the host, the settings page is back, focus on th
   assert.equal(p.byId("maxFiles").value, "7");
 });
 
+// --- the Verification Policy row (0.1.3, §42.5) ---------------------------------
+
+const FILE_ROW: VerificationRowView = {
+  ...VERIFICATION_DEFAULT_ROW,
+  source: "Source: Repository verification.md",
+  canReset: true,
+};
+
+const POLICY_PREVIEW: VerificationPreviewView = {
+  token: 1,
+  facts: [
+    { label: "Source", value: "Repository verification.md" },
+    { label: "File", value: ".bugpilot/verification.md" },
+    { label: "Based on default", value: "version 1" },
+  ],
+  problem: "",
+  defaultChanged: "",
+  lint: ["Line 6 of .bugpilot/verification.md may conflict with a BugPilot rule (force push). The BugPilot rule still applies; the policy is kept as written."],
+  lintCount: 1,
+  text: "- Run the unit tests for the changed module.\n- Report what was not run, and why.",
+};
+
+test("verification row 1: the host's source on the row, three actions, and no switch left to tick", () => {
+  const p = settingsPage({ verificationPolicy: FILE_ROW });
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("verification-policy-source").textContent, "Source: Repository verification.md");
+  assert.equal(p.byId("verification-policy-source").hidden, false);
+  assert.deepEqual(
+    ["verification-policy-edit", "verification-policy-reset", "verification-policy-preview"].map((id) => p.byId(id).disabled),
+    [false, false, false],
+  );
+  for (const id of ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun", "verification-note"]) {
+    assert.equal(p.elements.has(id), false, `#${id} is still on the page`);
+  }
+  // Nothing to say beyond the source: every note hidden, no Needs rebuild.
+  for (const id of ["verification-policy-problem", "verification-policy-lint", "verification-policy-default-changed", "verification-policy-unavailable"]) {
+    assert.equal(p.byId(id).hidden, true, id);
+  }
+  assert.equal(p.byId("verification-policy-stale").textContent, "");
+});
+
+test("verification row 2: a problem, the lint count, the default's note and Needs rebuild, each in words", () => {
+  const p = settingsPage({
+    verificationPolicy: {
+      ...FILE_ROW,
+      source: "Source: BugPilot default (.bugpilot/verification.md is not used)",
+      problem: ".bugpilot/verification.md is not used: it has no front matter. BugPilot's default applies until it is fixed. Edit opens the file; Reset removes it.",
+      stale: true,
+    },
+  });
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("verification-policy-problem").hidden, false);
+  assert.match(p.byId("verification-policy-problem-text").textContent, /BugPilot's default applies until it is fixed/);
+  assert.equal(p.byId("verification-policy-stale").textContent, "Needs rebuild");
+  // Edit and Reset stay: the file must be fixable and removable.
+  assert.equal(p.byId("verification-policy-edit").disabled, false);
+  assert.equal(p.byId("verification-policy-reset").disabled, false);
+
+  p.send({
+    ...prepared(),
+    verificationPolicy: {
+      ...FILE_ROW,
+      lint: "2 policy warnings · details in Preview",
+      defaultChanged: "BugPilot's default Verification Policy has changed since this file was created.",
+    },
+  });
+  assert.equal(p.byId("verification-policy-problem").hidden, true);
+  assert.equal(p.byId("verification-policy-lint").hidden, false);
+  assert.equal(p.byId("verification-policy-lint-text").textContent, "2 policy warnings · details in Preview");
+  assert.equal(p.byId("verification-policy-default-changed-text").textContent, "BugPilot's default Verification Policy has changed since this file was created.");
+  assert.equal(p.byId("verification-policy-stale").textContent, "", "Needs rebuild outlived the stale state");
+});
+
+test("verification row 3: Edit, Reset and Preview are bare requests, and wait while the host says so", () => {
+  const p = settingsPage({ verificationPolicy: FILE_ROW });
+  p.byId("open-settings").dispatch("click");
+  for (const [id, type] of [
+    ["verification-policy-edit", "editVerificationPolicy"],
+    ["verification-policy-reset", "resetVerificationPolicy"],
+    ["verification-policy-preview", "previewVerificationPolicy"],
+  ] as const) {
+    p.byId(id).dispatch("click");
+    assert.deepEqual(p.posted.at(-1), { type }, `${id} sent more than its name`);
+    assert.deepEqual(parsePanelMessage(p.posted.at(-1)), { type });
+  }
+
+  p.send({ ...prepared(), verificationPolicy: { ...FILE_ROW, busy: true, canEdit: false, canReset: false, canPreview: false } });
+  assert.deepEqual(
+    ["verification-policy-edit", "verification-policy-reset", "verification-policy-preview"].map((id) => p.byId(id).disabled),
+    [true, true, true],
+  );
+  assert.equal(p.byId("field-verification-policy").getAttribute("aria-busy"), "true");
+});
+
+test("verification row 4: an old CLI is one line on the row, the actions off; an older host's state leaves the row quiet", () => {
+  const p = settingsPage({
+    verificationPolicy: {
+      ...VERIFICATION_ROW_EMPTY,
+      unavailable: "The installed BugPilot CLI cannot read .bugpilot/verification.md. Update it to edit the Verification Policy here.",
+    },
+  });
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("verification-policy-unavailable").hidden, false);
+  assert.equal(p.byId("verification-policy-source").hidden, true);
+  assert.equal(p.byId("verification-policy-edit").disabled, true);
+
+  // A host from before 0.1.3 sends no row at all.
+  const { verificationPolicy: _none, ...older } = prepared();
+  p.send(older as PanelState);
+  assert.equal(p.byId("verification-policy-unavailable").hidden, true);
+  assert.equal(p.byId("verification-policy-edit").disabled, true, "an older host's state enabled an action it cannot serve");
+});
+
+test("verification preview: read-only over the settings page, the CLI's facts, lint and text; Back returns to the Preview button", () => {
+  const p = settingsPage({ verificationPolicy: FILE_ROW });
+  p.byId("open-settings").dispatch("click");
+  p.byId("maxFiles").value = "7";
+  p.byId("verification-policy-preview").dispatch("click");
+  p.send({ ...prepared(), verificationPolicy: FILE_ROW, verificationPreview: POLICY_PREVIEW });
+
+  assert.equal(p.byId("verification-preview-view").hidden, false);
+  assert.equal(p.byId("workflow-settings-view").hidden, true);
+  assert.equal(p.focused, "verification-preview-title");
+  assert.equal(p.byId("verification-preview-text").textContent, POLICY_PREVIEW.text);
+  assert.equal(p.byId("verification-preview-lint").hidden, false);
+  assert.equal(p.byId("verification-preview-lint-title").textContent, "1 policy warning");
+  assert.equal(p.byId("verification-preview-lint-list").children.length, 1);
+  assert.equal(p.byId("verification-preview-facts").children.length, 6, "three facts, each a term and a value");
+  assert.equal(p.byId("verification-preview-problem").hidden, true);
+
+  p.byId("verification-preview-back").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "closeVerificationPreview" });
+  p.byId("verification-preview-view").dispatch("keydown", { key: "Escape" });
+  assert.deepEqual(p.posted.at(-1), { type: "closeVerificationPreview" });
+
+  p.send({ ...prepared(), verificationPolicy: FILE_ROW });
+  assert.equal(p.byId("verification-preview-view").hidden, true);
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  assert.equal(p.focused, "verification-policy-preview");
+  assert.equal(p.byId("maxFiles").value, "7", "the settings draft under the Preview was touched");
+});
+
 test("instructions 7: rows the host cannot read say nothing, and Edit waits", () => {
   const p = settingsPage({
     instructions: { user: { status: "", editable: false }, project: { status: "", editable: false } },
@@ -9597,26 +9750,25 @@ test("instructions 8: a paste over the editor is never an attachment on the sett
 
 // --- project settings on the settings page ---------------------------------------
 
-test("project settings 1: the four switches start at their defaults — the full suite off — and Apply sends them", () => {
-  const p = settingsPage();
+test("project settings 1: no switch for the Verification Policy, and Apply carries the host's own values through unchanged", () => {
+  // 0.1.3 (§42.5): the policy is text, edited in an editor tab. The switches an
+  // older BugPilot saved are compatibility data, sent back as the host sent them.
+  const p = settingsPage({
+    revision: 3,
+    form: { ...DEFAULT_FORM, issueKey: "JR-12345", verifyFullSuite: true, verifyStaticChecks: false },
+  });
   p.byId("open-settings").dispatch("click");
-  assert.equal(p.byId("verifyRelevantTests").checked, true);
-  assert.equal(p.byId("verifyStaticChecks").checked, true);
-  assert.equal(p.byId("verifyFullSuite").checked, false);
-  assert.equal(p.byId("verifyReportNotRun").checked, true);
-
-  p.byId("verifyFullSuite").checked = true;
-  p.byId("verifyReportNotRun").checked = false;
+  assert.equal(p.elements.has("verifyFullSuite"), false);
+  p.byId("maxFiles").value = "9";
   p.byId("settings-apply").dispatch("click");
   const sent = p.posted.at(-1)!;
   assert.equal(sent["type"], "applySettings");
   const form = sent["form"] as FormState;
-  assert.equal(form.verifyFullSuite, true);
-  assert.equal(form.verifyReportNotRun, false);
-  assert.equal(form.verifyRelevantTests, true);
-  const parsed = parsePanelMessage(sent);
-  assert.ok(parsed && parsed.type === "applySettings");
-  if (parsed?.type === "applySettings") assert.equal(parsed.form.verifyFullSuite, true);
+  assert.deepEqual(
+    [form.verifyRelevantTests, form.verifyStaticChecks, form.verifyFullSuite, form.verifyReportNotRun],
+    [true, false, true, true],
+  );
+  assert.equal(form.maxFiles, "9");
 });
 
 test("project settings 2: the template is on screen only while Custom is chosen, and survives a switch", () => {
@@ -9649,22 +9801,18 @@ test("project settings 3: the host's form puts the repository's own settings on 
     form: { ...DEFAULT_FORM, issueKey: "JR-12345", verifyFullSuite: true, verifyStaticChecks: false, branchNaming: "custom", branchTemplate: "fix/{issue}" },
   });
   p.byId("open-settings").dispatch("click");
-  assert.equal(p.byId("verifyFullSuite").checked, true);
-  assert.equal(p.byId("verifyStaticChecks").checked, false);
   assert.equal(p.byId("branchNaming").value, "custom");
   assert.equal(p.byId("field-branchTemplate").hidden, false);
   assert.equal(p.byId("branchTemplate").value, "fix/{issue}");
 });
 
-test("project settings 4: Cancel puts the applied switches and naming back", () => {
+test("project settings 4: Cancel puts the applied naming back", () => {
   const p = settingsPage();
   p.byId("open-settings").dispatch("click");
-  p.byId("verifyRelevantTests").checked = false;
   p.byId("branchNaming").value = "custom";
   p.byId("workflow-settings-view").dispatch("change", { target: p.byId("branchNaming") });
   p.byId("settings-cancel").dispatch("click");
   p.byId("open-settings").dispatch("click");
-  assert.equal(p.byId("verifyRelevantTests").checked, true);
   assert.equal(p.byId("branchNaming").value, "default");
   assert.equal(p.byId("field-branchTemplate").hidden, true);
 });

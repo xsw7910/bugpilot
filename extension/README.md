@@ -73,7 +73,7 @@ For the MCP server as well, use `pipx install "bugpilot[mcp]"` or
 `python -m pip install "bugpilot[mcp]"` instead. Then check it:
 
 ```powershell
-bugpilot --version          # bugpilot 0.1.2
+bugpilot --version          # bugpilot 0.1.3
 ```
 
 **Which CLI runs.** The extension uses the first of these:
@@ -248,8 +248,8 @@ the top.
 | Code search | Ignore paths, Max files, Max search lines |
 | Git history | Use shared keywords, Use shared focus files, Additional commit keywords, Additional files, Search commit messages, Search related file history, History depth, Max related commits |
 | Similar fixes | Use shared keywords, Additional keywords, Max similar fixes |
-| Repository | Repository profile: Auto-detect, Generic or Custom (Languages, Frameworks, Application type, Build system, Test framework, Codebase notes); Project instructions |
-| AI instructions | User instructions; Verification: Run relevant tests, Run existing static checks, Run full test suite, Report tests not run |
+| Repository | Repository profile: Auto-detect, Generic or Custom (Languages, Frameworks, Application type, Build system, Test framework, Codebase notes) |
+| Guidance & Verification | User instructions, Project instructions, Verification policy (Edit, Reset, Preview) |
 | Build context | Delete previous artifacts first |
 | Fix with AI | AI Agent, custom agent command |
 | Branch | Branch policy, Branch naming (and its Template) |
@@ -294,9 +294,8 @@ where the CLI and the MCP server read it too (commit it to share it), and a
 profile someone else saved there is what the page shows. It needs a rebuild, and
 **Reset Session** keeps it.
 
-**Project instructions** (in Repository) and **User instructions** (in AI
-instructions) are your own guidance for the AI agent, in plain text or
-Markdown: the project's in `.bugpilot/instructions.md` in the repository,
+**User instructions** and **Project instructions** (in Guidance &
+Verification) are guidance for the AI agent, in plain text or Markdown: the project's in `.bugpilot/instructions.md` in the repository,
 shared with it (commit it to share it), and yours in
 `~/.bugpilot/instructions.md`, for every repository. Each row says what its file
 holds — *No project instructions configured.*, *Configured · 1,204 characters*
@@ -307,25 +306,77 @@ removes the file. Up to 20,000 characters each — the page counts, and a longer
 text is refused rather than cut. They are not part of Apply: Save writes the
 file straight away. `task.md` carries them after the Repository Context, the
 project's first: where the project's instructions and yours disagree, the
-project's win. BugPilot's safety rules win over both — an instruction that
-conflicts with them is ignored. The whole order, the earlier winning, is:
+project's win. BugPilot's safety rules come first in `task.md`, unchanged, and
+win a conflict with either: the task tells the agent to follow the safety rule
+and record the conflict. The whole order, the earlier winning, is:
 safety rules, repository context, project / team instructions (with the
-Verification Policy), user instructions, Fix Mode, hint. Changing either needs a rebuild (an edit made outside the
-panel is noticed at the next environment check or Run), **Reset Session** keeps
-both, and the CLI and the MCP server read the same two files. Their text is
-never written to the Output channel.
+Verification Policy), user instructions, Fix Mode, hint. Changing either needs
+a rebuild, **Reset Session** keeps both, and the CLI and the MCP server read
+the same two files. Their text is never written to the Output channel.
 
-**Verification** (in AI instructions) is the project's Verification Policy:
-what checking it expects from a fix, as four switches — **Run relevant tests**
-(on), **Run existing static checks** (on), **Run full test suite** (off) and
-**Report tests not run** (on). `task.md` states it in a short section beside
-the project's instructions. It names no commands: the agent uses the
-repository's own, and your project instructions can name them. How a given
-attempt verifies is still the Fix Mode's — an investigation-only pass writes
-down what it would run. Like the Repository profile it belongs to the
-repository: **Apply** saves it in `.bugpilot/project_settings.json`, which the
-CLI and the MCP server read too (commit it to share it). It needs a rebuild,
-and **Reset Session** keeps it.
+An edit made outside the panel — in an editor tab, or by switching branch or
+pulling — is noticed too: BugPilot watches `.bugpilot/` in the repository, and
+reads the instruction files and the Verification Policy again when the window
+comes back to focus, at the environment check, and just before **Run**,
+**Rebuild Context**, **Fix with AI** and **Start New Attempt**. If what they
+say changed since the context was prepared, the run shows **Needs rebuild**,
+and Fix with AI and Start New Attempt hand nothing over until you rebuild.
+Opening or reading them is never a change.
+
+**Verification policy** (in Guidance & Verification) is the project's
+Verification Policy: the minimum verification it expects from a pass that
+changes code, as text. `task.md` states it in one section beside the project's
+instructions and says where it came from. How a given attempt verifies is
+still the Fix Mode's — an investigation-only pass writes down what it would
+run — and whatever the policy says, the agent must never claim a test or check
+ran unless it did. The row shows where the policy in force comes from:
+
+- **BugPilot default** — no file, nothing saved: BugPilot's own policy.
+- **Legacy project settings** — the four Verification switches BugPilot 0.1.2
+  saved in `.bugpilot/project_settings.json`, as text.
+- **Repository verification.md** — `.bugpilot/verification.md`, which replaces
+  BugPilot's default whole (commit it to share it).
+
+**Edit** opens `.bugpilot/verification.md` in an editor tab, never in the
+sidebar. If the file is not there yet, the CLI creates it first from the policy
+in force — BugPilot's default, or the legacy switches' text, which makes the
+first Edit the move from the switches to the file — with the front matter
+(`schema_version`, `based_on_version`, `mode: replace`) written for you. Edit
+creates nothing until you press it: opening Advanced Settings, or the Preview,
+never writes a file. Save the tab and the panel picks it up. **Reset** deletes
+the file after asking, and the policy that applies without it — the legacy
+switches if they were saved, otherwise BugPilot's default — is shown on the
+row. **Preview** shows the policy in force, read-only: its text, where it comes
+from, the default's versions and any warnings. It is not a preview of the whole
+task.
+
+A file BugPilot cannot use — no front matter, an unknown key, an empty body,
+more than 20,000 characters, a link — is shown as a **Problem** on the row with
+the reason, and BugPilot's default applies until it is fixed; Edit opens the
+file to fix it, and Reset removes it. A line that looks like it asks for
+something a safety rule forbids is counted on the row ("1 policy warning") and
+listed in the Preview — a warning, not a block, and not a security check: the
+policy is kept as written and the safety rules still apply. When BugPilot's
+default policy has changed since the file was written from it, the row says
+*BugPilot's default Verification Policy has changed since this file was
+created.*; Reset goes back to the policy in force without the file.
+
+A change to the policy needs a rebuild. When the policy in force differs from
+the one the context was prepared with, the row says **Needs rebuild**, as the
+run does; Edit that only copies the policy in force into the file, opening the
+file and the Preview are not changes, and neither is a Reset back to the
+policy the context was prepared with. Edit and Reset write straight away, not
+on **Apply**; they wait while a run or a handoff is in flight.
+
+The panel no longer has the four Verification switches. The values an older
+version saved stay in `.bugpilot/project_settings.json` untouched, so a
+teammate still on BugPilot 0.1.2 keeps the policy they set; once
+`verification.md` exists it decides, and `bugpilot project-settings` reports
+`verification_source: verification-file`. Editing the policy needs BugPilot
+CLI 0.1.3 or later: with an older CLI the row says so and offers nothing, and
+with an older CLI *and* `verification.md` present, the panel says the CLI is
+out of date, as it does for any command the CLI lacks, rather than preparing a
+task without the repository's policy.
 
 A row with settings shows a short summary of them under its description — "4
 keywords · 2 focus paths · max 10 files", "shared keywords off · max 3 similar

@@ -791,8 +791,9 @@ function pushNumber(
  * does not make a package look out of date. A hand-written bug's title and
  * description count only on the manual path, as they do on the command line.
  */
-export function preparationFingerprint(form: FormState): string {
+export function preparationFingerprint(form: FormState, options: { readonly verificationFile?: boolean } = {}): string {
   const manual = form.source === "manual";
+  const project = projectSettingsFingerprint(form);
   return JSON.stringify({
     source: form.source,
     issue: manual ? form.description.trim() : form.issueKey.trim().toUpperCase(),
@@ -833,8 +834,11 @@ export function preparationFingerprint(form: FormState): string {
     // way the CLI stores them. The details are on screen only under Custom.
     repository: repositoryProfileFingerprint(form),
     // And the project settings: the Verification Policy is a section of
-    // task.md, and the branch naming template names its branch.
-    project: projectSettingsFingerprint(form),
+    // task.md, and the branch naming template names its branch. Once
+    // `.bugpilot/verification.md` is the policy (§42.2) the switches decide
+    // nothing, so only the branch naming counts; the file's own changes reach
+    // the stale check through the CLI's hash of the effective policy.
+    project: options.verificationFile ? { branch_naming: project.branch_naming } : project,
   });
 }
 

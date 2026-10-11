@@ -21,7 +21,7 @@ from bugpilot.core.jira_parse import extract_parsed_details
 from bugpilot.core.jira_adf import adf_to_markdown
 from bugpilot.core.keywords import extract_keywords
 from bugpilot.core.memory import build_memory_entry, search_memory
-from bugpilot.core.prompts import _fallback_team_instructions, copilot_team_instructions
+from bugpilot.core.prompts import _fallback_team_instructions, copilot_team_instructions, generate_task
 from bugpilot.core.retrieval import RelatedFile, RetrievalArtifact, save_retrieval
 from bugpilot.core.search import INCLUDE_GLOBS, _noise_flags, run_code_search
 from bugpilot.core.git_history import render_git_context
@@ -304,20 +304,22 @@ def test_copilot_task_references_retrieval(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
     task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text()
 
-    assert "Run your AI agent from the target repo root" in task
-    assert "Do not run your AI agent from the bugpilot tool source directory" in task
-    assert ".ai/JR-12345/` files are relative to the target repo root" in task
+    assert "Run your AI agent from the target repository root, not from the bugpilot tool source directory" in task
+    assert ".ai/JR-12345/` paths are relative to the target repository root" in task
     assert "feature/JR-12345-demo-bug-employee-search-returns-stale-results-after" in task
     assert "Check the current branch before editing" in task
     # The default branch policy: the checked-out branch, a feature branch only
     # from main/master and only if the developer agrees (tests/test_branch_policy.py).
-    assert "Work on the branch that is currently checked out. Do not create or switch branches." in task
+    assert "edit only on the branch that is checked out. Do not create or switch branches." in task
     assert "Create or switch to `" not in task
     assert ".ai/JR-12345/context.md" in task
     # BugPilot's safety rules are in the task, not in a file beside it.
     assert "## BugPilot Safety Rules" in task
-    assert "### Core Principles" in task
-    assert "Read BugPilot's rules before editing code" in task
+    assert "### Test and Check Integrity" in task
+    # Style preferences are working guidance, not a rule nothing may relax (0.1.3, plan section 42.2).
+    assert "## BugPilot Working Guidance" in task
+    assert "### Core Principles" not in task
+    assert "nothing later in the task relaxes them" in task
     # And no repository is assumed to be a legacy C++/Qt desktop codebase.
     assert "## Repository Context" in task
     for assumption in ("C++", "Qt", "legacy", "desktop"):
@@ -328,29 +330,31 @@ def test_copilot_task_references_retrieval(tmp_path):
     # Similar fixes and git history come from context.md, not standalone files.
     for name in LEGACY_CONTEXT_TASK_FILES:
         assert name not in task
-    assert "included in `context.md`" in task
-    assert "Do not edit code until after reviewing context and related files" in task
-    assert "Do not use the Task tool or spawn any background or sub-agents" in task
+    assert "similar fixes and git history" in task
+    assert "with their matched line numbers, before editing code." in task
+    # Agent-neutral: no one agent's tool names in a prepared task.
+    assert "Investigate within the current AI session. Do not delegate the task to background or subordinate agents" in task
+    assert "Task tool" not in task and "Read, Grep, and Glob" not in task
     assert "If search confidence is Low" in task
-    assert "do not assume the matched files are the correct implementation" in task
-    assert "write a no-op analysis" in task
+    assert "do not assume the matched files are the implementation" in task
+    assert "Write a no-op analysis" in task
     assert "matched line numbers" in task
     assert "Write one report: `.ai/JR-12345/fix_report.md`" in task
     for heading in ("`## Summary`", "`## Analysis`", "`## Changes`", "`## Tests`", "`## Review Notes`"):
         assert heading in task, heading
-    assert "never claim a pass that did not happen" in task
+    # Honest test reporting: the report says what ran, and the Safety Rules say never claim more.
+    assert "If tests were not run, say so and why." in task
+    assert "Never claim a test or check passed, or ran, unless it actually ran." in task
     assert "git reset --hard" in task
     assert "git clean -fd" in task
     assert "Do you want me to commit and push this branch to origin?" in task
     assert "Only if the developer explicitly answers yes" in task
-    assert "Do not push main/master" in task
-    assert "Do not force push" in task
-    assert "Do not add `.ai/`" in task
-    assert "Do not add `.ai_memory/`" in task
-    assert "Do not update Jira" in task
+    assert "Never push main/master" in task
+    assert "Never force push" in task
+    assert "never `.ai/`, `.ai_memory/`" in task
+    assert "Never transition, assign, or change Jira fields." in task
     # By default the pre-commit Jira status comment is omitted.
     assert "Report Status to Jira (before commit)" not in task
-    assert "- Do not update Jira.\n" in task
 
 
 def test_default_omits_jira_status_section(tmp_path):
@@ -365,8 +369,9 @@ def test_default_omits_jira_status_section(tmp_path):
     assert "Report Status to Jira (before commit)" not in task
     assert "jira-comment-draft" not in task
     assert "--execute" not in own
-    assert "- Do not update Jira.\n" in task
-    assert "the only permitted Jira write" not in task
+    # The Safety Rules' one Jira rule: no field changes, and no write the task did not ask for.
+    assert "Never transition, assign, or change Jira fields." in task
+    assert "the one Jira write the BugPilot Safety Rules allow" not in task
     assert not (issue_dir / "jira_comment_on.flag").exists()
 
 
@@ -665,9 +670,11 @@ def test_retrieval_json_has_full_field_structure(tmp_path, monkeypatch):
     retrieval = _search(tmp_path, {"high_value_keywords": ["EmployeeSearch"], "normal_keywords": [], "dropped_keywords": []})
 
     # Exactly these: the per-confidence file lists were a filter of
-    # related_files[].confidence and are gone, not renamed.
+    # related_files[].confidence and are gone, not renamed. `confidence_details`
+    # is 0.1.3's additive account of how the confidence was reached (§42.3).
     assert set(retrieval) == {
         "schema_version", "confidence", "reasons", "noise_indicators", "terms", "related_files",
+        "confidence_details",
     }
     assert retrieval["schema_version"] == 1
     assert isinstance(retrieval["terms"], list)
@@ -682,6 +689,8 @@ def test_retrieval_json_has_full_field_structure(tmp_path, monkeypatch):
             # §33.7B: where a generated identifier shape came from, and whether
             # the repository confirmed it.
             "classification", "derived_from", "status",
+            # §42.3: the report fields the term came from.
+            "origins",
         } == set(term)
         assert term["classification"] in {"zero", "specific", "broad"}
         assert term["status"] in {"retained", "dropped"}
@@ -803,10 +812,10 @@ def test_the_task_carries_what_the_handoff_file_used_to(tmp_path):
     task = (issue_dir / "task.md").read_text()
 
     assert not (issue_dir / "agent_handoff.md").exists()
-    assert "Run your AI agent from the target repo root" in task
-    assert "Do not work directly on main/master" in task
-    assert "Do not commit or push without explicit developer approval" in task
-    assert "Do not push main/master" in task
+    assert "Run your AI agent from the target repository root" in task
+    assert "Never work directly on main/master" in task
+    assert "Commit or push only after the developer explicitly approves it" in task
+    assert "Never push main/master" in task
 
 
 def test_team_instructions_defer_to_the_task_fix_mode():
@@ -819,11 +828,13 @@ def test_team_instructions_defer_to_the_task_fix_mode():
     """
     text = copilot_team_instructions()
 
-    assert "## Task and Fix Mode Precedence" in text
-    assert "If the selected Fix Mode is investigation-only" in text
-    assert "do not offer to commit or push" in text
-    assert "When the current pass is allowed to change source code, you may ask" in text
-    assert "In an investigation-only pass, record the proposed validation instead" in text
+    # The team rules make no commit offer of their own (since 0.1.3): the
+    # approval rule lives in Delivery Safety, qualified for a pass allowed to
+    # change code, and an investigation's Handoff withholds the offer.
+    assert "you may ask" not in text and "whether they want you to commit" not in text
+    assert "In an investigation-only pass, state plainly that tests were not run" in text
+    gate = generate_task("JR-1", "Stale results")
+    assert "A pass allowed to change source code may ask once its work is done." in gate
 
 
 def test_fallback_team_instructions_mirror_the_packaged_document():
@@ -845,20 +856,21 @@ def test_docs_copilot_team_instructions_exists():
     text = path.read_text(encoding="utf-8")
 
     for heading in [
-        "## Purpose",
-        "## Task and Fix Mode Precedence",
-        "## Core Principles",
-        "## Testing Expectations",
-        "## Git Safety",
-        "## Output Expectations",
-        "## No-Op Fix Guidance",
+        "## Test and Check Integrity",
+        "## Git, Jira and Credentials",
+        "## Editing",
     ]:
         assert heading in text
-    assert "Do not commit or push automatically" in text
-    assert "Only commit and push after explicit approval" in text
-    assert "Never push main/master" in text
     assert "Never force push" in text
-    assert "Never commit .ai/ or .ai_memory/" in text
+    assert "Never transition, assign, or change Jira fields." in text
+    # Commits, pushes and staging are the task's Delivery Safety, defined there once (since 0.1.3).
+    assert "BugPilot Delivery Safety" in text
+    # What to verify is the Verification Policy's, and style is working guidance:
+    # neither is a rule nothing may relax (0.1.3, plan section 42.2). Honesty about
+    # what ran stays a rule.
+    assert "Never claim a test or check passed, or ran, unless it actually ran" in text
+    for moved in ("## Core Principles", "## Testing Expectations", "Run focused tests if available", "Prefer small, targeted fixes"):
+        assert moved not in text, moved
     # Repository-neutral: what a repository is comes from
     # its Repository Profile, never from BugPilot's own rules.
     for assumption in ("C++", "Qt", "legacy", "Legacy", "desktop"):
@@ -877,7 +889,7 @@ def test_copilot_task_command_regenerates_task_files(tmp_path, monkeypatch):
 
     task = (issue_dir / "task.md").read_text()
     assert "BugPilot Task" in task
-    assert "### Core Principles" in task
+    assert "### Test and Check Integrity" in task
     for name in ("agent_task.md", "agent_handoff.md", "agent_team_instructions.md"):
         assert not (issue_dir / name).exists(), name
     # The standalone per-phase prompt files are no longer generated (their content
@@ -945,7 +957,7 @@ def test_copilot_instructions_command_prints_them(tmp_path, monkeypatch, capsys)
     status = json.loads((tmp_path / ".ai" / "JR-12345" / "run.json").read_text())
 
     assert "BugPilot Safety Rules" in output
-    assert "## Core Principles" in output
+    assert "## Test and Check Integrity" in output
     assert not (tmp_path / ".ai" / "JR-12345" / "agent_team_instructions.md").exists()
     assert status["steps"]["agent_instructions"] == "pass"
 
@@ -2071,10 +2083,9 @@ def test_copilot_task_includes_comment_attachment_guidance(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
     task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
-    assert "Read Jira comments in `context.md`" in task
-    assert "comments in `context.md` as potentially newer than the original description" in task
-    assert "Review Jira attachment metadata" in task
-    assert "Do not claim to have inspected attachment contents unless the content is present" in task
+    assert "Read its Jira comments as possibly newer than the description" in task
+    assert "review its attachment metadata" in task
+    assert "never claim to have inspected an attachment's contents unless they are in repository or artifact files" in task
 
 
 def _jira_issue(comments=None, attachments=None):
@@ -2331,9 +2342,9 @@ def test_copilot_task_points_at_the_issue_details_in_context(tmp_path):
     run_bug_workflow(tmp_path, "JR-12345", allow_mock=True)
     task = (tmp_path / ".ai" / "JR-12345" / "task.md").read_text(encoding="utf-8")
 
-    assert "Issue Details section of `context.md`" in task
+    assert "context.md`: the Issue Details (" in task
     assert "jira_parsed.md" not in task
-    assert "Do not invent reproduction steps" in task
+    assert "Never invent reproduction steps" in task
     assert "missing information" in task.lower()
 
 
@@ -3211,10 +3222,11 @@ def test_retry_prompt_includes_assisted_delivery_rules(tmp_path, monkeypatch):
 
     assert "Do you want me to commit and push this branch to origin?" in prompt
     assert "Only if the developer explicitly answers yes" in prompt
-    assert "Do not push main/master" in prompt
-    assert "Do not force push" in prompt
-    assert "Do not add `.ai/`" in prompt
-    assert "Do not add `.ai_memory/`" in prompt
+    # A retry prompt has no Safety Rules section: its Delivery Safety stands alone.
+    assert "Never push main/master" in prompt
+    assert "Never force push or use `--force` or `--force-with-lease`" in prompt
+    assert "never `.ai/`, `.ai_memory/`" in prompt
+    assert "transition, assign, or change Jira fields" in prompt
     assert "Do not update Jira" in prompt
 
 

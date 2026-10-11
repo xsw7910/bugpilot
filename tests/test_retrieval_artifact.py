@@ -35,11 +35,16 @@ from bugpilot.core.retrieval import (
 
 needs_rg = pytest.mark.skipif(shutil.which("rg") is None, reason="code search needs ripgrep")
 
-RETRIEVAL_KEYS = {"schema_version", "confidence", "reasons", "noise_indicators", "terms", "related_files"}
+#: `confidence_details` is 0.1.3's additive account of how the confidence was reached (§42.3).
+RETRIEVAL_KEYS = {
+    "schema_version", "confidence", "reasons", "noise_indicators", "terms", "related_files", "confidence_details",
+}
 #: A prepare run's Git history step adds its section (Git History v2).
 PREPARED_RETRIEVAL_KEYS = RETRIEVAL_KEYS | {"git_history"}
 TERM_KEYS = {
     "value", "source", "weight", "effective_weight", "match_count", "classification", "derived_from", "status",
+    # §42.3: the report fields the term came from.
+    "origins",
 }
 FILE_KEYS = {
     "file", "documentation", "score", "confidence", "match_count", "matched_keywords", "reasons",
@@ -116,7 +121,11 @@ def test_a_prepare_run_writes_one_canonical_retrieval_artifact(tmp_path):
     assert set(data) == PREPARED_RETRIEVAL_KEYS
     assert data["schema_version"] == 1
     assert data["confidence"] == "high"
-    assert data["reasons"][0] == "At least one high-confidence application source file was found."
+    # Search Confidence v2 (§42.3): the reasons explain the top file's evidence,
+    # and `confidence_details` carries them as codes.
+    assert data["reasons"][0] == "The best-ranked file holds most of the issue's concepts that matched anything."
+    assert data["confidence_details"]["reasons"][:2] == ["core_concepts_concentrated", "strong_terms_in_top_file"]
+    assert "file_named_by_issue" in data["confidence_details"]["reasons"]
     assert data["noise_indicators"] == ["docs_or_examples_path"]
     assert all(set(term) == TERM_KEYS for term in data["terms"])
     assert all(set(item) == FILE_KEYS for item in data["related_files"])
@@ -151,7 +160,8 @@ def test_terms_record_every_kind_of_term_the_search_tried(tmp_path):
     broad = _term(data, "reload")
     assert broad["match_count"] == 300
     assert broad["classification"] == "broad"
-    assert (broad["weight"], broad["effective_weight"]) == (2, 1)
+    # The title and the description agree on it (§42.3), and it is still everywhere.
+    assert (broad["weight"], broad["effective_weight"]) == (3, 1)
     assert broad["status"] == "retained"
 
 

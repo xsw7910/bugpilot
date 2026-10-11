@@ -10,6 +10,8 @@ sub-documents' own headings sit one level below it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .artifacts import RETRIEVAL_ARTIFACT, TASK_ARTIFACT
 from .git_history import GitHistoryOutcome, render_git_context
 from .issue import IssueArtifact
@@ -34,7 +36,7 @@ def build_context(
     by ``git_history.render_git_context``, the one renderer of the commit list;
     similar fixes as the Markdown ``memory.search_memory`` returns.
     """
-    quality, signals = _quality_score(issue, keywords, retrieval, similar_fixes or "", git_history)
+    quality = context_quality(issue, keywords, retrieval, similar_fixes or "", git_history)
     return (
         f"# Bug Context: {issue.id}\n\n"
         "## Scope\n\n"
@@ -52,9 +54,7 @@ def build_context(
         + "## Guidance\n\n"
         f"{_guidance_markdown(issue)}\n\n"
         "## Context Quality\n\n"
-        f"Score: {quality}/100\n\n"
-        + "\n".join(f"- {signal}" for signal in signals)
-        + "\n\n"
+        f"{_quality_markdown(quality)}\n\n"
         "## Issue Details\n\n"
         f"{_issue_details_markdown(issue)}\n\n"
         "## Code Search\n\n"
@@ -101,11 +101,26 @@ def _search_terms_markdown(keywords: dict[str, object]) -> str:
         values = keywords.get(key)
         return ", ".join(map(str, values)) if isinstance(values, list) and values else "_None_"
 
-    return (
-        f"- High value: {listed('high_value_keywords')}\n"
-        f"- Normal: {listed('normal_keywords')}\n"
-        f"- Phrases: {listed('phrase_keywords')}"
-    )
+    lines = [
+        f"- High value: {listed('high_value_keywords')}",
+        f"- Normal: {listed('normal_keywords')}",
+        f"- Phrases: {listed('phrase_keywords')}",
+    ]
+    # What was deliberately not searched (§42.3), so the reader knows it was
+    # seen: it is still in the Issue Details above.
+    origins = keywords.get("term_origins")
+    environment = [
+        str(value)
+        for key in ("high_value_keywords", "normal_keywords")
+        for value in (keywords.get(key) or [])
+        if isinstance(origins, dict) and list(origins.get(str(value).lower(), [])) == ["environment"]
+    ]
+    if environment:
+        lines.append(f"- Not searched, environment only: {', '.join(environment)}")
+    noise = keywords.get("noise_keywords")
+    if isinstance(noise, list) and noise:
+        lines.append(f"- Not searched, host or machine names: {', '.join(map(str, noise))}")
+    return "\n".join(lines)
 
 
 def _demote(markdown: str) -> str:
@@ -391,44 +406,163 @@ def _caution_markdown(issue: IssueArtifact) -> str:
     return "## Caution\n\n" + "\n".join(f"- {line}" for line in cautions) + "\n\n"
 
 
-# What a file list is worth, by how much the search believes in it. Counting
-# files without regard to confidence is how a run whose own search reported
-# "low, zero high-confidence files" still announced 90/100 — a headline that
-# contradicted the section printed directly beneath it, and the first thing an
-# agent reads.
-_RELATED_FILE_POINTS = {"high": 25, "medium": 12, "low": 4}
+# --- Context Quality v2 (0.1.3, §42.3) ---------------------------------------------------
+#
+# v1 was one sum — a description, any high-value keyword, files weighted by the
+# search's confidence, similar fixes, git — and a report with no reproduction
+# steps, no actual and no expected result still scored 90/100. v2 scores three
+# things apart and shows each: how complete the report is, how good the search
+# was, how much repository history came with it. The overall is their weighted
+# sum, capped when the report says nothing about how to see the bug or what
+# should have happened. Deterministic, from fields the issue already has.
+
+#: What each part of the report is worth to Issue completeness; they add up to 100.
+ISSUE_COMPLETENESS_POINTS = (
+    ("description", 25),
+    ("reproduction steps", 20),
+    ("actual result", 15),
+    ("expected result", 15),
+    ("environment", 10),
+    ("errors, stack traces or logs", 10),
+    ("attachments", 5),
+)
+#: Retrieval quality: by Search Confidence, then for how much of the issue the
+#: best-ranked file holds, and for a strong or phrase match in it.
+RETRIEVAL_CONFIDENCE_POINTS = {"high": 60, "medium": 35, "low": 10}
+RETRIEVAL_COVERAGE_POINTS = 25
+RETRIEVAL_STRONG_POINTS = 15
+#: Repository context: the history step ran in a repository, it found related
+#: commits, similar past fixes were found.
+REPOSITORY_GIT_POINTS = 40
+REPOSITORY_COMMIT_POINTS = 30
+REPOSITORY_SIMILAR_FIX_POINTS = 30
+#: How the overall weighs the three parts, in percent.
+OVERALL_WEIGHTS = (("issue", 40), ("retrieval", 40), ("repository", 20))
+#: The most the overall can be when the report has none of reproduction steps,
+#: actual result and expected result. Materially below the 90 v1 gave such a
+#: report: an agent reading it has to find out how to see the bug first.
+MISSING_CORE_EVIDENCE_CAP = 75
+#: The three whose absence caps the overall.
+CORE_EVIDENCE = ("reproduction steps", "actual result", "expected result")
 
 
-def _quality_score(
+@dataclass(frozen=True)
+class ContextQuality:
+    """The context's quality, by part, and the lines that explain it."""
+
+    overall: int
+    issue_completeness: int
+    retrieval_quality: int
+    repository_context: int
+    #: The cap that applied, when the report lacks all of ``CORE_EVIDENCE``.
+    cap: int | None
+    signals: tuple[str, ...]
+
+
+def context_quality(
     issue: IssueArtifact,
     keywords: dict[str, object],
     retrieval: RetrievalArtifact | None,
     memory_search: str,
     git_context: GitHistoryOutcome | None,
-) -> tuple[int, list[str]]:
+) -> ContextQuality:
+    present = _issue_parts(issue)
+    issue_score = sum(points for part, points in ISSUE_COMPLETENESS_POINTS if present[part])
+
     confidence = retrieval.confidence.lower() if retrieval is not None else "low"
     file_count = len(retrieval.related_files) if retrieval is not None else 0
+    details = retrieval.confidence_details if retrieval is not None else None
+    retrieval_score = 0
+    if file_count:
+        retrieval_score = RETRIEVAL_CONFIDENCE_POINTS.get(confidence, 0)
+        if details is not None and details.core_terms_matched:
+            retrieval_score += _half_up(RETRIEVAL_COVERAGE_POINTS * details.core_terms_in_top_file, details.core_terms_matched)
+            if details.strong_terms_in_top_file or details.phrase_in_top_file:
+                retrieval_score += RETRIEVAL_STRONG_POINTS
+        elif details is None and confidence == "high":
+            # A retrieval written before 0.1.3 says only its level.
+            retrieval_score += RETRIEVAL_COVERAGE_POINTS + RETRIEVAL_STRONG_POINTS
+    retrieval_score = min(retrieval_score, 100)
+
+    similar = bool(memory_search) and "No similar memory entries found." not in memory_search
+    commits = len(git_context.record.commits) if _git_available(git_context) else 0
+    repository_score = (
+        (REPOSITORY_GIT_POINTS if _git_available(git_context) else 0)
+        + (REPOSITORY_COMMIT_POINTS if commits else 0)
+        + (REPOSITORY_SIMILAR_FIX_POINTS if similar else 0)
+    )
+
+    parts = {"issue": issue_score, "retrieval": retrieval_score, "repository": repository_score}
+    overall = _half_up(sum(parts[name] * weight for name, weight in OVERALL_WEIGHTS), 100)
+    missing_core = [part for part in CORE_EVIDENCE if not present[part]]
+    cap = MISSING_CORE_EVIDENCE_CAP if len(missing_core) == len(CORE_EVIDENCE) else None
+    if cap is not None:
+        overall = min(overall, cap)
+
     signals = [
-        f"Jira description found: {'yes' if issue.description else 'no'}",
+        *(f"{part.capitalize()} found: {'yes' if present[part] else 'no'}" for part, _points in ISSUE_COMPLETENESS_POINTS),
         f"High-value keywords found: {len(keywords.get('high_value_keywords', []))}",
         # The confidence rides with the count, because the count alone reads as
         # good news even when every file on the list is a generic-word match.
         f"Related files found: {file_count} (search confidence: {confidence})",
-        f"Memory search results found: {'yes' if memory_search and 'No similar memory entries found.' not in memory_search else 'no'}",
-        f"Git context available: {'yes' if _git_available(git_context) else 'no'}",
     ]
-    score = 20
-    if issue.description:
-        score += 20
-    if keywords.get("high_value_keywords"):
-        score += 20
-    if file_count:
-        score += _RELATED_FILE_POINTS.get(confidence, 4)
-    if memory_search and "No similar memory entries found." not in memory_search:
-        score += 10
-    if _git_available(git_context):
-        score += 5
-    return min(score, 100), signals
+    if details is not None and details.core_terms_matched:
+        signals.append(
+            f"Issue concepts in the best-ranked file: {details.core_terms_in_top_file} of {details.core_terms_matched}"
+        )
+    signals += [
+        f"Memory search results found: {'yes' if similar else 'no'}",
+        f"Git context available: {'yes' if _git_available(git_context) else 'no'}",
+        f"Related commits found: {commits}",
+    ]
+    if cap is not None:
+        signals.append(
+            f"Overall at most {cap}: the report has no reproduction steps, actual result or expected result."
+        )
+    return ContextQuality(
+        overall=overall,
+        issue_completeness=issue_score,
+        retrieval_quality=retrieval_score,
+        repository_context=repository_score,
+        cap=cap,
+        signals=tuple(signals),
+    )
+
+
+def _half_up(numerator: int, denominator: int) -> int:
+    """``numerator / denominator`` rounded half up: 12.5 is 13, as a reader expects."""
+    return (2 * numerator + denominator) // (2 * denominator)
+
+
+def _issue_parts(issue: IssueArtifact) -> dict[str, bool]:
+    """Which parts of the report are there, read from the fields the parser filled."""
+    details = issue.details
+    signals = issue.signals
+    return {
+        "description": bool(issue.description.strip()),
+        "reproduction steps": bool(details.reproduction_steps),
+        "actual result": bool(details.actual_result.strip()),
+        "expected result": bool(details.expected_result.strip()),
+        "environment": bool(details.environment.strip()),
+        "errors, stack traces or logs": bool(signals.error_messages or signals.stack_traces or signals.log_signals),
+        # The report's own attachments, or files the developer attached to this work item.
+        "attachments": bool(details.attachments or issue.guidance.attachment_files or issue.guidance.attachment_notes),
+    }
+
+
+def _quality_markdown(quality: ContextQuality) -> str:
+    weights = ", ".join(f"{weight}% {_PART_NAMES[name]}" for name, weight in OVERALL_WEIGHTS)
+    return (
+        f"Overall: {quality.overall}/100\n"
+        f"Issue completeness: {quality.issue_completeness}/100\n"
+        f"Retrieval quality: {quality.retrieval_quality}/100\n"
+        f"Repository context: {quality.repository_context}/100\n\n"
+        f"Overall is {weights}.\n\n"
+        + "\n".join(f"- {signal}" for signal in quality.signals)
+    )
+
+
+_PART_NAMES = {"issue": "issue completeness", "retrieval": "retrieval quality", "repository": "repository context"}
 
 
 def _git_available(git_context: GitHistoryOutcome | None) -> bool:

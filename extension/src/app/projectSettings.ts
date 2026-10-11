@@ -1,6 +1,11 @@
 /**
- * Project settings, as the panel holds them: the
- * repository's Verification Policy and its branch naming template.
+ * Project settings, as the panel holds them: the repository's legacy
+ * Verification switches and its branch naming template.
+ *
+ * Since 0.1.3 the Verification Policy is text, `.bugpilot/verification.md`
+ * (`verificationPolicy.ts`), and no control edits the switches (§42.5): the
+ * panel only carries the file's values through, so BugPilot 0.1.2 and earlier
+ * keep reading what they wrote. The branch template is edited here as before.
  *
  * Both are repository configuration, like the Repository Profile:
  * `bugpilot project-settings` reads and writes
@@ -25,7 +30,12 @@ import type { ProcessExit } from "./cliCompatibility.ts";
 import { rejectedByOutdatedCli } from "./cliCompatibility.ts";
 import type { FormState } from "./form.ts";
 
-/** The four switches: the form's name, the file's key, the default — `VERIFICATION_KEYS` in the CLI. */
+/**
+ * The four legacy switches: the form's name, the file's key, the default —
+ * `VERIFICATION_KEYS` in the CLI. No control edits them since 0.1.3 (§42.5):
+ * the panel reads them from the file and writes them back unchanged, for
+ * BugPilot 0.1.2 and earlier, while the policy itself is text.
+ */
 export const VERIFICATION_FIELDS = [
   { field: "verifyRelevantTests", key: "relevant_tests", label: "Relevant tests", default: true },
   { field: "verifyStaticChecks", key: "static_checks", label: "Static checks", default: true },
@@ -33,7 +43,6 @@ export const VERIFICATION_FIELDS = [
   { field: "verifyReportNotRun", key: "report_not_run", label: "Report tests not run", default: true },
 ] as const;
 
-export type VerificationField = (typeof VERIFICATION_FIELDS)[number]["field"];
 export type VerificationKey = (typeof VERIFICATION_FIELDS)[number]["key"];
 
 /** Branch naming: the default name, or the repository's own template. */

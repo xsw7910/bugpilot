@@ -1,0 +1,615 @@
+{
+  "against": "0.1.3-batch0",
+  "median_before": {
+    "chars": 15481.0,
+    "words": 2463.0,
+    "approx_tokens": 3870.0
+  },
+  "median_after": {
+    "chars": 11939,
+    "words": 1866,
+    "approx_tokens": 2985
+  },
+  "median_reduction": {
+    "chars": 0.229,
+    "words": 0.242,
+    "approx_tokens": 0.229
+  },
+  "cases": {
+    "jira-fix-current": {
+      "after": {
+        "chars": 11234,
+        "words": 1786,
+        "approx_tokens": 2808,
+        "sections": 13
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 14779,
+        "words": 2392,
+        "approx_tokens": 3695,
+        "sections": 14
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 3,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.24
+    },
+    "jira-fix-current-jira-comment": {
+      "after": {
+        "chars": 11939,
+        "words": 1904,
+        "approx_tokens": 2985,
+        "sections": 14
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 15679,
+        "words": 2544,
+        "approx_tokens": 3920,
+        "sections": 15
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 3,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 6,
+        "jira_transition_assign": 7,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.239
+    },
+    "jira-fix-per-issue": {
+      "after": {
+        "chars": 11460,
+        "words": 1792,
+        "approx_tokens": 2865,
+        "sections": 13
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 15101,
+        "words": 2391,
+        "approx_tokens": 3775,
+        "sections": 14
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 3,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.241
+    },
+    "jira-fix-ask": {
+      "after": {
+        "chars": 11466,
+        "words": 1808,
+        "approx_tokens": 2866,
+        "sections": 13
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 14886,
+        "words": 2393,
+        "approx_tokens": 3722,
+        "sections": 14
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 3,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.23
+    },
+    "jira-fix-current-attachments-hint": {
+      "after": {
+        "chars": 12364,
+        "words": 1966,
+        "approx_tokens": 3091,
+        "sections": 15
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 15909,
+        "words": 2572,
+        "approx_tokens": 3977,
+        "sections": 16
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 3,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.223
+    },
+    "jira-fix-current-configured": {
+      "after": {
+        "chars": 11940,
+        "words": 1889,
+        "approx_tokens": 2985,
+        "sections": 15
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 15485,
+        "words": 2495,
+        "approx_tokens": 3871,
+        "sections": 16
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 3,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.229
+    },
+    "jira-fix-current-verification-file": {
+      "after": {
+        "chars": 11552,
+        "words": 1827,
+        "approx_tokens": 2888,
+        "sections": 15
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      }
+    },
+    "jira-investigation-current": {
+      "after": {
+        "chars": 11882,
+        "words": 1866,
+        "approx_tokens": 2970,
+        "sections": 13
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 15386,
+        "words": 2463,
+        "approx_tokens": 3846,
+        "sections": 14
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 2,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.228
+    },
+    "jira-investigation-current-jira-comment": {
+      "after": {
+        "chars": 12532,
+        "words": 1968,
+        "approx_tokens": 3133,
+        "sections": 14
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 16220,
+        "words": 2596,
+        "approx_tokens": 4055,
+        "sections": 15
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 2,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 6,
+        "jira_transition_assign": 7,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.227
+    },
+    "jira-investigation-per-issue": {
+      "after": {
+        "chars": 12108,
+        "words": 1872,
+        "approx_tokens": 3027,
+        "sections": 13
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 15506,
+        "words": 2440,
+        "approx_tokens": 3876,
+        "sections": 14
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 2,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.219
+    },
+    "manual-fix-current": {
+      "after": {
+        "chars": 11313,
+        "words": 1786,
+        "approx_tokens": 2828,
+        "sections": 13
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 14858,
+        "words": 2392,
+        "approx_tokens": 3714,
+        "sections": 14
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 3,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.239
+    },
+    "manual-fix-ask-attachments": {
+      "after": {
+        "chars": 12123,
+        "words": 1901,
+        "approx_tokens": 3031,
+        "sections": 14
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 15543,
+        "words": 2486,
+        "approx_tokens": 3886,
+        "sections": 15
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 3,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.22
+    },
+    "manual-investigation-current": {
+      "after": {
+        "chars": 11973,
+        "words": 1866,
+        "approx_tokens": 2993,
+        "sections": 13
+      },
+      "rule_counts_after": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "before": {
+        "chars": 15477,
+        "words": 2463,
+        "approx_tokens": 3869,
+        "sections": 14
+      },
+      "rule_counts_before": {
+        "force_push": 4,
+        "force_flags": 4,
+        "push_main_master": 3,
+        "work_on_main_master": 2,
+        "false_test_claims": 2,
+        "mass_format": 3,
+        "pr_creation": 3,
+        "jira_field_mutation": 4,
+        "jira_transition_assign": 6,
+        "commit_push_approval": 4,
+        "delete_files": 4,
+        "stage_ai_artifacts": 2,
+        "destructive_git": 4,
+        "low_confidence": 3
+      },
+      "token_reduction": 0.226
+    }
+  },
+  "retained_repetition": [
+    "The Verification Policy's one-sentence reminder that claiming a check ran when it did not is a BugPilot rule (Batch 1's deliberate cross-reference).",
+    "Investigation Handoff's reminder that BugPilot Delivery Safety still applies to a later implementation pass.",
+    "Delivery Safety restates force pushes, merges, pull requests and Jira changes only in the retry prompt, which has no Safety Rules section; task.md states each once.",
+    "Fix Mode text is the mode's own (Standard Fix avoids formatting-only changes); Batch 3 does not edit modes.",
+    "Repository Context's closing sentence and BugPilot Working Guidance overlap on following existing patterns; both are guidance, not rules."
+  ]
+}

@@ -27,6 +27,7 @@ import { JIRA_SITE_CAP } from "../app/jiraSite.ts";
 import type { RepositoryProfileView } from "../app/repositoryProfile.ts";
 import { MAX_INSTRUCTION_CHARS, isInstructionScope } from "../app/instructions.ts";
 import type { InstructionScope } from "../app/instructions.ts";
+import type { VerificationPreviewView, VerificationRowView } from "../app/verificationPolicy.ts";
 import type { UserFacingError } from "../app/failures.ts";
 import type { JiraConnectionView } from "../app/jiraConnection.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
@@ -228,6 +229,18 @@ export interface PanelState {
   readonly instructions: InstructionsView;
   /** The instruction editor, present only while it is open. */
   readonly instructionsEditor?: InstructionsEditorView;
+  /**
+   * The settings page's Verification Policy row (§42.5): its source, whether
+   * Edit, Reset and Preview may be pressed, a problem, the lint count, the
+   * `default_changed` note and "Needs rebuild" — all from what `bugpilot
+   * verification show --json` last said. Never the policy's text.
+   */
+  readonly verificationPolicy: VerificationRowView;
+  /**
+   * The Verification Policy Preview, present only while it is open: the
+   * effective policy's text and facts, read-only.
+   */
+  readonly verificationPreview?: VerificationPreviewView;
   /**
    * What the *prepared* package was built with, when there is one.
    *
@@ -625,6 +638,18 @@ export type PanelMessage =
   /** The instruction editor's Back, Cancel or Escape: close it, write nothing. */
   | { readonly type: "closeInstructions" }
   /**
+   * The Verification Policy row's Edit (§42.5): open `.bugpilot/verification.md`
+   * in an editor tab, the CLI creating it first if it is not there. Bare: the
+   * host knows the file, and the page never names a path or sends policy text.
+   */
+  | { readonly type: "editVerificationPolicy" }
+  /** The row's Reset: remove the file through the CLI, after the host asks. Bare. */
+  | { readonly type: "resetVerificationPolicy" }
+  /** The row's Preview: open the read-only Verification Policy Preview. Bare. */
+  | { readonly type: "previewVerificationPolicy" }
+  /** The Preview's Back, or Escape. Bare. */
+  | { readonly type: "closeVerificationPreview" }
+  /**
    * The instruction editor's Save: the scope it was opened for and the text as
    * typed, bounded one past the limit so too long is refused, never cut. Empty
    * text removes the file.
@@ -705,6 +730,10 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   openInstructions: true,
   closeInstructions: true,
   saveInstructions: true,
+  editVerificationPolicy: true,
+  resetVerificationPolicy: true,
+  previewVerificationPolicy: true,
+  closeVerificationPreview: true,
   parseReviewOutput: true,
   discardReviewDraft: true,
   verificationDraft: true,
@@ -802,6 +831,10 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     }
     case "closeJiraSetup":
     case "closeInstructions":
+    case "editVerificationPolicy":
+    case "resetVerificationPolicy":
+    case "previewVerificationPolicy":
+    case "closeVerificationPreview":
       return { type };
     case "openInstructions": {
       const scope = message?.["scope"];
@@ -1092,10 +1125,12 @@ function parseForm(raw: unknown): FormState | undefined {
     repositoryBuildSystem: text("repositoryBuildSystem"),
     repositoryTestFramework: text("repositoryTestFramework"),
     repositoryNotes: text("repositoryNotes"),
-    // The project settings: the four switches, each absent as its default
-    // (the full suite ships off); a naming that is not Custom is the default,
-    // and the template is capped like the rest. The host writes them to the
-    // repository's project settings file on Apply.
+    // The project settings: the four legacy Verification switches, each absent
+    // as its default (the full suite ships off) — parsed so an older page's
+    // form still reads, though the host keeps its own values over these
+    // (§42.5); a naming that is not Custom is the default, and the template is
+    // capped like the rest. The host writes them to the repository's project
+    // settings file on Apply.
     verifyRelevantTests: record["verifyRelevantTests"] !== false,
     verifyStaticChecks: record["verifyStaticChecks"] !== false,
     verifyFullSuite: record["verifyFullSuite"] === true,

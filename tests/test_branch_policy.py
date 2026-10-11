@@ -34,11 +34,10 @@ FEATURE = "feature/JR-1-stale-search-results"
 # Never on main/master, never a commit on a detached HEAD — under every policy,
 # in every task.
 PROTECTED_RULES = (
-    "Never work directly on main/master.",
-    "Verify the current branch is not `main` or `master`.",
-    "- Verify HEAD is not detached.",
-    "If on `main` or `master`, or HEAD is detached, do not commit and do not push.",
-    "Do not push main/master.",
+    "- Never work directly on main/master.",
+    "verify the current branch is not `main` or `master` and HEAD is not detached.",
+    "If either is true, do not commit and do not push",
+    "- Never push main/master.",
 )
 
 # Run, Rebuild Context, a retry, a new attempt: none of them is a reason for a branch.
@@ -68,8 +67,8 @@ def test_current_works_on_the_checked_out_branch_and_makes_none_unasked():
     text = task("current")
     for line in (
         "- Branch policy: use the current branch.",
-        "- Work on the branch that is currently checked out. Do not create or switch branches.",
-        "- Edit only on the current branch.",
+        "- Check the current branch before editing, and edit only on the branch that is checked "
+        "out. Do not create or switch branches.",
         "- Never work directly on main/master.",
         LIFECYCLE_RULE,
     ):
@@ -79,10 +78,6 @@ def test_current_works_on_the_checked_out_branch_and_makes_none_unasked():
         "- If the current branch is `main` or `master`, or HEAD is detached, stop before editing "
         f'and ask the developer: "You are on a protected branch / detached HEAD. Create `{FEATURE}` '
         'and continue?" Create and switch to it only if they explicitly agree.'
-    ) in text
-    assert (
-        "- Edit only on the current branch, never on main/master. Do not create or switch branches "
-        "unless the developer explicitly approves it from main/master or a detached HEAD."
     ) in text
     # None of the per-issue rules that moved a developer off their branch.
     for rule in (
@@ -100,15 +95,13 @@ def test_per_issue_names_one_branch_and_reuses_it():
     for line in (
         "- Branch policy: one branch per work item.",
         f"- Branch name: `{FEATURE}`",
-        f"- Create or switch to `{FEATURE}` before editing files — from a detached HEAD too. "
-        "If it already exists, or another existing branch whose name contains `JR-1`, switch to it "
-        "rather than creating another.",
+        f"- Check the current branch, then create or switch to `{FEATURE}` before editing files — "
+        "from a detached HEAD too — and edit only there. If it already exists, or another existing "
+        "branch whose name contains `JR-1`, switch to it rather than creating another.",
         f"{LIFECYCLE_RULE} Reuse this one.",
-        f"- Edit only on the work item's branch, `{FEATURE}`; never on main/master.",
         f"- Verify the current branch is the work item's branch: `{FEATURE}`, or another existing "
-        "branch whose name contains `JR-1`.",
-        f"If the current branch is not `{FEATURE}`, or another existing branch whose name contains "
-        "`JR-1`, stop and ask the developer before committing.",
+        f"branch whose name contains `JR-1`. If it is not, stop and ask the developer whether to "
+        f"create or switch to `{FEATURE}` before committing.",
     ):
         assert line in text, line
 
@@ -118,19 +111,18 @@ def test_ask_has_the_developer_choose_before_editing():
     for line in (
         "- Branch policy: ask the developer.",
         f"- Suggested branch name: `{FEATURE}`",
-        "- Before editing, tell the developer the current branch and the suggested branch "
+        "- Before editing, check the current branch, tell the developer it and the suggested branch "
         f"`{FEATURE}`, and ask whether to stay on the current branch or to create or switch to "
-        "the suggested one; then do as they answer.",
+        "the suggested one; then edit only on the branch they choose.",
         # Staying is not an option on main/master or a detached HEAD.
         "- If the current branch is `main` or `master`, or HEAD is detached, staying is not an "
         f"option: ask only whether to create or switch to `{FEATURE}`.",
         LIFECYCLE_RULE,
-        "- Edit only on the branch the developer chose; never on main/master.",
         "- Verify the current branch is the one the developer chose before editing. If they chose "
         "to stay on their branch, it does not have to start with `feature/` or include `JR-1`.",
     ):
         assert line in text, line
-    assert "Create or switch to `" not in text
+    assert "then create or switch to `" not in text
     assert "is not in the current branch name" not in text
 
 
@@ -160,13 +152,14 @@ def test_delivery_checks_follow_the_policy():
     # A work item from before any branch was recorded: the old checks still say whose branch it is.
     unnamed = delivery_safety_block("JR-1", None, branch_policy="per-issue")
     assert "- Verify the current branch starts with `feature/` or another accepted feature prefix." in unnamed
-    assert "- Verify the current branch includes `JR-1`." in unnamed
+    assert "- Verify the current branch includes `JR-1`. If it does not, stop and ask the developer before committing." in unnamed
 
     ask = delivery_safety_block("JR-1", FEATURE, branch_policy="ask")
     assert "- Verify the current branch is the one the developer chose before editing." in ask
 
     for block in (current, per_issue, unnamed, ask):
-        assert "- Verify the current branch is not `main` or `master`.\n- Verify HEAD is not detached.\n" in block
+        assert "verify the current branch is not `main` or `master` and HEAD is not detached." in block
+        assert "- Never push main/master.\n" in block
 
 
 def test_a_policy_is_one_of_three_and_resolves_request_then_record_then_default():

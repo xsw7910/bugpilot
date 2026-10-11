@@ -143,6 +143,17 @@ import {
   instructionsStatusLine,
 } from "./instructions.ts";
 import type { InstructionScope, InstructionsOutcome, InstructionsSnapshot } from "./instructions.ts";
+import {
+  VERIFICATION_FILE,
+  VERIFICATION_TEXT_CAPABILITY,
+  VERIFICATION_SOURCE_LABELS,
+  readsVerificationText,
+  samePolicyText,
+  verificationFingerprint,
+  verificationPreviewView,
+  verificationRowView,
+} from "./verificationPolicy.ts";
+import type { VerificationOutcome, VerificationSnapshot } from "./verificationPolicy.ts";
 import { formWithProjectSettings, projectSettingsOfForm, sameProjectSettings } from "./projectSettings.ts";
 import type { ProjectSettingsOutcome, ProjectSettingsPayload, ProjectSettingsSnapshot } from "./projectSettings.ts";
 import {
@@ -224,6 +235,39 @@ export type DirectoryListing =
   | { readonly kind: "unreadable"; readonly detail: string };
 
 /** The instruction editor while it is open: which scope, what it opened with. */
+/**
+ * What a prepared context was compared with just before one of the
+ * Verification Policy row's writes (§42.5): the policies' fingerprint, the
+ * form's, and the policy as the CLI last reported it.
+ */
+interface VerificationBaseline {
+  readonly policies?: string;
+  readonly snapshot?: VerificationSnapshot;
+}
+
+/**
+ * The prepared form's fingerprint, read both ways (§42.5): with the legacy
+ * Verification switches, as while they decide, and without them, as once
+ * `.bugpilot/verification.md` does. A policy source that moves to or from the
+ * file since is then compared like with like — never mistaken for a form edit.
+ */
+interface PreparedForm {
+  readonly switches: string;
+  readonly file: string;
+}
+
+function preparedForm(form: FormState): PreparedForm {
+  return {
+    switches: preparationFingerprint(form, { verificationFile: false }),
+    file: preparationFingerprint(form, { verificationFile: true }),
+  };
+}
+
+/** The Verification Policy's part of a policies' fingerprint: everything after the instructions'. */
+function verificationPartOf(policies: string): string {
+  return policies.slice(policies.lastIndexOf("|") + 1);
+}
+
 interface InstructionsEditorState {
   readonly scope: InstructionScope;
   readonly token: number;
@@ -440,6 +484,23 @@ export interface ControllerPorts {
     readonly save: (scope: InstructionScope, text: string) => Promise<InstructionsOutcome>;
   };
   /**
+   * The repository's Verification Policy, through `bugpilot verification`
+   * (0.1.3, §42.2, §42.5): `show` for the effective policy — its source and
+   * hash for the stale check, its state and text for the settings row and its
+   * Preview — and the settings row's two writes, both the CLI's: `create`
+   * (`set --stdin`) writes `.bugpilot/verification.md` from text the CLI
+   * reported, and `reset` removes it. `fileExists` only asks whether the file
+   * is there, for a CLI too old to read it; `fileKind` whether it is a regular
+   * file Edit may open, without following a link.
+   */
+  readonly verificationPolicy?: {
+    readonly load: () => Promise<VerificationOutcome>;
+    readonly fileExists: () => Promise<boolean>;
+    readonly create?: (text: string) => Promise<VerificationOutcome>;
+    readonly reset?: () => Promise<VerificationOutcome>;
+    readonly fileKind?: () => Promise<"absent" | "file" | "other">;
+  };
+  /**
    * One issue's title and description, for improving a hint.
    *
    * `bugpilot issue-details --json`: the same Jira client a run uses, reading
@@ -502,6 +563,14 @@ export interface ControllerPorts {
    * triggers apply.
    */
   readonly watchArtifacts?: (directory: string, onEvent: (name: string) => void) => { dispose(): void };
+  /**
+   * Watch the repository's `.bugpilot/` folder for the policy files a task is
+   * written from — `instructions.md`, `verification.md`, `project_settings.json`
+   * — and call back with the file name on every create, change or delete
+   * (§42.2). An edit in an editor tab, a `git pull` or a branch switch reaches
+   * the stale check this way. Absent: the reread points still apply.
+   */
+  readonly watchPolicies?: (directory: string, onEvent: (name: string) => void) => { dispose(): void };
   /** A timer, so a test can run the debounce by hand. Absent: `setTimeout`. */
   readonly schedule?: (callback: () => void, delayMs: number) => { cancel(): void };
   /**
@@ -636,6 +705,10 @@ export const RESET_WAITS_FOR_REVIEW = "Wait for Review with AI to start.";
 /** Why a handoff refuses a context the form no longer describes. */
 export const STALE_HANDOFF =
   "The form changed since this context was prepared, so nothing was handed over. Press Rebuild Context first, or undo the change.";
+
+/** Said when the form is unchanged but a policy file is not (§42.2): edited, pulled or switched with a branch. */
+export const STALE_HANDOFF_POLICIES =
+  "The instructions or the Verification Policy changed since this context was prepared, so nothing was handed over. Press Rebuild Context first.";
 
 /**
  * The AI session a handoff started, as this panel saw it: which terminal, which
@@ -852,7 +925,7 @@ export class Controller {
    * the panel then shows: what built a package on disk is not recorded, and the
    * form is what Rebuild Context would use).
    */
-  #preparedWith: string | undefined;
+  #preparedWith: PreparedForm | undefined;
   /** Start New Attempt, from the press until it has started or said why not. */
   #attempt: AttemptView | undefined;
   /** A feedback helper's text, held for exactly one push. */
@@ -1056,11 +1129,45 @@ export class Controller {
    */
   #instructions: InstructionsSnapshot | undefined;
   /**
-   * The instructions' fingerprint when the package on screen was prepared:
-   * `#preparedWith`'s partner, set and cleared with it. `undefined` when it was
-   * not known then — a stale check needs both sides.
+   * What `bugpilot verification show` last said: the effective Verification
+   * Policy's source, hash, state and text (§42.2). `undefined` until read, and
+   * for a CLI without the `verification-text` capability. The text is held for
+   * the Preview and Edit's seed only — no log line or notice carries it.
    */
-  #preparedInstructions: string | undefined;
+  #verification: VerificationSnapshot | undefined;
+  /**
+   * The policies' fingerprint — instructions and Verification Policy — when the
+   * package on screen was prepared: `#preparedWith`'s partner, set and cleared
+   * with it. `undefined` when it was not known then: a stale check needs both sides.
+   */
+  #preparedPolicies: string | undefined;
+  /**
+   * Policies' fingerprints known to describe the same task as `#preparedPolicies`
+   * (§42.5): what the settings row's Edit or Reset left when it only moved the
+   * same policy text to another source. Cleared with it. Coming back to the
+   * prepared policy itself is never a change either way.
+   */
+  #preparedPolicyAliases = new Set<string>();
+  /**
+   * The settings row's Edit creating `.bugpilot/verification.md`, or its Reset
+   * removing it (§42.5): one at a time, and every policy read — a Run's, Fix
+   * with AI's, Start New Attempt's — waits for it, so none prepares on the file
+   * as it was a moment before.
+   */
+  #verificationWrite: Promise<void> | undefined;
+  /** A write under way, for the row's busy state. */
+  #verificationBusy = false;
+  /** Edit or Reset under way, from its first read to its last. */
+  #verificationActing = false;
+  /** The Verification Policy Preview while it is open: a new token per open. */
+  #verificationPreview: { readonly token: number } | undefined;
+  #verificationPreviewToken = 0;
+  /** The `.bugpilot/` watcher, for the repository it watches. */
+  #policyWatch: { readonly directory: string; readonly handle: { dispose(): void } } | undefined;
+  /** A reread scheduled by the watcher, merging a burst of file events into one. */
+  #policyRefreshTimer: { cancel(): void } | undefined;
+  /** A reread in flight, shared by everyone who asks for one meanwhile. */
+  #policyRefresh: Promise<void> | undefined;
   /** The instruction editor while it is open: its scope, the text it opened with, a save in flight. */
   #instructionsEditor: InstructionsEditorState | undefined;
   #instructionsEditorToken = 0;
@@ -1550,6 +1657,8 @@ export class Controller {
     await this.#loadRepositoryProfile();
     await this.#loadProjectSettings();
     await this.#loadInstructions();
+    await this.#loadVerificationPolicy();
+    this.#syncPolicyWatch();
     // The revision is deliberately *not* bumped here. Bumping it makes the page
     // rewrite every field from the host's copy, which moves the caret and
     // discards anything typed inside the 400ms `formChanged` debounce — and
@@ -1561,12 +1670,14 @@ export class Controller {
     if (this.#root !== previousRoot) this.#ports.ui.refreshViews();
   }
 
-  async handle(message: PanelMessage): Promise<void> {
+  async handle(incoming: PanelMessage): Promise<void> {
+    const message = this.#withHostOwnedFields(incoming);
     switch (message.type) {
       case "ready":
         this.#revision += 1;
         // A rebuilt page starts on the form: an editor it no longer shows is closed.
         this.#instructionsEditor = undefined;
+        this.#verificationPreview = undefined;
         this.#push();
         // The page loads whenever the panel is shown again — a hidden webview is
         // destroyed — so this is the "visible again" safety net for an artifact
@@ -1653,6 +1764,18 @@ export class Controller {
         return;
       case "closeInstructions":
         this.closeInstructions();
+        return;
+      case "editVerificationPolicy":
+        await this.editVerificationPolicy();
+        return;
+      case "resetVerificationPolicy":
+        await this.resetVerificationPolicy();
+        return;
+      case "previewVerificationPolicy":
+        await this.previewVerificationPolicy();
+        return;
+      case "closeVerificationPreview":
+        this.closeVerificationPreview();
         return;
       case "saveInstructions":
         await this.saveInstructions(message.scope, message.text);
@@ -1845,12 +1968,12 @@ export class Controller {
       await this.#projectSettingsSave;
       if (this.#readiness.kind !== "ready") return;
     }
-    // The instructions as this run will read them, so the baseline below is
-    // what the task gets — an edit made outside BugPilot since the last check
-    // included. Only where there is something to read: a
-    // host without the port starts its run without waiting a turn for nothing.
-    if (this.#ports.instructions !== undefined) {
-      await this.#loadInstructions();
+    // The instructions and the Verification Policy as this run will read them,
+    // so the baseline below is what the task gets — an edit made outside
+    // BugPilot since the last check included. Only where there is something to
+    // read: a host without the ports starts its run without waiting a turn.
+    if (this.#ports.instructions !== undefined || this.#ports.verificationPolicy !== undefined) {
+      await this.#refreshPolicies();
       if (this.#readiness.kind !== "ready") return;
     }
     // Reset while the environment was checked, or being reset now: this form's
@@ -1902,8 +2025,9 @@ export class Controller {
     // The baseline the primary action compares the form against, from the form
     // this run was given — set now, so no push after the run can compare against
     // the one before it and flicker Rebuild Context.
-    this.#preparedWith = preparationFingerprint(form);
-    this.#preparedInstructions = this.#instructionsFingerprint();
+    this.#preparedWith = preparedForm(form);
+    this.#preparedPolicies = this.#policyFingerprint();
+    this.#preparedPolicyAliases.clear();
     // Fresh deletes the folder being watched: watch it again once the run ends.
     this.#artifactWatchStale = true;
     // A re-prepare of the same Jira work item keeps fix_report.md — only Fresh
@@ -2323,6 +2447,11 @@ export class Controller {
    */
   async startNewAttempt(feedback: string, form: FormState): Promise<void> {
     await this.#formChanged(form);
+    // The policy files as a run would read them now (§42.2): a new attempt is
+    // handed the same task.md, which a changed policy has made stale.
+    if (this.#ports.instructions !== undefined || this.#ports.verificationPolicy !== undefined) {
+      await this.#refreshPolicies();
+    }
     const view = this.#primaryView();
     if (!offeredActions(view).includes("startNewAttempt")) {
       this.#ports.log.error("Refusing to start a new attempt: the panel is not offering one for this form.");
@@ -2330,9 +2459,11 @@ export class Controller {
         state: "failed",
         message: view.busy
           ? `Not started. ${this.#busyReason()}`
-          : this.#prepared() && this.#stale()
-            ? "Not started: the form changed since this context was prepared. Press Rebuild Context first, or undo the change."
-            : "Not started: a new attempt is offered once an AI attempt exists for a prepared work item.",
+          : this.#prepared() && this.#staleOnlyThroughPolicies()
+            ? "Not started: the instructions or the Verification Policy changed since this context was prepared. Press Rebuild Context first."
+            : this.#prepared() && this.#stale()
+              ? "Not started: the form changed since this context was prepared. Press Rebuild Context first, or undo the change."
+              : "Not started: a new attempt is offered once an AI attempt exists for a prepared work item.",
       };
       this.#push();
       return;
@@ -2593,10 +2724,28 @@ export class Controller {
       this.#ports.ui.notify("warning", HANDOFF_WAITS_FOR[this.#mutation]);
       return;
     }
+    // The policy files as a run would read them now (§42.2): one edited in an
+    // editor tab, pulled, or switched with a branch since the last read makes
+    // this package stale, and no agent is handed it. Busy meanwhile, so a
+    // second press finds the first one under way rather than racing it.
+    if (this.#ports.instructions !== undefined || this.#ports.verificationPolicy !== undefined) {
+      const refreshEpoch = this.#fixEpoch;
+      this.#handoffBusy = true;
+      try {
+        await this.#refreshPolicies();
+      } finally {
+        if (refreshEpoch === this.#fixEpoch) this.#handoffBusy = false;
+      }
+      if (refreshEpoch !== this.#fixEpoch || this.#readiness.kind !== "ready") {
+        this.#push();
+        return;
+      }
+    }
     // Nor a package the form no longer describes: the developer changed what
     // the context is about and has not rebuilt it.
     if (this.#stale()) {
-      this.#ports.ui.notify("warning", STALE_HANDOFF);
+      this.#ports.ui.notify("warning", this.#staleOnlyThroughPolicies() ? STALE_HANDOFF_POLICIES : STALE_HANDOFF);
+      this.#push();
       return;
     }
 
@@ -3163,6 +3312,10 @@ export class Controller {
     this.#artifactRefreshTimer = undefined;
     this.#artifactWatch?.handle.dispose();
     this.#artifactWatch = undefined;
+    this.#policyRefreshTimer?.cancel();
+    this.#policyRefreshTimer = undefined;
+    this.#policyWatch?.handle.dispose();
+    this.#policyWatch = undefined;
     this.#clearSessionFeedback();
   }
 
@@ -3316,8 +3469,9 @@ export class Controller {
     // read, so the baseline is the form as it now stands — what Rebuild Context
     // would use. A form about another bug still reads as stale: that is decided
     // by which work item it names, not by this.
-    this.#preparedWith = preparationFingerprint(this.#form);
-    this.#preparedInstructions = this.#instructionsFingerprint();
+    this.#preparedWith = preparedForm(this.#form);
+    this.#preparedPolicies = this.#policyFingerprint();
+    this.#preparedPolicyAliases.clear();
     // The tree too: Results' Current group follows the shown work item, and
     // without this it kept whatever it last read — "Scanning .ai/ …" if that
     // was mid-load (§37.82, seen in a real window).
@@ -3375,14 +3529,375 @@ export class Controller {
    * and Retry, and the form waits until it is fixed. Retry re-checks, and an
    * old CLI is caught again by reading the profile.
    */
-  #blockOutdatedCli(rejected: readonly string[]): void {
+  #blockOutdatedCli(rejected: readonly string[], detail: string = outdatedCliDetail(rejected)): void {
     this.#readiness = {
       kind: "blocked",
       summary: CLI_OUTDATED_SUMMARY,
-      action: `${CLI_OUTDATED_ACTION} ${outdatedCliDetail(rejected)}`,
+      action: `${CLI_OUTDATED_ACTION} ${detail}`,
       actions: outdatedCliActions(this.#cliSource === "path"),
     };
     this.#offered = new Set(this.#readiness.actions.map((action) => action.command));
+  }
+
+  /**
+   * Read the effective Verification Policy (§42.2) — its source and hash, for
+   * the stale check and the settings note.
+   *
+   * Asked of a CLI that says, in `doctor --json`, that it reads
+   * `.bugpilot/verification.md`. One that does not would prepare as if the file
+   * were not there, so with the file in the repository it is out of date and
+   * blocked like any other; without the file it still prepares what it always
+   * did, and there is no policy state to hold. A failed read keeps the last
+   * good one.
+   */
+  async #loadVerificationPolicy(): Promise<void> {
+    const port = this.#ports.verificationPolicy;
+    if (this.#readiness.kind !== "ready" || !port) return;
+    if (!readsVerificationText(this.#report)) {
+      this.#verification = undefined;
+      this.#verificationPreview = undefined;
+      if (await port.fileExists()) {
+        this.#blockOutdatedCli(
+          ["verification"],
+          `The installed bugpilot cannot read ${VERIFICATION_FILE}, so it would prepare tasks without this repository's Verification Policy (its doctor report has no ${VERIFICATION_TEXT_CAPABILITY} capability).`,
+        );
+      }
+      return;
+    }
+    const outcome = await port.load();
+    if (outcome.kind === "failed") {
+      this.#ports.log.error(`Reading the Verification Policy failed: ${oneSentence(outcome.message)}`);
+      return;
+    }
+    this.#applyVerificationOutcome(outcome);
+  }
+
+  /**
+   * What a read — or Edit's create, or Reset — came back with, applied. False
+   * when nothing was read: an old CLI is blocked as out of date, and a failure
+   * keeps the last good read, which says nothing about the file. The log gets
+   * the state, never the text.
+   */
+  #applyVerificationOutcome(outcome: VerificationOutcome): boolean {
+    if (outcome.kind === "outdated") {
+      this.#verification = undefined;
+      this.#verificationPreview = undefined;
+      this.#blockOutdatedCli(outcome.rejected);
+      return false;
+    }
+    if (outcome.kind === "failed") return false;
+    const previous = this.#verification;
+    this.#verification = outcome.snapshot;
+    // Said when it changes, not at every read: a reread on focus is not news.
+    if (previous !== undefined && verificationFingerprint(previous) === verificationFingerprint(outcome.snapshot)) return true;
+    if (outcome.snapshot.problem) this.#ports.log.info(`Verification Policy: ${VERIFICATION_FILE} is not used: ${outcome.snapshot.problem}`);
+    if (outcome.snapshot.lintCount > 0) {
+      this.#ports.log.info(`Verification Policy: ${outcome.snapshot.lintCount} line(s) may conflict with a BugPilot rule; the settings row's Preview lists them.`);
+    }
+    return true;
+  }
+
+  /**
+   * Read the instructions and the Verification Policy again, so the stale check
+   * compares what a run would read now (§42.2). Before every Run, Rebuild
+   * Context, Fix with AI and Start New Attempt, at every environment check, when
+   * the window comes back to focus and when a `.bugpilot/` file changes: the
+   * watcher alone cannot see the user's own instructions, outside the
+   * repository. Reads only — it writes nothing, so a refresh it causes cannot
+   * cause another. Callers meanwhile share the read in flight.
+   */
+  #refreshPolicies(): Promise<void> {
+    if (this.#policyRefresh) return this.#policyRefresh;
+    const refresh = (async () => {
+      // The settings row's Edit or Reset writing the file now: read what it
+      // leaves, never the file a moment before (§42.5).
+      if (this.#verificationWrite) await this.#verificationWrite;
+      await this.#loadInstructions();
+      await this.#loadVerificationPolicy();
+    })().finally(() => {
+      if (this.#policyRefresh === refresh) this.#policyRefresh = undefined;
+    });
+    this.#policyRefresh = refresh;
+    return refresh;
+  }
+
+  /**
+   * The legacy Verification switches, as the host holds them, over whatever a
+   * page sent (0.1.3, §42.5). The settings page no longer edits them — the
+   * policy is text, edited in an editor tab — so they are the repository's
+   * `project_settings.json` as last read, kept for older BugPilot versions; a
+   * page restored from an older state cannot write them back changed.
+   */
+  #withHostOwnedFields(message: PanelMessage): PanelMessage {
+    if (!("form" in message)) return message;
+    const form: FormState = {
+      ...message.form,
+      verifyRelevantTests: this.#form.verifyRelevantTests,
+      verifyStaticChecks: this.#form.verifyStaticChecks,
+      verifyFullSuite: this.#form.verifyFullSuite,
+      verifyReportNotRun: this.#form.verifyReportNotRun,
+    };
+    return { ...message, form } as PanelMessage;
+  }
+
+  /** The editor window came back to focus: a policy may have changed while BugPilot was not looking. */
+  async windowFocused(): Promise<void> {
+    if (this.#disposed || this.#readiness.kind !== "ready") return;
+    await this.#refreshPolicies();
+    this.#push();
+  }
+
+  /**
+   * Whether the Verification Policy row can act at all: BugPilot ready in a
+   * repository, with a CLI that reads `.bugpilot/verification.md`. Otherwise
+   * said, and nothing is run.
+   */
+  #verificationRowReady(action: string): boolean {
+    if (this.#readiness.kind !== "ready" || !this.#root || !this.#ports.verificationPolicy) {
+      this.#ports.ui.notify("warning", `${action}: BugPilot is not ready in this repository.`);
+      return false;
+    }
+    if (!readsVerificationText(this.#report)) {
+      this.#ports.ui.notify("warning", `${action}: the installed BugPilot CLI cannot read ${VERIFICATION_FILE}. Update it first.`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Edit and Reset one at a time, each from its first read to its last: a
+   * second press while one is under way — a double click on Edit — does
+   * nothing, rather than reading the file before the first has written it.
+   */
+  async #oneVerificationAction(action: () => Promise<void>): Promise<void> {
+    if (this.#verificationActing) return;
+    this.#verificationActing = true;
+    try {
+      await action();
+    } finally {
+      this.#verificationActing = false;
+    }
+  }
+
+  /**
+   * One write to the policy file at a time, and every policy read waits for
+   * it: what a Run, Fix with AI or Start New Attempt prepares on is the file
+   * the write left (§42.5).
+   */
+  async #writeVerification(write: () => Promise<void>): Promise<void> {
+    this.#verificationBusy = true;
+    this.#push();
+    const task = write();
+    this.#verificationWrite = task;
+    try {
+      await task;
+    } finally {
+      if (this.#verificationWrite === task) this.#verificationWrite = undefined;
+      this.#verificationBusy = false;
+      this.#push();
+    }
+  }
+
+  /**
+   * The baseline a prepared context is compared with, before one of the row's
+   * writes: so that a write which only moves the same policy text from one
+   * source to another — Edit freezing the default or the legacy switches into
+   * the file, Reset removing a file that said what applies without it — does
+   * not by itself say "Needs rebuild" (§42.5). Anything else is the existing
+   * fingerprint's to judge.
+   */
+  #verificationBaseline(): VerificationBaseline {
+    const policies = this.#policyFingerprint();
+    return {
+      ...(policies === undefined ? {} : { policies }),
+      ...(this.#verification === undefined ? {} : { snapshot: this.#verification }),
+    };
+  }
+
+  /**
+   * After the write: when the policy text is the same and the context was
+   * current before it, what the write left describes the same task — an alias
+   * of the prepared policies, not a new baseline, so going back to the prepared
+   * policy later is still no change. A context stale before stays stale.
+   */
+  #carryPreparedBaseline(before: VerificationBaseline): void {
+    if (!samePolicyText(before.snapshot, this.#verification)) return;
+    if (before.policies === undefined || !this.#samePolicies(before.policies)) return;
+    const after = this.#policyFingerprint();
+    if (after !== undefined) this.#preparedPolicyAliases.add(after);
+  }
+
+  /**
+   * The settings row's Edit (§42.5): `.bugpilot/verification.md` in a full
+   * editor tab, never the sidebar. A file that is there is opened as it is —
+   * one the CLI cannot use included, so it can be fixed. One that is not is
+   * created first by the CLI, `verification set --stdin`, from the effective
+   * policy the CLI has just reported — BugPilot's default, or the legacy
+   * switches' text, which makes this the migration point — and the CLI writes
+   * the front matter. A link, or anything but a regular file, is not opened.
+   *
+   * Opening is not a change: the policy text a task carries is the same before
+   * and after, so a prepared context stays current until the file is edited.
+   */
+  async editVerificationPolicy(): Promise<void> {
+    if (!this.#verificationRowReady("The Verification Policy cannot be edited")) return;
+    await this.#oneVerificationAction(() => this.#editVerificationPolicy());
+  }
+
+  async #editVerificationPolicy(): Promise<void> {
+    const port = this.#ports.verificationPolicy!;
+    const root = this.#root!;
+    const file = path.join(root, ".bugpilot", "verification.md");
+    const read = await port.load();
+    if (!this.#applyVerificationOutcome(read) || this.#verification === undefined) {
+      if (read.kind === "failed") this.#ports.ui.notify("error", `The Verification Policy could not be read: ${oneSentence(read.message)}`);
+      this.#push();
+      return;
+    }
+    const kind = port.fileKind ? await port.fileKind() : this.#verification.fileExists ? "file" : "absent";
+    if (kind === "other") {
+      this.#ports.ui.notify(
+        "warning",
+        `BugPilot does not open ${VERIFICATION_FILE}: it is a link or not a regular file. Replace it with a regular file, or remove it.`,
+      );
+      this.#push();
+      return;
+    }
+    if (kind === "absent") {
+      const create = port.create;
+      if (!create) {
+        this.#ports.ui.notify("warning", `This editor cannot create ${VERIFICATION_FILE}.`);
+        return;
+      }
+      if (this.#busy()) {
+        this.#ports.ui.notify("info", `${VERIFICATION_FILE} was not created. ${this.#busyReason()}`);
+        this.#push();
+        return;
+      }
+      let created = false;
+      await this.#writeVerification(async () => {
+        const before = this.#verificationBaseline();
+        const seed = this.#verification!;
+        const outcome = await create(seed.text);
+        if (!this.#applyVerificationOutcome(outcome)) {
+          if (outcome.kind === "failed") this.#ports.ui.notify("error", `${VERIFICATION_FILE} was not created: ${oneSentence(outcome.message)}`);
+          return;
+        }
+        this.#carryPreparedBaseline(before);
+        created = true;
+        // Where it came from and what it is now; never the text.
+        this.#ports.log.info(`Verification Policy: created ${VERIFICATION_FILE} from the ${VERIFICATION_SOURCE_LABELS[seed.source]} policy.`);
+      });
+      if (!created) return;
+    }
+    try {
+      await this.#ports.ui.openFile(file);
+    } catch (error) {
+      this.#ports.ui.notify("error", `${VERIFICATION_FILE} could not be opened: ${oneSentence((error as Error).message)}`);
+    }
+  }
+
+  /**
+   * The settings row's Reset (§42.5): `verification reset`, which removes
+   * `.bugpilot/verification.md` — after the developer says so, since the file
+   * is theirs — and the policy that applies without it, whichever the CLI says,
+   * is read back. "Needs rebuild" follows only if that policy differs from the
+   * one the context was prepared with.
+   */
+  async resetVerificationPolicy(): Promise<void> {
+    if (!this.#verificationRowReady("The Verification Policy was not reset")) return;
+    await this.#oneVerificationAction(() => this.#resetVerificationPolicy());
+  }
+
+  async #resetVerificationPolicy(): Promise<void> {
+    const port = this.#ports.verificationPolicy!;
+    const reset = port.reset;
+    if (!reset) {
+      this.#ports.ui.notify("warning", `This editor cannot remove ${VERIFICATION_FILE}.`);
+      return;
+    }
+    if (this.#busy()) {
+      this.#ports.ui.notify("info", `The Verification Policy was not reset. ${this.#busyReason()}`);
+      this.#push();
+      return;
+    }
+    const confirmed = await this.#ports.ui.confirm(
+      `Reset the Verification Policy? This deletes ${VERIFICATION_FILE}. BugPilot then uses the policy that applies without it, as the settings row will show.`,
+      "Delete File",
+      "Keep File",
+    );
+    if (!confirmed) return;
+    // Asked again after the dialog: a run may have started while it was open.
+    if (this.#busy()) {
+      this.#ports.ui.notify("info", `The Verification Policy was not reset. ${this.#busyReason()}`);
+      this.#push();
+      return;
+    }
+    await this.#writeVerification(async () => {
+      const before = this.#verificationBaseline();
+      const outcome = await reset();
+      if (!this.#applyVerificationOutcome(outcome)) {
+        if (outcome.kind === "failed") this.#ports.ui.notify("error", `The Verification Policy was not reset: ${oneSentence(outcome.message)}`);
+        return;
+      }
+      this.#carryPreparedBaseline(before);
+      this.#ports.log.info(`Verification Policy: reset; the policy is now the ${VERIFICATION_SOURCE_LABELS[this.#verification!.source]} policy.`);
+    });
+  }
+
+  /**
+   * The settings row's Preview (§42.5): the effective Verification Policy,
+   * read-only, as `verification show --json` reports it now. It writes nothing
+   * and moves no baseline, so it can make nothing stale.
+   */
+  async previewVerificationPolicy(): Promise<void> {
+    if (!this.#verificationRowReady("The Verification Policy cannot be previewed")) return;
+    const read = await this.#ports.verificationPolicy!.load();
+    if (!this.#applyVerificationOutcome(read) || this.#verification === undefined) {
+      if (read.kind === "failed") this.#ports.ui.notify("error", `The Verification Policy could not be read: ${oneSentence(read.message)}`);
+      this.#push();
+      return;
+    }
+    this.#verificationPreviewToken += 1;
+    this.#verificationPreview = { token: this.#verificationPreviewToken };
+    this.#push();
+  }
+
+  /** The Preview's Back, or Escape. */
+  closeVerificationPreview(): void {
+    if (this.#verificationPreview === undefined) return;
+    this.#verificationPreview = undefined;
+    this.#push();
+  }
+
+  /** Watch `.bugpilot/` for the repository on screen, and only that one. */
+  #syncPolicyWatch(): void {
+    if (this.#disposed) return;
+    const directory = this.#root ? path.join(this.#root, ".bugpilot") : undefined;
+    if (directory === this.#policyWatch?.directory) return;
+    this.#policyWatch?.handle.dispose();
+    this.#policyWatch = undefined;
+    this.#policyRefreshTimer?.cancel();
+    this.#policyRefreshTimer = undefined;
+    const watch = this.#ports.watchPolicies;
+    if (directory === undefined || !watch) return;
+    const handle = watch(directory, (name) => {
+      // An event from a watcher already replaced is about another repository.
+      if (this.#policyWatch?.handle !== handle) return;
+      this.#policyFileChanged(name);
+    });
+    this.#policyWatch = { directory, handle };
+  }
+
+  /** A `.bugpilot/` file changed: reread once the burst of events is over. */
+  #policyFileChanged(name: string): void {
+    if (this.#disposed || this.#policyRefreshTimer !== undefined) return;
+    this.#ports.log.info(`Policy reread scheduled (.bugpilot/${name} changed).`);
+    this.#policyRefreshTimer = this.#schedule(() => {
+      this.#policyRefreshTimer = undefined;
+      if (this.#disposed || this.#readiness.kind !== "ready") return;
+      void this.#refreshPolicies().then(() => this.#push());
+    }, ARTIFACT_REFRESH_DEBOUNCE_MS);
   }
 
   /**
@@ -5393,7 +5908,8 @@ export class Controller {
     this.#artifactsListedFor = undefined;
     this.#progress = { state: "idle", rows: viewFromStatus(undefined).rows, artifacts: [] };
     this.#preparedWith = undefined;
-    this.#preparedInstructions = undefined;
+    this.#preparedPolicies = undefined;
+    this.#preparedPolicyAliases.clear();
     this.#preparedFixMode = undefined;
     this.#stoppedByUser = false;
     // Every result and draft of the old session: the rows' summaries, Fix
@@ -5661,15 +6177,77 @@ export class Controller {
     if (!this.#prepared() || workItemId === undefined) return false;
     const preparedScope = JIRA_ISSUE_KEY_RE.test(workItemId) ? workItemId : MANUAL_WORK_ITEM_SCOPE;
     if (workItemScopeOf(form) !== preparedScope) return true;
-    if (this.#preparedWith !== undefined && preparationFingerprint(form) !== this.#preparedWith) return true;
-    // The instructions are files, not form fields: compared by content hash,
-    // never by file time, and only when both sides are known.
-    const instructions = this.#instructionsFingerprint();
-    return this.#preparedInstructions !== undefined && instructions !== undefined && instructions !== this.#preparedInstructions;
+    if (this.#formChangedSincePrepared(form)) return true;
+    return this.#policiesChanged();
   }
 
-  #instructionsFingerprint(): string | undefined {
-    return this.#instructions === undefined ? undefined : instructionsFingerprint(this.#instructions);
+  /**
+   * Whether the form no longer describes the package: its fingerprint now
+   * against the prepared form's, read the same way — with the Verification
+   * switches while they decide, without them once the file does.
+   */
+  #formChangedSincePrepared(form: FormState): boolean {
+    const prepared = this.#preparedWith;
+    if (prepared === undefined) return false;
+    const options = this.#fingerprintOptions();
+    return preparationFingerprint(form, options) !== (options.verificationFile ? prepared.file : prepared.switches);
+  }
+
+  /**
+   * Whether the policy files changed since the package was prepared, the form
+   * aside (§42.2): the instructions and the Verification Policy are files, not
+   * form fields, compared by the CLI's content hash — never by file time — and
+   * only when both sides are known.
+   */
+  #policiesChanged(): boolean {
+    const policies = this.#policyFingerprint();
+    return this.#preparedPolicies !== undefined && policies !== undefined && !this.#samePolicies(policies);
+  }
+
+  /** The prepared policies, or one the row's Edit or Reset left with the same policy text. */
+  #samePolicies(policies: string): boolean {
+    return policies === this.#preparedPolicies || this.#preparedPolicyAliases.has(policies);
+  }
+
+  /** Stale, but the form still describes the package: a policy file changed, not the form. */
+  #staleOnlyThroughPolicies(form: FormState = this.#form): boolean {
+    const workItemId = this.#workItemId;
+    if (!this.#prepared() || workItemId === undefined || !this.#policiesChanged()) return false;
+    const preparedScope = JIRA_ISSUE_KEY_RE.test(workItemId) ? workItemId : MANUAL_WORK_ITEM_SCOPE;
+    if (workItemScopeOf(form) !== preparedScope) return false;
+    return !this.#formChangedSincePrepared(form);
+  }
+
+  /** The instructions' and the Verification Policy's state, as one comparable string; `undefined` before the instructions are read. */
+  #policyFingerprint(): string | undefined {
+    if (this.#instructions === undefined) return undefined;
+    return `${instructionsFingerprint(this.#instructions)}|${this.#verificationPart()}`;
+  }
+
+  /** The Verification Policy's part of the policies' fingerprint. */
+  #verificationPart(): string {
+    return this.#verification === undefined ? "-" : verificationFingerprint(this.#verification);
+  }
+
+  /**
+   * Whether the context on screen was prepared with another Verification
+   * Policy than the one in force now — the settings row's "Needs rebuild".
+   * The same comparison the stale check makes, narrowed to the policy, and only
+   * while it is the policies that make the context stale at all.
+   */
+  #verificationStale(): boolean {
+    if (!this.#prepared() || !this.#policiesChanged() || this.#preparedPolicies === undefined) return false;
+    const now = this.#verificationPart();
+    return [this.#preparedPolicies, ...this.#preparedPolicyAliases].every((policies) => verificationPartOf(policies) !== now);
+  }
+
+  /**
+   * How the form is fingerprinted: once `.bugpilot/verification.md` is the
+   * policy, the Verification switches decide nothing, and changing them must not
+   * read as a change to what the task says.
+   */
+  #fingerprintOptions(): { readonly verificationFile: boolean } {
+    return { verificationFile: this.#verification?.source === "verification-file" };
   }
 
   /**
@@ -5835,6 +6413,16 @@ export class Controller {
       repositoryProfile: repositoryProfileView(this.#savedProfile),
       instructions: this.#instructionsView(),
       ...(this.#instructionsEditor === undefined ? {} : { instructionsEditor: this.#instructionsEditorView(this.#instructionsEditor) }),
+      verificationPolicy: verificationRowView(this.#verification, {
+        ready: this.#readiness.kind === "ready" && this.#ports.verificationPolicy !== undefined,
+        readsText: readsVerificationText(this.#report),
+        writesHeld: this.#busy(),
+        stale: this.#verificationStale(),
+        busy: this.#verificationBusy,
+      }),
+      ...(this.#verificationPreview === undefined || this.#verification === undefined
+        ? {}
+        : { verificationPreview: verificationPreviewView(this.#verification, this.#verificationPreview.token) }),
       ...(this.#preparedFixMode === undefined ? {} : { preparedFixMode: this.#preparedFixMode }),
       ...(this.#manageOpen
         ? {

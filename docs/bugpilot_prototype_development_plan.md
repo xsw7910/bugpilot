@@ -13678,3 +13678,1576 @@ user's first Install BugPilot Runtime would fail with "PyPI has no
 bugpilot==0.1.2 for this Python." — the pre-PyPI smoke above shows exactly
 that. The post-PyPI smoke (E–G) is still required; the pre-PyPI smoke does not
 replace it.
+
+## 42. BugPilot 0.1.3 — Retrieval quality and task clarity
+
+0.1.3 changes what BugPilot prepares, measured before and after: retrieval
+(field-aware term provenance, phrase and co-occurrence scoring, conservative
+noise filtering, Search Confidence v2, a Git History gate, Context Quality v2),
+`task.md` (every rule classified, the precedence contradiction repaired,
+repetition removed) and the Verification Policy (the four switches become
+`.bugpilot/verification.md` text, with CLI capability reporting and policy
+freshness). `task.md` stays agent-neutral: agent-specific wording belongs to the
+handoff. 0.1.4 follows with an AI Behavior policy, a Protected Rules viewer and
+previews.
+
+| Batch | Scope | State |
+| --- | --- | --- |
+| 0 | Baseline and corpus structure; no behaviour change | implemented (§42.1) |
+| 1 | Rule classification, precedence repair, Verification migration, capabilities, freshness | implemented (§42.2) |
+| 2 | Retrieval and Context Quality | implemented (§42.3) |
+| 3 | `task.md` deduplication | implemented (§42.4) |
+| 4 | Verification text UI, real VS Code smoke | implemented (§42.5) |
+| — | Release validation and preparation (0.1.3 version, CHANGELOG, artifacts, runtime and VSIX smoke) | validated, not published (§42.6) |
+
+### 42.1 Batch 0 — Baseline and corpus structure (2026-10-09, uncommitted on `744c9ce`)
+
+**Decision.** Measure first. Every later batch changes task generation or
+retrieval, and is judged by a before/after taken from the production code
+paths, recorded once and never rewritten. Batch 0 changes no intended product
+behaviour: no file under `bugpilot/` or `extension/` changed; the work is in
+`tests/` and this plan.
+
+**Implementation — retrieval corpus.** `tests/retrieval_corpus.py` is extended,
+not replaced, and `tests/test_retrieval_regression.py` with it.
+
+- **Structured issue evidence.** A case gives `issue_text` (unchanged: one flat
+  text, read as a hand-written description) or the structured fields: `source`
+  (`manual` or `jira`), `title`, `description`, `comments`, `environment`,
+  `reproduction`, `actual`, `expected`, with `hint` and `user_keywords` (the
+  CLI's `--keywords`; a corpus file may call them `keywords`). They are rendered
+  the way a report carries them: reproduction, actual, expected and environment
+  as the labelled sections of the description the shared parser reads, comments
+  as a Jira issue's comments. A hand-written bug has no comments; a case that
+  could not be a real issue is refused.
+- **Evaluation metadata.** `expected_files`; `expected_confidence`, where Search
+  Confidence v2 should land (a target, not asserted yet); `current`, the
+  observed best rank and confidence, pinned so any change is seen;
+  `expected_core_terms` and `forbidden_top_terms`, reported. The private
+  corpus loader (`tests/retrieval_corpus/real_cases.json`, git-ignored) reads
+  the same fields; old files load unchanged.
+- **The production path.** `run_case` builds the issue with the production
+  builders (`bug_spec_from_description` → `issue_from_spec`, or
+  `issue_from_jira`), extracts with `workflow.extract_issue_keywords` and
+  searches with `run_code_search` and the options `code_search_step` passes. The
+  harness used to mirror the extraction instead, and differed: no priority text
+  (stack traces, error messages), no derived title, no `MAX_SUPPLIED_KEYWORDS`
+  cap, and `--keywords` handed to the search as extracted high-value words
+  rather than as source `user` (weight 8). No production change was needed —
+  every function involved is public. A test runs the harness and
+  `code_search_step` on the same work item (a Jira issue with comments, a hint
+  and `--keywords`) and requires the same ranking, confidence and searched
+  terms; another requires the harness to hold no extraction of its own.
+- **The switch, measured.** On the six live cases and the synthetic flat-text
+  cases the old mirror and the production path give identical ranks and
+  confidence, so the §33 numbers stand.
+- **Synthetic repository.** `SYNTHETIC_REPOSITORY`: 17 invented files of one
+  small product (export dialog, importer, preferences, renderer, cache,
+  uploader) and the decoys real trees have: an operations module that speaks
+  pipeline-and-deploy, a license client, a hosts module (`.example.invalid`
+  hosts only), build scripts, CMake platform notes, release notes, a test.
+  Only file types code search reads.
+- **Synthetic corpus.** `SYNTHETIC_CORPUS`, 10 cases in 9 categories:
+  comment noise (two: ordinary comments, and comments repeating an
+  identifier-shaped operational name), hostname noise, environment noise,
+  identifier-led, user-keyword-led (`--keywords`, not a Hint feature),
+  hint-led, phrase-led, a strong description with noisy comments, and generic
+  words only.
+- **Metrics.** Recall@5 and the High / Medium / Low confidence distribution join
+  the existing top-N and MRR, per kind as well as overall; and two noise
+  measures: files in the top 5 that are there only for forbidden terms (every
+  term that matched them is one), and cases whose top-3 evidence includes a
+  forbidden term.
+- **`rg`.** No CI job runs the suite (`.github/workflows/release.yml` only
+  builds and publishes). Without ripgrep the corpus tests skip, saying "code
+  search needs ripgrep (rg) on PATH; the retrieval corpus is not measured
+  without it"; `run_case` raises `RipgrepUnavailable` and the commands exit 1,
+  rather than measuring the empty retrieval `run_code_search` returns when `rg`
+  is missing. Recorded with ripgrep 15.1.0.
+
+**Implementation — `task.md` golden matrix.** `tests/task_golden.py`, 12 cases,
+one golden file each in `tests/golden/task/`:
+
+| Dimension | Values covered |
+| --- | --- |
+| Fix Mode | Standard Fix; Investigate First (investigation-only) |
+| Branch policy | `current`, `per-issue`, `ask` |
+| Source | Jira (`JR-12345`); hand-written (`local_20260101090000`) |
+| Jira comment | on (fix and investigation); off |
+| Developer attachments | none; files with and without a description |
+| Developer hint | none; present |
+| Instructions and project settings | none; User and Project Instructions plus saved settings (relevant tests off, full suite on, a branch template) |
+
+- The inputs are resolved the way `workflow.prompt_step` resolves them: the
+  Repository Profile, instructions and project settings are read from a
+  synthetic repository and an empty user configuration directory, never the
+  machine's own. This matters: `generate_task(repository=None)` renders the
+  Generic profile, while a run resolves Auto-detect.
+- `measure`: characters, words, approximate tokens (`characters / 4`; no
+  tokenizer, the package stays dependency-free), the `##` sections, the
+  precedence layers, and 14 rule counts by meaning (force push, `--force`
+  flags, pushing main/master, false test claims, mass-format, PR creation,
+  Jira field mutation, Jira transition/assign, commit/push approval, deleting
+  files, staging `.ai/`, destructive Git, the Low-confidence rules); related
+  patterns may count the same sentence.
+- Golden files and the report are `.txt`, not Markdown: as `.md` the twelve
+  goldens were read by code search as documentation and moved this
+  repository's live corpus (one case from rank 2 to 6, Recall@5 2/5 → 1/5).
+  Measured, then avoided.
+
+**The record.** `python tests/baseline_report.py --write tests/baselines/0.1.3-batch0`
+wrote `task.json`, `retrieval.json` and `report.txt` (the same numbers as
+tables): deterministic, no timings, no machine paths; it refuses to overwrite a
+record. Later batches write their own and compare (`baseline_report.compare`).
+`--real` runs the private corpus and prints totals only, marked LOCAL-ONLY,
+never written. `python tests/task_golden.py --update` rewrites the goldens after
+a deliberate change; the review is the diff.
+
+**Measured baseline — `task.md`.** Median over the matrix: 15,481 characters,
+2,463 words, 3,870 approximate tokens (range 14,779–16,220 characters; 14–16
+sections). The same rules recur in every case: force push 4×, `--force` flags
+4×, pushing main/master 3×, mass-format 3×, PR creation 3×, commit/push approval
+4×, deleting files 4× ("delete files" and "delete source files"), destructive
+Git 4×, staging `.ai/` 2×, the Low-confidence rules 3×; false test claims 3×
+(2× in an investigation); Jira field mutation 4× (6× with a Jira comment
+allowed). Precedence layers, in order: BugPilot safety rules, Repository
+context, Project / team instructions, User instructions, AI Fix Mode,
+Developer hint. The configured case records the contradiction Batch 1 repairs:
+its BugPilot Safety Rules say "Run focused tests if available", its Verification
+Policy "Running tests for the changed behavior is not required by this project".
+
+**Measured baseline — retrieval, synthetic corpus.** 10 cases, 9 scored:
+Recall@5 9/9, MRR 0.926; confidence high 5 / medium 1 / low 4; 4 files in the
+top 5 only for forbidden terms; 2 cases with a forbidden term in their top-3
+evidence.
+
+| Kind | Cases | Recall@5 | MRR | High / Medium / Low |
+| --- | ---: | ---: | ---: | --- |
+| comment-noise | 2 | 2/2 | 0.667 | 2 / 0 / 0 |
+| hostname-noise | 1 | 1/1 | 1.0 | 0 / 0 / 1 |
+| environment-noise | 1 | 1/1 | 1.0 | 0 / 0 / 1 |
+| identifier-led | 1 | 1/1 | 1.0 | 0 / 1 / 0 |
+| user-keyword-led | 1 | 1/1 | 1.0 | 1 / 0 / 0 |
+| hint-led | 1 | 1/1 | 1.0 | 1 / 0 / 0 |
+| phrase-led | 1 | 1/1 | 1.0 | 0 / 0 / 1 |
+| mixed-description-comments | 1 | 1/1 | 1.0 | 1 / 0 / 0 |
+| generic-only | 1 | — | — | 0 / 0 / 1 |
+
+- The one ranking failure is the shape field-level provenance is for: a
+  description in ordinary words and four comments repeating an
+  identifier-shaped operational name put the operations module first and the
+  right file third — with confidence still High.
+- Noise that does not change the winner still costs context: the operations
+  module in both comment-noise cases, CMake platform notes and release notes in
+  the environment case.
+- Confidence differs from its target in 6 of 10 cases: Low for the hostname,
+  environment and phrase cases whose right file ranks first; Medium for the
+  identifier case; High for the hint-led case and for the comment-noise failure.
+
+**Measured baseline — retrieval, this repository.** The six live cases, which
+drift as the tree changes and are recorded rather than asserted: Recall@5 2/5,
+MRR 0.322 (best ranks 1, 9, 2 and three not found); confidence high 0 /
+medium 1 / low 5 — the same as the harness before Batch 0.
+
+**Tests.** New: `tests/test_task_golden.py` (21 — every case equals its
+golden file; no stray goldens; the matrix covers every dimension and the two
+risky interactions; a developer's own configuration cannot reach a golden; the
+yardstick; every rule pattern finds its rule; the Batch 0 record agrees with
+every golden file it has not changed) and 22 more in
+`tests/test_retrieval_regression.py` (the harness holds no extraction of its
+own and matches `code_search_step`; structured evidence reaches the issue;
+impossible cases are refused; no `rg`, no measurement; category coverage;
+invented hosts only; each synthetic case behaves as pinned; the summary's
+Recall@5, MRR, confidence and noise; the structured corpus-file format; the
+record names only existing cases). Focused runs: the corpus and golden tests
+58/58; retrieval, keyword extraction and search 205/205; task generation,
+branch policy, Jira comment, attachments, instructions and workflow 425/425;
+publishability and the argv contract 52/52. Full Python suite (isolated home,
+no Jira variables, the checkout on `PYTHONPATH`): 1860 passed, none failed or
+skipped. No extension file changed, so the extension suite was not rerun.
+
+**Known limitations.**
+
+- The synthetic repository is small: eight of nine scored cases already rank
+  their file first, so ranking headroom is concentrated in comment noise; the
+  other categories measure noise-only context and confidence calibration.
+  Real-scale evaluation remains the private corpus's.
+- The live cases' ranks drift with the tree. Recorded, never asserted.
+- Rule counts are patterns by meaning: they can overlap and can miss a future
+  rephrasing; Batch 3's exactly-once assertions are semantic tests of their own.
+- Jira's separate Environment field is not read by keyword extraction today;
+  the cases carry environment in the description, as hand-written and templated
+  reports do. That is the current behaviour, recorded.
+- No CI job runs the Python suite, so `rg` is guaranteed only where a
+  developer runs it; the corpus says so when it is missing.
+
+Batch 1 had not started when this record was taken; §42.2 is Batch 1.
+
+### 42.2 Batch 1 — Classification, precedence, Verification migration, capabilities, freshness (2026-10-09, uncommitted on `744c9ce`)
+
+**Decision — a deliberate precedence correction.** Batch 0 recorded the
+contradiction (§42.1): "Run focused tests if available" sat in BugPilot Safety
+Rules, which outrank every other layer, so a project that saved "Running tests
+for the changed behavior is not required by this project" was overruled by a
+rule that is not about safety. Which tests and checks to run is the project's
+decision; whether the agent tells the truth about them is BugPilot's. So:
+
+- **Testing Expectations moved** out of the protected block into the default
+  Verification Policy. Only the integrity rule stayed protected, in a section of
+  its own, `### Test and Check Integrity`: "Never claim a test or check passed,
+  or ran, unless it actually ran. In an investigation-only pass, state plainly
+  that tests were not run." — followed by "Which tests and checks to run is the
+  repository's Verification Policy, in its own section of the task — not one of
+  these rules."
+
+  | 0.1.2 Testing Expectations line | 0.1.3 home |
+  | --- | --- |
+  | Run focused tests if available, using the repository's own test commands. | Verification Policy: "Run the tests relevant to the changed behavior." (the 0.1.2 switch, already there) |
+  | Do not assume every test suite is available or runnable here. / If automated tests are unavailable, document manual validation. | Verification Policy: "Not every test suite is available or runnable here; when automated tests are unavailable, describe the manual validation you did instead." |
+  | Include regression risk. / Include commands attempted and results. | Verification Policy: "Report the regression risk of the change, and the commands you attempted with their results." |
+  | Do not claim tests passed if they were not run. | Protected: Test and Check Integrity (now also "or ran", and checks as well as tests) |
+
+- **Core Principles are no longer protected safety.** Small targeted fixes,
+  following the surrounding style, no unrelated refactoring, preserving the
+  architecture: working preferences that, inside the protected block, outranked
+  a project's own instructions. They are now `## BugPilot Working Guidance`,
+  rendered right after the safety rules and introduced as "guidance, not a safety
+  rule": project / team instructions, the Verification Policy, user
+  instructions, the Fix Mode and a developer hint may refine it. Built in, not
+  editable — they are the 0.1.4 AI Behavior candidates (`prompts.WORKING_GUIDANCE`).
+  "Do not mass-format files" was the one Core Principle the protected Editing
+  Guardrails state as well; it stays protected there and is not repeated in the
+  guidance — the one line Batch 1 removed rather than moved.
+- The precedence section says so: "Project / team instructions, the
+  Verification Policy and user instructions are configuration written by
+  people…", "BugPilot Working Guidance is BugPilot's default way of working, not
+  a safety rule: any of these layers may refine it.", and the precedence is not
+  editable "by user or project instructions, or by the Verification Policy". The
+  layer order itself is unchanged.
+- **`task.md` stays agent-neutral.** "Investigate inline using Read, Grep, and
+  Glob only. Do not use the Task tool or spawn any background or sub-agents, and
+  never idle waiting on one." named one agent's tools in a file handed to any
+  agent. It is now "Investigate within the current AI session. Do not delegate
+  the task to background or subordinate agents, and do not idle waiting on
+  them." Wording for one agent belongs to its handoff, not to `task.md`.
+- **Honest safety wording.** Nothing claims any longer that editable text
+  "cannot weaken" or "never overrides" BugPilot's rules — BugPilot cannot enforce
+  that on the agent. The contract, which tests check, is structural: the
+  protected rules are emitted unchanged and before every editable layer; no
+  editable file can delete or replace them (a policy that copies their headings
+  is rendered inside its own section, the real ones still first); conflicts are
+  resolved in their favour; the agent is asked to record a conflict in its
+  review notes. The CLI's instructions help, the panel's instruction help, the
+  README, the extension README and `docs/safety.md` use that wording.
+- No other rule moved: no deduplication (Batch 3), no change to Guardrails,
+  Forbidden Actions or Delivery.
+
+**Rule classification.** Every `## ` heading a task can carry is classified in
+`prompts.TASK_SECTION_CLASSES`; a test fails on any heading in any golden file
+that it does not list.
+
+| Class | Sections |
+| --- | --- |
+| A Protected safety / integrity | Execution Location; BugPilot Safety Rules (with Test and Check Integrity); Branch Instructions; Required Input Files; BugPilot Rule Precedence; BugPilot Evidence Rules; BugPilot Editing Guardrails; Required Output Files; Forbidden Actions; BugPilot Delivery Safety; Optional Assisted Delivery; Investigation Handoff; Report Status to Jira |
+| B Verification Policy | Verification Policy (default, legacy switches or `verification.md`) — now with the former Testing Expectations |
+| C AI Behavior candidate (0.1.4) | BugPilot Working Guidance (the former Core Principles) |
+| D Project Instructions | Project / Team Instructions |
+| E User Instructions | User Instructions |
+| F Fix Mode | AI Fix Mode |
+| G Developer Hint | Developer Hint; Developer Attachments |
+| H Generated evidence | Repository Context |
+
+**Implementation — the Verification Policy as text** (`bugpilot/core/verification.py`, new).
+
+- **Sources, first match wins:** `<repo>/.bugpilot/verification.md`
+  (`verification-file`); else the four switches saved in
+  `.bugpilot/project_settings.json` (`legacy-project-settings`); else BugPilot's
+  default (`bugpilot-default`). The default and the legacy text are the four
+  switch lines, worded as in 0.1.2, plus the two lines Testing Expectations gave
+  the policy.
+- **Replacement semantics.** The file's body replaces the policy whole; nothing
+  is appended to it, and there is no `mode: append`.
+- **Front matter**, dependency-free and strict: the first line is `---`, closed
+  by a `---` line, exactly the keys `schema_version` (must be 1),
+  `based_on_version` (a whole number: which BugPilot default the text started
+  from, so a later default change can be reported as `default_changed`) and
+  `mode` (only `replace`); `key: value`, values optionally quoted; blank lines
+  allowed. A missing, unclosed, unknown, duplicated or non-numeric key, a newer
+  `schema_version`, another mode or an empty body is a problem with a sentence
+  that says how to fix it. Metadata lives only in the file, never in
+  `project_settings.json`. Synthetic example:
+
+  ```markdown
+  ---
+  schema_version: 1
+  based_on_version: 1
+  mode: replace
+  ---
+  Run the tests next to the changed module (for example `tests/test_format_a.py`).
+  Report which checks you did not run, and why.
+  ```
+
+- **One text-file safety implementation.** Reading goes through
+  `instructions.read_text_document` and `instructions.link_problem` (factored out
+  of the instructions reader, messages unchanged): UTF-8, 20,000 characters,
+  BOM/CRLF/trailing-space normalisation, real files inside the repository only —
+  no symbolic link or junction at the folder or the file. Writing is the
+  instructions' atomic, link-safe write. The body is rendered through
+  `instructions.contained_markdown`, so its headings cannot pose as BugPilot's.
+- **A file that cannot be used** — malformed front matter, too long, not UTF-8,
+  a link — is reported and never reinterpreted: the source stays
+  `verification-file` (the file exists and decides), the default policy applies,
+  and the problem is a run warning, in `show`, and named in the task's source
+  line ("BugPilot defaults, because the repository's .bugpilot/verification.md
+  could not be used").
+- **One section.** `verification_section` renders exactly one
+  `## Verification Policy`, whose source line names BugPilot defaults, the
+  repository configuration (project settings) or the repository Verification
+  Policy (`.bugpilot/verification.md`), and adds "Whatever it asks, never claim a
+  test or check ran unless it did: that is a BugPilot rule." Only the CLI/core
+  renders it; the extension never does.
+- **`ResolvedVerification`** (`ResolvedProjectSettings.effective_verification`):
+  source, text, file state, lint; `sha256` over source, problem,
+  `based_on_version` and text; `log_line`, which never includes the text.
+- **Lint** (`lint_policy`), non-blocking: a line that looks like it asks for a
+  force push, a commit or push without approval, staging `.ai/` or
+  `.ai_memory/`, ignoring BugPilot's safety rules, reporting tests as passed that
+  did not run, or leaving out verification that did not run gets "Line N of
+  .bugpilot/verification.md may conflict with a BugPilot rule (…). The BugPilot
+  rule still applies; the policy is kept as written." N is the file's line, as
+  an editor shows it. A negation before the match ("never force push", "do not
+  commit without approval") is the rule and passes; one after it ("…even if they
+  did not run") does not. Saving is never refused for it. It is described
+  everywhere as a hint, not a complete check, and not a defense against a hostile
+  repository.
+
+**Implementation — CLI.**
+
+- `bugpilot verification show [--json]`: the effective text, `source`, `path`,
+  `file` (exists, problem, schema_version, based_on_version, mode, characters),
+  `based_on_version`, `default_version`, `default_changed`,
+  `differs_from_default`, `default_text`, `problem`, `lint`, `sha256`,
+  `max_characters`; warnings = problem + lint. Read-only: it never creates the
+  file.
+- `bugpilot verification set --stdin | --from-file PATH`: a policy body gets
+  front matter; a whole document must parse. Refuses empty text (pointing at
+  `reset`), more than 20,000 characters, and links. Never logs the text.
+- `bugpilot verification clear` and `reset`: one operation — remove the
+  repository's override; the answer says which policy applies instead.
+- `bugpilot project-settings [show|set]` adds `verification_source` (JSON) and
+  "verification source:" (text); when the file wins, `set` warns "The
+  Verification switches were saved for BugPilot 0.1.2 and earlier, but
+  .bugpilot/verification.md is this repository's effective Verification Policy:
+  the switches do not change it."
+- `bugpilot doctor --json` adds `capabilities: ["verification-text"]`
+  (`doctor.CAPABILITIES`) after `version`; every existing field is kept.
+- A run logs the policy's source and size, never its text, and carries the
+  problem and lint into the run's warnings.
+- `tests/fixtures/extension_cli_argv.json` gains the `verification show` line
+  and `"capabilities": ["verification-text"]`; `scripts/check_cli_contract.py`
+  checks that `doctor --json` lists every capability the fixture names, since a
+  CLI too old for a feature can accept every argument and still ignore it.
+
+**Implementation — extension.**
+
+- **Capability gate.** `verificationPolicy.ts` (new) reads a snapshot — source,
+  hash, problem, lint count; never the text — with `verification show --json`,
+  asked only of a CLI whose doctor report lists `verification-text`. With an
+  older CLI and `.bugpilot/verification.md` present, the environment card shows
+  the existing "BugPilot CLI is out of date." state (`#blockOutdatedCli`, the same
+  Update Instructions / Choose Executable / Retry), with "The installed bugpilot
+  cannot read .bugpilot/verification.md, so it would prepare tasks without this
+  repository's Verification Policy (its doctor report has no verification-text
+  capability)." No second incompatibility UI. Without the file an older CLI
+  prepares as before.
+- **The switches' note.** When the file decides, a note under the Verification
+  switches says so ("…These switches are kept for BugPilot 0.1.2 and earlier, and
+  do not change it."), names a file that cannot be used with its reason, and
+  counts lint lines ("1 line of it may conflict with a BugPilot rule, which still
+  applies; bugpilot verification show lists them."). Apply still saves the
+  switches. The lint count is also logged; the text never is.
+- **Reread points.** `#refreshPolicies` rereads the instructions and the
+  Verification Policy (one shared read in flight) at every environment check,
+  when the window comes back to focus (`onDidChangeWindowState`), and just
+  before Run, Rebuild Context, Fix with AI and Start New Attempt. That covers the
+  user's own instructions, outside any workspace watcher.
+- **Watcher.** `watchPolicyDirectory` watches `<repo>/.bugpilot/`
+  (`instructions.md`, `verification.md`, `project_settings.json`) for the
+  repository on screen; a burst of events schedules one reread
+  (`ARTIFACT_REFRESH_DEBOUNCE_MS`). Rereads only read, so a refresh — including
+  one caused by BugPilot's own Save — cannot cause another.
+- **Fingerprint.** The prepared context's policy fingerprint is the
+  instructions fingerprint plus `source:sha256` of the Verification Policy (the
+  hash covers content, source, problem state and `based_on_version`; `mode` has
+  one value). While `verification.md` decides, `preparationFingerprint` leaves
+  the switches out, so changing them is no longer a change to the task. A change
+  shows the existing **Needs rebuild**; Fix with AI says "The instructions or the
+  Verification Policy changed since this context was prepared, so nothing was
+  handed over. Press Rebuild Context first." (`STALE_HANDOFF_POLICIES`), and
+  Start New Attempt starts nothing. Reading, opening or viewing never stales.
+
+**Migration behavior.**
+
+| Repository state | Effective policy | `verification_source` |
+| --- | --- | --- |
+| No `verification.md`, no saved switches | BugPilot default | `bugpilot-default` |
+| No `verification.md`, switches saved (0.1.2 or Apply) | rendered from the switches | `legacy-project-settings` |
+| `verification.md` usable | the file's text, replacing the policy | `verification-file` |
+| `verification.md` unusable | BugPilot default, with the problem reported | `verification-file` |
+
+- Nothing creates the file on read — not `show`, not a run, not the panel. The
+  first `bugpilot verification set` creates it and from then on it is canonical.
+  `reset`/`clear` remove it and the switches or the default apply again.
+- The switches are kept and still accepted: a 0.1.2 `project-settings set` is
+  parsed and saved as before; while the file exists it decides nothing, and
+  `project-settings` reports `verification_source: verification-file` (and warns
+  on `set`). Tested as the mixed-version case.
+- An editor for `verification.md` in the panel is Batch 4's.
+
+**Compatibility.**
+
+- **A teammate on 0.1.2.** After `verification.md` exists, a teammate using
+  BugPilot 0.1.2 may change the old Verification checkboxes; those values are
+  saved but do not affect 0.1.3's effective Verification Policy. 0.1.3 makes the
+  active source visible through `verification_source` and the switches' note.
+  0.1.2 itself never reads the file and keeps preparing from the switches.
+- **0.1.3 extension, 0.1.2 CLI (pipx / PATH).** Checked with
+  `check_cli_contract.py` against HEAD's package: "doctor --json: no capability
+  verification-text" and "verification show: unrecognized arguments" (0.1.2
+  reads an unknown first word as `bug`'s issue key). The extension needs only
+  the first: with the file present it shows the outdated-CLI state; without it,
+  it prepares as before. A pinned test covers the real 0.1.2 message too.
+- **Managed Runtime.** Pins `bugpilot==<extension version>`, so a matched 0.1.3
+  pair has the capability and works normally.
+- **0.1.3 CLI, 0.1.2 extension.** The extension never asks; the CLI applies the
+  file if there is one. The 0.1.2 panel shows the switches without the note.
+- The working tree passes `check_cli_contract.py`: 29 command lines accepted,
+  `doctor --json capabilities -> verification-text`, `bugpilot 0.1.2` (the
+  release version is unchanged).
+
+**Tests.** New: `tests/test_verification_policy.py` (40 — the three sources;
+replacement; reading never creates the file; deterministic front matter and
+nine malformed shapes, each reported and never reinterpreted; size, UTF-8 and
+normalisation; a linked folder (symbolic link and junction) or file neither
+read nor written; save and remove; `verification show/set/clear/reset`, their
+refusals, text output and help (which promises no enforcement);
+`project-settings`' `verification_source` and the
+0.1.2-client mixed-version case; the lint warns, points at the file's line,
+leaves an ordinary policy alone, is carried into the run and never blocks; the
+policy text is never logged; a hostile policy that copies BugPilot's headings
+cannot change or displace its rules; Testing Expectations left the safety rules
+and integrity stayed; a project that does not require tests is no longer
+overruled; Working Guidance is not a safety rule; no agent's tools are named;
+every heading of every golden is classified; the doctor capability; the
+fingerprint changes with the policy and reading writes nothing; hand-built
+settings; the CLI, the core and MCP read the same file) and a 13th golden case.
+Wording pins updated in `test_workflow`, `test_fix_mode_prompts`,
+`test_context_task_artifacts` and `test_project_settings`; the unwired-symbol
+guard lists `TASK_SECTION_CLASSES` with its reason, and the legacy
+`verification_policy_section` wrapper, left with no production caller, was
+removed. Extension: `test/verificationPolicy.test.ts` (6, including the real
+0.1.2 rejection message), 12 controller tests (the capability gate and the
+outdated state; the note; rereads on focus and before Run, Rebuild Context,
+Fix with AI and Start New Attempt; the same content read twice is no change;
+the user's own instructions reread; one reread per burst of watcher events, and
+the watcher disposed; the switches inert while the file decides), one page test,
+the argv contract's capabilities, and the panel's help wording.
+
+Focused runs: golden and corpus 59/59; verification, project settings and
+instructions 106/106 (108/108 with the unwired-symbol guard); prompt, task,
+workflow, branch policy and attachments 354/354; publishability, argv contract,
+CLI JSON and MCP 191/191. Full Python suite (isolated home, no Jira variables,
+the checkout on `PYTHONPATH`): 1901 passed, none failed or skipped (Batch 0:
+1860); the help test, added after that run, passes on its own (40/40 in its
+file), so the suite now holds 1902. Extension: 2202/2202
+unit tests (2183 before), typecheck clean, activation smoke ok (23 commands, 2
+views), package check ok (76 files, 63 built JavaScript), CLI integration 16/16;
+`check_cli_contract.py` 29/29 against the working tree.
+
+**Measured result** (`python tests/baseline_report.py`; recorded in
+`tests/baselines/0.1.3-batch1/`, the Batch 0 record unchanged). This is not the
+Batch 3 deduplication metric.
+
+| Median | Batch 0 (12 cases) | Batch 1, same 12 cases | Batch 1, 13-case matrix |
+| --- | ---: | ---: | ---: |
+| characters | 15,481 | 15,973 (+3.2%) | 15,969 |
+| words | 2,463 | 2,552 (+3.6%) | 2,552 |
+| approximate tokens | 3,870 | 3,993 (+3.2%) | 3,992 |
+
+- **Every one of the 12 golden files changed, identically:** +492 characters,
+  +89 words, one more section (`BugPilot Working Guidance`), the same 54 diff
+  lines in each, all intended: Testing Expectations moved out of the protected
+  rules (and two of its lines into the Verification Policy, so the configured
+  case's legacy policy gained them too); Core Principles reclassified as
+  Working Guidance, with its introduction; the Test and Check Integrity section;
+  the precedence sentences; the agent-neutral investigation rule. The growth is
+  the Working Guidance introduction and the integrity section; removing
+  repetition is Batch 3's.
+- Rule counts: false test claims 3 → 4 (2 → 3 in an investigation) — the
+  integrity section, and the Verification Policy's own reminder; mass-format
+  3 → 2 — no longer repeated in the guidance. Every other count, and the
+  precedence layers, unchanged.
+- **New golden:** `jira-fix-current-verification-file` (a usable
+  `verification.md` beside saved switches: the file wins, the source line names
+  it) — 15,589 characters.
+- **Retrieval unchanged:** synthetic corpus Recall@5 9/9, MRR 0.926, confidence
+  high 5 / medium 1 / low 4, 4 noise-only files in the top 5; live corpus
+  Recall@5 2/5, MRR 0.322, confidence high 0 / medium 1 / low 5 — identical to
+  Batch 0. No retrieval file changed.
+
+**Known limitations.**
+
+- The safety contract is an instruction to the agent. BugPilot controls what
+  `task.md` says and in what order, not what the agent does: review before
+  commit.
+- The lint is a handful of English patterns. It can miss a rephrasing and can,
+  rarely, flag a line that is fine; it is a hint, never a block.
+- Lint line numbers count lines of the normalised file; blank lines before the
+  opening `---` are not counted.
+- The panel cannot edit `verification.md` yet (Batch 4); the switches remain
+  its Verification UI, with the note when the file decides.
+- The watcher sees the open repository's `.bugpilot/`; the user's own
+  instructions are reread at the reread points, not watched.
+- A 0.1.2 CLI cannot say that it ignores the file; only a doctor report with
+  capabilities (0.1.3 and later) can be trusted to read it. A 0.1.2 panel shows
+  the switches without saying that the file decides.
+- `based_on_version` is recorded and reported (`default_changed`); nothing acts
+  on it yet.
+- `clear` and `reset` are one operation by design.
+- `task.md` is 3.2% longer at the median; Batch 3 removes repetition.
+
+Batch 2 had not started when this record was taken; §42.3 is Batch 2.
+
+### 42.3 Batch 2 — Retrieval and Context Quality (2026-10-10, uncommitted on `744c9ce`)
+
+**Decision.** Retrieval's weights were mostly right; what they were fed was
+not. Title, description and comments arrived as one flattened text, so a word
+four comments repeated was indistinguishable from the issue's subject, and an
+Environment line's `Windows` read as description. Batch 2 keeps the weight
+scale and the ranker and gives every term its provenance; reads the issue by
+field; repairs what the corpus showed the parser getting wrong; and replaces
+the two judgements that were too generous — Search Confidence ("any high file
+means High") and Context Quality (90/100 for a report with no steps, actual or
+expected result). Every change was driven by a corpus case and is measured
+against the Batch 0 record. Ranking order logic, task generation, Verification,
+precedence, UI, branch policy, Jira and the CLI policy commands are untouched.
+
+**Implementation — field-level provenance.**
+
+- `IssueArtifact.field_texts`: (origin, text) for `title`, `description`
+  (its own lines only: `jira_parse.free_description` leaves out the
+  reproduction, actual, expected and environment sections, which are fields of
+  their own), `reproduction`, `actual`, `expected`, `environment` and one
+  `comment` per comment. `core_text` is the issue itself, `secondary_text` the
+  comments and environment.
+- `search_terms.TERM_ORIGINS` adds `hint` and `user-keyword` (the shared
+  Keywords as Code Search reads them; Git History already records which input
+  a commit term came from, and Focus Files are marked on the file).
+  `term_origins` finds each candidate's fields — as a whole token first, inside
+  the text only for a part or a phrase — and a hand-written bug's derived title
+  (its first line, cut with "…") is not a field of its own, or every word of
+  that line would read as agreed on. `extract_issue_keywords` records the
+  result as `term_origins`; `SearchTerm.origins`, `RetrievalTerm.origins` and
+  `retrieval.json`'s terms carry it. `merge` unions the origins of every claim.
+- The weight model is unchanged — phrase 12, strong 8, identifier 6, shape 5,
+  hint 4, prose 2, weak 1 — and `weigh` reads origins: a term only the comments
+  use is worth a hint's 4 if it is an identifier and 1 if it is prose; a quoted
+  phrase only a comment carries is worth 6; a plain word the title and the
+  description agree on is worth `WEIGHT_AGREED` 3; a stack-trace or
+  error-message term keeps 8 wherever it was pasted; `--keywords` keep 8 and
+  lead the search, never renamed as Hint terms. Hint weighting is unchanged.
+
+**Implementation — comment contribution.**
+
+- Extraction (`extract_keywords(text, …, secondary_text=…)`): a comment's or
+  the environment's word counts once however often it is repeated, and ranks
+  below the issue's own words of the same shape (`SECONDARY_RANK_PENALTY` 4):
+  comment prose under all issue prose, a comment identifier under every issue
+  identifier. Identifier shapes are built from the issue's own words only.
+  Before, "verified" four times was the top extracted keyword.
+- Ranking: whatever comment- and environment-only terms match in one file adds
+  up to `SECONDARY_EVIDENCE_CAP` (4, one comment identifier) at most, with the
+  reason "comment and environment terms capped at 4 points".
+- Comments stay in `context.md` in full; only their pull on retrieval changed.
+  A useful identifier in a comment still searches (weight 4), and a stack trace
+  in a comment still counts as the strongest signal.
+
+**Implementation — phrase and co-occurrence.**
+
+- Quoted phrases (12) and confirmed identifier shapes (5) are kept as they
+  were.
+- New: the issue's concepts on one matched line — "the preview pane keeps the
+  renderer", "Reopening the export dialog resets the output format" — earn 2
+  per concept beyond the first, up to 6 (`_concepts_together`), with the reason
+  "N issue concepts on one line". It reads the lines the search already kept,
+  so it costs no extra search; a term counts where a word starts with it
+  (`reopen` in "Reopening", `format` in `outputFormat`), never inside one (`out`
+  in "timeout"). Title + description agreement is `WEIGHT_AGREED`. A broad
+  comment term can no longer outrank a multi-concept file: it is weight 1 and
+  capped.
+- `qualified_parts`: `Class.method` is searched by its identifier parts as
+  well. Code declares the class and the method apart, so
+  `ThumbnailCache.invalidate_stale_entries` matched nothing verbatim and only
+  weak word fragments found the file.
+
+**Implementation — conservative noise filtering** (`keywords.remove_noise`,
+before tokenizing). Links and e-mail addresses are dropped and never recorded
+(either can carry a token or a person); lowercase dotted host names whose last
+label is a host suffix (`invalid`, `localhost`, `com`, `net`, `org`, `corp`,
+`intranet`, `lan`; `example`, `test`, `local`, `internal`, `io`, `dev` only with
+three labels or a digit or hyphen) and numbered machine names (two or more
+lowercase words joined by hyphens, then a number: `build-host-01`) are removed
+and listed in `noise_keywords`, shown in `context.md` as "Not searched, host or
+machine names". Version strings were never tokens and still are not. `out`
+joined the stop words. Kept, and tested: `utf-8`, `x86-64`, `qt-6`,
+`self.test`, `socket.io`, `System.Net`, `os.path`, `module.func`,
+`widget.cpp`, `Qt5`. Generic workflow and status words got no list of their
+own: as comment-only words they are already weight 1 and capped, and as the
+issue's own words they may be its subject.
+
+**Implementation — environment cleanup.** Jira's own Environment field was
+returned by every issue fetch and never read (§42.1's known limitation): it is
+now the environment, together with an Environment section of the description
+when there is one; only without either is the environment still guessed from
+the text. A version or build value must
+contain a digit ("Released build verified" had made the environment
+`verified`); a value found inside one already found is not repeated ("build
+2027.0.1" no longer adds "2027.0"). Environment values stay in the context
+exactly as written — `Linux`, `Windows`, `2027.0`, `x86-64` — but a term only
+the environment uses is never searched ("Not searched, environment only" in
+`context.md`). The parser's own log-signal labels ("Comment mentions log",
+"Attachment: x.log") left `IssueArtifact.priority_text`: mined as priority
+text they had made `mentions`, `log` and `Comment` stack-trace-strength terms.
+
+**Implementation — Search Confidence v2** (`search._search_confidence`; ranking
+untouched). It reads the best-ranked file and the top three. The *concepts*
+are the matched terms the issue itself says, or the developer typed, at least
+a plain word's weight; the *strong* ones are worth a confirmed shape or more.
+
+- **Low** when nothing matched, nothing the issue says matched anywhere
+  (`no_core_concepts_matched`), the top file holds none of it
+  (`top_file_has_no_core_concepts`), or it is there mostly for comment and
+  environment words (`secondary_evidence_dominates`).
+- Otherwise points: 3 per strong concept, and 3 more when the file is named
+  after one, up to 6; 1 per plain concept, up to 6; 2 for a phrase — a quoted
+  phrase, a confirmed shape, or three concepts on one line.
+- **High** needs at least 6 points, the top file holding at least half of the
+  matched concepts, and a clear lead (1.5 times the second file's score) or the
+  next files sharing its strongest concept — and none of: the evidence mostly
+  the hint, a test file, a noisy path.
+- **Medium** needs at least 2 points, something substantive (a strong term, a
+  phrase, a strong hint term, or 4 plain concepts), and fewer than two
+  compounding weaknesses (hint-dominated, no clear leader, low coverage, noisy
+  path). Otherwise Low (`sparse_core_support`).
+- A term with no recorded origins — a caller's own extraction — counts as the
+  issue's, so older callers keep their meaning. Per-file confidence is
+  unchanged.
+- Output: the same three levels; the `reasons` sentences now explain v2, and
+  `retrieval.json` gains `confidence_details` (version 2): reason codes,
+  `core_term_coverage` (matched / top file / top 3), strong terms in the top
+  file, `phrase_in_top_file`, `source_support` (core, user_keyword, hint,
+  comment_only, environment_only), `top_file_margin`, `agreeing_top_files`.
+  The artifact `schema_version` stays 1; the Python reader models and
+  round-trips both new fields (a Git History rewrite keeps them), an older file
+  reads with none, a section of another version reads as none; the extension
+  reads only `related_files`, `terms` and `git_history` and shows a term's
+  `source`, which did not change.
+
+**Implementation — Git History v2 gate** (no rewrite: `MIN_SUPPORTING_SCORE`,
+message handling, scoring and reasons as they were).
+
+- `select_extracted_terms` refuses a term only the comments or the environment
+  use, unless a stack trace or error message printed it (weight 8). Identifier
+  weight ≥ 6 was already required, so comment-only identifiers (4) were out
+  already; a comment's quoted phrase (6) is now out too.
+- `weak_ranked_files` (a new `GitHistoryQuery.weak_ranked_files`): a top-five
+  Code Search file earns its commits file-history credit only when Code Search
+  rated it above `low` and a term the issue itself says — or the developer
+  typed or hinted — matched it with at least a plain word's weight. Weak files
+  are not walked; the others keep their Code Search rank. Only recorded
+  evidence is judged: an older term without origins counts, a file with no
+  matched terms recorded is not judged.
+- Issue keys, shared Keywords and Additional Commit Keywords are untouched,
+  and so are the corpus in `tests/git_history_corpus.py` and its floors.
+
+**Implementation — Context Quality v2** (`context.context_quality`).
+
+- **Issue completeness** /100: description 25, reproduction steps 20, actual
+  result 15, expected result 15, environment 10, errors, stack traces or logs
+  10, attachments (the report's, or files the developer attached) 5.
+- **Retrieval quality** /100: Search Confidence 60 / 35 / 10 (0 without files),
+  plus 25 × the share of the issue's matched concepts the top file holds, plus
+  15 for a strong or phrase match (a pre-0.1.3 retrieval at High gets both).
+- **Repository context** /100: git ran in a repository 40, related commits 30,
+  similar fixes 30.
+- **Overall** = 40 % + 40 % + 20 %, rounded half up, at most
+  `MISSING_CORE_EVIDENCE_CAP` 75 when reproduction steps, actual result and
+  expected result are all missing. 75 because, with everything else perfect,
+  such a report computes 80 — the cap is what makes it materially below 90.
+  One-line hand-written bugs are not invalid: they score low on Issue
+  completeness (25) and say so.
+- `context.md` shows Overall and the three components, the formula, the yes/no
+  lines (now per report part, plus "Issue concepts in the best-ranked file: N
+  of M" and "Related commits found: N"), and "Overall at most 75: …" when the
+  cap applies. The extension does not parse this section.
+
+**Tests.** New `tests/test_retrieval_quality.py` (29):
+
+- provenance per field, a derived title not a field, `free_description`;
+- the weight table, `--keywords` still strongest, environment-only words not
+  searched but shown, qualified parts;
+- comment repetition counted once;
+- hosts, machine names, links and addresses never searched, and the technical
+  tokens kept; version strings never searched but kept in the environment;
+- environment filler; Jira's Environment field read and not searched; log
+  labels not priority text;
+- the comment cap; concepts together vs apart; word starts;
+- one high file no longer High; a comment-dominated file Low; nothing core
+  Low;
+- `retrieval.json` additive fields, version unchanged, old files and other
+  versions read;
+- the Git History term and file gates, ranks preserved; on the synthetic
+  history, no commit through comment or environment noise while the issue's
+  own evidence still finds its commits;
+- the Context Quality cap with none, one or all three present and a one-line
+  bug; every component in `context.md`.
+
+Also:
+
+- In `test_retrieval_regression.py` (37 → 47), each of the 10 synthetic cases now must
+  land on its Batch 0 `expected_confidence`, none of which was edited. Six
+  `current` observations were updated deliberately, with their Batch 0 values
+  in comments.
+- `retrieval_corpus.py` gained the synthetic history
+  (`build_synthetic_history`, `run_history_case`) and the Context Quality cap
+  cases.
+- Updated to the new contract: `test_context_signals`, the `retrieval.json`
+  field-structure test in `test_workflow`, and `test_issue_artifact`. The
+  latter now checks that the split reading still reads every word the parser
+  produced; `IssueArtifact.combined_text`, left with no caller, was removed.
+
+Focused runs, every one passing (collected counts; all passed again in the
+full run): Batch 2's tests and the retrieval corpus 76; search budget, hint
+retrieval, identifier shapes, ranking and robustness 49; `retrieval.json`,
+Context Quality and context artifacts 57; Git History v2 184; issue parsing
+and workflow 224; task generation 101 (the golden matrix unchanged: Batch 2
+does not touch `task.md`); publishability, the argv contract, CLI JSON, MCP
+and the unwired-symbol guard 193. Full Python suite (isolated home, no Jira
+variables, the checkout on `PYTHONPATH`): 1941 passed, none failed or skipped
+(Batch 1: 1902). No extension file changed; the extension's CLI integration
+tests, which read the real CLI's `retrieval.json`, pass 16/16, and its
+retrieval, context summary and Git history unit tests 61/61.
+
+**Measured result** — `python tests/baseline_report.py`, recorded in
+`tests/baselines/0.1.3-batch2/`. That record adds `git_history.json` and
+`context_quality.json`; the Batch 0 and Batch 1 records are byte-for-byte
+unchanged.
+
+| Synthetic corpus | Batch 0 | Batch 2 |
+| --- | ---: | ---: |
+| Recall@5 | 9/9 | 9/9 |
+| MRR | 0.926 | 0.944 |
+| High / Medium / Low | 5 / 1 / 4 | 7 / 2 / 1 |
+| on the expected confidence | 4/10 | 10/10 |
+| files in the top 5 only for noise terms | 4 | 0 |
+| cases with a noise term in the top-3 evidence | 2 | 0 |
+| documentation in the top 5 | 2 | 0 |
+| terms searched | 168 | 163 |
+
+| Category | Batch 0 best rank, confidence | Batch 2 | Expected |
+| --- | --- | --- | --- |
+| comment noise | 1, high | 1, high (the operations module out of the top 5) | high |
+| comment noise, identifier-shaped | 3, high | 2, medium | medium |
+| hostname noise | 1, low | 1, high (host files out of the top 5) | high |
+| environment noise | 1, low | 1, high (platform notes and release notes gone) | high |
+| identifier-led | 1, medium | 1, high | high |
+| user-keyword-led | 1, high | 1, high | high |
+| hint-led | 1, high | 1, medium | medium |
+| phrase-led | 1, low | 1, high | high |
+| strong description, noisy comments | 1, high | 1, high (no `mentions`/`log`/`Comment` priority terms) | high |
+| generic terms only | —, low | —, low | low |
+
+- **Comment noise improved, not solved.** The identifier-shaped case moved
+  from rank 3 to 2 and from High to Medium, and the comment-driven operations
+  module is no longer first. What now ranks first is the export job, whose
+  docstring says "in the chosen format" — a genuinely ambiguous decoy the case
+  was written with, which is why its target is Medium.
+- **This repository's live corpus** (drifts with the tree): Recall@5 2/5 →
+  1/5, MRR 0.322 → 0.251, High / Medium / Low 0 / 1 / 5 → 1 / 1 / 4. The recall
+  change is the tree's:
+  - Batch 2 edited the very files these cases search for (its plan text,
+    tests and comments name their identifiers).
+  - The retrieval code from before Batch 2 (unchanged since 0.1.2; Batch 1
+    did not touch it), run on today's tree, gives the same ranks, Recall@5 1/5
+    and MRR 0.256. Against that, Batch 2's scoring costs the prose-heavy case
+    one rank (6 → 7, MRR −0.005) and nothing else.
+  - No failing case became High. The one High is the case whose file ranks
+    first. No local private corpus exists here, so there are no LOCAL-ONLY
+    numbers.
+- **Git History, over the synthetic history** (import, then one decoy commit
+  each and one fix commit each):
+  - Before, every noise commit was retained. "NightlyPipeline: mark staging
+    runs verified" ranked first in the identifier-shaped comment case (33
+    points, a comment-only term plus Code Search file #1) and was kept in the
+    other comment case (16, via file #4). "Platform notes for Windows 11
+    x86-64" was kept in the environment case (19, via file #3). A generic-word
+    file kept "Retry large uploads…" in the identifier case, and the
+    generic-only case had two commits.
+  - After, none of them; the generic-only case has none.
+  - The fix commits found through the issue's own evidence are all still
+    there. "Keep the output format…" even rose from 19 to 22 where its file
+    rose in Code Search.
+- **Context Quality** (overall, Batch 1 formula → v2; components in the
+  record):
+
+  | Case | v1 → v2 |
+  | --- | --- |
+  | comment noise | 90 → 63 |
+  | comment noise, identifier | 90 → 50 |
+  | hostname | 69 → 63 |
+  | environment | 69 → 68 |
+  | identifier | 77 → 62 |
+  | user keyword | 90 → 64 |
+  | hint | 90 → 48 |
+  | phrase | 69 → 64 |
+  | strong description, the only case with steps / actual / expected | 90 → 87 |
+  | generic | 69 → 22 |
+
+  Cap cases (everything else perfect): none of the three 100 → 75; expected
+  result only 100 → 86; all three 100 → 100; a one-line hand-written bug
+  100 → 70.
+
+**Confidence distribution impact.**
+
+- `task.md`'s Low rules (verify the feature exists before editing; do not
+  trust the matched files; do not change code on low-confidence matches) will
+  fire less often: Low is 4 → 1 of 10 synthetic cases and 5 → 4 of 6 live
+  ones.
+- That is the evidence, not a target being chased. In all three synthetic
+  cases that left Low, the right file ranks first with most of the issue's
+  concepts and a clear lead. v1's Low there came from a documentation or build
+  file *elsewhere* in the list forcing Low.
+- The other direction moved too. Two cases fell from High to Medium: the
+  ambiguous comment case, whose top file is wrong, and the hint-led case,
+  resting on a hypothesis.
+- On the live corpus, every case whose expected file is missing or below
+  rank 5 is Low or Medium; the Medium one has strong identifiers matching
+  tests that quote them.
+- No change was needed to `task.md`.
+
+**Known limitations.**
+
+- The synthetic corpus is small (17 files, 10 cases) and was used both to
+  drive and to measure the change. The rules are written as general evidence
+  tests rather than per-case thresholds, the live corpus showed no High on a
+  failure, and a private corpus is the real check — none was available here.
+- The ambiguous comment case still ranks the decoy first, at Medium.
+- "Concepts together" is a word-start substring test on kept lines (≤ 3 per
+  term per file); it can count a related word (`reopen` in "reopened").
+- Host detection covers lowercase dotted names with the listed suffixes and
+  numbered machine names only; an upper-case or bare host name is still
+  searched.
+- A platform named only in the Environment section is not searched for; one
+  named in the description still is.
+- An error line pasted into a comment still gives its identifiers priority —
+  deliberately, since that is what the software printed.
+- Context Quality's weights are judgement — deterministic and shown, not yet
+  calibrated against agent outcomes.
+- Confidence thresholds were set on 16 cases.
+- The synthetic history's import commit is not a bulk commit (17 files), so it
+  appears in every case's list.
+
+Batch 3 had not started when this record was taken; §42.4 is Batch 3.
+
+### 42.4 Batch 3 — `task.md` deduplication (2026-10-10, uncommitted on `744c9ce`)
+
+**Decision.** Every protected rule is defined once, in the section that owns
+it, and other sections refer to it instead of restating it. Batch 0 measured
+the cost of the old shape:
+
+- force push appeared 4 times;
+- commit/push approval 4 times;
+- deleting files 4 times;
+- creating pull requests 3 times;
+- Jira field changes up to 7 times;
+- five sections said "applies in every pass / every Fix Mode";
+- the `fix_report.md` contract appeared twice, and no-op guidance three times.
+
+Three sections were almost entirely restatement: the Safety Rules' Git Safety,
+the Editing Guardrails and the Forbidden Actions. No rule was weakened to save
+characters; where a merged sentence could read as weaker, both halves were
+kept (e.g. "Do not delete files" — the broader of "files" and "source files").
+This changes no behaviour or precedence:
+
+- branch policies, Jira, Verification, Fix Modes and retrieval are untouched;
+- Batch 1's precedence correction and Batch 2's retrieval are preserved, and
+  tested;
+- no UI work.
+
+**Implementation — canonical ownership.**
+
+| Rule | Defined once in | Before |
+| --- | --- | --- |
+| Never claim a test or check passed or ran unless it did | Safety Rules › Test and Check Integrity | Integrity, Output Expectations, Editing Guardrails, Required Output |
+| No `git reset --hard` / `git clean -fd`, no merge, no pull requests | Safety Rules › Git, Jira and Credentials | Git Safety, Forbidden Actions, Delivery Safety, Guardrails |
+| Never force push (`--force`, `--force-with-lease`) | Safety Rules | Git Safety, Forbidden, Delivery, the precedence example |
+| Never transition, assign or change Jira fields; the one status comment only when the task asks | Safety Rules | Git Safety, Guardrails, Forbidden (4 lines), Delivery, Report Status |
+| Never reveal credentials (was only an example in the precedence text) | Safety Rules | Precedence example |
+| Investigate in the current session, no delegation | Safety Rules › Editing | Editing Guardrails |
+| Do not delete files; do not mass-format unrelated files | Safety Rules › Editing | Git Safety, Guardrails, Forbidden, precedence example |
+| Never work directly on main/master; the policy's branch; edit only there | Branch Instructions | Git Safety, Branch Instructions, Guardrails' branch line |
+| Commit or push only after explicit approval, never automatically | Delivery Safety | Git Safety (3 lines), Guardrails, precedence example |
+| Branch checks before staging; stop on main/master or detached HEAD | Delivery Safety | Delivery (twice), Assisted Delivery's per-issue stop |
+| Staging exclusions (`.ai/`, `.ai_memory/`, `issue.json`, `jira_field_report.md`, secret-bearing files) | Delivery Safety | Git Safety, Guardrails, Delivery |
+| Never push main/master | Delivery Safety | Git Safety, Forbidden, Delivery |
+| Never invent evidence; attachment contents; low confidence; no-op | Evidence Rules | Evidence Rules (3 low-confidence lines, 2 no-op lines), No-Op Fix Guidance |
+| The `fix_report.md` contract | Required Output Files | Output Expectations, Required Output Files |
+| How a conflict resolves, recorded in Review Notes | Rule Precedence | Safety intro, Task and Fix Mode Precedence, Precedence (twice) |
+| Investigation-only: no implementation, no commit offer, not "fixed" | Investigation Handoff | Task and Fix Mode Precedence, Investigation Handoff |
+
+**Implementation — what changed.**
+
+- **Safety Rules** (`prompts._fallback_team_instructions`, mirrored by
+  `docs/agent_team_instructions.md`) shrink from six subsections to three:
+  Test and Check Integrity, Git, Jira and Credentials, and Editing. A closing
+  sentence says the Branch Instructions, Delivery Safety and Required Output
+  Files are BugPilot rules too.
+  - Purpose, Task and Fix Mode Precedence, Output Expectations and No-Op Fix
+    Guidance are folded into the sections that own those topics.
+  - The heading stays `## BugPilot Safety Rules`: tests, the mirror and the
+    Fix Mode forged-heading guard key on it, so the suggested "Safety &
+    Integrity" rename would have cost a heading change for no clarity.
+- **Removed sections:** `## BugPilot Editing Guardrails` and
+  `## Forbidden Actions`, every line of which now has one home.
+  `TASK_SECTION_CLASSES` drops them.
+- **Branch Instructions** (`branch_policy.branch_instructions`) absorb the old
+  guardrail branch line, so "edit only on …" is said once per policy;
+  `branch_editing_guardrail` is gone.
+- **Delivery Safety** (`delivery_instructions.delivery_safety_block`):
+  - It becomes five bullets: approval; the branch checks and stop; the
+    policy's branch check; the staging list; never push main/master.
+  - Under `per-issue`, "if it is not the work item's branch, stop and ask
+    before committing" moves into the policy's check, from the commit offer's
+    last line (`delivery_branch_stop`, gone).
+  - `standalone=False` in `task.md`, where the Safety Rules already forbid
+    force pushes, merges, pull requests and Jira changes. The retry prompt,
+    which has no Safety Rules section, keeps them in the block (the default).
+- **Rule Precedence:** the layer list, one paragraph on the hierarchy, one on
+  conflicts (written by people, unchecked; a Fix Mode is strategy only;
+  follow the BugPilot rule and record the conflict). Two bullets remain:
+  precedence is not editable; Working Guidance is refinable.
+  - The example list of rules ("commit to a protected branch, force push, …")
+    and the duplicated Fix Mode paragraphs are gone.
+  - So is "None of them can loosen a BugPilot safety rule", the
+    enforcement-sounding claim Batch 1's honest-wording contract avoids; the
+    structural statement remains.
+- **Evidence Rules:** 18 bullets become 6, absorbing No-Op Fix Guidance.
+- **Required Input Files:** 4 bullets become 2.
+- **Execution Location:** 3 bullets become 2.
+- **Report Status to Jira:** refers to the Safety Rules' Jira rule instead of
+  restating it ("It is the one Jira write the BugPilot Safety Rules allow").
+  "BEFORE asking about commit or committing" keeps the old ordering.
+- **Required Output Files:** the Tests bullet says what to report ("If tests
+  were not run, say so and why"); the integrity rule itself is the Safety
+  Rules'.
+- **Unchanged:** Developer Hint, Working Guidance, Repository Context,
+  Verification Policy, Fix Mode text, Developer Attachments, Assisted
+  Delivery's flow and Investigation Handoff.
+
+**Section structure after Batch 3.** Conditional sections are marked `?`:
+
+1. Developer Hint?
+2. Execution Location
+3. BugPilot Safety Rules
+4. BugPilot Working Guidance
+5. Repository Context
+6. Project / Team Instructions?
+7. Verification Policy
+8. User Instructions?
+9. Branch Instructions
+10. Developer Attachments?
+11. Required Input Files
+12. AI Fix Mode
+13. BugPilot Rule Precedence
+14. BugPilot Evidence Rules
+15. Required Output Files
+16. BugPilot Delivery Safety
+17. Report Status to Jira?
+18. Optional Assisted Delivery | Investigation Handoff
+
+The Verification Policy stays between project and user instructions, as Batch 1
+placed it in the project layer.
+
+**Tests.**
+
+- **Exactly once.** `tests/task_golden.CANONICAL_RULES` names 21 protected
+  rules: each rule's home section, a by-meaning pattern for its full statement,
+  and the sections allowed a deliberate reference (only the Verification
+  Policy's test-claim reminder).
+  - `test_every_protected_rule_is_defined_once_in_its_own_section` holds every
+    golden to it.
+  - `test_the_canonical_patterns_are_not_blind` proves a restated rule is
+    caught.
+- **New regression tests:**
+  - `test_the_batch1_corrections_hold`: testing expectations out of the Safety
+    Rules, Working Guidance separate and refinable, agent-neutral.
+  - `test_a_project_may_still_say_tests_are_not_required`.
+  - `test_an_investigation_task_stays_an_investigation`.
+  - `test_jira_writes_are_unambiguous_with_the_comment_on_or_off`.
+  - `test_every_policy_keeps_main_master_and_detached_head_protected`.
+  - `test_the_median_task_is_at_least_a_fifth_smaller_than_batch0`.
+- **Golden files** regenerated for all 13 cases after reading the diffs.
+- **Updated to the canonical wording, each keeping its intent:**
+  - `test_fix_mode_prompts`: `INVARIANT_RULES` now names each rule's single
+    statement, still required in every mode × branch policy.
+  - `test_branch_policy`, `test_instructions`, `test_context_task_artifacts`,
+    `test_verification_policy`, `test_mcp_server` and `test_workflow`.
+
+Focused runs, every one passing: the golden matrix and its new checks 81; task generation,
+Fix Mode prompts, branch policy, instructions, Verification, MCP, custom and selected modes,
+attachments, handoff, project settings, report artifact, the unwired-symbol guard and workflow
+(427 after the last edits); retrieval regression and quality, Context Quality, Verification,
+project settings, publishability, the argv contract and CLI JSON 258; `test_repository_profile`
+43. Full Python suite (isolated home, no Jira variables, the checkout on `PYTHONPATH`): 2000
+passed, none failed or skipped (Batch 2: 1941; 59 new). No extension file changed; the
+extension's CLI integration tests, which run the real CLI and read its `task.md`, pass 16/16.
+
+**Measured result** (`tests/baselines/0.1.3-batch3/`; against Batch 0, the
+canonical before; the Batch 0, 1 and 2 records unchanged).
+
+| Median over the matrix | Batch 0 | Batch 1 | Batch 3 | Batch 3 vs Batch 0 |
+| --- | ---: | ---: | ---: | ---: |
+| characters | 15,481 | 15,969 | 11,939 | −22.9 % |
+| words | 2,463 | 2,552 | 1,866 | −24.2 % |
+| approximate tokens | 3,870 | 3,992 | 2,985 | −22.9 % (target ≥ 20 %) |
+
+- Per case the cut is 21.9–24.1 % against Batch 0: 2,808 tokens (Jira fix,
+  current branch) to 3,133 (investigation with a Jira comment).
+- Sections drop by one in every case (14 → 13 by default, 16 → 15 configured).
+- Rule counts (Batch 0's patterns, before → after):
+
+  | Rule | Before → after |
+  | --- | --- |
+  | force push | 4 → 1 |
+  | `--force` flags | 4 → 2 (one sentence names both flags) |
+  | push main/master | 3 → 1 |
+  | work on main/master | 2 → 1 |
+  | commit/push approval | 4 → 1 |
+  | delete files | 4 → 1 |
+  | mass-format | 3 → 1 |
+  | PR creation | 3 → 1 |
+  | Jira field change | 4–6 → 1 |
+  | Jira transition/assign | 6–7 → 1 |
+  | staging `.ai/` | 2 → 1 |
+  | destructive Git | 4 → 2 (one sentence names both commands) |
+  | low confidence | 3 → 1 |
+  | false test claims | 3 → 2 (the rule and Batch 1's Verification Policy reminder) |
+
+- Retrieval, Git History and Context Quality are identical to the Batch 2
+  record:
+  - synthetic Recall@5 9/9, MRR 0.944, 7/2/1, confidence on target 10/10, no
+    noise-only top-5 files;
+  - live corpus summary and ranks unchanged.
+
+  Batch 3 touched no retrieval, Git History, Context Quality or Verification
+  code.
+
+**Repetition kept on purpose** (also in the record):
+
+- the Verification Policy's reminder that claiming a check ran when it did not
+  is a BugPilot rule (Batch 1);
+- Investigation Handoff's reminder that Delivery Safety still applies to a
+  later implementation pass;
+- the retry prompt's standalone Delivery Safety;
+- Fix Mode text, which is the mode's own;
+- Repository Context's closing sentence beside Working Guidance — both
+  guidance.
+
+**Golden coverage**, unchanged at 13 cases:
+
+- Standard Fix and Investigate First;
+- `current`, `per-issue` and `ask`;
+- Jira and hand-written;
+- the Jira comment on and off (fix and investigation);
+- attachments with and without descriptions;
+- a hint;
+- Project / User Instructions with saved switches;
+- `verification.md`.
+
+**Known limitations.**
+
+- Exactly-once is checked by meaning-patterns over the goldens. A future
+  rewording that escapes a pattern is caught by
+  `test_every_protected_rule_is_defined_once_in_its_own_section` only when the
+  canonical statement disappears — then it fails — not when a paraphrase
+  reappears elsewhere.
+- The Safety Rules no longer name the investigation-only boundary in general
+  terms; an investigation task carries it in its Investigation Handoff and Fix
+  Mode, which every investigation renders.
+- "Never reveal credentials" is now stated as a rule. It was implied before
+  only by the precedence example; it is not new behaviour.
+- The retry prompt keeps its own, longer Delivery Safety; it is not part of
+  the golden matrix.
+
+Batch 4 has not started; no UI work was done in Batch 3.
+
+### 42.5 Batch 4 — Verification text UI (2026-10-10, uncommitted on `744c9ce`)
+
+**Decision.** The Verification Policy is edited as text, in a full VS Code
+editor tab, and the four Verification checkboxes are removed from the panel.
+The CLI stays the one source of truth:
+
+- `bugpilot verification show --json` supplies everything the panel shows: the
+  text, the source, the file state, `based_on_version`, the lint, the problem,
+  `differs_from_default` and `default_changed`. The capability is still read
+  from `doctor --json`.
+- `verification set --stdin` creates the file, from the text `show` just
+  reported; the CLI writes the front matter (`schema_version`,
+  `based_on_version`, `mode: replace`).
+- `verification reset` removes the file.
+
+The extension composes no policy text, reconstructs none of the four switch
+sentences, migrates nothing itself and never writes `verification.md`. Batch 1's
+semantics are unchanged: replacement, front matter, the 20,000-character limit,
+the sources, lint, fallback, migration rules and capabilities. No 0.1.4 feature
+was started: no AI Behavior, Evidence, Output, Branch or Delivery editor, no
+Protected Rules viewer, no Effective AI Task or Effective Context preview.
+
+**Implementation — Guidance & Verification.** Advanced Settings' "AI
+instructions" section (`ai-instructions`) became **Guidance & Verification**
+(`guidance-verification`), with three rows:
+
+| Row | On screen | Edited |
+| --- | --- | --- |
+| User instructions | "Personal guidance used across repositories." + state line | its own page (unchanged), `~/.bugpilot/instructions.md` |
+| Project instructions | "Optional repository-specific guidance for AI." + state line | its own page (unchanged), `<repo>/.bugpilot/instructions.md` |
+| Verification policy | "Minimum verification expected for code changes." + `Source: …` + notes + **Edit** **Reset** **Preview** + "Needs rebuild" | an editor tab, `<repo>/.bugpilot/verification.md` |
+
+- **Project instructions moved** here from Repository. They were not copied:
+  each document has one Edit in the page, and a test counts it.
+- **No form fields.** The section has none, so its tag stays "Requires
+  rebuild" (an empty field list reads as all-rebuild). The descriptions are the
+  one named exception to §37.104's tooltip rule: one short line per document,
+  pinned by a test.
+- **Source labels:**
+  - `bugpilot-default` → *BugPilot default*;
+  - `legacy-project-settings` → *Legacy project settings*;
+  - `verification-file` → *Repository verification.md*.
+
+  A file the CLI cannot use reads *Source: BugPilot default
+  (.bugpilot/verification.md is not used)*, never the file. No raw source name
+  reaches the screen.
+- **Notes**, each in words with a glyph, never colour alone:
+  - *Problem: …*, in the error colour, says the default applies until the file
+    is fixed and that Edit opens it and Reset removes it.
+  - *N policy warning(s) · details in Preview*, in the helper colour with a
+    warning glyph.
+  - `default_changed`: *BugPilot's default Verification Policy has changed
+    since this file was created.*, informational, with Reset beside it. There
+    is no Compare view.
+- **"Needs rebuild"** appears in the workflow status's own pill (same words,
+  same look) when the policy in force differs from the one the context was
+  prepared with.
+- **Accessibility.** The row is a named group. The state is one polite live
+  region, and the stale pill another; text is rewritten only when it changes,
+  so a push does not re-announce it. The buttons are named *Edit Verification
+  Policy in an editor tab*, *Reset Verification Policy* and *Preview
+  Verification Policy (read-only)*, each described by the source.
+
+**Implementation — the actions** (`controller.ts`, `verificationPolicy.ts`,
+`ports.ts`, `extension.ts`; four bare messages: `editVerificationPolicy`,
+`resetVerificationPolicy`, `previewVerificationPolicy`,
+`closeVerificationPreview`). Edit and Preview read the policy again first;
+Reset's own answer is the policy as it now stands.
+
+- **Edit**:
+  - **File present** (a broken one included): opened with
+    `showTextDocument(preview: false)`.
+  - **File absent:** `set --stdin` with the CLI's own effective text, then
+    opened. From the default, this freezes a copy of the default; from legacy
+    switches, it is the migration point.
+  - **A link or anything but a regular file** (`lstat`, not followed): not
+    opened, and the developer is told why.
+  - **Opening Advanced Settings** never creates the file.
+  - Only creating the file waits for a run or handoff in flight, like Apply;
+    opening an existing file never waits.
+- **Reset**: a modal *Delete File / Keep File* confirmation (the file is the
+  developer's), then `verification reset`. The row shows whatever source the
+  CLI reports next, so TypeScript never guesses the fallback. Reset waits for
+  writes in flight and asks again after the dialog.
+- **Preview**: a read-only page, *Verification Policy Preview*, behind the
+  shared page header. It shows the facts (Source, File, Based on default,
+  Current default, Same as default), the problem, the `default_changed` note,
+  the lint in the CLI's words (marked "Warnings only … not a security check")
+  and the text in a `<pre>`, never a box to type in. Back and Escape return to
+  the row's Preview button. It writes nothing and moves no baseline.
+- **Freshness.** Batch 1's logic, unchanged and reused:
+  - every Edit-create or Reset is one write at a time;
+  - `#refreshPolicies` waits for a write in flight, so a Run, Fix with AI or
+    Start New Attempt prepares on the file the write left;
+  - a double-click on Edit creates once;
+  - the watcher, refocus and the reread before every handoff apply as in
+    Batch 1.
+- **Stale semantics.** Batch 1's fingerprint (`source:sha256`) decides, with
+  one addition. When the row's own Edit or Reset leaves the same effective text
+  with no problem, and the context was current before, the new fingerprint is
+  recorded as an *alias* of the prepared one, not a new baseline. So:
+  - Edit is not a change;
+  - Reset of a frozen default is not a change;
+  - returning to the prepared policy is never a change.
+
+  The real window found the first version of this wrong (it moved the
+  baseline), and a regression test now pins it.
+- **Attribution fix.** The prepared form is fingerprinted both ways, with and
+  without the switches. A source moving to or from the file is then compared
+  like with like, and the refusal says "the instructions or the Verification
+  Policy changed", not "the form changed". This is the smallest UI integration
+  fix; no core change.
+- **Checkbox removal and compatibility.**
+  - The four switches left the markup, `SETTINGS_SECTION_FIELDS` and
+    `SettingsField`.
+  - `FormState` keeps them as compatibility data. The page carries the host's
+    values through unchanged, and the host keeps its own values over anything
+    a page sends (`#withHostOwnedFields`), so Apply never rewrites what 0.1.2
+    saved in `project_settings.json`.
+  - The project-settings argv contract is untouched. The fixture gained
+    `verification set (stdin)` and `verification reset`;
+    `check_cli_contract.py` accepts all 31 command lines.
+- **Outdated CLI.**
+  - A CLI without `verification-text` while `verification.md` exists: the
+    existing out-of-date card, unchanged (Update Instructions, Choose
+    Executable, Retry).
+  - Without the file: the row shows one line, *The installed BugPilot CLI
+    cannot read .bugpilot/verification.md. Update it to edit the Verification
+    Policy here.*, with its actions off. There is no second incompatibility
+    UI.
+
+**Tests.**
+
+- **Extension unit suite: 2,244 passed, 0 failed** (2,202 before; 42 new):
+  - `verificationPolicy.test.ts`, 14: envelope parsing and refusal; labels;
+    the row for each state; Preview facts; `set --stdin` and `reset` argv,
+    with the text on stdin.
+  - controller, 25 new: 24 `verification row:` tests, each named for what it
+    pins, and a message-parsing test:
+    - viewing creates nothing;
+    - Edit from the default and from legacy (migration);
+    - Edit of an existing or broken file;
+    - Edit not stale, and an already-stale context stays stale;
+    - Reset asks, removes, falls back, and is stale only on change;
+    - back to the prepared policy is no change;
+    - Preview reads, is read-only and never stales;
+    - lint count versus lines, never in the log;
+    - `default_changed`;
+    - a link is never opened;
+    - a refused create, and an outdated create;
+    - a double-click creates once;
+    - writes wait for a run, and a Run started during Edit prepares on the
+      file Edit leaves;
+    - external save, deletion and a malformed file fixed, on focus;
+    - Fix with AI and Start New Attempt after a change;
+    - a page cannot change the legacy switches;
+    - message parsing.
+
+    The Batch 1 row and project-settings tests moved from the switches to the
+    row and to branch templates.
+  - page, 5 new (the old note test replaced): the row's words, notes and Needs rebuild; bare messages; busy;
+    old CLI and older host; the Preview's view, focus and Back. The project
+    settings tests now assert the switches are absent and carried through.
+  - panel, 4 new and 7 updated guards: three rows in order with one edit path
+    each; no switches; no 0.1.4 feature names; the row's markup, accessible
+    names and live regions; the Preview's read-only markup; wrap-only CSS
+    with no fixed widths and theme tokens only. Also updated: the shared page
+    header now has six pages, label and row counts, section names and tags,
+    and the codicons.
+  - `workflowSettings`, 1 new (the switches left the page, the fingerprint
+    rule kept); `cliArgvContract`, two command lines added; `unwired`, the
+    dead `VerificationField` removed.
+- **Other extension checks.**
+  - Typecheck: clean.
+  - Smoke activation: activated, 23 commands, 2 views.
+  - Package check: 76 files, 63 built JavaScript, all current.
+  - CLI integration: **17/17**. New: the Verification port against the real
+    CLI covers viewing creates nothing, legacy text, the CLI writing front
+    matter on create, external edit and lint, a run carrying the file, a
+    malformed file using the default, reset falling back to legacy, and an
+    empty create refused.
+- **Python.**
+  - No product file changed; only `tests/fixtures/extension_cli_argv.json`.
+  - Focused gates: 676 passed. These cover Verification, project settings,
+    CLI JSON and phase-2 (doctor capabilities and help), the argv contract,
+    workflow, publishability, task golden, retrieval regression and quality,
+    context signals and ranking, MCP and unwired symbols.
+  - Full suite, isolated home, no Jira variables: **2,002 passed**, none
+    failed or skipped (Batch 3: 2,000; the two new argv-contract command lines
+    are two more parameterized cases).
+
+**Real VS Code validation** (disposable profile under `C:\temp`; VS Code
+1.139.1; the VSIX built from the working tree; `bugpilot.executablePath` set
+to a scratch venv whose `.pth` points at the checkout; no `bugpilot`, `claude`
+or `codex` on the profile's PATH):
+
+| Scenario | Result |
+| --- | --- |
+| A default | *Source: BugPilot default*; Reset off; Preview shows the default text, facts, focus on its title; Back returns focus to Preview; no file and no `.bugpilot/` created by viewing (19/19) |
+| B default → Edit | the CLI created `verification.md` with `schema_version: 1 / based_on_version: 1 / mode: replace`; opened in a full (non-preview) tab; source → *Repository verification.md*; not stale |
+| C edit + save | typed in the tab, Ctrl+S → watcher → row and workflow *Needs rebuild*, primary *Rebuild Context* |
+| D Reset | *Delete File / Keep File* dialog; Keep keeps; Delete removes; source → *BugPilot default*; back to the prepared policy → no Needs rebuild; Reset away from a prepared file → Needs rebuild |
+| E legacy → Edit | switches saved through the CLI → *Legacy project settings*, Preview shows their text; an unrelated Apply left `project_settings.json` byte-identical; Edit migrated the legacy text into the file (23/23 with G, H) |
+| F old CLI | real 0.1.2 CLI + file → the existing card (*BugPilot CLI is out of date.* … *no verification-text capability*), Run disabled; without the file → the row's one line, actions off |
+| G malformed | *Problem: … it has no front matter … BugPilot's default applies until it is fixed …*; source shows the default; Edit opened the broken file unchanged; fixing it cleared the problem |
+| H lint | *1 policy warning · details in Preview*; Preview lists *Line 8 of .bugpilot/verification.md may conflict with a BugPilot rule (force push)…*; editing not blocked; the log has a count, never the line |
+| I `default_changed` | via a scratch stand-in CLI whose default is version 2 (the shipped default is 1, so a real file cannot report it yet): the exact sentence, helper colour, Reset beside it; Preview *Based on default version 1 / Current default version 2* |
+| J Preview only | no stale before or after |
+| K external save / focus | an external write → watcher → Needs rebuild; Rebuild Context cleared it; user instructions changed outside any watched folder were picked up only after the window was blurred and refocused |
+| L Fix with AI while stale | file saved and Fix with AI pressed before the reread landed → *…so nothing was handed over. Press Rebuild Context first.*; no terminal, no handoff |
+| M Start New Attempt while stale | attempt form open, file saved, Start Attempt → *Not started: the instructions or the Verification Policy changed…*; no terminal |
+
+All scenario scripts passed (A 19, B–D/J/K 31, E/G/H 23, I/F 15, L/M 16,
+focus 5). The first run of B–D/K found the alias bug above; the rerun on the
+fixed build passed.
+
+**Width/theme validation** (sidebar dragged by its sash; 34/34 checks):
+
+| Width × theme | Row state | Result |
+| --- | --- | --- |
+| 200 Dark Modern | lint + Needs rebuild | no sideways scroll (panel 182 px); Edit/Reset on one line, Preview wraps under them; Preview fits |
+| 280 Dark Modern | lint + Needs rebuild | all three actions on one line; fits |
+| 360 Dark Modern | lint + Needs rebuild | fits |
+| 280 Light Modern | lint + Needs rebuild | fits; tokens from the theme |
+| 200 High Contrast | problem + Needs rebuild | fits; the problem wraps in the theme's error colour; pill with the contrast border |
+| 360 High Contrast Light | problem, then lint | fits; the pill takes the theme's contrast border |
+
+- **Keyboard:** Tab goes Project instructions' Edit → Edit → Reset → Preview,
+  with a visible 1 px focus ring. Enter opens the Preview; Escape returns to
+  the Preview button.
+- **Chromium's accessibility tree:**
+  - the row is a group named *Verification policy*;
+  - the buttons have the names above, described by *Source: …*;
+  - the state is `status` with `live: polite`.
+
+**Measured result.** Against the Batch 3 record, with no new record written:
+
+- `task.json`, `task_comparison.json`, `git_history.json` and
+  `context_quality.json` are identical.
+- Task median: 2,985 approximate tokens (11,939 characters).
+- All 21 canonical rules are still defined exactly once.
+- Synthetic retrieval: Recall@5 9/9, MRR 0.944, confidence 7/2/1, expected
+  confidence 10/10, no noise-only top-5 files.
+- Context Quality caps: 75 / 86 / 100.
+- Only the live-repository corpus moved: MRR 0.251 → 0.247, one case's best
+  rank 7 → 8. This is tree drift: term counts rose with the new extension text,
+  and `controller.ts` entered one top-5. No retrieval code changed.
+
+**Known limitations.**
+
+- `default_changed` cannot occur with a real 0.1.3 CLI. The default is
+  version 1 and front matter must be ≥ 1, so the note was validated through a
+  stand-in CLI and unit tests.
+- The alias rule covers only the row's own writes. An identical file created
+  or removed outside BugPilot still reads as a change, as in Batch 1, because
+  `task.md`'s "Source:" line does change.
+- After an alias, a context prepared under the old source keeps its old
+  "Source:" line in `task.md` until the next rebuild. The policy text it
+  carries is the same.
+- The Edit button cannot open a file through a link, by design. Such a file is
+  fixed by hand: the CLI's Reset refuses links too.
+- The CLI writes `verification.md` with the platform's line endings (CRLF on
+  Windows), as Batch 1 does.
+- Verification text is edited only in the editor. The panel has no inline
+  editor, by design.
+
+### 42.6 0.1.3 release validation (2026-10-10, uncommitted on `744c9ce`)
+
+Validation and release preparation only: no product feature, no 0.1.4 work,
+and no change to retrieval, task generation, Verification semantics or UI.
+Nothing was staged, committed, pushed, tagged or published. PyPI and the
+Marketplace still serve 0.1.2.
+
+**Release source.**
+
+- **Lockstep bump to 0.1.3**, in the locations the 0.1.2 release-prep commit
+  touched:
+  - `bugpilot/__init__.py` (`__version__`: `--version`, `doctor`, the wheel
+    metadata);
+  - `extension/package.json` and its lock file (`npm version 0.1.3
+    --no-git-tag-version`);
+  - the Licensed Work in `LICENSE` and `extension/LICENSE.txt` (Change Date
+    2030-10-08 and Change License unchanged);
+  - the version examples in `README.md`, `extension/README.md` and
+    `docs/architecture.md`;
+  - `docs/development.md`'s licence note.
+- **No separate runtime pin.** The managed runtime installs
+  `bugpilot==<extension version>`, so it follows `package.json`.
+  "0.1.2 and earlier" mentions are history and stay.
+- **CHANGELOG.** `0.1.3 — Unreleased` became `0.1.3 — 2026-10-10`, dated at
+  release preparation as 0.1.2's was; it should be corrected if the release
+  slips. It covers:
+  - the Verification Policy as text, with Guidance & Verification and the
+    switches removed;
+  - more relevant code search;
+  - a stricter Search Confidence that says why;
+  - a more realistic Context Quality;
+  - a shorter `task.md`;
+  - policy freshness;
+  - the outdated-CLI behaviour.
+- **Diff review.** The whole diff from `744c9ce` was reviewed: 58 files
+  modified by Batches 0–4 and 38 new files, all planned. It has no debug code,
+  TODOs, local paths, private identifiers, test hooks or smoke hooks.
+- **Phase labels removed.** Batches 1–4 had reintroduced "Batch N" phase labels
+  that the 2026-10-08 cleanup forbids. They were removed, comments and test
+  names only:
+  - in 10 shipped modules (`context`, `delivery_instructions`, `git_history`,
+    `issue`, `jira`, `jira_parse`, `keywords`, `retrieval`, `search`,
+    `search_terms`);
+  - in `docs/architecture.md`;
+  - in the tests.
+  - Tests renamed:
+    - `test_the_batch0_*` → `test_the_baseline_*`;
+    - `test_the_batch1_corrections_hold` → `test_the_precedence_corrections_hold`;
+    - `test_the_median_task_is_at_least_a_fifth_smaller_than_batch0` →
+      `…_than_the_baseline`;
+    - `BATCH0` → `BASELINE`.
+
+    §42.4 records the old names.
+  - **Kept:** the records' directory names (`tests/baselines/0.1.3-batchN`, data
+    that is never rewritten), and the two strings `baseline_report.py` writes
+    into records, so a new record still compares with the older ones.
+
+**Tests on the release version.**
+
+| Gate | Result |
+| --- | --- |
+| Full Python suite (isolated home, no Jira variables, checkout on `PYTHONPATH`) | **2,002 passed**, none failed or skipped |
+| Focused: publishability, argv contract, CLI JSON / phase 2 (doctor, capabilities, help), Verification, project settings, task golden, retrieval regression and quality, context signals, Git History (five files), workflow, unwired symbols | 763 passed |
+| `check_cli_contract.py` against the installed 0.1.3 wheel | `--version → bugpilot 0.1.3`; capabilities → `verification-text`; all 31 command lines accepted |
+| Extension unit suite | **2,244 / 2,244** |
+| Typecheck / smoke activation / package check | clean / 23 commands, 2 views / 76 files, all current |
+| Extension CLI integration | **17 / 17** |
+| Publishability (`tests/test_publishable.py`) | 20 / 20 |
+
+The task goldens, synthetic retrieval and Context Quality are unchanged: the
+golden tests and the retrieval and Context Quality suites are in the counts
+above.
+
+**Artifacts.** These were built outside the repository from a clean export of
+the working tree (`git ls-files -co --exclude-standard`):
+
+- Python: `python -m build --sdist --wheel`, as the release workflow builds;
+  `twine check --strict` passes.
+- VSIX: `vsce package --no-dependencies`, after `npm run build` and the
+  package check, with the repository's `node_modules` through a junction that
+  was then removed.
+
+The CRLF working copy makes these hashes differ from the workflow's LF build,
+which records its own; these files are for validation, not for upload.
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `bugpilot-0.1.3-py3-none-any.whl` | 296,990 | `c2a9d78efec2c339c3246fd886b6348d20bf9861e2e312db916fb6bd63454712` |
+| `bugpilot-0.1.3.tar.gz` | 273,732 | `cad2373774440ae4907ed60e566be1a5c9a45639795015cf79790a03ba175b8c` |
+| `bugpilot-0.1.3.vsix` | 527,450 | `adb3b1a258890fa2794d3187d8b9a585a7982eb9ed2b94172003a3a11a4d3ccc` |
+
+- **Wheel:** 60 entries — the `bugpilot` package (54) and its dist-info, with
+  `licenses/LICENSE`; `Version: 0.1.3`, `License-Expression: BUSL-1.1`. One
+  file more than the 0.1.2 wheel: `bugpilot/core/verification.py`.
+- **sdist:** 70 entries — the package, `LICENSE`, `README.md`,
+  `pyproject.toml`, `MANIFEST.in`, `setup.cfg`, `PKG-INFO`; no tests, docs,
+  extension or scripts. One file more than 0.1.2: `verification.py`.
+- **VSIX:** 78 entries. Publisher `ShiweiX`, identity `bugpilot` 0.1.3,
+  engines `vscode ^1.90.0`. It ships `out/` (64), `media/` (7), `package.json`,
+  README, CHANGELOG, `LICENSE.txt` (Licensed Work 0.1.3) and
+  `THIRD_PARTY_NOTICES.md`. It has no source maps, TypeScript, tests or scratch
+  files. One file more than 0.1.2: `out/app/verificationPolicy.js`.
+
+**Installed artifacts, outside the working tree.** Each was installed into a
+fresh venv, with no `PYTHONPATH`, and run from a working directory outside the
+repository:
+
+- **Wheel** (`pip --no-index --no-deps`):
+  - `bugpilot --version` → `bugpilot 0.1.3`, imported from the venv;
+  - `doctor --json` is valid JSON, version 0.1.3, capabilities
+    `["verification-text"]`;
+  - in a scratch git repository, `verification show` / `set --stdin` /
+    `reset` work: the default source, then the file written with
+    `schema_version: 1 / based_on_version: 1 / mode: replace`, then the file
+    removed and the default back;
+  - a `bug --description … --prepare-only` run wrote the five artifacts, with
+    no warnings and no Jira.
+- **sdist:** it installed and reports `bugpilot 0.1.3`.
+
+**Managed runtime** (release VSIX; VS Code 1.139.1; fresh profile under
+`C:\temp`; no `bugpilot`, `claude` or `codex` on `PATH`; no
+`bugpilot.executablePath`):
+
+- 0.1.3 is not on PyPI yet. So the window's environment carried
+  `PIP_NO_INDEX=1` and `PIP_FIND_LINKS=<dist>`, and the runtime's unchanged
+  `pip install … bugpilot==0.1.3` resolved to the built wheel.
+- A process recorder ran throughout.
+
+| Phase | Result |
+| --- | --- |
+| A passive launch | 25 s untouched, then the view opened: *BugPilot CLI is required.*, **Install BugPilot Runtime** primary ("Would install bugpilot 0.1.3"), Run disabled; 50 s in: no runtime directory, no python/pip/venv process, nothing in the log (18/18) |
+| B install | ready **16.4 s** after the click: one `python -I -m venv`, one `pip install --disable-pip-version-check --no-input --no-cache-dir --only-binary=:all: bugpilot==0.1.3` (its only child is the venv redirector's base interpreter with the same command line), both started by the extension host with no shell; `runtime.json` written after `bugpilot --version` reported 0.1.3; Diagnostics *CLI source BugPilot runtime · BugPilot CLI 0.1.3 · Ready · 0.1.3*; Fix Modes loaded |
+| D prepare | a prepare-only Run in 5.7 s through the managed CLI (instructions and Verification read first): five artifacts, code search found `formats.py`, no pip, no terminal, source tree untouched (11/11) |
+| C restart | ready with no card; no install in the log, no venv or pip; runtime directory and `runtime.json` not rewritten; every `bugpilot.exe` the extension host started is the managed one (one exited before the recorder could read its path) |
+| E Verification capability | the managed exe's `doctor --json` → 0.1.3, `["verification-text"]`; the UI regression below ran against it |
+
+Two harness checks were corrected, not the product. The recorder counted the
+venv redirector's child as a second pip, and it could not read the path of one
+process that exited quickly; both were confirmed from the recorded data.
+
+**Final real VS Code regression** (the same profile, the release VSIX, the
+managed 0.1.3 CLI):
+
+| Area | Result |
+| --- | --- |
+| Fresh repository, BugPilot default, Preview, nothing created by viewing | 19/19 |
+| Edit creates `verification.md` (CLI front matter) in a full tab, not stale; Preview; save → Needs rebuild; Reset (Delete File / Keep File) back to the prepared policy → not stale; external save → watcher → Needs rebuild; Rebuild; Reset away → Needs rebuild | 31/31 |
+| Fix with AI and Start New Attempt pressed before the reread lands → nothing handed over, no terminal | 16/16 |
+| Refocus rereads user instructions changed outside any watched folder | 5/5 |
+| Project and User Instructions edited on their page → files written, rows *Configured · N characters*, Needs rebuild, Rebuild, `task.md` carries both | 15/15 (first run's precondition raced a rebuild in the harness; rerun clean) |
+| CLI compatibility: `verification.md` + the released 0.1.2 CLI as `bugpilot.executablePath` → the existing *BugPilot CLI is out of date.* card with the verification-text reason; setting removed → back on the managed runtime | 7/7 |
+| 200 px Dark and 280 px High Contrast: no sideways scroll, all actions inside, Preview fits; keyboard order and focus ring; Enter/Escape; accessibility tree names | 17/17 |
+
+**Security and publishability.**
+
+- **Artifacts:** the repository's own `repository_findings` (with the private
+  company-name list loaded), secret shapes and forbidden paths were run over
+  every text member of the three artifacts (60 + 66 + 76 files) — **0
+  findings**.
+- **Release source:** no `.ai/`, `.ai_memory/`, built artifacts, private word
+  list or scratch output is tracked or new. Its secret and path scan finds only
+  synthetic test fixtures that predate 0.1.3: fake `ATATT…` values in
+  redaction tests, and paths such as `C:/Users/me/…` and `C:/Users/dev/…`.
+  None of them ships.
+- **Publishability guard:** 20/20. `git diff --check` is clean.
+
+**Blockers:** none.
+
+**Non-blocking:**
+
+- These hashes are a local validation build. The release workflow builds and
+  records its own.
+- The runtime install was proven against the built wheel through a local
+  index. `docs/development.md`'s release order still requires, after PyPI
+  serves 0.1.3:
+  - in a fresh venv, `pip install bugpilot==0.1.3`;
+  - with the VSIX built from the pushed commit, in a fresh profile, **Install
+    BugPilot Runtime**;
+  - a restart and one prepare-only Run.
+
+  Only then may the VSIX be uploaded to the Marketplace.
+- The CHANGELOG date (2026-10-10) needs correcting if the release slips.
+- GitHub still serving pre-rewrite SHAs is a pre-existing, unrelated item.
+- Batch 4's known limitations (§42.5) stand.
+
+**Readiness:** the source is ready to commit as the 0.1.3 release. The next
+steps are the developer's:
+
+1. Commit and push.
+2. Run the release workflow for 0.1.3 and check PyPI.
+3. Run the post-PyPI runtime smoke with a VSIX from that commit.
+4. Upload to the Marketplace.
+
+Nothing here was published.
