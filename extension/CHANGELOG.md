@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.1.4 — 2026-10-11
+
+- **AI Behavior.** `.bugpilot/ai_behavior.md` adds this repository's
+  conventions to BugPilot's defaults — *Code Change Conventions*, *Evidence
+  Standards*, *Reporting Standards* — and never replaces them. In the panel it
+  is a row in **Advanced Settings › AI Behavior & Rules** with **Edit**,
+  **Reset** and **Preview**. Edit creates the file with its three sections,
+  empty, which add nothing until you write under them. A file that cannot be
+  used, including one emptied of everything, is shown as a problem and left
+  out; BugPilot's defaults apply.
+- **Protected rules, visible.** `bugpilot protected-rules show` and
+  **Protected rules → View** list BugPilot's built-in rules, read-only.
+- **Effective AI Task.** `bugpilot task-preview` and **Advanced Settings ›
+  Effective Output** (or **⋯ More**) show the task BugPilot would hand the agent
+  now, section by section, marked protected or editable, and whether the
+  prepared `task.md` still says the same. **Copy** copies it exactly. It writes
+  nothing.
+- **Effective Context.** `bugpilot context-preview` and **Context status** show
+  the context BugPilot last generated, its stored quality and confidence, and
+  why it needs a rebuild — never a new search.
+- **Compatibility.** The new views need a 0.1.4 CLI. An older one is never
+  asked; the rows say so and everything else works. A repository with
+  `ai_behavior.md` reports an older CLI as out of date, because it would leave
+  the file out of the task.
+- **The developer hint, a Fix Mode's sections and its name are contained like
+  every other editable layer.** A heading in them is held below the task's
+  own, an open code fence is closed where the layer ends, their line endings
+  are unified — a lone carriage return included — and the mode's name stays on
+  one line, in `task.md` and in the agent retry prompt. `task.md` changes only
+  for a hint, mode or name that held one of those.
+- **Code fences are read as CommonMark reads them** in every editable layer,
+  and a `---`/`===` line never underlines the line above it into a heading, so
+  no layer can add a second BugPilot section. A heading quoted inside a fence is
+  never shown as protected in the Effective AI Task.
+- **Terminal output is shown, not obeyed.** In text mode, control characters
+  from an issue, a hint or a policy are printed escaped. Files and `--json`
+  output are unchanged.
+- **Attachment names** never carry a line break or control character into
+  `task.md`.
+- **The icons are the official codicons `bug`** (CC BY 4.0, © Microsoft,
+  credited in `THIRD_PARTY_NOTICES.md`): the activity bar icon is the codicon
+  unmodified, and the Marketplace icon draws it on BugPilot's slate tile.
+- **Safer writes.** Temporary files are created new under an unpredictable
+  name, so a link planted at one is never written through. On Linux and macOS
+  a file BugPilot creates is owner-only, and a file it rewrites keeps its
+  permissions.
+- **Reset asks with Keep File as the default** for the Verification Policy and
+  AI Behavior: Enter, Escape and the close button keep the file.
+- **Read-only views never pass off an old answer.** While BugPilot runs or
+  re-checks the CLI, they keep their last answer, say *Not refreshed*, and ask
+  again when it is ready. **Copy** hands over only the task for the current
+  request: not while another work item's task or a Refresh loads, and not
+  after a refresh fails.
+- **Fixes:** the Effective AI Task's headline no longer overwrites the settings
+  row's label; facts lists stay readable at a 200 px sidebar; the stale
+  headline and hovered buttons in High Contrast Light meet contrast
+  guidelines; Edit refuses a `.bugpilot` folder that is a link; a `task.md`
+  that differs only outside its sections reads as needing a rebuild.
+
 ## 0.1.3 — 2026-10-10
 
 - **The Verification Policy is text you edit in an editor tab.** Advanced

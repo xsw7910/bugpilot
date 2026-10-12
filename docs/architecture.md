@@ -16,7 +16,7 @@ orchestrators, every core module, and the artifact pipeline that flows through
 not at an end user (see the [README](../README.md) and
 [extension/README.md](../extension/README.md) for that).
 
-- Package name: `bugpilot` (`pyproject.toml`), version `0.1.3`.
+- Package name: `bugpilot` (`pyproject.toml`), version `0.1.4`.
 - Package / import name: `bugpilot` (matches the CLI). Env vars are `BUGPILOT_*`; the artifact dirs stay `.ai/` / `.ai_memory/`.
 - Console script: `bugpilot = bugpilot.cli:main`.
 - Runtime dependencies: **none** — standard library only. `requires-python >= 3.10`.
@@ -170,6 +170,14 @@ Key mechanics:
   `--hint` / `--jira-comment` survive a resume and standalone regeneration.
 - **Intermediate cleanup.** `memory_search.md` and `git_context.md` are folded
   into `bug_context.md`, then removed by `_remove_intermediate_files`.
+- **One path to a task.** `work_item_task_inputs` resolves a work item's
+  `TaskInputs` — its recorded hint, Jira opt-in, attachments, Fix Mode, branch
+  policy and branch, and the layers the caller passes — and reads only;
+  `TaskInputs.render()` is `generate_task`. `prompt_step` and
+  `copilot_task_step` resolve the layers with logging, render, record a
+  per-issue branch name (`_record_task_branch`, the one write) and write
+  `task.md`; `bugpilot task-preview` renders the same inputs and writes
+  nothing (0.1.4).
 - **Canonical step list.** `config.WORKFLOW_STEPS` names all 24 phases used by
   status tracking (a superset of the fresh-prepare path, since results/delivery
   steps run later, on demand).
@@ -189,6 +197,8 @@ The full `command → step function` map:
 | `context` | `context_step` |
 | `prompt` | `prompt_step` |
 | `agent-task` | `copilot_task_step` |
+| `task-preview` | `task_preview.preview_work_item` / `preview_template` (writes nothing; not a step) |
+| `context-preview` | `context_preview.preview_context` (reads the last generated context; not a step) |
 | `agent-instructions` | `copilot_instructions_step` |
 | `check-results` | `check_results_step` |
 | `summarize-results` | `summarize_results_step` |
@@ -526,18 +536,19 @@ and before the pipeline runs — and is shown separately from the current select
   and Rule Precedence (how a conflict resolves) — and other sections refer to
   it rather than restate it; `tests/task_golden.CANONICAL_RULES` checks it.
   `copilot_team_instructions()` returns the bundled safety rules
-  (`_fallback_team_instructions()`), which `docs/agent_team_instructions.md`
-  mirrors; they name no agent's tools. `WORKING_GUIDANCE` (the former Core
-  Principles) is rendered as `## BugPilot Working Guidance` right after them:
-  BugPilot's default way of working, which any editable layer may refine — not
-  a safety rule. Project / Team and User Instructions (`instructions.py`) are
-  rendered after the Repository Context, project first, with the project's
-  Verification Policy between them (`verification.py`); `INSTRUCTION_LAYERS`
-  states the precedence, and is the only place it is defined.
-  `TASK_SECTION_CLASSES` classifies every `## ` heading a task can carry
-  (protected, AI-behaviour candidate, generated evidence, project instructions,
-  Verification Policy, user instructions, Fix Mode, developer hint); a test
-  fails on a heading it does not list.
+  (`_fallback_team_instructions()`, rendered from `protected_rules.py` since
+  0.1.4), which `docs/agent_team_instructions.md` mirrors; they name no
+  agent's tools. Project / Team and User Instructions
+  (`instructions.py`) are rendered after the Repository Context, project
+  first, with the project's Verification Policy (`verification.py`) and then
+  `## AI Behavior` (`ai_behavior.py`) between them; `INSTRUCTION_LAYERS`
+  states the precedence, and is the only place it is defined. Since 0.1.4
+  the former `## BugPilot Working Guidance` is AI Behavior's default: BugPilot's
+  default way of working, which any editable layer may refine — not a safety
+  rule. `TASK_SECTION_CLASSES` classifies every `## ` heading a task can carry
+  (protected, generated evidence, project instructions, Verification Policy,
+  AI Behavior, user instructions, Fix Mode, developer hint); a test fails on a
+  heading it does not list.
 - **`verification.py`** — the Verification Policy since 0.1.3, resolved in one
   place: `<repo>/.bugpilot/verification.md` (`verification-file`, replacement
   semantics) if it exists, else the switches saved in `project_settings.json`
@@ -551,6 +562,108 @@ and before the pipeline runs — and is shown separately from the current select
   for something a safety rule forbids. `verification_section` renders the one
   `## Verification Policy` section with its source; `verification_payload` is
   `bugpilot verification show --json`. The text is never logged.
+- **`protected_rules.py`** — BugPilot's protected rules since 0.1.4: the one
+  source both `task.md` and `bugpilot protected-rules` read. Each
+  `ProtectedRule` has a stable id, one of the plan's six groups (Safety,
+  Evidence Integrity, Git / Editing, Delivery, Jira, Secrets / Artifacts), the
+  `## ` section that states it, a short title and its text word for word; the
+  renderers write those texts — `safety_rules_document()` (the Safety Rules,
+  and `docs/agent_team_instructions.md`, verified by a test), the Evidence
+  Rules and Rule Precedence in `prompts.py`, Branch Instructions in
+  `branch_policy.py`, Delivery Safety in `delivery_instructions.py` — so the
+  task output did not change when they moved here. `PROTECTED_RULES_VERSION`
+  names the list; a test pins its digest. Built in and read-only: there is no
+  file for them. `prompts.protected_rules_payload()` is `bugpilot
+  protected-rules show --json`: the rules, the groups, the contract (what
+  BugPilot does with them, and that it cannot enforce an agent's behaviour),
+  every protected section from `TASK_SECTION_CLASSES`, and the layers from
+  `INSTRUCTION_LAYERS` — read from what writes the task, and from nothing in a
+  repository or on the machine. Sections whose text depends on the work item
+  or the mode (the branch policy's checks, the report contract, the Jira
+  status comment, the investigation handoff) are listed, not modelled.
+- **`task_preview.py`** — the Effective AI Task since 0.1.4: `bugpilot
+  task-preview [WORK_ITEM_ID] [--json]`. Rendered by the run's own path
+  (`workflow.TaskInputs.render`), never by a second template. A prepared work
+  item's preview is exactly what regenerating its `task.md` writes now — its
+  recorded guidance with every layer read again — and `prepared` says whether
+  the `task.md` on disk still says the same (`task_current`) and which `## `
+  sections differ, by comparing the two texts. Without a work item it is a
+  template: `<work-item-id>`, `<title-slug>`, a hint, an attached file and its
+  note are placeholders, and the Fix Mode, branch policy and Jira comment take
+  `bug`'s flags and defaults; every other layer is the repository's and the
+  user's own. The JSON adds each `## ` section's class from
+  `TASK_SECTION_CLASSES` (protected or not) and line span, and each layer's
+  source, state, problem, lint count, versions and hash — never its text a
+  second time. Read-only: no `.ai/` folder, no `issue.json` write, no process,
+  no Jira; the human output is written as UTF-8 (`cli_json.utf8_stdout`).
+  `doctor` reports `task-preview`.
+- **`context_preview.py`** — the Effective Context since 0.1.4: `bugpilot
+  context-preview [WORK_ITEM_ID] [--json]`. The `context.md` the work item was
+  prepared with, byte for byte, and its status — never a new context, which
+  only retrieval can produce (plan §27). States: `unavailable` (no work item),
+  `not-generated`, `missing` (generated once and gone), `unreadable`,
+  `current`, `stale` (still shown, with reasons) and `unknown` (shown, but its
+  inputs could not be checked). Reasons come from two sources only: the
+  Effective AI Task's comparison of the prepared `task.md` with the task
+  BugPilot would write now, each changed section named by its class
+  (`project_instructions_changed`, `verification_changed`,
+  `ai_behavior_changed`, `repository_profile_changed`, `fix_mode_changed`,
+  `branch_changed`, …), and the prepared files (`context_step_not_passed`,
+  `retrieval_missing`, `retrieval_unreadable`, `task_missing`). What it cannot
+  see is listed as `unchecked`: the retrieval inputs the panel holds and the
+  issue in Jira since the fetch. Context Quality is read back from the
+  document (`context.read_context_quality`, the inverse of its renderer) and
+  Search Confidence from `retrieval.json` — never recomputed. Artifacts load
+  through `load_issue`, `load_retrieval` and `load_run`; text through
+  `task_preview.read_work_item_text`, never through a link. No search, Git,
+  Jira, process or write.
+- **`ai_behavior.py`** — AI Behavior since 0.1.4: how an agent is expected to
+  make and report changes in the repository — conventions, not safety rules.
+  **Default + append**: BugPilot's default (`DEFAULT_TEXT`, Code Change
+  Conventions; `DEFAULT_AI_BEHAVIOR_VERSION`) always applies, and
+  `<repo>/.bugpilot/ai_behavior.md`, when usable, adds the repository's own
+  beneath it under Code Change Conventions, Evidence Standards and Reporting
+  Standards — names no Fix Mode section uses. Sources: `bugpilot-default`,
+  `ai-behavior-file`. The file shares the Verification Policy's front-matter
+  parser (`schema_version: 1`, `based_on_version`, `mode: append`, the one
+  mode) and its I/O rules; a file that cannot be used is reported and left out
+  whole, and the default applies. No file is no warning, and reading never
+  creates it. `lint_ai_behavior` adds non-blocking warnings: the Verification
+  Policy's rule-conflict lint, a heading named like a Fix Mode section, and a
+  line about running tests or checks (the Verification Policy's business);
+  it gives line numbers, never the line. `ai_behavior_section` renders the one
+  `## AI Behavior` section — the defaults, then `### Repository Additions` with
+  the file's headings held below the task's own; `ResolvedAiBehavior.sha256`
+  (source, problem, `based_on_version`, text) is what a prepared context
+  depends on; `ai_behavior_payload` is `bugpilot ai-behavior show --json`
+  (`set --stdin|--from-file`, `clear`/`reset` remove the file). `doctor`
+  reports the `ai-behavior-text` capability. The text is never logged. A file
+  whose sections are all empty — headings, blank lines and HTML comments only
+  (`has_additions`) — adds nothing: the task, and the hash, are those of no
+  file; `TEMPLATE_BODY` (the three headings) is what the settings row's Edit
+  creates, reported as the payload's `template`. The extension
+  (`extension/src/app/aiBehaviorPolicy.ts`) reads the source and hash for the
+  stale check, and the text and lint only for the settings row's Preview; it
+  writes only through `ai-behavior set --stdin` (the CLI's template) and
+  `reset`.
+- **The 0.1.4 views in the extension** render the CLI's answers and
+  compose nothing. `extension/src/app/protectedRules.ts`, `effectiveTask.ts`
+  and `effectiveContext.ts` parse `protected-rules`, `task-preview` and
+  `context-preview` `--json` (refusing anything malformed);
+  `effectivePane.ts` (`Pane`) asks only while a view is open, once per
+  request key — the request plus a preview epoch the controller bumps on a
+  policy reread, an environment check, a run's end and a changed file list —
+  drops any answer to a superseded request, and never asks a CLI without the
+  capability (or one that answered `outdated`) again; `effectiveViews.ts`
+  builds the rows and views. The Effective AI Task is drawn as blocks cut at
+  the CLI's section lines — joined, the CLI's text byte for byte — labelled by
+  the CLI's section class. The Effective Context's status merges the CLI's
+  with the panel's existing fingerprints (`contextStatusView`): either side's
+  rebuild wins, the CLI's *current* needs the panel's agreement, an unknown is
+  never upgraded, and no context is never "stale". The views sit in Advanced
+  Settings (*AI Behavior & Rules*, *Effective Output*, plan §28) and the
+  Effective two in ⋯ More; they are read-only and optional, so an older CLI
+  only disables them.
 - **`project_settings.py`** — `<repo>/.bugpilot/project_settings.json`: the
   legacy Verification switches (resolved into a `ResolvedVerification` by
   `verification.py`; `ResolvedProjectSettings.effective_verification`) and the
@@ -611,7 +724,7 @@ file. Errors are deliberately built to never echo secrets.
   `doctor_report_lines` (rendering):
   Python version, `git`/`rg` availability, repo state, and *presence* (never
   values) of Jira/SMTP/Graph configuration. `capabilities` (`CAPABILITIES`,
-  since 0.1.3: `verification-text`) names what this CLI can read, so a newer
+  since 0.1.3: `verification-text`; since 0.1.4: `ai-behavior-text`, `protected-rules`, `task-preview` and `context-preview`) names what this CLI can read, so a newer
   extension can tell an older CLI from a broken one without parsing versions.
 - **`cleanup.py` (~73 lines)** — `clean_issue_artifacts` deletes `.ai/<key>/`
   (and optionally the memory file) behind `_ensure_child` containment guards so

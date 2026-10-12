@@ -23,6 +23,9 @@ itself: it prepares the package and you decide who reads it.
 - Optional: **an AI coding agent** — Claude CLI, Codex CLI, the Claude or Codex
   extension, or a command of your own — for **Fix with AI** and **Review with
   AI**. Without one, BugPilot prepares the context and you hand it over.
+- **Platforms:** developed and release-tested on Windows 11 with VS Code
+  1.139. The extension uses only VS Code's own APIs and the CLI is plain
+  Python, but macOS and Linux are not part of its release testing yet.
 
 ## Installing
 
@@ -73,7 +76,7 @@ For the MCP server as well, use `pipx install "bugpilot[mcp]"` or
 `python -m pip install "bugpilot[mcp]"` instead. Then check it:
 
 ```powershell
-bugpilot --version          # bugpilot 0.1.3
+bugpilot --version          # bugpilot 0.1.4
 ```
 
 **Which CLI runs.** The extension uses the first of these:
@@ -250,9 +253,11 @@ the top.
 | Similar fixes | Use shared keywords, Additional keywords, Max similar fixes |
 | Repository | Repository profile: Auto-detect, Generic or Custom (Languages, Frameworks, Application type, Build system, Test framework, Codebase notes) |
 | Guidance & Verification | User instructions, Project instructions, Verification policy (Edit, Reset, Preview) |
+| AI Behavior & Rules | AI Behavior (Edit, Reset, Preview), Protected rules (View, read-only) |
 | Build context | Delete previous artifacts first |
 | Fix with AI | AI Agent, custom agent command |
 | Branch | Branch policy, Branch naming (and its Template) |
+| Effective Output | Effective AI Task (View), Context status (View) — read-only |
 
 **Keywords** and **Focus files** are entered once, under **Retrieval inputs**,
 and shared:
@@ -344,7 +349,8 @@ first Edit the move from the switches to the file — with the front matter
 (`schema_version`, `based_on_version`, `mode: replace`) written for you. Edit
 creates nothing until you press it: opening Advanced Settings, or the Preview,
 never writes a file. Save the tab and the panel picks it up. **Reset** deletes
-the file after asking, and the policy that applies without it — the legacy
+the file after asking — **Keep File** is the dialog's default, so Enter, Escape
+and the close button all keep it — and the policy that applies without it — the legacy
 switches if they were saved, otherwise BugPilot's default — is shown on the
 row. **Preview** shows the policy in force, read-only: its text, where it comes
 from, the default's versions and any warnings. It is not a preview of the whole
@@ -377,6 +383,49 @@ CLI 0.1.3 or later: with an older CLI the row says so and offers nothing, and
 with an older CLI *and* `verification.md` present, the panel says the CLI is
 out of date, as it does for any command the CLI lacks, rather than preparing a
 task without the repository's policy.
+
+**AI Behavior & Rules** (0.1.4). **AI Behavior** is how the AI agent is
+expected to make and report changes in this repository: BugPilot's defaults,
+always, plus this repository's additions in `.bugpilot/ai_behavior.md` under
+*Code Change Conventions*, *Evidence Standards* and *Reporting Standards*.
+Additions never replace the defaults. Its row works like the Verification
+Policy's: **Edit** opens the file in an editor tab — if it is not there yet,
+the CLI creates it with its three sections, empty, which add nothing to the
+task until you write under them, so creating it is not a change — **Reset**
+deletes it after asking (**Keep File** is the default), and **Preview** shows the AI Behavior in force,
+read-only. A change to what it says needs a rebuild, and the row says **Needs
+rebuild**. **Protected rules → View** lists BugPilot's built-in rules as the
+CLI reports them, by group, with what BugPilot does with them and the
+precedence — read-only: there is no file to edit them, and they are
+instructions to the agent, not something BugPilot can enforce.
+
+**Effective Output** (0.1.4) shows what the AI agent is handed, read-only —
+also from **⋯ More → Effective AI Task / Effective Context**:
+
+- **Effective AI Task** is the `task.md` BugPilot would hand the agent now,
+  from the CLI, section by section: each marked *Protected · BugPilot* or
+  editable, with where it is changed. For a prepared work item it says whether
+  the prepared `task.md` still says the same; with no work item it is a
+  template, whose placeholders in angle brackets stand for what only a work
+  item has. **Copy** copies the text exactly — and only once it answers what
+  is selected now: while another work item's task or a Refresh is loading,
+  or after a refresh failed, the last answer stays readable but Copy is off.
+- **Context status** shows the context BugPilot last generated for the work
+  item — never a new one; opening it runs no search — with its stored Context
+  Quality and Search Confidence. It says **Needs rebuild** whenever either the
+  CLI (a changed policy, a missing or unreadable file) or the panel (retrieval
+  inputs or run settings changed since the context was prepared) says so, lists
+  every reason, and says what neither could check. Without a context it says
+  *No generated context available. Build context first.*
+
+While BugPilot runs, or checks the CLI again (after `bugpilot.executablePath`
+changes, say), an open view asks nothing: it keeps its last answer, says
+*Not refreshed*, and Copy and Refresh wait until BugPilot is ready, when it
+asks again — an answer from before can never pass for the current one.
+
+Opening or refreshing either view writes nothing and makes nothing stale. A
+CLI older than 0.1.4 cannot show them; the rows say so, and everything else
+works as before.
 
 A row with settings shows a short summary of them under its description — "4
 keywords · 2 focus paths · max 10 files", "shared keywords off · max 3 similar
@@ -1006,6 +1055,10 @@ worth knowing:
   repository — Project instructions, the Repository profile, the Verification
   Policy, Branch naming, project Fix Modes — is meant to be committed. User
   instructions and user Fix Modes in `~/.bugpilot/` are yours alone.
+- **Improve with AI sends text to your AI agent.** It hands the hint — and,
+  when *using Issue details* is ticked, the issue's title and description —
+  to the Claude or Codex CLI you use, and so to that provider, with no tools
+  and no repository access. It runs only when you press it.
 - **Install BugPilot Runtime downloads from PyPI.** pip fetches the
   `bugpilot` package from PyPI, or from the index your pip configuration
   names; nothing about your repository is sent. It happens only when you press
@@ -1018,7 +1071,7 @@ worth knowing:
 
 BugPilot for VS Code is source-available, not open source, under the Business Source License 1.1 ([LICENSE.txt](https://github.com/xsw7910/bugpilot/blob/main/extension/LICENSE.txt)), with the same terms as the `bugpilot` CLI it runs. The licence lets you copy, modify, redistribute and make non-production use of it. Its Additional Use Grant adds production use for the internal purposes of you or your organization, including commercial software development and use while providing software development services to clients. Offering BugPilot, or a substantially similar product or service based on it, to third parties as a hosted, managed, embedded, redistributed or otherwise competing offering is not part of that grant and needs a separate commercial licence; for one, contact the Licensor through the [BugPilot GitHub repository](https://github.com/xsw7910/bugpilot). Each version becomes available under the Apache License 2.0 on its Change Date, or on the fourth anniversary of that version's first public release if that comes first. This is a summary; LICENSE.txt is authoritative.
 
-The codicons icon font in `media/codicons/` is Microsoft's and is licensed CC BY 4.0, not under BugPilot's licence ([THIRD_PARTY_NOTICES.md](https://github.com/xsw7910/bugpilot/blob/main/extension/THIRD_PARTY_NOTICES.md)).
+The codicons icon font in `media/codicons/`, the activity bar icon `media/bug.svg` (the codicons `bug` icon) and the bug drawn on the Marketplace icon `media/icon.png` are Microsoft's and are licensed CC BY 4.0, not under BugPilot's licence ([THIRD_PARTY_NOTICES.md](https://github.com/xsw7910/bugpilot/blob/main/extension/THIRD_PARTY_NOTICES.md)).
 
 ## Troubleshooting
 
@@ -1030,6 +1083,9 @@ The codicons icon font in `media/codicons/` is Microsoft's and is licensed CC BY
 | "The BugPilot runtime is not working." | Its environment is incomplete, or its `bugpilot` no longer answers — for instance after an interrupted setup. **Reinstall Runtime** rebuilds it; only this version's environment is replaced |
 | "does not support the machine-readable output this extension needs" | An older CLI is being found first. Upgrade it, or set `bugpilot.executablePath` |
 | "BugPilot CLI is out of date" | The CLI found is older than this extension and does not accept what a Run sends. For a CLI found on `PATH`, **Install BugPilot Runtime** is offered first. **Update Instructions** says how to upgrade (`pipx upgrade bugpilot`); **Choose Executable** points at a newer one; then **Retry**. `bugpilot --version` shows which version runs |
+| "… cannot read .bugpilot/ai_behavior.md, so it would prepare tasks without this repository's AI Behavior" | The repository has an AI Behavior file and the CLI found is older than 0.1.4, so it would leave the file out of every task. Update the CLI (or **Install BugPilot Runtime**), then **Retry**. Removing the file also lets an older CLI prepare |
+| "The installed BugPilot CLI cannot preview the AI task" (or show the generated context, or list its protected rules) | The CLI is older than 0.1.4. Everything else works; the Effective Output and Protected rules views need a 0.1.4 CLI |
+| "Not refreshed: BugPilot is busy" in a read-only view | A run is in progress, or the CLI is being checked again. The view keeps its last answer and asks again when BugPilot is ready |
 | "BugPilot CLI was not found" during a Run | The executable went away since the panel checked. Install it, or choose it again |
 | "The configured bugpilot path is not valid" | `bugpilot.executablePath` is a relative path, which BugPilot will not resolve against the repository. Use an absolute path, or leave it empty to use `PATH` |
 | "The Jira site must be an https:// address" | `JIRA_BASE_URL` or the saved site is `http://`, or carries a user name, password, query or fragment. Enter `https://your-company.atlassian.net` in **Jira Setup** (or run `bugpilot jira-site set`), or fix `JIRA_BASE_URL` |

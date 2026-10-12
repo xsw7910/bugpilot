@@ -20,6 +20,7 @@ It comes as a command-line tool (`bugpilot`), an MCP server (`bugpilot-mcp`) and
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) on `PATH` for code search.
 - Optional: a Jira Cloud site with an API token, to work from Jira issues.
 - Optional: an AI coding agent — Claude Code, Codex CLI, GitHub Copilot CLI or any other — to hand the task to.
+- Platforms: BugPilot is developed and release-tested on Windows 11. The CLI is plain Python and has no dependencies, but macOS and Linux are not part of its release testing yet.
 
 ## Installation
 
@@ -44,7 +45,7 @@ bugpilot --version
 Expected:
 
 ```text
-bugpilot 0.1.3
+bugpilot 0.1.4
 ```
 
 The MCP server needs the optional MCP SDK: `pipx install "bugpilot[mcp]"`, or `python -m pip install "bugpilot[mcp]"`.
@@ -144,12 +145,34 @@ bugpilot instructions set --scope user --clear
 
 1. BugPilot safety rules
 2. Repository context
-3. Project / team instructions (with the project's Verification Policy)
+3. Project / team instructions (with the project's Verification Policy and AI Behavior additions)
 4. User instructions
 5. AI Fix Mode
 6. Developer hint
 
 So a team's "do not add new dependencies" beats one developer's "prefer library X". The safety rules are written into `task.md` unchanged and before every editable layer, and no instruction file can delete or replace them; the task tells the agent to resolve a conflict in the safety rule's favour — "commit directly to main", say — and to record it in its review notes. That is an instruction to the agent, not a sandbox: review what the agent did before you commit it.
+
+**Protected rules.** The rules every `task.md` states word for word — grouped as Safety, Evidence Integrity, Git / Editing, Delivery, Jira and Secrets / Artifacts, each with a stable id — are built into BugPilot and read-only: there is no file to edit them, and no instruction file, Verification Policy, AI Behavior or Fix Mode replaces them in the task. To see them, and the precedence above:
+
+```powershell
+bugpilot protected-rules show          # the rules by group, what BugPilot does with them, and the precedence
+bugpilot protected-rules show --json   # the same for tools: rules_version, groups, rules (id, group, section, title, text), precedence
+```
+
+**Effective AI task.** `bugpilot task-preview` shows the `task.md` BugPilot would hand an agent now, written by the same code a run uses and saved nowhere. Given a prepared work item it is that work item's task with every policy read again, and it says whether the prepared `task.md` still says the same and which sections differ. Without one it is a template — `Template preview — no work item selected` — in which placeholders such as `<work-item-id>` stand for what only a work item has; everything else is your repository's and your own configuration. It creates no file, contacts no Jira and runs no Git command.
+
+```powershell
+bugpilot task-preview                                        # the template: Standard Fix, branch policy current, no Jira comment
+bugpilot task-preview --fix-mode investigate-first --jira-comment   # the template with other run settings (bug's own flags)
+bugpilot task-preview JR-12345 --json                        # a prepared work item's task: text, sections (protected or not), sources, prepared state
+```
+
+**Effective context.** `bugpilot context-preview JR-12345` shows the context BugPilot last generated for a work item — the `context.md` its agent was handed — and whether it is still current. It never builds a new one: only retrieval can. A stale context is still shown, under *Context status: Needs rebuild* and what changed since it was generated (the instructions, the Verification Policy, AI Behavior, the Repository Profile, the Fix Mode, branch naming, or a missing or unreadable prepared file). It does not see the retrieval settings you have changed in the panel since — the panel compares those — or the issue in Jira since it was fetched, and says so. Without a work item, or before its context is built: *No generated context available. Build context first.*
+
+```powershell
+bugpilot context-preview JR-12345          # the status, what changed, quality and confidence, then the context
+bugpilot context-preview JR-12345 --json   # state, text, freshness (reasons, unchecked), task, quality, retrieval, sources, problems
+```
 
 ## Verification Policy and branch naming
 
@@ -193,6 +216,37 @@ bugpilot project-settings set --from-file settings.json     # {"verification": {
 
 **Mixed versions.** 0.1.2 and earlier never read `verification.md`. A 0.1.2 client can still save the four switches with `project-settings set`; they are accepted and kept (the 0.1.3 extension shows no switches and writes back the saved values unchanged), but while `verification.md` exists it decides, and `project-settings` says so (`verification_source: verification-file`, plus a warning on `set`). A 0.1.3 extension that finds `verification.md` next to a CLI whose `bugpilot doctor --json` has no `verification-text` capability reports the CLI as out of date rather than preparing a task without the repository's policy.
 
+## AI Behavior
+
+**AI Behavior** — how the agent is expected to make and report changes in this repository: conventions and minimum expectations, not safety rules. `task.md` states it in one `## AI Behavior` section. BugPilot's defaults (small, targeted fixes; follow the surrounding code; no unrelated refactoring, public API renames or behaviour changes outside the issue) always apply, and `.bugpilot/ai_behavior.md` **adds** the repository's own beneath them — it never replaces them. The selected Fix Mode decides how one attempt works within these conventions; what to verify stays the Verification Policy's.
+
+```markdown
+---
+schema_version: 1
+based_on_version: 1
+mode: append
+---
+
+## Code Change Conventions
+- Keep the export module's public functions backward compatible.
+
+## Evidence Standards
+- Quote the log line or stack frame that shows the failure.
+
+## Reporting Standards
+- Name the export formats the change affects in the report's Summary.
+```
+
+Without the file there is nothing to configure and nothing is warned about; reading never creates it. A file whose sections are all empty — just its headings — adds nothing either, so the task is the same as without it. A file that cannot be used — no or malformed front matter, a mode other than `append`, an empty body, more than 20,000 characters, not UTF-8, or a link or junction — is left out whole: BugPilot's defaults apply, and the CLI output and run warnings say why. The additions sit in the project / team layer of the precedence, below BugPilot's rules, which the task states first and unchanged. Non-blocking warnings point at lines that look like they ask for something a safety rule forbids, headings named like a Fix Mode section, and lines about running tests or checks (those belong in the Verification Policy); the text is kept as written.
+
+```powershell
+bugpilot ai-behavior show                          # the effective AI Behavior and where it comes from (--json: source, file state, versions, lint, problems)
+bugpilot ai-behavior set --from-file behavior.md   # additions (front matter is added) or a whole document; also --stdin
+bugpilot ai-behavior reset                         # remove .bugpilot/ai_behavior.md (clear is the same); BugPilot's defaults apply alone
+```
+
+In the VS Code extension it is a row in **Advanced Settings › AI Behavior & Rules**: **Edit** opens `.bugpilot/ai_behavior.md` in an editor tab (the CLI creates it first with its three sections, empty), **Reset** removes it after asking, and **Preview** shows the AI Behavior in force. The panel reads it to tell when a prepared context needs a rebuild; a 0.1.4 extension that finds `ai_behavior.md` next to a CLI whose `bugpilot doctor --json` has no `ai-behavior-text` capability reports the CLI as out of date. The same section lists the protected rules (read-only), and **Advanced Settings › Effective Output** — or **⋯ More** — shows the Effective AI Task and the Effective Context from `task-preview` and `context-preview`.
+
 ## Fix Modes
 
 A Fix Mode decides *how* the agent approaches a bug — how far to investigate, how to implement, how to verify, what to report. It never decides what the agent may do.
@@ -219,6 +273,8 @@ Preparing a work item again — a rebuild, a resume, a retry — never calls for
 - **No programs from your repository.** `git`, `rg` and agent CLIs are found on `PATH`'s absolute entries only, never in the current folder.
 - **Jira credentials stay out of artifacts.** Tokens are never written to generated files, logs or command lines.
 - **AI review is read-only.** The VS Code extension's captured review runs without a shell or editing tools; BugPilot gives it the diff itself.
+- **Editable text cannot pose as BugPilot's own sections.** Headings in User and Project Instructions, the Verification Policy, AI Behavior, a Fix Mode's sections and the developer hint are held below the task's own, an open code fence is closed where the layer ends, and a Fix Mode's name stays on one line, so none of them can add a second `## BugPilot Safety Rules` or `## BugPilot Rule Precedence`.
+- **Terminal output is shown, not obeyed.** In text mode, control characters from an issue, a hint or a policy — ESC sequences, a carriage return or backspace that overprints a line, bidirectional overrides — are printed escaped (`\x1b`). The files themselves and `--json` output stay exactly as written.
 
 More in [docs/safety.md](https://github.com/xsw7910/bugpilot/blob/main/docs/safety.md).
 
@@ -269,4 +325,4 @@ BugPilot is source-available, not open source, under the Business Source License
 
 The licence lets you copy, modify, redistribute and make non-production use of BugPilot. Its Additional Use Grant adds production use for the internal purposes of you or your organization, including commercial software development and use while providing software development services to clients. Offering BugPilot, or a substantially similar product or service based on it, to third parties as a hosted, managed, embedded, redistributed or otherwise competing offering is not part of that grant and needs a separate commercial licence; for one, contact the Licensor through the [BugPilot GitHub repository](https://github.com/xsw7910/bugpilot). Each version becomes available under the Apache License 2.0 on its Change Date, or on the fourth anniversary of that version's first public release if that comes first. This is a summary; the licence files are authoritative.
 
-Third-party components keep their own licences: the extension's codicons icon font is CC BY 4.0 ([extension/THIRD_PARTY_NOTICES.md](https://github.com/xsw7910/bugpilot/blob/main/extension/THIRD_PARTY_NOTICES.md)).
+Third-party components keep their own licences: the extension's codicons icon font and its `bug` icon (the activity bar icon, also drawn on the Marketplace icon) are CC BY 4.0 ([extension/THIRD_PARTY_NOTICES.md](https://github.com/xsw7910/bugpilot/blob/main/extension/THIRD_PARTY_NOTICES.md)).
