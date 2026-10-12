@@ -215,7 +215,7 @@ def test_project_instructions_beat_user_instructions(tmp_path, monkeypatch, caps
     # … and the task says which one wins, and that safety still wins over both.
     precedence = _section(task, "## BugPilot Rule Precedence")
     assert "3. Project / team instructions\n4. User instructions\n" in precedence
-    assert "Project / team instructions, with the project's Verification Policy, take precedence over user instructions" in precedence
+    assert "Project / team instructions, with the project's Verification Policy and AI Behavior additions, take precedence over user instructions" in precedence
     assert "BugPilot safety rules have the highest precedence." in precedence
 
 

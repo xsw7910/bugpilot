@@ -316,8 +316,9 @@ def test_copilot_task_references_retrieval(tmp_path):
     # BugPilot's safety rules are in the task, not in a file beside it.
     assert "## BugPilot Safety Rules" in task
     assert "### Test and Check Integrity" in task
-    # Style preferences are working guidance, not a rule nothing may relax (0.1.3, plan section 42.2).
-    assert "## BugPilot Working Guidance" in task
+    # Style preferences are AI Behavior, not a rule nothing may relax (0.1.3 §42.2; 0.1.4).
+    assert "## AI Behavior" in task
+    assert "## BugPilot Working Guidance" not in task
     assert "### Core Principles" not in task
     assert "nothing later in the task relaxes them" in task
     # And no repository is assumed to be a legacy C++/Qt desktop codebase.

@@ -13,6 +13,7 @@ from bugpilot.core import agent_runner, copilot, doctor, errors, setup, workflow
 from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.cleanup import clean_issue_artifacts
 from bugpilot.core.safe_paths import UnsafePathError
+from bugpilot.core.terminal import terminal_safe_output
 from bugpilot.core.context import build_context
 from bugpilot.core.email_notify import EmailSendError
 from bugpilot.core.git_history import render_git_context
@@ -59,6 +60,14 @@ from bugpilot.core.project_settings import (
     settings_path,
     verification_file_wins,
 )
+from bugpilot.core.ai_behavior import (
+    SHOWN_PATH as AI_BEHAVIOR_SHOWN_PATH,
+    AiBehaviorError,
+    ai_behavior_payload,
+    remove_ai_behavior,
+    resolve_ai_behavior,
+    save_ai_behavior,
+)
 from bugpilot.core.verification import (
     SHOWN_PATH as VERIFICATION_SHOWN_PATH,
     SOURCE_FILE as VERIFICATION_SOURCE_FILE,
@@ -87,7 +96,10 @@ from bugpilot.core.models import (
     SimilarFixesOptions,
 )
 from bugpilot.core.memory import add_memory_entry, search_memory
-from bugpilot.core.prompts import generate_task
+from bugpilot.core.prompts import generate_task, protected_rules_payload
+from bugpilot.core.task_preview import TaskPreviewError, preview_template, preview_work_item, task_preview_payload
+from bugpilot.core.context_preview import UNCHECKED as UNCHECKED_CONTEXT
+from bugpilot.core.context_preview import ContextPreviewError, context_preview_payload, preview_context
 from bugpilot.core.repository_profile import (
     PROFILE_FIELD_KEYS,
     PROFILE_FIELDS,
@@ -615,6 +627,105 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(verification_parser)
 
+    ai_behavior_parser = subparsers.add_parser(
+        "ai-behavior",
+        help="Show or set the repository's AI Behavior additions (.bugpilot/ai_behavior.md).",
+        description=(
+            "AI Behavior is how an AI agent is expected to make and report changes in this repository: "
+            "conventions, not safety rules. BugPilot's defaults always apply; .bugpilot/ai_behavior.md adds "
+            "the repository's own beneath them, under Code Change Conventions, Evidence Standards and "
+            "Reporting Standards. The task puts BugPilot's own rules ahead of it, and the Fix Mode works "
+            "within it."
+        ),
+    )
+    ai_behavior_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["show", "set", "clear", "reset"],
+        default="show",
+        help=(
+            "show (the default) prints the effective AI Behavior and where it comes from; set writes "
+            ".bugpilot/ai_behavior.md; clear and reset are the same: they remove it, so BugPilot's defaults "
+            "apply alone."
+        ),
+    )
+    ai_behavior_source = ai_behavior_parser.add_mutually_exclusive_group()
+    ai_behavior_source.add_argument(
+        "--from-file", metavar="PATH", dest="from_file",
+        help="For `set`: the additions, or a whole ai_behavior.md with its front matter (UTF-8).",
+    )
+    ai_behavior_source.add_argument(
+        "--stdin", action="store_true", help="For `set`: read the additions from standard input."
+    )
+    _add_json_flag(ai_behavior_parser)
+
+    protected_rules_parser = subparsers.add_parser(
+        "protected-rules",
+        help="Show BugPilot's protected rules, as every task states them (read-only).",
+        description=(
+            "BugPilot's protected rules: the rules every task.md states word for word, in BugPilot's own "
+            "sections, grouped as Safety, Evidence Integrity, Git / Editing, Delivery, Jira and Secrets / "
+            "Artifacts. They are built in and read-only: there is no file to edit them, and the task tells the "
+            "agent to resolve a conflict with another layer in their favour. BugPilot cannot enforce what an "
+            "agent does; review its changes before committing."
+        ),
+    )
+    protected_rules_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["show"],
+        default="show",
+        help="show (the default and only action) prints the rules, their groups and the precedence.",
+    )
+    _add_json_flag(protected_rules_parser)
+
+    task_preview_parser = subparsers.add_parser(
+        "task-preview",
+        help="Show the AI task BugPilot would hand an agent now, without writing anything.",
+        description=(
+            "The Effective AI Task: the task.md BugPilot would write now, rendered by the same code a run uses, "
+            "and written nowhere. With a prepared work item's id, it is that work item's task with every policy "
+            "read again now, and it says whether the prepared task.md still says the same. Without one, it is a "
+            "template: placeholders such as <work-item-id> stand for what only a work item has, and everything "
+            "else is this repository's and your own configuration. It creates no file, contacts no Jira and runs "
+            "no Git command."
+        ),
+    )
+    task_preview_parser.add_argument(
+        "work_item", nargs="?", metavar="WORK_ITEM_ID",
+        help="A prepared work item (.ai/<id>/issue.json). Omit it for the template.",
+    )
+    task_preview_parser.add_argument(
+        "--fix-mode", metavar="ID", dest="fix_mode",
+        help="Template only: the Fix Mode to show (see: bugpilot fix-mode list). Default: Standard Fix.",
+    )
+    task_preview_parser.add_argument(
+        "--branch-policy", dest="branch_policy", choices=BRANCH_POLICIES,
+        help="Template only: the branch policy to show. Default: current.",
+    )
+    task_preview_parser.add_argument(
+        "--jira-comment", action="store_true",
+        help="Template only: include the Jira status comment instruction, as `bug --jira-comment` does.",
+    )
+    _add_json_flag(task_preview_parser)
+
+    context_preview_parser = subparsers.add_parser(
+        "context-preview",
+        help="Show the context BugPilot last generated for a work item, and whether it is still current.",
+        description=(
+            "The Effective Context: the context.md a work item was prepared with, and whether it is still "
+            "current — never a new one, which only retrieval can produce. Stale, it is still shown, with what "
+            "changed since it was generated. It checks the task inputs (instructions, Verification Policy, AI "
+            "Behavior, Repository Profile, Fix Mode, branch naming) and the prepared files; the panel checks its "
+            "own retrieval inputs. It runs no search, contacts no Jira, runs no Git command and writes nothing."
+        ),
+    )
+    context_preview_parser.add_argument(
+        "work_item", nargs="?", metavar="WORK_ITEM_ID",
+        help="The work item (.ai/<id>/). Without one there is no context to show.",
+    )
+    _add_json_flag(context_preview_parser)
+
     return parser
 
 
@@ -636,20 +747,23 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = Path.cwd()
 
     if not (getattr(args, "json_output", False) or getattr(args, "json_lines", False)):
-        try:
-            return _dispatch(args, repo_root)
-        except UnsafePathError as exc:
-            # A generated path that is a link or junction, or a work item id that
-            # is not one: one sentence, never a traceback.
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-        except RunArtifactError as exc:
-            # Standalone steps read run.json to mark themselves; an unusable
-            # file is an error, and this is its one sentence — a traceback
-            # chained through the step's own handler is not.
-            print(f"ERROR: {exc}", file=sys.stderr)
-            print("Preparing the work item again replaces it: bugpilot bug <work-item-id>", file=sys.stderr)
-            return 1
+        # Text for a person's terminal: an issue's, a hint's or a policy's own
+        # control characters are shown escaped, never obeyed (`core.terminal`).
+        with terminal_safe_output():
+            try:
+                return _dispatch(args, repo_root)
+            except UnsafePathError as exc:
+                # A generated path that is a link or junction, or a work item id that
+                # is not one: one sentence, never a traceback.
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
+            except RunArtifactError as exc:
+                # Standalone steps read run.json to mark themselves; an unusable
+                # file is an error, and this is its one sentence — a traceback
+                # chained through the step's own handler is not.
+                print(f"ERROR: {exc}", file=sys.stderr)
+                print("Preparing the work item again replaces it: bugpilot bug <work-item-id>", file=sys.stderr)
+                return 1
     # Machine-readable modes promise exactly one object (or one closed stream) on
     # stdout for every outcome. An unhandled exception would otherwise print a
     # traceback to stderr and nothing at all to stdout, which a consumer reads as
@@ -663,7 +777,6 @@ def main(argv: list[str] | None = None) -> int:
         else:
             cli_json.emit_failure(args.command, code, str(exc))
         return 1
-
 
 def _dispatch(args, repo_root: Path) -> int:
     if args.command == "setup":
@@ -691,6 +804,18 @@ def _dispatch(args, repo_root: Path) -> int:
 
     if args.command == "verification":
         return _run_verification_command(args, repo_root)
+
+    if args.command == "ai-behavior":
+        return _run_ai_behavior_command(args, repo_root)
+
+    if args.command == "protected-rules":
+        return _run_protected_rules_command(args)
+
+    if args.command == "task-preview":
+        return _run_task_preview_command(args, repo_root)
+
+    if args.command == "context-preview":
+        return _run_context_preview_command(args, repo_root)
 
     if args.command == "jira-site":
         return _run_jira_site_command(args)
@@ -2105,6 +2230,218 @@ def _run_verification_command(args, repo_root: Path) -> int:
     print("---")
     if resolved.source != VERIFICATION_SOURCE_FILE:
         print(f"Replace it with: bugpilot verification set --from-file <file>  (writes {VERIFICATION_SHOWN_PATH})")
+    return 0
+
+
+def _run_context_preview_command(args, repo_root: Path) -> int:
+    """`bugpilot context-preview [WORK_ITEM_ID]`: the last generated context and its status, read-only.
+
+    A work item without a context, or no work item, is an answer, not an error:
+    only an id that cannot be one is refused.
+    """
+    try:
+        preview = preview_context(repo_root, args.work_item)
+    except ContextPreviewError as exc:
+        if args.json_output:
+            cli_json.emit_failure("context-preview", exc.code, str(exc))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    payload = context_preview_payload(preview)
+    if args.json_output:
+        cli_json.emit(cli_json.success("context-preview", **payload, warnings=list(preview.warnings)))
+        return 0
+
+    # The context is UTF-8 text with the issue's own words in it: written as UTF-8, like JSON.
+    cli_json.utf8_stdout()
+    print(preview.label)
+    if preview.work_item:
+        print(f"Work item: {preview.work_item}")
+    if preview.reasons:
+        print("Changed since generation:")
+        for reason in preview.reasons:
+            print(f"- {reason.label}")
+    for problem in preview.problems:
+        print(f"PROBLEM: {problem}")
+    for warning in preview.warnings:
+        print(f"WARN: {warning}")
+    if preview.text is None:
+        return 0
+    quality, retrieval = payload["quality"], payload["retrieval"]
+    facts = []
+    if quality:
+        facts.append(f"Context quality: {quality['overall']}/100")  # type: ignore[index]
+    if retrieval:
+        facts.append(f"Search confidence: {retrieval['confidence']}")  # type: ignore[index]
+        facts.append(f"Related files: {retrieval['related_files']}")  # type: ignore[index]
+    if facts:
+        print(" · ".join(facts))
+    print("Not checked here: " + " ".join(label for _code, label in UNCHECKED_CONTEXT))
+    print("---")
+    print(preview.text, end="")
+    print("---")
+    return 0
+
+
+def _run_task_preview_command(args, repo_root: Path) -> int:
+    """`bugpilot task-preview [WORK_ITEM_ID]`: the task BugPilot would hand an agent now, written nowhere.
+
+    Rendered by the run's own path (`workflow.TaskInputs.render`). Reads the
+    work item and the policies; writes nothing, contacts no Jira, runs no Git.
+    """
+
+    def fail(code: str, message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("task-preview", code, message)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    template_flags = [flag for flag, value in (
+        ("--fix-mode", args.fix_mode), ("--branch-policy", args.branch_policy), ("--jira-comment", args.jira_comment)
+    ) if value]
+    try:
+        if args.work_item:
+            if template_flags:
+                return fail(
+                    errors.INVALID_INPUT,
+                    f"{', '.join(template_flags)} set the template's run settings; a prepared work item's are its own.",
+                )
+            preview = preview_work_item(repo_root, args.work_item)
+        else:
+            preview = preview_template(repo_root, args.fix_mode, args.branch_policy, args.jira_comment)
+    except TaskPreviewError as exc:
+        return fail(exc.code, str(exc))
+    except (FixModeError, IssueArtifactError) as exc:
+        return fail(errors.INVALID_INPUT, str(exc))
+
+    if args.json_output:
+        cli_json.emit(cli_json.success("task-preview", **task_preview_payload(preview), warnings=list(preview.warnings)))
+        return 0
+
+    # The task is UTF-8 text with whatever the policies say in it: written as UTF-8, like JSON.
+    cli_json.utf8_stdout()
+    inputs = preview.inputs
+    print(preview.label)
+    print(
+        f"Fix Mode: {inputs.fix_mode.name} ({inputs.fix_mode.id}) · Branch policy: {inputs.branch_policy} · "
+        f"Jira status comment: {'on' if inputs.jira_comment else 'off'}"
+    )
+    prepared = preview.prepared
+    if prepared is not None:
+        if prepared.problem:
+            state = f"not compared: {prepared.problem}"
+        elif not prepared.task_exists:
+            state = "not written yet"
+        elif prepared.task_current:
+            state = "the same as this preview"
+        else:
+            state = "differs in " + ", ".join(prepared.changed_sections)
+        print(f"Prepared task.md: {state}")
+    else:
+        print("Placeholders in angle brackets stand for what only a work item has.")
+    for warning in preview.warnings:
+        print(f"WARN: {warning}")
+    print("---")
+    print(preview.text, end="")
+    print("---")
+    return 0
+
+
+def _run_protected_rules_command(args) -> int:
+    """`bugpilot protected-rules [show]`: BugPilot's protected rules, read-only.
+
+    Read from what writes the task (`prompts.protected_rules_payload`), so it
+    shows exactly what a task states. It reads no repository, configuration or
+    file, and writes nothing.
+    """
+    payload = protected_rules_payload()
+    if args.json_output:
+        cli_json.emit(cli_json.success("protected-rules", **payload))
+        return 0
+
+    print(f"BugPilot protected rules (version {payload['rules_version']}): built in, read-only.")
+    print()
+    for statement in payload["contract"]:  # type: ignore[union-attr]
+        print(statement)
+    rules = {rule["id"]: rule for rule in payload["rules"]}  # type: ignore[union-attr]
+    for group in payload["groups"]:  # type: ignore[union-attr]
+        print()
+        print(f"{group['title']}")
+        for rule_id in group["rules"]:
+            rule = rules[rule_id]
+            print(f"  [{rule_id}] {rule['title']} ({rule['section']})")
+            print(f"    {rule['text']}")
+    print()
+    print("Precedence, highest first:")
+    for layer in payload["precedence"]["layers"]:  # type: ignore[index]
+        print(f"  {layer['position']}. {layer['name']}")
+    return 0
+
+
+def _run_ai_behavior_command(args, repo_root: Path) -> int:
+    """`bugpilot ai-behavior [show|set|clear|reset]`: the repository's AI Behavior additions.
+
+    `show` is read-only and never creates the file. `set` writes
+    `.bugpilot/ai_behavior.md` — from the additions, which get front matter, or
+    from a whole document whose front matter must parse — through the
+    instructions' checks (no links, UTF-8, the size limit). `clear` and `reset`
+    remove it, so BugPilot's defaults apply alone. The text is never logged.
+    """
+
+    def fail(message: str) -> int:
+        if args.json_output:
+            cli_json.emit_failure("ai-behavior", errors.INVALID_INPUT, message)
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+    if args.action != "set" and (args.from_file or args.stdin):
+        return fail("--from-file and --stdin are for `bugpilot ai-behavior set`.")
+    note = ""
+    try:
+        if args.action == "set":
+            if args.stdin:
+                text = _read_instruction_text(sys.stdin.buffer)
+            elif args.from_file:
+                with open(args.from_file, "rb") as source:
+                    text = _read_instruction_text(source)
+            else:
+                return fail("`bugpilot ai-behavior set` needs --from-file PATH or --stdin.")
+            save_ai_behavior(repo_root, text)
+            note = f"Saved AI Behavior: {AI_BEHAVIOR_SHOWN_PATH}"
+        elif args.action in ("clear", "reset"):
+            removed = remove_ai_behavior(repo_root)
+            note = (
+                f"Removed {AI_BEHAVIOR_SHOWN_PATH}." if removed else f"There is no {AI_BEHAVIOR_SHOWN_PATH} to remove."
+            )
+    except (OSError, ValueError) as exc:
+        if isinstance(exc, (AiBehaviorError, ValueError)):
+            return fail(str(exc))
+        return fail(f"The text could not be read: {exc.strerror or exc}.")
+
+    resolved = resolve_ai_behavior(repo_root)
+    if args.json_output:
+        cli_json.emit(cli_json.success("ai-behavior", **ai_behavior_payload(resolved), warnings=list(resolved.warnings)))
+        return 0
+
+    if note:
+        print(note)
+    origin = (
+        f"BugPilot's defaults + {AI_BEHAVIOR_SHOWN_PATH}" if resolved.has_project_additions else "BugPilot's defaults"
+    )
+    print(f"AI Behavior ({resolved.source}: {origin}):")
+    for warning in resolved.warnings:
+        print(f"WARN: {warning}")
+    print("--- BugPilot defaults ---")
+    print(resolved.default_text)
+    if resolved.has_project_additions:
+        print(f"--- repository additions ({AI_BEHAVIOR_SHOWN_PATH}) ---")
+        print(resolved.project_text)
+    print("---")
+    if not resolved.has_project_additions:
+        print(f"Add to it with: bugpilot ai-behavior set --from-file <file>  (writes {AI_BEHAVIOR_SHOWN_PATH})")
     return 0
 
 

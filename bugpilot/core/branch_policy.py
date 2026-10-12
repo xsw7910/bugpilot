@@ -36,6 +36,7 @@ from __future__ import annotations
 import re
 
 from .identity import is_local_work_item_id
+from .protected_rules import rule_bullet
 
 BRANCH_POLICY_CURRENT = "current"
 BRANCH_POLICY_PER_ISSUE = "per-issue"
@@ -124,7 +125,7 @@ def branch_instructions(policy: str, branch: str, issue_key: str = "") -> str:
     if policy == BRANCH_POLICY_PER_ISSUE:
         lines += [
             f"- Branch name: `{branch}`",
-            "- Never work directly on main/master.",
+            rule_bullet("never-work-on-main"),
             f"- Check the current branch, then create or switch to `{branch}` before editing files — "
             f"from a detached HEAD too — and edit only there. If it already exists"
             f"{_existing_branch_clause(issue_key)}, switch to it rather than creating another.",
@@ -133,7 +134,7 @@ def branch_instructions(policy: str, branch: str, issue_key: str = "") -> str:
     elif policy == BRANCH_POLICY_ASK:
         lines += [
             f"- Suggested branch name: `{branch}`",
-            "- Never work directly on main/master.",
+            rule_bullet("never-work-on-main"),
             "- Before editing, check the current branch, tell the developer it and the suggested branch "
             f"`{branch}`, and ask whether to stay on the current branch or to create or switch to "
             "the suggested one; then edit only on the branch they choose.",
@@ -145,7 +146,7 @@ def branch_instructions(policy: str, branch: str, issue_key: str = "") -> str:
         lines += [
             "- Check the current branch before editing, and edit only on the branch that is checked "
             "out. Do not create or switch branches.",
-            "- Never work directly on main/master.",
+            rule_bullet("never-work-on-main"),
             _NO_NEW_BRANCH_FOR_REPREPARING,
             "- If the current branch is `main` or `master`, or HEAD is detached, stop before editing "
             f'and ask the developer: "You are on a protected branch / detached HEAD. Create `{branch}` '
@@ -166,7 +167,7 @@ def retry_branch_section(policy: str, branch: str | None = None) -> str:
         "## Branch\n\n"
         f"- Branch policy: {_POLICY_NAMES[policy]}, as in the first attempt.\n"
         f"- Continue on {where}. A retry does not call for a new branch.\n"
-        "- Never work directly on main/master.\n\n"
+        f"{rule_bullet('never-work-on-main')}\n\n"
     )
 
 

@@ -8,7 +8,8 @@ the diff: every line of it is something an agent will now be told differently.
 Each case is one combination of the inputs that change the task — Fix Mode
 (fix-capable or investigation-only), branch policy (`current`, `per-issue`,
 `ask`), the work item's source (Jira or hand-written), Jira comment permission,
-attached files, a hint, and configured instructions and project settings — not
+attached files, a hint, configured instructions and project settings, and the
+repository's Verification Policy and AI Behavior files — not
 the full Cartesian product, which would be mostly repetition. The rest of the
 inputs are resolved the way `workflow.prompt_step` resolves them: the Repository
 Profile, the User and Project Instructions and the project settings are read
@@ -34,6 +35,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from bugpilot.core.ai_behavior import resolve_ai_behavior
 from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.fix_modes import INVESTIGATE_FIRST_FIX, STANDARD_FIX, FixMode
 from bugpilot.core.instructions import load_instructions
@@ -71,6 +73,8 @@ class TaskCase:
     configured: bool = False
     #: A repository `.bugpilot/verification.md`, which replaces the switches (0.1.3).
     verification_file: bool = False
+    #: A repository `.bugpilot/ai_behavior.md`, added to BugPilot's defaults (0.1.4).
+    ai_behavior: bool = False
 
     def __post_init__(self) -> None:
         if self.fix_mode not in FIX_MODES:
@@ -114,6 +118,15 @@ MATRIX: tuple[TaskCase, ...] = (
         attachments=(("export.log", "Written while reproducing the bug."),),
     ),
     TaskCase("manual-investigation-current", LOCAL_ID, MANUAL_TITLE, fix_mode="investigation"),
+    # Added in 0.1.4: the repository's AI Behavior additions, alone, beside
+    # User and Project Instructions, beside a Verification Policy file, and in
+    # an investigation. Without the file, every case above has the defaults.
+    TaskCase("jira-fix-current-ai-behavior", JIRA_ID, JIRA_TITLE, ai_behavior=True),
+    TaskCase("jira-fix-current-configured-ai-behavior", JIRA_ID, JIRA_TITLE, configured=True, ai_behavior=True),
+    TaskCase(
+        "jira-fix-current-verification-file-ai-behavior", JIRA_ID, JIRA_TITLE, verification_file=True, ai_behavior=True
+    ),
+    TaskCase("jira-investigation-current-ai-behavior", JIRA_ID, JIRA_TITLE, fix_mode="investigation", ai_behavior=True),
 )
 
 
@@ -142,10 +155,23 @@ _VERIFICATION_FILE = (
     "- Run the type checker on the files you changed.\n"
     "- The integration suite is not required.\n"
 )
+#: A repository's own AI Behavior additions, one line under each section. The
+#: headings must land below the task's own sections, as the policy's do.
+_AI_BEHAVIOR_FILE = (
+    "---\nschema_version: 1\nbased_on_version: 1\nmode: append\n---\n\n"
+    "## Code Change Conventions\n\n"
+    "- Keep the export module's public functions backward compatible.\n\n"
+    "## Evidence Standards\n\n"
+    "- Quote the log line or stack frame that shows the failure.\n\n"
+    "## Reporting Standards\n\n"
+    "- Name the export formats the change affects in the report's Summary.\n"
+)
 
 
 @contextmanager
-def _resolved_inputs(configured: bool, verification_file: bool = False) -> Iterator[dict[str, object]]:
+def _resolved_inputs(
+    configured: bool, verification_file: bool = False, ai_behavior: bool = False
+) -> Iterator[dict[str, object]]:
     """The Repository Profile, instructions and settings, read from a fresh synthetic repository.
 
     The user configuration directory is a fresh empty one for the duration, so
@@ -169,6 +195,9 @@ def _resolved_inputs(configured: bool, verification_file: bool = False) -> Itera
         if verification_file:
             (root / ".bugpilot").mkdir(exist_ok=True)
             (root / ".bugpilot" / "verification.md").write_text(_VERIFICATION_FILE, encoding="utf-8", newline="\n")
+        if ai_behavior:
+            (root / ".bugpilot").mkdir(exist_ok=True)
+            (root / ".bugpilot" / "ai_behavior.md").write_text(_AI_BEHAVIOR_FILE, encoding="utf-8", newline="\n")
         previous = os.environ.get(CONFIG_DIR_ENV)
         os.environ[CONFIG_DIR_ENV] = str(config)
         try:
@@ -176,6 +205,7 @@ def _resolved_inputs(configured: bool, verification_file: bool = False) -> Itera
                 "repository": resolve_repository_context(root),
                 "instructions": load_instructions(root),
                 "project_settings": resolve_project_settings(root),
+                "ai_behavior": resolve_ai_behavior(root),
             }
         finally:
             if previous is None:
@@ -186,7 +216,7 @@ def _resolved_inputs(configured: bool, verification_file: bool = False) -> Itera
 
 def render(case: TaskCase) -> str:
     """`task.md` for one case, through `generate_task` with the inputs a run resolves."""
-    with _resolved_inputs(case.configured, case.verification_file) as inputs:
+    with _resolved_inputs(case.configured, case.verification_file, case.ai_behavior) as inputs:
         return generate_task(
             case.work_item_id,
             case.title,
@@ -322,6 +352,7 @@ def matrix_record(texts: dict[str, str]) -> dict[str, object]:
             "hint": bool(case.hint),
             "configured": case.configured,
             "verification_file": case.verification_file,
+            "ai_behavior": case.ai_behavior,
             **measure(texts[case.name]),
             # Since 0.1.3: where each protected rule's full statement is.
             "canonical_rules": rule_homes(texts[case.name]),

@@ -112,7 +112,7 @@ RETAINED_REPETITION = (
     "prompt, which has no Safety Rules section; task.md states each once.",
     "Fix Mode text is the mode's own (Standard Fix avoids formatting-only changes); Batch 3 does not "
     "edit modes.",
-    "Repository Context's closing sentence and BugPilot Working Guidance overlap on following existing "
+    "Repository Context's closing sentence and the default AI Behavior overlap on following existing "
     "patterns; both are guidance, not rules.",
 )
 

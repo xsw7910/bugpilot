@@ -47,6 +47,11 @@ def test_the_matrix_covers_every_input_that_changes_the_task():
     # Jira comment, and with a branch policy that may create a branch.
     assert any(case.fix_mode == "investigation" and case.jira_comment for case in MATRIX)
     assert any(case.fix_mode == "investigation" and case.branch_policy != "current" for case in MATRIX)
+    # A repository's AI Behavior additions alone and beside each layer they sit among (0.1.4).
+    assert {case.ai_behavior for case in MATRIX} == {True, False}
+    assert any(case.ai_behavior and case.configured for case in MATRIX)
+    assert any(case.ai_behavior and case.verification_file for case in MATRIX)
+    assert any(case.ai_behavior and case.fix_mode == "investigation" for case in MATRIX)
     assert len({case.name for case in MATRIX}) == len(MATRIX)
 
 
@@ -174,13 +179,42 @@ def test_the_precedence_corrections_hold(case: TaskCase):
     for expectation in ("focused tests", "Run the tests", "regression risk", "manual validation"):
         assert expectation not in safety, (case.name, expectation)
     assert "Verification Policy" in sections
-    # Working Guidance is its own, refinable section, not a safety rule.
-    guidance = sections["BugPilot Working Guidance"]
-    assert "It is guidance, not a safety rule" in guidance
+    # The default way of working is AI Behavior, its own section, not a safety rule (0.1.4).
+    behavior = sections["AI Behavior"]
+    assert "guidance, not safety rules" in behavior
+    assert "BugPilot Working Guidance" not in sections
     assert "Prefer small, targeted fixes" not in safety
     assert "any of these layers may refine it" in sections["BugPilot Rule Precedence"]
     # And agent-neutral.
     assert "Task tool" not in text and "Read, Grep, and Glob" not in text
+
+
+@pytest.mark.parametrize("case", MATRIX, ids=lambda case: case.name)
+def test_ai_behavior_is_one_section_in_the_project_layer_with_its_additions_contained(case: TaskCase):
+    """Where Working Guidance was (0.1.4): once, after the Verification Policy, before the user's and the Fix Mode."""
+    text = read_golden(case)
+    headings = task_golden.sections(text)
+    assert headings.count("AI Behavior") == 1 and "BugPilot Working Guidance" not in headings
+    position = headings.index("AI Behavior")
+    assert headings.index("BugPilot Safety Rules") < headings.index("Verification Policy") < position
+    assert position < headings.index("AI Fix Mode") < headings.index("BugPilot Rule Precedence")
+    if "User Instructions" in headings:
+        assert headings.index("Project / Team Instructions") < position < headings.index("User Instructions")
+
+    behavior = _sections(text)["AI Behavior"]
+    assert "### Code Change Conventions" in behavior
+    assert ("### Repository Additions" in behavior) == case.ai_behavior, case.name
+    if case.ai_behavior:
+        assert "Source: BugPilot defaults, with this repository's additions (.bugpilot/ai_behavior.md)." in behavior
+        for heading in ("Code Change Conventions", "Evidence Standards", "Reporting Standards"):
+            assert f"\n#### {heading}\n" in behavior, (case.name, heading)
+    else:
+        assert "Source: BugPilot defaults.\n" in behavior
+    # Nothing BugPilot owns is restated there; the canonical homes check counts it too.
+    homes = task_golden.rule_homes(text)
+    assert [name for name, found in homes.items() if "AI Behavior" in found] == [], case.name
+    assert task_golden.precedence_layers(text)[2] == "Project / team instructions"
+    assert "Verification Policy and AI Behavior additions, take precedence over user instructions" in text
 
 
 def test_a_project_may_still_say_tests_are_not_required():

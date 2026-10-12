@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -98,6 +98,7 @@ from .prompts import (
     generate_task,
     investigation_handoff_block,
 )
+from .ai_behavior import ResolvedAiBehavior, resolve_ai_behavior
 from .instructions import ResolvedInstructions, load_instructions
 from .project_settings import ResolvedProjectSettings, resolve_project_settings
 from .repository_profile import RepositoryContext, resolve_repository_context
@@ -492,6 +493,9 @@ def run_investigation(
     # And the repository's Verification Policy and branch naming.
     project_settings = resolve_project_settings(repo_root)
     _log_project_settings(target, project_settings)
+    # And its AI Behavior: BugPilot's defaults plus the repository's additions.
+    ai_behavior = resolve_ai_behavior(repo_root)
+    _log_ai_behavior(target, ai_behavior)
     command = f"bugpilot bug {issue_key}"
     if fresh:
         command += " --fresh"
@@ -596,6 +600,7 @@ def run_investigation(
                 repository=repository,
                 instructions=instructions,
                 project_settings=project_settings,
+                ai_behavior=ai_behavior,
             )
         if "memory_add" in resolved:
             memory_add_step(repo_root, issue_key, issue=issue)
@@ -631,7 +636,8 @@ def run_investigation(
         + list(repository.warnings)
         + list(instructions.warnings)
         + list(project_settings.warnings)
-        + list(project_settings.effective_verification.warnings),
+        + list(project_settings.effective_verification.warnings)
+        + list(ai_behavior.warnings),
         jira_result=jira_result,
         clean_result=clean_result,
         fresh=fresh,
@@ -1193,10 +1199,8 @@ def _selected_fix_mode(
     return selection.mode
 
 
-def _task_branch(
-    repo_root: Path, issue: IssueArtifact, project_settings: ResolvedProjectSettings | None = None
-) -> tuple[str, str]:
-    """The branch policy a task is written under, and the branch it names.
+def _task_branch_for(issue: IssueArtifact, project_settings: ResolvedProjectSettings) -> tuple[str, str]:
+    """The branch policy a task is written under, and the branch it names. Reads; never writes.
 
     Under a policy that may have the agent create a branch, the first task's
     name is recorded and every later one reuses it — a rebuild, a resume, a
@@ -1210,11 +1214,94 @@ def _task_branch(
     renames a work item's branch.
     """
     policy = resolve_branch_policy(None, issue.guidance.branch_policy)
-    template = (project_settings or resolve_project_settings(repo_root)).settings.branch_template
+    template = project_settings.settings.branch_template
     branch = issue.guidance.branch_name or branch_name(issue.id, issue.title or None, template)
-    if records_branch_name(policy) and issue.guidance.branch_name is None:
-        save_issue(repo_root, issue.with_guidance(replace(issue.guidance, branch_name=branch)))
     return policy, branch
+
+
+def _record_task_branch(repo_root: Path, issue: IssueArtifact, inputs: TaskInputs) -> None:
+    """Record the first task's branch name, under a policy that reuses it (§37.127). Writing a task does this; previewing one does not."""
+    if records_branch_name(inputs.branch_policy) and issue.guidance.branch_name is None:
+        save_issue(repo_root, issue.with_guidance(replace(issue.guidance, branch_name=inputs.branch)))
+
+
+@dataclass(frozen=True)
+class TaskInputs:
+    """Everything one ``task.md`` is written from, resolved; :meth:`render` is the task.
+
+    The one path from a work item to its task. The pipeline's ``prompt`` step,
+    ``bugpilot agent-task`` and ``bugpilot task-preview`` all resolve these and
+    render them with ``generate_task``, so a preview cannot say anything the
+    task would not (0.1.4).
+    """
+
+    issue_key: str
+    summary: str | None
+    hint: str | None
+    jira_comment: bool
+    attachments: tuple[str, ...]
+    attachment_notes: Mapping[str, str] | None
+    fix_mode: FixMode
+    branch_policy: str
+    branch: str
+    repository: RepositoryContext
+    instructions: ResolvedInstructions
+    project_settings: ResolvedProjectSettings
+    ai_behavior: ResolvedAiBehavior
+
+    def render(self) -> str:
+        return generate_task(
+            self.issue_key,
+            self.summary,
+            hint=self.hint,
+            jira_comment=self.jira_comment,
+            attachments=list(self.attachments),
+            fix_mode=self.fix_mode,
+            attachment_notes=self.attachment_notes,
+            branch_policy=self.branch_policy,
+            branch=self.branch,
+            repository=self.repository,
+            instructions=self.instructions,
+            project_settings=self.project_settings,
+            ai_behavior=self.ai_behavior,
+        )
+
+
+def work_item_task_inputs(
+    repo_root: Path,
+    issue_key: str,
+    issue: IssueArtifact,
+    *,
+    fix_mode: FixMode,
+    repository: RepositoryContext,
+    instructions: ResolvedInstructions,
+    project_settings: ResolvedProjectSettings,
+    ai_behavior: ResolvedAiBehavior,
+) -> TaskInputs:
+    """A work item's task inputs: its recorded guidance, and the layers the caller resolved. Reads; never writes.
+
+    From the work item: the hint, the Jira status comment opt-in, the recorded
+    attachments that are still there (§37.99) and their notes, and the branch
+    policy and branch. Everything else is the caller's, so a step can log what
+    it resolved and a preview can resolve the same things without logging.
+    """
+    target = issue_dir(repo_root, issue_key)
+    branch_policy, branch = _task_branch_for(issue, project_settings)
+    return TaskInputs(
+        issue_key=issue_key,
+        summary=issue.title or None,
+        hint=issue.guidance.hint,
+        jira_comment=_jira_comment_enabled(target),
+        attachments=tuple(listed_attachments(target, issue.guidance.attachment_files)),
+        attachment_notes=issue.guidance.attachment_notes,
+        fix_mode=fix_mode,
+        branch_policy=branch_policy,
+        branch=branch,
+        repository=repository,
+        instructions=instructions,
+        project_settings=project_settings,
+        ai_behavior=ai_behavior,
+    )
 
 
 def _log_repository_context(target: Path, repository: RepositoryContext) -> None:
@@ -1256,6 +1343,22 @@ def _task_project_settings(
     return resolved
 
 
+def _log_ai_behavior(target: Path, ai_behavior: ResolvedAiBehavior) -> None:
+    """Where AI Behavior came from and how long, and its lint by line number: never its text."""
+    log(target, ai_behavior.log_line)
+    for warning in ai_behavior.lint:
+        log(target, f"[WARN] {warning}")
+
+
+def _task_ai_behavior(repo_root: Path, target: Path, ai_behavior: ResolvedAiBehavior | None) -> ResolvedAiBehavior:
+    """The AI Behavior a task is written with: the caller's, else the file's."""
+    if ai_behavior is not None:
+        return ai_behavior
+    resolved = resolve_ai_behavior(repo_root)
+    _log_ai_behavior(target, resolved)
+    return resolved
+
+
 def _log_instructions(target: Path, instructions: ResolvedInstructions) -> None:
     """Whether each scope was loaded, and how long — never what it says."""
     for file in instructions.files:
@@ -1282,6 +1385,7 @@ def prompt_step(
     repository: RepositoryContext | None = None,
     instructions: ResolvedInstructions | None = None,
     project_settings: ResolvedProjectSettings | None = None,
+    ai_behavior: ResolvedAiBehavior | None = None,
 ) -> None:
     target = _prepare_issue_dir(repo_root, issue_key)
     if jira_comment:
@@ -1289,28 +1393,20 @@ def prompt_step(
     log(target, "[START] prompt")
     try:
         issue = issue or _require_issue(repo_root, issue_key)
-        hint = issue.guidance.hint
-        jira_comment = _jira_comment_enabled(target)
-        # The recorded selection, not whatever is in the folder (§37.99).
-        attached = listed_attachments(target, issue.guidance.attachment_files)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
         settings = _task_project_settings(repo_root, target, project_settings)
-        branch_policy, branch = _task_branch(repo_root, issue, settings)
-        task = generate_task(
+        inputs = work_item_task_inputs(
+            repo_root,
             issue_key,
-            issue.title or None,
-            hint=hint,
-            jira_comment=jira_comment,
-            attachments=attached,
+            issue,
             fix_mode=mode,
-            attachment_notes=issue.guidance.attachment_notes,
-            branch_policy=branch_policy,
-            branch=branch,
             repository=_task_repository(repo_root, target, repository),
             instructions=_task_instructions(repo_root, target, instructions),
             project_settings=settings,
+            ai_behavior=_task_ai_behavior(repo_root, target, ai_behavior),
         )
-        atomic_write_text(target / TASK_ARTIFACT, task)
+        _record_task_branch(repo_root, issue, inputs)
+        atomic_write_text(target / TASK_ARTIFACT, inputs.render())
         _mark_step(repo_root, issue_key, "prompt", "pass")
         log(target, "[END] prompt: pass")
     except Exception as exc:
@@ -1334,27 +1430,20 @@ def copilot_task_step(
     log(target, "[START] copilot_task")
     try:
         issue = _require_issue(repo_root, issue_key)
-        hint = issue.guidance.hint
-        jira_comment = _jira_comment_enabled(target)
-        attached = listed_attachments(target, issue.guidance.attachment_files)
         mode = fix_mode or _selected_fix_mode(repo_root, issue_key)
         settings = _task_project_settings(repo_root, target, None)
-        branch_policy, branch = _task_branch(repo_root, issue, settings)
-        task = generate_task(
+        inputs = work_item_task_inputs(
+            repo_root,
             issue_key,
-            issue.title or None,
-            hint=hint,
-            jira_comment=jira_comment,
-            attachments=attached,
+            issue,
             fix_mode=mode,
-            attachment_notes=issue.guidance.attachment_notes,
-            branch_policy=branch_policy,
-            branch=branch,
             repository=_task_repository(repo_root, target, None),
             instructions=_task_instructions(repo_root, target, None),
             project_settings=settings,
+            ai_behavior=_task_ai_behavior(repo_root, target, None),
         )
-        atomic_write_text(target / TASK_ARTIFACT, task)
+        _record_task_branch(repo_root, issue, inputs)
+        atomic_write_text(target / TASK_ARTIFACT, inputs.render())
         log(target, "[END] copilot_task: pass")
     except Exception as exc:
         log(target, f"[ERROR] copilot_task: {exc}")
@@ -1945,7 +2034,8 @@ def _build_retry_prompt(repo_root: Path, issue_key: str, fix_mode: FixMode | Non
     return (
         f"# Agent Retry Prompt: {issue_key}\n\n"
         "## AI Fix Mode\n\n"
-        f"- Mode: {mode.name}\n"
+        # On one line, as in task.md: a custom mode's name may hold line breaks.
+        f"- Mode: {' '.join(mode.name.split())}\n"
         f"- Mode ID: `{mode.id}`\n"
         f"- Execution: {mode.execution_kind}\n\n"
         f"This retry runs under the same Fix Mode as `.ai/{issue_key}/{TASK_ARTIFACT}`. "

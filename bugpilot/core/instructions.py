@@ -292,28 +292,45 @@ def save_instructions(scope: str, repo_root: Path, text: str) -> InstructionFile
 
 _ATX_HEADING = re.compile(r"^( {0,3})(#{1,6})(?=[ \t]|$)")
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+#: A line that would underline the one above it into a (setext) heading.
+_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+
+
+def code_fence(line: str) -> str | None:
+    """The fence a line opens or closes (its backticks or tildes), or None — as CommonMark reads it.
+
+    A backtick fence's info string may not hold a backtick: ```` ``` x`y ```` is
+    a line of text, not a fence, so a heading after it is a heading.
+    """
+    mark = _FENCE.match(line)
+    if mark is None or (mark.group(1)[0] == "`" and "`" in line[mark.end():]):
+        return None
+    return mark.group(1)
 
 
 def contained_markdown(text: str) -> str:
     """The text with its headings two levels down, and any open code fence closed.
 
     The task's own sections are ``##``; inside one, the file's ``#`` and ``##``
-    become ``###`` and ``####``, so nothing in it reads as a section of the task.
+    become ``###`` and ``####``, and a ``---`` or ``===`` line never underlines
+    the line above it into a heading, so nothing in it reads as a section of the task.
     """
     return _contained(text)
 
 
 def _contained(text: str) -> str:
-    lines = []
+    lines: list[str] = []
     fence: str | None = None
     for line in text.split("\n"):
-        opening = _FENCE.match(line)
+        opening = code_fence(line)
         if fence is None:
             if opening:
-                fence = opening.group(1)
+                fence = opening
             else:
+                if _SETEXT_UNDERLINE.match(line) and lines and lines[-1].strip():
+                    lines.append("")
                 line = _ATX_HEADING.sub(lambda match: match.group(1) + "#" * min(6, len(match.group(2)) + 2), line)
-        elif opening and opening.group(1)[0] == fence[0] and len(opening.group(1)) >= len(fence) and line.strip() == opening.group(1):
+        elif opening and opening[0] == fence[0] and len(opening) >= len(fence) and line.strip() == opening:
             fence = None
         lines.append(line)
     if fence is not None:

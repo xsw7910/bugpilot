@@ -46,8 +46,8 @@ def failure(command: str, code: str, message: str, **fields: object) -> dict[str
     return payload
 
 
-def _utf8_stdout() -> None:
-    """Make stdout UTF-8 before JSON is written to it.
+def utf8_stdout() -> None:
+    """Make stdout UTF-8 before JSON — or a task's text — is written to it.
 
     JSON between programs is UTF-8 (RFC 8259), and the VS Code extension
     decodes it as UTF-8. Python on Windows writes a pipe in the ANSI code page
@@ -74,7 +74,7 @@ def emit(payload: dict[str, object]) -> None:
     ``ensure_ascii=False`` so a Chinese bug title stays readable in a terminal
     and in an editor's output pane; the stream is made UTF-8 first.
     """
-    _utf8_stdout()
+    utf8_stdout()
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
@@ -109,7 +109,7 @@ class JsonLinesEmitter:
     def _emit(self, event: dict[str, object]) -> None:
         payload: dict[str, object] = {"schema_version": SCHEMA_VERSION}
         payload.update(event)
-        _utf8_stdout()
+        utf8_stdout()
         print(json.dumps(payload, ensure_ascii=False), flush=True)
 
     def skipped(self, steps: list[str]) -> None:
@@ -157,7 +157,7 @@ def emit_stream_failure(code: str, message: str) -> None:
     A consumer waits for a terminal event; without one an aborted run is
     indistinguishable from a process that is still working.
     """
-    _utf8_stdout()
+    utf8_stdout()
     print(
         json.dumps(
             {

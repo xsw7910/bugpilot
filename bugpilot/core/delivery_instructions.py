@@ -14,8 +14,9 @@ keeps the gate; anything that can deliver gets both, in that order.
 from __future__ import annotations
 
 from .branch_policy import DEFAULT_BRANCH_POLICY, delivery_branch_checks
+from .protected_rules import DELIVERY_SAFETY, rule_bullet
 
-DELIVERY_SAFETY_HEADING = "## BugPilot Delivery Safety"
+DELIVERY_SAFETY_HEADING = f"## {DELIVERY_SAFETY}"
 
 
 def delivery_safety_block(
@@ -49,16 +50,11 @@ def delivery_safety_block(
         f"{DELIVERY_SAFETY_HEADING}\n\n"
         "For every commit or push made from this task, in every Fix Mode, including a later "
         "implementation pass the developer starts from it:\n\n"
-        "- Commit or push only after the developer explicitly approves it, never automatically. "
-        "A pass allowed to change source code may ask once its work is done.\n"
-        "- Before staging anything, verify the current branch is not `main` or `master` and HEAD is "
-        "not detached. If either is true, do not commit and do not push: ask the developer whether to "
-        "create or switch to the suggested branch.\n"
+        f"{rule_bullet('explicit-approval')}\n"
+        f"{rule_bullet('branch-check-before-staging')}\n"
         f"{delivery_branch_checks(branch_policy, issue_key, branch)}"
-        "- Stage only intended source, test, or documentation files: never `.ai/`, `.ai_memory/`, "
-        "`issue.json`, `jira_field_report.md`, or files containing `JIRA_TOKEN`, `password`, "
-        "`api_key`, `secret`, `access_token`, `refresh_token`, or `key=...`.\n"
-        "- Never push main/master.\n"
+        f"{rule_bullet('stage-intended-files-only')}\n"
+        f"{rule_bullet('never-push-main')}\n"
         f"{protected}"
         "\n"
     )

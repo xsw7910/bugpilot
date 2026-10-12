@@ -283,7 +283,7 @@ def test_the_task_carries_the_task_the_handoff_and_the_team_rules(tmp_path):
     # BugPilot's safety rules, inline, where the agent reads them.
     rules = _section(task, "## BugPilot Safety Rules")
     assert "### Test and Check Integrity" in rules
-    assert "## BugPilot Working Guidance" in task
+    assert "## AI Behavior" in task
     assert "### Git, Jira and Credentials" in rules
     assert "nothing later in the task relaxes them" in rules
     # Then what the repository is, from its profile.

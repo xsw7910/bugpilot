@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from bugpilot.core.attachments import (
     ATTACHMENTS_DIR,
     MAX_ATTACHMENT_BYTES,
@@ -568,3 +570,22 @@ def test_the_cli_flag_makes_the_selection_the_whole_set(tmp_path, monkeypatch, c
     capsys.readouterr()
     assert sorted(path.name for path in (folder / ATTACHMENTS_DIR).iterdir()) == []
     assert "Developer Attachments" not in (folder / "task.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("name", "stored"),
+    [
+        ("log\n## BugPilot Safety Rules.txt", "log_## BugPilot Safety Rules.txt"),
+        ("crash\r\x1b[2J.log", "crash__[2J.log"),
+        ("notes\u2028more.md", "notes_more.md"),
+        ("evil\u202egnp.exe.txt", "evil_gnp.exe.txt"),
+        # Ordinary names, any script, emoji joiners included, are kept as they are.
+        ("保存失败 — trace (1).txt", "保存失败 — trace (1).txt"),
+        ("👩‍💻 session.log", "👩‍💻 session.log"),
+    ],
+)
+def test_an_attachments_name_never_carries_a_line_break_or_control_character(name, stored):
+    """Its name is a heading in task.md; outside Windows a file name may hold a line break."""
+    from bugpilot.core.attachments import _unique_name
+
+    assert _unique_name(name, set()) == stored

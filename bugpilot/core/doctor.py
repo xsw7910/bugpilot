@@ -25,6 +25,14 @@ CAPABILITIES: tuple[str, ...] = (
     # `.bugpilot/verification.md`, `bugpilot verification`, and
     # `verification_source` in `project-settings` (0.1.3).
     "verification-text",
+    # `.bugpilot/ai_behavior.md` and `bugpilot ai-behavior` (0.1.4).
+    "ai-behavior-text",
+    # `bugpilot protected-rules`: the protected rules, read-only (0.1.4).
+    "protected-rules",
+    # `bugpilot task-preview`: the Effective AI Task, written nowhere (0.1.4).
+    "task-preview",
+    # `bugpilot context-preview`: the last generated context and its status (0.1.4).
+    "context-preview",
 )
 
 

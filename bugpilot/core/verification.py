@@ -150,15 +150,23 @@ def verification_path(repo_root: Path) -> Path:
     return repo_root / PROJECT_CONFIG_DIR / VERIFICATION_FILE_NAME
 
 
-def parse_document(text: str) -> tuple[dict[str, object], str, str | None]:
+def parse_document(
+    text: str,
+    modes: tuple[str, ...] = MODES,
+    command: str = "bugpilot verification show",
+    empty: str = "it has no policy text after its front matter.",
+) -> tuple[dict[str, object], str, str | None]:
     """(front matter, body, problem) of a normalized document. Deterministic; never raises.
 
     The problem, when there is one, says exactly what is wrong — the file is
-    then not used, so the sentence has to be enough to fix it.
+    then not used, so the sentence has to be enough to fix it. ``modes``,
+    ``command`` and ``empty`` (the sentence for nothing after the front matter)
+    let the repository's AI Behavior document (`ai_behavior.py`), which has the
+    same front matter with another mode, share this parser in its own words.
     """
     lines = text.split("\n")
     if not lines or lines[0] != "---":
-        return {}, "", "it has no front matter: its first line must be --- (see `bugpilot verification show`)."
+        return {}, "", f"it has no front matter: its first line must be --- (see `{command}`)."
     try:
         closing = lines.index("---", 1)
     except ValueError:
@@ -190,11 +198,11 @@ def parse_document(text: str) -> tuple[dict[str, object], str, str | None]:
         newer = isinstance(meta["schema_version"], int) and meta["schema_version"] > SCHEMA_VERSION
         reason = "a newer BugPilot wrote it" if newer else "this BugPilot reads schema_version 1"
         return {}, "", f"its front matter's schema_version is {meta['schema_version']}, and {reason}."
-    if meta["mode"] not in MODES:
-        return {}, "", f"its front matter's mode is {str(meta['mode'])[:20]!r}; the only mode is replace."
+    if meta["mode"] not in modes:
+        return {}, "", f"its front matter's mode is {str(meta['mode'])[:20]!r}; the only mode is {' or '.join(modes)}."
     body = "\n".join(lines[closing + 1:]).strip("\n")
     if body.strip() == "":
-        return {}, "", "it has no policy text after its front matter."
+        return {}, "", empty
     return meta, body, None
 
 
@@ -338,7 +346,7 @@ _LINT_RULES: tuple[tuple[str, re.Pattern[str], bool], ...] = (
 )
 
 
-def lint_policy(text: str, first_line: int = 1) -> tuple[str, ...]:
+def lint_policy(text: str, first_line: int = 1, shown_path: str = SHOWN_PATH) -> tuple[str, ...]:
     """Lines that look like they contradict a BugPilot rule. Warnings only — the text is kept as written.
 
     Deliberately narrow: a policy that says "never force push" is the rule, not
@@ -363,7 +371,7 @@ def lint_policy(text: str, first_line: int = 1) -> tuple[str, ...]:
                 continue
             seen.add(label)
             warnings.append(
-                f"Line {number} of {SHOWN_PATH} may conflict with a BugPilot rule ({label}). "
+                f"Line {number} of {shown_path} may conflict with a BugPilot rule ({label}). "
                 "The BugPilot rule still applies; the policy is kept as written."
             )
     return tuple(warnings)

@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -77,6 +78,133 @@ def test_a_locked_target_falls_back_instead_of_failing_the_step(tmp_path, monkey
     assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
     assert calls["count"] > 1, "it gave up without retrying"
     assert list(tmp_path.glob("*.tmp*")) == [], "the temp file was left behind"
+
+
+def test_a_link_planted_at_a_temp_name_is_never_written_through(tmp_path):
+    """The temp file is made new under an unpredictable name, so a link a repository
+    commits at the name an older BugPilot used (`<name>.tmp<pid>`) is never followed."""
+    outside = tmp_path / "outside.txt"
+    outside.write_text("untouched", encoding="utf-8")
+    work = tmp_path / "work"
+    work.mkdir()
+    planted = work / f"run.json.tmp{os.getpid()}"
+    try:
+        planted.symlink_to(outside)
+    except OSError:
+        pytest.skip("symbolic links need a privilege this account does not have")
+
+    atomic_write_text(work / "run.json", '{"ok": true}\n')
+
+    assert outside.read_text(encoding="utf-8") == "untouched"
+    assert json.loads((work / "run.json").read_text(encoding="utf-8")) == {"ok": True}
+    assert not (work / "run.json").is_symlink()
+    assert sorted(path.name for path in work.iterdir()) == ["run.json", planted.name], "a temp file was left behind"
+
+
+# --- the permissions of what BugPilot writes (L-3, 0.1.4 pre-commit hardening) ----------
+#
+# `mkstemp` makes the temp file owner-only (0600 on POSIX), and the rename gives the target the
+# temp file's mode. The policy: a file BugPilot creates stays owner-only; a file it rewrites keeps
+# the permission bits it had — never widened, never narrowed — set through the temp file's
+# descriptor, never by path, so the planted-link protection above is untouched.
+
+
+def _stat_with_mode(st_mode: int) -> os.stat_result:
+    return os.stat_result((st_mode, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+
+
+def test_only_a_regular_targets_nine_permission_bits_are_carried_and_only_on_posix(monkeypatch):
+    import stat
+
+    calls: list[tuple[int, int]] = []
+    monkeypatch.setattr(artifact_io, "_POSIX", True)
+    monkeypatch.setattr(artifact_io.os, "fchmod", lambda fd, mode: calls.append((fd, mode)), raising=False)
+    for st_mode, expected in [
+        (stat.S_IFREG | 0o644, [(7, 0o644)]),
+        (stat.S_IFREG | 0o640, [(7, 0o640)]),
+        (stat.S_IFREG | 0o600, [(7, 0o600)]),
+        # setuid, setgid and sticky are never carried onto what BugPilot writes.
+        (stat.S_IFREG | 0o4755, [(7, 0o755)]),
+        (stat.S_IFREG | 0o2640, [(7, 0o640)]),
+        (stat.S_IFREG | 0o1664, [(7, 0o664)]),
+        # Not a regular file (a link, a folder): nothing carried; the write is refused elsewhere.
+        (stat.S_IFLNK | 0o777, []),
+        (stat.S_IFDIR | 0o755, []),
+    ]:
+        calls.clear()
+        monkeypatch.setattr(artifact_io.os, "lstat", lambda path, st_mode=st_mode: _stat_with_mode(st_mode))
+        artifact_io._keep_permissions(7, Path("target.json"))
+        assert calls == expected, oct(st_mode)
+
+    # A new file: nothing to carry, so mkstemp's owner-only mode stands.
+    def missing(path):
+        raise FileNotFoundError(path)
+
+    calls.clear()
+    monkeypatch.setattr(artifact_io.os, "lstat", missing)
+    artifact_io._keep_permissions(7, Path("target.json"))
+    assert calls == []
+
+    # The bits cannot be set: the write goes on, owner-only.
+    def refused(fd, mode):
+        raise PermissionError("Operation not permitted")
+
+    monkeypatch.setattr(artifact_io.os, "lstat", lambda path: _stat_with_mode(stat.S_IFREG | 0o644))
+    monkeypatch.setattr(artifact_io.os, "fchmod", refused, raising=False)
+    artifact_io._keep_permissions(7, Path("target.json"))
+
+    # Windows: permission bits are not its model; nothing is read or set.
+    def unexpected(*args, **kwargs):
+        raise AssertionError("permissions touched on Windows")
+
+    monkeypatch.setattr(artifact_io, "_POSIX", False)
+    monkeypatch.setattr(artifact_io.os, "lstat", unexpected)
+    monkeypatch.setattr(artifact_io.os, "fchmod", unexpected, raising=False)
+    artifact_io._keep_permissions(7, Path("target.json"))
+
+
+def test_a_rewrite_sets_the_targets_bits_on_the_temp_file_never_by_path(tmp_path, monkeypatch):
+    """Through `atomic_write_text` itself: the bits go on the new file's descriptor before the
+    rename, and nothing is ever chmod-ed by path (which would follow a link put there)."""
+    import stat
+
+    calls: list[tuple[int, int]] = []
+    monkeypatch.setattr(artifact_io, "_POSIX", True)
+    monkeypatch.setattr(artifact_io.os, "fchmod", lambda fd, mode: calls.append((fd, mode)), raising=False)
+
+    def by_path(*args, **kwargs):
+        raise AssertionError(f"chmod by path: {args}")
+
+    monkeypatch.setattr(artifact_io.os, "chmod", by_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    atomic_write_text(work / "new.json", "{}\n")
+    assert calls == [], "a new file was given another mode than owner-only"
+
+    target = work / "run.json"
+    target.write_text("old\n", encoding="utf-8")
+    expected = stat.S_IMODE(os.lstat(target).st_mode) & 0o777
+    atomic_write_text(target, '{"ok": true}\n')
+    assert [mode for _fd, mode in calls] == [expected]
+    assert isinstance(calls[0][0], int)
+    assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
+    assert sorted(path.name for path in work.iterdir()) == ["new.json", "run.json"], "a temp file was left behind"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="permission bits are POSIX's; on Windows chmod sets only the read-only flag")
+def test_on_posix_a_new_file_is_owner_only_and_a_rewritten_one_keeps_its_mode(tmp_path):
+    import stat
+
+    created = tmp_path / "new.json"
+    atomic_write_text(created, "{}\n")
+    assert stat.S_IMODE(created.stat().st_mode) == 0o600
+    for bits in (0o644, 0o640, 0o664, 0o600):
+        target = tmp_path / f"kept-{bits:o}.json"
+        target.write_text("old\n", encoding="utf-8")
+        target.chmod(bits)
+        atomic_write_text(target, "new\n")
+        assert stat.S_IMODE(target.stat().st_mode) == bits, oct(bits)
+        assert target.read_text(encoding="utf-8") == "new\n"
 
 
 # --- ripgrep reads a leading dash as a flag --------------------------------

@@ -20,6 +20,7 @@ agent is already pointed at, so nothing has to be given a path outside it.
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -155,6 +156,11 @@ def merge_attachment_notes(previous: Mapping[str, str], result: AttachmentResult
     return merged
 
 
+#: Control characters, line and paragraph separators and bidirectional controls:
+#: never part of an attachment's name as the task names it.
+_UNSAFE_IN_NAME = re.compile("[\x00-\x1f\x7f-\x9f  ‪-‮⁦-⁩]")
+
+
 def _unique_name(name: str, used: set[str]) -> str:
     """A file name that does not collide with one already copied.
 
@@ -165,7 +171,9 @@ def _unique_name(name: str, used: set[str]) -> str:
     """
     # `Path.name` cannot contain a separator, so this cannot escape the
     # directory; the fallback only matters for a pathological empty name.
-    candidate = name or "attachment"
+    # The name is also a heading in task.md: a line break or a control
+    # character in it (possible outside Windows) could start a line of its own.
+    candidate = _UNSAFE_IN_NAME.sub("_", name) or "attachment"
     if candidate.lower() not in used:
         return candidate
 

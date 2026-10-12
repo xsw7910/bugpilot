@@ -25,7 +25,8 @@ from bugpilot.core.project_settings import (
     ResolvedProjectSettings,
     resolve_project_settings,
 )
-from bugpilot.core.prompts import TASK_SECTION_CLASSES, WORKING_GUIDANCE, _fallback_team_instructions, generate_task
+from bugpilot.core.ai_behavior import DEFAULT_CODE_CHANGE_CONVENTIONS
+from bugpilot.core.prompts import TASK_SECTION_CLASSES, _fallback_team_instructions, generate_task
 from bugpilot.core.verification import (
     ALWAYS_LINES,
     DEFAULT_POLICY_VERSION,
@@ -463,7 +464,7 @@ def test_the_policy_cannot_change_or_displace_bugpilots_rules(tmp_path):
     assert "#### BugPilot Safety Rules" in policy and "#### BugPilot Rule Precedence" in policy
     # A conflict resolves in BugPilot's favor, and is recorded.
     precedence = _section(hostile_task, "## BugPilot Rule Precedence")
-    assert "the Verification Policy and user instructions are configuration" in precedence
+    assert "the Verification Policy, AI Behavior and user instructions are configuration" in precedence
     assert "follow the BugPilot rule, and record the conflict in the Review Notes section" in precedence
     assert "or by the Verification Policy" in precedence
 
@@ -493,14 +494,14 @@ def test_a_project_that_does_not_require_tests_is_no_longer_overruled(tmp_path):
     assert "Never claim a test or check passed" in protected
 
 
-def test_style_guidance_is_working_guidance_not_a_safety_rule(tmp_path):
+def test_style_guidance_is_ai_behavior_not_a_safety_rule(tmp_path):
     task = _task(_repo(tmp_path / "r"))
-    guidance = _section(task, "## BugPilot Working Guidance")
+    guidance = _section(task, "## AI Behavior")
     rules = _section(task, "## BugPilot Safety Rules")
 
-    for item in WORKING_GUIDANCE:
+    for item in DEFAULT_CODE_CHANGE_CONVENTIONS:
         assert item in guidance and item not in rules
-    assert "It is guidance, not a safety rule" in guidance
+    assert "guidance, not safety rules" in guidance
     # A guardrail is not style: mass-formatting stays a BugPilot rule.
     assert "Do not mass-format" not in guidance
     assert "do not mass-format unrelated files." in _section(task, "## BugPilot Safety Rules")

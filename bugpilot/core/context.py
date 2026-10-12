@@ -10,6 +10,7 @@ sub-documents' own headings sit one level below it.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .artifacts import RETRIEVAL_ARTIFACT, TASK_ARTIFACT
@@ -89,7 +90,9 @@ def _guidance_markdown(issue: IssueArtifact) -> str:
     hint = " ".join((issue.guidance.hint or "").split()) or "_None._"
     record = issue.guidance.fix_mode or {}
     mode_id = record.get("id")
-    mode = f"{record.get('name') or mode_id} (`{mode_id}`)" if mode_id else "_Not recorded._"
+    # The mode's name on one line too: a custom mode's could hold line breaks.
+    name = " ".join(str(record.get("name") or mode_id or "").split())
+    mode = f"{name} (`{mode_id}`)" if mode_id else "_Not recorded._"
     return (
         f"- Developer hint: {hint}\n"
         f"- AI Fix Mode: {mode}. `{TASK_ARTIFACT}` carries what it asks of the agent."
@@ -563,6 +566,40 @@ def _quality_markdown(quality: ContextQuality) -> str:
 
 
 _PART_NAMES = {"issue": "issue completeness", "retrieval": "retrieval quality", "repository": "repository context"}
+
+_QUALITY_SCORE = re.compile(
+    r"^Overall: (\d+)/100\nIssue completeness: (\d+)/100\nRetrieval quality: (\d+)/100\nRepository context: (\d+)/100$",
+    re.MULTILINE,
+)
+_QUALITY_CAP = re.compile(r"^- Overall at most (\d+): ", re.MULTILINE)
+
+
+def read_context_quality(context_text: str) -> ContextQuality | None:
+    """The Context Quality a generated ``context.md`` states, read back as written — never recomputed (0.1.4).
+
+    The inverse of :func:`_quality_markdown`, beside it so the two change
+    together. ``None`` when the document has no such section (one written
+    before Context Quality v2, or not by BugPilot).
+    """
+    start = context_text.find("\n## Context Quality\n")
+    if start == -1:
+        return None
+    end = context_text.find("\n## ", start + 1)
+    section = context_text[start:] if end == -1 else context_text[start:end]
+    scores = _QUALITY_SCORE.search(section)
+    if scores is None:
+        return None
+    cap = _QUALITY_CAP.search(section)
+    signals = tuple(line[2:] for line in section.split("\n") if line.startswith("- "))
+    overall, issue, retrieval, repository = (int(value) for value in scores.groups())
+    return ContextQuality(
+        overall=overall,
+        issue_completeness=issue,
+        retrieval_quality=retrieval,
+        repository_context=repository,
+        cap=int(cap.group(1)) if cap else None,
+        signals=signals,
+    )
 
 
 def _git_available(git_context: GitHistoryOutcome | None) -> bool:
