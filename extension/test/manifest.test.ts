@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   COMMANDS,
@@ -326,6 +331,35 @@ test("the licence is BugPilot's Business Source License, shipped where the exten
   assert.match(notices, /media\/codicons\/ATTRIBUTION\.md/);
   assert.match(notices, /not\s+part of the Licensed Work/);
   assert.ok(existsSync(new URL("../media/codicons/ATTRIBUTION.md", import.meta.url)), "the codicons attribution is gone");
+});
+
+test("the icons are the codicons bug: the activity bar icon unmodified, the Marketplace icon drawn from it, both credited", () => {
+  // media/bug.svg is src/icons/bug.svg of microsoft/vscode-codicons at commit
+  // ddce330af4c41ecc653c74b519b821312a86affd, byte for byte (CC BY 4.0): a
+  // change to it is a change to a third party's file, and its notice with it.
+  const svg = readFileSync(new URL("../media/bug.svg", import.meta.url));
+  assert.equal(createHash("sha256").update(svg).digest("hex"), "73be19151374b38ed383ecbac44375826b72702cbcbc39ce209fb7e8fd9d0a70");
+  assert.equal(manifest.contributes.viewsContainers.activitybar[0]?.icon, "media/bug.svg");
+  assert.equal(manifest.icon, "media/icon.png");
+  // Credited where CC BY 4.0 asks: who, which licence, where from, and what was changed.
+  const text = (url: URL) => readFileSync(url, "utf8").replace(/\r\n/g, "\n");
+  for (const file of ["../THIRD_PARTY_NOTICES.md", "../media/codicons/ATTRIBUTION.md"]) {
+    const notice = text(new URL(file, import.meta.url));
+    for (const needed of ["Microsoft", "CC BY 4.0", "bug.svg", "icon.png", "adapted", "ddce330", "src/icons/bug.svg"]) {
+      assert.ok(notice.includes(needed), `${file} does not say ${needed}`);
+    }
+  }
+  // icon.png is what make-icon.mjs draws from bug.svg, not a binary nobody can regenerate.
+  const scratch = mkdtempSync(path.join(tmpdir(), "bugpilot-icon-"));
+  try {
+    const target = path.join(scratch, "icon.png");
+    const script = fileURLToPath(new URL("../scripts/make-icon.mjs", import.meta.url));
+    const run = spawnSync(process.execPath, [script, "256", target], { encoding: "utf8" });
+    assert.equal(run.status, 0, run.stderr);
+    assert.ok(readFileSync(target).equals(readFileSync(new URL("../media/icon.png", import.meta.url))), "media/icon.png is not what make-icon.mjs draws");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test("every menu the manifest contributes is a list, so VS Code reports no submenu error", () => {

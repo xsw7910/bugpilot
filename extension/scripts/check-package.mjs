@@ -72,7 +72,7 @@ const required = [
   // The Business Source License 1.1, a copy of the repository's LICENSE, and the
   // file the extension page's License link points at.
   "LICENSE.txt",
-  // What LICENSE.txt does not cover: the codicons font, CC BY 4.0.
+  // What LICENSE.txt does not cover: the codicons font and bug icon, CC BY 4.0.
   "THIRD_PARTY_NOTICES.md",
   // The entry point the extension host requires.
   manifest.main.replace(/^\.\//, ""),
