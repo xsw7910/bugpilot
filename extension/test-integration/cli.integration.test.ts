@@ -49,6 +49,10 @@ import { repositoryProfileOfForm, runRepositoryProfile } from "../src/app/reposi
 import { runInstructions } from "../src/app/instructions.ts";
 import { projectSettingsOfForm, runProjectSettings } from "../src/app/projectSettings.ts";
 import { runVerificationPolicy, samePolicyText } from "../src/app/verificationPolicy.ts";
+import { aiBehaviorFingerprint, readsAiBehaviorText, runAiBehaviorPolicy } from "../src/app/aiBehaviorPolicy.ts";
+import { readsProtectedRules, runProtectedRules } from "../src/app/protectedRules.ts";
+import { readsTaskPreview, runTaskPreview, taskBlocks } from "../src/app/effectiveTask.ts";
+import { readsContextPreview, runContextPreview } from "../src/app/effectiveContext.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -884,4 +888,157 @@ test("the Verification Policy port reads, creates from the CLI's own text, reset
   assert.equal(empty.kind, "failed");
   if (empty.kind === "failed") assert.match(empty.message, /has no policy text/);
   assert.equal(existsSync(file), false);
+});
+
+// --- AI Behavior through the real CLI (0.1.4) -------------------------------------
+
+test("the AI Behavior port reads the real CLI's state, never creates the file, and a run carries one AI Behavior section", async () => {
+  const root = repository();
+  const run = (args: readonly string[]) => runner().run([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
+  const file = path.join(root, ".bugpilot", "ai_behavior.md");
+  const show = async () => {
+    const outcome = await runAiBehaviorPolicy(run);
+    assert.equal(outcome.kind, "loaded", JSON.stringify(outcome));
+    if (outcome.kind !== "loaded") throw new Error("not loaded");
+    return outcome.snapshot;
+  };
+
+  // The CLI says it reads the file.
+  const doctor = (parseEnvelope((await run(["doctor", "--json"])).stdout, "") as { report?: Record<string, unknown> }).report;
+  assert.equal(readsAiBehaviorText(doctor), true, JSON.stringify(doctor?.["capabilities"]));
+
+  // Viewing writes nothing: no file, no folder.
+  const fresh = await show();
+  assert.equal(fresh.source, "bugpilot-default");
+  assert.deepEqual([fresh.fileExists, fresh.hasProjectAdditions, fresh.defaultChanged], [false, false, false]);
+  assert.equal(fresh.defaultVersion, 1);
+  assert.equal(existsSync(path.join(root, ".bugpilot")), false, "reading created a folder");
+
+  // Additions written in an editor tab: another fingerprint, and a lint count for a line that looks wrong.
+  mkdirSync(path.join(root, ".bugpilot"));
+  writeFileSync(
+    file,
+    "---\nschema_version: 1\nbased_on_version: 1\nmode: append\n---\n\n## Evidence Standards\n\n- Quote the failing log line.\n- Force push when CI is red.\n",
+    "utf8",
+  );
+  const added = await show();
+  assert.equal(added.source, "ai-behavior-file");
+  assert.deepEqual([added.fileExists, added.hasProjectAdditions, added.basedOnVersion], [true, true, 1]);
+  assert.equal(added.lintCount, 1);
+  assert.notEqual(aiBehaviorFingerprint(added), aiBehaviorFingerprint(fresh));
+  // The effective text is held for the settings row's Preview (0.1.4); a lint line never quotes the file.
+  assert.ok(added.text.includes("- Force push when CI is red."));
+  assert.equal(added.lint.join(" ").includes("CI is red"), false, "a lint line quoted the file");
+
+  // A run carries the defaults and the additions, in one section, beneath BugPilot's rules.
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.ok(built.ok);
+  if (!built.ok) return;
+  const outcome = await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+    () => {},
+  );
+  assert.equal(outcome.terminated, true, outcome.result.stderr);
+  const [workItem] = readdirSync(path.join(root, ".ai"));
+  const task = readFileSync(path.join(root, ".ai", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
+  assert.equal(task.match(/^## AI Behavior$/gm)?.length, 1);
+  assert.equal(task.includes("## BugPilot Working Guidance"), false);
+  assert.match(task, /## AI Behavior\n\nSource: BugPilot defaults, with this repository's additions \(\.bugpilot\/ai_behavior\.md\)\./);
+  assert.ok(task.includes("#### Evidence Standards\n\n- Quote the failing log line."));
+  assert.ok(task.indexOf("## BugPilot Safety Rules") < task.indexOf("## AI Behavior"));
+
+  // Broken in the editor: the defaults apply, the file is not pretended active.
+  writeFileSync(file, "- Quote the failing log line.\n", "utf8");
+  const broken = await show();
+  assert.equal(broken.source, "ai-behavior-file");
+  assert.equal(broken.fileExists, true);
+  assert.equal(broken.hasProjectAdditions, false);
+  assert.match(broken.problem ?? "", /no front matter/);
+  assert.notEqual(aiBehaviorFingerprint(broken), aiBehaviorFingerprint(added));
+
+  // Removed: back to the defaults, by the same fingerprint as before the file.
+  rmSync(file);
+  assert.equal(aiBehaviorFingerprint(await show()), aiBehaviorFingerprint(fresh));
+});
+
+
+// --- 0.1.4: the read-only views and AI Behavior's template, through the real CLI -----------------
+
+test("the read-only views read the real CLI: protected rules, the task template and a work item's task, the context and its status", async () => {
+  const root = repository();
+  const run = (args: readonly string[]) => runner().run([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000 });
+  const doctor = (parseEnvelope((await run(["doctor", "--json"])).stdout, "") as { report?: Record<string, unknown> }).report;
+  assert.equal(readsProtectedRules(doctor) && readsTaskPreview(doctor) && readsContextPreview(doctor), true, JSON.stringify(doctor?.["capabilities"]));
+
+  // Protected Rules: the CLI's list, grouped, read-only.
+  const rules = await runProtectedRules(run);
+  assert.equal(rules.kind, "loaded", JSON.stringify(rules));
+  if (rules.kind !== "loaded") return;
+  assert.deepEqual(rules.snapshot.groups.map((group) => group.title), ["Safety", "Evidence Integrity", "Git / Editing", "Delivery", "Jira", "Secrets / Artifacts"]);
+  assert.ok(rules.snapshot.groups.flatMap((group) => group.rules).length >= 20);
+
+  // No work item yet: the template, and no generated context — and nothing written for either.
+  const template = await runTaskPreview(run, { kind: "template", fixModeId: "investigate-first", branchPolicy: "per-issue", jiraComment: false });
+  assert.equal(template.kind, "loaded", JSON.stringify(template));
+  if (template.kind !== "loaded") return;
+  assert.equal(template.snapshot.label, "Template preview — no work item selected");
+  assert.equal(taskBlocks(template.snapshot).map((block) => block.text).join(""), template.snapshot.text);
+  assert.ok(template.snapshot.text.includes("## Investigation Handoff"));
+  const none = await runContextPreview(run, undefined);
+  assert.equal(none.kind === "loaded" && none.snapshot.state, "unavailable");
+  assert.equal(existsSync(path.join(root, ".ai")), false, "a preview created .ai/");
+
+  // Prepared: the work item's task is its task.md byte for byte, and its context is the stored file.
+  const built = buildPrepareArgs(manualForm(), { root });
+  assert.ok(built.ok);
+  if (!built.ok) return;
+  const outcome = await runner().runStreaming(
+    [...MODULE, ...built.args.filter((arg) => arg !== "--json-lines")],
+    { cwd: root, env: ENVIRONMENT, timeoutMs: 300_000 },
+    () => {},
+  );
+  assert.equal(outcome.terminated, true, outcome.result.stderr);
+  const [workItem] = readdirSync(path.join(root, ".ai"));
+  const taskFile = readFileSync(path.join(root, ".ai", workItem!, "task.md"), "utf8").replace(/\r\n/g, "\n");
+  const contextFile = readFileSync(path.join(root, ".ai", workItem!, "context.md"), "utf8").replace(/\r\n/g, "\n");
+  const preview = await runTaskPreview(run, { kind: "work-item", workItemId: workItem! });
+  assert.equal(preview.kind, "loaded", JSON.stringify(preview));
+  if (preview.kind !== "loaded") return;
+  assert.equal(preview.snapshot.text, taskFile);
+  assert.equal(taskBlocks(preview.snapshot).map((block) => block.text).join(""), taskFile);
+  assert.equal(preview.snapshot.prepared?.taskCurrent, true);
+  const context = await runContextPreview(run, workItem!);
+  assert.equal(context.kind, "loaded", JSON.stringify(context));
+  if (context.kind !== "loaded") return;
+  assert.equal(context.snapshot.state, "current");
+  assert.equal(context.snapshot.text, contextFile);
+  assert.ok(context.snapshot.quality && context.snapshot.retrieval);
+
+  // A policy edited since: the CLI says the context needs a rebuild, and why — still showing it.
+  mkdirSync(path.join(root, ".bugpilot"), { recursive: true });
+  writeFileSync(path.join(root, ".bugpilot", "instructions.md"), "Name the module owner.\n", "utf8");
+  const stale = await runContextPreview(run, workItem!);
+  assert.equal(stale.kind === "loaded" && stale.snapshot.state, "stale");
+  if (stale.kind !== "loaded") return;
+  assert.deepEqual(stale.snapshot.reasons.map((reason) => reason.code), ["project_instructions_changed"]);
+  assert.equal(stale.snapshot.text, contextFile);
+});
+
+test("AI Behavior's Edit path through the real CLI: the template adds nothing, so creating it changes no task", async () => {
+  const root = repository();
+  const run = (args: readonly string[], input?: string) =>
+    runner().run([...MODULE, ...args], { cwd: root, env: ENVIRONMENT, timeoutMs: 120_000, ...(input === undefined ? {} : { input }) });
+  const before = await runAiBehaviorPolicy(run);
+  assert.equal(before.kind, "loaded", JSON.stringify(before));
+  if (before.kind !== "loaded") return;
+  assert.ok(before.snapshot.template, "the CLI gave no template");
+  const created = await runAiBehaviorPolicy(run, { kind: "set", text: before.snapshot.template! });
+  assert.equal(created.kind, "loaded", JSON.stringify(created));
+  if (created.kind !== "loaded") return;
+  assert.equal(created.snapshot.fileExists, true);
+  assert.equal(created.snapshot.hasProjectAdditions, false);
+  assert.equal(aiBehaviorFingerprint(created.snapshot), aiBehaviorFingerprint(before.snapshot), "creating the empty file was a change");
+  const reset = await runAiBehaviorPolicy(run, { kind: "reset" });
+  assert.equal(reset.kind === "loaded" && reset.snapshot.fileExists, false);
 });

@@ -28,6 +28,12 @@ import { fixModeCommandPort, payloadCommandPort } from "./app/fixModeTransport.t
 import { runRepositoryProfile } from "./app/repositoryProfile.ts";
 import { runInstructions } from "./app/instructions.ts";
 import { runVerificationPolicy } from "./app/verificationPolicy.ts";
+import { runAiBehaviorPolicy } from "./app/aiBehaviorPolicy.ts";
+import type { AiBehaviorCommand, AiBehaviorOutcome } from "./app/aiBehaviorPolicy.ts";
+import { runProtectedRules } from "./app/protectedRules.ts";
+import { runTaskPreview } from "./app/effectiveTask.ts";
+import type { TaskPreviewRequest } from "./app/effectiveTask.ts";
+import { runContextPreview } from "./app/effectiveContext.ts";
 import type { VerificationCommand, VerificationOutcome } from "./app/verificationPolicy.ts";
 import { runProjectSettings } from "./app/projectSettings.ts";
 import { runJiraSite } from "./app/jiraSite.ts";
@@ -54,6 +60,8 @@ import {
   watchPolicyDirectory,
   verificationFileExists,
   verificationFileKind,
+  aiBehaviorFileExists,
+  aiBehaviorFileKind,
   createGitignoreIo,
   loadIssueDetails,
   canRun,
@@ -223,6 +231,40 @@ export function activate(context: vscode.ExtensionContext): void {
       return root ? verificationFileKind(root) : ("absent" as const);
     },
   };
+  // The repository's AI Behavior (0.1.4): read through the CLI for the stale
+  // check and the settings row, created from the CLI's own template (on stdin)
+  // and removed through the CLI. Nothing of its text reaches the log.
+  const aiBehaviorCommand = async (command: AiBehaviorCommand): Promise<AiBehaviorOutcome> => {
+    const root = controller.root;
+    if (!root) return { kind: "failed", message: "No repository is open." };
+    return runAiBehaviorPolicy(
+      (args, input) => trustedRunner(executable).run(args, { cwd: root, timeoutMs: 30_000, ...(input === undefined ? {} : { input }) }),
+      command,
+    );
+  };
+  const aiBehaviorPolicyPort = {
+    load: () => aiBehaviorCommand({ kind: "show" }),
+    create: (text: string) => aiBehaviorCommand({ kind: "set", text }),
+    reset: () => aiBehaviorCommand({ kind: "reset" }),
+    fileExists: async () => {
+      const root = controller.root;
+      return root ? aiBehaviorFileExists(root) : false;
+    },
+    fileKind: async () => {
+      const root = controller.root;
+      return root ? aiBehaviorFileKind(root) : ("absent" as const);
+    },
+  };
+  // The read-only views (0.1.4): one `--json` command each, in the repository,
+  // asked only while the view is open. None writes anything.
+  const readOnlyRun = (args: readonly string[]) => {
+    const root = controller.root;
+    if (!root) return Promise.reject(new Error("No repository is open."));
+    return trustedRunner(executable).run(args, { cwd: root, timeoutMs: 60_000 });
+  };
+  const protectedRulesPort = () => runProtectedRules(readOnlyRun);
+  const taskPreviewPort = (request: TaskPreviewRequest) => runTaskPreview(readOnlyRun, request);
+  const contextPreviewPort = (workItemId: string | undefined) => runContextPreview(readOnlyRun, workItemId);
 
   // Annotated because the panel's message callback above refers to it: without
   // a type here the inference is circular. It is only *called* later, so the
@@ -328,6 +370,10 @@ export function activate(context: vscode.ExtensionContext): void {
         save: (scope, text) => instructionsCommand({ scope, text }),
       },
       verificationPolicy: verificationPolicyPort,
+      aiBehaviorPolicy: aiBehaviorPolicyPort,
+      protectedRules: protectedRulesPort,
+      taskPreview: taskPreviewPort,
+      contextPreview: contextPreviewPort,
       // The payload file and its cleanup live in the app layer; the controller
       // only says what the command is and what definition it carries, and the
       // port refuses outright when there is no repository to run it against.

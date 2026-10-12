@@ -188,9 +188,13 @@
       fields: [],
       focus: ["user-instructions-edit"],
     },
+    // AI Behavior and the protected rules (0.1.4): a document and a read-only list, no field.
+    "ai-behavior-rules": { fields: [], focus: ["ai-behavior-edit", "protected-rules-open"] },
     "build-context": { fields: ["fresh"], focus: ["fresh"] },
     "fix-with-ai": { fields: ["agent", "agentCommand"], focus: ["agent"] },
     branch: { fields: ["branchPolicy", "branchNaming", "branchTemplate"], focus: ["branchPolicy"] },
+    // What the agent is handed (0.1.4): two read-only views.
+    "effective-output": { fields: [], focus: ["effective-task-open", "effective-context-open"] },
   };
 
   /** Which workflow row's gear opens which section; a row absent here has none. */
@@ -535,6 +539,8 @@
   const PRIMARY_ICONS = { run: "play", fixWithAI: "hubot", openSession: "terminal", rebuildContext: "refresh" };
   /** The ⋯ More menu's next-action items, in the markup's order, below Reset Session. */
   const MORE_ITEMS = ["startNewAttempt", "rebuildContext", "openSession"];
+  /** The read-only views ⋯ More also opens (0.1.4), after the next steps. */
+  const EFFECTIVE_ITEMS = ["effectiveTask", "effectiveContext"];
   /** The next-action items the menu last offered, so a change under an open menu closes it. */
   let moreOffered = "";
   // Reset Session (§37.103): the host's view of its dialog, the session the
@@ -1117,6 +1123,12 @@
     // Before the views are switched: the editor's content is in place before it
     // is shown and takes focus.
     renderInstructions(state);
+    renderAiBehavior(state.aiBehavior);
+    renderAiBehaviorPreview(state.aiBehaviorPreview);
+    renderEffectiveRows(state.effectiveRows);
+    renderEffectiveTask(state.effectiveTask);
+    renderEffectiveContext(state.effectiveContext);
+    renderProtectedRules(state.protectedRules);
     renderManage(state);
     renderSettings(state);
     renderHintImprovement(state);
@@ -2849,13 +2861,18 @@
     const more = primary.enabled ? primary.more || [] : [];
     for (const id of MORE_ITEMS) byId(`menu-${id}`).hidden = !more.includes(id);
     byId("menu-separator").hidden = more.length === 0;
+    // The read-only views, whenever there is a repository to read: their rows say the rest.
+    const rows = state.effectiveRows;
+    const effective = Boolean(rows && (rows.task.canView || rows.task.unavailable || rows.context.canView || rows.context.unavailable));
+    for (const id of EFFECTIVE_ITEMS) byId(`menu-${id}`).hidden = !effective;
+    byId("menu-separator-effective").hidden = !effective;
     byId("more-actions").hidden = false;
     // What it offers changed under an open menu — a run started, the context went
     // stale: closed, as it always was, rather than left open on items that went.
     const offered = more.join(",");
     if (offered !== moreOffered) {
       moreOffered = offered;
-      const inMenu = ["resetSession", ...MORE_ITEMS].some((id) => byId(`menu-${id}`) === document.activeElement);
+      const inMenu = ["resetSession", ...MORE_ITEMS, ...EFFECTIVE_ITEMS].some((id) => byId(`menu-${id}`) === document.activeElement);
       closeMoreMenu(inMenu);
     }
   }
@@ -2890,7 +2907,7 @@
 
   /** The menu's items that are on offer, in order: Reset Session, then the next steps. */
   function menuItems() {
-    return ["resetSession", ...MORE_ITEMS].map((id) => byId(`menu-${id}`)).filter((item) => !item.hidden);
+    return ["resetSession", ...MORE_ITEMS, ...EFFECTIVE_ITEMS].map((id) => byId(`menu-${id}`)).filter((item) => !item.hidden);
   }
 
   // --- Reset Session (§37.103) ----------------------------------------------
@@ -3544,6 +3561,12 @@
     instructions: "instructions-editor-view",
     // The Verification Policy Preview, read-only: from the settings page and back to it.
     "verification-preview": "verification-preview-view",
+    // The AI Behavior Preview, likewise (0.1.4).
+    "ai-behavior-preview": "ai-behavior-preview-view",
+    // The read-only views of 0.1.4: from the settings page or ⋯ More, and back to where they came from.
+    "protected-rules": "protected-rules-view",
+    "effective-task": "effective-task-view",
+    "effective-context": "effective-context-view",
   };
 
   const VIEW_SECTIONS = [...new Set(Object.values(PANEL_VIEWS))];
@@ -3568,6 +3591,10 @@
     "fix-mode-edit": "editor-title",
     instructions: "instructions-title",
     "verification-preview": "verification-preview-title",
+    "ai-behavior-preview": "ai-behavior-preview-title",
+    "protected-rules": "protected-rules-title",
+    "effective-task": "effective-task-title",
+    "effective-context": "effective-context-title",
   };
 
   let activeView = "main";
@@ -3615,9 +3642,15 @@
     // The instruction editor and the Verification Policy Preview are the
     // host's, like the Fix Mode views, and only ever reached from the settings page.
     if (!state.manage) {
+      // The read-only views are the host's too, and open from either page:
+      // closing one lands on the page it was opened from.
+      if (state.effectiveTask) return "effective-task";
+      if (state.effectiveContext) return "effective-context";
+      if (state.protectedRules) return "protected-rules";
       if (!settingsOpen) return "main";
       if (state.instructionsEditor) return "instructions";
-      return state.verificationPreview ? "verification-preview" : "settings";
+      if (state.verificationPreview) return "verification-preview";
+      return state.aiBehaviorPreview ? "ai-behavior-preview" : "settings";
     }
     if (editor) {
       if (editor.intent === "view") return "fix-mode-preview";
@@ -3668,6 +3701,19 @@
     if (view === "settings" && previous === "verification-preview") {
       focusElement(byId("verification-policy-preview"));
       return;
+    }
+    if (view === "settings" && previous === "ai-behavior-preview") {
+      focusElement(byId("ai-behavior-preview"));
+      return;
+    }
+    // From a read-only view: on what opened it — its row's View, or ⋯ More.
+    if ((view === "settings" || view === "main") && EFFECTIVE_VIEWS.includes(previous)) {
+      const back = effectiveReturn && document.getElementById(effectiveReturn);
+      effectiveReturn = undefined;
+      if (back && !back.hidden) {
+        focusElement(back);
+        return;
+      }
     }
     // Coming back to a mode the developer was reading, put them back on the
     // button they left from rather than at the top of it again.
@@ -3831,6 +3877,239 @@
 
   function closeVerificationPreview() {
     vscode.postMessage({ type: "closeVerificationPreview" });
+  }
+
+  // --- AI Behavior, Protected Rules, Effective AI Task, Effective Context (0.1.4) -----
+
+  /** The read-only views, by their view names. */
+  const EFFECTIVE_VIEWS = ["effective-task", "effective-context", "protected-rules"];
+  /** What opened the read-only view on screen — its row's View, or ⋯ More — to land on again when it closes. */
+  let effectiveReturn;
+  /** What the task blocks were last drawn from, so a push with the same task keeps a selection in it. */
+  let taskBlocksSignature;
+  let rulesSignature;
+
+  /** Fill a definition list from the host's facts. */
+  function fillFacts(list, facts) {
+    list.replaceChildren();
+    for (const fact of facts || []) {
+      const term = document.createElement("dt");
+      term.textContent = fact.label;
+      const value = document.createElement("dd");
+      value.textContent = fact.value;
+      list.append(term, value);
+    }
+  }
+
+  /** Fill a list with lines, hidden when there are none. */
+  function fillList(list, lines) {
+    const items = Array.isArray(lines) ? lines : [];
+    list.replaceChildren();
+    for (const line of items) {
+      const item = document.createElement("li");
+      item.textContent = line;
+      list.append(item);
+    }
+    return items.length;
+  }
+
+  /** The AI Behavior row: every word the host's, from `bugpilot ai-behavior show --json`. */
+  function renderAiBehavior(row) {
+    const view = row || {};
+    setText(byId("ai-behavior-source"), view.source || "");
+    byId("ai-behavior-source").hidden = !view.source;
+    setNote("ai-behavior-problem", view.problem);
+    setNote("ai-behavior-lint", view.lint);
+    setNote("ai-behavior-default-changed", view.defaultChanged);
+    const unavailable = byId("ai-behavior-unavailable");
+    setText(unavailable, view.unavailable || "");
+    unavailable.hidden = !view.unavailable;
+    byId("ai-behavior-edit").disabled = !view.canEdit;
+    byId("ai-behavior-reset").disabled = !view.canReset;
+    byId("ai-behavior-preview").disabled = !view.canPreview;
+    byId("field-ai-behavior").setAttribute("aria-busy", view.busy ? "true" : "false");
+    setText(byId("ai-behavior-stale"), view.stale ? "Needs rebuild" : "");
+  }
+
+  /** The AI Behavior Preview: facts, notes, the lint in the CLI's words, and the text. */
+  function renderAiBehaviorPreview(preview) {
+    if (!preview) return;
+    fillFacts(byId("ai-behavior-preview-facts"), preview.facts);
+    setNote("ai-behavior-preview-problem", preview.problem);
+    setNote("ai-behavior-preview-default-changed", preview.defaultChanged);
+    const lint = Array.isArray(preview.lint) ? preview.lint : [];
+    const count = typeof preview.lintCount === "number" ? preview.lintCount : lint.length;
+    byId("ai-behavior-preview-lint").hidden = count === 0;
+    byId("ai-behavior-preview-lint-title").textContent = `${count} AI Behavior ${count === 1 ? "warning" : "warnings"}`;
+    fillList(byId("ai-behavior-preview-lint-list"), lint);
+    setText(byId("ai-behavior-preview-text"), preview.text || "");
+  }
+
+  /** The three read-only rows: a line of state and View, or the reason View is off. */
+  function renderEffectiveRows(rows) {
+    for (const [id, key] of [["protected-rules", "rules"], ["effective-task", "task"], ["effective-context", "context"]]) {
+      const row = (rows && rows[key]) || { status: "", canView: false, unavailable: "" };
+      setText(byId(`${id}-status`), row.status || "");
+      byId(`${id}-status`).hidden = !row.status;
+      const unavailable = byId(`${id}-unavailable`);
+      setText(unavailable, row.unavailable || "");
+      unavailable.hidden = !row.unavailable;
+      byId(`${id}-open`).disabled = !row.canView;
+    }
+  }
+
+  /** "Loading…", the failure, or why the view is unavailable: one line, hidden when the view has its content. */
+  function paneMessage(id, pane, hasContent) {
+    const element = byId(id);
+    let text = "";
+    // Held while BugPilot is busy: what is shown is from before, so it is said, never passed off as current.
+    if (pane.held) {
+      text = hasContent
+        ? "Not refreshed: BugPilot is busy (a run, or a check of the CLI). This is the last answer from before; the view asks again when BugPilot is ready."
+        : "Waiting until BugPilot is ready before asking the CLI.";
+    } else if (pane.status === "loading") text = "Asking the BugPilot CLI…";
+    else if (pane.status === "unsupported" || pane.status === "failed") text = pane.message || "";
+    else if (pane.refreshing && hasContent) text = "Refreshing…";
+    setText(element, text);
+    element.hidden = !text;
+  }
+
+  /**
+   * The Effective AI Task: the CLI's text in the host's blocks, each with its
+   * label and where it is changed. Drawn again only when the blocks change, so
+   * a selection survives a push.
+   */
+  function renderEffectiveTask(pane) {
+    if (!pane) {
+      taskBlocksSignature = undefined;
+      return;
+    }
+    const view = pane.view;
+    paneMessage("effective-task-message", pane, Boolean(view));
+    setText(byId("effective-task-headline"), view ? view.label : "");
+    byId("effective-task-rebuild").hidden = !pane.needsRebuild;
+    const prepared = byId("effective-task-prepared");
+    setText(prepared, (view && view.prepared) || "");
+    prepared.hidden = !(view && view.prepared);
+    const placeholders = byId("effective-task-placeholders");
+    setText(placeholders, (view && view.placeholderNote) || "");
+    placeholders.hidden = !(view && view.placeholderNote);
+    fillFacts(byId("effective-task-facts"), view ? view.facts : []);
+    byId("effective-task-warnings").hidden = fillList(byId("effective-task-warnings"), view ? view.warnings : []) === 0;
+    setText(
+      byId("effective-task-counts"),
+      view ? `${view.protectedCount} protected section${view.protectedCount === 1 ? "" : "s"} · ${view.editableCount} other${view.editableCount === 1 ? "" : "s"}` : "",
+    );
+    // Only the task for the current request to the clipboard: never a held one, the previous
+    // work item's while the next one loads, or the last good one after a failure.
+    byId("effective-task-copy").disabled = !view || !pane.current;
+    byId("effective-task-refresh").disabled = pane.status === "unsupported" || pane.held;
+    const blocks = view ? view.blocks : [];
+    const signature = JSON.stringify(blocks);
+    if (signature === taskBlocksSignature) return;
+    taskBlocksSignature = signature;
+    const container = byId("effective-task-blocks");
+    container.replaceChildren();
+    for (const block of blocks) {
+      const section = document.createElement("section");
+      section.className = `task-block ${block.protected ? "is-protected" : "is-editable"}${block.placeholder ? " has-placeholder" : ""}`;
+      section.setAttribute("aria-label", block.heading ? `${block.heading} — ${block.label}` : block.label);
+      const label = document.createElement("p");
+      label.className = "task-block-label";
+      if (block.where) label.title = block.where;
+      const icon = document.createElement("span");
+      icon.className = `codicon codicon-${block.protected ? "shield" : "edit"}`;
+      icon.setAttribute("aria-hidden", "true");
+      const words = document.createElement("span");
+      words.textContent = block.label;
+      label.append(icon, words);
+      const text = document.createElement("pre");
+      text.className = "task-block-text";
+      text.tabIndex = 0;
+      // The CLI's text exactly: textContent, never markup.
+      text.textContent = block.text;
+      section.append(label, text);
+      container.append(section);
+    }
+  }
+
+  /** The Effective Context: the merged status, why it needs a rebuild, what was not checked, the facts and the text. */
+  function renderEffectiveContext(pane) {
+    if (!pane) return;
+    const view = pane.view;
+    paneMessage("effective-context-message", pane, Boolean(view));
+    const headline = byId("effective-context-headline");
+    setText(headline, view ? view.headline : "");
+    headline.classList.toggle("is-stale", Boolean(view && view.needsRebuild));
+    const reasons = view ? (view.reasons || []).map((reason) => reason.label) : [];
+    byId("effective-context-reasons-section").hidden = fillList(byId("effective-context-reasons"), reasons) === 0;
+    byId("effective-context-problems").hidden = fillList(byId("effective-context-problems"), view ? view.problems : []) === 0;
+    byId("effective-context-warnings").hidden = fillList(byId("effective-context-warnings"), view ? view.warnings : []) === 0;
+    fillFacts(byId("effective-context-facts"), view ? view.facts : []);
+    byId("effective-context-unchecked-section").hidden = fillList(byId("effective-context-unchecked"), view ? view.notChecked : []) === 0;
+    const hasText = Boolean(view && typeof view.text === "string");
+    byId("effective-context-text-title").hidden = !hasText;
+    byId("effective-context-text").hidden = !hasText;
+    setText(byId("effective-context-text"), hasText ? view.text : "");
+    byId("effective-context-refresh").disabled = pane.status === "unsupported" || pane.held;
+  }
+
+  /** The Protected Rules: the CLI's contract, groups, rules and precedence — read-only. */
+  function renderProtectedRules(pane) {
+    if (!pane) {
+      rulesSignature = undefined;
+      return;
+    }
+    const rules = pane.rules;
+    paneMessage("protected-rules-message", pane, Boolean(rules));
+    setText(byId("protected-rules-version"), rules ? `Version ${rules.rulesVersion} · built into BugPilot · read-only` : "");
+    byId("protected-rules-refresh").disabled = pane.status === "unsupported" || pane.held;
+    const signature = JSON.stringify(rules || null);
+    if (signature === rulesSignature) return;
+    rulesSignature = signature;
+    const contract = byId("protected-rules-contract");
+    contract.replaceChildren();
+    for (const line of rules ? rules.contract : []) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      contract.append(paragraph);
+    }
+    const groups = byId("protected-rules-groups");
+    groups.replaceChildren();
+    for (const group of rules ? rules.groups : []) {
+      const section = document.createElement("section");
+      section.className = "rule-group";
+      const heading = document.createElement("h3");
+      heading.textContent = group.title;
+      const list = document.createElement("ul");
+      list.className = "rule-list";
+      for (const rule of group.rules) {
+        const item = document.createElement("li");
+        item.className = "rule";
+        const title = document.createElement("strong");
+        title.textContent = rule.title;
+        const text = document.createElement("p");
+        text.className = "rule-text";
+        text.textContent = rule.text;
+        const where = document.createElement("p");
+        where.className = "hint rule-where";
+        where.textContent = `In the task's ${rule.section} · ${rule.id}`;
+        item.append(title, text, where);
+        list.append(item);
+      }
+      section.append(heading, list);
+      groups.append(section);
+    }
+    byId("protected-rules-precedence-section").hidden = fillList(byId("protected-rules-precedence"), rules ? rules.precedence : []) === 0;
+  }
+
+  function openEffective(view, returnTo) {
+    effectiveReturn = returnTo;
+    vscode.postMessage({ type: "openEffectiveView", view });
+  }
+
+  function closeEffective() {
+    vscode.postMessage({ type: "closeEffectiveView" });
   }
 
   /** How much is typed against the limit the CLI enforces — said before Save, not after. */
@@ -4929,6 +5208,38 @@
   byId("verification-policy-reset").addEventListener("click", () => vscode.postMessage({ type: "resetVerificationPolicy" }));
   byId("verification-policy-preview").addEventListener("click", () => vscode.postMessage({ type: "previewVerificationPolicy" }));
   byId("verification-preview-back").addEventListener("click", closeVerificationPreview);
+  // The AI Behavior row (0.1.4): three bare requests, like the Verification Policy's.
+  byId("ai-behavior-edit").addEventListener("click", () => vscode.postMessage({ type: "editAiBehavior" }));
+  byId("ai-behavior-reset").addEventListener("click", () => vscode.postMessage({ type: "resetAiBehavior" }));
+  byId("ai-behavior-preview").addEventListener("click", () => vscode.postMessage({ type: "previewAiBehavior" }));
+  byId("ai-behavior-preview-back").addEventListener("click", () => vscode.postMessage({ type: "closeAiBehaviorPreview" }));
+  byId("ai-behavior-preview-view").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      vscode.postMessage({ type: "closeAiBehaviorPreview" });
+    }
+  });
+  // The read-only views: View on their rows, the two ⋯ entries, Back, Refresh, Copy and Escape.
+  for (const [id, view] of [["protected-rules", "rules"], ["effective-task", "task"], ["effective-context", "context"]]) {
+    byId(`${id}-open`).addEventListener("click", () => openEffective(view, `${id}-open`));
+    byId(`${id}-back`).addEventListener("click", closeEffective);
+    byId(`${id}-refresh`).addEventListener("click", () => vscode.postMessage({ type: "refreshEffectiveView" }));
+    byId(`${id}-view`).addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeEffective();
+      }
+    });
+  }
+  byId("effective-task-copy").addEventListener("click", () => vscode.postMessage({ type: "copyEffectiveTask" }));
+  byId("menu-effectiveTask").addEventListener("click", () => {
+    closeMoreMenu(false);
+    openEffective("task", "more-actions");
+  });
+  byId("menu-effectiveContext").addEventListener("click", () => {
+    closeMoreMenu(false);
+    openEffective("context", "more-actions");
+  });
   byId("verification-preview-view").addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       event.preventDefault();

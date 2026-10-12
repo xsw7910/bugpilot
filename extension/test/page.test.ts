@@ -35,6 +35,13 @@ import type { GitHistoryResult } from "../src/app/gitHistory.ts";
 import type { UserFacingError } from "../src/app/failures.ts";
 import type { ProgressView } from "../src/app/progress.ts";
 import { VERIFICATION_ROW_EMPTY } from "../src/app/verificationPolicy.ts";
+import { AI_BEHAVIOR_ROW_EMPTY } from "../src/app/aiBehaviorPolicy.ts";
+import type { AiBehaviorRowView } from "../src/app/aiBehaviorPolicy.ts";
+import { EFFECTIVE_ROWS_EMPTY, effectiveContextPaneView, effectiveRowsView, effectiveTaskPaneView, protectedRulesPaneView } from "../src/app/effectiveViews.ts";
+import { aiBehaviorPreviewView, aiBehaviorRowView } from "../src/app/aiBehaviorPolicy.ts";
+import type { TaskPreviewSnapshot } from "../src/app/effectiveTask.ts";
+import type { ContextPreviewSnapshot, PanelFreshness } from "../src/app/effectiveContext.ts";
+import type { ProtectedRulesSnapshot } from "../src/app/protectedRules.ts";
 import type { VerificationPreviewView, VerificationRowView } from "../src/app/verificationPolicy.ts";
 
 const PAGE_SOURCE = readFileSync(new URL("../media/panel.js", import.meta.url), "utf8");
@@ -389,6 +396,14 @@ const VERIFICATION_DEFAULT_ROW: VerificationRowView = {
   canPreview: true,
 };
 
+/** The AI Behavior row as a ready host builds it with no file (0.1.4). */
+const AI_BEHAVIOR_DEFAULT_ROW: AiBehaviorRowView = {
+  ...AI_BEHAVIOR_ROW_EMPTY,
+  source: "Source: BugPilot default",
+  canEdit: true,
+  canPreview: true,
+};
+
 /**
  * A state as the host would build it.
  *
@@ -423,6 +438,8 @@ const state = (overrides: Partial<PanelState> = {}, files: readonly string[] = [
       project: { status: "No project instructions configured.", editable: true },
     },
     verificationPolicy: VERIFICATION_DEFAULT_ROW,
+    aiBehavior: AI_BEHAVIOR_DEFAULT_ROW,
+    effectiveRows: EFFECTIVE_ROWS_EMPTY,
     problems: [],
     progress,
     workflow,
@@ -9851,4 +9868,300 @@ test("the CLI's refusal of a site is said under the site field", () => {
   assert.equal(p.byId("jira-site-error").textContent, "The Jira site must start with https://.");
   assert.equal(p.byId("jira-site").getAttribute("aria-invalid"), "true");
   assert.equal(p.focused, "jira-site");
+});
+
+
+// --- 0.1.4: AI Behavior & Rules and Effective Output on the page -----------------------------------
+
+const EFFECTIVE_READY_ROWS = effectiveRowsView({
+  ready: true,
+  supports: { task: true, context: true, rules: true },
+  workItemId: "JR-12345",
+  prepared: true,
+  needsRebuild: false,
+});
+
+const EFFECTIVE_TEXT = [
+  "# BugPilot Task: JR-12345",
+  "",
+  "## BugPilot Safety Rules",
+  "",
+  "- Never force push.",
+  "",
+  "## Project / Team Instructions",
+  "",
+  "<script>alert('not markup')</script> stays text.",
+  "",
+].join("\n");
+
+const EFFECTIVE_TASK_SNAPSHOT: TaskPreviewSnapshot = {
+  kind: "active-work-item",
+  label: "Effective AI task for JR-12345",
+  workItem: "JR-12345",
+  text: EFFECTIVE_TEXT,
+  sections: [
+    { heading: "BugPilot Safety Rules", kind: "protected", protected: true, line: 3, lines: 4, placeholder: false },
+    { heading: "Project / Team Instructions", kind: "project-instructions", protected: false, line: 7, lines: 4, placeholder: false },
+  ],
+  placeholders: [],
+  sources: { fixMode: { id: "standard", name: "Standard Fix", origin: "persisted" }, branchPolicy: { policy: "current", branch: "feature/x" }, jiraComment: false, protectedRulesVersion: 1 },
+  prepared: { taskExists: true, contextExists: true, taskCurrent: false, changedSections: ["Project / Team Instructions"] },
+  warnings: ["A warning in the CLI's words."],
+};
+
+const taskPane = (
+  overrides: Partial<{ status: "loading" | "loaded" | "failed" | "unsupported"; message: string; needsRebuild: boolean; held: boolean; refreshing: boolean; current: boolean }> = {},
+) => {
+  const status = overrides.status ?? "loaded";
+  const held = overrides.held ?? false;
+  const refreshing = overrides.refreshing ?? false;
+  return effectiveTaskPaneView(
+    {
+      token: 1,
+      status,
+      ...(status === "loading" || status === "unsupported" ? {} : { snapshot: EFFECTIVE_TASK_SNAPSHOT }),
+      ...(overrides.message ? { message: overrides.message } : {}),
+      refreshing,
+      held,
+      // As `Pane` says it: an answer for the current request, nothing newer on its way, not held.
+      current: overrides.current ?? (status === "loaded" && !held && !refreshing),
+    },
+    overrides.needsRebuild ?? false,
+  );
+};
+
+const contextPane = (snapshot: ContextPreviewSnapshot, panel: PanelFreshness = { preparedHere: true, formChanged: false, policiesChanged: false }) =>
+  effectiveContextPaneView({ token: 1, status: "loaded", snapshot, refreshing: false, held: false, current: true }, () => panel);
+
+const STORED_CONTEXT: ContextPreviewSnapshot = {
+  state: "current",
+  label: "Context status: Current",
+  workItem: "JR-12345",
+  text: "# Bug Context: JR-12345\n\nThe stored context.\n",
+  reasons: [],
+  unchecked: [
+    { code: "retrieval_inputs", label: "Retrieval inputs as the panel holds them: the panel compares those itself." },
+    { code: "issue_source", label: "The issue in Jira since it was fetched: not fetched again." },
+  ],
+  quality: { overall: 63, issueCompleteness: 25, retrievalQuality: 97, repositoryContext: 70, cap: 75 },
+  retrieval: { confidence: "high", reasons: [], relatedFiles: 3, terms: 9, gitHistory: { status: "ok", commits: 2 } },
+  problems: [],
+  warnings: [],
+};
+
+const effectiveState = (overrides: Partial<PanelState> = {}): PanelState => ({ ...prepared(), effectiveRows: EFFECTIVE_READY_ROWS, ...overrides });
+
+/** The same snapshot, with no context to show. */
+function withoutText(snapshot: ContextPreviewSnapshot): ContextPreviewSnapshot {
+  const { text: _text, ...rest } = snapshot;
+  return rest;
+}
+
+test("effective views: held while BugPilot is busy, a view says its answer is from before, and Copy and Refresh are off", () => {
+  const p = load();
+  p.send(effectiveState({ effectiveTask: taskPane({ held: true }) }));
+  assert.match(p.byId("effective-task-message").textContent, /^Not refreshed: BugPilot is busy \(a run, or a check of the CLI\)\. This is the last answer from before/);
+  assert.equal(p.byId("effective-task-message").hidden, false);
+  assert.equal(p.byId("effective-task-copy").disabled, true, "a held task could be copied");
+  assert.equal(p.byId("effective-task-refresh").disabled, true);
+  // Ready again with a fresh answer: nothing said, Copy back.
+  p.send(effectiveState({ effectiveTask: taskPane() }));
+  assert.equal(p.byId("effective-task-message").hidden, true);
+  assert.equal(p.byId("effective-task-copy").disabled, false);
+  assert.equal(p.byId("effective-task-refresh").disabled, false);
+});
+
+test("effective task: Copy is off while the next task loads and after a failed refresh — the last answer stays readable — and on again only for the current one (L-1)", () => {
+  const p = load();
+  p.send(effectiveState({ effectiveTask: taskPane() }));
+  assert.equal(p.byId("effective-task-copy").disabled, false);
+  const drawn = () => p.byId("effective-task-blocks").children.map((block) => block.children[1]!.textContent).join("");
+
+  // Another work item, or a changed input, is being asked for: the previous task is still drawn.
+  p.send(effectiveState({ effectiveTask: taskPane({ refreshing: true }) }));
+  assert.equal(p.byId("effective-task-message").textContent, "Refreshing…");
+  assert.equal(drawn(), EFFECTIVE_TEXT);
+  assert.equal(p.byId("effective-task-copy").disabled, true, "the previous task could be copied while the next one loaded");
+  assert.equal(p.byId("effective-task-refresh").disabled, false);
+
+  // The answer failed: said in its own words, the last answer still drawn, Copy still off.
+  p.send(effectiveState({ effectiveTask: taskPane({ status: "failed", message: "bugpilot could not read .ai/JR-999/issue.json." }) }));
+  assert.equal(p.byId("effective-task-message").textContent, "bugpilot could not read .ai/JR-999/issue.json.");
+  assert.equal(drawn(), EFFECTIVE_TEXT);
+  assert.equal(p.byId("effective-task-copy").disabled, true, "the last good task could be copied after a failure");
+
+  // Whatever the status says, the host's verdict decides: a loaded answer that is not current stays uncopyable.
+  p.send(effectiveState({ effectiveTask: taskPane({ current: false }) }));
+  assert.equal(p.byId("effective-task-copy").disabled, true);
+
+  // The current answer: Copy on again.
+  p.send(effectiveState({ effectiveTask: taskPane() }));
+  assert.equal(p.byId("effective-task-message").hidden, true);
+  assert.equal(p.byId("effective-task-copy").disabled, false);
+});
+
+test("effective task: ⋯ More opens it over the workflow; the host's blocks, labelled, the CLI's text as text; Back lands on ⋯ More", () => {
+  const p = load();
+  p.send(effectiveState());
+  assert.equal(p.byId("menu-effectiveTask").hidden, false);
+  assert.equal(p.byId("menu-separator-effective").hidden, false);
+  p.byId("more-actions").dispatch("click");
+  p.byId("menu-effectiveTask").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "openEffectiveView", view: "task" });
+
+  p.send(effectiveState({ effectiveTask: taskPane({ needsRebuild: true }) }));
+  assert.equal(p.byId("effective-task-view").hidden, false);
+  assert.equal(p.byId("main-view").hidden, true);
+  assert.equal(p.focused, "effective-task-title");
+  assert.equal(p.byId("effective-task-headline").textContent, "Effective AI task for JR-12345");
+  // The settings row keeps its own label (markup, never written): the view's headline is a different element.
+  assert.equal(p.byId("effective-task-label").textContent, "", "the settings row's label was written into");
+  assert.equal(p.byId("effective-task-rebuild").hidden, false, "the panel's Needs rebuild was not said");
+  assert.equal(p.byId("effective-task-prepared").textContent, "Prepared task.md: differs in Project / Team Instructions.");
+  const blocks = p.byId("effective-task-blocks").children;
+  assert.equal(blocks.length, 3);
+  // Joined, the drawn text is the CLI's — markup in it stays text.
+  assert.equal(blocks.map((block) => block.children[1]!.textContent).join(""), EFFECTIVE_TEXT);
+  assert.equal(blocks[2]!.children[1]!.textContent.includes("<script>alert('not markup')</script>"), true);
+  assert.deepEqual(blocks.map((block) => [block.classes.has("is-protected"), block.children[0]!.children[1]!.textContent]), [
+    [true, "Task title"],
+    [true, "Protected · BugPilot"],
+    [false, "Editable · Project instructions"],
+  ]);
+  assert.equal(p.byId("effective-task-warnings").hidden, false);
+  assert.equal(p.byId("effective-task-counts").textContent, "1 protected section · 1 other");
+
+  p.byId("effective-task-copy").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "copyEffectiveTask" });
+  p.byId("effective-task-refresh").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "refreshEffectiveView" });
+  p.byId("effective-task-back").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "closeEffectiveView" });
+
+  p.send(effectiveState());
+  assert.equal(p.byId("main-view").hidden, false);
+  assert.equal(p.focused, "more-actions");
+});
+
+test("effective task: loading, a failure and an older CLI are one line each, with nothing drawn as the task", () => {
+  const p = load();
+  p.send(effectiveState({ effectiveTask: taskPane({ status: "loading" }) }));
+  assert.equal(p.byId("effective-task-message").textContent, "Asking the BugPilot CLI…");
+  assert.equal(p.byId("effective-task-blocks").children.length, 0);
+  assert.equal(p.byId("effective-task-copy").disabled, true);
+  p.send(effectiveState({ effectiveTask: taskPane({ status: "unsupported" }) }));
+  assert.match(p.byId("effective-task-message").textContent, /cannot preview the AI task/);
+  assert.equal(p.byId("effective-task-refresh").disabled, true);
+  p.send(effectiveState({ effectiveTask: taskPane({ status: "failed", message: "bugpilot returned no task preview." }) }));
+  assert.equal(p.byId("effective-task-message").textContent, "bugpilot returned no task preview.");
+});
+
+test("effective context: from Advanced Settings, the merged status, every reason, what was not checked, the stored facts and text", () => {
+  const p = settingsPage({ effectiveRows: EFFECTIVE_READY_ROWS });
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("effective-context-status").textContent, "JR-12345 · prepared");
+  p.byId("effective-context-open").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "openEffectiveView", view: "context" });
+
+  const stale = contextPane(
+    { ...STORED_CONTEXT, state: "stale", label: "Context status: Needs rebuild", reasons: [{ code: "verification_changed", label: "Verification Policy" }] },
+    { preparedHere: true, formChanged: true, policiesChanged: false },
+  );
+  p.send({ ...prepared(), revision: 2, effectiveRows: EFFECTIVE_READY_ROWS, effectiveContext: stale });
+  assert.equal(p.byId("effective-context-view").hidden, false);
+  assert.equal(p.byId("workflow-settings-view").hidden, true);
+  assert.equal(p.byId("effective-context-headline").textContent, "Context status: Needs rebuild");
+  assert.equal(p.byId("effective-context-headline").classes.has("is-stale"), true);
+  assert.deepEqual(p.byId("effective-context-reasons").children.map((item) => item.textContent), [
+    "Verification Policy",
+    "Retrieval inputs or run settings (changed in the panel since this context was prepared)",
+  ]);
+  assert.deepEqual(p.byId("effective-context-unchecked").children.map((item) => item.textContent), ["The issue in Jira since it was fetched: not fetched again."]);
+  assert.equal(p.byId("effective-context-text").hidden, false);
+  assert.equal(p.byId("effective-context-text").textContent, STORED_CONTEXT.text);
+  assert.equal(p.byId("effective-context-facts").children[1]!.textContent, "63/100 (issue 25 · retrieval 97 · repository 70; capped at 75)");
+
+  p.byId("effective-context-view").dispatch("keydown", { key: "Escape" });
+  assert.deepEqual(p.posted.at(-1), { type: "closeEffectiveView" });
+  p.send({ ...prepared(), revision: 2, effectiveRows: EFFECTIVE_READY_ROWS });
+  assert.equal(p.byId("workflow-settings-view").hidden, false);
+  assert.equal(p.focused, "effective-context-open");
+});
+
+test("effective context: no generated context says the CLI's sentence and shows no text", () => {
+  const p = load();
+  p.send(
+    effectiveState({
+      effectiveContext: contextPane({ ...withoutText(STORED_CONTEXT), state: "not-generated", label: "No generated context available. Build context first." }),
+    }),
+  );
+  assert.equal(p.byId("effective-context-headline").textContent, "No generated context available. Build context first.");
+  assert.equal(p.byId("effective-context-text").hidden, true);
+  assert.equal(p.byId("effective-context-reasons-section").hidden, true);
+  assert.equal(p.byId("effective-context-facts").children.length, 0);
+});
+
+test("protected rules: the CLI's contract, groups, rules and precedence, read-only", () => {
+  const rules: ProtectedRulesSnapshot = {
+    rulesVersion: 1,
+    contract: ["BugPilot writes these rules into every task.md it prepares, word for word.", "BugPilot cannot enforce what an agent does."],
+    groups: [{ id: "git-editing", title: "Git / Editing", rules: [{ id: "no-force-push", title: "No force push", text: "Never force push.", section: "BugPilot Safety Rules" }] }],
+    precedence: ["BugPilot safety rules", "Repository context"],
+  };
+  const p = settingsPage({ effectiveRows: EFFECTIVE_READY_ROWS });
+  p.byId("open-settings").dispatch("click");
+  p.byId("protected-rules-open").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "openEffectiveView", view: "rules" });
+  p.send({ ...prepared(), revision: 2, effectiveRows: EFFECTIVE_READY_ROWS, protectedRules: protectedRulesPaneView({ token: 1, status: "loaded", snapshot: rules, refreshing: false, held: false, current: true }) });
+  assert.equal(p.byId("protected-rules-view").hidden, false);
+  assert.equal(p.byId("protected-rules-version").textContent, "Version 1 · built into BugPilot · read-only");
+  assert.equal(p.byId("protected-rules-contract").children.length, 2);
+  const group = p.byId("protected-rules-groups").children[0]!;
+  assert.equal(group.children[0]!.textContent, "Git / Editing");
+  const rule = group.children[1]!.children[0]!;
+  assert.deepEqual(rule.children.map((part) => part.textContent), ["No force push", "Never force push.", "In the task's BugPilot Safety Rules · no-force-push"]);
+  assert.equal(p.byId("protected-rules-precedence").children.length, 2);
+});
+
+test("AI Behavior row: the host's words, three bare requests, and its read-only Preview with Back to the Preview button", () => {
+  const row = aiBehaviorRowView(
+    { source: "ai-behavior-file", sha256: "a".repeat(64), lintCount: 1, lint: [], text: "", fileExists: true, hasProjectAdditions: true, defaultChanged: false },
+    { ready: true, readsText: true, writesHeld: false, stale: true, busy: false },
+  );
+  const p = settingsPage({ aiBehavior: row });
+  p.byId("open-settings").dispatch("click");
+  assert.equal(p.byId("ai-behavior-source").textContent, "Source: BugPilot default + repository additions");
+  assert.equal(p.byId("ai-behavior-lint").hidden, false);
+  assert.equal(p.byId("ai-behavior-stale").textContent, "Needs rebuild");
+  assert.deepEqual(["ai-behavior-edit", "ai-behavior-reset", "ai-behavior-preview"].map((id) => p.byId(id).disabled), [false, false, false]);
+  for (const [id, type] of [["ai-behavior-edit", "editAiBehavior"], ["ai-behavior-reset", "resetAiBehavior"], ["ai-behavior-preview", "previewAiBehavior"]] as const) {
+    p.byId(id).dispatch("click");
+    assert.deepEqual(p.posted.at(-1), { type });
+  }
+  const preview = aiBehaviorPreviewView(
+    { source: "ai-behavior-file", sha256: "a".repeat(64), lintCount: 1, lint: ["Line 7 …"], text: "## Code Change Conventions\n\n- Prefer small fixes.", fileExists: true, hasProjectAdditions: true, defaultChanged: false },
+    1,
+  );
+  p.send({ ...prepared(), revision: 2, aiBehavior: row, aiBehaviorPreview: preview });
+  assert.equal(p.byId("ai-behavior-preview-view").hidden, false);
+  assert.equal(p.byId("ai-behavior-preview-text").textContent, preview.text);
+  assert.equal(p.byId("ai-behavior-preview-lint-title").textContent, "1 AI Behavior warning");
+  p.byId("ai-behavior-preview-back").dispatch("click");
+  assert.deepEqual(p.posted.at(-1), { type: "closeAiBehaviorPreview" });
+  p.send({ ...prepared(), revision: 2, aiBehavior: row });
+  assert.equal(p.focused, "ai-behavior-preview");
+});
+
+test("the read-only rows say why View is off for an older CLI, and ⋯ More offers the views only once BugPilot is ready", () => {
+  const old = effectiveRowsView({ ready: true, supports: { task: false, context: false, rules: false }, prepared: false, needsRebuild: false });
+  const p = settingsPage({ effectiveRows: old });
+  p.byId("open-settings").dispatch("click");
+  for (const id of ["protected-rules", "effective-task", "effective-context"]) {
+    assert.equal(p.byId(`${id}-open`).disabled, true, id);
+    assert.equal(p.byId(`${id}-unavailable`).hidden, false, id);
+  }
+  const notReady = load();
+  notReady.send({ ...prepared(), effectiveRows: EFFECTIVE_ROWS_EMPTY });
+  assert.equal(notReady.byId("menu-effectiveTask").hidden, true);
+  assert.equal(notReady.byId("menu-separator-effective").hidden, true);
 });

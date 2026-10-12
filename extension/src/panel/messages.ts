@@ -28,6 +28,13 @@ import type { RepositoryProfileView } from "../app/repositoryProfile.ts";
 import { MAX_INSTRUCTION_CHARS, isInstructionScope } from "../app/instructions.ts";
 import type { InstructionScope } from "../app/instructions.ts";
 import type { VerificationPreviewView, VerificationRowView } from "../app/verificationPolicy.ts";
+import type { AiBehaviorPreviewView, AiBehaviorRowView } from "../app/aiBehaviorPolicy.ts";
+import type {
+  EffectiveContextPaneView,
+  EffectiveRowsView,
+  EffectiveTaskPaneView,
+  ProtectedRulesPaneView,
+} from "../app/effectiveViews.ts";
 import type { UserFacingError } from "../app/failures.ts";
 import type { JiraConnectionView } from "../app/jiraConnection.ts";
 import { isSafeRelativePath } from "../app/contextSummary.ts";
@@ -241,6 +248,26 @@ export interface PanelState {
    * effective policy's text and facts, read-only.
    */
   readonly verificationPreview?: VerificationPreviewView;
+  /**
+   * The settings page's AI Behavior row (0.1.4): its source, Edit, Reset and
+   * Preview, a problem, the lint count, the `default_changed` note and "Needs
+   * rebuild" — from what `bugpilot ai-behavior show --json` last said.
+   */
+  readonly aiBehavior: AiBehaviorRowView;
+  /** The AI Behavior Preview, present only while it is open: the effective AI Behavior, read-only. */
+  readonly aiBehaviorPreview?: AiBehaviorPreviewView;
+  /**
+   * The settings page's Effective Output rows and the Protected Rules row
+   * (0.1.4): a line of state each, from what the host already knows — no CLI
+   * is asked to draw them — and whether View opens anything.
+   */
+  readonly effectiveRows: EffectiveRowsView;
+  /** The Effective AI Task view, present only while it is open: the CLI's task text in blocks, and where each came from. */
+  readonly effectiveTask?: EffectiveTaskPaneView;
+  /** The Effective Context view, present only while it is open: the last generated context and its merged status. */
+  readonly effectiveContext?: EffectiveContextPaneView;
+  /** The Protected Rules view, present only while it is open: the rules as the CLI lists them, read-only. */
+  readonly protectedRules?: ProtectedRulesPaneView;
   /**
    * What the *prepared* package was built with, when there is one.
    *
@@ -650,6 +677,28 @@ export type PanelMessage =
   /** The Preview's Back, or Escape. Bare. */
   | { readonly type: "closeVerificationPreview" }
   /**
+   * The AI Behavior row's Edit, Reset and Preview, and the Preview's Back
+   * (0.1.4). Bare, like the Verification Policy's: the host knows the file and
+   * the template a new one starts from, and the page never names a path or
+   * sends text.
+   */
+  | { readonly type: "editAiBehavior" }
+  | { readonly type: "resetAiBehavior" }
+  | { readonly type: "previewAiBehavior" }
+  | { readonly type: "closeAiBehaviorPreview" }
+  /**
+   * Open a read-only view (0.1.4): the Effective AI Task, the Effective Context
+   * or the Protected Rules. Only the view's name; the host knows the work item
+   * and the run settings, and asks the CLI.
+   */
+  | { readonly type: "openEffectiveView"; readonly view: "task" | "context" | "rules" }
+  /** A read-only view's Back, or Escape. Bare. */
+  | { readonly type: "closeEffectiveView" }
+  /** A read-only view's Refresh: ask the CLI again. Bare. */
+  | { readonly type: "refreshEffectiveView" }
+  /** The Effective AI Task's Copy: the host copies the CLI's text exactly. Bare — the page sends no text. */
+  | { readonly type: "copyEffectiveTask" }
+  /**
    * The instruction editor's Save: the scope it was opened for and the text as
    * typed, bounded one past the limit so too long is refused, never cut. Empty
    * text removes the file.
@@ -734,6 +783,14 @@ const MESSAGE_TYPES: Readonly<Record<PanelMessage["type"], true>> = {
   resetVerificationPolicy: true,
   previewVerificationPolicy: true,
   closeVerificationPreview: true,
+  editAiBehavior: true,
+  resetAiBehavior: true,
+  previewAiBehavior: true,
+  closeAiBehaviorPreview: true,
+  openEffectiveView: true,
+  closeEffectiveView: true,
+  refreshEffectiveView: true,
+  copyEffectiveTask: true,
   parseReviewOutput: true,
   discardReviewDraft: true,
   verificationDraft: true,
@@ -835,7 +892,18 @@ export function parsePanelMessage(raw: unknown): PanelMessage | undefined {
     case "resetVerificationPolicy":
     case "previewVerificationPolicy":
     case "closeVerificationPreview":
+    case "editAiBehavior":
+    case "resetAiBehavior":
+    case "previewAiBehavior":
+    case "closeAiBehaviorPreview":
+    case "closeEffectiveView":
+    case "refreshEffectiveView":
+    case "copyEffectiveTask":
       return { type };
+    case "openEffectiveView": {
+      const view = message?.["view"];
+      return view === "task" || view === "context" || view === "rules" ? { type, view } : undefined;
+    }
     case "openInstructions": {
       const scope = message?.["scope"];
       return isInstructionScope(scope) ? { type, scope } : undefined;

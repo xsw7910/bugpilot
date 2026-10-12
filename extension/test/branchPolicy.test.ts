@@ -96,7 +96,9 @@ test("changing it makes a prepared context stale: task.md says it", () => {
 });
 
 test("the Branch section: last, its own, no row's gear, and wholly 'Requires rebuild'", () => {
-  assert.equal(WORKFLOW_SETTINGS_SECTIONS.at(-1), "branch");
+  // The last section with settings; Effective Output, read-only, follows it (0.1.4, plan §28).
+  assert.equal(WORKFLOW_SETTINGS_SECTIONS.at(-2), "branch");
+  assert.equal(WORKFLOW_SETTINGS_SECTIONS.at(-1), "effective-output");
   assert.equal(SETTINGS_SECTION_TITLES.branch, "Branch");
   // Branch naming is the same section: both name what task.md says about branches.
   assert.deepEqual([...SETTINGS_SECTION_FIELDS.branch], ["branchPolicy", "branchNaming", "branchTemplate"]);

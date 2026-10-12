@@ -7,7 +7,7 @@
  * enough to read in one go.
  */
 
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import * as vscode from "vscode";
@@ -26,6 +26,7 @@ import type { IssueDetails } from "../app/hintImprovement.ts";
 import { childEnvironmentAdditions, locateExecutable } from "../executablePath.ts";
 import { pickLatestSession, sessionIdFromFileName } from "../app/session.ts";
 import { createAgentTerminals } from "./agentTerminals.ts";
+import { bugpilotFileKind } from "./bugpilotFiles.ts";
 import type { HostTerminalWindow } from "./agentTerminals.ts";
 import { trustedRunner } from "../runner.ts";
 import { writeWorkItemFile } from "../app/sessionReset.ts";
@@ -109,9 +110,19 @@ export function createUiPort(deps: UiPortDeps): UiPort {
     copyToClipboard: async (text) => {
       await vscode.env.clipboard.writeText(text);
     },
-    confirm: async (message, confirmLabel, keepLabel) => {
+    confirm: async (message, confirmLabel, keepLabel, options) => {
       // Modal: this is only used for destructive choices, and a toast that can
       // be missed is not consent.
+      if (keepLabel !== undefined && options?.keepFocused) {
+        // The keep choice first: VS Code makes the first choice the dialog's
+        // default, so Enter keeps and deleting takes choosing it by name. Its
+        // own Cancel follows — Escape and the close button keep, too — as in
+        // its Save / Don't Save / Cancel.
+        const keep: vscode.MessageItem = { title: keepLabel };
+        const confirm: vscode.MessageItem = { title: confirmLabel };
+        const picked = await vscode.window.showWarningMessage(message, { modal: true }, keep, confirm);
+        return picked === confirm;
+      }
       if (keepLabel !== undefined) {
         // Both choices named — "Cancel Review" beside VS Code's own "Cancel"
         // would say the same word for opposite things. The keep choice is the
@@ -488,13 +499,14 @@ export function watchArtifactDirectory(directory: string, onEvent: (name: string
 }
 
 /** The `.bugpilot/` files a task is written from: what the policy watcher reports. */
-export const POLICY_FILE_NAMES = ["instructions.md", "verification.md", "project_settings.json"] as const;
+export const POLICY_FILE_NAMES = ["instructions.md", "verification.md", "ai_behavior.md", "project_settings.json"] as const;
 
 /**
- * Watch a repository's `.bugpilot/` folder for the policy files (§42.2) —
- * created, changed or deleted, by an editor tab, `git pull`, a branch switch or
- * any other tool. Those three names only, not recursively; the callback gets
- * the file name, and the controller debounces and rereads through the CLI.
+ * Watch a repository's `.bugpilot/` folder for the policy files (§42.2; AI
+ * Behavior's since 0.1.4) — created, changed or deleted, by an editor tab, `git
+ * pull`, a branch switch or any other tool. Those names only, not recursively;
+ * the callback gets the file name, and the controller debounces and rereads
+ * through the CLI.
  */
 export function watchPolicyDirectory(directory: string, onEvent: (name: string) => void): vscode.Disposable {
   const watcher = vscode.workspace.createFileSystemWatcher(
@@ -525,19 +537,32 @@ export async function verificationFileExists(root: string): Promise<boolean> {
 }
 
 /**
+ * Whether `.bugpilot/ai_behavior.md` is there at all — a file or anything else,
+ * a link included. Asked only for a CLI too old to read it (0.1.4); the
+ * contents are never read here.
+ */
+export async function aiBehaviorFileExists(root: string): Promise<boolean> {
+  try {
+    await stat(path.join(root, ".bugpilot", "ai_behavior.md"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * What `.bugpilot/verification.md` is, without following a link (§42.5): a
  * regular file the settings row's Edit may open in an editor tab, nothing, or
  * something else — a link, a folder — which Edit leaves alone, as the CLI's
  * own writes refuse it. The contents are never read here.
  */
 export async function verificationFileKind(root: string): Promise<"absent" | "file" | "other"> {
-  try {
-    const entry = await lstat(path.join(root, ".bugpilot", "verification.md"));
-    return entry.isFile() && !entry.isSymbolicLink() ? "file" : "other";
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "other";
-  }
+  return bugpilotFileKind(root, "verification.md");
+}
+
+/** The same for `.bugpilot/ai_behavior.md` (0.1.4), for the AI Behavior row's Edit. */
+export async function aiBehaviorFileKind(root: string): Promise<"absent" | "file" | "other"> {
+  return bugpilotFileKind(root, "ai_behavior.md");
 }
 
 /**

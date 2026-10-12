@@ -689,6 +689,15 @@ const MORE_ACTIONS: readonly { readonly id: NextActionId; readonly icon: string;
 ];
 
 /**
+ * The two read-only views in ⋯ More too (0.1.4), so what the agent is handed is
+ * one click from the workflow, not only under Advanced Settings. After a
+ * separator of their own; offered whenever BugPilot is ready.
+ */
+const EFFECTIVE_MENU_ITEMS = `        <div class="menu-separator" id="menu-separator-effective" role="separator" hidden></div>
+        <button type="button" role="menuitem" class="menu-item" id="menu-effectiveTask" title="See the task BugPilot hands the AI agent, section by section (read-only)" hidden><span class="codicon codicon-output" aria-hidden="true"></span><span>Effective AI Task</span></button>
+        <button type="button" role="menuitem" class="menu-item" id="menu-effectiveContext" title="See the context BugPilot last generated, and whether it is current (read-only)" hidden><span class="codicon codicon-note" aria-hidden="true"></span><span>Effective Context</span></button>`;
+
+/**
  * Reset Session's question (§37.103): what resets, and what happens to the
  * generated files — Keep, the default, or Delete.
  *
@@ -924,6 +933,7 @@ ${ISSUE_FIELD}
       <div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>
 ${RESET_MENU_ITEM}
 ${MORE_ACTIONS.map(menuItem).join("\n")}
+${EFFECTIVE_MENU_ITEMS}
       </div>
       </div>
 
@@ -1009,6 +1019,10 @@ ${settingsView()}
 ${INSTRUCTIONS_VIEW}
 
 ${VERIFICATION_PREVIEW_VIEW}
+${AI_BEHAVIOR_PREVIEW_VIEW}
+${PROTECTED_RULES_VIEW}
+${EFFECTIVE_TASK_VIEW}
+${EFFECTIVE_CONTEXT_VIEW}
 
   <section id="fix-mode-manager-view" class="view" aria-labelledby="manage-heading" hidden>
 ${pageHeader({
@@ -1392,6 +1406,190 @@ ${pageHeader({ backId: "verification-preview-back", backTitle: "Back to Advanced
   </section>`;
 
 /**
+ * AI Behavior (0.1.4): how the agent is expected to make and report changes in
+ * this repository — BugPilot's defaults, always, plus the repository's
+ * additions in `.bugpilot/ai_behavior.md`. The Verification Policy's row, for
+ * another document: Edit opens the file in an editor tab (the CLI creates it
+ * first, with its three sections empty, which add nothing until written
+ * under), Reset removes it after asking, Preview shows the effective AI
+ * Behavior read-only. Every word of state is the host's, from `bugpilot
+ * ai-behavior show --json`.
+ */
+const AI_BEHAVIOR_HELP =
+  "How the AI agent is expected to make and report changes in this repository: BugPilot's defaults, always, plus this repository's additions in .bugpilot/ai_behavior.md, which can be committed. " +
+  "Additions never replace the defaults. The Fix Mode decides how each attempt works within them, and BugPilot's protected rules still come first. Changing them requires rebuilding context.";
+
+const AI_BEHAVIOR_ROW = `        <div class="field policy-row" id="field-ai-behavior" role="group" aria-labelledby="ai-behavior-label" aria-describedby="ai-behavior-description">
+          <div class="policy-header">
+            <span class="policy-label" id="ai-behavior-label" title="${AI_BEHAVIOR_HELP}"><span class="codicon codicon-lightbulb setting-icon icon-muted" aria-hidden="true"></span>AI Behavior</span>
+          </div>
+          <p class="hint policy-description" id="ai-behavior-description">Repository conventions on top of BugPilot's defaults.</p>
+          <p class="visually-hidden" id="ai-behavior-help">${AI_BEHAVIOR_HELP}</p>
+          <div class="policy-state" id="ai-behavior-state" role="status">
+            <p class="hint policy-source" id="ai-behavior-source"></p>
+            <p class="policy-note is-problem" id="ai-behavior-problem" hidden><span class="codicon codicon-error policy-note-icon" aria-hidden="true"></span><span><strong class="policy-note-kind">Problem:</strong> <span id="ai-behavior-problem-text"></span></span></p>
+            <p class="policy-note is-warning" id="ai-behavior-lint" hidden><span class="codicon codicon-warning policy-note-icon" aria-hidden="true"></span><span id="ai-behavior-lint-text"></span></p>
+            <p class="policy-note is-info" id="ai-behavior-default-changed" hidden><span class="codicon codicon-history policy-note-icon" aria-hidden="true"></span><span id="ai-behavior-default-changed-text"></span></p>
+            <p class="hint policy-unavailable" id="ai-behavior-unavailable" hidden></p>
+          </div>
+          <div class="policy-actions" role="group" aria-label="AI Behavior actions">
+            <button type="button" id="ai-behavior-edit" aria-label="Edit AI Behavior in an editor tab" title="Opens .bugpilot/ai_behavior.md in an editor tab. If it does not exist yet, BugPilot creates it with its three sections, empty, which add nothing until you write under them." aria-describedby="ai-behavior-source ai-behavior-help">Edit</button>
+            <button type="button" id="ai-behavior-reset" aria-label="Reset AI Behavior" title="Deletes .bugpilot/ai_behavior.md after asking, so BugPilot's defaults apply alone." aria-describedby="ai-behavior-source">Reset</button>
+            <button type="button" id="ai-behavior-preview" aria-label="Preview AI Behavior (read-only)" title="Shows the AI Behavior in force — BugPilot's defaults and any additions — read-only." aria-describedby="ai-behavior-source">Preview</button>
+          </div>
+          <p class="policy-stale-line" role="status"><span class="policy-stale" id="ai-behavior-stale"></span></p>
+        </div>`;
+
+/**
+ * A read-only row (0.1.4): a name, what it is, one line of state from the
+ * host, and View — the Protected Rules and the two Effective Output views.
+ * View is off, with the reason said, for a CLI that predates the view.
+ */
+function viewRow(options: {
+  readonly id: string;
+  readonly icon: string;
+  readonly label: string;
+  readonly description: string;
+  readonly help: string;
+  readonly viewLabel: string;
+}): string {
+  const id = options.id;
+  return `        <div class="field policy-row view-row" id="field-${id}" role="group" aria-labelledby="${id}-label" aria-describedby="${id}-description">
+          <div class="policy-header">
+            <span class="policy-label" id="${id}-label" title="${options.help}"><span class="codicon codicon-${options.icon} setting-icon icon-muted" aria-hidden="true"></span>${options.label}</span>
+          </div>
+          <p class="hint policy-description" id="${id}-description">${options.description}</p>
+          <div class="policy-state" role="status">
+            <p class="hint policy-source" id="${id}-status"></p>
+            <p class="hint policy-unavailable" id="${id}-unavailable" hidden></p>
+          </div>
+          <div class="policy-actions" role="group" aria-label="${options.label} actions">
+            <button type="button" id="${id}-open" aria-label="${options.viewLabel}" title="${options.help}" aria-describedby="${id}-status">View</button>
+          </div>
+        </div>`;
+}
+
+const PROTECTED_RULES_ROW = viewRow({
+  id: "protected-rules",
+  icon: "shield",
+  label: "Protected rules",
+  description: "Built into BugPilot, the same in every task. Read-only.",
+  help: "BugPilot's protected rules: written into every task word for word, as its highest-precedence instructions. No file edits them. They are instructions to the agent, not something BugPilot can enforce.",
+  viewLabel: "View the protected rules (read-only)",
+});
+
+const EFFECTIVE_TASK_ROW = viewRow({
+  id: "effective-task",
+  icon: "output",
+  label: "Effective AI Task",
+  description: "What BugPilot hands the AI agent, section by section.",
+  help: "The task BugPilot would hand the AI agent now, from the CLI — every section, protected or editable, and where each comes from. Without a work item, a template. Viewing writes nothing.",
+  viewLabel: "View the Effective AI Task (read-only)",
+});
+
+const EFFECTIVE_CONTEXT_ROW = viewRow({
+  id: "effective-context",
+  icon: "note",
+  label: "Context status",
+  description: "The context BugPilot last generated, and whether it is current.",
+  help: "The context BugPilot last generated for the work item, with its quality, search confidence and why it may need a rebuild. Viewing never builds a new one.",
+  viewLabel: "View the Effective Context (read-only)",
+});
+
+/** The AI Behavior Preview: the effective AI Behavior, read-only — the Verification Policy Preview, for AI Behavior. */
+const AI_BEHAVIOR_PREVIEW_VIEW = `  <section id="ai-behavior-preview-view" class="view verification-preview" aria-labelledby="ai-behavior-preview-title" aria-describedby="ai-behavior-preview-lede" hidden>
+${pageHeader({ backId: "ai-behavior-preview-back", backTitle: "Back to Advanced Settings", titleId: "ai-behavior-preview-title", title: "AI Behavior Preview" })}
+
+    <p class="muted view-lede" id="ai-behavior-preview-lede"><span class="codicon codicon-eye policy-readonly-icon" aria-hidden="true"></span>Read-only. Edit in Advanced Settings opens the file in an editor tab.</p>
+    <dl class="preview-facts" id="ai-behavior-preview-facts"></dl>
+    <p class="policy-note is-problem" id="ai-behavior-preview-problem" hidden><span class="codicon codicon-error policy-note-icon" aria-hidden="true"></span><span><strong class="policy-note-kind">Problem:</strong> <span id="ai-behavior-preview-problem-text"></span></span></p>
+    <p class="policy-note is-info" id="ai-behavior-preview-default-changed" hidden><span class="codicon codicon-history policy-note-icon" aria-hidden="true"></span><span id="ai-behavior-preview-default-changed-text"></span></p>
+    <section class="policy-lint" id="ai-behavior-preview-lint" aria-labelledby="ai-behavior-preview-lint-title" hidden>
+      <h3 class="policy-lint-title" id="ai-behavior-preview-lint-title"></h3>
+      <p class="hint">Warnings only: the text is kept as written, and BugPilot's rules still apply. They are not a security check.</p>
+      <ul class="policy-lint-list" id="ai-behavior-preview-lint-list"></ul>
+    </section>
+    <h3 class="policy-text-title" id="ai-behavior-preview-text-title">AI Behavior in force</h3>
+    <pre class="policy-text" id="ai-behavior-preview-text" tabindex="0" role="region" aria-labelledby="ai-behavior-preview-text-title"></pre>
+  </section>`;
+
+/** Back and Refresh in a read-only view's header; Copy too, where there is one text to copy. */
+function viewActions(prefix: string, copy: boolean): string {
+  const refresh = `<button type="button" class="icon" id="${prefix}-refresh" title="Ask the BugPilot CLI again" aria-label="Refresh"><span class="codicon codicon-refresh" aria-hidden="true"></span></button>`;
+  const copyButton = copy
+    ? `<button type="button" class="icon" id="${prefix}-copy" title="Copy the whole text exactly as the agent is handed it" aria-label="Copy the text"><span class="codicon codicon-copy" aria-hidden="true"></span></button>`
+    : "";
+  return `${copyButton}${refresh}`;
+}
+
+/**
+ * The Protected Rules (0.1.4): the rules as `bugpilot protected-rules` lists
+ * them — what BugPilot does with them, each group and rule, and the
+ * precedence — never a copy of them here. Read-only and informational.
+ */
+const PROTECTED_RULES_VIEW = `  <section id="protected-rules-view" class="view effective-view" aria-labelledby="protected-rules-title" aria-describedby="protected-rules-lede" hidden>
+${pageHeader({ backId: "protected-rules-back", backTitle: "Back to where you opened this view", titleId: "protected-rules-title", title: "Protected Rules", actions: viewActions("protected-rules", false) })}
+
+    <p class="muted view-lede" id="protected-rules-lede"><span class="codicon codicon-shield policy-readonly-icon" aria-hidden="true"></span>Built into BugPilot and read-only. Viewing them changes nothing.</p>
+    <p class="hint effective-message" id="protected-rules-message" role="status" hidden></p>
+    <p class="hint" id="protected-rules-version"></p>
+    <div class="effective-contract" id="protected-rules-contract"></div>
+    <div class="rule-groups" id="protected-rules-groups"></div>
+    <section class="effective-section" id="protected-rules-precedence-section" aria-labelledby="protected-rules-precedence-title" hidden>
+      <h3 id="protected-rules-precedence-title">Precedence, highest first</h3>
+      <ol class="precedence-list" id="protected-rules-precedence"></ol>
+    </section>
+  </section>`;
+
+/**
+ * The Effective AI Task (0.1.4): the CLI's task text — exactly what the agent
+ * is handed — in blocks, one per section, each labelled protected or
+ * editable and where it is changed. The page draws the blocks the host cut at
+ * the CLI's line numbers; joined, they are the CLI's text. Read-only.
+ */
+const EFFECTIVE_TASK_VIEW = `  <section id="effective-task-view" class="view effective-view" aria-labelledby="effective-task-title" aria-describedby="effective-task-lede" hidden>
+${pageHeader({ backId: "effective-task-back", backTitle: "Back to where you opened this view", titleId: "effective-task-title", title: "Effective AI Task", actions: viewActions("effective-task", true) })}
+
+    <p class="muted view-lede" id="effective-task-lede"><span class="codicon codicon-eye policy-readonly-icon" aria-hidden="true"></span>Read-only: what BugPilot hands the AI agent, from the CLI. Each section says where it is changed.</p>
+    <p class="effective-headline" id="effective-task-headline" role="status"></p>
+    <p class="policy-note is-warning" id="effective-task-rebuild" hidden><span class="codicon codicon-warning policy-note-icon" aria-hidden="true"></span><span>Needs rebuild: the prepared context no longer matches the panel. Rebuild Context before handing it to an agent.</span></p>
+    <p class="hint" id="effective-task-prepared" hidden></p>
+    <p class="hint" id="effective-task-placeholders" hidden></p>
+    <p class="hint effective-message" id="effective-task-message" role="status" hidden></p>
+    <dl class="preview-facts" id="effective-task-facts"></dl>
+    <ul class="effective-list effective-warnings" id="effective-task-warnings" aria-label="Warnings" hidden></ul>
+    <p class="hint" id="effective-task-counts"></p>
+    <div class="task-blocks" id="effective-task-blocks"></div>
+  </section>`;
+
+/**
+ * The Effective Context (0.1.4): the context BugPilot last generated — never a
+ * new one — with the status the host merged from the CLI's and its own: why
+ * it needs a rebuild, what was not checked, its stored quality and search
+ * confidence, and the text. Read-only.
+ */
+const EFFECTIVE_CONTEXT_VIEW = `  <section id="effective-context-view" class="view effective-view" aria-labelledby="effective-context-title" aria-describedby="effective-context-lede" hidden>
+${pageHeader({ backId: "effective-context-back", backTitle: "Back to where you opened this view", titleId: "effective-context-title", title: "Effective Context", actions: viewActions("effective-context", false) })}
+
+    <p class="muted view-lede" id="effective-context-lede"><span class="codicon codicon-eye policy-readonly-icon" aria-hidden="true"></span>Read-only: the context BugPilot last generated for this work item. Opening it never builds a new one.</p>
+    <p class="effective-headline" id="effective-context-headline" role="status"></p>
+    <p class="hint effective-message" id="effective-context-message" role="status" hidden></p>
+    <section class="effective-section" id="effective-context-reasons-section" aria-labelledby="effective-context-reasons-title" hidden>
+      <h3 id="effective-context-reasons-title">Changed since generation</h3>
+      <ul class="effective-list" id="effective-context-reasons"></ul>
+    </section>
+    <ul class="effective-list effective-problems" id="effective-context-problems" aria-label="Problems" hidden></ul>
+    <ul class="effective-list effective-warnings" id="effective-context-warnings" aria-label="Warnings" hidden></ul>
+    <dl class="preview-facts" id="effective-context-facts"></dl>
+    <section class="effective-section" id="effective-context-unchecked-section" aria-labelledby="effective-context-unchecked-title" hidden>
+      <h3 id="effective-context-unchecked-title">Not checked</h3>
+      <ul class="effective-list" id="effective-context-unchecked"></ul>
+    </section>
+    <h3 class="policy-text-title" id="effective-context-text-title" hidden>Generated context</h3>
+    <pre class="policy-text" id="effective-context-text" tabindex="0" role="region" aria-labelledby="effective-context-text-title" hidden></pre>
+  </section>`;
+
+/**
  * How files get to Attachments — the dialog, a drop, the clipboard. Not
  * inferable from the label, and there is no box to hang a placeholder on, so it
  * is the label's and the button's tooltip and the button's description.
@@ -1452,6 +1650,10 @@ function sectionBody(section: WorkflowSettingsSection): string {
       return REPOSITORY_SECTION;
     case "guidance-verification":
       return [instructionRow("user"), instructionRow("project"), VERIFICATION_ROW].join("\n");
+    case "ai-behavior-rules":
+      return [AI_BEHAVIOR_ROW, PROTECTED_RULES_ROW].join("\n");
+    case "effective-output":
+      return [EFFECTIVE_TASK_ROW, EFFECTIVE_CONTEXT_ROW].join("\n");
     case "build-context":
       return FRESH_FIELD;
     case "fix-with-ai":

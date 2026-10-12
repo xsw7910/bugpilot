@@ -37,6 +37,11 @@ import type { CapturedRun } from "../src/app/reviewRun.ts";
 import { ARTIFACT_REFRESH_DEBOUNCE_MS, ARTIFACT_REFRESH_RETRY_MS, STALE_HANDOFF_POLICIES } from "../src/app/controller.ts";
 import { VERIFICATION_ROW_EMPTY } from "../src/app/verificationPolicy.ts";
 import type { VerificationOutcome, VerificationSource } from "../src/app/verificationPolicy.ts";
+import type { AiBehaviorOutcome } from "../src/app/aiBehaviorPolicy.ts";
+import type { TaskPreviewRequest, TaskPreviewSnapshot } from "../src/app/effectiveTask.ts";
+import type { ContextPreviewSnapshot } from "../src/app/effectiveContext.ts";
+import type { ProtectedRulesSnapshot } from "../src/app/protectedRules.ts";
+import type { PaneOutcome } from "../src/app/effectivePane.ts";
 import { VERIFICATION_AUTOSAVE_MS } from "../src/app/verificationCapture.ts";
 import { feedbackFromVerification } from "../src/app/nextAction.ts";
 import { parseVerificationReport } from "../src/app/verificationReport.ts";
@@ -112,7 +117,7 @@ interface Harness {
   readonly logged: string[];
   readonly refreshes: { count: number };
   /** Every question asked, with its buttons. */
-  readonly confirms: { message: string; confirmLabel: string; keepLabel?: string }[];
+  readonly confirms: { message: string; confirmLabel: string; keepLabel?: string; keepFocused?: boolean }[];
   readonly ranCommands: string[];
   /** Every pair Jira Setup stored through the credential port (§37.124). */
   readonly storedCredentials: { email: string; token: string }[];
@@ -177,6 +182,12 @@ interface HarnessOptions {
   readonly instructions?: NonNullable<ControllerPorts["instructions"]>;
   /** `bugpilot verification show`, and whether the file exists; absent means the host has no such port. */
   readonly verificationPolicy?: NonNullable<ControllerPorts["verificationPolicy"]>;
+  /** `bugpilot ai-behavior show`, and whether the file exists; absent means the host has no such port. */
+  readonly aiBehaviorPolicy?: NonNullable<ControllerPorts["aiBehaviorPolicy"]>;
+  /** The three read-only commands of 0.1.4; absent means the host has none. */
+  readonly taskPreview?: NonNullable<ControllerPorts["taskPreview"]>;
+  readonly contextPreview?: NonNullable<ControllerPorts["contextPreview"]>;
+  readonly protectedRules?: NonNullable<ControllerPorts["protectedRules"]>;
   /** The `.bugpilot/` watcher; absent means the host has none. */
   readonly watchPolicies?: NonNullable<ControllerPorts["watchPolicies"]>;
   /** The Jira site the fake CLI reports, whether the environment sets it, and a refusal to save one. */
@@ -289,7 +300,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const notices: { kind: string; message: string }[] = [];
   const logged: string[] = [];
   const refreshes = { count: 0 };
-  const confirms: { message: string; confirmLabel: string; keepLabel?: string }[] = [];
+  const confirms: { message: string; confirmLabel: string; keepLabel?: string; keepFocused?: boolean }[] = [];
   const saved: FormState[] = [];
   const savedWorkItems: (string | undefined)[] = [];
   const storedCredentials: { email: string; token: string }[] = [];
@@ -376,8 +387,13 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         if (options.clipboardThrows) throw options.clipboardThrows;
         clipboard.push(text);
       },
-      confirm: async (message, confirmLabel, keepLabel) => {
-        confirms.push({ message, confirmLabel, ...(keepLabel === undefined ? {} : { keepLabel }) });
+      confirm: async (message, confirmLabel, keepLabel, confirmOptions) => {
+        confirms.push({
+          message,
+          confirmLabel,
+          ...(keepLabel === undefined ? {} : { keepLabel }),
+          ...(confirmOptions?.keepFocused ? { keepFocused: true } : {}),
+        });
         return options.confirmAnswer ? options.confirmAnswer() : (options.confirm ?? true);
       },
       notify: (kind, message) => notices.push({ kind, message }),
@@ -498,6 +514,10 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     ...(options.repositoryProfile === undefined ? {} : { repositoryProfile: options.repositoryProfile }),
     ...(options.instructions === undefined ? {} : { instructions: options.instructions }),
     ...(options.verificationPolicy === undefined ? {} : { verificationPolicy: options.verificationPolicy }),
+    ...(options.aiBehaviorPolicy === undefined ? {} : { aiBehaviorPolicy: options.aiBehaviorPolicy }),
+    ...(options.taskPreview === undefined ? {} : { taskPreview: options.taskPreview }),
+    ...(options.contextPreview === undefined ? {} : { contextPreview: options.contextPreview }),
+    ...(options.protectedRules === undefined ? {} : { protectedRules: options.protectedRules }),
     ...(options.watchPolicies === undefined ? {} : { watchPolicies: options.watchPolicies }),
     ...(options.projectSettings === undefined ? {} : { projectSettings: options.projectSettings }),
     ...(options.fixModes === undefined
@@ -12896,7 +12916,7 @@ test("policy freshness: Start New Attempt reads the policies first, and starts n
   assert.equal(h.terminals.length, 1, "a second attempt started on a stale task");
   assert.match(
     JSON.stringify(fixRow(h.last()).attempt),
-    /the instructions or the Verification Policy changed since this context was prepared/,
+    /the instructions, the Verification Policy or AI Behavior changed since this context was prepared/,
   );
 });
 
@@ -12955,6 +12975,254 @@ test("policy freshness: once verification.md decides, switches an older BugPilot
   legacy.state.text = "the switches' text, full suite on";
   await h2.controller.refreshEnvironment();
   assert.equal(h2.last().primary.action, "rebuildContext", "while the switches decide, changing them is a change");
+});
+
+
+// --- AI Behavior and policy freshness (0.1.4) --------------------------------------------
+
+/** A CLI whose doctor report says it reads both `.bugpilot/verification.md` and `.bugpilot/ai_behavior.md`. */
+const READS_AI_BEHAVIOR: Environment = { ...READY, report: { python_ok: true, capabilities: ["verification-text", "ai-behavior-text"] } };
+
+/**
+ * A fake `bugpilot ai-behavior show`: a source and a hash of what a task would
+ * carry, like the CLI's. The panel holds neither text nor any judgment of it.
+ */
+function aiBehaviorPort(initial: { additions?: string; exists?: boolean } = {}) {
+  const state: { additions: string; exists: boolean; problem?: string; lint: number; outdated?: boolean } = {
+    additions: initial.additions ?? "",
+    exists: initial.exists ?? (initial.additions ?? "") !== "",
+    lint: 0,
+  };
+  let loads = 0;
+  const snapshot = (): AiBehaviorOutcome => {
+    if (state.outdated) return { kind: "outdated", rejected: ["ai-behavior"] };
+    const source = state.exists ? "ai-behavior-file" : "bugpilot-default";
+    const additions = state.problem ? "" : state.additions;
+    // As the CLI hashes it: a file that adds nothing hashes as no file.
+    const hashed = additions !== "" || state.problem ? source : "bugpilot-default";
+    const sha256 = createHash("sha256").update(`${hashed}\n${state.problem ?? ""}\n${additions}`).digest("hex");
+    return {
+      kind: "loaded",
+      snapshot: {
+        source,
+        sha256,
+        ...(state.problem === undefined ? {} : { problem: state.problem }),
+        lintCount: state.problem ? 0 : state.lint,
+        lint: [],
+        text: additions === "" ? "the default AI Behavior" : `the default AI Behavior\n\n${additions}`,
+        template: "## Code Change Conventions\n\n## Evidence Standards\n\n## Reporting Standards",
+        fileExists: state.exists,
+        hasProjectAdditions: additions !== "",
+        ...(additions === "" ? {} : { basedOnVersion: 1 }),
+        defaultVersion: 1,
+        defaultChanged: false,
+      },
+    };
+  };
+  return {
+    state,
+    loads: () => loads,
+    port: {
+      load: async (): Promise<AiBehaviorOutcome> => {
+        loads += 1;
+        return snapshot();
+      },
+      fileExists: async () => state.exists,
+    } satisfies NonNullable<ControllerPorts["aiBehaviorPolicy"]>,
+  };
+}
+
+function aiBehaviorHarnessOptions(behavior = aiBehaviorPort(), verification = verificationPolicyPort()): HarnessOptions {
+  return { ...policyHarnessOptions(verification), environment: READS_AI_BEHAVIOR, aiBehaviorPolicy: behavior.port };
+}
+
+test("ai behavior: a CLI that reads the file is asked at the environment check; the log gets its state, never its text", async () => {
+  const behavior = aiBehaviorPort({ additions: "- UNIQUE-ADDITION-TEXT" });
+  const h = harness(aiBehaviorHarnessOptions(behavior));
+  await h.controller.refreshEnvironment();
+
+  assert.equal(behavior.loads(), 1);
+  assert.equal(h.last().readiness.kind, "ready");
+  assert.ok(!h.logged.some((line) => line.includes("UNIQUE-ADDITION-TEXT")), "AI Behavior's text reached the log");
+
+  // A file the CLI cannot use, and lint: said once when it changes, not at every read.
+  behavior.state.problem = "it has no front matter.";
+  await h.controller.windowFocused();
+  await h.controller.windowFocused();
+  const said = h.logged.filter((line) => line.startsWith("AI Behavior: .bugpilot/ai_behavior.md is not used:"));
+  assert.deepEqual(said, ["AI Behavior: .bugpilot/ai_behavior.md is not used: it has no front matter."]);
+  delete behavior.state.problem;
+  behavior.state.lint = 2;
+  await h.controller.windowFocused();
+  assert.ok(h.logged.some((line) => line.startsWith("AI Behavior: 2 line(s) of .bugpilot/ai_behavior.md may need a second look")));
+});
+
+test("ai behavior: a CLI that cannot read ai_behavior.md is out of date while the repository has one", async () => {
+  const behavior = aiBehaviorPort({ additions: "- Keep exports stable." });
+  // 0.1.3: reads verification.md, not ai_behavior.md.
+  const h = harness({ ...aiBehaviorHarnessOptions(behavior), environment: READS_VERIFICATION });
+  await h.controller.refreshEnvironment();
+
+  const readiness = h.last().readiness;
+  assert.equal(readiness.kind, "blocked");
+  if (readiness.kind === "blocked") {
+    // The existing out-of-date state, its actions included: nothing of AI Behavior's own.
+    assert.equal(readiness.summary, "BugPilot CLI is out of date.");
+    assert.match(readiness.action ?? "", /cannot read \.bugpilot\/ai_behavior\.md.*ai-behavior-text capability/);
+    assert.ok(readiness.actions.length > 0);
+  }
+  assert.equal(behavior.loads(), 0, "an old CLI was asked a command it does not have");
+  await h.controller.run(jiraForm());
+  assert.equal(h.streamRuns.length, 0, "a run started on a CLI that ignores the repository's AI Behavior");
+});
+
+test("ai behavior: without ai_behavior.md an older CLI still prepares as before", async () => {
+  const none = aiBehaviorPort();
+  const h = await preparedHarness({ ...aiBehaviorHarnessOptions(none), environment: READS_VERIFICATION });
+
+  assert.equal(h.last().readiness.kind, "ready");
+  assert.equal(none.loads(), 0);
+  assert.equal(h.streamRuns.length, 1);
+  assert.equal(h.last().primary.action, "fixWithAI");
+});
+
+test("ai behavior: a CLI that turns down `ai-behavior show` is blocked like any other out-of-date CLI", async () => {
+  const behavior = aiBehaviorPort();
+  behavior.state.outdated = true;
+  const h = harness(aiBehaviorHarnessOptions(behavior));
+  await h.controller.refreshEnvironment();
+
+  const readiness = h.last().readiness;
+  assert.equal(readiness.kind, "blocked");
+  if (readiness.kind === "blocked") assert.match(readiness.action ?? "", /does not accept: ai-behavior/);
+});
+
+test("policy freshness: AI Behavior edited outside BugPilot makes the context Needs rebuild at the next focus — and only AI Behavior", async () => {
+  const behavior = aiBehaviorPort({ additions: "- Keep exports stable." });
+  const h = await preparedHarness(aiBehaviorHarnessOptions(behavior));
+  assert.equal(h.last().primary.action, "fixWithAI");
+
+  // The same content read again is not a change.
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.action, "fixWithAI", "reading the same AI Behavior read as a change");
+
+  behavior.state.additions = "- Quote the failing log line.";
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.equal(h.last().overall.text, "Needs rebuild");
+  assert.equal(h.last().verificationPolicy.stale, false, "the Verification Policy row blamed for AI Behavior's change");
+
+  // Removing the file is a change too; putting the prepared text back is none.
+  behavior.state.additions = "- Keep exports stable.";
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.action, "fixWithAI");
+  behavior.state.exists = false;
+  behavior.state.additions = "";
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.action, "rebuildContext");
+});
+
+test("policy freshness: Fix with AI reads AI Behavior first, and hands nothing over when it changed", async () => {
+  const behavior = aiBehaviorPort();
+  const h = await preparedHarness(aiBehaviorHarnessOptions(behavior));
+  const loadsBefore = behavior.loads();
+
+  behavior.state.exists = true;
+  behavior.state.additions = "- Created in an editor tab.";
+  await h.controller.handle(next("fixWithAI"));
+
+  assert.equal(behavior.loads(), loadsBefore + 1, "Fix with AI did not read AI Behavior again");
+  assert.equal(h.terminals.length, 0, "an agent was handed a task AI Behavior has since changed");
+  assert.ok(h.notices.some((notice) => notice.message === STALE_HANDOFF_POLICIES), JSON.stringify(h.notices));
+  assert.match(STALE_HANDOFF_POLICIES, /AI Behavior/);
+
+  await h.controller.handle(next("rebuildContext"));
+  await h.controller.handle(next("fixWithAI"));
+  assert.equal(h.terminals.length, 1);
+});
+
+test("policy freshness: a Run and a Rebuild Context read AI Behavior just before they start", async () => {
+  const behavior = aiBehaviorPort();
+  const order: string[] = [];
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    ...aiBehaviorHarnessOptions(behavior),
+    aiBehaviorPolicy: {
+      load: async () => {
+        order.push("load");
+        return behavior.port.load();
+      },
+      fileExists: behavior.port.fileExists,
+    },
+    onStream: () => order.push("run"),
+  });
+  await h.controller.refreshEnvironment();
+  order.length = 0;
+  behavior.state.exists = true;
+  behavior.state.additions = "- Changed before the run.";
+
+  await h.controller.handle(next("run"));
+  assert.deepEqual(order, ["load", "run"]);
+  assert.equal(h.last().primary.action, "fixWithAI", "the run's own AI Behavior read as stale");
+
+  behavior.state.additions = "- Changed again.";
+  await h.controller.windowFocused();
+  order.length = 0;
+  await h.controller.handle(next("rebuildContext"));
+  assert.deepEqual(order, ["load", "run"]);
+  assert.equal(h.last().primary.action, "fixWithAI");
+});
+
+test("policy freshness: Start New Attempt reads AI Behavior first, and starts nothing when it changed", async () => {
+  const behavior = aiBehaviorPort({ additions: "- Keep exports stable." });
+  const h = await attemptedHarness(aiBehaviorHarnessOptions(behavior));
+  const loadsBefore = behavior.loads();
+
+  behavior.state.additions = "- Pulled with git.";
+  await h.controller.startNewAttempt("", jiraForm());
+
+  assert.equal(behavior.loads(), loadsBefore + 1);
+  assert.equal(h.terminals.length, 1, "a second attempt started on a stale task");
+  assert.match(
+    JSON.stringify(fixRow(h.last()).attempt),
+    /the instructions, the Verification Policy or AI Behavior changed since this context was prepared/,
+  );
+});
+
+test("policy freshness: an ai_behavior.md change in .bugpilot/ rereads through the one watcher", async () => {
+  const behavior = aiBehaviorPort({ additions: "- Keep exports stable." });
+  const watchers: { directory: string; fire: (name: string) => void; disposed: boolean }[] = [];
+  const timers: { callback: () => void; cancelled: boolean; ran: boolean }[] = [];
+  const h = await preparedHarness({
+    ...aiBehaviorHarnessOptions(behavior),
+    watchPolicies: (directory, onEvent) => {
+      const watcher = { directory, fire: onEvent, disposed: false };
+      watchers.push(watcher);
+      return { dispose: () => { watcher.disposed = true; } };
+    },
+    schedule: (callback) => {
+      const timer = { callback, cancelled: false, ran: false };
+      timers.push(timer);
+      return { cancel: () => { timer.cancelled = true; } };
+    },
+  });
+  const live = watchers.filter((watcher) => !watcher.disposed);
+  assert.equal(live.length, 1, "a second watcher for AI Behavior");
+  const loadsBefore = behavior.loads();
+
+  behavior.state.additions = "- Switched with a branch.";
+  live[0]!.fire("ai_behavior.md");
+  live[0]!.fire("ai_behavior.md");
+  const pending = timers.filter((timer) => !timer.cancelled && !timer.ran);
+  assert.equal(pending.length, 1, "one reread for a burst of events");
+  pending[0]!.ran = true;
+  pending[0]!.callback();
+  for (let i = 0; i < 6; i += 1) await tick();
+
+  assert.equal(behavior.loads(), loadsBefore + 1);
+  assert.equal(h.last().primary.action, "rebuildContext");
+  assert.ok(h.logged.some((line) => line === "Policy reread scheduled (.bugpilot/ai_behavior.md changed)."));
 });
 
 
@@ -13082,6 +13350,8 @@ test("verification row: Reset asks first, and Keep File keeps it", async () => {
   assert.equal(h.confirms.length, 1);
   assert.match(h.confirms[0]!.message, /This deletes \.bugpilot\/verification\.md\./);
   assert.deepEqual([h.confirms[0]!.confirmLabel, h.confirms[0]!.keepLabel], ["Delete File", "Keep File"]);
+  // Keep File is the dialog's default: Enter keeps; deleting takes choosing Delete File.
+  assert.equal(h.confirms[0]!.keepFocused, true);
   assert.equal(policy.resets(), 0, "the file was removed without consent");
   assert.equal(policy.state.exists, true);
 });
@@ -13376,7 +13646,7 @@ test("verification row: Start New Attempt after a Reset that changed the policy 
   await h.controller.startNewAttempt("", jiraForm());
 
   assert.equal(h.terminals.length, 1, "a second attempt started on a stale task");
-  assert.match(JSON.stringify(fixRow(h.last()).attempt), /the instructions or the Verification Policy changed since this context was prepared/);
+  assert.match(JSON.stringify(fixRow(h.last()).attempt), /the instructions, the Verification Policy or AI Behavior changed since this context was prepared/);
 });
 
 test("verification row: a page cannot change the legacy switches the host holds for older versions", async () => {
@@ -13402,4 +13672,740 @@ test("parsePanelMessage accepts the Verification Policy row's four bare messages
     // A path or text sent along is dropped: the host knows the file.
     assert.deepEqual(parsePanelMessage({ type, path: "/elsewhere", text: "Force push." }), { type });
   }
+});
+
+
+// --- 0.1.4: AI Behavior & Rules and Effective Output in the panel ----------------------------------
+
+/** A CLI that answers every 0.1.4 view. */
+const READS_EVERYTHING: Environment = {
+  ...READY,
+  report: { python_ok: true, capabilities: ["verification-text", "ai-behavior-text", "protected-rules", "task-preview", "context-preview"] },
+};
+
+/** The prepared work item's folder, with its issue.json: what makes the Effective AI Task the work item's, not the template. */
+const WORK_ITEM_FILES = { ...WITH_FILES, directory: ["task.md", "context.md", "retrieval.json", "issue.json"] };
+
+const TASK_TEXT = (id: string) =>
+  `# BugPilot Task: ${id}\n\n## BugPilot Safety Rules\n\n- Never force push.\n\n## Verification Policy\n\nRun the tests.\n`;
+
+function taskSnapshot(request: TaskPreviewRequest): TaskPreviewSnapshot {
+  const id = request.kind === "work-item" ? request.workItemId : "<work-item-id>";
+  return {
+    kind: request.kind === "work-item" ? "active-work-item" : "template",
+    label: request.kind === "work-item" ? `Effective AI task for ${id}` : "Template preview — no work item selected",
+    ...(request.kind === "work-item" ? { workItem: id } : {}),
+    text: TASK_TEXT(id),
+    sections: [
+      { heading: "BugPilot Safety Rules", kind: "protected", protected: true, line: 3, lines: 4, placeholder: false },
+      { heading: "Verification Policy", kind: "verification-policy", protected: false, line: 7, lines: 4, placeholder: false },
+    ],
+    placeholders: request.kind === "work-item" ? [] : ["<work-item-id>"],
+    sources: {
+      fixMode: { id: request.kind === "template" ? request.fixModeId ?? "standard" : "standard", name: "Standard Fix", origin: "default" },
+      branchPolicy: { policy: request.kind === "template" ? request.branchPolicy ?? "current" : "current", branch: "feature/x" },
+      jiraComment: false,
+      protectedRulesVersion: 1,
+      verification: { source: "bugpilot-default" },
+    },
+    ...(request.kind === "work-item" ? { prepared: { taskExists: true, contextExists: true, taskCurrent: true, changedSections: [] } } : {}),
+    warnings: [],
+  };
+}
+
+function contextSnapshot(id: string | undefined, state: ContextPreviewSnapshot["state"] = "current", reasons: ContextPreviewSnapshot["reasons"] = []): ContextPreviewSnapshot {
+  const shows = state === "current" || state === "stale" || state === "unknown";
+  return {
+    state,
+    label:
+      state === "current"
+        ? "Context status: Current"
+        : state === "stale"
+          ? "Context status: Needs rebuild"
+          : state === "unknown"
+            ? "Context status: Unknown — whether it is current could not be checked."
+            : "No generated context available. Build context first.",
+    ...(id === undefined ? {} : { workItem: id }),
+    ...(shows ? { text: `# Bug Context: ${id}\n\nThe stored context.\n` } : {}),
+    reasons,
+    unchecked: [
+      { code: "retrieval_inputs", label: "Retrieval inputs as the panel holds them: the panel compares those itself." },
+      { code: "issue_source", label: "The issue in Jira since it was fetched: not fetched again." },
+    ],
+    ...(shows ? { quality: { overall: 63, issueCompleteness: 25, retrievalQuality: 97, repositoryContext: 70, cap: 75 } } : {}),
+    ...(shows ? { retrieval: { confidence: "high", reasons: [], relatedFiles: 3, terms: 9, gitHistory: { status: "ok", commits: 2 } } } : {}),
+    problems: state === "unknown" ? ["issue.json could not be read."] : [],
+    warnings: [],
+  };
+}
+
+const RULES: ProtectedRulesSnapshot = {
+  rulesVersion: 1,
+  contract: ["BugPilot writes these rules into every task.md it prepares, word for word."],
+  groups: [{ id: "git-editing", title: "Git / Editing", rules: [{ id: "no-force-push", title: "No force push", text: "Never force push.", section: "BugPilot Safety Rules" }] }],
+  precedence: ["BugPilot safety rules", "Repository context"],
+};
+
+/**
+ * Fakes for the three read-only commands: each records what it was asked, and
+ * answers now — or holds an answer until a test releases it, which is how a
+ * slow reply for an older request is staged.
+ */
+function readOnlyPorts() {
+  const taskCalls: TaskPreviewRequest[] = [];
+  const contextCalls: (string | undefined)[] = [];
+  let rulesCalls = 0;
+  let contextState: (id: string | undefined) => ContextPreviewSnapshot = (id) => contextSnapshot(id);
+  let taskAnswer: (request: TaskPreviewRequest) => PaneOutcome<TaskPreviewSnapshot> = (request) => ({ kind: "loaded", snapshot: taskSnapshot(request) });
+  const held: (() => void)[] = [];
+  let hold = false;
+  const answer = <T,>(value: T): Promise<T> =>
+    hold ? new Promise((resolve) => held.push(() => resolve(value))) : Promise.resolve(value);
+  return {
+    taskCalls,
+    contextCalls,
+    rulesCalls: () => rulesCalls,
+    setContext: (make: (id: string | undefined) => ContextPreviewSnapshot) => {
+      contextState = make;
+    },
+    setTask: (make: (request: TaskPreviewRequest) => PaneOutcome<TaskPreviewSnapshot>) => {
+      taskAnswer = make;
+    },
+    holdAnswers: (on: boolean) => {
+      hold = on;
+    },
+    releaseOldestFirst: () => {
+      for (const release of held.splice(0)) release();
+    },
+    releaseNewestFirst: () => {
+      for (const release of held.splice(0).reverse()) release();
+    },
+    ports: {
+      taskPreview: async (request: TaskPreviewRequest) => {
+        taskCalls.push(request);
+        return answer(taskAnswer(request));
+      },
+      contextPreview: async (id: string | undefined) => {
+        contextCalls.push(id);
+        return answer({ kind: "loaded" as const, snapshot: contextState(id) });
+      },
+      protectedRules: async () => {
+        rulesCalls += 1;
+        return answer({ kind: "loaded" as const, snapshot: RULES });
+      },
+    } satisfies Pick<ControllerPorts, "taskPreview" | "contextPreview" | "protectedRules">,
+  };
+}
+
+const settleViews = async () => {
+  for (let i = 0; i < 6; i += 1) await tick();
+};
+
+test("effective output: the rows say what the panel knows, and View is off for a CLI without the capability", async () => {
+  const views = readOnlyPorts();
+  const h = harness({ environment: READS_EVERYTHING, ...views.ports });
+  await h.controller.refreshEnvironment();
+  const rows = h.last().effectiveRows;
+  assert.deepEqual(rows.task, { status: "Template — no work item selected", canView: true, unavailable: "" });
+  assert.deepEqual(rows.context, { status: "No work item selected", canView: true, unavailable: "" });
+  assert.deepEqual(rows.rules, { status: "Built into BugPilot · read-only", canView: true, unavailable: "" });
+  assert.equal(views.taskCalls.length + views.contextCalls.length + views.rulesCalls(), 0, "drawing the rows asked the CLI");
+
+  // 0.1.3: none of the three capabilities — each row says so, and nothing is blocked.
+  const old = harness({ environment: { ...READY, report: { python_ok: true, capabilities: ["verification-text"] } }, ...readOnlyPorts().ports });
+  await old.controller.refreshEnvironment();
+  assert.equal(old.last().readiness.kind, "ready", "an optional view blocked preparing");
+  for (const key of ["task", "context", "rules"] as const) {
+    assert.equal(old.last().effectiveRows[key].canView, false, key);
+    assert.match(old.last().effectiveRows[key].unavailable, /^The installed BugPilot CLI cannot /, key);
+  }
+});
+
+test("effective AI task: with no work item, the template with the form's own run settings, drawn in labelled blocks", async () => {
+  const views = readOnlyPorts();
+  const h = harness({ environment: READS_EVERYTHING, ...views.ports, form: jiraForm({ fixModeId: "conservative", branchPolicy: "per-issue" }) });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+
+  assert.deepEqual(views.taskCalls, [{ kind: "template", fixModeId: "conservative", branchPolicy: "per-issue", jiraComment: false }]);
+  const pane = h.last().effectiveTask!;
+  assert.equal(pane.status, "loaded");
+  assert.equal(pane.view!.label, "Template preview — no work item selected");
+  assert.equal(pane.view!.placeholderNote, "Placeholders in angle brackets stand for what only a work item has.");
+  assert.equal(pane.needsRebuild, false, "a template is never stale");
+  // The blocks are the CLI's text, byte for byte, each labelled.
+  assert.equal(pane.view!.blocks.map((block) => block.text).join(""), TASK_TEXT("<work-item-id>"));
+  assert.deepEqual(pane.view!.blocks.map((block) => [block.heading ?? "", block.label, block.protected]), [
+    ["", "Task title", true],
+    ["BugPilot Safety Rules", "Protected · BugPilot", true],
+    ["Verification Policy", "Editable · Verification Policy", false],
+  ]);
+  assert.equal(h.streamRuns.length, 0, "previewing ran something");
+});
+
+test("effective AI task: a prepared work item's task, asked once per request, again when the template's settings move", async () => {
+  const views = readOnlyPorts();
+  const h = await preparedHarness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, ...views.ports });
+  await h.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+  assert.deepEqual(views.taskCalls, [{ kind: "work-item", workItemId: "JR-12345" }]);
+  assert.equal(h.last().effectiveTask!.view!.prepared, "Prepared task.md: the same as this preview.");
+
+  // Pushes with nothing new ask nothing.
+  await h.controller.handle({ type: "formChanged", form: jiraForm() });
+  await h.controller.windowFocused();
+  await settleViews();
+  // A policy reread is something new: asked again, once.
+  assert.equal(views.taskCalls.length, 2, JSON.stringify(views.taskCalls));
+  await h.controller.handle({ type: "refreshEffectiveView" });
+  await settleViews();
+  assert.equal(views.taskCalls.length, 3);
+
+  // A template follows the form's run settings — on a form that names no work item yet.
+  const templateViews = readOnlyPorts();
+  const g = harness({ environment: READS_EVERYTHING, ...templateViews.ports });
+  await g.controller.refreshEnvironment();
+  await g.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+  await g.controller.handle({ type: "formChanged", form: { ...DEFAULT_FORM, fixModeId: "investigate-first" } });
+  await settleViews();
+  await g.controller.handle({ type: "formChanged", form: { ...DEFAULT_FORM, fixModeId: "investigate-first", hint: "typed" } });
+  await settleViews();
+  assert.deepEqual(
+    templateViews.taskCalls.map((request) => (request.kind === "template" ? request.fixModeId ?? "" : request.kind)),
+    ["", "investigate-first"],
+    "a hint typed into a template asked again, or a new Fix Mode did not",
+  );
+});
+
+test("effective views: an answer for an older request never replaces the newer one", async () => {
+  const views = readOnlyPorts();
+  // Each answer says which request it answers.
+  views.setTask((request) => {
+    const snapshot = taskSnapshot(request);
+    return { kind: "loaded", snapshot: { ...snapshot, label: `answer for ${request.kind === "template" ? request.fixModeId ?? "default" : request.workItemId}` } };
+  });
+  const g = harness({ environment: READS_EVERYTHING, ...views.ports });
+  await g.controller.refreshEnvironment();
+  views.holdAnswers(true);
+  await g.controller.handle({ type: "openEffectiveView", view: "task" });
+  await g.controller.handle({ type: "formChanged", form: { ...DEFAULT_FORM, fixModeId: "conservative" } });
+  await g.controller.handle({ type: "formChanged", form: { ...DEFAULT_FORM, fixModeId: "deep-analysis" } });
+  assert.equal(views.taskCalls.length, 3);
+  assert.equal(g.last().effectiveTask!.status, "loading");
+  // The newest answers first; the two older ones arrive after it.
+  views.releaseNewestFirst();
+  await settleViews();
+  assert.equal(g.last().effectiveTask!.view!.label, "answer for deep-analysis");
+  assert.equal(g.last().effectiveTask!.refreshing, false);
+  // No state ever showed an older answer.
+  const shown = g.states.map((state) => state.effectiveTask?.view?.label).filter((label): label is string => label !== undefined);
+  assert.deepEqual([...new Set(shown)], ["answer for deep-analysis"]);
+
+  // A work item switch while its context is on its way: the next work item's answer is the one shown.
+  const contexts = readOnlyPorts();
+  const c = harness({ environment: READS_EVERYTHING, ...contexts.ports });
+  await c.controller.refreshEnvironment();
+  contexts.holdAnswers(true);
+  await c.controller.handle({ type: "openEffectiveView", view: "context" });
+  await c.controller.handle({ type: "refreshEffectiveView" });
+  contexts.releaseNewestFirst();
+  await settleViews();
+  assert.equal(contexts.contextCalls.length, 2);
+  assert.equal(c.last().effectiveContext!.status, "loaded");
+});
+
+test("effective views: an older CLI is never asked, a failure and a refused answer are said, and closing drops a late reply", async () => {
+  const views = readOnlyPorts();
+  const old = harness({ environment: READY, ...views.ports });
+  await old.controller.refreshEnvironment();
+  await old.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+  assert.equal(views.taskCalls.length, 0, "an unsupported command was run");
+  assert.equal(old.last().effectiveTask!.status, "unsupported");
+  assert.match(old.last().effectiveTask!.message, /cannot preview the AI task/);
+
+  const failing = readOnlyPorts();
+  failing.setTask(() => ({ kind: "failed", message: "bugpilot returned no task preview." }));
+  const h = harness({ environment: READS_EVERYTHING, ...failing.ports });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+  assert.deepEqual([h.last().effectiveTask!.status, h.last().effectiveTask!.message], ["failed", "bugpilot returned no task preview."]);
+
+  // An `outdated` answer is never asked again while the view is open.
+  const refusing = readOnlyPorts();
+  refusing.setTask(() => ({ kind: "outdated" }));
+  const r = harness({ environment: READS_EVERYTHING, ...refusing.ports });
+  await r.controller.refreshEnvironment();
+  await r.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+  await r.controller.handle({ type: "refreshEffectiveView" });
+  await settleViews();
+  assert.equal(refusing.taskCalls.length, 1);
+  assert.equal(r.last().effectiveTask!.status, "unsupported");
+
+  const slow = readOnlyPorts();
+  const s = harness({ environment: READS_EVERYTHING, ...slow.ports });
+  await s.controller.refreshEnvironment();
+  slow.holdAnswers(true);
+  await s.controller.handle({ type: "openEffectiveView", view: "context" });
+  await s.controller.handle({ type: "closeEffectiveView" });
+  slow.releaseOldestFirst();
+  await settleViews();
+  assert.equal(s.last().effectiveContext, undefined, "a reply after Back reopened the view");
+});
+
+test("effective context: the CLI's current needs the panel's agreement, and either side's rebuild wins", async () => {
+  // Both current: Current.
+  const views = readOnlyPorts();
+  const h = await preparedHarness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, ...views.ports });
+  await h.controller.handle({ type: "openEffectiveView", view: "context" });
+  await settleViews();
+  assert.deepEqual(views.contextCalls, ["JR-12345"]);
+  let view = h.last().effectiveContext!.view!;
+  assert.deepEqual([view.state, view.headline, view.needsRebuild, view.reasons], ["current", "Context status: Current", false, []]);
+  assert.equal(view.text, "# Bug Context: JR-12345\n\nThe stored context.\n");
+  // The panel checks its own retrieval inputs for the package it prepared: not listed as unchecked.
+  assert.deepEqual(view.notChecked, ["The issue in Jira since it was fetched: not fetched again."]);
+  assert.deepEqual(view.facts.slice(0, 3), [
+    { label: "Context quality", value: "63/100 (issue 25 · retrieval 97 · repository 70; capped at 75)" },
+    { label: "Search confidence", value: "high" },
+    { label: "Related files", value: "3" },
+  ]);
+
+  // CLI current, the panel's retrieval inputs changed: Needs rebuild, with the panel's reason.
+  await h.controller.handle({ type: "formChanged", form: jiraForm({ keywords: "export" }) });
+  await settleViews();
+  view = h.last().effectiveContext!.view!;
+  assert.deepEqual([view.state, view.headline, view.needsRebuild], ["stale", "Context status: Needs rebuild", true]);
+  assert.deepEqual(view.reasons.map((reason) => reason.code), ["panel_inputs_changed"]);
+  assert.equal(view.text, "# Bug Context: JR-12345\n\nThe stored context.\n", "a stale context was hidden");
+
+  // CLI stale, the panel current: Needs rebuild, with the CLI's reasons.
+  const cliStale = readOnlyPorts();
+  cliStale.setContext((id) => contextSnapshot(id, "stale", [{ code: "verification_changed", label: "Verification Policy" }]));
+  const s = await preparedHarness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, ...cliStale.ports });
+  await s.controller.handle({ type: "openEffectiveView", view: "context" });
+  await settleViews();
+  view = s.last().effectiveContext!.view!;
+  assert.deepEqual([view.state, view.reasons.map((reason) => reason.label)], ["stale", ["Verification Policy"]]);
+
+  // CLI unknown, the panel current: Unknown — never upgraded to current.
+  const unknown = readOnlyPorts();
+  unknown.setContext((id) => contextSnapshot(id, "unknown"));
+  const u = await preparedHarness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, ...unknown.ports });
+  await u.controller.handle({ type: "openEffectiveView", view: "context" });
+  await settleViews();
+  view = u.last().effectiveContext!.view!;
+  assert.deepEqual([view.state, view.needsRebuild], ["unknown", false]);
+  assert.deepEqual(view.problems, ["issue.json could not be read."]);
+});
+
+test("effective context: no work item, never generated, missing and unreadable are their own states, never 'stale'", async () => {
+  for (const state of ["unavailable", "not-generated", "missing", "unreadable"] as const) {
+    const views = readOnlyPorts();
+    views.setContext((id) => ({ ...contextSnapshot(id, state), label: state === "missing" ? "Context status: Missing — the generated context is gone. Build context again." : contextSnapshot(id, state).label }));
+    const h = harness({ environment: READS_EVERYTHING, ...views.ports });
+    await h.controller.refreshEnvironment();
+    await h.controller.handle({ type: "openEffectiveView", view: "context" });
+    await settleViews();
+    const view = h.last().effectiveContext!.view!;
+    assert.equal(view.state, state);
+    assert.equal(view.text, undefined, `${state} showed a context`);
+    assert.deepEqual([view.reasons, view.facts], [[], []]);
+    assert.equal(view.needsRebuild, state === "missing" || state === "unreadable", state);
+  }
+  // No work item: the CLI is asked without one, and answers with its own sentence.
+  const views = readOnlyPorts();
+  views.setContext((id) => contextSnapshot(id, "unavailable"));
+  const h = harness({ environment: READS_EVERYTHING, ...views.ports });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openEffectiveView", view: "context" });
+  await settleViews();
+  assert.deepEqual(views.contextCalls, [undefined]);
+  assert.equal(h.last().effectiveContext!.view!.headline, "No generated context available. Build context first.");
+});
+
+test("effective views: a run in flight is never read under, and its end asks again", async () => {
+  const views = readOnlyPorts();
+  const h = await preparedHarness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, ...views.ports });
+  await h.controller.handle({ type: "openEffectiveView", view: "context" });
+  await settleViews();
+  assert.equal(views.contextCalls.length, 1);
+  await h.controller.handle(next("rebuildContext"));
+  await settleViews();
+  // The rebuild's own pushes asked nothing while it ran; its end asked once more.
+  assert.equal(views.contextCalls.length, 2, JSON.stringify(views.contextCalls));
+});
+
+test("effective views: a run starting drops an answer still on its way; what is shown is held, never current, until its end asks again", async () => {
+  const views = readOnlyPorts();
+  let asked = 0;
+  views.setContext((id) => ({ ...contextSnapshot(id), label: `answer ${++asked}` }));
+  const h = harness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, hold: true, events: successfulRun, ...views.ports });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openEffectiveView", view: "context" });
+  await settleViews();
+  assert.equal(h.last().effectiveContext!.view?.headline, "answer 1");
+
+  views.holdAnswers(true);
+  await h.controller.handle({ type: "refreshEffectiveView" });
+  assert.equal(views.contextCalls.length, 2, "answer 2 is on its way");
+  const running = h.controller.run(jiraForm());
+  for (let i = 0; i < 40 && h.streamRuns.length === 0; i += 1) await tick();
+  assert.equal(h.streamRuns.length, 1, "the run did not start");
+  // Answer 2 lands while the run writes the work item's files: dropped.
+  views.releaseOldestFirst();
+  await settleViews();
+  const during = h.last().effectiveContext!;
+  assert.equal(during.held, true);
+  assert.equal(during.refreshing, false);
+  assert.equal(during.view?.headline, "answer 1", "an answer asked before the run was shown during it");
+  assert.equal(views.contextCalls.length, 2, "asked while the run was writing");
+
+  h.release();
+  await running;
+  await settleViews();
+  views.releaseOldestFirst();
+  await settleViews();
+  const after = h.last().effectiveContext!;
+  assert.equal(after.held, false);
+  assert.equal(after.view?.headline, `answer ${asked}`);
+  assert.ok(asked >= 3, "the run's end did not ask again");
+  assert.ok(!h.states.some((state) => state.effectiveContext?.view?.headline === "answer 2"), "a dropped answer was shown");
+});
+
+test("effective views: an environment check holds them — an answer from the executable being replaced is dropped, Copy is refused, and the new one is asked after", async () => {
+  const views = readOnlyPorts();
+  let asked = 0;
+  views.setTask((request) => ({ kind: "loaded", snapshot: { ...taskSnapshot(request), label: `answer ${++asked}` } }));
+  let gate: Promise<void> = Promise.resolve();
+  const h = harness({
+    // A function returning a promise holds the check open, as a slow `doctor` does.
+    environment: (() => gate.then(() => READS_EVERYTHING)) as unknown as () => Environment,
+    ...views.ports,
+  });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+  assert.equal(h.last().effectiveTask!.view?.label, "answer 1");
+
+  views.holdAnswers(true);
+  await h.controller.handle({ type: "refreshEffectiveView" });
+  let open!: () => void;
+  gate = new Promise((resolve) => (open = resolve));
+  // `bugpilot.executablePath` changed: the host checks the environment again.
+  const check = h.controller.refreshEnvironment();
+  await tick();
+  views.releaseOldestFirst();
+  await settleViews();
+  const during = h.last().effectiveTask!;
+  assert.equal(during.held, true);
+  assert.equal(during.view?.label, "answer 1", "the answer from before the check was replaced mid-check");
+  await h.controller.handle({ type: "copyEffectiveTask" });
+  assert.deepEqual(h.clipboard, [], "a held, possibly outdated task was copied");
+
+  open();
+  await check;
+  await settleViews();
+  views.releaseOldestFirst();
+  await settleViews();
+  const after = h.last().effectiveTask!;
+  assert.equal(after.held, false);
+  assert.equal(after.view?.label, `answer ${asked}`);
+  assert.equal(asked, 3);
+  assert.ok(!h.states.some((state) => state.effectiveTask?.view?.label === "answer 2"), "a dropped answer was shown");
+});
+
+test("effective views: read-only — no run, no write, no Jira, and only the three commands", async () => {
+  const views = readOnlyPorts();
+  const h = await preparedHarness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, ...views.ports });
+  const runsBefore = h.streamRuns.length;
+  const jsonBefore = h.jsonRuns.length;
+  const writtenBefore = h.written.length;
+  for (const view of ["task", "context", "rules"] as const) {
+    await h.controller.handle({ type: "openEffectiveView", view });
+    await settleViews();
+    await h.controller.handle({ type: "refreshEffectiveView" });
+    await settleViews();
+    await h.controller.handle({ type: "closeEffectiveView" });
+  }
+  assert.equal(h.streamRuns.length, runsBefore, "a view started a run");
+  assert.equal(h.jsonRuns.length, jsonBefore, "a view ran a command through the runner");
+  assert.equal(h.written.length, writtenBefore, "a view wrote a file");
+  assert.ok(views.taskCalls.length > 0 && views.contextCalls.length > 0 && views.rulesCalls() > 0);
+  // And the workflow is still the workflow: the primary action is unchanged.
+  assert.equal(h.last().primary.action, "fixWithAI");
+});
+
+test("effective views: one at a time, closed by a rebuilt page, and Copy hands over the CLI's text exactly", async () => {
+  const views = readOnlyPorts();
+  const h = await preparedHarness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, ...views.ports });
+  await h.controller.handle({ type: "openEffectiveView", view: "rules" });
+  await settleViews();
+  assert.deepEqual(h.last().protectedRules!.rules, RULES);
+  await h.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+  assert.equal(h.last().protectedRules, undefined, "two views open at once");
+  await h.controller.handle({ type: "copyEffectiveTask" });
+  assert.deepEqual(h.clipboard.at(-1), TASK_TEXT("JR-12345"));
+  await h.controller.handle({ type: "ready" });
+  assert.equal(h.last().effectiveTask, undefined, "a rebuilt page kept a view open");
+});
+
+test("effective views: Copy hands over only the current task — never the previous work item's while the next loads, the last good one after a failure, a late answer's, or a Refresh's (L-1)", async () => {
+  const views = readOnlyPorts();
+  // JR-999's task cannot be read; every other request answers with its own work item's task.
+  views.setTask((request) =>
+    request.kind === "work-item" && request.workItemId === "JR-999"
+      ? { kind: "failed", message: "bugpilot could not read .ai/JR-999/issue.json." }
+      : { kind: "loaded", snapshot: taskSnapshot(request) },
+  );
+  const h = await preparedHarness({ ...WORK_ITEM_FILES, environment: READS_EVERYTHING, ...views.ports });
+  const runsBefore = h.streamRuns.length;
+  const jsonBefore = h.jsonRuns.length;
+  await h.controller.handle({ type: "openEffectiveView", view: "task" });
+  await settleViews();
+  assert.equal(h.last().effectiveTask!.current, true);
+  await h.controller.handle({ type: "copyEffectiveTask" });
+  assert.deepEqual(h.clipboard, [TASK_TEXT("JR-12345")]);
+
+  // Another work item from History: JR-12345's task stays on screen while JR-999's is asked for.
+  views.holdAnswers(true);
+  await h.controller.showWorkItem("JR-999");
+  await settleViews();
+  const loading = h.last().effectiveTask!;
+  assert.deepEqual([loading.view?.label, loading.refreshing, loading.current], ["Effective AI task for JR-12345", true, false]);
+  await h.controller.handle({ type: "copyEffectiveTask" });
+  assert.equal(h.clipboard.length, 1, "the previous work item's task was copied while the next one loaded");
+
+  // It fails: the last good task is still shown, the failure is said — and it is still not copied.
+  views.releaseOldestFirst();
+  await settleViews();
+  const failed = h.last().effectiveTask!;
+  assert.deepEqual([failed.status, failed.view?.label, failed.message, failed.current], [
+    "failed", "Effective AI task for JR-12345", "bugpilot could not read .ai/JR-999/issue.json.", false,
+  ]);
+  await h.controller.handle({ type: "copyEffectiveTask" });
+  assert.equal(h.clipboard.length, 1, "the last good task was copied after the current one failed");
+
+  // Away and straight back: the answer for the request left behind arrives late and is dropped.
+  await h.controller.showWorkItem("JR-12345");
+  await settleViews();
+  assert.equal(h.last().effectiveTask!.current, false);
+  views.releaseNewestFirst();
+  await settleViews();
+  const back = h.last().effectiveTask!;
+  assert.deepEqual([back.view?.label, back.current], ["Effective AI task for JR-12345", true]);
+  await h.controller.handle({ type: "copyEffectiveTask" });
+  assert.deepEqual(h.clipboard, [TASK_TEXT("JR-12345"), TASK_TEXT("JR-12345")]);
+
+  // A Refresh: not copyable until its own answer comes, then the CLI's text exactly.
+  await h.controller.handle({ type: "refreshEffectiveView" });
+  await settleViews();
+  assert.equal(h.last().effectiveTask!.current, false);
+  await h.controller.handle({ type: "copyEffectiveTask" });
+  assert.equal(h.clipboard.length, 2, "a task being refreshed was copied");
+  views.releaseOldestFirst();
+  await settleViews();
+  assert.equal(h.last().effectiveTask!.current, true);
+  await h.controller.handle({ type: "copyEffectiveTask" });
+  assert.deepEqual(h.clipboard.at(-1), TASK_TEXT("JR-12345"));
+
+  // Nothing of this ran a workflow step or any other command: previews only.
+  assert.equal(h.streamRuns.length, runsBefore, "a preview started a run");
+  assert.equal(h.jsonRuns.length, jsonBefore, "a preview ran a command through the runner");
+  assert.ok(!h.states.some((state) => state.effectiveTask?.current && state.effectiveTask.view?.label !== "Effective AI task for JR-12345"));
+});
+
+test("AI Behavior row: Edit creates the file from the CLI's template — not a change — and opens it; Reset asks; Preview reads", async () => {
+  const behavior = aiBehaviorPort();
+  const created: string[] = [];
+  let resets = 0;
+  const port = {
+    ...behavior.port,
+    create: async (text: string): Promise<AiBehaviorOutcome> => {
+      created.push(text);
+      behavior.state.exists = true;
+      return behavior.port.load();
+    },
+    reset: async (): Promise<AiBehaviorOutcome> => {
+      resets += 1;
+      behavior.state.exists = false;
+      behavior.state.additions = "";
+      return behavior.port.load();
+    },
+    fileKind: async () => (behavior.state.exists ? ("file" as const) : ("absent" as const)),
+  };
+  const h = await preparedHarness({ ...aiBehaviorHarnessOptions(behavior), aiBehaviorPolicy: port });
+  assert.equal(h.last().aiBehavior.source, "Source: BugPilot default");
+  assert.deepEqual([h.last().aiBehavior.canEdit, h.last().aiBehavior.canReset], [true, false]);
+
+  await h.controller.handle({ type: "editAiBehavior" });
+  assert.deepEqual(created, ["## Code Change Conventions\n\n## Evidence Standards\n\n## Reporting Standards"]);
+  assert.deepEqual(h.opened, [nodePath.join(ROOT, ".bugpilot", "ai_behavior.md")]);
+  assert.equal(h.last().aiBehavior.source, "Source: BugPilot default (.bugpilot/ai_behavior.md has no additions yet)");
+  assert.equal(h.last().primary.action, "fixWithAI", "creating the empty template made the context stale");
+  assert.equal(h.last().aiBehavior.stale, false);
+
+  // Edit again opens it as it is: nothing created.
+  await h.controller.handle({ type: "editAiBehavior" });
+  assert.equal(created.length, 1);
+
+  // Writing under a heading is the change.
+  behavior.state.additions = "- Quote the failing line.";
+  await h.controller.windowFocused();
+  assert.equal(h.last().aiBehavior.stale, true);
+  assert.equal(h.last().aiBehavior.source, "Source: BugPilot default + repository additions");
+
+  await h.controller.handle({ type: "previewAiBehavior" });
+  assert.equal(h.last().aiBehaviorPreview!.text, "the default AI Behavior\n\n- Quote the failing line.");
+  await h.controller.handle({ type: "closeAiBehaviorPreview" });
+  assert.equal(h.last().aiBehaviorPreview, undefined);
+
+  await h.controller.handle({ type: "resetAiBehavior" });
+  assert.equal(resets, 1);
+  assert.match(h.confirms.at(-1)!.message, /^Reset AI Behavior\? This deletes \.bugpilot\/ai_behavior\.md\./);
+  assert.deepEqual(
+    [h.confirms.at(-1)!.confirmLabel, h.confirms.at(-1)!.keepLabel, h.confirms.at(-1)!.keepFocused],
+    ["Delete File", "Keep File", true],
+  );
+  assert.equal(h.last().aiBehavior.source, "Source: BugPilot default");
+  assert.ok(!h.logged.some((line) => line.includes("Quote the failing line")), "AI Behavior's text reached the log");
+});
+
+/** An AI Behavior port that records its writes: Edit's create and Reset. */
+function aiBehaviorWritePort(initial: { additions?: string; exists?: boolean } = {}) {
+  const behavior = aiBehaviorPort(initial);
+  const created: string[] = [];
+  let resets = 0;
+  const port = {
+    ...behavior.port,
+    create: async (text: string): Promise<AiBehaviorOutcome> => {
+      created.push(text);
+      behavior.state.exists = true;
+      return behavior.port.load();
+    },
+    reset: async (): Promise<AiBehaviorOutcome> => {
+      resets += 1;
+      behavior.state.exists = false;
+      behavior.state.additions = "";
+      return behavior.port.load();
+    },
+    fileKind: async () => (behavior.state.exists ? ("file" as const) : ("absent" as const)),
+  };
+  return { behavior, created, resets: () => resets, port };
+}
+
+const AI_BEHAVIOR_PATH = nodePath.join(ROOT, ".bugpilot", "ai_behavior.md");
+
+test("AI Behavior row: a run in flight holds Edit's create and Reset — the host refuses them, not only the page — and both come back when it ends (L-2)", async () => {
+  const w = aiBehaviorWritePort();
+  const h = harness({ ...WITH_FILES, agentOnPath: true, ...aiBehaviorHarnessOptions(w.behavior), aiBehaviorPolicy: w.port, hold: true });
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().aiBehavior.canEdit, true);
+  const running = h.controller.run(jiraForm());
+  for (let i = 0; i < 6; i += 1) await tick();
+  assert.equal(h.last().primary.busy, true, "the run is not in flight");
+  assert.equal(h.last().aiBehavior.canEdit, false, "Edit offered to create the file while a run is in flight");
+  assert.equal(h.last().aiBehavior.canPreview, true, "reading needs no wait");
+
+  // The page's button is off, but a message may still come (an older page, a key press): the host refuses.
+  await h.controller.handle({ type: "editAiBehavior" });
+  assert.deepEqual(w.created, [], "the file was created under a running preparation");
+  assert.deepEqual(h.opened, []);
+  assert.ok(h.notices.some((notice) => /^\.bugpilot\/ai_behavior\.md was not created\./.test(notice.message)), JSON.stringify(h.notices));
+
+  // A file that is there opens — reading writes nothing — but Reset waits, and is not even asked.
+  w.behavior.state.exists = true;
+  w.behavior.state.additions = "- Quote the failing line.";
+  await h.controller.handle({ type: "editAiBehavior" });
+  assert.deepEqual(h.opened, [AI_BEHAVIOR_PATH]);
+  assert.deepEqual(w.created, []);
+  await h.controller.handle({ type: "resetAiBehavior" });
+  assert.equal(w.resets(), 0, "the file was deleted under a running preparation");
+  assert.equal(h.confirms.length, 0, "asked to delete the file during a run");
+  assert.ok(h.notices.some((notice) => /^AI Behavior was not reset\./.test(notice.message)), JSON.stringify(h.notices));
+
+  h.release();
+  await running;
+  await h.controller.windowFocused();
+  assert.equal(h.last().primary.busy, false);
+  assert.deepEqual([h.last().aiBehavior.canEdit, h.last().aiBehavior.canReset], [true, true]);
+  await h.controller.handle({ type: "resetAiBehavior" });
+  assert.equal(w.resets(), 1);
+  assert.equal(h.confirms.at(-1)?.keepFocused, true);
+});
+
+test("AI Behavior row: Reset asks again after its dialog — a run started while it was open keeps the file (L-2)", async () => {
+  const w = aiBehaviorWritePort({ additions: "- Quote the failing line." });
+  let running: Promise<void> | undefined;
+  const h = harness({
+    ...WITH_FILES,
+    agentOnPath: true,
+    ...aiBehaviorHarnessOptions(w.behavior),
+    aiBehaviorPolicy: w.port,
+    hold: true,
+    // The developer answers Delete File — after a run has started behind the dialog.
+    confirmAnswer: async () => {
+      running = h.controller.run(jiraForm());
+      for (let i = 0; i < 6; i += 1) await tick();
+      return true;
+    },
+  });
+  await h.controller.refreshEnvironment();
+  assert.equal(h.last().aiBehavior.canReset, true);
+  await h.controller.handle({ type: "resetAiBehavior" });
+  assert.equal(h.confirms.length, 1);
+  assert.equal(w.resets(), 0, "the file was deleted under a run that started while the dialog was open");
+  assert.ok(h.notices.some((notice) => /^AI Behavior was not reset\./.test(notice.message)), JSON.stringify(h.notices));
+  assert.ok(running, "the run never started");
+  h.release();
+  await running;
+  assert.equal(w.behavior.state.exists, true);
+});
+
+test("AI Behavior row: a failed run and a stopped run both give the writes back (L-2)", async () => {
+  for (const ending of ["failed", "stopped"] as const) {
+    const w = aiBehaviorWritePort();
+    const h = harness({
+      ...WITH_FILES,
+      agentOnPath: true,
+      ...aiBehaviorHarnessOptions(w.behavior),
+      aiBehaviorPolicy: w.port,
+      hold: true,
+      ...(ending === "failed" ? { exitCode: 1 } : {}),
+    });
+    await h.controller.refreshEnvironment();
+    const running = h.controller.run(jiraForm());
+    for (let i = 0; i < 6; i += 1) await tick();
+    await h.controller.handle({ type: "editAiBehavior" });
+    assert.deepEqual(w.created, [], `${ending}: created during the run`);
+    if (ending === "failed") h.release();
+    else h.controller.stop();
+    await running;
+    assert.equal(h.last().primary.busy, false, ending);
+    assert.equal(h.last().aiBehavior.canEdit, true, `${ending}: Edit did not come back`);
+    await h.controller.handle({ type: "editAiBehavior" });
+    assert.equal(w.created.length, 1, `${ending}: Edit did not create the file after the run`);
+    assert.deepEqual(h.opened, [AI_BEHAVIOR_PATH], ending);
+  }
+});
+
+test("AI Behavior row: an older CLI offers nothing, and a link is not opened", async () => {
+  const behavior = aiBehaviorPort();
+  const old = harness({ ...aiBehaviorHarnessOptions(behavior), environment: READS_VERIFICATION });
+  await old.controller.refreshEnvironment();
+  const row = old.last().aiBehavior;
+  assert.deepEqual([row.canEdit, row.canReset, row.canPreview], [false, false, false]);
+  assert.match(row.unavailable, /cannot read \.bugpilot\/ai_behavior\.md/);
+
+  const linked = aiBehaviorPort({ additions: "- x" });
+  const h = harness({ ...aiBehaviorHarnessOptions(linked), aiBehaviorPolicy: { ...linked.port, fileKind: async () => "other" as const } });
+  await h.controller.refreshEnvironment();
+  await h.controller.handle({ type: "editAiBehavior" });
+  assert.deepEqual(h.opened, []);
+  assert.match(h.notices.at(-1)!.message, /does not open \.bugpilot\/ai_behavior\.md: it is a link or not a regular file/);
 });

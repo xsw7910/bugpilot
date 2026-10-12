@@ -19,7 +19,7 @@ import path from "node:path";
 
 import { isWithin } from "../workspace.ts";
 
-import { buildPrepareArgs, buildRetryArgs, DEFAULT_FORM, isWorkItemId, preparationFingerprint, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE, JIRA_ISSUE_KEY_RE } from "./form.ts";
+import { buildPrepareArgs, buildRetryArgs, DEFAULT_FORM, isWorkItemId, preparationFingerprint, workItemScopeOf, MANUAL_WORK_ITEM_SCOPE, JIRA_ISSUE_KEY_RE, FIX_MODE_ID_RE, branchPolicyOf } from "./form.ts";
 import {
   MAX_ATTEMPT_FEEDBACK,
   USER_FEEDBACK_ARTIFACT,
@@ -154,6 +154,24 @@ import {
   verificationRowView,
 } from "./verificationPolicy.ts";
 import type { VerificationOutcome, VerificationSnapshot } from "./verificationPolicy.ts";
+import {
+  AI_BEHAVIOR_FILE,
+  AI_BEHAVIOR_TEXT_CAPABILITY,
+  aiBehaviorFingerprint,
+  aiBehaviorPreviewView,
+  aiBehaviorRowView,
+  readsAiBehaviorText,
+} from "./aiBehaviorPolicy.ts";
+import type { AiBehaviorOutcome, AiBehaviorSnapshot } from "./aiBehaviorPolicy.ts";
+import { Pane } from "./effectivePane.ts";
+import type { PaneDesire, PaneOutcome } from "./effectivePane.ts";
+import { readsTaskPreview, taskPreviewRequestKey } from "./effectiveTask.ts";
+import type { TaskPreviewRequest, TaskPreviewSnapshot } from "./effectiveTask.ts";
+import { readsContextPreview } from "./effectiveContext.ts";
+import type { ContextPreviewSnapshot, PanelFreshness } from "./effectiveContext.ts";
+import { readsProtectedRules } from "./protectedRules.ts";
+import type { ProtectedRulesSnapshot } from "./protectedRules.ts";
+import { effectiveContextPaneView, effectiveRowsView, effectiveTaskPaneView, protectedRulesPaneView } from "./effectiveViews.ts";
 import { formWithProjectSettings, projectSettingsOfForm, sameProjectSettings } from "./projectSettings.ts";
 import type { ProjectSettingsOutcome, ProjectSettingsPayload, ProjectSettingsSnapshot } from "./projectSettings.ts";
 import {
@@ -263,10 +281,22 @@ function preparedForm(form: FormState): PreparedForm {
   };
 }
 
-/** The Verification Policy's part of a policies' fingerprint: everything after the instructions'. */
+/**
+ * The Verification Policy's part of a policies' fingerprint: the one between the
+ * instructions' and AI Behavior's, the last part (0.1.4). Neither part has a `|`.
+ */
 function verificationPartOf(policies: string): string {
+  const parts = policies.split("|");
+  return parts[parts.length - 2] ?? "";
+}
+
+/** AI Behavior's part of a policies' fingerprint: the last. */
+function aiBehaviorPartOf(policies: string): string {
   return policies.slice(policies.lastIndexOf("|") + 1);
 }
+
+/** Which read-only view the page asks for (0.1.4). */
+export type EffectiveViewKind = "task" | "context" | "rules";
 
 interface InstructionsEditorState {
   readonly scope: InstructionScope;
@@ -298,8 +328,13 @@ export interface UiPort {
   render(state: PanelState): void;
   openFile(file: string): Promise<void>;
   copyToClipboard(text: string): Promise<void>;
-  /** A yes/no the developer must answer before something destructive happens. */
-  confirm(message: string, confirmLabel: string, keepLabel?: string): Promise<boolean>;
+  /**
+   * A yes/no the developer must answer before something destructive happens.
+   * `keepFocused`: the keep choice is the dialog's default — Enter, and a
+   * screen reader's first stop, keep — so the destructive one must be chosen
+   * by name (a Reset that deletes a file).
+   */
+  confirm(message: string, confirmLabel: string, keepLabel?: string, options?: { readonly keepFocused?: boolean }): Promise<boolean>;
   notify(kind: "info" | "warning" | "error", message: string): void;
   /** Ask the host to re-read the trees, after a run changed `.ai/`. */
   refreshViews(): void;
@@ -500,6 +535,33 @@ export interface ControllerPorts {
     readonly reset?: () => Promise<VerificationOutcome>;
     readonly fileKind?: () => Promise<"absent" | "file" | "other">;
   };
+  /**
+   * The repository's AI Behavior, through `bugpilot ai-behavior show` (0.1.4):
+   * its source and hash for the stale check. Read only — the host neither
+   * writes the file nor holds its text. `fileExists` only asks whether
+   * `.bugpilot/ai_behavior.md` is there, for a CLI too old to read it.
+   */
+  readonly aiBehaviorPolicy?: {
+    readonly load: () => Promise<AiBehaviorOutcome>;
+    readonly fileExists: () => Promise<boolean>;
+    /** The settings row's Edit, when there is no file: `ai-behavior set --stdin` with the CLI's own template. */
+    readonly create?: (text: string) => Promise<AiBehaviorOutcome>;
+    /** The settings row's Reset: `ai-behavior reset`. */
+    readonly reset?: () => Promise<AiBehaviorOutcome>;
+    /** What `.bugpilot/ai_behavior.md` is, without following a link. */
+    readonly fileKind?: () => Promise<"absent" | "file" | "other">;
+  };
+  /**
+   * The read-only views of 0.1.4, each one `--json` command and nothing the
+   * panel composes: `bugpilot protected-rules show`, `bugpilot task-preview`
+   * (a work item's task, or the template with the form's run settings) and
+   * `bugpilot context-preview` (the last generated context and its status).
+   * None writes anything; each is asked only while its view is open, and only
+   * of a CLI whose doctor report lists the capability.
+   */
+  readonly protectedRules?: () => Promise<PaneOutcome<ProtectedRulesSnapshot>>;
+  readonly taskPreview?: (request: TaskPreviewRequest) => Promise<PaneOutcome<TaskPreviewSnapshot>>;
+  readonly contextPreview?: (workItemId: string | undefined) => Promise<PaneOutcome<ContextPreviewSnapshot>>;
   /**
    * One issue's title and description, for improving a hint.
    *
@@ -708,7 +770,7 @@ export const STALE_HANDOFF =
 
 /** Said when the form is unchanged but a policy file is not (§42.2): edited, pulled or switched with a branch. */
 export const STALE_HANDOFF_POLICIES =
-  "The instructions or the Verification Policy changed since this context was prepared, so nothing was handed over. Press Rebuild Context first.";
+  "The instructions, the Verification Policy or AI Behavior changed since this context was prepared, so nothing was handed over. Press Rebuild Context first.";
 
 /**
  * The AI session a handoff started, as this panel saw it: which terminal, which
@@ -1136,7 +1198,30 @@ export class Controller {
    */
   #verification: VerificationSnapshot | undefined;
   /**
-   * The policies' fingerprint — instructions and Verification Policy — when the
+   * What `bugpilot ai-behavior show` last said: the effective AI Behavior's
+   * source and hash (0.1.4). `undefined` until read, and for a CLI without the
+   * `ai-behavior-text` capability. Never its text.
+   */
+  #aiBehavior: AiBehaviorSnapshot | undefined;
+  /** The AI Behavior Preview, while open (0.1.4): its token, so the page moves focus once per open. */
+  #aiBehaviorPreview: { readonly token: number } | undefined;
+  #aiBehaviorPreviewToken = 0;
+  /** The AI Behavior row's Edit creating the file, or its Reset removing it: one at a time, and policy reads wait for it. */
+  #aiBehaviorWrite: Promise<void> | undefined;
+  #aiBehaviorBusy = false;
+  /**
+   * Bumped whenever what a read-only view shows may have changed: a policy
+   * reread, an environment check, a run's files read back, a Refresh. An open
+   * view asks the CLI again exactly when its request or this changes.
+   */
+  #previewEpoch = 0;
+  /** An environment check is under way: the read-only views hold until it ends. */
+  #checkingEnvironment = false;
+  readonly #taskPane: Pane<TaskPreviewRequest, TaskPreviewSnapshot>;
+  readonly #contextPane: Pane<string | undefined, ContextPreviewSnapshot>;
+  readonly #rulesPane: Pane<null, ProtectedRulesSnapshot>;
+  /**
+   * The policies' fingerprint — instructions, Verification Policy and AI Behavior — when the
    * package on screen was prepared: `#preparedWith`'s partner, set and cleared
    * with it. `undefined` when it was not known then: a stale check needs both sides.
    */
@@ -1332,6 +1417,10 @@ export class Controller {
   constructor(ports: ControllerPorts, initialForm: FormState = DEFAULT_FORM) {
     this.#ports = ports;
     this.#form = initialForm;
+    const missing = async (): Promise<PaneOutcome<never>> => ({ kind: "outdated" });
+    this.#taskPane = new Pane((request) => (ports.taskPreview ? ports.taskPreview(request) : missing()), () => this.#push());
+    this.#contextPane = new Pane((workItemId) => (ports.contextPreview ? ports.contextPreview(workItemId) : missing()), () => this.#push());
+    this.#rulesPane = new Pane(() => (ports.protectedRules ? ports.protectedRules() : missing()), () => this.#push());
     const extensions = ports.extensions;
     this.#agents = new AgentService({
       probes: {
@@ -1605,6 +1694,21 @@ export class Controller {
   }
 
   async #resolveEnvironment(): Promise<void> {
+    // The read-only views hold for the whole check: the executable may be
+    // replaced before the report that says what it can do, so nothing is asked
+    // in between, and an answer from the one before is dropped.
+    this.#checkingEnvironment = true;
+    // Pushed, not only synced: an open view says at once that it is not current.
+    if (this.#taskPane.isOpen || this.#contextPane.isOpen || this.#rulesPane.isOpen) this.#push();
+    try {
+      await this.#resolveEnvironmentNow();
+    } finally {
+      this.#checkingEnvironment = false;
+    }
+    this.#push();
+  }
+
+  async #resolveEnvironmentNow(): Promise<void> {
     const previousRoot = this.#root;
     const environment = await this.#ports.environment();
     const credentials = await this.#ports.credentials();
@@ -1658,6 +1762,8 @@ export class Controller {
     await this.#loadProjectSettings();
     await this.#loadInstructions();
     await this.#loadVerificationPolicy();
+    await this.#loadAiBehaviorPolicy();
+    this.#previewEpoch += 1;
     this.#syncPolicyWatch();
     // The revision is deliberately *not* bumped here. Bumping it makes the page
     // rewrite every field from the host's copy, which moves the caret and
@@ -1678,6 +1784,10 @@ export class Controller {
         // A rebuilt page starts on the form: an editor it no longer shows is closed.
         this.#instructionsEditor = undefined;
         this.#verificationPreview = undefined;
+        this.#aiBehaviorPreview = undefined;
+        this.#taskPane.close();
+        this.#contextPane.close();
+        this.#rulesPane.close();
         this.#push();
         // The page loads whenever the panel is shown again — a hidden webview is
         // destroyed — so this is the "visible again" safety net for an artifact
@@ -1776,6 +1886,30 @@ export class Controller {
         return;
       case "closeVerificationPreview":
         this.closeVerificationPreview();
+        return;
+      case "editAiBehavior":
+        await this.editAiBehavior();
+        return;
+      case "resetAiBehavior":
+        await this.resetAiBehavior();
+        return;
+      case "previewAiBehavior":
+        await this.previewAiBehavior();
+        return;
+      case "closeAiBehaviorPreview":
+        this.closeAiBehaviorPreview();
+        return;
+      case "openEffectiveView":
+        this.openEffectiveView(message.view);
+        return;
+      case "closeEffectiveView":
+        this.closeEffectiveViews();
+        return;
+      case "refreshEffectiveView":
+        this.refreshEffectiveViews();
+        return;
+      case "copyEffectiveTask":
+        await this.copyEffectiveTask();
         return;
       case "saveInstructions":
         await this.saveInstructions(message.scope, message.text);
@@ -1972,7 +2106,7 @@ export class Controller {
     // so the baseline below is what the task gets — an edit made outside
     // BugPilot since the last check included. Only where there is something to
     // read: a host without the ports starts its run without waiting a turn.
-    if (this.#ports.instructions !== undefined || this.#ports.verificationPolicy !== undefined) {
+    if (this.#hasPolicyPorts()) {
       await this.#refreshPolicies();
       if (this.#readiness.kind !== "ready") return;
     }
@@ -2019,6 +2153,9 @@ export class Controller {
     const abort = new AbortController();
     this.#abort = abort;
     this.#running = true;
+    // Hold the read-only views now, not at the next push: an answer landing in
+    // between could describe the files this run is about to rewrite.
+    this.#syncPanes();
     this.#runPending = false;
     this.#runsStarted += 1;
     this.#stoppedByUser = false;
@@ -2190,6 +2327,8 @@ export class Controller {
 
     for (const warning of runWarnings) this.#ports.ui.notify("warning", warning);
 
+    // The run rewrote task.md and context.md: an open preview asks again.
+    this.#previewEpoch += 1;
     await this.refreshArtifacts();
     // What the run actually prepared, read back from its own status file rather
     // than assumed from the form: the two agree here, and the panel should be
@@ -2449,7 +2588,7 @@ export class Controller {
     await this.#formChanged(form);
     // The policy files as a run would read them now (§42.2): a new attempt is
     // handed the same task.md, which a changed policy has made stale.
-    if (this.#ports.instructions !== undefined || this.#ports.verificationPolicy !== undefined) {
+    if (this.#hasPolicyPorts()) {
       await this.#refreshPolicies();
     }
     const view = this.#primaryView();
@@ -2460,7 +2599,7 @@ export class Controller {
         message: view.busy
           ? `Not started. ${this.#busyReason()}`
           : this.#prepared() && this.#staleOnlyThroughPolicies()
-            ? "Not started: the instructions or the Verification Policy changed since this context was prepared. Press Rebuild Context first."
+            ? "Not started: the instructions, the Verification Policy or AI Behavior changed since this context was prepared. Press Rebuild Context first."
             : this.#prepared() && this.#stale()
               ? "Not started: the form changed since this context was prepared. Press Rebuild Context first, or undo the change."
               : "Not started: a new attempt is offered once an AI attempt exists for a prepared work item.",
@@ -2728,7 +2867,7 @@ export class Controller {
     // editor tab, pulled, or switched with a branch since the last read makes
     // this package stale, and no agent is handed it. Busy meanwhile, so a
     // second press finds the first one under way rather than racing it.
-    if (this.#ports.instructions !== undefined || this.#ports.verificationPolicy !== undefined) {
+    if (this.#hasPolicyPorts()) {
       const refreshEpoch = this.#fixEpoch;
       this.#handoffBusy = true;
       try {
@@ -3359,6 +3498,8 @@ export class Controller {
       return true;
     }
     const names = listing.kind === "ok" ? listing.names : [];
+    // Files came or went — a run's, or an edit outside BugPilot: what a preview shows may have moved.
+    if (names.join("|") !== this.#artifactNames.join("|")) this.#previewEpoch += 1;
     this.#artifactNames = names;
     this.#artifacts = buildArtifactList({ names });
     this.#artifactsListedFor = workItemId;
@@ -3573,6 +3714,328 @@ export class Controller {
   }
 
   /**
+   * Read the effective AI Behavior (0.1.4) — its source and hash, for the stale
+   * check.
+   *
+   * Asked of a CLI that says, in `doctor --json`, that it reads
+   * `.bugpilot/ai_behavior.md`. One that does not would prepare as if the file
+   * were not there, so with the file in the repository it is out of date and
+   * blocked like any other — no state of its own; without the file it still
+   * prepares what it always did. A failed read keeps the last good one. The
+   * log gets the state when it changes, never the text.
+   */
+  async #loadAiBehaviorPolicy(): Promise<void> {
+    const port = this.#ports.aiBehaviorPolicy;
+    if (this.#readiness.kind !== "ready" || !port) return;
+    if (!readsAiBehaviorText(this.#report)) {
+      this.#aiBehavior = undefined;
+      if (await port.fileExists()) {
+        this.#blockOutdatedCli(
+          ["ai-behavior"],
+          `The installed bugpilot cannot read ${AI_BEHAVIOR_FILE}, so it would prepare tasks without this repository's AI Behavior (its doctor report has no ${AI_BEHAVIOR_TEXT_CAPABILITY} capability).`,
+        );
+      }
+      return;
+    }
+    const outcome = await port.load();
+    if (outcome.kind === "failed") {
+      this.#ports.log.error(`Reading AI Behavior failed: ${oneSentence(outcome.message)}`);
+      return;
+    }
+    this.#applyAiBehaviorOutcome(outcome);
+  }
+
+  /**
+   * What a read — or the row's Edit or Reset — came back with, applied. False
+   * when nothing was read: an old CLI is blocked as out of date, a failure keeps
+   * the last good read. The log gets the state when it changes, never the text.
+   */
+  #applyAiBehaviorOutcome(outcome: AiBehaviorOutcome): boolean {
+    if (outcome.kind === "outdated") {
+      this.#aiBehavior = undefined;
+      this.#aiBehaviorPreview = undefined;
+      this.#blockOutdatedCli(outcome.rejected);
+      return false;
+    }
+    if (outcome.kind === "failed") return false;
+    const previous = this.#aiBehavior;
+    this.#aiBehavior = outcome.snapshot;
+    // Said when it changes, not at every read: a reread on focus is not news.
+    if (previous !== undefined && aiBehaviorFingerprint(previous) === aiBehaviorFingerprint(outcome.snapshot)) return true;
+    if (outcome.snapshot.problem) this.#ports.log.info(`AI Behavior: ${AI_BEHAVIOR_FILE} is not used: ${outcome.snapshot.problem}`);
+    if (outcome.snapshot.lintCount > 0) {
+      this.#ports.log.info(`AI Behavior: ${outcome.snapshot.lintCount} line(s) of ${AI_BEHAVIOR_FILE} may need a second look; \`bugpilot ai-behavior show\` lists them.`);
+    }
+    return true;
+  }
+
+  /** Whether the AI Behavior row can act at all; otherwise said, and nothing is run. */
+  #aiBehaviorRowReady(action: string, writing: boolean): boolean {
+    if (this.#readiness.kind !== "ready" || !this.#root || !this.#ports.aiBehaviorPolicy) {
+      this.#ports.ui.notify("warning", `${action}: BugPilot is not ready in this repository.`);
+      return false;
+    }
+    if (!readsAiBehaviorText(this.#report)) {
+      this.#ports.ui.notify("warning", `${action}: the installed BugPilot CLI cannot read ${AI_BEHAVIOR_FILE}. Update it first.`);
+      return false;
+    }
+    if (writing && this.#aiBehaviorBusy) {
+      this.#ports.ui.notify("info", `${action}: AI Behavior is being updated.`);
+      return false;
+    }
+    return true;
+  }
+
+  /** One write at a time, and every policy read waits for it. */
+  async #writeAiBehavior(write: () => Promise<void>): Promise<void> {
+    this.#aiBehaviorBusy = true;
+    this.#push();
+    const done = (async () => {
+      try {
+        await write();
+      } finally {
+        this.#aiBehaviorBusy = false;
+      }
+    })();
+    this.#aiBehaviorWrite = done;
+    try {
+      await done;
+    } finally {
+      if (this.#aiBehaviorWrite === done) this.#aiBehaviorWrite = undefined;
+      this.#push();
+    }
+  }
+
+  /**
+   * The AI Behavior row's Edit (0.1.4): `.bugpilot/ai_behavior.md` in a full
+   * editor tab. A file that is there is opened as it is — one the CLI cannot use
+   * included, so it can be fixed. One that is not is created first by the CLI
+   * from its own template: the three sections, empty, which add nothing until
+   * something is written under them — so creating it changes no task and makes
+   * nothing stale. A link, or anything but a regular file, is not opened.
+   */
+  async editAiBehavior(): Promise<void> {
+    if (!this.#aiBehaviorRowReady("AI Behavior cannot be edited", true)) return;
+    const port = this.#ports.aiBehaviorPolicy!;
+    const file = path.join(this.#root!, ".bugpilot", "ai_behavior.md");
+    const read = await port.load();
+    if (!this.#applyAiBehaviorOutcome(read) || this.#aiBehavior === undefined) {
+      if (read.kind === "failed") this.#ports.ui.notify("error", `AI Behavior could not be read: ${oneSentence(read.message)}`);
+      this.#push();
+      return;
+    }
+    const kind = port.fileKind ? await port.fileKind() : this.#aiBehavior.fileExists ? "file" : "absent";
+    if (kind === "other") {
+      this.#ports.ui.notify(
+        "warning",
+        `BugPilot does not open ${AI_BEHAVIOR_FILE}: it is a link or not a regular file. Replace it with a regular file, or remove it.`,
+      );
+      this.#push();
+      return;
+    }
+    if (kind === "absent") {
+      const create = port.create;
+      const template = this.#aiBehavior.template;
+      if (!create || !template) {
+        this.#ports.ui.notify("warning", `This editor cannot create ${AI_BEHAVIOR_FILE}.`);
+        return;
+      }
+      if (this.#busy()) {
+        this.#ports.ui.notify("info", `${AI_BEHAVIOR_FILE} was not created. ${this.#busyReason()}`);
+        this.#push();
+        return;
+      }
+      let created = false;
+      await this.#writeAiBehavior(async () => {
+        const outcome = await create(template);
+        if (!this.#applyAiBehaviorOutcome(outcome)) {
+          if (outcome.kind === "failed") this.#ports.ui.notify("error", `${AI_BEHAVIOR_FILE} was not created: ${oneSentence(outcome.message)}`);
+          return;
+        }
+        created = true;
+        this.#ports.log.info(`AI Behavior: created ${AI_BEHAVIOR_FILE} with its sections, empty.`);
+      });
+      if (!created) return;
+    }
+    try {
+      await this.#ports.ui.openFile(file);
+    } catch (error) {
+      this.#ports.ui.notify("error", `${AI_BEHAVIOR_FILE} could not be opened: ${oneSentence((error as Error).message)}`);
+    }
+  }
+
+  /** The AI Behavior row's Reset: `ai-behavior reset` after the developer says so; BugPilot's defaults then apply alone. */
+  async resetAiBehavior(): Promise<void> {
+    if (!this.#aiBehaviorRowReady("AI Behavior was not reset", true)) return;
+    const reset = this.#ports.aiBehaviorPolicy!.reset;
+    if (!reset) {
+      this.#ports.ui.notify("warning", `This editor cannot remove ${AI_BEHAVIOR_FILE}.`);
+      return;
+    }
+    if (this.#busy()) {
+      this.#ports.ui.notify("info", `AI Behavior was not reset. ${this.#busyReason()}`);
+      this.#push();
+      return;
+    }
+    const confirmed = await this.#ports.ui.confirm(
+      `Reset AI Behavior? This deletes ${AI_BEHAVIOR_FILE}. BugPilot's default AI Behavior then applies alone.`,
+      "Delete File",
+      "Keep File",
+      { keepFocused: true },
+    );
+    if (!confirmed) return;
+    // Asked again after the dialog: a run may have started while it was open.
+    if (this.#busy()) {
+      this.#ports.ui.notify("info", `AI Behavior was not reset. ${this.#busyReason()}`);
+      this.#push();
+      return;
+    }
+    await this.#writeAiBehavior(async () => {
+      const outcome = await reset();
+      if (!this.#applyAiBehaviorOutcome(outcome)) {
+        if (outcome.kind === "failed") this.#ports.ui.notify("error", `AI Behavior was not reset: ${oneSentence(outcome.message)}`);
+        return;
+      }
+      this.#ports.log.info("AI Behavior: reset; BugPilot's defaults apply alone.");
+    });
+  }
+
+  /** The AI Behavior row's Preview: the effective AI Behavior, read-only. It writes nothing and moves no baseline. */
+  async previewAiBehavior(): Promise<void> {
+    if (!this.#aiBehaviorRowReady("AI Behavior cannot be previewed", false)) return;
+    const read = await this.#ports.aiBehaviorPolicy!.load();
+    if (!this.#applyAiBehaviorOutcome(read) || this.#aiBehavior === undefined) {
+      if (read.kind === "failed") this.#ports.ui.notify("error", `AI Behavior could not be read: ${oneSentence(read.message)}`);
+      this.#push();
+      return;
+    }
+    this.#aiBehaviorPreviewToken += 1;
+    this.#aiBehaviorPreview = { token: this.#aiBehaviorPreviewToken };
+    this.#push();
+  }
+
+  /** The AI Behavior Preview's Back, or Escape. */
+  closeAiBehaviorPreview(): void {
+    if (this.#aiBehaviorPreview === undefined) return;
+    this.#aiBehaviorPreview = undefined;
+    this.#push();
+  }
+
+  /** Whether AI Behavior changed since the context on screen was prepared — the row's "Needs rebuild". */
+  #aiBehaviorStale(): boolean {
+    if (!this.#prepared() || !this.#policiesChanged() || this.#preparedPolicies === undefined) return false;
+    const now = this.#aiBehaviorPart();
+    return [this.#preparedPolicies, ...this.#preparedPolicyAliases].every((policies) => aiBehaviorPartOf(policies) !== now);
+  }
+
+  // --- the read-only views: Effective AI Task, Effective Context, Protected Rules ----------------
+
+  /**
+   * Open one read-only view (0.1.4), from Advanced Settings or the ⋯ menu.
+   * One at a time: opening one closes the others. It asks the CLI only once
+   * the view is open, and only a CLI that lists the capability.
+   */
+  openEffectiveView(kind: EffectiveViewKind): void {
+    if (this.#readiness.kind !== "ready" || !this.#root) {
+      this.#ports.ui.notify("warning", "BugPilot is not ready in this repository.");
+      return;
+    }
+    const panes = { task: this.#taskPane, context: this.#contextPane, rules: this.#rulesPane };
+    for (const [name, pane] of Object.entries(panes)) if (name !== kind) pane.close();
+    panes[kind].open();
+    this.#push();
+  }
+
+  /** A view's Back, or Escape. */
+  closeEffectiveViews(): void {
+    if (!this.#taskPane.isOpen && !this.#contextPane.isOpen && !this.#rulesPane.isOpen) return;
+    this.#taskPane.close();
+    this.#contextPane.close();
+    this.#rulesPane.close();
+    this.#push();
+  }
+
+  /** A view's Refresh: ask again now, whatever the request. */
+  refreshEffectiveViews(): void {
+    this.#previewEpoch += 1;
+    this.#push();
+  }
+
+  /** The Effective AI Task's Copy: the CLI's text exactly, to the clipboard. */
+  async copyEffectiveTask(): Promise<void> {
+    const pane = this.#taskPane.view();
+    const snapshot = pane?.snapshot;
+    // Only the task for the current request: never one from before BugPilot became busy,
+    // the previous work item's while the next one loads, or the last good one after a failure.
+    if (snapshot === undefined || !pane?.current) return;
+    try {
+      await this.#ports.ui.copyToClipboard(snapshot.text);
+    } catch (error) {
+      this.#ports.log.error(`Could not copy the effective AI task: ${(error as Error)?.message ?? String(error)}`);
+      this.#ports.ui.notify("error", "BugPilot could not copy the effective AI task to the clipboard.");
+      return;
+    }
+    this.#ports.ui.notify("info", "Copied the effective AI task to the clipboard.");
+  }
+
+  /** What the Effective AI Task shows: the work item's task once it has an issue.json, else the template with the form's run settings. */
+  #taskPreviewRequest(): TaskPreviewRequest {
+    const workItemId = this.#workItemId;
+    if (workItemId !== undefined && this.#artifactNames.includes(ISSUE_ARTIFACT)) return { kind: "work-item", workItemId };
+    const fixModeId = this.#form.fixModeId.trim();
+    return {
+      kind: "template",
+      ...(FIX_MODE_ID_RE.test(fixModeId) ? { fixModeId } : {}),
+      branchPolicy: branchPolicyOf(this.#form.branchPolicy),
+      // The panel never asks a run for the Jira status comment; neither does its template.
+      jiraComment: false,
+    };
+  }
+
+  /**
+   * Point each open view at what is current, asking the CLI only for a new
+   * request. Held while a run writes the work item's files, or while BugPilot
+   * is not ready: the view keeps what it shows. Safe to call on every push.
+   */
+  #syncPanes(): void {
+    if (!this.#taskPane.isOpen && !this.#contextPane.isOpen && !this.#rulesPane.isOpen) return;
+    const hold = this.#readiness.kind !== "ready" || this.#running || this.#checkingEnvironment || this.#root === undefined;
+    const epoch = this.#previewEpoch;
+    const desire = <R,>(supported: boolean, key: string, request: R): PaneDesire<R> =>
+      hold ? undefined : supported ? { key: `${key}|${epoch}`, request } : "unsupported";
+    if (this.#taskPane.isOpen) {
+      const request = this.#taskPreviewRequest();
+      this.#taskPane.sync(desire(this.#ports.taskPreview !== undefined && readsTaskPreview(this.#report), taskPreviewRequestKey(request), request));
+    }
+    if (this.#contextPane.isOpen) {
+      const workItemId = this.#workItemId;
+      this.#contextPane.sync(desire(this.#ports.contextPreview !== undefined && readsContextPreview(this.#report), `context:${workItemId ?? ""}`, workItemId));
+    }
+    if (this.#rulesPane.isOpen) {
+      this.#rulesPane.sync(desire(this.#ports.protectedRules !== undefined && readsProtectedRules(this.#report), "rules", null));
+    }
+  }
+
+  /**
+   * What the panel knows about the package the Effective Context shows, from
+   * its existing fingerprints — only for the work item it prepared. The CLI's
+   * status is merged with this; neither replaces the other.
+   */
+  #panelFreshness(snapshot: ContextPreviewSnapshot): PanelFreshness {
+    const workItemId = this.#workItemId;
+    if (!this.#prepared() || workItemId === undefined || snapshot.workItem !== workItemId) {
+      return { preparedHere: false, formChanged: false, policiesChanged: false };
+    }
+    const preparedScope = JIRA_ISSUE_KEY_RE.test(workItemId) ? workItemId : MANUAL_WORK_ITEM_SCOPE;
+    const sameScope = workItemScopeOf(this.#form) === preparedScope;
+    return {
+      preparedHere: true,
+      formChanged: sameScope && this.#formChangedSincePrepared(this.#form),
+      policiesChanged: this.#policiesChanged(),
+    };
+  }
+
+  /**
    * What a read — or Edit's create, or Reset — came back with, applied. False
    * when nothing was read: an old CLI is blocked as out of date, and a failure
    * keeps the last good read, which says nothing about the file. The log gets
@@ -3597,8 +4060,17 @@ export class Controller {
     return true;
   }
 
+  /** Whether this host reads any policy a task is written from: else a run need not wait a turn for them. */
+  #hasPolicyPorts(): boolean {
+    return (
+      this.#ports.instructions !== undefined ||
+      this.#ports.verificationPolicy !== undefined ||
+      this.#ports.aiBehaviorPolicy !== undefined
+    );
+  }
+
   /**
-   * Read the instructions and the Verification Policy again, so the stale check
+   * Read the instructions, the Verification Policy and AI Behavior again, so the stale check
    * compares what a run would read now (§42.2). Before every Run, Rebuild
    * Context, Fix with AI and Start New Attempt, at every environment check, when
    * the window comes back to focus and when a `.bugpilot/` file changes: the
@@ -3612,8 +4084,12 @@ export class Controller {
       // The settings row's Edit or Reset writing the file now: read what it
       // leaves, never the file a moment before (§42.5).
       if (this.#verificationWrite) await this.#verificationWrite;
+      if (this.#aiBehaviorWrite) await this.#aiBehaviorWrite;
       await this.#loadInstructions();
       await this.#loadVerificationPolicy();
+      await this.#loadAiBehaviorPolicy();
+      // What a preview shows may have moved with them.
+      this.#previewEpoch += 1;
     })().finally(() => {
       if (this.#policyRefresh === refresh) this.#policyRefresh = undefined;
     });
@@ -3825,6 +4301,7 @@ export class Controller {
       `Reset the Verification Policy? This deletes ${VERIFICATION_FILE}. BugPilot then uses the policy that applies without it, as the settings row will show.`,
       "Delete File",
       "Keep File",
+      { keepFocused: true },
     );
     if (!confirmed) return;
     // Asked again after the dialog: a run may have started while it was open.
@@ -4521,6 +4998,8 @@ export class Controller {
     // is on the button with the next push, and not only on the next Run.
     const primaryBefore = JSON.stringify(this.#primaryView());
     this.#form = form;
+    // A template preview follows the form's run settings: asked again only if they moved.
+    this.#syncPanes();
     this.#ports.saveForm?.(form);
     // Editing the hint, or moving to another issue, makes the suggestion an
     // answer to a question nobody asked any more.
@@ -6195,7 +6674,7 @@ export class Controller {
 
   /**
    * Whether the policy files changed since the package was prepared, the form
-   * aside (§42.2): the instructions and the Verification Policy are files, not
+   * aside (§42.2): the instructions, the Verification Policy and AI Behavior are files, not
    * form fields, compared by the CLI's content hash — never by file time — and
    * only when both sides are known.
    */
@@ -6218,10 +6697,15 @@ export class Controller {
     return !this.#formChangedSincePrepared(form);
   }
 
-  /** The instructions' and the Verification Policy's state, as one comparable string; `undefined` before the instructions are read. */
+  /** The instructions', the Verification Policy's and AI Behavior's state, as one comparable string; `undefined` before the instructions are read. */
   #policyFingerprint(): string | undefined {
     if (this.#instructions === undefined) return undefined;
-    return `${instructionsFingerprint(this.#instructions)}|${this.#verificationPart()}`;
+    return `${instructionsFingerprint(this.#instructions)}|${this.#verificationPart()}|${this.#aiBehaviorPart()}`;
+  }
+
+  /** AI Behavior's part of the policies' fingerprint: the last. */
+  #aiBehaviorPart(): string {
+    return this.#aiBehavior === undefined ? "-" : aiBehaviorFingerprint(this.#aiBehavior);
   }
 
   /** The Verification Policy's part of the policies' fingerprint. */
@@ -6407,6 +6891,11 @@ export class Controller {
     // The run's card goes on the row that failed; only a failure no row owns —
     // before any step started, or from the extension itself — stands alone.
     const owned = failed !== undefined && workflow.some((step) => step.error === failed);
+    this.#syncPanes();
+    const taskPane = this.#taskPane.view();
+    const contextPane = this.#contextPane.view();
+    const rulesPane = this.#rulesPane.view();
+    const ready = this.#readiness.kind === "ready";
     this.#ports.ui.render({
       revision: this.#revision,
       fixModes: this.#fixModes,
@@ -6423,6 +6912,30 @@ export class Controller {
       ...(this.#verificationPreview === undefined || this.#verification === undefined
         ? {}
         : { verificationPreview: verificationPreviewView(this.#verification, this.#verificationPreview.token) }),
+      aiBehavior: aiBehaviorRowView(this.#aiBehavior, {
+        ready: ready && this.#ports.aiBehaviorPolicy !== undefined,
+        readsText: readsAiBehaviorText(this.#report),
+        writesHeld: this.#busy(),
+        stale: this.#aiBehaviorStale(),
+        busy: this.#aiBehaviorBusy,
+      }),
+      ...(this.#aiBehaviorPreview === undefined || this.#aiBehavior === undefined
+        ? {}
+        : { aiBehaviorPreview: aiBehaviorPreviewView(this.#aiBehavior, this.#aiBehaviorPreview.token) }),
+      effectiveRows: effectiveRowsView({
+        ready: ready && this.#root !== undefined,
+        supports: {
+          task: this.#ports.taskPreview !== undefined && readsTaskPreview(this.#report),
+          context: this.#ports.contextPreview !== undefined && readsContextPreview(this.#report),
+          rules: this.#ports.protectedRules !== undefined && readsProtectedRules(this.#report),
+        },
+        ...(this.#workItemId === undefined ? {} : { workItemId: this.#workItemId }),
+        prepared: this.#prepared(),
+        needsRebuild: this.#stale(),
+      }),
+      ...(taskPane === undefined ? {} : { effectiveTask: effectiveTaskPaneView(taskPane, this.#stale()) }),
+      ...(contextPane === undefined ? {} : { effectiveContext: effectiveContextPaneView(contextPane, (snapshot) => this.#panelFreshness(snapshot)) }),
+      ...(rulesPane === undefined ? {} : { protectedRules: protectedRulesPaneView(rulesPane) }),
       ...(this.#preparedFixMode === undefined ? {} : { preparedFixMode: this.#preparedFixMode }),
       ...(this.#manageOpen
         ? {

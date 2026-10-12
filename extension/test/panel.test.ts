@@ -273,6 +273,14 @@ const WELL_FORMED: Readonly<Record<PanelMessage["type"], Record<string, unknown>
   resetVerificationPolicy: { type: "resetVerificationPolicy" },
   previewVerificationPolicy: { type: "previewVerificationPolicy" },
   closeVerificationPreview: { type: "closeVerificationPreview" },
+  editAiBehavior: { type: "editAiBehavior" },
+  resetAiBehavior: { type: "resetAiBehavior" },
+  previewAiBehavior: { type: "previewAiBehavior" },
+  closeAiBehaviorPreview: { type: "closeAiBehaviorPreview" },
+  openEffectiveView: { type: "openEffectiveView", view: "task" },
+  closeEffectiveView: { type: "closeEffectiveView" },
+  refreshEffectiveView: { type: "refreshEffectiveView" },
+  copyEffectiveTask: { type: "copyEffectiveTask" },
   saveInstructions: { type: "saveInstructions", scope: "user", text: "Prefer small focused changes." },
   parseReviewOutput: { type: "parseReviewOutput", text: "## Summary\nReads correctly.\n" },
   discardReviewDraft: { type: "discardReviewDraft" },
@@ -394,6 +402,24 @@ test("the stylesheet keeps the panel usable at sidebar width", () => {
   assert.equal(fixedWidth, null, `fixed width in panel.css: ${fixedWidth?.[0]}`);
   assert.match(CSS, /box-sizing:\s*border-box/);
   assert.match(CSS, /overflow-wrap:\s*anywhere/);
+  // A facts list's label column is capped, so a long label never squeezes its
+  // value into a column too narrow for one word (the Effective views at 200px).
+  assert.match(/\.preview-facts \{[^}]*\}/.exec(CSS)?.[0] ?? "", /grid-template-columns: fit-content\(45%\) minmax\(0, 1fr\);/);
+});
+
+test("a secondary button's hover keeps a background its own text colour reads on", () => {
+  // High Contrast Light defines the secondary colours but no secondary hover:
+  // falling straight to the primary hover put #292929 text on #0f4a85.
+  const hover = /button:hover:not\(:disabled\):not\(\[aria-disabled="true"\]\) \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  assert.match(hover, /background: var\(--vscode-button-secondaryHoverBackground, var\(--vscode-button-secondaryBackground, var\(--vscode-button-hoverBackground\)\)\);/);
+});
+
+test("warning colours mark edges and icons, never the text of a stale headline", () => {
+  // The theme's warning foreground is an accent, not a text colour: Light
+  // Modern's is about 2.9:1 on its sidebar, below WCAG AA for body text.
+  const stale = /\.effective-headline\.is-stale \{[^}]*\}/.exec(CSS)?.[0] ?? "";
+  assert.match(stale, /border-left: 2px solid var\(--vscode-editorWarning-foreground/);
+  assert.doesNotMatch(stale, /(?<![a-z-])color:/);
 });
 
 test("focus is visible, using the theme's own focus colour", () => {
@@ -959,10 +985,16 @@ test("helper text survives only where a tooltip could not carry it", () => {
   const described = [...SETTINGS_VIEW.matchAll(/<p class="hint (?:instruction|policy)-description" id="([a-z-]+)-description">([^<]+)<\/p>/g)].map(
     (match) => [match[1], match[2]],
   );
+  // 0.1.4's rows say it likewise: AI Behavior, the protected rules and the
+  // two Effective Output views, each one line under its name.
   assert.deepEqual(described, [
     ["user-instructions", "Personal guidance used across repositories."],
     ["project-instructions", "Optional repository-specific guidance for AI."],
     ["verification-policy", "Minimum verification expected for code changes."],
+    ["ai-behavior", "Repository conventions on top of BugPilot's defaults."],
+    ["protected-rules", "Built into BugPilot, the same in every task. Read-only."],
+    ["effective-task", "What BugPilot hands the AI agent, section by section."],
+    ["effective-context", "The context BugPilot last generated, and whether it is current."],
   ]);
   // The main form keeps none (§37.104): Issue, Fix Mode, Hint and Include issue
   // details explain themselves by placeholder, tooltip and accessible
@@ -1495,7 +1527,12 @@ test("the ⋯ More menu: Reset Session first, a separator, then the next steps h
   const menu = /<div class="more-menu" id="more-menu" role="menu" aria-label="More actions" hidden>[\s\S]*?\n      <\/div>/.exec(HTML)?.[0] ?? "";
   assert.notEqual(menu, "", "no menu under the button row");
   const items = [...menu.matchAll(/<button type="button" role="menuitem" class="menu-item" id="menu-([A-Za-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(items, ["resetSession", "startNewAttempt", "rebuildContext", "openSession"]);
+  assert.deepEqual(items, ["resetSession", "startNewAttempt", "rebuildContext", "openSession", "effectiveTask", "effectiveContext"]);
+  // The read-only views of 0.1.4 last, after a separator of their own, hidden until the page shows them.
+  for (const id of ["effectiveTask", "effectiveContext"]) assert.match(menu, new RegExp(`id="menu-${id}" title="[^"]+" hidden>`), id);
+  assert.ok(menu.indexOf('id="menu-openSession"') < menu.indexOf('id="menu-separator-effective"'));
+  assert.ok(menu.indexOf('id="menu-separator-effective"') < menu.indexOf('id="menu-effectiveTask"'));
+  assert.match(menu, /<div class="menu-separator" id="menu-separator-effective" role="separator" hidden><\/div>/);
   // Reset Session is always shown; the next steps start hidden.
   assert.match(menu, /id="menu-resetSession" title="[^"]+"><span class="codicon codicon-discard" aria-hidden="true"><\/span><span>Reset Session<\/span><\/button>/);
   for (const id of ["startNewAttempt", "rebuildContext", "openSession"]) {
@@ -1769,6 +1806,15 @@ test("the page markup does not name any Fix Mode", () => {
   }
 });
 
+test("every id in the panel is declared once", () => {
+  // getElementById finds the first: a second element with the same id is
+  // never rendered into, and the first is rendered into by mistake — the
+  // Effective AI Task's headline once overwrote the settings row's label.
+  const counts = new Map<string, number>();
+  for (const [, id] of HTML.matchAll(/\sid="([^"]+)"/g)) counts.set(id!, (counts.get(id!) ?? 0) + 1);
+  assert.deepEqual([...counts].filter(([, count]) => count > 1), []);
+});
+
 test("the panel declares its views, and only the form starts visible", () => {
   // The contract showView() rests on: one section per view, all siblings, and
   // every Fix Mode one hidden in the markup — so a webview that never receives
@@ -1843,10 +1889,15 @@ const BACK_PAGES = [
   ["instructions-editor-view", "instructions-back", "instructions-title", "Instructions", "Back to Advanced Settings — discards the changes"],
   // The Verification Policy, read-only (§42.5): nothing to discard.
   ["verification-preview-view", "verification-preview-back", "verification-preview-title", "Verification Policy Preview", "Back to Advanced Settings"],
+  // 0.1.4: AI Behavior's Preview, and the three read-only views, which open from Advanced Settings or ⋯ More.
+  ["ai-behavior-preview-view", "ai-behavior-preview-back", "ai-behavior-preview-title", "AI Behavior Preview", "Back to Advanced Settings"],
+  ["protected-rules-view", "protected-rules-back", "protected-rules-title", "Protected Rules", "Back to where you opened this view"],
+  ["effective-task-view", "effective-task-back", "effective-task-title", "Effective AI Task", "Back to where you opened this view"],
+  ["effective-context-view", "effective-context-back", "effective-context-title", "Effective Context", "Back to where you opened this view"],
 ] as const;
 
 test("every page with a way back uses the one shared page header (§37.120)", () => {
-  // Exactly these six, and nowhere else: the main view has no way back.
+  // Exactly these ten, and nowhere else: the main view has no way back.
   assert.equal([...HTML.matchAll(/<div class="page-header">/g)].length, BACK_PAGES.length);
   const main = /<section id="main-view"[\s\S]*?\n {2}<\/section>/.exec(HTML)?.[0] ?? "";
   assert.equal(main.includes("page-header"), false);
@@ -2108,7 +2159,7 @@ test("Manage Fix Modes: a short lede, the list, and Delete's description (§37.1
   assert.match(view, /<p class="visually-hidden" id="manage-delete-help">Permanently deletes this Fix Mode's file\. BugPilot asks you to confirm first\.<\/p>/);
   // The preview's facts are a term list: where the id and the version went.
   assert.match(HTML, /<dl id="preview-meta" class="preview-facts"><\/dl>/);
-  assert.match(CSS, /\.preview-facts \{[^}]*display: grid;[^}]*grid-template-columns: auto minmax\(0, 1fr\);/s);
+  assert.match(CSS, /\.preview-facts \{[^}]*display: grid;[^}]*grid-template-columns: fit-content\(45%\) minmax\(0, 1fr\);/s);
   assert.match(CSS, /\.preview-facts dd \{[^}]*overflow-wrap: anywhere;/s);
 });
 
@@ -2553,9 +2604,11 @@ test("Workflow Settings is one section per step that has settings, in the workfl
     "similar-fixes",
     "repository",
     "guidance-verification",
+    "ai-behavior-rules",
     "build-context",
     "fix-with-ai",
     "branch",
+    "effective-output",
   ]);
   // Similar fixes has settings since §37.113, after Git history and before
   // Build context; Retrieval inputs is what the retrieval steps share, just
@@ -2757,10 +2810,14 @@ test("a section's tag is a quiet fact beside its heading, never a badge, and wra
     repository: ["Requires rebuild", "Changes here require rebuilding context."],
     // The User and Project instructions and the Verification Policy, written into task.md.
     "guidance-verification": ["Requires rebuild", "Changes here require rebuilding context."],
+    // AI Behavior is written into task.md; the protected rules cannot be changed at all.
+    "ai-behavior-rules": ["Requires rebuild", "Changing AI Behavior requires rebuilding context. The protected rules are built in and read-only."],
     "build-context": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     "fix-with-ai": ["Next run only", "Changes here apply to the next run and do not require rebuilding context."],
     // Written into task.md, as the Fix Mode is (§37.127).
     branch: ["Requires rebuild", "Changes here require rebuilding context."],
+    // What the agent is handed: read-only views, no setting.
+    "effective-output": ["Read-only", "Read-only: what BugPilot hands the AI agent. Nothing here is a setting, and viewing it changes nothing."],
   };
   assert.deepEqual(Object.keys(expected), [...WORKFLOW_SETTINGS_SECTIONS]);
   for (const [section, [words, sentence]] of Object.entries(expected)) {
@@ -4696,10 +4753,13 @@ test("Guidance & Verification: three documents in order, one edit path each, and
   for (const gone of ["verifyRelevantTests", "verifyStaticChecks", "verifyFullSuite", "verifyReportNotRun", "verification-note", 'type="checkbox"']) {
     assert.equal(section.includes(gone), false, gone);
   }
-  // 0.1.4's are not here: no AI Behavior, Evidence, Output, Delivery or protected-rule viewer, no task preview.
-  for (const later of ["AI Behavior", "Evidence Policy", "Output Requirements", "Delivery Behavior", "Protected Rules", "Effective AI Task", "Effective Context"]) {
-    assert.equal(HTML.includes(later), false, later);
+  // 0.1.4's are not in this section: AI Behavior and the protected rules have
+  // their own, Effective Output its own (plan §28) — and the documents the
+  // plan never made (Evidence, Output, Delivery policies) are nowhere.
+  for (const later of ["AI Behavior", "Protected rules", "Effective AI Task", "Context status"]) {
+    assert.equal(section.includes(later), false, later);
   }
+  for (const never of ["Evidence Policy", "Output Requirements", "Delivery Behavior"]) assert.equal(HTML.includes(never), false, never);
 });
 
 test("the Verification Policy row: a name, what it is for, state in words, three named actions — never a box to type in", () => {

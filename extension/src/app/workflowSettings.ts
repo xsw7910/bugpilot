@@ -47,6 +47,13 @@ import type { WorkflowStepId } from "./workflow.ts";
  * lives — the instructions on their own page, the policy in an editor tab —
  * and saved there, so the section has no form fields at all, and every change
  * to any of them changes task.md.
+ *
+ * AI Behavior & Rules after it (0.1.4, plan §28): the repository's AI Behavior
+ * — BugPilot's defaults plus its additions, edited in an editor tab like the
+ * Verification Policy — and BugPilot's protected rules, read-only. Effective
+ * Output last, after Branch: what BugPilot hands the AI agent — the Effective
+ * AI Task and the Effective Context — read-only views from the CLI, so the
+ * section is no setting at all.
  */
 export const WORKFLOW_SETTINGS_SECTIONS = [
   "issue-details",
@@ -56,14 +63,19 @@ export const WORKFLOW_SETTINGS_SECTIONS = [
   "similar-fixes",
   "repository",
   "guidance-verification",
+  "ai-behavior-rules",
   "build-context",
   "fix-with-ai",
   "branch",
+  "effective-output",
 ] as const;
 export type WorkflowSettingsSection = (typeof WORKFLOW_SETTINGS_SECTIONS)[number];
 
-/** The sections that belong to one step: every one but the shared inputs, Repository, Guidance & Verification and Branch. */
-export type StepSettingsSection = Exclude<WorkflowSettingsSection, "retrieval-inputs" | "repository" | "guidance-verification" | "branch">;
+/** The sections that belong to one step: every one but the shared inputs, Repository, the documents, Branch and Effective Output. */
+export type StepSettingsSection = Exclude<
+  WorkflowSettingsSection,
+  "retrieval-inputs" | "repository" | "guidance-verification" | "ai-behavior-rules" | "branch" | "effective-output"
+>;
 
 /**
  * Which row's gear opens which section. A row absent here has no gear, and
@@ -88,9 +100,11 @@ export const SETTINGS_SECTION_TITLES: Readonly<Record<WorkflowSettingsSection, s
   "similar-fixes": "Similar fixes",
   repository: "Repository",
   "guidance-verification": "Guidance & Verification",
+  "ai-behavior-rules": "AI Behavior & Rules",
   "build-context": "Build context",
   "fix-with-ai": "Fix with AI",
   branch: "Branch",
+  "effective-output": "Effective Output",
 };
 
 /**
@@ -167,6 +181,8 @@ export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, r
   // The User and Project instructions and the Verification Policy: three
   // documents, each saved where it is edited — none of them a form field.
   "guidance-verification": [],
+  // AI Behavior, saved in its file, and the protected rules, built in: no form field.
+  "ai-behavior-rules": [],
   // How a preparation treats the work item's previous folder.
   "build-context": ["fresh"],
   // Who the task goes to. How it is approached, and the hint it carries, are
@@ -174,6 +190,8 @@ export const SETTINGS_SECTION_FIELDS: Readonly<Record<WorkflowSettingsSection, r
   "fix-with-ai": ["agent", "agentCommand"],
   // Which branch the agent edits and commits on, and what a new one is called.
   branch: ["branchPolicy", "branchNaming", "branchTemplate"],
+  // Read-only views of what the agent is handed: nothing to set.
+  "effective-output": [],
 };
 
 /**
@@ -271,6 +289,8 @@ function rebuildScope(section: WorkflowSettingsSection): "all" | "none" | "some"
  * cannot drift from it.
  */
 export function sectionRebuildNote(section: WorkflowSettingsSection): string {
+  if (section === "effective-output") return "Read-only: what BugPilot hands the AI agent. Nothing here is a setting, and viewing it changes nothing.";
+  if (section === "ai-behavior-rules") return "Changing AI Behavior requires rebuilding context. The protected rules are built in and read-only.";
   switch (rebuildScope(section)) {
     case "all":
       return "Changes here require rebuilding context.";
@@ -291,6 +311,7 @@ export function sectionRebuildNote(section: WorkflowSettingsSection): string {
  * developer presses Rebuild Context.
  */
 export function sectionRebuildTag(section: WorkflowSettingsSection): string {
+  if (section === "effective-output") return "Read-only";
   switch (rebuildScope(section)) {
     case "all":
       return "Requires rebuild";

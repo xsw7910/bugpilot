@@ -53,7 +53,8 @@ test("the gears map rows to sections one to one, and a section is titled by its 
   assert.deepEqual(
     Object.values(SETTINGS_SECTION_OF_STEP),
     WORKFLOW_SETTINGS_SECTIONS.filter(
-      (section) => section !== "retrieval-inputs" && section !== "repository" && section !== "guidance-verification" && section !== "branch",
+      (section) =>
+        !["retrieval-inputs", "repository", "guidance-verification", "ai-behavior-rules", "branch", "effective-output"].includes(section),
     ),
   );
   // Git history has a gear, and Similar fixes too since §37.113; Fix result
@@ -69,7 +70,20 @@ test("the gears map rows to sections one to one, and a section is titled by its 
 test("the page's sections, in order: the shared inputs just before the retrieval steps that read them (§37.113)", () => {
   assert.deepEqual(
     [...WORKFLOW_SETTINGS_SECTIONS],
-    ["issue-details", "retrieval-inputs", "code-search", "git-history", "similar-fixes", "repository", "guidance-verification", "build-context", "fix-with-ai", "branch"],
+    [
+      "issue-details",
+      "retrieval-inputs",
+      "code-search",
+      "git-history",
+      "similar-fixes",
+      "repository",
+      "guidance-verification",
+      "ai-behavior-rules",
+      "build-context",
+      "fix-with-ai",
+      "branch",
+      "effective-output",
+    ],
   );
   // Guidance & Verification (§42.5) holds three documents, each saved where it
   // is edited — no form field at all — and all of it task.md's, so wholly
@@ -173,13 +187,20 @@ test("a section's tag says in a few words what its sentence says, from the same 
   // sentence that is its tooltip can never disagree: both read
   // SETTING_REQUIRES_REBUILD, and the fingerprint test above holds that table to
   // what actually makes a context stale.
+  // The two 0.1.4 sections with no form field say what they are rather than what a field needs.
+  const special = new Set(["ai-behavior-rules", "effective-output"]);
   for (const section of WORKFLOW_SETTINGS_SECTIONS) {
+    // Short enough to sit beside a heading in a 200px sidebar.
+    assert.ok(sectionRebuildTag(section).length <= 16, sectionRebuildTag(section));
+    if (special.has(section)) continue;
     const rebuilds = SETTINGS_SECTION_FIELDS[section].every((field) => SETTING_REQUIRES_REBUILD[field]);
     assert.equal(sectionRebuildTag(section), rebuilds ? "Requires rebuild" : "Next run only", section);
     assert.equal(sectionRebuildNote(section) === "Changes here require rebuilding context.", rebuilds, section);
-    // Short enough to sit beside a heading in a 200px sidebar.
-    assert.ok(sectionRebuildTag(section).length <= 16, sectionRebuildTag(section));
   }
+  assert.equal(sectionRebuildTag("ai-behavior-rules"), "Requires rebuild");
+  assert.match(sectionRebuildNote("ai-behavior-rules"), /^Changing AI Behavior requires rebuilding context\. The protected rules are built in and read-only\.$/);
+  assert.equal(sectionRebuildTag("effective-output"), "Read-only");
+  assert.match(sectionRebuildNote("effective-output"), /viewing it changes nothing/);
 });
 
 test("the Verification switches left the settings page (§42.5), and still count in the fingerprint until the file decides", () => {

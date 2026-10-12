@@ -115,9 +115,11 @@ def main(argv: list[str] | None = None) -> int:
                     arg = arg.replace(placeholder, str(value))
                 concrete.append(arg)
             try:
+                # An empty stdin: a `--stdin` command line reads nothing and answers at once,
+                # rather than waiting on whatever stdin this script was started with.
                 result = subprocess.run(
                     [args.bugpilot, *concrete], capture_output=True, text=True, env=env, cwd=repo, timeout=300,
-                    encoding="utf-8", errors="replace",
+                    encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
                 )
             except subprocess.TimeoutExpired:
                 failures.append(f"{entry['name']}: timed out")

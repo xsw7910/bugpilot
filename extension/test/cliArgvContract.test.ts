@@ -32,6 +32,10 @@ import type { FixModeDraft, ManagedFixMode } from "../src/app/fixModes.ts";
 import { reviewPackageArgs } from "../src/app/reviewPackage.ts";
 import { instructionsArgs } from "../src/app/instructions.ts";
 import { VERIFICATION_TEXT_CAPABILITY, verificationArgs } from "../src/app/verificationPolicy.ts";
+import { AI_BEHAVIOR_TEXT_CAPABILITY, aiBehaviorArgs } from "../src/app/aiBehaviorPolicy.ts";
+import { PROTECTED_RULES_CAPABILITY, protectedRulesArgs } from "../src/app/protectedRules.ts";
+import { TASK_PREVIEW_CAPABILITY, taskPreviewArgs } from "../src/app/effectiveTask.ts";
+import { CONTEXT_PREVIEW_CAPABILITY, contextPreviewArgs } from "../src/app/effectiveContext.ts";
 import { projectSettingsArgs } from "../src/app/projectSettings.ts";
 import { jiraSiteArgs } from "../src/app/jiraSite.ts";
 import { recordReviewArgs } from "../src/app/reviewCapture.ts";
@@ -156,12 +160,26 @@ function contract(): { readonly name: string; readonly argv: readonly string[] }
     { name: "verification show", argv: placeholders([...verificationArgs()]) },
     { name: "verification set (stdin)", argv: placeholders([...verificationArgs({ kind: "set", text: "unused: on stdin" })]) },
     { name: "verification reset", argv: placeholders([...verificationArgs({ kind: "reset" })]) },
+    // AI Behavior (0.1.4): read for the stale check and the settings row; the
+    // row's Edit creates the file from the CLI's template (on stdin) and its
+    // Reset removes it.
+    { name: "ai-behavior show", argv: placeholders([...aiBehaviorArgs()]) },
+    { name: "ai-behavior set (stdin)", argv: placeholders([...aiBehaviorArgs({ kind: "set", text: "unused: on stdin" })]) },
+    { name: "ai-behavior reset", argv: placeholders([...aiBehaviorArgs({ kind: "reset" })]) },
+    // The read-only views (0.1.4): Protected Rules, the Effective AI Task — a
+    // work item's, or the template with the form's run settings — and the
+    // Effective Context, with or without a work item.
+    { name: "protected-rules show", argv: placeholders([...protectedRulesArgs()]) },
+    { name: "task-preview (work item)", argv: placeholders([...taskPreviewArgs({ kind: "work-item", workItemId: "JR-12345" })]) },
+    { name: "task-preview (template)", argv: placeholders([...taskPreviewArgs({ kind: "template", fixModeId: "standard", branchPolicy: "current", jiraComment: false })]) },
+    { name: "context-preview (work item)", argv: placeholders([...contextPreviewArgs("JR-12345")]) },
+    { name: "context-preview (no work item)", argv: placeholders([...contextPreviewArgs(undefined)]) },
   ];
 }
 
-/** What `doctor --json` must list for this extension to rely on a feature (0.1.3, §42.2). */
+/** What `doctor --json` must list for this extension to rely on a feature (0.1.3, §42.2; 0.1.4). */
 function capabilities(): readonly string[] {
-  return [VERIFICATION_TEXT_CAPABILITY];
+  return [VERIFICATION_TEXT_CAPABILITY, AI_BEHAVIOR_TEXT_CAPABILITY, PROTECTED_RULES_CAPABILITY, TASK_PREVIEW_CAPABILITY, CONTEXT_PREVIEW_CAPABILITY];
 }
 
 test("the shared fixture is every command line the extension sends today", () => {

@@ -352,7 +352,10 @@ html:has(.view:not([hidden]) > .page-header) {
  */
 .preview-facts {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  /* The label column is capped: at sidebar width a long label ("Jira status
+     comment") would otherwise leave the value a sliver, split mid-word. The
+     label wraps at its spaces instead. */
+  grid-template-columns: fit-content(45%) minmax(0, 1fr);
   gap: 1px 12px;
   margin: 4px 0 0;
 }
@@ -2603,8 +2606,11 @@ button {
   cursor: pointer;
 }
 
+/* Falls back the way the text colour does: a theme with secondary colours but
+   no secondary hover (High Contrast Light) keeps its secondary background, not
+   the primary hover's dark blue under secondary dark text. */
 button:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-secondaryBackground, var(--vscode-button-hoverBackground)));
 }
 
 button.primary {
@@ -4122,4 +4128,128 @@ body.vscode-high-contrast-light .step-dot {
 .notice-done:focus {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
+}
+
+/*
+ * The read-only views of 0.1.4 — Effective AI Task, Effective Context and
+ * Protected Rules: documents to read, set like the policy previews. The task
+ * is drawn as one block per section, each with its label: protected sections
+ * marked by a lock and a solid edge, editable ones by a pencil and a dashed
+ * edge — said in words too, never by colour alone. The text is the CLI's,
+ * wrapped and selectable; nothing scrolls sideways at any width.
+ */
+.effective-headline {
+  margin: 6px 0 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Needs rebuild: the words say it; the warning colour marks the edge, never the
+   text, which in a light theme it would leave below a readable contrast. */
+.effective-headline.is-stale {
+  padding-left: 6px;
+  border-left: 2px solid var(--vscode-editorWarning-foreground, var(--vscode-focusBorder));
+}
+
+.effective-message {
+  margin: 4px 0 0;
+}
+
+.effective-section h3,
+.rule-group h3 {
+  margin: 10px 0 2px;
+  font-size: var(--vscode-font-size);
+  font-weight: 600;
+}
+
+.effective-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.effective-problems {
+  color: var(--vscode-errorForeground, var(--vscode-foreground));
+}
+
+.effective-contract p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.task-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.task-block {
+  border: 1px solid var(--bugpilot-section-border);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--bugpilot-section-bg);
+  min-width: 0;
+}
+
+.task-block.is-protected {
+  border-left-style: solid;
+  border-left-color: var(--vscode-focusBorder, var(--bugpilot-section-border));
+}
+
+.task-block.is-editable {
+  border-left-style: dashed;
+}
+
+.task-block-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 3px 8px 0;
+  font-size: 0.92em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.task-block-text {
+  margin: 0;
+  padding: 2px 8px 6px;
+  font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+  font-size: var(--vscode-editor-font-size, var(--vscode-font-size));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-block-text:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.rule-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.rule {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--bugpilot-section-border);
+  border-radius: 4px;
+  background: var(--bugpilot-section-bg);
+  overflow-wrap: anywhere;
+}
+
+.rule-text {
+  margin: 2px 0 0;
+}
+
+.rule-where {
+  margin: 2px 0 0;
+}
+
+.precedence-list {
+  margin: 4px 0 0;
+  padding-left: 22px;
 }
