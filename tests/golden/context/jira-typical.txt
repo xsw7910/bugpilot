@@ -1,0 +1,172 @@
+# Bug Context: JR-12345
+
+## Scope
+
+BugPilot prepares context only. It does not modify source code, invoke an agent automatically, create commits, push branches, update Jira, or create pull requests.
+
+## Issue
+
+- ID: JR-12345
+- Source: Jira issue
+- Summary: Export dialog forgets the chosen output format
+- Type: Bug
+- Status: Open
+- Priority: High
+- Mock/demo data: False
+
+## Guidance
+
+- Developer hint: _None._
+- AI Fix Mode: _Not recorded._. `task.md` carries what it asks of the agent.
+
+## Context Quality
+
+Overall: 40/100
+Issue completeness: 50/100
+Retrieval quality: 35/100
+Repository context: 30/100
+
+Overall is 40% issue completeness, 40% retrieval quality, 20% repository context.
+
+- Description found: yes
+- Reproduction steps found: no
+- Actual result found: no
+- Expected result found: no
+- Environment found: yes
+- Errors, stack traces or logs found: yes
+- Attachments found: yes
+- High-value keywords found: 5
+- Related files found: 1 (search confidence: medium)
+- Memory search results found: yes
+- Git context available: no
+- Related commits found: 0
+- Overall at most 75: the report has no reproduction steps, actual result or expected result.
+
+## Issue Details
+
+### Description
+
+Export dialog forgets the chosen output format after reopening.
+
+### Jira Fields
+
+- Data source: jira
+- Mock/demo Jira data: no
+- Resolution: Not specified.
+- Labels: export
+- Components: None.
+- Affected versions: None.
+- Fix versions: None.
+
+### Comments
+
+#### Comment 1
+
+Created: 2026-05-10T09:00:00.000+0000
+
+Still broken on 2026.1.
+
+### Attachments
+
+Attachment content is not downloaded by bugpilot.
+
+| Filename | Type | Size | Created |
+|---|---|---:|---|
+| export.log | log | 120 B | 2026-05-10T09:00:00.000+0000 |
+
+### Reproduction Steps
+
+Not found.
+
+### Actual Result
+
+Not found.
+
+### Expected Result
+
+Not found.
+
+### Environment / Version
+
+Windows 11, build 2026.1
+
+### Error Messages
+
+None found.
+
+### Stack Traces
+
+None found.
+
+### Log Signals
+
+- Attachment: export.log
+
+### Regression Signals
+
+None found.
+
+### Comment Signals
+
+- Number of comments: 1
+- Latest comment timestamp: 2026-05-10T09:00:00.000+0000
+- Signals found: _None_
+
+### Attachment Signals
+
+- Number of attachments: 1
+- Attachment kinds found: log
+
+### Missing Information Checklist
+
+- Reproduction steps are missing.
+- Actual result is missing.
+- Expected result is missing.
+- No error message or stack trace was found.
+
+### Reading Comments and Attachments
+
+- Use Jira comments as additional context; comments may be newer than the original description.
+- Review Attachment Signals and attachment metadata when present.
+- Do not assume attachment content was read unless the content appears in repository files or generated artifacts.
+- If a log or crash dump attachment exists but was not downloaded, note attachment review as a follow-up.
+
+## Code Search
+
+### Search Quality
+
+Confidence: Medium
+
+Reasons:
+- The top file matches two issue terms.
+
+Agent instruction: If search confidence is Low, do not assume the matched files are the correct implementation. Treat them as candidates only and first verify whether the feature exists in the codebase.
+
+### Search Terms
+
+- High value: reopening, Export, dialog, forgets, chosen
+- Normal: output, format, Windows, build
+- Phrases: _None_
+- Not searched, environment only: Windows, build
+
+### Relevant Files
+
+See `.ai/JR-12345/retrieval.json` for the ranked files, their matched lines and the search terms.
+
+- `src/export/format_selector.py` confidence=medium score=42 matches=2 keywords=format, export
+
+### Relevant Snippets
+
+#### src/export/format_selector.py
+
+- Line 12: `def remember_format(dialog, fmt):`
+- Line 18: `    dialog.format = fmt`
+
+## Similar Fixes
+
+- `.ai_memory/bugs/JR-11111.md` score=5 keywords=export, format
+  - JR-11111: Export format reset on reopen
+
+## Git History
+
+_Git context has not been generated yet._

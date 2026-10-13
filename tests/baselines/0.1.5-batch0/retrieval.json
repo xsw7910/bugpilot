@@ -1,0 +1,3854 @@
+{
+  "environment": {
+    "base_commit": "a1ce8dd",
+    "ripgrep": "ripgrep 15.1.0 (rev af60c2de9d)"
+  },
+  "synthetic": {
+    "repository_files": 17,
+    "summary": {
+      "cases": 10,
+      "scored": 9,
+      "top_3": 9,
+      "top_5": 9,
+      "top_10": 9,
+      "recall_at_5": 1.0,
+      "mrr": 0.944,
+      "confidence": {
+        "high": 7,
+        "medium": 2,
+        "low": 1
+      },
+      "expected_confidence_cases": 10,
+      "expected_confidence_matches": 10,
+      "docs_in_top_5": 0,
+      "noise_only_in_top_5": 0,
+      "forbidden_in_top_3": 0,
+      "terms": 163
+    },
+    "by_kind": {
+      "comment-noise": {
+        "cases": 2,
+        "scored": 2,
+        "top_3": 2,
+        "top_5": 2,
+        "top_10": 2,
+        "recall_at_5": 1.0,
+        "mrr": 0.75,
+        "confidence": {
+          "high": 1,
+          "medium": 1,
+          "low": 0
+        },
+        "expected_confidence_cases": 2,
+        "expected_confidence_matches": 2,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 48
+      },
+      "hostname-noise": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 1,
+        "top_5": 1,
+        "top_10": 1,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "confidence": {
+          "high": 1,
+          "medium": 0,
+          "low": 0
+        },
+        "expected_confidence_cases": 1,
+        "expected_confidence_matches": 1,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 20
+      },
+      "environment-noise": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 1,
+        "top_5": 1,
+        "top_10": 1,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "confidence": {
+          "high": 1,
+          "medium": 0,
+          "low": 0
+        },
+        "expected_confidence_cases": 1,
+        "expected_confidence_matches": 1,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 17
+      },
+      "identifier-led": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 1,
+        "top_5": 1,
+        "top_10": 1,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "confidence": {
+          "high": 1,
+          "medium": 0,
+          "low": 0
+        },
+        "expected_confidence_cases": 1,
+        "expected_confidence_matches": 1,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 15
+      },
+      "user-keyword-led": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 1,
+        "top_5": 1,
+        "top_10": 1,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "confidence": {
+          "high": 1,
+          "medium": 0,
+          "low": 0
+        },
+        "expected_confidence_cases": 1,
+        "expected_confidence_matches": 1,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 8
+      },
+      "hint-led": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 1,
+        "top_5": 1,
+        "top_10": 1,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "confidence": {
+          "high": 0,
+          "medium": 1,
+          "low": 0
+        },
+        "expected_confidence_cases": 1,
+        "expected_confidence_matches": 1,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 15
+      },
+      "phrase-led": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 1,
+        "top_5": 1,
+        "top_10": 1,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "confidence": {
+          "high": 1,
+          "medium": 0,
+          "low": 0
+        },
+        "expected_confidence_cases": 1,
+        "expected_confidence_matches": 1,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 7
+      },
+      "mixed-description-comments": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 1,
+        "top_5": 1,
+        "top_10": 1,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "confidence": {
+          "high": 1,
+          "medium": 0,
+          "low": 0
+        },
+        "expected_confidence_cases": 1,
+        "expected_confidence_matches": 1,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 24
+      },
+      "generic-only": {
+        "cases": 1,
+        "scored": 0,
+        "top_3": 0,
+        "top_5": 0,
+        "top_10": 0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0,
+        "confidence": {
+          "high": 0,
+          "medium": 0,
+          "low": 1
+        },
+        "expected_confidence_cases": 1,
+        "expected_confidence_matches": 1,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 9
+      }
+    },
+    "cases": [
+      {
+        "name": "synthetic-comment-noise",
+        "kind": "comment-noise",
+        "source": "jira",
+        "expected_files": [
+          "src/export/format_selector.py"
+        ],
+        "best_rank": 1,
+        "confidence": "high",
+        "expected_confidence": "high",
+        "top_5": [
+          "src/export/format_selector.py",
+          "src/export/row_writer.py",
+          "src/importer/input_format.py",
+          "tests/test_format_selector.py",
+          "src/preferences/user_preferences.py"
+        ],
+        "top_5_matched": [
+          [
+            "Choose",
+            "Export",
+            "FormatA",
+            "FormatB",
+            "dialog",
+            "format",
+            "output",
+            "reopen",
+            "selector"
+          ],
+          [
+            "Export",
+            "FormatA",
+            "FormatB",
+            "format",
+            "output"
+          ],
+          [
+            "FormatA",
+            "FormatB",
+            "format"
+          ],
+          [
+            "Choose",
+            "Export",
+            "FormatB",
+            "format",
+            "output",
+            "selector"
+          ],
+          [
+            "Export",
+            "FormatA",
+            "dialog",
+            "format",
+            "output"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "FormatA",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 5,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "FormatB",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 7,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "dialog",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 9,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "Export",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 13,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "format",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 38,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "Choose",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 3,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "chosen",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 3,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "forgets",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "reopen",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 3,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "selector",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 5,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "deployed",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 3,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "output",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 20,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "pipeline",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 6,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "released",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 4,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "verified",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 4,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "exportDialogForgets",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "export_dialog_forgets",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "chosenOutputFormat",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "chosen_output_format",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "exportDialogClose",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": []
+          },
+          {
+            "value": "export_dialog_close",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": []
+          },
+          {
+            "value": "outputFormatSelector",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "output_format_selector",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-comment-noise-identifier",
+        "kind": "comment-noise",
+        "source": "jira",
+        "expected_files": [
+          "src/export/format_selector.py"
+        ],
+        "best_rank": 2,
+        "confidence": "medium",
+        "expected_confidence": "medium",
+        "top_5": [
+          "src/export/export_job.py",
+          "src/export/format_selector.py",
+          "src/ui/main_window.py",
+          "src/export/row_writer.py",
+          "src/preferences/user_preferences.py"
+        ],
+        "top_5_matched": [
+          [
+            "Chosen",
+            "chosen_format",
+            "export",
+            "format"
+          ],
+          [
+            "export",
+            "format",
+            "opened",
+            "reopening"
+          ],
+          [
+            "format",
+            "opened",
+            "window"
+          ],
+          [
+            "export",
+            "format"
+          ],
+          [
+            "export",
+            "format"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "NightlyPipeline",
+            "source": "identifier",
+            "weight": 4,
+            "effective_weight": 4,
+            "match_count": 1,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "Chosen",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 3,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "format",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 38,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "lost",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 0,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "export",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 13,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "instead",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "opened",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 4,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "reopening",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "shown",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "window",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 4,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "candidate",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 0,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "deployed",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 3,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "marked",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 0,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "Nightly",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 4,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "Pipeline",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 6,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "reproducible",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 0,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "verified",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 4,
+            "origins": [
+              "comment"
+            ]
+          },
+          {
+            "value": "chosenFormat",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "chosen_format",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 2,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "formatChosen",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "format_chosen",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "exportWindow",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "export_window",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "firstFormat",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "first_format",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [
+          "format",
+          "export"
+        ],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-hostname-noise",
+        "kind": "hostname-noise",
+        "source": "manual",
+        "expected_files": [
+          "src/net/mirror_uploader.py"
+        ],
+        "best_rank": 1,
+        "confidence": "high",
+        "expected_confidence": "high",
+        "top_5": [
+          "src/net/mirror_uploader.py",
+          "src/preferences/user_preferences.py",
+          "src/export/format_selector.py",
+          "src/export/export_job.py",
+          "src/export/row_writer.py"
+        ],
+        "top_5_matched": [
+          [
+            "Large",
+            "export",
+            "finish",
+            "mirror",
+            "retried",
+            "shared",
+            "upload"
+          ],
+          [
+            "export",
+            "never"
+          ],
+          [
+            "export"
+          ],
+          [
+            "export"
+          ],
+          [
+            "export"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "Large",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 1,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "mirror",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 3,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "never",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 1,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "shared",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 1,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "Uploading",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 0,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "export",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 13,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "exports",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "finish",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "finishes",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "retried",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "upload",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 5,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "times",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "largeExportsNever",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "large_exports_never",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "exportsNeverFinish",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "exports_never_finish",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "neverFinishUploading",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "never_finish_uploading",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "sharedMirrorNever",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "shared_mirror_never",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [
+          "upload",
+          "mirror"
+        ],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-environment-noise",
+        "kind": "environment-noise",
+        "source": "manual",
+        "expected_files": [
+          "src/render/renderer_registry.py"
+        ],
+        "best_rank": 1,
+        "confidence": "high",
+        "expected_confidence": "high",
+        "top_5": [
+          "src/render/renderer_registry.py",
+          "tests/test_format_selector.py"
+        ],
+        "top_5_matched": [
+          [
+            "Preview",
+            "accelerated",
+            "keeps",
+            "pane",
+            "renderer",
+            "software"
+          ],
+          [
+            "keeps"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "Preview",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 3,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "renderer",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 10,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "accelerated",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "choosing",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "draws",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "keeps",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 3,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "pane",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "previous",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "software",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "previewKeeps",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "preview_keeps",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "previousRenderer",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "previous_renderer",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "acceleratedRenderer",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "accelerated_renderer",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "previewPane",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "preview_pane",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [
+          "renderer",
+          "preview"
+        ],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-identifier-led",
+        "kind": "identifier-led",
+        "source": "manual",
+        "expected_files": [
+          "src/cache/thumbnail_cache.py"
+        ],
+        "best_rank": 1,
+        "confidence": "high",
+        "expected_confidence": "high",
+        "top_5": [
+          "src/cache/thumbnail_cache.py",
+          "src/preferences/user_preferences.py",
+          "src/net/mirror_uploader.py",
+          "src/ui/settings_dialog.py"
+        ],
+        "top_5_matched": [
+          [
+            "Cache",
+            "Thumbnail",
+            "ThumbnailCache",
+            "changed",
+            "entries",
+            "invalidate",
+            "invalidate_stale_entries",
+            "stale",
+            "thumbnails"
+          ],
+          [
+            "never"
+          ],
+          [
+            "files"
+          ],
+          [
+            "changed"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "invalidate_stale_entries",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "ThumbnailCache",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "ThumbnailCache.invalidate_stale_entries",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "never",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "removes",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "thumbnails",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Cache",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "changed",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "entries",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 5,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "files",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "invalidate",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "stale",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Thumbnail",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 3,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "neverRemoves",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "never_removes",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [
+          "invalidate_stale_entries"
+        ],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-user-keyword-led",
+        "kind": "user-keyword-led",
+        "source": "manual",
+        "expected_files": [
+          "src/preferences/user_preferences.py"
+        ],
+        "best_rank": 1,
+        "confidence": "high",
+        "expected_confidence": "high",
+        "top_5": [
+          "src/preferences/user_preferences.py",
+          "src/export/format_selector.py",
+          "src/ui/settings_dialog.py"
+        ],
+        "top_5_matched": [
+          [
+            "Saved",
+            "UserPreferences",
+            "load_defaults",
+            "settings"
+          ],
+          [
+            "UserPreferences"
+          ],
+          [
+            "settings"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "load_defaults",
+            "source": "user",
+            "weight": 8,
+            "effective_weight": 8,
+            "match_count": 1,
+            "origins": [
+              "user-keyword"
+            ]
+          },
+          {
+            "value": "UserPreferences",
+            "source": "user",
+            "weight": 8,
+            "effective_weight": 8,
+            "match_count": 3,
+            "origins": [
+              "user-keyword"
+            ]
+          },
+          {
+            "value": "ignored",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "restart",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Saved",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 5,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "settings",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 3,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "savedSettings",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "saved_settings",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [
+          "load_defaults",
+          "UserPreferences"
+        ],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-hint-led",
+        "kind": "hint-led",
+        "source": "manual",
+        "expected_files": [
+          "src/export/row_writer.py"
+        ],
+        "best_rank": 1,
+        "confidence": "medium",
+        "expected_confidence": "medium",
+        "top_5": [
+          "src/export/row_writer.py",
+          "src/importer/input_format.py",
+          "src/export/format_selector.py",
+          "src/export/export_job.py",
+          "src/cache/thumbnail_cache.py"
+        ],
+        "top_5_matched": [
+          [
+            "FormatB",
+            "columns",
+            "exported",
+            "rows",
+            "serializes"
+          ],
+          [
+            "FormatB"
+          ],
+          [
+            "FormatB"
+          ],
+          [
+            "rows"
+          ],
+          [
+            "rows"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "FormatB",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 7,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "code",
+            "source": "hint",
+            "weight": 4,
+            "effective_weight": 4,
+            "match_count": 0,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "rows",
+            "source": "hint",
+            "weight": 4,
+            "effective_weight": 4,
+            "match_count": 7,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "serializes",
+            "source": "hint",
+            "weight": 4,
+            "effective_weight": 4,
+            "match_count": 1,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "columns",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "exported",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "order",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "files",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Probably",
+            "source": "hint",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 0,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "exportedFiles",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "exported_files",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "wrongOrder",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "wrong_order",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "serializesRows",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "serializes_rows",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "hint"
+            ]
+          }
+        ],
+        "core_terms_searched": [
+          "columns",
+          "FormatB"
+        ],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-phrase-led",
+        "kind": "phrase-led",
+        "source": "manual",
+        "expected_files": [
+          "src/importer/input_format.py"
+        ],
+        "best_rank": 1,
+        "confidence": "high",
+        "expected_confidence": "high",
+        "top_5": [
+          "src/importer/input_format.py",
+          "src/export/export_job.py",
+          "src/export/format_selector.py",
+          "src/export/row_writer.py",
+          "src/preferences/user_preferences.py"
+        ],
+        "top_5_matched": [
+          [
+            "extension",
+            "file",
+            "format",
+            "input",
+            "input_format"
+          ],
+          [
+            "format"
+          ],
+          [
+            "format"
+          ],
+          [
+            "format"
+          ],
+          [
+            "format"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "detected",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "extension",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "format",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 38,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "file",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 4,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "input",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 6,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "inputFormat",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "input_format",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 3,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-mixed-description-comments",
+        "kind": "mixed-description-comments",
+        "source": "jira",
+        "expected_files": [
+          "src/export/format_selector.py"
+        ],
+        "best_rank": 1,
+        "confidence": "high",
+        "expected_confidence": "high",
+        "top_5": [
+          "src/export/format_selector.py",
+          "src/export/row_writer.py",
+          "tests/test_format_selector.py",
+          "src/importer/input_format.py",
+          "src/preferences/user_preferences.py"
+        ],
+        "top_5_matched": [
+          [
+            "ExportFormatSelector",
+            "FormatA",
+            "FormatB",
+            "Selector",
+            "dialog",
+            "entry",
+            "format",
+            "on_dialog_reopened",
+            "output",
+            "output_format",
+            "reopened",
+            "resets",
+            "selected",
+            "selected_output",
+            "selected_output_format",
+            "sets"
+          ],
+          [
+            "FormatA",
+            "FormatB",
+            "format",
+            "output",
+            "output_format"
+          ],
+          [
+            "ExportFormatSelector",
+            "FormatB",
+            "Selector",
+            "format",
+            "output",
+            "output_format"
+          ],
+          [
+            "FormatA",
+            "FormatB",
+            "format"
+          ],
+          [
+            "FormatA",
+            "dialog",
+            "format",
+            "output",
+            "output_format"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "ExportFormatSelector",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 3,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "FormatA",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 5,
+            "origins": [
+              "actual"
+            ]
+          },
+          {
+            "value": "FormatB",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 7,
+            "origins": [
+              "description",
+              "reproduction",
+              "expected"
+            ]
+          },
+          {
+            "value": "on_dialog_reopened",
+            "source": "identifier",
+            "weight": 6,
+            "effective_weight": 6,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "dialog",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 9,
+            "origins": [
+              "title",
+              "reproduction"
+            ]
+          },
+          {
+            "value": "format",
+            "source": "issue",
+            "weight": 3,
+            "effective_weight": 3,
+            "match_count": 38,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "back",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "chosen",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 3,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "entry",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "lost",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "reopened",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 2,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "resets",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "sets",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "output",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 20,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "selected",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 8,
+            "origins": [
+              "description",
+              "actual",
+              "expected"
+            ]
+          },
+          {
+            "value": "Selector",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 5,
+            "origins": [
+              "title"
+            ]
+          },
+          {
+            "value": "selectedOutputFormat",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "selected_output_format",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 4,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "outputFormatBack",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "output_format_back",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "outputFormat",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "output_format",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 14,
+            "origins": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "value": "selectedOutput",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "selected_output",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 4,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [
+          "on_dialog_reopened"
+        ],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "synthetic-generic-only",
+        "kind": "generic-only",
+        "source": "manual",
+        "expected_files": [],
+        "best_rank": null,
+        "confidence": "low",
+        "expected_confidence": "low",
+        "top_5": [
+          "src/preferences/user_preferences.py",
+          "src/export/format_selector.py",
+          "src/export/row_writer.py",
+          "src/ui/settings_dialog.py",
+          "tests/test_format_selector.py"
+        ],
+        "top_5_matched": [
+          [
+            "output",
+            "values"
+          ],
+          [
+            "output"
+          ],
+          [
+            "output"
+          ],
+          [
+            "values"
+          ],
+          [
+            "output"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "updated",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "correctly",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "data",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "output",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 20,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "values",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 6,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "dataOutput",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "data_output",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "updatedCorrectly",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "updated_correctly",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      }
+    ]
+  },
+  "live_repository": {
+    "summary": {
+      "cases": 6,
+      "scored": 5,
+      "top_3": 1,
+      "top_5": 1,
+      "top_10": 3,
+      "recall_at_5": 0.2,
+      "mrr": 0.256,
+      "confidence": {
+        "high": 1,
+        "medium": 1,
+        "low": 4
+      },
+      "expected_confidence_cases": 0,
+      "expected_confidence_matches": 0,
+      "docs_in_top_5": 8,
+      "noise_only_in_top_5": 0,
+      "forbidden_in_top_3": 0,
+      "terms": 102
+    },
+    "by_kind": {
+      "natural language, known implementation file": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 1,
+        "top_5": 1,
+        "top_10": 1,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "confidence": {
+          "high": 1,
+          "medium": 0,
+          "low": 0
+        },
+        "expected_confidence_cases": 0,
+        "expected_confidence_matches": 0,
+        "docs_in_top_5": 1,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 13
+      },
+      "strong identifier": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 0,
+        "top_5": 0,
+        "top_10": 1,
+        "recall_at_5": 0.0,
+        "mrr": 0.111,
+        "confidence": {
+          "high": 0,
+          "medium": 1,
+          "low": 0
+        },
+        "expected_confidence_cases": 0,
+        "expected_confidence_matches": 0,
+        "docs_in_top_5": 2,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 24
+      },
+      "prose heavy": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 0,
+        "top_5": 0,
+        "top_10": 1,
+        "recall_at_5": 0.0,
+        "mrr": 0.167,
+        "confidence": {
+          "high": 0,
+          "medium": 0,
+          "low": 1
+        },
+        "expected_confidence_cases": 0,
+        "expected_confidence_matches": 0,
+        "docs_in_top_5": 2,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 21
+      },
+      "generic terms": {
+        "cases": 1,
+        "scored": 0,
+        "top_3": 0,
+        "top_5": 0,
+        "top_10": 0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0,
+        "confidence": {
+          "high": 0,
+          "medium": 0,
+          "low": 1
+        },
+        "expected_confidence_cases": 0,
+        "expected_confidence_matches": 0,
+        "docs_in_top_5": 0,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 14
+      },
+      "natural language": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 0,
+        "top_5": 0,
+        "top_10": 0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0,
+        "confidence": {
+          "high": 0,
+          "medium": 0,
+          "low": 1
+        },
+        "expected_confidence_cases": 0,
+        "expected_confidence_matches": 0,
+        "docs_in_top_5": 2,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 18
+      },
+      "hint carries the technical direction": {
+        "cases": 1,
+        "scored": 1,
+        "top_3": 0,
+        "top_5": 0,
+        "top_10": 0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0,
+        "confidence": {
+          "high": 0,
+          "medium": 0,
+          "low": 1
+        },
+        "expected_confidence_cases": 0,
+        "expected_confidence_matches": 0,
+        "docs_in_top_5": 1,
+        "noise_only_in_top_5": 0,
+        "forbidden_in_top_3": 0,
+        "terms": 12
+      }
+    },
+    "cases": [
+      {
+        "name": "fix-mode-persistence",
+        "kind": "natural language, known implementation file",
+        "source": "manual",
+        "expected_files": [
+          "bugpilot/core/fix_mode_state.py"
+        ],
+        "best_rank": 1,
+        "confidence": "high",
+        "expected_confidence": "",
+        "top_5": [
+          "bugpilot/core/fix_mode_state.py",
+          "bugpilot/cli.py",
+          "extension/src/app/controller.ts",
+          "docs/bugpilot_prototype_development_plan.md",
+          "bugpilot/core/workflow.py"
+        ],
+        "top_5_matched": [
+          [
+            "fixMode",
+            "fixModeSelection",
+            "modeSelection",
+            "persisted",
+            "selection"
+          ],
+          [
+            "Fix",
+            "Mode",
+            "fixMode",
+            "fix_mode",
+            "persisted",
+            "selection"
+          ],
+          [
+            "persisted",
+            "selection"
+          ],
+          [
+            "fix_mode_selection",
+            "halfway",
+            "modeSelection",
+            "mode_selection",
+            "persisted",
+            "selection"
+          ],
+          [
+            "halfway",
+            "persisted",
+            "selection"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "Fix",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 8432,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "halfway",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 11,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Mode",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 5389,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "persisted",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 154,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "selection",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 229,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "fixModeSelection",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 6,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "fix_mode_selection",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 3,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "runFailsHalfway",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "run_fails_halfway",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "fixMode",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 1,
+            "match_count": 1131,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "fix_mode",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 1,
+            "match_count": 782,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "modeSelection",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 7,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "mode_selection",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 3,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "identifier-persist-fix-mode",
+        "kind": "strong identifier",
+        "source": "manual",
+        "expected_files": [
+          "bugpilot/core/fix_mode_state.py",
+          "bugpilot/core/workflow.py"
+        ],
+        "best_rank": 9,
+        "confidence": "medium",
+        "expected_confidence": "",
+        "top_5": [
+          "tests/test_fix_mode_selection.py",
+          "tests/test_retrieval_regression.py",
+          "tests/retrieval_corpus.py",
+          "docs/bugpilot_prototype_development_plan.md",
+          "docs/architecture.md"
+        ],
+        "top_5_matched": [
+          [
+            "fix_mode.json",
+            "persist_fix_mode"
+          ],
+          [
+            "fix_mode.json",
+            "half-failed",
+            "persist_fix_mode"
+          ],
+          [
+            "fix_mode.json",
+            "half-failed",
+            "persist_fix_mode",
+            "pipeline"
+          ],
+          [
+            "fix_mode.json",
+            "persist_fix_mode",
+            "pipeline",
+            "records"
+          ],
+          [
+            "fix_mode.json",
+            "persist_fix_mode",
+            "pipeline",
+            "records"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "fix_mode",
+            "source": "identifier",
+            "weight": 8,
+            "effective_weight": 1,
+            "match_count": 782,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "fix_mode.json",
+            "source": "identifier",
+            "weight": 8,
+            "effective_weight": 8,
+            "match_count": 30,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "persist_fix_mode",
+            "source": "identifier",
+            "weight": 8,
+            "effective_weight": 8,
+            "match_count": 24,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "built",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 877,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "half-failed",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "mode",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 5389,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "never",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 2255,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "pipeline",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 109,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "records",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 181,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "resume",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 320,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "task",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 3144,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "under",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 945,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "writes",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 605,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "file",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 9161,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "json",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 3337,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "persist",
+            "source": "expanded",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 272,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "halfFailedResume",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": []
+          },
+          {
+            "value": "half_failed_resume",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": []
+          },
+          {
+            "value": "failedResumeRecords",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "failed_resume_records",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "neverBuiltUnder",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "never_built_under",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "pipelineRuns",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "pipeline_runs",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "prose-heavy-keyword-extraction",
+        "kind": "prose heavy",
+        "source": "manual",
+        "expected_files": [
+          "bugpilot/core/keywords.py"
+        ],
+        "best_rank": 6,
+        "confidence": "low",
+        "expected_confidence": "",
+        "top_5": [
+          "bugpilot/cli.py",
+          "bugpilot/core/context.py",
+          "bugpilot/core/git_history.py",
+          "README.md",
+          "docs/bugpilot_prototype_development_plan.md"
+        ],
+        "top_5_matched": [
+          [
+            "Generic",
+            "back",
+            "come",
+            "files",
+            "keywords",
+            "ones",
+            "report",
+            "treated",
+            "useful",
+            "words"
+          ],
+          [
+            "Generic",
+            "good",
+            "keywords",
+            "ones",
+            "ranked"
+          ],
+          [
+            "Generic",
+            "ones",
+            "ranked"
+          ],
+          [
+            "Generic",
+            "back",
+            "come",
+            "files",
+            "ranked",
+            "report",
+            "words"
+          ],
+          [
+            "Generic",
+            "good",
+            "important",
+            "ones",
+            "treated",
+            "useful"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "back",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 1933,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "come",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 1205,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Generic",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 180,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "important",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 33,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "keywords",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 1408,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "ones",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 220,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "ranked",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 313,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "report",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 3395,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "treated",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 11,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "words",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 1935,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "files",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 3779,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "good",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 67,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "useful",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 40,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "comeOut",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "come_out",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "bugReport",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "bug_report",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "genericWords",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "generic_words",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "usefulOne",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "useful_one",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "generic-terms-only",
+        "kind": "generic terms",
+        "source": "manual",
+        "expected_files": [],
+        "best_rank": null,
+        "confidence": "low",
+        "expected_confidence": "",
+        "top_5": [
+          "bugpilot/cli.py",
+          "bugpilot/core/keywords.py",
+          "bugpilot/core/search_terms.py",
+          "extension/test/page.test.ts",
+          "tests/retrieval_corpus.py"
+        ],
+        "top_5_matched": [
+          [
+            "data",
+            "output",
+            "process",
+            "updated"
+          ],
+          [
+            "processOutput",
+            "volume"
+          ],
+          [
+            "correctly",
+            "updated",
+            "volume"
+          ],
+          [
+            "correctly",
+            "updated",
+            "volume"
+          ],
+          [
+            "correctly",
+            "updated",
+            "volume"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "updated",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 106,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "volume",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 140,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "correctly",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 56,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "data",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 889,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "output",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 1123,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "process",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 486,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "dataProcessOutput",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "data_process_output",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "dataProcess",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "data_process",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "processOutput",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "process_output",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "updatedCorrectly",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "updated_correctly",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "atomic-write-crash",
+        "kind": "natural language",
+        "source": "manual",
+        "expected_files": [
+          "bugpilot/core/artifact_io.py"
+        ],
+        "best_rank": null,
+        "confidence": "low",
+        "expected_confidence": "",
+        "top_5": [
+          "bugpilot/cli.py",
+          "tests/test_run_artifact.py",
+          "extension/src/app/controller.ts",
+          "docs/bugpilot_prototype_development_plan.md",
+          "README.md"
+        ],
+        "top_5_matched": [
+          [
+            "Writing",
+            "artifact",
+            "file",
+            "left",
+            "process",
+            "status",
+            "workflow"
+          ],
+          [
+            "truncated",
+            "workflow_status"
+          ],
+          [
+            "Writing",
+            "truncated"
+          ],
+          [
+            "Writing",
+            "sometimes",
+            "truncated",
+            "workflowStatus",
+            "workflowStatusFile",
+            "workflow_status"
+          ],
+          [
+            "Windows",
+            "artifact",
+            "file",
+            "left",
+            "status",
+            "workflow"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "artifact",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 2299,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "left",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 407,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "sometimes",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 7,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "truncated",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 40,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Windows",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 268,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "workflow",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 1894,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Writing",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 104,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "file",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 9161,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "process",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 486,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "status",
+            "source": "issue",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 2314,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "workflowStatusFile",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "workflow_status_file",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "statusFileSometimes",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "status_file_sometimes",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "fileSometimesFails",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "file_sometimes_fails",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 0,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "workflowStatus",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 1,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "workflow_status",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 60,
+            "origins": [
+              "description"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      },
+      {
+        "name": "hint-points-at-the-fix",
+        "kind": "hint carries the technical direction",
+        "source": "manual",
+        "expected_files": [
+          "extension/src/app/hintImprovement.ts"
+        ],
+        "best_rank": null,
+        "confidence": "low",
+        "expected_confidence": "",
+        "top_5": [
+          "extension/src/app/controller.ts",
+          "bugpilot/cli.py",
+          "extension/src/panel/html.ts",
+          "docs/bugpilot_prototype_development_plan.md",
+          "extension/test/page.test.ts"
+        ],
+        "top_5_matched": [
+          [
+            "Improving",
+            "issueDetails",
+            "issueText",
+            "issue_details",
+            "loaded"
+          ],
+          [
+            "Improving",
+            "Look",
+            "built",
+            "details",
+            "hint",
+            "issue_details",
+            "loaded",
+            "prompt",
+            "text"
+          ],
+          [
+            "Improving",
+            "issueDetails",
+            "issue_details"
+          ],
+          [
+            "Improving",
+            "issueDetails",
+            "issue_details",
+            "issue_text",
+            "loaded"
+          ],
+          [
+            "Improving",
+            "issueDetails",
+            "issue_details"
+          ]
+        ],
+        "searched": [
+          {
+            "value": "built",
+            "source": "hint",
+            "weight": 4,
+            "effective_weight": 1,
+            "match_count": 877,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "details",
+            "source": "hint",
+            "weight": 4,
+            "effective_weight": 1,
+            "match_count": 1231,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "loaded",
+            "source": "hint",
+            "weight": 4,
+            "effective_weight": 4,
+            "match_count": 242,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "prompt",
+            "source": "hint",
+            "weight": 4,
+            "effective_weight": 1,
+            "match_count": 1660,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "hint",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 1851,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Improving",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 2,
+            "match_count": 44,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "text",
+            "source": "issue",
+            "weight": 2,
+            "effective_weight": 1,
+            "match_count": 9556,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "Look",
+            "source": "hint",
+            "weight": 1,
+            "effective_weight": 1,
+            "match_count": 466,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "issueText",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 2,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "issue_text",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 46,
+            "origins": [
+              "description"
+            ]
+          },
+          {
+            "value": "issueDetails",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 237,
+            "origins": [
+              "hint"
+            ]
+          },
+          {
+            "value": "issue_details",
+            "source": "shape_expansion",
+            "weight": 5,
+            "effective_weight": 5,
+            "match_count": 94,
+            "origins": [
+              "hint"
+            ]
+          }
+        ],
+        "core_terms_searched": [],
+        "forbidden_in_top_3": [],
+        "noise_only_in_top_5": []
+      }
+    ]
+  }
+}

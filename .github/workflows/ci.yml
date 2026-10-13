@@ -1,0 +1,196 @@
+# Continuous integration: tests on Linux, macOS and Windows (0.1.5 Batch 0, plan §44.10).
+#
+# Read-only and secret-free. It checks out the code and runs tests; it never
+# publishes, tags, comments or writes to the repository, and it holds no
+# credentials of any kind (no Jira, no PyPI). Releasing stays with the manual
+# Release workflow (release.yml), which this file does not touch.
+#
+# Third-party actions are pinned to full commit SHAs; the tag each SHA was
+# taken from is in the comment beside it.
+#
+# Jobs:
+# - safety-and-baselines (required): the prompt-boundary corpus, oracles and
+#   0.1.4 baselines, the goldens, and the file-safety tests — run for real on
+#   POSIX, where the permission policy (§43.11, L-3) had never run before.
+#   Ubuntu also runs the Python floor, 3.10.
+# - full-suite and extension (not yet required): the whole Python suite on all
+#   three systems and the extension's unit tests, which have only ever run on
+#   Windows. Their first results are triaged before they become required
+#   (plan §44.16); until then a failure there is reported, not blocking.
+#
+# Results: each job ends by publishing its summary, failed tests, skips and
+# file-safety observations as annotations on the run (tests/ci_report.py).
+# Annotations are public with the run; a public repository's job logs need a
+# GitHub sign-in and its artifacts a token. They carry nothing the log does not.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+  # The suite reads BugPilot's user configuration from a fresh temporary
+  # directory (tests/conftest.py); no Jira credentials exist on a runner.
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  safety-and-baselines:
+    name: Safety and baselines (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: macos-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.13" }
+          - { os: ubuntu-latest, python: "3.10" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install ripgrep (code search tests)
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) sudo apt-get update -q && sudo apt-get install -y -q ripgrep ;;
+            macOS) brew install ripgrep ;;
+            Windows) choco install ripgrep -y --no-progress ;;
+          esac
+          rg --version
+
+      - name: Install BugPilot with the test and MCP extras
+        run: python -m pip install -e ".[test,mcp]"
+
+      - name: Run the safety and baseline tests
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          BUGPILOT_BASELINE_OUT: ${{ runner.temp }}/bugpilot-baseline
+        # The publishability guard's word list is private and gitignored; the
+        # one test that requires it to be present is left to developer machines.
+        # `shell: bash` runs with pipefail, so the tee keeps pytest's result.
+        run: >-
+          python -m pytest -q -rfEs
+          tests/test_prompt_boundary_oracles.py
+          tests/test_prompt_boundary_corpus.py
+          tests/test_prompt_boundary_baseline.py
+          tests/test_prompt_boundary_golden.py
+          tests/test_file_safety_baseline.py
+          tests/test_ci_report.py
+          tests/test_core_robustness.py
+          tests/test_write_boundaries.py
+          tests/test_cleanup_safety.py
+          tests/test_protected_rules.py
+          tests/test_instructions.py
+          tests/test_task_golden.py
+          tests/test_publishable.py
+          --deselect tests/test_publishable.py::test_the_word_list_is_present_and_private
+          2>&1 | tee pytest-safety.log
+
+      - name: Publish the results as annotations
+        if: always()
+        shell: bash
+        run: python tests/ci_report.py pytest pytest-safety.log "$RUNNER_TEMP/bugpilot-baseline"
+
+      - name: Keep what the file-safety tests observed
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: file-safety-${{ matrix.os }}-py${{ matrix.python }}
+          path: ${{ runner.temp }}/bugpilot-baseline
+          if-no-files-found: ignore
+          retention-days: 30
+
+  full-suite:
+    name: Full Python suite, first runs (${{ matrix.os }}; not yet required)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install ripgrep
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) sudo apt-get update -q && sudo apt-get install -y -q ripgrep ;;
+            macOS) brew install ripgrep ;;
+            Windows) choco install ripgrep -y --no-progress ;;
+          esac
+
+      - name: Install BugPilot with the test and MCP extras
+        run: python -m pip install -e ".[test,mcp]"
+
+      - name: Run the full suite
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: >-
+          python -m pytest -q -rfEs
+          --deselect tests/test_publishable.py::test_the_word_list_is_present_and_private
+          2>&1 | tee pytest-full.log
+
+      - name: Publish the results as annotations
+        if: always()
+        shell: bash
+        run: python tests/ci_report.py pytest pytest-full.log
+
+  extension:
+    name: Extension unit tests (ubuntu-latest; not yet required)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        shell: bash
+        run: npm test 2>&1 | tee ../extension-unit.log
+
+      - name: Publish the results as annotations
+        if: always()
+        shell: bash
+        run: python3 ../tests/ci_report.py node ../extension-unit.log

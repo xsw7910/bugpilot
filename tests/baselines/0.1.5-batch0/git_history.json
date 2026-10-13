@@ -1,0 +1,262 @@
+{
+  "environment": {
+    "base_commit": "a1ce8dd",
+    "ripgrep": "ripgrep 15.1.0 (rev af60c2de9d)"
+  },
+  "history": [
+    "Import the product sources",
+    "NightlyPipeline: mark staging runs verified",
+    "Platform notes for Windows 11 x86-64",
+    "License token refresh: retry three times",
+    "Keep the output format when the export dialog is reopened",
+    "Retry large uploads to the shared mirror",
+    "Keep the selected renderer for the preview pane"
+  ],
+  "cases": [
+    {
+      "name": "synthetic-comment-noise",
+      "extracted_terms": [
+        "FormatA",
+        "FormatB"
+      ],
+      "weak_ranked_files": [],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 31,
+          "reasons": [
+            "modified Code Search files: #1 `src/export/format_selector.py`, #2 `src/export/row_writer.py`, #3 `src/importer/input_format.py`, #4 `tests/test_format_selector.py`, #5 `src/preferences/user_preferences.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Keep the output format when the export dialog is reopened",
+          "score": 25,
+          "reasons": [
+            "modified Code Search file: #1 `src/export/format_selector.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-comment-noise-identifier",
+      "extracted_terms": [],
+      "weak_ranked_files": [],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 31,
+          "reasons": [
+            "modified Code Search files: #1 `src/export/export_job.py`, #2 `src/export/format_selector.py`, #3 `src/ui/main_window.py`, #4 `src/export/row_writer.py`, #5 `src/preferences/user_preferences.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Keep the output format when the export dialog is reopened",
+          "score": 22,
+          "reasons": [
+            "modified Code Search file: #2 `src/export/format_selector.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-hostname-noise",
+      "extracted_terms": [],
+      "weak_ranked_files": [],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 31,
+          "reasons": [
+            "modified Code Search files: #1 `src/net/mirror_uploader.py`, #2 `src/preferences/user_preferences.py`, #3 `src/export/format_selector.py`, #4 `src/export/export_job.py`, #5 `src/export/row_writer.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Retry large uploads to the shared mirror",
+          "score": 25,
+          "reasons": [
+            "modified Code Search file: #1 `src/net/mirror_uploader.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Keep the output format when the export dialog is reopened",
+          "score": 19,
+          "reasons": [
+            "modified Code Search file: #3 `src/export/format_selector.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-environment-noise",
+      "extracted_terms": [],
+      "weak_ranked_files": [],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 28,
+          "reasons": [
+            "modified Code Search files: #1 `src/render/renderer_registry.py`, #2 `tests/test_format_selector.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Keep the selected renderer for the preview pane",
+          "score": 25,
+          "reasons": [
+            "modified Code Search file: #1 `src/render/renderer_registry.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-identifier-led",
+      "extracted_terms": [
+        "invalidate_stale_entries",
+        "ThumbnailCache",
+        "ThumbnailCache.invalidate_stale_entries"
+      ],
+      "weak_ranked_files": [
+        "src/net/mirror_uploader.py",
+        "src/ui/settings_dialog.py"
+      ],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 28,
+          "reasons": [
+            "modified Code Search files: #1 `src/cache/thumbnail_cache.py`, #2 `src/preferences/user_preferences.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-user-keyword-led",
+      "extracted_terms": [],
+      "weak_ranked_files": [
+        "src/ui/settings_dialog.py"
+      ],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 28,
+          "reasons": [
+            "modified Code Search files: #1 `src/preferences/user_preferences.py`, #2 `src/export/format_selector.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Keep the output format when the export dialog is reopened",
+          "score": 22,
+          "reasons": [
+            "modified Code Search file: #2 `src/export/format_selector.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-hint-led",
+      "extracted_terms": [],
+      "weak_ranked_files": [],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 31,
+          "reasons": [
+            "modified Code Search files: #1 `src/export/row_writer.py`, #2 `src/importer/input_format.py`, #3 `src/export/format_selector.py`, #4 `src/export/export_job.py`, #5 `src/cache/thumbnail_cache.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Keep the output format when the export dialog is reopened",
+          "score": 19,
+          "reasons": [
+            "modified Code Search file: #3 `src/export/format_selector.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-phrase-led",
+      "extracted_terms": [],
+      "weak_ranked_files": [],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 31,
+          "reasons": [
+            "modified Code Search files: #1 `src/importer/input_format.py`, #2 `src/export/export_job.py`, #3 `src/export/format_selector.py`, #4 `src/export/row_writer.py`, #5 `src/preferences/user_preferences.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Keep the output format when the export dialog is reopened",
+          "score": 19,
+          "reasons": [
+            "modified Code Search file: #3 `src/export/format_selector.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-mixed-description-comments",
+      "extracted_terms": [
+        "ExportFormatSelector",
+        "FormatA",
+        "FormatB",
+        "on_dialog_reopened"
+      ],
+      "weak_ranked_files": [],
+      "commits": [
+        {
+          "subject": "Import the product sources",
+          "score": 31,
+          "reasons": [
+            "modified Code Search files: #1 `src/export/format_selector.py`, #2 `src/export/row_writer.py`, #3 `tests/test_format_selector.py`, #4 `src/importer/input_format.py`, #5 `src/preferences/user_preferences.py`",
+            "modified several relevant files",
+            "recent: within 30 days of the newest related commit"
+          ]
+        },
+        {
+          "subject": "Keep the output format when the export dialog is reopened",
+          "score": 25,
+          "reasons": [
+            "modified Code Search file: #1 `src/export/format_selector.py`",
+            "recent: within 30 days of the newest related commit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "synthetic-generic-only",
+      "extracted_terms": [],
+      "weak_ranked_files": [
+        "src/preferences/user_preferences.py",
+        "src/export/format_selector.py",
+        "src/export/row_writer.py",
+        "src/ui/settings_dialog.py",
+        "tests/test_format_selector.py"
+      ],
+      "commits": []
+    }
+  ]
+}

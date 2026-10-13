@@ -41,7 +41,10 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+# markdown-it-py (MIT) is the prompt-boundary tests' independent CommonMark
+# oracle (tests/oracle_commonmark.py). Test-only: nothing in the package
+# imports it, and `dependencies` above stays empty.
+test = ["pytest>=8", "markdown-it-py>=3"]
 # Optional so the CLI, the wheel and the PyInstaller exe stay dependency-free;
 # only an MCP install pulls the SDK in.
 mcp = ["mcp>=2"]

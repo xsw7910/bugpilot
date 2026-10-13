@@ -1,0 +1,148 @@
+# Bug Context: local_20260101090000
+
+## Scope
+
+BugPilot prepares context only. It does not modify source code, invoke an agent automatically, create commits, push branches, update Jira, or create pull requests.
+
+## Issue
+
+- ID: local_20260101090000
+- Source: Hand-written description
+- Summary: Chosen format is lost on reopen
+- Type: 
+- Status: 
+- Priority: 
+- Mock/demo data: False
+
+## Guidance
+
+- Developer hint: Start with the format selector.
+- AI Fix Mode: _Not recorded._. `task.md` carries what it asks of the agent.
+
+## Context Quality
+
+Overall: 44/100
+Issue completeness: 75/100
+Retrieval quality: 35/100
+Repository context: 0/100
+
+Overall is 40% issue completeness, 40% retrieval quality, 20% repository context.
+
+- Description found: yes
+- Reproduction steps found: yes
+- Actual result found: yes
+- Expected result found: yes
+- Environment found: no
+- Errors, stack traces or logs found: no
+- Attachments found: no
+- High-value keywords found: 5
+- Related files found: 1 (search confidence: medium)
+- Memory search results found: no
+- Git context available: no
+- Related commits found: 0
+
+## Issue Details
+
+### Description
+
+Export dialog forgets the chosen output format after reopening.
+
+Steps to reproduce:
+1. Open the export dialog.
+2. Choose CSV.
+3. Close and reopen it.
+
+Expected result:
+CSV stays selected.
+
+Actual result:
+PDF is selected again.
+
+### Reproduction Steps
+
+1. Open the export dialog.
+2. Choose CSV.
+3. Close and reopen it.
+
+### Actual Result
+
+PDF is selected again.
+
+### Expected Result
+
+CSV stays selected.
+
+### Environment / Version
+
+Not found.
+
+### Error Messages
+
+None found.
+
+### Stack Traces
+
+None found.
+
+### Log Signals
+
+None found.
+
+### Regression Signals
+
+None found.
+
+### Comment Signals
+
+- Number of comments: 0
+- Latest comment timestamp: _None_
+- Signals found: _None_
+
+### Attachment Signals
+
+- Number of attachments: 0
+- Attachment kinds found: _None_
+
+### Missing Information Checklist
+
+- Environment/version information is missing.
+- No error message or stack trace was found.
+- No logs or relevant attachments were found.
+
+## Code Search
+
+### Search Quality
+
+Confidence: Medium
+
+Reasons:
+- The top file matches two issue terms.
+
+Agent instruction: If search confidence is Low, do not assume the matched files are the correct implementation. Treat them as candidates only and first verify whether the feature exists in the codebase.
+
+### Search Terms
+
+- High value: selected, reopening, Chosen, format, reopen
+- Normal: Export, dialog, CSV, lost, forgets, output, Choose, PDF, stays
+- Phrases: _None_
+
+### Relevant Files
+
+See `.ai/local_20260101090000/retrieval.json` for the ranked files, their matched lines and the search terms.
+
+- `src/export/format_selector.py` confidence=medium score=42 matches=2 keywords=format, export
+
+### Relevant Snippets
+
+#### src/export/format_selector.py
+
+- Line 12: `def remember_format(dialog, fmt):`
+- Line 18: `    dialog.format = fmt`
+
+## Similar Fixes
+
+_Memory search has not been generated yet._
+
+## Git History
+
+_Git context has not been generated yet._
