@@ -1,0 +1,122 @@
+{
+  "environment": {
+    "base_commit": "05f9008",
+    "ripgrep": "ripgrep 15.1.0 (rev af60c2de9d)"
+  },
+  "cases": [
+    {
+      "name": "synthetic-comment-noise",
+      "overall": 63,
+      "issue_completeness": 25,
+      "retrieval_quality": 97,
+      "repository_context": 70,
+      "cap": 75
+    },
+    {
+      "name": "synthetic-comment-noise-identifier",
+      "overall": 50,
+      "issue_completeness": 25,
+      "retrieval_quality": 64,
+      "repository_context": 70,
+      "cap": 75
+    },
+    {
+      "name": "synthetic-hostname-noise",
+      "overall": 63,
+      "issue_completeness": 25,
+      "retrieval_quality": 97,
+      "repository_context": 70,
+      "cap": 75
+    },
+    {
+      "name": "synthetic-environment-noise",
+      "overall": 68,
+      "issue_completeness": 35,
+      "retrieval_quality": 100,
+      "repository_context": 70,
+      "cap": 75
+    },
+    {
+      "name": "synthetic-identifier-led",
+      "overall": 62,
+      "issue_completeness": 25,
+      "retrieval_quality": 94,
+      "repository_context": 70,
+      "cap": 75
+    },
+    {
+      "name": "synthetic-user-keyword-led",
+      "overall": 64,
+      "issue_completeness": 25,
+      "retrieval_quality": 100,
+      "repository_context": 70,
+      "cap": 75
+    },
+    {
+      "name": "synthetic-hint-led",
+      "overall": 48,
+      "issue_completeness": 25,
+      "retrieval_quality": 60,
+      "repository_context": 70,
+      "cap": 75
+    },
+    {
+      "name": "synthetic-phrase-led",
+      "overall": 64,
+      "issue_completeness": 25,
+      "retrieval_quality": 100,
+      "repository_context": 70,
+      "cap": 75
+    },
+    {
+      "name": "synthetic-mixed-description-comments",
+      "overall": 87,
+      "issue_completeness": 85,
+      "retrieval_quality": 97,
+      "repository_context": 70,
+      "cap": null
+    },
+    {
+      "name": "synthetic-generic-only",
+      "overall": 22,
+      "issue_completeness": 25,
+      "retrieval_quality": 10,
+      "repository_context": 40,
+      "cap": 75
+    }
+  ],
+  "cap_cases": [
+    {
+      "name": "cap-all-three-missing",
+      "overall": 75,
+      "issue_completeness": 50,
+      "retrieval_quality": 100,
+      "repository_context": 100,
+      "cap": 75
+    },
+    {
+      "name": "cap-expected-result-only",
+      "overall": 86,
+      "issue_completeness": 65,
+      "retrieval_quality": 100,
+      "repository_context": 100,
+      "cap": null
+    },
+    {
+      "name": "cap-all-three-present",
+      "overall": 100,
+      "issue_completeness": 100,
+      "retrieval_quality": 100,
+      "repository_context": 100,
+      "cap": null
+    },
+    {
+      "name": "cap-one-line-hand-written",
+      "overall": 70,
+      "issue_completeness": 25,
+      "retrieval_quality": 100,
+      "repository_context": 100,
+      "cap": 75
+    }
+  ]
+}

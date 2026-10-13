@@ -17966,8 +17966,10 @@ recorded on their dates.
 
 ## 44. BugPilot 0.1.5 — Prompt Boundary and Robustness Hardening (PLAN, 2026-10-12)
 
-**Status: Batch 0 implemented (2026-10-12), uncommitted; Batches 1–5 not
-started.** §44.16 records Batch 0. The plan below is otherwise as written.
+**Status: Batch 0 implemented, committed as `05f9008` and pushed (2026-10-12);
+its first CI run passed on every job (§44.16). Batch 1 implemented, not yet
+committed (§44.17). Batches 2–5 have not started.** The plan below is
+otherwise as written.
 
 - **Starting point:** released 0.1.4, `a1ce8dd`.
 - **Version:** stays 0.1.4 until the release gates in §44.13 pass.
@@ -18287,7 +18289,7 @@ All cases use synthetic text. The Kind column uses three terms:
 | T7 | Code matched by Code Search holds `## BugPilot Safety Rules` (BugPilot's own docs mirror does) | matched lines are bullets in inline code: no heading, but a backtick can break the span | each file's matched lines in one fenced block | containment |
 | T8 | A commit subject or a memory entry carries a heading or instructions | subjects on one line and demoted; memory names and headings as bullets | `one_line`; memory labelled as earlier output | containment and provenance |
 | T9 | An editable layer (say a team's Project Instructions) holds `<div>` and a fence, or a fence under a list item, then `## BugPilot Safety Rules` | for CommonMark, a real top-level heading, and the closer BugPilot appends hides the real sections after it (N1) | containment agrees with CommonMark: the line is demoted, or is really inside a fence, and no appended closer opens a new fence | **prevention** |
-| T10 | A file in `.ai/<id>/attachments/` whose name holds a line break (POSIX), perhaps left by an earlier agent attempt | it forges `task.md` sections at the next task render (N3) | such a name is not listed, and the run warns | **prevention** |
+| T10 | A file in `.ai/<id>/attachments/` whose name holds a line break (POSIX), perhaps left by an earlier agent attempt | it forges `task.md` sections at the next task render (N3) | such a name is not listed, and the run warns *(as built in Batch 1 and accepted at its review: the name is written with visible escapes and still listed, forging nothing; §44.17)* | **prevention** |
 | T11 | An MCP client model, after reading hostile issue text, passes a title or keywords holding line breaks and headings | they forge `context.md` sections, Context Quality included (N2, N4) | on one line | **prevention** of the structure. A model-written hint stays class 2: contained, a residual risk (§44.3) |
 | T12 | BugPilot's own posted Jira summary returns on the next fetch | quoted as an ordinary Jira comment | quoted as a comment, labelled as a BugPilot summary of earlier AI output, recognized by its form. Forging that form only lowers the comment's standing | provenance |
 
@@ -18358,6 +18360,13 @@ one space. The same visible escapes apply.
   never creates such a name itself.
 - `is_plain_attachment_name` also rejects control characters and line
   separators.
+
+*As built in Batch 1, and accepted at its pre-commit review (§44.17):*
+
+- *Every name is written with its invisible characters as `<U+XXXX>`, and
+  the file is still listed, with a note to open it from the folder.*
+- *`is_plain_attachment_name` is unchanged, because rejecting a name there
+  would drop the file silently.*
 
 Guarantees, for CommonMark and for BugPilot's readers:
 
@@ -18608,7 +18617,8 @@ product change. *Implemented 2026-10-12: §44.16.*
   - the oracles find a forgery class missing from §44.4. The threat model is
     extended first.
 
-**Batch 1 — Primitives and the class-2 repair** (M1).
+**Batch 1 — Primitives and the class-2 repair** (M1). *Implemented
+2026-10-12: §44.17.*
 
 - **Scope:** §44.5.2.
 - **Files:**
@@ -18860,7 +18870,8 @@ publishability scanner covers the module.
 - a link planted at the temp name, and a target that is a link, are both
   refused;
 - the replace is atomic: a concurrent reader never sees a partial file;
-- attachment names that hold a line break are never listed (N3);
+- attachment names that hold a line break are never listed (N3) *(as built
+  in Batch 1: listed with visible escapes, forging no section; §44.17)*;
 - Windows behaviour is unchanged (the existing Windows suite).
 
 The tests set `umask` themselves, so CI's default is not assumed.
@@ -19064,9 +19075,18 @@ There is no tag and no GitHub Release unless the owner decides otherwise.
 
 ### 44.16 Batch 0 — Baselines, corpus, independent oracles and CI (implemented 2026-10-12)
 
-**Status: Batch 0 implemented, uncommitted on `a1ce8dd`.** It is to be
-committed as one commit after the owner's review (D7). Batches 1–5 have not
-started.
+**Status: Batch 0 implemented and committed** as
+`05f9008111ea5079e59fd18a76ded0b2ed53425c`, one commit (D7).
+
+- **The commit:** parent `a1ce8dd`, 34 files.
+- **The push:** to `main` as a fast-forward, on 2026-10-12.
+- **First CI run:** passed on every job (see *First CI run*, below).
+- **What comes next:** Batches 1–5 have not started. Batch 1 waits for the
+  owner's approval.
+
+*The paragraphs below were written before the commit and keep that wording,
+for example "uncommitted" and "not yet run". The CI results are recorded in
+"First CI run".*
 
 - **No product behaviour changed.** Nothing under `bugpilot/` or `extension/`
   changed.
@@ -19388,18 +19408,130 @@ read as rendering (`build_context`), which is what containment changes. The
   - **Repository root behind a link:** accepted for every write path.
   - **Credentials:** the file follows a link (O4).
   - **N3:** the file name cannot be created.
-- **Linux and macOS: not yet run.** No POSIX machine is available here, and CI
-  runs only after the owner pushes the Batch 0 commit.
-  - What will run there: the permission tests (new file `600` under four
-    umasks; six rewrite modes kept; setuid, setgid and sticky dropped),
-    credentials (final `600`; the born mode, expected `644` under umask 022,
-    for S2), link refusal, macOS's own `/tmp → /private/tmp` root, the
-    concurrent-reader atomic-replace test, and N3 on disk.
-  - Each job uploads its observations as the artifact
-    `file-safety-<os>-py<version>`.
-  - **Before Batch 1:** the first run's results are recorded here as an
-    addendum. A policy failure there is a Batch 0 stop condition: reported
-    first, fixed in Batch 4.
+- **Linux and macOS:** there was no POSIX machine here, so these ran in CI after
+  the Batch 0 push. Every observation matched the policy. Details are in
+  *First CI run*, below.
+  - **What ran:**
+    - the permission tests: new file `600` under four umasks; six rewrite
+      modes kept; setuid, setgid and sticky dropped;
+    - credentials: the final mode `600`, and the born mode, which is `644`
+      under umask 022 (S2);
+    - link refusal;
+    - macOS's own `/tmp → /private/tmp` root;
+    - the concurrent-reader atomic-replace test;
+    - N3 on disk.
+  - **Where the observations are:** each job publishes them as annotations and
+    uploads them as the artifact `file-safety-<os>-py<version>`.
+
+#### First CI run (2026-10-12)
+
+**The run:** [GitHub Actions run 38338462399](https://github.com/xsw7910/bugpilot/actions/runs/38338462399),
+workflow CI.
+
+- **Trigger:** the push of `05f9008` to `main`. It was the only run for that
+  commit; the Release workflow did not run.
+- **Time:** 2026-10-13 02:46–02:58 UTC.
+- **Conclusion:** success. All eight jobs passed, the non-blocking ones
+  included.
+
+**How the results were read.** No credentials were used:
+
+- run, job and step status come from GitHub's public API;
+- counts and observations come from the run's public annotations, which
+  `tests/ci_report.py` writes;
+- job logs, which need a GitHub sign-in, and artifact downloads, which need a
+  token, were not read.
+
+| Job | Required | Python | Result | Tests |
+| --- | --- | --- | --- | --- |
+| Safety and baselines, ubuntu-latest | yes | 3.13.16 | success (77 s) | 512 passed, 20 skipped, 1 deselected |
+| Safety and baselines, ubuntu-latest | yes | 3.10.22 | success (86 s) | 512 passed, 20 skipped, 1 deselected |
+| Safety and baselines, macos-latest | yes | 3.13.15 | success (75 s) | 513 passed, 19 skipped, 1 deselected |
+| Safety and baselines, windows-latest | yes | 3.13.15 | success (139 s) | 513 passed, 19 skipped, 1 deselected |
+| Full Python suite, ubuntu-latest | no (first run) | 3.13 | success | 2,457 passed, 26 skipped, 1 deselected |
+| Full Python suite, macos-latest | no (first run) | 3.13 | success | 2,458 passed, 25 skipped, 1 deselected |
+| Full Python suite, windows-latest | no (first run) | 3.13 | success | 2,464 passed, 19 skipped, 1 deselected |
+| Extension, ubuntu-latest (typecheck, unit) | no (first run) | Node 22 | success | 2,323 tests: 2,321 passed, 2 skipped, 0 failed |
+
+**The counts reconcile with the local run.**
+
+- **The deselected test** is the one that needs the private, gitignored word
+  list.
+- **Every system collected the same 2,484 Python tests**; only the skips
+  differ:
+  - Linux skips 19 Windows-only junction and executable tests, the macOS-only
+    `/tmp` test, the missing private samples file, and so on.
+  - Windows skips the 17 POSIX-only file-safety tests, the existing POSIX
+    test, and the samples file.
+  - The local Windows run (2,466 passed, 18 skipped) also runs the deselected
+    test and the samples test, which pass here.
+- **The extension's two skips** are Windows-only by design: a `bugpilot.exe`
+  in the working directory never runs, and the `py` launcher. Locally all
+  2,323 pass.
+- **This was the first time** the full Python suite and the extension unit
+  tests ran on Linux or macOS. Neither has a single failure. Making them
+  required jobs is now a decision for Batch 4, not a fix.
+
+**POSIX file safety, as observed.** Identical on Linux (3.13 and 3.10) and on
+macOS:
+
+| Check | Observed | Policy |
+| --- | --- | --- |
+| New file, umask 000 / 002 / 022 / 077 | `600` each time | `600` ✓ |
+| Rewrite of a `444` / `600` / `640` / `644` / `664` / `755` file | each mode kept | the nine bits kept ✓ |
+| setuid, setgid, sticky on the target (`4644`, `2644`, `1644`, all settable on both systems) | the rewritten file is `644` | never carried ✓ |
+| Credentials file, final mode (new, and rewritten from `644`) | `600`, `600` | `600` ✓ |
+| Credentials file, born mode (umask 022) | `644`, then chmod-ed to `600` | EXPECTED_CURRENT (S2, B5): fixed in Batch 4 |
+| Credentials file, link at its own path | written through the link | EXPECTED_CURRENT (O4): fixed in Batch 4 |
+| A link at `.ai` or at `.ai/JR-12345` | refused, nothing written elsewhere | refused ✓ |
+| Repository root behind a link (an aliased parent) | every write path works | works ✓ |
+| Atomic replace, a concurrent reader (94–278 reads) | 0 torn reads | whole versions only ✓ |
+| N3: a file named with a line break | listed, accepted by the record check; 3 `BugPilot Safety Rules` headings in `task.md` | EXPECTED_CURRENT_ESCAPE (N3): fixed in Batch 1 |
+
+**macOS's `/private` paths.** The real `/tmp` is a link to `/private/tmp`. A
+repository there, used by its unresolved `/tmp/…` path, works for
+`writable_issue_dir`, `atomic_write_text`, `owned_path` and
+`save_instructions`. The resolved path is under `/private`. Link refusal
+judges only the components BugPilot owns, so the system's own link is never
+refused, and the links at `.ai` and the work item's folder still are.
+
+**Windows (CI)** reproduced the local baseline:
+
+- links at `.ai` and the work item's folder are refused (real symbolic links
+  on the runner);
+- a root behind a link works;
+- the N3 name cannot be created;
+- the credentials file is written through a link at its own path (O4).
+
+**Security of the run, as pushed:**
+
+- top-level `permissions: contents: read`, and no job widens it;
+- no secret or Jira credential is referenced; checkout keeps no credentials;
+- no deployment, release, tag or comment;
+- the four actions are pinned to the SHAs above;
+- the only outputs are the run's logs and annotations, and the four
+  file-safety artifacts (401–613 bytes each, kept 30 days).
+
+**Newly discovered.** Nothing above Low.
+
+- No POSIX behaviour differed from the plan.
+- No required or first-run job failed.
+- N1 is still a baseline: the required jobs assert that it reproduces, on
+  every system.
+- Two runner notices, information only:
+  - `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19. The next runs will
+    show whether anything changes; pinning `ubuntu-24.04` is an option, not
+    taken.
+  - macOS arm64 runners may queue longer.
+
+**Decision gate.** All required jobs pass. Linux and macOS permission behaviour
+is understood and matches the policy. There is no new Critical or High issue.
+N1 remains a baseline. No production behaviour changed.
+
+The two POSIX-confirmed EXPECTED_CURRENT items (the credentials file's born
+mode, and the link at its path) are Low to Medium, already planned for
+Batch 4 (S2, B5, O4), and need no change before Batch 1. Batch 1 may start on
+the owner's approval.
 
 #### CI (`.github/workflows/ci.yml`)
 
@@ -19491,9 +19623,13 @@ goldens: `- Type: `, `- Status: ` and `- Priority: `.
 2. **The required CI job runs the Batch 0 safety set**, and the full suite is a
    non-blocking first run (above). D5 is met for the required set; the full
    suite becomes required after its first results are triaged.
-3. **Linux and macOS results are pending** the first CI run after the push.
+3. **Linux and macOS results came from CI** after the push, not before the
+   commit. They are recorded in *First CI run*.
 4. **The 1 MB render goal** is read as rendering alone (above). The measured
    step including keyword extraction is recorded beside it.
+5. **The CI reporter (`tests/ci_report.py`) was added at the final review**,
+   because job logs and artifacts of a public repository cannot be read
+   without credentials. Annotations can.
 
 #### Known baseline vulnerabilities, by the batch that flips them
 
@@ -19502,7 +19638,425 @@ goldens: `- Type: `, `- Status: ` and `- Priority: `.
 | 1 (M1) | N1, both shapes and the setext forms; the unclosed HTML comment; N7; N3 at render (names, and the `issue.json` record check); the readers made fence-aware and CommonMark-aligned (the lone-CR name the Effective AI Task cannot see); `docs/safety.md` corrected (D10) |
 | 2 (M2, S7) | F8 in every evidence source; N2; N4; O1–O3; T1's missing provenance; Similar Fixes and Git History labelled |
 | 3 (M3, S1, S8) | the retry prompt by construction, its open-fence cuts, T4's missing label; N5 (fence-aware excerpt, quoted `fix_bug` argument, report excerpt as earlier output, title on one line); D1; the hint improver |
-| 4 (S2–S4) | the credentials file born `600` and refusing a link (B5, O4); F13; F10, F11; whatever the first POSIX run reports |
+| 4 (S2–S4) | the credentials file born `600` and refusing a link (B5, O4; both confirmed on Linux, macOS and Windows); F13; F10, F11; making the full suite and the extension job required. The first POSIX run reported nothing else |
 
-**Next:** the owner's review and the Batch 0 commit; then the first CI results;
-then Batch 1.
+**Next:** the owner's approval to start Batch 1, and the owner's choice of how
+to commit this record of the first CI run.
+
+### 44.17 Batch 1 — Containment building blocks and the N1 repair (implemented 2026-10-12)
+
+**Status: Batch 1 implemented, uncommitted on `05f9008`.**
+
+- **Commit:** none yet. It waits for the owner's review, then one commit (D7).
+- **Batch 2:** not started.
+- **§44.16:** the Batch 0 CI record (the CI reporter, the first run and the
+  POSIX file-safety observations) is unchanged and still uncommitted beside
+  it.
+- **Approval:** the owner approved Batch 1 on 2026-10-12, after Batch 0
+  (`05f9008`, CI run 38338462399, all eight jobs green). D1–D10 are as
+  approved.
+
+#### Files
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/evidence.py` (new) | `visible_escapes` (D2), `fence_for` and `evidence_block` (D3), and `section_starts`, the one fence-aware section reader |
+| `bugpilot/core/instructions.py` | `normalize_instructions` turns U+2028 and U+2029 into line breaks (N7); `contained_markdown` rewritten for N1 and the unclosed HTML comment |
+| `bugpilot/core/prompts.py` | attachment names written with visible escapes when the task is rendered (N3) |
+| `bugpilot/core/task_preview.py` | the section reader is `evidence.section_starts` |
+| `bugpilot/core/context.py` | `read_context_quality` finds its section with `evidence.section_starts` |
+| `docs/safety.md` | D10 (below) |
+| `tests/test_evidence.py` (new) | 89 tests (88 at implementation, plus 1 from the review): the building blocks, judged by the oracles |
+| `tests/test_containment.py` (new) | 76 tests (42 at implementation, plus 34 from the review): the brief's edge cases, fidelity, the differential test, attachment names, legacy tasks, the linear-time bound |
+| `tests/test_prompt_boundary_baseline.py` | the N1, unclosed-comment, N3 and N7 baselines flipped to *fixed*; the reader-agreement acceptance test; fixed findings kept separate from open ones |
+| `tests/test_file_safety_baseline.py` | the POSIX N3 test flipped: the name is listed and contained |
+| `tests/test_no_unwired_symbols.py` | `evidence.evidence_block` allowed until Batch 2 wires it |
+| `tests/prompt_boundary_baseline.py` | `DESCRIBES`: what the living expectations describe |
+| `tests/golden/prompt_boundary/expected.json` | 88 deliberate flips (below) |
+| `tests/baselines/0.1.5-batch1/` (new) | the Batch 1 record: regression numbers, the matrix, timings |
+
+**Not changed:** `context.md` rendering, the retry prompt, the MCP server, the
+hint improver, the credentials file, the extension, `pyproject.toml` and the
+version.
+
+#### The containment, as built
+
+The containment uses no Markdown parser; it removes what a parser would have
+to resolve. `contained_markdown` reads the layer line by line, after unifying
+CRLF, lone CR, U+2028 and U+2029 to LF.
+
+**Kept exactly as written (verbatim fences):**
+
+- **A fence that opens at column 0.** It is always the document's own fence:
+  a fence never continues a list item or a quote lazily, and every HTML start
+  outside a verbatim fence is escaped, so no HTML block can hold it. If it is
+  left open, it is closed where the layer ends. This is the only closer
+  BugPilot ever appends.
+- **A fence indented one to three spaces,** when it closes within its own
+  indentation: a closing line indented at least as far but at most three
+  spaces, before any line indented less, and before any closing line
+  indented four to six columns.
+  - That fence reads the same whether it is the document's own or sits in a
+    list item whose text starts at or before its indentation, so every reader
+    agrees on where it ends.
+  - The look-ahead is bounded: 200,000 lines plus four per line in all.
+    Beyond that budget an indented fence is treated as not kept, which is the
+    safe direction. The budget is deterministic.
+
+**Everything else (every line outside a verbatim fence):**
+
+- **Headings:** an ATX heading, at the top level or behind `>` and list
+  markers at any indentation, is held two levels down. The markers are read
+  one at a time, in linear time (a pre-commit review fix, below).
+- **Setext underlines:** a line of only `-` or only `=` (`- - -` included),
+  here or behind markers, gets a blank line before it when the line above is
+  not blank.
+- **One backslash** goes before anything that could open a block that hides
+  or reshapes what follows:
+  - the start of an HTML block of any of CommonMark's seven types, at any
+    indentation and behind markers (type 7 matched broadly);
+  - any other run of three or more backticks or tildes.
+
+  A backtick run whose info string holds a backtick can never be a fence and
+  is left alone.
+- **Prose:** a line whose first visible character is a letter is passed
+  through untouched (a fast path).
+
+**Why this is safe without a parser.** After containment, the only fences
+left in the layer are the two verbatim kinds, and no HTML block can start.
+The four ways a 0.1.4 layer escaped all needed a fence or block that the
+containment and CommonMark read differently:
+
+- a fence after an HTML start;
+- a fence inside a list item or a quote that ends with its container;
+- a closer appended for a fence CommonMark never opened;
+- an unclosed comment.
+
+None of these can occur now. This is proven by the differential test (below),
+not only argued.
+
+**Fidelity costs, accepted and documented** (`docs/safety.md`):
+
+- an HTML line, a closed `<!-- note -->` included, gains one backslash;
+- a code block inside a list item or a quote, or one indented without closing
+  within its indentation, loses its fence (its fence line gets a backslash),
+  and heading-shaped lines in it are held down.
+
+Ordinary guidance is byte-identical to 0.1.4: prose, lists, column-0 code
+blocks with `#` comment lines, code blocks in numbered lists, tables, inline
+code and inline HTML. Every one of the 17 goldens is byte-identical.
+
+**The building blocks:**
+
+- **`visible_escapes`:** every Cc, Cf, Zl and Zp character as `<U+XXXX>`,
+  never deleted (D2). Tab and LF are kept unless asked. Printable lines take a
+  fast path.
+- **`evidence_block`:** the text verbatim inside a backtick fence one longer
+  than its longest backtick run, and at least three (D3). Line endings are
+  unified, invisible characters escaped, and the info string is put on one
+  line without backticks. It is built and tested now and wired into
+  `context.md` by Batch 2.
+- **`section_starts`:** the one reader of a document's `##` sections. It
+  reads fences as CommonMark does, so a fence that never closes now hides what
+  follows, as it does for an agent's reader.
+
+#### Security boundaries addressed
+
+**Addressed in Batch 1:**
+
+- **The six editable layers in `task.md`:** Project and User Instructions, AI
+  Behavior, the Verification Policy, Fix Mode sections and the Developer
+  Hint. Covers N1 (both shapes, and the setext forms), the unclosed HTML
+  comment, and U+2028/U+2029 (N7).
+- **Attachment names in `task.md` (N3),** whether copied or found in the
+  folder. They are written with visible escapes, still listed, and never
+  dropped.
+- **BugPilot's own section readers** (the Effective AI Task, and
+  `read_context_quality`) read fences as a Markdown reader does.
+
+**Kept as approved (D8):**
+
+- The hand-written report remains evidence: `context.md` is unchanged in
+  Batch 1.
+- `user_feedback.md` remains guidance; it is not wired, because its
+  containment belongs to the retry prompt (Batch 3).
+- Neither is promoted to a protected instruction.
+
+**Not addressed, and not claimed** (`docs/safety.md` says so):
+
+- **Batch 2:** `context.md` evidence (F8, N2, N4, and one-line fields).
+- **Batch 3:** the retry prompt, MCP text, D1 and the hint improver.
+- **Batch 4:** the credentials file.
+
+#### N1 and its family, before and after
+
+The table shows the matrix outcome in `task.md`, Batch 0 (0.1.4) → Batch 1.
+"ambig." is ambiguous; "refused" is the Fix Mode validator refusing a `#`
+heading.
+
+| Layer | C08 list-item fence | C09 HTML, then fence | C10 `<pre>` with a fence | C14 HTML, setext | C15 list, setext | D03 unclosed `<!--` | E01/E02 U+2028/U+2029 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Project Instructions | escape → safe | escape → ambig. | escape → ambig. | escape → ambig. | escape → safe | escape → safe | ambig. → safe |
+| User Instructions | escape → safe | escape → ambig. | escape → ambig. | escape → ambig. | escape → safe | escape → safe | ambig. → safe |
+| AI Behavior | escape → safe | escape → ambig. | escape → ambig. | escape → ambig. | escape → safe | escape → safe | ambig. → safe |
+| Verification Policy | escape → safe | escape → ambig. | escape → ambig. | escape → ambig. | escape → safe | escape → safe | ambig. → safe |
+| Developer Hint | escape → safe | escape → ambig. | escape → ambig. | escape → ambig. | escape → safe | escape → safe | ambig. → safe |
+| Fix Mode sections | refused | refused | refused | escape → ambig. | escape → safe | refused | ambig. → safe |
+
+**What "ambiguous" means here.** After Batch 1 it has one meaning only: a
+heading-shaped line inside a real, closed code fence, kept verbatim.
+
+- In C09, C10 and C14, the `<div>` or `<pre>` gets its backslash, so the
+  fence after it becomes a real fence, and the forged heading sits inside it.
+- That heading is inert for a Markdown reader and for BugPilot's reader; a
+  line-by-line reader still meets it.
+- The same holds for C01–C03, C05, C12, C13, D05 and H03.
+
+**For every N1 case, all of these now hold:**
+
+- the task's top-level sections are exactly the clean render's, in order;
+- `BugPilot Safety Rules` and `Required Output Files` are each visible once;
+- no fence is left open;
+- BugPilot's reader sees the same sections as the CommonMark oracle;
+- the layer's text is all still there.
+
+**N3** (LF, CR and U+2028 in a name): each was escape or ambiguous, and is
+now ambiguous. Every attachment's name is its entry's own `###` heading, so
+the outcome stays ambiguous. No section is forged, and a note says to list
+the attachments folder to open the file.
+
+#### Verification with the independent oracles
+
+**The oracles are unchanged and independent of the product** (Batch 0's
+tests).
+
+**The differential test** (`test_containment.py`) builds a task-shaped
+document around each layer, through the real path (`normalize_instructions`
+then `contained_markdown`). It requires all of these:
+
+- the CommonMark oracle's top-level headings are exactly BugPilot's;
+- no unclosed fence and no HTML block remain;
+- BugPilot's reader agrees;
+- the raw-line oracle finds no heading-shaped line (level 1–2, indent up to
+  three) outside a real fence;
+- no heading appears that only U+2028/U+2029/NEL/VT/FF would make.
+
+It runs over:
+
+- every pair of 63 line shapes: 3,969 layers;
+- 4,000 seeded random layers of 3–12 lines;
+- the 29 edge cases of the Batch 1 brief.
+
+It found 0 disagreements. A wider exploratory run outside the suite also
+found 0: all layers of up to three lines from 42 shapes (75,894), 20,000
+random layers of 4–9 lines, and 60,000 random layers of 2–16 lines from 83
+shapes.
+
+**The building blocks** (`test_evidence.py`):
+
+- Every corpus case, and the 1 MB description, is exactly one closed fence
+  holding exactly its text. It round-trips apart from the documented escapes,
+  with no section from inside and no heading-shaped line outside.
+- The reader agrees with CommonMark on fence cases, an unclosed fence
+  included.
+
+**The matrix** (`expected.json`): 88 outcomes flipped against Batch 0, every
+one toward safety.
+
+- 41 escape → ambiguous, 16 escape → safe, 31 ambiguous → safe; none toward
+  escape.
+- All flips are in the six editable layers and attachment names.
+- The other 17 sources are byte-identical in the record, `context.md`, retry
+  and MCP among them.
+- Escapes fell from 568 to 511; none remain in those seven sources.
+- The reader agrees with the CommonMark oracle on every corpus case in every
+  source that reaches `task.md` (§44.7's acceptance).
+
+#### Regression results
+
+| Check | Result |
+| --- | --- |
+| The 17 `task.md` goldens | byte-identical: the SHA-256 of every case equals Batch 0's |
+| Retrieval, synthetic corpus | Recall@5 9/9, MRR 0.944, confidence 7/2/1, noise-only 0; the record is identical to Batch 0's |
+| Retrieval, live corpus | 1/5, MRR 0.256: unchanged |
+| Context Quality | every case and cap identical to Batch 0's: caps 75 (capped at 75), 86, 100, 70 (capped at 75) |
+| Git History | identical to Batch 0's record |
+| `context.md` and retry goldens | unchanged: the 7 files are byte-identical |
+| Python, full suite (Windows, Python 3.14.6, isolated home, no `JIRA_*`) | 2,599 passed, 18 skipped (the 17 POSIX-only file-safety tests and 1 older POSIX test). Batch 0 ended at 2,466 passed; Batch 1 adds 133 tests (`test_evidence` 88, `test_containment` 42, three in `test_prompt_boundary_baseline`) |
+| Extension | typecheck passed; unit tests 2,323 of 2,323 |
+| Publishability | 20/20 |
+| Runtime dependencies | `dependencies = []` unchanged; markdown-it-py only in the `test` extra (`pyproject.toml` untouched) |
+| Linux, macOS, Python 3.10 | not run for Batch 1: they run in CI after the commit. The POSIX-only N3 test was changed to expect containment; its code path was exercised on Windows with the name passed directly (one Safety Rules section) |
+
+#### Performance
+
+Measured on the same idle Windows machine as Batch 0, with Python 3.14.6.
+Record: `tests/baselines/0.1.5-batch1/performance.json`.
+
+| Measure | Batch 0 (0.1.4) | Batch 1 |
+| --- | ---: | ---: |
+| `build_context` alone, typical | 0.057 ms | 0.045 ms |
+| `build_context` alone, 1 MB description | 0.92 ms | 1.03 ms |
+| `generate_task`, typical | 1.1 ms | 1.2 ms |
+| retry prompt, typical | 7.8 ms | 8.0 ms |
+| preparation, median of 5 | 1,697 ms | 1,727 ms (+1.8%) |
+| `contained_markdown`, a 1 MB layer (measured apart) | 2.95 ms | 3.8 ms |
+| `contained_markdown`, a typical layer | 0.020 ms | 0.036 ms |
+| `evidence_block`, 1 MB | — | about 15 ms (goal: under 100 ms) |
+| `context.md` / `task.md` / retry prompt, typical, characters | 3,792 / 11,792 / 3,605 | identical |
+
+**Reading the numbers.**
+
+- **Preparation's +1.8%** is within the 2% goal and within run-to-run noise:
+  Batch 0's own five runs spread 1,683–1,732 ms.
+- **Unchanged code, different times:** `context.md`'s rendering did not
+  change in Batch 1, so its differences are noise too.
+- **What changed is linear:** containment costs microseconds per layer.
+- **Typical documents are byte-identical,** so there is no size growth.
+
+#### Remaining risks
+
+- **Containment is structural.** It cannot stop a model from acting on what
+  quoted text says. The protected rules and the developer's review remain the
+  controls.
+- **Heading-shaped text inside a real code fence** is still visible to a
+  line-by-line reader (the remaining "ambiguous" outcomes), by design.
+- **Fidelity costs** (above). They need no input from a typical layer.
+- **`evidence_block` is not wired** until Batch 2.
+- **`context.md`, the retry prompt and MCP text** are still as in 0.1.4
+  (Batches 2–3). The Batch 0 baselines for them are unchanged.
+- **The section reader reads `\n` lines,** as 0.1.4's did, so 0.1.4
+  documents keep their line numbers. Batch 1 documents hold no CR: layers are
+  normalized and names escaped. A 0.1.4 `task.md` with a CR in an attachment
+  name still reads as before.
+- **Tasks prepared by 0.1.4 are read as 0.1.4 read them** (corrected at the
+  pre-commit review; the first draft of this record said N1-affected files
+  would now show their later sections missing, which measurement disproved).
+  - **The same fence model:** 0.1.4 closed every fence its own model saw, and
+    the new reader shares that model. So an N1-affected file reads exactly as
+    before: its forged heading is fenced, not a section, though a Markdown
+    reader saw one.
+  - **The only legacy files read differently:** those whose attachment names
+    held a fence run (POSIX only). There, an unclosed fence now hides what
+    follows, as it does for a Markdown reader.
+  - **Never rewritten:** an agent handed such a file still reads what 0.1.4
+    wrote until the work item is prepared again.
+  - **What the preview shows:** it labels only the fresh render's sections,
+    and reports the prepared file as differing (below).
+
+#### Deviations, recorded
+
+1. **N3 names are written with visible escapes rather than left out.** The
+   Batch 1 brief says to drop no user content. `attachments.is_plain_attachment_name`
+   is unchanged: rejecting such a name there would drop the file from the
+   task silently.
+2. **`one_line` is not built yet.** The owner placed one-line field hardening
+   in Batch 2.
+3. **The section reader keeps `\n` lines** (above). It is CommonMark-aligned
+   on fences.
+4. **The 0.1.5 changelog entry stays with Batch 5**, as §44.7 lists it. The
+   0.1.4 entry is history and is not rewritten; `docs/safety.md` carries the
+   correction (D10).
+
+#### Pre-commit review (2026-10-12)
+
+A focused security and compatibility review, run before the owner authorizes
+the commit.
+
+**Findings:**
+
+| # | Severity | Finding | Resolution |
+| --- | --- | --- | --- |
+| R1 | **Medium** (availability) | The container-aware patterns of the first Batch 1 draft backtracked exponentially. `>` plus an optional space, followed by the next marker's optional spaces, let one space belong to either, so a line of `> > > …` took seconds at 24 markers and would take minutes at 30. One such line in a committed instructions file, or in a CLI or MCP hint, would hang task generation. 0.1.4's patterns did not have it | **Fixed.** Markers are read one at a time (`instructions._container_prefix`), then simple anchored patterns apply to the rest. Thousands of markers now take milliseconds. A regression test bounds it |
+| R2 | Low | Behind quote or list markers indented four or more spaces, a heading was not held down. Such a heading is never top-level (it is indented code or a nested heading), but `docs/safety.md`'s rule did not hold for it | **Fixed** with R1: the rules apply behind markers at any indentation. A line of only `-` or `=` (spaced too) keeps its guard |
+| R3 | Info (doc accuracy) | This record and the Batch 1 report said N1-affected 0.1.4 tasks would now show their later sections missing in the Effective AI Task. Rendering all 616 corpus tasks with the actual 0.1.4 code (`a1ce8dd`) showed they read exactly as 0.1.4 read them | **Corrected** above and in `docs/safety.md` |
+| R4 | Low (legacy) | A `task.md` prepared by 0.1.4 on Linux or macOS with a line break in an attachment name keeps a forged `## BugPilot Safety Rules`: 12 of the 616 legacy renders, and 13 under the 0.1.4 reader. BugPilot never rewrites prepared files | **Documented**, not changed. The Effective AI Task labels only the fresh render's sections, which are contained. The prepared file is reported as differing (*BugPilot's own task sections*), and preparing the work item again replaces it. A handoff warning for a stale `task.md` is F14 (deferred) |
+| R5 | Info | `docs/safety.md` said the preview's sections are read "the way a Markdown reader reads them". The reader models fences only | **Corrected:** fences as a Markdown reader reads them; exact for 0.1.5 tasks; 0.1.4 tasks as 0.1.4 read them |
+| R6 | Info | An attachment name with a backtick breaks the `File:` line's inline code in a rendered preview, as it did in 0.1.4. It is not structural, and the raw text names the file | Recorded, not changed |
+| R7 | Info | A name that holds the literal text `<U+000A>` reads the same as an escaped line break. The literal one has no note and a correct path; the escaped one carries the note | Recorded, not changed |
+
+**N3 escaping is accepted.** The escaped representation is demonstrably safe
+and more useful than omission. It was tested on 29 adversarial names: CR, LF,
+CRLF, U+2028, U+2029, NEL, VT/FF, tab, NUL, ESC, bidi override, zero-width
+space, BOM, backticks, HTML, Markdown markers, `---`/`===`, leading spaces,
+trailing `#`, CJK, and 240 characters. For every one:
+
+- the task's sections, protected labels, HTML blocks and fences are exactly
+  the clean task's, for the CommonMark oracle and for BugPilot's reader;
+- no heading exists only for a reader that honours U+2028 and similar
+  characters;
+- the entry's `###` heading decodes back to the name;
+- the note appears exactly when something was escaped.
+
+Escaping is display-only. Nothing parses the rendered `File:` line, and copy,
+listing and deletion use the real names (`attachments.py` is unchanged). This
+conforms to D2: invisible characters are escaped, never deleted.
+
+**Fences.**
+
+- **The evidence fence** cannot be closed early. This held for every corpus
+  case, the 1 MB case, and 2,000 random fence-heavy strings (runs of 1–5
+  backticks, tildes, markers, CR, LF, U+2028); each was one closed fence
+  holding exactly its text.
+- **Code blocks are kept** when they open at column 0, or are indented and
+  close within their own indentation. Typical layers are byte-identical to
+  0.1.4.
+- **Nested lists and quotes:** zero disagreements on all layers of up to
+  three lines from 40 nested and indented container shapes (65,640) and on
+  30,000 random layers.
+- **The earlier runs, re-run after the fix:** all 0 — 75,894 + 20,000 + 60,000
+  exploratory layers, plus the suite's pairwise and random tests, whose
+  vocabulary now includes the nested shapes (73 shapes, 5,329 pairs).
+
+**No security-relevant structural ambiguity remains in `task.md`.** What
+remains is visual:
+
+- a heading-shaped line inside a real code fence, which is inert for every
+  parser;
+- legacy 0.1.4 files, until they are prepared again.
+
+`context.md`, the retry prompt and MCP text are unchanged, as Batches 2–3
+scope.
+
+**Code changes in the review:**
+
+- `instructions.py`: the marker scan (`_MARKER`, `_container_prefix`),
+  separate top-level and inside patterns, and the underline guard by
+  character set. The unused top-level setext pattern was removed.
+- `docs/safety.md`: R2, R3, R5.
+
+**Tests added in the review:**
+
+- `test_containment.py` (42 → 76): the linear-time bound; 3 edge cases; 10
+  nested shapes in the pairwise vocabulary; the 29 attachment names; the
+  legacy-task test.
+- `test_evidence.py` (88 → 89): the random fence property.
+
+**Re-verified after the review:**
+
+- the 17 goldens are byte-identical;
+- the matrix is byte-identical to the implementation pass (511 / 241 / 1,096
+  / 39);
+- the full suite, extension and publishability (below);
+- containment of a 1 MB layer takes 4.2 ms (0.1.4: 2.6 ms), and a typical
+  layer 0.048 ms, with output identical to 0.1.4 for both.
+
+The timings in `tests/baselines/0.1.5-batch1/performance.json` are from the
+implementation pass. The review changed nothing they measure beyond
+microseconds.
+
+**Results after the review**, on Windows with Python 3.14.6, an isolated
+home and no `JIRA_*`:
+
+| Check | Result |
+| --- | --- |
+| Full Python suite | 2,634 passed, 18 skipped (the implementation pass's 2,599 plus the review's 35) |
+| Focused review set | 712 passed, 17 skipped |
+| Extension | typecheck passed; unit tests 2,323 of 2,323 |
+| Publishability | 20/20 |
+| `git diff --check` | clean |
+| Untouched | the oracles; every Batch 2–4 surface (`workflow.py`, `mcp_server.py`, `memory.py`, `git_history.py`, `handoff.py`, `user_config.py`, `attachments.py`, the extension, `pyproject.toml`); the version (0.1.4) |
+| Not run | Linux, macOS and Python 3.10: CI after the commit |
+
+**Next:** the owner's decision on the commit. Then one commit (D7), push, CI,
+and Batch 2 only on the owner's approval.

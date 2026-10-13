@@ -14,6 +14,7 @@ import re
 from dataclasses import dataclass
 
 from .artifacts import RETRIEVAL_ARTIFACT, TASK_ARTIFACT
+from .evidence import section_starts
 from .git_history import GitHistoryOutcome, render_git_context
 from .issue import IssueArtifact
 from .jira import COMMENT_SIGNAL_TERMS
@@ -581,11 +582,15 @@ def read_context_quality(context_text: str) -> ContextQuality | None:
     together. ``None`` when the document has no such section (one written
     before Context Quality v2, or not by BugPilot).
     """
-    start = context_text.find("\n## Context Quality\n")
-    if start == -1:
+    # The document's own sections, read by the one fence-aware reader (0.1.5): a
+    # `## Context Quality` line inside a fenced block is quoted text, not this.
+    lines = context_text.split("\n")
+    starts = section_starts(lines)
+    found = next((position for position, start in enumerate(starts) if lines[start] == "## Context Quality"), None)
+    if found is None:
         return None
-    end = context_text.find("\n## ", start + 1)
-    section = context_text[start:] if end == -1 else context_text[start:end]
+    end = starts[found + 1] if found + 1 < len(starts) else len(lines)
+    section = "\n".join(lines[starts[found] : end])
     scores = _QUALITY_SCORE.search(section)
     if scores is None:
         return None

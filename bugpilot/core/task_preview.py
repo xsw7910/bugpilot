@@ -35,7 +35,8 @@ from .branch_policy import resolve_branch_policy
 from .config import issue_dir
 from .fix_mode_state import select_fix_mode
 from .identity import validate_work_item_id
-from .instructions import InstructionFile, code_fence, load_instructions
+from .evidence import section_starts
+from .instructions import InstructionFile, load_instructions
 from .issue import load_issue
 from .project_settings import ResolvedProjectSettings, resolve_project_settings
 from .prompts import TASK_SECTION_CLASSES
@@ -241,22 +242,13 @@ def _heading_lines(lines: list[str]) -> list[int]:
 
     An editable layer's headings are demoted, but a fenced line is left as
     written — so a ``## BugPilot Safety Rules`` inside a fence in AI Behavior
-    reaches ``task.md`` at column 0 and is not a section of the task. Only a
-    closed fence hides its lines: every layer's text has its fences closed, and
-    one that never closes must not hide BugPilot's sections after it.
+    reaches ``task.md`` at column 0 and is not a section of the task. The one
+    reader every preview uses (``evidence.section_starts``, 0.1.5): a fence is
+    read as a Markdown reader reads it, so one that never closes hides what
+    follows here too, and the preview never shows a section an agent's reader
+    would not see. BugPilot closes every fence a layer leaves open.
     """
-    fenced: set[int] = set()
-    fence: str | None = None
-    opened = 0
-    for index, line in enumerate(lines):
-        mark = code_fence(line)
-        if fence is None:
-            if mark:
-                fence, opened = mark, index
-        elif mark and mark[0] == fence[0] and len(mark) >= len(fence) and line.strip() == mark:
-            fenced.update(range(opened, index + 1))
-            fence = None
-    return [index for index, line in enumerate(lines) if line.startswith("## ") and index not in fenced]
+    return section_starts(lines)
 
 
 def _section_map(text: str) -> dict[str, str]:

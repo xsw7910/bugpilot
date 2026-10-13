@@ -8,6 +8,7 @@ from .ai_behavior import ResolvedAiBehavior, ai_behavior_section
 from .attachments import ATTACHMENTS_DIR
 from .branch_policy import DEFAULT_BRANCH_POLICY, branch_instructions
 from .delivery_instructions import assisted_delivery_block, delivery_safety_block
+from .evidence import visible_escapes
 from .fix_modes import STANDARD_FIX, FixMode, FixModeError
 from .git_ops import branch_name
 from .instructions import (
@@ -486,10 +487,22 @@ def _attachments_section(
     entries = ""
     for name in names:
         note = " ".join(str(described.get(name) or "").split())
-        entries += f"### {name}\n\n"
+        # The name as it is written here (0.1.5, N3). Copying gives a name no
+        # line break or control character, but the folder can hold one a copy
+        # did not make (outside Windows), and a name is a heading of this task:
+        # a line break in it would start a line — a section — of its own. Such
+        # a character is shown as `<U+XXXX>`, never dropped, and so is the file.
+        shown = visible_escapes(name, keep="")
+        entries += f"### {shown}\n\n"
         if note:
             entries += f"Description: {note}\n"
-        entries += f"File: `.ai/{issue_key}/{ATTACHMENTS_DIR}/{name}`\n\n"
+        entries += f"File: `.ai/{issue_key}/{ATTACHMENTS_DIR}/{shown}`\n"
+        if shown != name:
+            entries += (
+                "Its file name holds characters shown here as `<U+XXXX>`; list the attachments folder "
+                "to open it.\n"
+            )
+        entries += "\n"
     return (
         "## Developer Attachments\n\n"
         "The developer attached these files for this bug. They are not part of "

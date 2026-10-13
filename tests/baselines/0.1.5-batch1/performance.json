@@ -1,0 +1,38 @@
+{
+ "render": {
+  "context_typical_ms": 0.357,
+  "context_1mb_description_ms": 818.437,
+  "context_500_comments_ms": 10.021,
+  "render_typical_ms": 0.045,
+  "render_1mb_description_ms": 1.033,
+  "render_500_comments_ms": 0.189,
+  "task_typical_ms": 1.21,
+  "retry_typical_ms": 7.989
+ },
+ "sizes": {
+  "context_typical_chars": 3792,
+  "context_typical_approx_tokens": 948,
+  "context_1mb_input_chars": 1003105,
+  "context_1mb_output_chars": 1005828,
+  "task_typical_chars": 11792,
+  "retry_typical_chars": 3605
+ },
+ "preparation": {
+  "runs": 5,
+  "median_ms": 1727.2,
+  "all_ms": [
+   1750.0,
+   1726.8,
+   1717.4,
+   1753.2,
+   1727.2
+  ],
+  "what": "workflow.run_investigation of a hand-written bug in a two-file repository, no git, ripgrep search; a fresh repository each run"
+ },
+ "environment": {
+  "platform": "Windows",
+  "machine": "AMD64",
+  "python": "3.14.6",
+  "markdown_it_py": "4.2.0"
+ }
+}

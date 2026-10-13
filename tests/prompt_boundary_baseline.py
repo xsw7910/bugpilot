@@ -26,11 +26,12 @@ the expected-baseline markers below:
 - **EXPECTED_CURRENT_REFUSED** — the product refused the input (a Fix Mode
   section holding a heading, an instructions file it will not include).
 
-These describe **0.1.4 as released**, vulnerabilities included (N1–N4). They
+Batch 0 recorded **0.1.4 as released**, vulnerabilities included (N1–N4). They
 are not what 0.1.5 promises: Batches 1–3 flip them, case by case, and say so in
-their records. The expectations live in `tests/golden/prompt_boundary/expected.json`
-(rewritten only with `--update`, after reading the diff); a record written with
-`--write` is history and is never rewritten.
+their records (:data:`DESCRIBES` says where the living record stands). The
+expectations live in `tests/golden/prompt_boundary/expected.json` (rewritten
+only with `--update`, after reading the diff); a record written with `--write`
+is history and is never rewritten.
 
 The timings in `performance.json` are this machine's, recorded beside the
 platform they were measured on and never asserted (plan §44.12's comparators).
@@ -56,6 +57,14 @@ import prompt_boundary_sources as sources
 
 TESTS = Path(__file__).resolve().parent
 EXPECTED_PATH = TESTS / "golden" / "prompt_boundary" / "expected.json"
+
+#: What the living expectations describe, kept with them. Each batch that changes the boundaries says so here;
+#: the frozen records (`tests/baselines/0.1.5-batch*/prompt_boundary.json`) keep what they described.
+DESCRIBES = (
+    "BugPilot 0.1.5 as of Batch 1: 0.1.4 (a1ce8dd) with the editable layers' containment repaired (N1, the "
+    "unclosed HTML comment, N7) and attachment names written safely (N3); N2, N4 and the context.md, retry "
+    "and MCP findings are still those of 0.1.4, for Batches 2-3"
+)
 
 EXPECTED_CURRENT_ESCAPE = "EXPECTED_CURRENT_ESCAPE"
 EXPECTED_CURRENT_AMBIGUOUS = "EXPECTED_CURRENT_AMBIGUOUS"
@@ -184,7 +193,7 @@ def run_matrix() -> dict[str, dict[str, dict[str, Observation]]]:
 def expectations(results: dict[str, dict[str, dict[str, Observation]]]) -> dict[str, object]:
     return {
         "schema_version": 1,
-        "describes": "BugPilot 0.1.4 as released (a1ce8dd): the baseline 0.1.5 Batches 1-3 change on purpose",
+        "describes": DESCRIBES,
         "markers": list(MARKERS),
         "outcomes": {
             source: {case: {name: item.record() for name, item in sorted(documents.items())}
