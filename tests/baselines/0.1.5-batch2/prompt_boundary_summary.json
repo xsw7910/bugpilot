@@ -1,0 +1,832 @@
+{
+ "corpus": {
+  "cases": 74,
+  "matrix_cases": 73,
+  "hostile": 65,
+  "benign": 9,
+  "categories": {
+   "A": "line endings",
+   "B": "headings",
+   "C": "fences",
+   "D": "HTML-looking input",
+   "E": "Unicode and control characters",
+   "F": "fake BugPilot structures",
+   "G": "names and metadata",
+   "H": "scale",
+   "I": "mixed language",
+   "J": "ordinary benign content"
+  }
+ },
+ "sources": {
+  "total": 30,
+  "injectable": 24,
+  "matrix": [
+   {
+    "id": "protected_rules",
+    "label": "BugPilot protected rules",
+    "trust_class": "protected",
+    "enters": [
+     "task.md",
+     "retry"
+    ],
+    "product_path": "protected_rules.py, prompts.generate_task, workflow._build_retry_prompt",
+    "treatment": "fixed text, each rule stated once",
+    "findings": [],
+    "injectable": false,
+    "covered_by": "test_protected_rules.py"
+   },
+   {
+    "id": "handoff",
+    "label": "Handoff sentences, review prompt, MCP next_step",
+    "trust_class": "protected",
+    "enters": [
+     "handoff",
+     "mcp"
+    ],
+    "product_path": "handoff.py, agent_runner.py, mcp_server._next_step",
+    "treatment": "fixed text plus a validated id",
+    "findings": [],
+    "injectable": false,
+    "covered_by": "test_handoff.py"
+   },
+   {
+    "id": "project_instructions",
+    "label": "Project / Team Instructions",
+    "trust_class": "editable",
+    "enters": [
+     "task.md"
+    ],
+    "product_path": "instructions.load_instructions -> instruction_section",
+    "treatment": "normalized and contained (contained_markdown)",
+    "findings": [
+     "N1"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "user_instructions",
+    "label": "User Instructions",
+    "trust_class": "editable",
+    "enters": [
+     "task.md"
+    ],
+    "product_path": "instructions.load_instructions -> instruction_section",
+    "treatment": "normalized and contained",
+    "findings": [
+     "N1"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "ai_behavior",
+    "label": "AI Behavior additions",
+    "trust_class": "editable",
+    "enters": [
+     "task.md"
+    ],
+    "product_path": "ai_behavior.resolve_ai_behavior -> prompts",
+    "treatment": "front matter parsed; additions normalized and contained",
+    "findings": [
+     "N1"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "verification_policy",
+    "label": "Verification Policy file",
+    "trust_class": "editable",
+    "enters": [
+     "task.md"
+    ],
+    "product_path": "verification.resolve -> prompts",
+    "treatment": "body normalized and contained",
+    "findings": [
+     "N1"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "fix_mode_sections",
+    "label": "Fix Mode sections (custom)",
+    "trust_class": "editable",
+    "enters": [
+     "task.md"
+    ],
+    "product_path": "fix_modes validation -> prompts._fix_mode_section",
+    "treatment": "headings refused by validation; normalized and contained",
+    "findings": [
+     "N1"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "fix_mode_name",
+    "label": "Fix Mode name (custom)",
+    "trust_class": "editable",
+    "enters": [
+     "task.md",
+     "retry",
+     "context.md"
+    ],
+    "product_path": "prompts, workflow._build_retry_prompt",
+    "treatment": "collapsed to one line",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "developer_hint",
+    "label": "Developer Hint",
+    "trust_class": "editable",
+    "enters": [
+     "task.md",
+     "context.md"
+    ],
+    "product_path": "prompts (Developer Hint), context.py (Guidance)",
+    "treatment": "task.md: normalized and contained; context.md: one line",
+    "findings": [
+     "N1"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "user_feedback",
+    "label": "user_feedback.md",
+    "trust_class": "editable",
+    "enters": [
+     "retry"
+    ],
+    "product_path": "workflow._build_retry_prompt (Developer Feedback)",
+    "treatment": "raw, cut at 3,000",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "jira_title",
+    "label": "Jira summary",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md",
+     "mcp"
+    ],
+    "product_path": "issue.issue_from_jira -> context.py (- Summary:)",
+    "treatment": "raw; strip() only",
+    "findings": [
+     "N2"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "jira_description",
+    "label": "Jira description (plain text)",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md",
+     "mcp"
+    ],
+    "product_path": "jira.parse_issue (adf_to_markdown) -> context.py ### Description",
+    "treatment": "raw, no cap",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "jira_description_adf",
+    "label": "Jira description (ADF)",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md",
+     "mcp"
+    ],
+    "product_path": "jira_adf.adf_to_markdown -> context.py ### Description",
+    "treatment": "converted; line separators become LF; raw",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "jira_comment",
+    "label": "Jira comment",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md",
+     "mcp"
+    ],
+    "product_path": "jira.normalize_comments -> context.py #### Comment N",
+    "treatment": "raw body, latest 10",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "jira_environment",
+    "label": "Jira Environment field",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md",
+     "mcp"
+    ],
+    "product_path": "jira.parse_issue -> context.py ### Environment / Version",
+    "treatment": "raw, uncapped",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "manual_description",
+    "label": "Hand-written bug report",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md",
+     "mcp"
+    ],
+    "product_path": "input_adapters.bug_spec_from_description -> issue_from_spec -> context.py",
+    "treatment": "raw",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "manual_title",
+    "label": "Hand-written title (CLI --title, MCP title)",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md",
+     "mcp"
+    ],
+    "product_path": "input_adapters.bug_spec_from_description -> context.py (- Summary:)",
+    "treatment": "strip() only",
+    "findings": [
+     "N2"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "attachment_note",
+    "label": "Developer attachment description",
+    "trust_class": "evidence",
+    "enters": [
+     "task.md"
+    ],
+    "product_path": "prompts._attachments_section",
+    "treatment": "collapsed to one line",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "attachment_name",
+    "label": "Developer attachment file name",
+    "trust_class": "evidence",
+    "enters": [
+     "task.md"
+    ],
+    "product_path": "attachments.attachment_names -> prompts._attachments_section",
+    "treatment": "sanitized when copied, not when rendered",
+    "findings": [
+     "N3"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "jira_attachment_filename",
+    "label": "Jira attachment file name",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md"
+    ],
+    "product_path": "jira.normalize_attachments -> context.py table and log signals",
+    "treatment": "| escaped only",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "code_search_keyword",
+    "label": "Supplied keyword (CLI --keywords, MCP keywords)",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md"
+    ],
+    "product_path": "workflow.extract_issue_keywords -> context.py Search Terms",
+    "treatment": "strip() only",
+    "findings": [
+     "N4"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "code_search_snippet",
+    "label": "Code Search snippet line",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md"
+    ],
+    "product_path": "retrieval.json snippets -> context.py Relevant Snippets",
+    "treatment": "inline code, one line each, no cap",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "code_search_reason",
+    "label": "Code Search reason (ripgrep error text)",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md"
+    ],
+    "product_path": "search.py reasons -> context.py Search Quality",
+    "treatment": "raw bullet",
+    "findings": [
+     "N4"
+    ],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "git_history",
+    "label": "Git History: commit subjects and paths",
+    "trust_class": "evidence",
+    "enters": [
+     "context.md"
+    ],
+    "product_path": "git_history.render_git_context -> context.py",
+    "treatment": "subjects on one line, demoted; paths raw",
+    "findings": [],
+    "injectable": false,
+    "covered_by": "test_prompt_boundary_baseline.py::test_git_history_subjects_and_paths_baseline"
+   },
+   {
+    "id": "repository_profile",
+    "label": "Repository Profile facts",
+    "trust_class": "evidence",
+    "enters": [
+     "task.md"
+    ],
+    "product_path": "repository_profile.clean_fact -> prompts",
+    "treatment": "one line, capped (clean_fact)",
+    "findings": [],
+    "injectable": false,
+    "covered_by": "test_repository_profile.py"
+   },
+   {
+    "id": "fix_report",
+    "label": "Previous fix report",
+    "trust_class": "ai-output",
+    "enters": [
+     "retry",
+     "mcp"
+    ],
+    "product_path": "workflow._previous_attempt_summary; mcp summarize_results",
+    "treatment": "raw, cut at 2,400 (retry) / 4,000 (MCP)",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "similar_fix_memory",
+    "label": "Similar-fix memory (name and first heading)",
+    "trust_class": "ai-output",
+    "enters": [
+     "context.md",
+     "mcp"
+    ],
+    "product_path": "memory.search_memory -> context.py Similar Fixes",
+    "treatment": "names and first headings only",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "jira_status",
+    "label": "Jira status, type, priority",
+    "trust_class": "metadata",
+    "enters": [
+     "context.md"
+    ],
+    "product_path": "jira.parse_issue -> context.py ## Issue",
+    "treatment": "raw",
+    "findings": [],
+    "injectable": true,
+    "covered_by": ""
+   },
+   {
+    "id": "issue_id",
+    "label": "Issue id / work item id",
+    "trust_class": "metadata",
+    "enters": [
+     "task.md",
+     "context.md",
+     "retry",
+     "handoff",
+     "mcp"
+    ],
+    "product_path": "identity.validate_work_item_id",
+    "treatment": "validated by regex everywhere",
+    "findings": [],
+    "injectable": false,
+    "covered_by": "test_work_item_id_contract.py"
+   },
+   {
+    "id": "branch_label",
+    "label": "Branch name and template",
+    "trust_class": "metadata",
+    "enters": [
+     "task.md",
+     "retry"
+    ],
+    "product_path": "branch_policy.py, git_ops.py",
+    "treatment": "validated by regex; slug [a-z0-9-]",
+    "findings": [],
+    "injectable": false,
+    "covered_by": "test_branch_policy.py"
+   }
+  ]
+ },
+ "summary": {
+  "observations": 1887,
+  "overall": {
+   "EXPECTED_CURRENT_ESCAPE": 86,
+   "EXPECTED_CURRENT_AMBIGUOUS": 409,
+   "EXPECTED_CURRENT_SAFE": 1353,
+   "EXPECTED_CURRENT_REFUSED": 39
+  },
+  "by_document": {
+   "context.md": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 267,
+    "EXPECTED_CURRENT_SAFE": 755,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "retry": {
+    "EXPECTED_CURRENT_ESCAPE": 86,
+    "EXPECTED_CURRENT_AMBIGUOUS": 25,
+    "EXPECTED_CURRENT_SAFE": 108,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "task.md": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 117,
+    "EXPECTED_CURRENT_SAFE": 490,
+    "EXPECTED_CURRENT_REFUSED": 39
+   }
+  },
+  "by_trust_class": {
+   "ai-output": {
+    "EXPECTED_CURRENT_ESCAPE": 43,
+    "EXPECTED_CURRENT_AMBIGUOUS": 13,
+    "EXPECTED_CURRENT_SAFE": 90,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "editable": {
+    "EXPECTED_CURRENT_ESCAPE": 43,
+    "EXPECTED_CURRENT_AMBIGUOUS": 68,
+    "EXPECTED_CURRENT_SAFE": 580,
+    "EXPECTED_CURRENT_REFUSED": 39
+   },
+   "evidence": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 328,
+    "EXPECTED_CURRENT_SAFE": 610,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "metadata": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 73,
+    "EXPECTED_CURRENT_REFUSED": 0
+   }
+  },
+  "by_source": {
+   "ai_behavior": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 11,
+    "EXPECTED_CURRENT_SAFE": 62,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "attachment_name": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 61,
+    "EXPECTED_CURRENT_SAFE": 1,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "attachment_note": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 73,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "code_search_keyword": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 73,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "code_search_reason": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 73,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "code_search_snippet": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 73,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "developer_hint": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 11,
+    "EXPECTED_CURRENT_SAFE": 135,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "fix_mode_name": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 146,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "fix_mode_sections": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 1,
+    "EXPECTED_CURRENT_SAFE": 33,
+    "EXPECTED_CURRENT_REFUSED": 39
+   },
+   "fix_report": {
+    "EXPECTED_CURRENT_ESCAPE": 43,
+    "EXPECTED_CURRENT_AMBIGUOUS": 13,
+    "EXPECTED_CURRENT_SAFE": 17,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "jira_attachment_filename": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 73,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "jira_comment": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 53,
+    "EXPECTED_CURRENT_SAFE": 20,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "jira_description": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 53,
+    "EXPECTED_CURRENT_SAFE": 20,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "jira_description_adf": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 53,
+    "EXPECTED_CURRENT_SAFE": 20,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "jira_environment": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 53,
+    "EXPECTED_CURRENT_SAFE": 20,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "jira_status": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 73,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "jira_title": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 1,
+    "EXPECTED_CURRENT_SAFE": 72,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "manual_description": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 53,
+    "EXPECTED_CURRENT_SAFE": 20,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "manual_title": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 1,
+    "EXPECTED_CURRENT_SAFE": 72,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "project_instructions": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 11,
+    "EXPECTED_CURRENT_SAFE": 62,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "similar_fix_memory": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 0,
+    "EXPECTED_CURRENT_SAFE": 73,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "user_feedback": {
+    "EXPECTED_CURRENT_ESCAPE": 43,
+    "EXPECTED_CURRENT_AMBIGUOUS": 12,
+    "EXPECTED_CURRENT_SAFE": 18,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "user_instructions": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 11,
+    "EXPECTED_CURRENT_SAFE": 62,
+    "EXPECTED_CURRENT_REFUSED": 0
+   },
+   "verification_policy": {
+    "EXPECTED_CURRENT_ESCAPE": 0,
+    "EXPECTED_CURRENT_AMBIGUOUS": 11,
+    "EXPECTED_CURRENT_SAFE": 62,
+    "EXPECTED_CURRENT_REFUSED": 0
+   }
+  },
+  "escapes_by_case": {
+   "A01-lf-heading": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "A02-crlf-heading": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "A03-lone-cr-heading": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "A04-mixed-endings": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "B01-atx-h1-task-title": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "B02-atx-h2-protected": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "B03-atx-indented-3": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "B04-atx-closing-hashes": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "B06-setext-equals": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "B07-setext-dashes": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "B11-setext-after-lone-cr": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C03-backtick-fence-open": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C04-tilde-fence-open": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C06-info-with-backtick": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C07-nested-fences": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C08-fence-in-list-item": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C09-fence-after-html-div": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C10-fence-inside-pre": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C11-fence-indented-four": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C12-backtick-run-12": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C13-trace-with-fence": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C14-html-fence-setext": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "C15-list-fence-setext": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "D02-details": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "D03-comment-unclosed": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "E05-tab-indented": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "E06-zero-width-in-name": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F01-fake-safety-rules": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F02-fake-evidence-rules": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F03-fake-verification-policy": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F04-fake-ai-behavior": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F05-fake-rule-precedence": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F06-fake-branch-instructions": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F07-fake-delivery-safety": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F08-fake-required-output": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F09-fake-context-quality": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "F11-fake-retry-structure": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "G01-name-lf": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "G02-name-cr": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "G04-title-forges-quality": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "G05-keyword-heading": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "H03-backtick-run-1000": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ],
+   "I01-chinese-fake-section": [
+    "fix_report:retry",
+    "user_feedback:retry"
+   ]
+  }
+ }
+}

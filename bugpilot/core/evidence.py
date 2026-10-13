@@ -10,6 +10,9 @@ The building blocks the prompt-boundary hardening shares (plan §44.5):
   than any backtick run in it (decision D3), so no line of the text can end
   the block, or be read as a heading, a fence, an HTML block or a setext
   underline while it is inside.
+- :func:`one_line` writes a short field — a title, a status, a keyword, a
+  path, a table cell — on one line, so it can never start a line of the
+  document it is placed in.
 - :func:`section_starts` is the one reader of a document's own ``## `` sections:
   a line inside a fenced code block is never one, and a fence that never
   closes hides everything after it, as it does for a Markdown reader.
@@ -72,6 +75,20 @@ def evidence_block(text: str, *, info: str = "text") -> str:
     label = " ".join(visible_escapes(info, keep="").replace("`", "").split())
     opening = f"{fence}{label}"
     return f"{opening}\n{fence}" if body == "" else f"{opening}\n{body}\n{fence}"
+
+
+def one_line(text: str) -> str:
+    """``text`` on one line: each run of whitespace, line breaks included, becomes one space (plan §44.5.2).
+
+    For a field shown inline. CR, LF and CRLF, tabs and spaces fold into the
+    run; the characters :func:`visible_escapes` writes as ``<U+XXXX>`` — U+2028
+    and U+2029, NEL, VT, FF and every other control or format character — are
+    escaped as there, never dropped (D2). Nothing else changes and nothing is
+    cut, so no reader, however liberal about line breaks, finds a second line
+    in the result. Applying it twice changes nothing more. Only what is shown
+    goes through it: the value a search, a path or an id uses stays as it was.
+    """
+    return " ".join(visible_escapes(text, keep="\t\n\r").split())
 
 
 def section_starts(lines: list[str], marker: str = "## ") -> list[int]:

@@ -1,4 +1,10 @@
-"""Shared markdown memory helpers."""
+"""Shared markdown memory helpers.
+
+What a memory says is earlier output, and what the issue says is evidence: both
+are shown on one line where this module renders them (`evidence.one_line`,
+0.1.5), so neither can start a heading of its own in the memory entry or in the
+search report `context.md` quotes.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +15,7 @@ from pathlib import Path
 from .artifacts import RETRIEVAL_ARTIFACT
 from .artifact_io import atomic_write_text
 from .config import memory_dir, writable_memory_file
+from .evidence import one_line
 from .identity import is_known_work_item_id
 from .issue import IssueArtifact
 from .models import DEFAULT_MAX_SIMILAR_FIXES
@@ -20,7 +27,7 @@ def build_memory_entry(issue_key: str, issue: IssueArtifact, context_path: str) 
         f"# {issue_key} AI Bug Workflow Memory\n\n"
         f"- Created: {now}\n"
         f"- Mode: prepare-only\n"
-        f"- Summary: {issue.title}\n"
+        f"- Summary: {one_line(issue.title)}\n"
         f"- Mock/demo Jira data: {issue.details.mock}\n"
         f"- Context: {context_path}\n\n"
         "## Investigation State\n\n"
@@ -132,11 +139,11 @@ def _first_heading(text: str) -> str | None:
 
 def _render_memory_search(query_label: str, keywords: list[str], results: list[dict[str, object]]) -> str:
     lines = [
-        f"# Memory Search: {query_label}",
+        f"# Memory Search: {one_line(query_label)}",
         "",
         "## Query Keywords",
         "",
-        ", ".join(keywords) or "_No keywords available._",
+        ", ".join(one_line(keyword) for keyword in keywords) or "_No keywords available._",
         "",
         "## Similar Historical Issues",
         "",
@@ -145,7 +152,7 @@ def _render_memory_search(query_label: str, keywords: list[str], results: list[d
         lines.append("No similar memory entries found.")
     else:
         for result in results:
-            keywords_text = ", ".join(result["matched_keywords"])
-            lines.append(f"- `{result['file']}` score={result['score']} keywords={keywords_text}")
-            lines.append(f"  - {result['title']}")
+            keywords_text = ", ".join(one_line(str(keyword)) for keyword in result["matched_keywords"])
+            lines.append(f"- `{one_line(str(result['file']))}` score={result['score']} keywords={keywords_text}")
+            lines.append(f"  - {one_line(str(result['title']))}")
     return "\n".join(lines).rstrip() + "\n"

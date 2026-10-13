@@ -46,6 +46,7 @@ from pathlib import Path
 
 from .code_files import is_documentation, is_searchable
 from .config import issue_dir
+from .evidence import evidence_block, one_line
 from .executables import child_environment, find_executable
 from .git_ops import (
     TIMEOUT_EXIT_CODE,
@@ -1542,12 +1543,17 @@ def render_git_context(outcome: GitHistoryOutcome) -> str:
     The only renderer of the commit list: ``context.md`` demotes this under its
     Git History heading, ``bugpilot git-context`` prints it. It ranks nothing
     and reads nothing — what it shows is the record, in the record's order.
+
+    What a repository says — commit subjects, paths, git's own output — is
+    evidence (0.1.5): each field on one line (``evidence.one_line``), and
+    ``git status`` in a fence nothing in it can close. The record keeps the
+    values as git gave them; only what is shown changes.
     """
     record = outcome.record
     lines = [f"# Git Context: {outcome.work_item_id}", ""]
     if record.status == "unavailable" or outcome.repository is None:
         lines.extend(["## Warning", ""])
-        lines.extend(record.warnings or (NOT_A_REPOSITORY_WARNING,))
+        lines.extend(one_line(warning) for warning in record.warnings or (NOT_A_REPOSITORY_WARNING,))
         return "\n".join(lines).rstrip() + "\n"
 
     repository = outcome.repository
@@ -1555,14 +1561,12 @@ def render_git_context(outcome: GitHistoryOutcome) -> str:
         [
             "## Repository",
             "",
-            f"- Current branch: {repository.branch}",
+            f"- Current branch: {one_line(repository.branch)}",
             f"- Working tree: {'clean' if repository.clean else 'dirty'}",
             "",
             "## Status",
             "",
-            "```text",
-            repository.status,
-            "```",
+            evidence_block(repository.status, info="text evidence git-status"),
             "",
             "## Related Commits",
             "",
@@ -1589,8 +1593,9 @@ def _supporting_markdown(record: GitHistoryRecord) -> list[str]:
     ]
     for item in record.supporting_files:
         hashes = ", ".join(commit[:10] for commit in item.commit_hashes)
-        lines.append(f"- `{item.path}` ({item.change})")
-        lines.append(f"  Why: {'; '.join(item.reasons)} — commits {hashes}")
+        reasons = "; ".join(one_line(reason) for reason in item.reasons)
+        lines.append(f"- `{one_line(item.path)}` ({one_line(item.change)})")
+        lines.append(f"  Why: {reasons} — commits {hashes}")
     lines.append("")
     return lines
 
@@ -1605,14 +1610,14 @@ def related_commits_phrase(count: int) -> str:
 def _commit_markdown(record: GitHistoryRecord) -> list[str]:
     lines: list[str] = [f"{related_commits_phrase(len(record.commits))}.", ""]
     for commit in record.commits:
-        lines.extend([f"### {commit.short_hash} — {commit.subject or '(no subject)'}", ""])
-        lines.append(f"Date: {commit.date}")
+        lines.extend([f"### {one_line(commit.short_hash)} — {one_line(commit.subject) or '(no subject)'}", ""])
+        lines.append(f"Date: {one_line(commit.date)}")
         if commit.matched_terms:
-            lines.append(f"Matched: {', '.join(term.value for term in commit.matched_terms)}")
+            lines.append(f"Matched: {', '.join(one_line(term.value) for term in commit.matched_terms)}")
         lines.append("")
         if commit.files:
-            lines.extend(["Relevant files:", *(f"- `{item.path}`" for item in commit.files), ""])
-        lines.extend(["Why relevant:", *(f"- {reason}" for reason in commit.reasons), ""])
+            lines.extend(["Relevant files:", *(f"- `{one_line(item.path)}`" for item in commit.files), ""])
+        lines.extend(["Why relevant:", *(f"- {one_line(reason)}" for reason in commit.reasons), ""])
     for warning in record.warnings:
-        lines.extend([f"_{warning}_", ""])
+        lines.extend([f"_{one_line(warning)}_", ""])
     return lines

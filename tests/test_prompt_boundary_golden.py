@@ -26,10 +26,22 @@ def test_no_golden_file_is_left_over():
 
 
 def test_the_goldens_show_todays_exposure_as_plainly_as_todays_normal_output():
-    """The forged cases are in the goldens on purpose: EXPECTED_CURRENT_ESCAPE, visible as a diff when fixed."""
+    """The forged cases are in the goldens on purpose, visible as a diff when fixed.
+
+    `context.md` was fixed in Batch 2 (Batch 0 recorded two `## Context Quality` sections in the forged-title
+    golden, and the description's and the comment's forged sections): each forged case now has exactly the
+    sections of the typical one. The retry prompt is Batch 3's, and still shows its exposure.
+    """
+    typical = commonmark.top_level_headings(RENDERED[golden.CONTEXT_DIR / "manual-typical.txt"])
     forged_title = RENDERED[golden.CONTEXT_DIR / "manual-forged-title.txt"]
-    assert commonmark.top_level_headings(forged_title).count((2, "Context Quality")) == 2
+    assert commonmark.top_level_headings(forged_title) == typical
+    assert commonmark.top_level_headings(forged_title).count((2, "Context Quality")) == 1
+    forged_evidence = RENDERED[golden.CONTEXT_DIR / "jira-forged-description-and-comment.txt"]
+    assert commonmark.top_level_headings(forged_evidence) == commonmark.top_level_headings(
+        RENDERED[golden.CONTEXT_DIR / "jira-typical.txt"]
+    )
+    for path in sorted(RENDERED):
+        if path.parent == golden.CONTEXT_DIR:
+            assert not commonmark.structure(RENDERED[path]).unclosed_fences(), path.name
     forged_retry = RENDERED[golden.RETRY_DIR / "fix-forged-feedback-and-report.txt"]
     assert commonmark.structure(forged_retry).unclosed_fences()
-    typical = RENDERED[golden.CONTEXT_DIR / "jira-typical.txt"]
-    assert not commonmark.structure(typical).unclosed_fences()

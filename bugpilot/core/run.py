@@ -64,6 +64,11 @@ class RunArtifact:
     #: Set by a run-level failure; cleared by the next run reaching a terminal
     #: state.
     error: RunError | None = None
+    #: The format of the ``context.md`` beside it, as the step that wrote it
+    #: recorded (``context.CONTEXT_FORMAT``; 0.1.5, S7). ``None`` for a context
+    #: written before the marker existed, or no context at all. Additive:
+    #: readers that do not know it ignore it.
+    context_format: int | None = None
 
     def with_step(self, step: str, status: str) -> "RunArtifact":
         return replace(self, steps={**self.steps, step: status})
@@ -90,6 +95,8 @@ def run_to_dict(run: RunArtifact) -> dict[str, object]:
         if run.error.step is not None:
             error["step"] = run.error.step
         data["error"] = error
+    if run.context_format is not None:
+        data["context_format"] = run.context_format
     return data
 
 
@@ -121,6 +128,7 @@ def run_from_dict(data: object, work_item_id: str) -> RunArtifact:
             message=str(error_data["message"]),
             step=str(step) if isinstance(step, str) and step else None,
         )
+    marker = data.get("context_format")
     return RunArtifact(
         work_item_id=str(data.get("work_item_id") or work_item_id),
         status=status,
@@ -132,6 +140,8 @@ def run_from_dict(data: object, work_item_id: str) -> RunArtifact:
         else (),
         fix_mode=fix_mode if isinstance(fix_mode, dict) else None,
         error=error,
+        # A positive integer, or not there: anything else is read as no marker, never guessed.
+        context_format=marker if isinstance(marker, int) and not isinstance(marker, bool) and marker > 0 else None,
     )
 
 

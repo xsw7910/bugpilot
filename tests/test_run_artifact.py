@@ -37,7 +37,8 @@ needs_rg = pytest.mark.skipif(shutil.which("rg") is None, reason="code search ne
 # A successful prepare writes exactly these top-level keys. `error` appears only
 # on a run-level failure — and nothing here is a log: no events, no timestamps,
 # no trace lines (the guard §37.21 asks for against run.json becoming a dump).
-PREPARED_KEYS = {"schema_version", "work_item_id", "status", "steps", "generated_files", "fix_mode"}
+# `context_format` (0.1.5, S7): the format of the context.md the run wrote.
+PREPARED_KEYS = {"schema_version", "work_item_id", "status", "steps", "generated_files", "fix_mode", "context_format"}
 
 
 def _repo(root: Path) -> Path:

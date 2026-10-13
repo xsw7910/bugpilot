@@ -205,7 +205,9 @@ def test_the_context_carries_guidance_issue_and_code_search(tmp_path):
     assert f"`.ai/{work_item}/retrieval.json`" in search
     assert "- `src/WidgetController.cpp` confidence=high" in search
     assert "#### src/WidgetController.cpp" in search
-    assert "`return type != OutputType::CSV;`" in search
+    # The matched lines, quoted in one evidence block per file with their line numbers (0.1.5).
+    block = search[search.index("```text evidence code-search\n"):]
+    assert ": return type != OutputType::CSV;\n" in block[: block.index("\n```", 4) + 1]
 
 
 @needs_rg

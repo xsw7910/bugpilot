@@ -10,6 +10,12 @@ exposure as plainly as today's normal output. Batches 2 and 3 change them on
 purpose; regenerate with `python tests/boundary_golden.py --update` and read
 the diff.
 
+Batch 2 changed the context goldens (evidence fenced, short fields on one
+line). The 0.1.4 renders they replaced are kept, frozen, in
+`golden/context_0.1.4/` — never regenerated: `test_context_boundary.py` checks
+that each golden differs from its 0.1.4 render only as designed, and that a
+0.1.4 context still parses.
+
 Text files, not Markdown, as the task goldens are (`task_golden.py`): code
 search reads `.md` as documentation.
 """

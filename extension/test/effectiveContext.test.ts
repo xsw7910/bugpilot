@@ -120,6 +120,21 @@ test("no context is its own state, never stale, whatever the panel says", () => 
   }
 });
 
+test("a context prepared before evidence containment is noted as the CLI says, and asks for no rebuild (0.1.5, S7)", () => {
+  // The CLI's own note, carried as a warning: a 0.1.5 CLI reading a run record without the format marker.
+  const note =
+    "This context was prepared before BugPilot quoted evidence in fenced blocks (0.1.5): text from the issue and the " +
+    "repository is not set apart in it. Rebuilding the context writes it the new way; nothing else requires a rebuild.";
+  const generated = { artifacts: { context: true }, run_status: "prepared", context_step: "pass", context_format: null, context_format_current: 2 };
+  const view = contextStatusView(snapshot({ generated, warnings: [note] }), NONE);
+  assert.deepEqual([view.state, view.headline, view.needsRebuild, view.reasons], ["current", "Context status: Current", false, []]);
+  assert.deepEqual(view.warnings, [note]);
+  assert.equal(view.text, CONTEXT, "shown exactly as stored");
+  // Written in today's format, or read by an older CLI that knows no marker: nothing to note.
+  assert.deepEqual(contextStatusView(snapshot({ generated: { ...generated, context_format: 2 } }), NONE).warnings, []);
+  assert.deepEqual(contextStatusView(snapshot(), NONE).warnings, []);
+});
+
 test("an old CLI is out of date, a failure says why, and a good answer is loaded", async () => {
   assert.deepEqual(
     await runContextPreview(async () => ({ code: 2, stdout: "", stderr: "usage: bugpilot ...\nbugpilot: error: unrecognized arguments: --json" }), "JR-1"),

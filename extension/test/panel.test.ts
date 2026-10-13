@@ -4816,3 +4816,15 @@ test("the Verification Policy row wraps at 200px: no width, no absolute position
   assert.match(ruleBody(".policy-stale"), /border-radius: 9px;/);
   assert.match(CSS, /body\.vscode-high-contrast \.policy-stale,\s*body\.vscode-high-contrast-light \.policy-stale \{[^}]*border-color: var\(--vscode-contrastBorder/s);
 });
+
+// --- The Effective Context's warnings (0.1.5, S7) -------------------------------------------
+
+test("the Effective Context lists the CLI's warnings as text — where a context prepared before containment is noted", () => {
+  // S7's note travels as one of `context-preview`'s warnings: no new control, no new message, no rebuild asked.
+  assert.match(HTML, /<ul class="effective-list effective-warnings" id="effective-context-warnings" aria-label="Warnings" hidden><\/ul>/);
+  assert.match(PAGE_JS, /byId\("effective-context-warnings"\)\.hidden = fillList\(byId\("effective-context-warnings"\), view \? view\.warnings : \[\]\) === 0;/);
+  // Each warning is an item's text, never markup: the CLI's words, whatever they hold.
+  const fill = /function fillList\(list, lines\) \{[\s\S]*?\n  \}/.exec(PAGE_JS)?.[0] ?? "";
+  assert.match(fill, /item\.textContent = line;/);
+  assert.equal(/innerHTML/.test(fill), false);
+});

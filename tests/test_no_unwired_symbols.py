@@ -53,11 +53,6 @@ ALLOWED: dict[str, str] = {
         "Same: the words the skill and the MCP tool descriptions must share, "
         "checked against both by test_handoff.py."
     ),
-    "evidence.evidence_block": (
-        "The evidence fence of decisions D2 and D3 (0.1.5, plan §44.5.2): built and tested in Batch 1 "
-        "with the other containment building blocks, wired into context.md by Batch 2 (§44.5.3), which "
-        "removes this entry. Batch 1 is not allowed to change context.md."
-    ),
     "handoff.skill_steps": (
         "Renders the numbered steps of SKILL.md, which is a file rather than a "
         "caller. test_handoff.py compares the file against it step by step, so "

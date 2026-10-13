@@ -18,6 +18,7 @@ import pytest
 from bugpilot.cli import main
 from bugpilot.core.ai_behavior import render_document as render_ai_behavior
 from bugpilot.core.context import (
+    CONTEXT_FORMAT,
     MISSING_CORE_EVIDENCE_CAP,
     ContextQuality,
     _quality_markdown,
@@ -103,6 +104,9 @@ def test_a_current_context_is_the_stored_file_with_its_stored_quality_and_confid
         "artifacts": {"issue": True, "context": True, "retrieval": True, "task": True, "run": True},
         "run_status": "prepared",
         "context_step": "pass",
+        # S7 (0.1.5): written in today's format, as the run recorded — so no note that it predates containment.
+        "context_format": CONTEXT_FORMAT,
+        "context_format_current": CONTEXT_FORMAT,
     }
     assert payload["sources"]["issue"] == {"source": "jira", "mock": True}
     assert (payload["sources"]["hint"], payload["sources"]["attachments"], payload["sources"]["code_search"]) == (False, 0, True)

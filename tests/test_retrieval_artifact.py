@@ -280,7 +280,9 @@ def test_the_context_renders_its_retrieval_sections_from_the_artifact(tmp_path):
     assert "- `src/WidgetController.cpp` confidence=high" in context
     assert "Confidence: High" in context
     assert "#### src/WidgetController.cpp" in context
-    assert "- Line 3: `throw InvalidOutputType();`" in context
+    # Each file's matched lines, quoted in one evidence block (0.1.5).
+    assert "#### src/WidgetController.cpp\n\n```text evidence code-search\n" in context
+    assert "\nLine 3: throw InvalidOutputType();\n" in context
     assert "code_search.md" not in context
 
 
@@ -328,14 +330,26 @@ def test_eleven_ranked_files_all_reach_the_agent_context(tmp_path, monkeypatch):
     assert listed == files
     assert all(f"`{file}`" in context for file in files)
     # 4. The snippet excerpt is bounded by its line budget, not by a file count:
-    #    it is exactly the first lines of the full matched-line rendering.
+    #    it shows exactly the first lines of the full matched-line rendering as
+    #    0.1.4 laid it out — 24 lines of headings, blanks and matches — and since
+    #    0.1.5 quotes each file's lines in one evidence block.
     snippets = context.split("### Relevant Snippets", 1)[1].split("## Similar Fixes", 1)[0].strip()
-    rendered: list[str] = []
+    laid_out: list[tuple[str, str | None]] = []
     for item in handed_to_context[0].related_files:
-        rendered += [f"#### {item.file}", ""]
-        rendered += [f"- Line {snippet.line}: `{snippet.text}`" for snippet in item.snippets]
-        rendered.append("")
-    assert snippets == "\n".join(rendered[:24]).strip()
+        laid_out += [(item.file, None), ("", None)]
+        laid_out += [(item.file, f"Line {snippet.line}: {snippet.text}") for snippet in item.snippets]
+        laid_out.append(("", None))
+    chosen: dict[str, list[str]] = {}
+    for file, line in laid_out[:24]:
+        if file:
+            chosen.setdefault(file, [])
+            if line is not None:
+                chosen[file].append(line)
+    expected = [
+        f"#### {file}" + ("\n\n```text evidence code-search\n" + "\n".join(lines) + "\n```" if lines else "")
+        for file, lines in chosen.items()
+    ]
+    assert snippets == "\n\n".join(expected)
     shown = [file for file in files if f"#### {file}" in snippets]
     assert 0 < len(shown) < len(files), "the budget should cut the excerpt, not a file count"
     assert shown == files[: len(shown)]

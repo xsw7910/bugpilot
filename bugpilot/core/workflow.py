@@ -23,7 +23,7 @@ from .config import (
 )
 from .safe_paths import refuse_link, writable_dir
 from .email_notify import EmailSendError, EmailSendResult, build_email_draft, render_eml, send_notification, send_via_graph
-from .context import build_context
+from .context import CONTEXT_FORMAT, build_context
 from .branch_policy import (
     PROTECTED_BRANCHES,
     records_branch_name,
@@ -1168,7 +1168,9 @@ def context_step(
             keywords = extract_issue_keywords(issue, _user_terms(retrieval))
         context = build_context(issue, keywords, retrieval, git_history, similar_fixes)
         atomic_write_text(target / CONTEXT_ARTIFACT, context)
-        _mark_step(repo_root, issue_key, "context", "pass")
+        # The pass mark and the format of the context just written, in one write (S7).
+        run = load_run(repo_root, issue_key) or RunArtifact(work_item_id=issue_key)
+        _save_run(repo_root, issue_key, replace(run.with_step("context", "pass"), context_format=CONTEXT_FORMAT))
         log(target, "[END] context: pass")
     except Exception as exc:
         _mark_step(repo_root, issue_key, "context", "fail")
@@ -2178,8 +2180,24 @@ def _save_run(repo_root: Path, issue_key: str, run: RunArtifact) -> None:
         run,
         generated_files=tuple(_generated_files(repo_root, issue_key)),
         fix_mode=stored_fix_mode_metadata(repo_root, issue_key),
+        context_format=_context_format(repo_root, issue_key, run),
     )
     save_run(repo_root, issue_key, run)
+
+
+def _context_format(repo_root: Path, issue_key: str, run: RunArtifact) -> int | None:
+    """The format of the ``context.md`` on disk, as recorded when it was written (S7).
+
+    Kept across every later write of ``run.json`` — a new run's first write and
+    its terminal one start from a fresh record — for as long as that file is
+    there; gone with it. Only the context step sets it.
+    """
+    if not (issue_dir(repo_root, issue_key) / CONTEXT_ARTIFACT).is_file():
+        return None
+    if run.context_format is not None:
+        return run.context_format
+    previous = read_run_quietly(repo_root, issue_key)
+    return previous.context_format if previous is not None else None
 
 
 def _start_run(repo_root: Path, issue_key: str, skipped_steps: list[str]) -> None:

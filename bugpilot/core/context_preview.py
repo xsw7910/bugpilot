@@ -41,7 +41,7 @@ from .artifacts import (
     TASK_ARTIFACT,
 )
 from .config import issue_dir
-from .context import ContextQuality, read_context_quality
+from .context import CONTEXT_FORMAT, ContextQuality, read_context_quality
 from .fix_modes import FixModeError
 from .identity import validate_work_item_id
 from .issue import IssueArtifact, IssueArtifactError, load_issue
@@ -60,6 +60,14 @@ STATE_STALE = "stale"
 STATE_UNKNOWN = "unknown"
 
 NO_CONTEXT = "No generated context available. Build context first."
+
+#: Said of a context whose run record has no format marker, or an older one (S7). A note, not a reason: it asks
+#: for no rebuild, and the context is shown as stored.
+EARLIER_FORMAT_WARNING = (
+    "This context was prepared before BugPilot quoted evidence in fenced blocks (0.1.5): text from the issue "
+    "and the repository is not set apart in it. Rebuilding the context writes it the new way; nothing else "
+    "requires a rebuild."
+)
 
 #: What a reader is told for each state.
 _LABELS = {
@@ -192,6 +200,9 @@ def preview_context(repo_root: Path, work_item_id: str | None) -> ContextPreview
     quality = read_context_quality(text)
     if quality is None:
         warnings.append(f"The Context Quality section of .ai/{work_item_id}/{CONTEXT_ARTIFACT} could not be read.")
+    # Only from a run record that says: without one there is nothing to go on, and nothing is guessed.
+    if run is not None and (run.context_format or 0) < CONTEXT_FORMAT:
+        warnings.append(EARLIER_FORMAT_WARNING)
     reasons: list[Reason] = []
 
     # The prepared package, as the run left it.
@@ -323,6 +334,10 @@ def context_preview_payload(preview: ContextPreview) -> dict[str, object]:
             "artifacts": dict(preview.artifacts),
             "run_status": run.status if run is not None else None,
             "context_step": run.steps.get("context") if run is not None else None,
+            # S7: the format the stored context was written in, by its run record; null when the record does
+            # not say (before 0.1.5) or there is no record. `context_format_current` is what this CLI writes.
+            "context_format": run.context_format if run is not None else None,
+            "context_format_current": CONTEXT_FORMAT,
         },
         "freshness": {
             "current": preview.current,
