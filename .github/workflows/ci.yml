@@ -10,9 +10,10 @@
 #
 # Jobs:
 # - safety-and-baselines (required): the prompt-boundary corpus, oracles and
-#   0.1.4 baselines, the goldens, and the file-safety tests — run for real on
-#   POSIX, where the permission policy (§43.11, L-3) had never run before.
-#   Ubuntu also runs the Python floor, 3.10.
+#   baselines, the goldens, the containment and evidence tests (0.1.5 Batch 1),
+#   and the file-safety tests — run for real on POSIX, where the permission
+#   policy (§43.11, L-3) had never run before. Ubuntu also runs the Python
+#   floor, 3.10.
 # - full-suite and extension (not yet required): the whole Python suite on all
 #   three systems and the extension's unit tests, which have only ever run on
 #   Windows. Their first results are triaged before they become required
@@ -93,6 +94,8 @@ jobs:
           tests/test_prompt_boundary_corpus.py
           tests/test_prompt_boundary_baseline.py
           tests/test_prompt_boundary_golden.py
+          tests/test_containment.py
+          tests/test_evidence.py
           tests/test_file_safety_baseline.py
           tests/test_ci_report.py
           tests/test_core_robustness.py

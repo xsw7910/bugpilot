@@ -17967,9 +17967,9 @@ recorded on their dates.
 ## 44. BugPilot 0.1.5 — Prompt Boundary and Robustness Hardening (PLAN, 2026-10-12)
 
 **Status: Batch 0 implemented, committed as `05f9008` and pushed (2026-10-12);
-its first CI run passed on every job (§44.16). Batch 1 implemented, not yet
-committed (§44.17). Batches 2–5 have not started.** The plan below is
-otherwise as written.
+its first CI run passed on every job (§44.16). Batch 1 implemented, committed
+as `a95495e` and pushed (2026-10-13); its CI run passed on every job (§44.17).
+Batches 2–5 have not started.** The plan below is otherwise as written.
 
 - **Starting point:** released 0.1.4, `a1ce8dd`.
 - **Version:** stays 0.1.4 until the release gates in §44.13 pass.
@@ -19645,7 +19645,20 @@ to commit this record of the first CI run.
 
 ### 44.17 Batch 1 — Containment building blocks and the N1 repair (implemented 2026-10-12)
 
-**Status: Batch 1 implemented, uncommitted on `05f9008`.**
+**Status: Batch 1 implemented and committed** as
+`a95495eb0620bfe642a752f2d2e415ea1de8af24`, one commit (D7).
+
+- **The commit:** parent `05f9008`, 24 files. It also carries the Batch 0 CI
+  record of §44.16.
+- **The push:** to `main` as a fast-forward, on 2026-10-13.
+- **CI:** run 38417482214 passed on every job (see *Commit, push and CI*,
+  below).
+- **Batch 2:** not started; it waits for the owner's approval.
+
+*The paragraphs below were written before the commit and keep that wording,
+for example "uncommitted" and "not run".*
+
+**As first written:**
 
 - **Commit:** none yet. It waits for the owner's review, then one commit (D7).
 - **Batch 2:** not started.
@@ -20058,5 +20071,163 @@ home and no `JIRA_*`:
 | Untouched | the oracles; every Batch 2–4 surface (`workflow.py`, `mcp_server.py`, `memory.py`, `git_history.py`, `handoff.py`, `user_config.py`, `attachments.py`, the extension, `pyproject.toml`); the version (0.1.4) |
 | Not run | Linux, macOS and Python 3.10: CI after the commit |
 
-**Next:** the owner's decision on the commit. Then one commit (D7), push, CI,
-and Batch 2 only on the owner's approval.
+#### Commit, push and CI (2026-10-13)
+
+**The commit** is `a95495eb0620bfe642a752f2d2e415ea1de8af24`:
+"fix(security): contain editable task layers and harden Markdown
+boundaries".
+
+- **Parent:** `05f9008`.
+- **Contents:** 24 files — the 11 modified and 13 new files of §44.17, and the
+  uncommitted Batch 0 CI record (§44.16) in the plan.
+- **Left out:** `.bugpilot/` and `.vscode/extensions.json`.
+- **Checks before committing:** `git diff --cached --check` was clean; §43
+  and D1–D10 were identical to `05f9008`.
+
+**The push** was a fast-forward `05f9008..a95495e` after checking the remote
+had not moved. Local `HEAD`, `origin/main` and GitHub's `main` all read
+`a95495e`; there are no tags.
+
+**CI:** [GitHub Actions run 38417482214](https://github.com/xsw7910/bugpilot/actions/runs/38417482214),
+triggered by the push.
+
+- **When:** 2026-10-13 14:54–15:09 UTC.
+- **Result:** success; all eight jobs passed.
+- **How it was read:** from the run's public annotations, without
+  credentials, as in §44.16.
+
+| Job | Required | Python | Result | Tests |
+| --- | --- | --- | --- | --- |
+| Safety and baselines, ubuntu-latest | yes | 3.13.16 | success | 515 passed, 20 skipped, 1 deselected |
+| Safety and baselines, ubuntu-latest | yes | 3.10.22 | success | 515 passed, 20 skipped, 1 deselected |
+| Safety and baselines, macos-latest | yes | 3.13.15 | success | 516 passed, 19 skipped, 1 deselected |
+| Safety and baselines, windows-latest | yes | 3.13.15 | success | 516 passed, 19 skipped, 1 deselected |
+| Full Python suite, ubuntu-latest | no | 3.13 | success | 2,625 passed, 26 skipped, 1 deselected |
+| Full Python suite, macos-latest | no | 3.13 | success | 2,626 passed, 25 skipped, 1 deselected |
+| Full Python suite, windows-latest | no | 3.13 | success | 2,632 passed, 19 skipped, 1 deselected |
+| Extension, ubuntu-latest (typecheck, unit) | no | Node 22 | success | 2,323 tests: 2,321 passed, 2 skipped (Windows-only), 0 failed |
+
+**The counts reconcile.**
+
+- **The required jobs** collect 536 tests on every system: 533 at Batch 0,
+  plus the three new tests in `test_prompt_boundary_baseline`.
+- **The full suites** collect 2,652 on every system. That equals the local
+  run (2,634 passed and 18 skipped), which also runs the deselected test and
+  the private samples test.
+- **Skips are platform-specific only:** Windows junction tests on POSIX,
+  POSIX-only tests on Windows, the macOS-only `/tmp` test elsewhere, and the
+  private samples file.
+
+**What this run proves, by platform:**
+
+- **N1, in all six editable layers, both shapes:** contained on Linux (3.10
+  and 3.13), macOS and Windows. The required jobs run
+  `test_prompt_boundary_baseline`, whose N1 tests now assert containment, the
+  unclosed-comment fix and the reader agreeing with CommonMark on every corpus
+  task.
+- **N3 on a real file system:**
+  - On Linux (3.10, 3.13) and macOS, a file whose name holds a line break is
+    listed, and `task.md` has **one** `BugPilot Safety Rules` section.
+    Batch 0 recorded three.
+  - Windows still cannot create the name.
+- **The oracles and goldens:** `test_prompt_boundary_oracles`, the corpus,
+  the 17 task goldens and the context and retry goldens pass everywhere. The
+  matrix matched `expected.json` on every system.
+- **The file-safety baselines are unchanged from §44.16:**
+  - a new file is `600` under all four umasks;
+  - all six rewrite modes are kept;
+  - setuid, setgid and sticky are dropped;
+  - the credentials file is born `644` and ends `600`, and is written through
+    a link at its path (the S2/B5/O4 baselines, unchanged on purpose);
+  - links at `.ai` and the work-item folder are refused;
+  - a root behind a link works, macOS `/private` included;
+  - atomic replace had 0 torn reads.
+- **No catastrophic backtracking:**
+  - `test_containment`'s linear-time bound passed in the three full-suite
+    jobs;
+  - every required job ran its corpus and matrix in about a minute.
+- **Retrieval and Context Quality:** their regression tests passed in all
+  three full suites.
+- **Python 3.10:** the product code ran on 3.10 through the required job's
+  baseline tests (the containment, `evidence`, the reader, N3), with no
+  failure.
+
+**Newly found:**
+
+- **CI1 (Low, process).** The required job's test list was written in
+  Batch 0 and does not name Batch 1's own modules, `test_containment.py`
+  (76) and `test_evidence.py` (89). They ran and passed only in the
+  non-blocking full-suite jobs, on Python 3.13. A regression in them would
+  not fail a required check, and they have not run on 3.10.
+  - **Recommended:** add the two modules to the safety job's list. This is a
+    one-line `ci.yml` change, for the next commit the owner approves.
+  - Making the full suite required stays Batch 4's decision. It has now
+    passed twice on all three systems.
+- **Info:** the runner notices are unchanged: `ubuntu-latest` moves to
+  Ubuntu 26 from 2026-10-19, and macOS arm64 runners may queue longer.
+
+**Limitations that remain** (§44.17, *Remaining risks*):
+
+- Containment is structural and does not govern a model.
+- Heading-shaped text stays visible inside real fences.
+- Tasks prepared by 0.1.4 keep what 0.1.4 wrote until prepared again (R4).
+- `context.md`, the retry prompt and MCP text are Batches 2–3.
+
+#### CI1 resolution (2026-10-13; fixed locally, awaiting cross-platform CI)
+
+**Root cause.** The required job names its test modules explicitly. The list
+was written in Batch 0 and not extended when Batch 1 added
+`test_containment.py` and `test_evidence.py`. The full-suite jobs collect
+every module, so the two ran only there: not required, and on Python 3.13
+only.
+
+**Change.** In `.github/workflows/ci.yml`, the required
+`safety-and-baselines` job's pytest command gains `tests/test_containment.py`
+and `tests/test_evidence.py`, and its description comment says so. Nothing
+else changed:
+
+- the other 13 modules and the deselection;
+- `shell: bash`, whose pipefail carries pytest's result through `tee`;
+- the annotations step and the file-safety artifacts;
+- `fail-fast: false`, with no `continue-on-error`;
+- `permissions: contents: read` and the SHA pins;
+- the full-suite and extension jobs.
+
+**Required coverage after the change:** 15 modules on each of Ubuntu 3.13,
+Ubuntu 3.10, macOS 3.13 and Windows 3.13. Each required job gains the
+modules' 165 tests (76 + 89), none of them platform-skipped, so each job
+collects 701 tests (one deselected). Expected results:
+
+| Job | Expected |
+| --- | --- |
+| Ubuntu 3.13 and 3.10 | 680 passed, 20 skipped |
+| macOS | 681 passed, 19 skipped |
+| Windows | 681 passed, 19 skipped |
+
+**Verified locally** (Windows, Python 3.14.6):
+
+- **The workflow:** the YAML parsed (js-yaml) and the structural checks
+  passed: the four required configurations, `contents: read`, every action
+  pinned to a SHA, and checkout keeping no credentials.
+- **The exact required command**, extracted from the workflow and run as
+  GitHub runs `shell: bash` (`bash --noprofile --norc -eo pipefail`): 682
+  passed, 18 skipped, 1 deselected, exit 0. The local run also passes the
+  private-samples test that CI skips, so the local total equals CI's
+  expected 681 + 19.
+- **A failure fails the job.** A deliberately failing test sent through the
+  same `pytest … | tee` pipeline exits 1 with those flags (0 without
+  `pipefail`), so either module failing fails the job.
+- **Python 3.10:** both modules parse as 3.10 and use no 3.11+ API. The
+  product code they test already ran on 3.10 in the required jobs.
+- **Run time:** the two modules take about 8 s. The linear-time bound (5 s)
+  is not among their four slowest tests, so slower runners have ample margin.
+
+**Not yet verified:** the four required jobs running the two modules on
+Linux, macOS, Windows and Python 3.10. That happens on the first CI run after
+the owner commits and pushes the change. CI1 stays open until that run passes.
+
+**Scope:** `ci.yml` and this plan only. No product, test, package or
+extension change; nothing staged.
+
+**Next:** the owner's approval for Batch 2, and the owner's choice of how to
+commit this CI record and the CI1 fix. Neither is committed yet.
