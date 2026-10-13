@@ -101,18 +101,27 @@ _ERROR_LINE_RE = re.compile(
 # Lines that are section headings — skip them during error scanning
 _SECTION_HEADING_RE = re.compile(r"^#{1,4}\s+\S+|^[A-Za-z][A-Za-z /()_-]{1,50}:\s*$")
 
-# Fenced code block pattern (```...```)
-_FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+# Fenced code blocks (```...```) are found by `_fenced_blocks` below, in one
+# linear pass. They used to be a pattern, r"```[^\n]*\n(.*?)```" with DOTALL,
+# which tried every position of a long run of backticks and scanned from each
+# to the end of the text: quadratic, so a description of 100,000 backticks took
+# about 20 seconds to parse (N10, 0.1.5). The blocks found are the same.
+_FENCE = "```"
 
-# Lines that suggest a stack trace
-_TRACE_LINE_RE = re.compile(
-    r"(?:^\s+at\s+\S"
-    r"|\.(cpp|h|hpp|c|py|java|cs|rs):\d+"
-    r"|Traceback"
-    r"|File \".*?\",\s*line \d+"
-    r"|0x[0-9a-fA-F]{4,})",
-    re.MULTILINE,
-)
+# Lines that suggest a stack trace: `_looks_like_trace` below. It answers what
+# the pattern r'(?:^\s+at\s+\S|\.(cpp|h|hpp|c|py|java|cs|rs):\d+|Traceback|
+# File ".*?",\s*line \d+|0x[0-9a-fA-F]{4,})' (MULTILINE) answered, in linear
+# time (N11, 0.1.5). Two of its alternatives were quadratic: `File ".*?"` scanned
+# to the end of the line from every `File "` on it, and `^\s+at` scanned to the
+# end of the whitespace from every line start inside a run of blank lines.
+#: The alternatives that were never slow, each a few characters at one place.
+_TRACE_MARK_RE = re.compile(r"\.(?:cpp|h|hpp|c|py|java|cs|rs):\d|Traceback|0x[0-9a-fA-F]{4}")
+#: What must follow a Python frame's file name and its `",`: any whitespace, `line`, a digit.
+_FRAME_LINE_TAIL_RE = re.compile(r"\s*line \d")
+#: A whole run of whitespace followed by `at`, more whitespace and something else — a
+#: Java or .NET frame if a line starts inside the run. Matched once per run: it may start
+#: only where the run starts.
+_AT_FRAME_RUN_RE = re.compile(r"(?<!\s)\s+(?=at\s+\S)")
 
 # Regression signal terms
 _REGRESSION_RE = re.compile(
@@ -387,18 +396,19 @@ def _extract_stack_traces(combined_text: str) -> list[str]:
     if not combined_text:
         return []
     traces: list[str] = []
+    blocks = _fenced_blocks(combined_text)
 
     # Strategy 1: fenced code blocks containing trace-like lines
-    for m in _FENCE_RE.finditer(combined_text):
-        content = m.group(1)
-        if _TRACE_LINE_RE.search(content):
+    for _start, _end, content in blocks:
+        if _looks_like_trace(content):
             traces.append(content.strip())
 
     # Strategy 2: consecutive non-fenced lines (min 2) matching trace patterns
-    cleaned = _FENCE_RE.sub("", combined_text)
+    kept = [0, *(edge for start, end, _content in blocks for edge in (start, end)), len(combined_text)]
+    cleaned = "".join(combined_text[kept[i] : kept[i + 1]] for i in range(0, len(kept), 2))
     current_block: list[str] = []
     for line in cleaned.splitlines():
-        if _TRACE_LINE_RE.search(line):
+        if _looks_like_trace(line):
             current_block.append(line)
         else:
             if len(current_block) >= 2:
@@ -452,6 +462,87 @@ def _cap_text(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[:limit].rstrip()
+
+
+def _fenced_blocks(text: str) -> list[tuple[int, int, str]]:
+    """Every fenced block in ``text``, in order: ``(start, end, content)``, in one linear pass (N10).
+
+    A block opens at ```, takes the rest of that line as its info string,
+    and holds everything from the next line up to the next ``` (wherever it
+    falls) — the blocks the pattern r"```[^\\n]*\\n(.*?)```" (DOTALL) found,
+    with the same spans, so the text between them is the same too.
+
+    Each `find` starts where the previous one stopped, so the text is read
+    once. The search ends at the first opener with no line break after it, or
+    no ``` after that line break: no later opener could then complete a block
+    either, since its own line break and closing ``` would have to come later
+    still.
+    """
+    blocks: list[tuple[int, int, str]] = []
+    position = 0
+    while True:
+        start = text.find(_FENCE, position)
+        if start < 0:
+            break
+        newline = text.find("\n", start + len(_FENCE))
+        if newline < 0:
+            break
+        close = text.find(_FENCE, newline + 1)
+        if close < 0:
+            break
+        blocks.append((start, close + len(_FENCE), text[newline + 1 : close]))
+        position = close + len(_FENCE)
+    return blocks
+
+
+def _looks_like_trace(text: str) -> bool:
+    """Whether ``text`` holds a stack-trace line, as the old trace-line pattern found one (N11).
+
+    Any of: a source file and line (`.py:12`), `Traceback`, an address
+    (`0x1f2e`), a Python frame (`File "…", line 12`), or a line that starts
+    with whitespace, `at` and a frame (`    at Widget.run(…)`). Each test reads
+    the text a bounded number of times, so the whole is linear.
+    """
+    return bool(_TRACE_MARK_RE.search(text)) or _has_python_frame(text) or _has_at_frame(text)
+
+
+def _has_python_frame(text: str) -> bool:
+    """`File "…",` then `line N`, the file name on one line (the old `File ".*?",\\s*line \\d+`).
+
+    Only a line's first `File "` needs trying: anything after a later one on
+    the same line also comes after the first. From it, each `",` further along
+    the line is tried as the end of the file name, and whatever follows the
+    `",` — whitespace, line breaks included, then `line` and a digit — is read
+    once, since a run of whitespace follows at most one `",`.
+    """
+    position = 0
+    while True:
+        start = text.find('File "', position)
+        if start < 0:
+            return False
+        line_end = text.find("\n", start)
+        if line_end < 0:
+            line_end = len(text)
+        quote = text.find('",', start + 6, line_end)
+        while quote >= 0:
+            if _FRAME_LINE_TAIL_RE.match(text, quote + 2):
+                return True
+            quote = text.find('",', quote + 1, line_end)
+        position = line_end + 1
+
+
+def _has_at_frame(text: str) -> bool:
+    """A line that starts with whitespace, then `at`, whitespace and more (the old `^\\s+at\\s+\\S`).
+
+    Such a line's leading whitespace lies inside a run of whitespace that `at`
+    follows directly. The run counts when a line starts inside it before its
+    last character: at the very start of the text, or after a line feed that is
+    not the run's last character.
+    """
+    for run in _AT_FRAME_RUN_RE.finditer(text):
+        if run.start() == 0 or text.find("\n", run.start(), run.end() - 1) >= 0:
+            return True
+    return False
 
 
 def _cap_stack_traces(traces: list[str]) -> list[str]:

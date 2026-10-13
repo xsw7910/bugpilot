@@ -86,11 +86,25 @@ _SPLIT_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
 _PRIORITY_BOOST = 8
 
 # A token: a qualified/scope-resolved/file name (Foo::bar, module.func,
-# widget.cpp) OR a plain word (length >= 3).
+# widget.cpp) OR a plain word (length >= 3). Read by `_tokens`.
+#
+# The third alternative is never a token (N12, 0.1.5). Without it, a long run of
+# `_` and digits was quadratic: from each `_` the first alternative read to the
+# end of the run looking for `.` or `::`, failed, and the next `_` read it all
+# again. Whether that alternative can match depends only on what follows the
+# run, so once it fails at an `_` it fails at every `_` up to the run's first
+# letter; the third alternative steps over exactly those, as one match `_tokens`
+# drops. From the letter on, the second alternative takes the rest of the run.
 _TOKEN_RE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.)[A-Za-z_][A-Za-z0-9_]*)+"
     r"|[A-Za-z][A-Za-z0-9_-]{2,}"
+    r"|(?P<not_a_token>_[0-9_]*)"
 )
+
+
+def _tokens(text: str) -> list[str]:
+    """The tokens of ``text``, in order, as `re.findall` read them before the third alternative existed."""
+    return [match.group() for match in _TOKEN_RE.finditer(text) if match.group("not_a_token") is None]
 
 # --- noise that is never a name in the code (0.1.3, §42.3) -------------------
 #
@@ -99,7 +113,20 @@ _TOKEN_RE = re.compile(
 
 #: A link: to a site, a ticket, a log. Its parts are never what the code calls things.
 _URL_RE = re.compile(r"\b(?:https?|ftp|file)://[^\s<>\"'()\[\]]+", re.IGNORECASE)
-_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
+#: An e-mail address, or — the second alternative — the rest of a run that cannot start one (N12, 0.1.5).
+#: Without it, a long run like `a-a-a-…` or `a.a.a.…` with no `@` was quadratic: from every word
+#: boundary in it the address read to the end of the run looking for `@`, and failed. An address
+#: starting anywhere in a run has its `@` where the run ends, and the same text after it; so where one
+#: fails after a word boundary, every later start in that run fails too, and the second alternative
+#: steps over them as one match that `_without_emails` leaves as it was.
+_EMAIL_RE = re.compile(r"(?P<email>\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b)|\b[\w.+-]+")
+
+
+def _without_emails(text: str) -> str:
+    """``text`` with each e-mail address replaced by a space, exactly as before the second alternative existed."""
+    if "@" not in text:
+        return text
+    return _EMAIL_RE.sub(lambda match: " " if match.group("email") is not None else match.group(), text)
 #: Where a name ends: not inside a longer one. A full stop may follow — the end
 #: of a sentence — but not a full stop that continues the name.
 _NAME_END = r"(?![\w-])(?!\.[\w-])"
@@ -138,7 +165,7 @@ def remove_noise(text: str) -> tuple[str, list[str]]:
         return text, []
     removed: list[str] = []
     text = _URL_RE.sub(" ", text)
-    text = _EMAIL_RE.sub(" ", text)
+    text = _without_emails(text)
 
     def host(match: re.Match[str]) -> str:
         if not _is_host(match.group(0)):
@@ -398,7 +425,7 @@ def shape_expansions(text: str) -> list[str]:
 def text_tokens(text: str) -> set[str]:
     """The lowercase tokens ``extract_keywords`` would read in ``text``, file stems included."""
     tokens: set[str] = set()
-    for token in _TOKEN_RE.findall(text or ""):
+    for token in _tokens(text or ""):
         for value in (token, _file_stem(token)):
             base = (value or "").strip("._:-")
             if len(base) >= 3:
@@ -453,7 +480,7 @@ def extract_keywords(
     readings = ((text, False, False), (priority_text, True, False), (secondary_text, False, True))
     for source, is_priority, is_secondary in readings:
         # Identifiers from stack traces / error messages are the strongest signal.
-        for token in _TOKEN_RE.findall(source):
+        for token in _tokens(source):
             add(token, is_priority, is_secondary)
             stem = _file_stem(token)
             if stem:

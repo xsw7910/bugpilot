@@ -11,6 +11,7 @@
 # Jobs:
 # - safety-and-baselines (required): the prompt-boundary corpus, oracles and
 #   baselines, the goldens, the containment and evidence tests (0.1.5 Batch 1),
+#   the linear-time intake patterns (N10, N11, N12),
 #   and the file-safety tests — run for real on POSIX, where the permission
 #   policy (§43.11, L-3) had never run before. Ubuntu also runs the Python
 #   floor, 3.10.
@@ -96,6 +97,8 @@ jobs:
           tests/test_prompt_boundary_golden.py
           tests/test_containment.py
           tests/test_evidence.py
+          tests/test_jira_parse_fences.py
+          tests/test_intake_linear_patterns.py
           tests/test_file_safety_baseline.py
           tests/test_ci_report.py
           tests/test_core_robustness.py
