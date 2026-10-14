@@ -17981,8 +17981,12 @@ one-line test fix, `c3a7e30`, was pushed. Its CI run passed on every job,
 so Batch 2's cross-platform verification is complete (§44.20). Batch 3
 implemented and verified locally on `c3a7e30` (2026-10-13), not committed
 (§44.21); B3-1 approved as a limited size exception, and its final pre-commit
-security review done (§44.21), awaiting commit approval. Batches 4–5 have
-not started.** The plan below is otherwise as written.
+security review done. Batch 3 committed as `dc1e982` and pushed; its CI run
+passed on all nine jobs, the new required TypeScript job included, so Batch
+3's cross-platform verification is complete (§44.21). Batch 4 implemented
+and verified locally on Windows on `dc1e982` (2026-10-14), not committed;
+decisions B4-1 and B4-2 approved and its final pre-commit review done; its
+POSIX tests have not run yet (§44.22). Batch 5 has not started.** The plan below is otherwise as written.
 
 - **Starting point:** released 0.1.4, `a1ce8dd`.
 - **Version:** stays 0.1.4 until the release gates in §44.13 pass.
@@ -18744,7 +18748,7 @@ D1; S8). *Implemented 2026-10-13: §44.21.*
   - an MCP key would have to change.
 
 **Batch 4 — File-safety fixes** (S2, S3, S4, and whatever Batch 0's POSIX
-runs found).
+runs found). *Implemented 2026-10-14: §44.22.*
 
 - **Files:**
   - `user_config.py`;
@@ -21636,6 +21640,8 @@ committed, not pushed.** Four size measurements exceed the +5% target that
 B2-1 kept for new changes (see *Size*); **the owner approved them as a
 limited Batch 3 exception (B3-1, 2026-10-14)**. The final pre-commit security
 review found and fixed four issues (see *Final pre-commit security review*).
+**Since then committed as `dc1e982`, pushed, and verified by CI on every
+platform (see *Commit, push and CI*).**
 No stop condition of §44.7's Batch 3 was hit: no `task.md` change other than
 the D1 line, and no MCP key changed.
 
@@ -22233,3 +22239,613 @@ as it was.
 - **Next:** approval of the Batch 3 commit plan, and with it this record and
   §44.20's; then a CI run, the first of the new required job. Batch 4 has
   not started.
+
+#### Commit, push and CI (2026-10-14) — Batch 3 verified on every platform
+
+**The commit:** `dc1e982862210acb14c192fa7767a663b5539d91`,
+"fix(security): harden retry and MCP prompt boundaries" — one commit, on
+`c3a7e30`, approved by the owner with B3-1, R6 (D1's wording kept) and R10
+(`npm ci` kept).
+
+- **Contents:** 55 files (+12,912 / −248): the 37 changed tracked files and
+  18 new ones of this record's *Files* table, staged by explicit path, never
+  `git add .`/`-A`. With them, this plan's §44.20 post-CI record and §44.21
+  through the final review.
+- **One correction while staging:** the matrix counts in *Tests and the
+  independent oracles* were the implementation's; they now give the final
+  split against `HEAD` (C11 in the feedback counted once, ESCAPE → SAFE).
+  Still 100 outcomes, all toward safety.
+- **Checks before committing:** the staged whitespace check was clean; no
+  staged blob holds a carriage return; publishability passed on the staged
+  plan; the version is 0.1.4 everywhere.
+- **Identity:** the noreply identity. Nothing earlier was amended.
+- **Left out:** `.bugpilot/` (its two files unchanged, same SHA-256) and
+  `.vscode/extensions.json` stay untracked.
+
+**The push** was a fast-forward, `c3a7e30..dc1e982`, after checking that the
+remote still read `c3a7e30`. Local `HEAD`, `origin/main` and GitHub's `main`
+read `dc1e982`. No tags; no release workflow ran (the only run for
+`dc1e982` is CI's).
+
+**CI:** [GitHub Actions run 38597252135](https://github.com/xsw7910/bugpilot/actions/runs/38597252135),
+for `dc1e982`, triggered by the push.
+
+- **When:** 16:20:33–16:37:53 UTC on 2026-10-14.
+- **Conclusion:** success — and every job read on its own: its conclusion,
+  every step's, and its annotations, through the public API. The job logs
+  need authentication (403) and were not read.
+
+| Job | Required | Result |
+| --- | --- | --- |
+| Safety and baselines, ubuntu-latest, Python 3.13 | yes | **success**: 1,172 passed, 20 skipped, 1 deselected (was 1,044 / 20) |
+| Safety and baselines, ubuntu-latest, Python 3.10 | yes | **success**: 1,172 passed, 20 skipped, 1 deselected (was 1,044 / 20) |
+| Safety and baselines, macos-latest, Python 3.13 | yes | **success**: 1,173 passed, 19 skipped, 1 deselected (was 1,045 / 19) |
+| Safety and baselines, windows-latest, Python 3.13 | yes | **success**: 1,173 passed, 19 skipped, 1 deselected (was 1,045 / 19) |
+| **Extension evidence boundary, ubuntu-latest (new)** | **yes** | **success: 21 tests, 21 passed, 0 failed, 0 skipped** |
+| Full Python suite, ubuntu-latest | no | success: 3,117 passed, 26 skipped, 1 deselected (was 2,989 / 26) |
+| Full Python suite, macos-latest | no | success: 3,118 passed, 25 skipped, 1 deselected (was 2,990 / 25) |
+| Full Python suite, windows-latest | no | success: 3,124 passed, 19 skipped, 1 deselected (was 2,996 / 19) |
+| Extension unit tests, ubuntu-latest | no | success: 2,330 tests, 2,328 passed, 2 skipped (was 2,325: 2,323 / 2) |
+
+**What the counts show:**
+
+- **Every Python job gained exactly 128 tests,** on every system and on Python
+  3.10: the 126 of `test_batch3_boundaries.py`, one in
+  `test_prompt_boundary_baseline.py` (the whole-corpus retry acceptance test)
+  and one in `test_protected_rules.py` (version 2 is version 1 and D1) —
+  counted by collecting the required modules at `c3a7e30` and at `dc1e982`.
+  Every skip count is unchanged.
+- **Nothing of Batch 3 was skipped:** the skip annotations name only the
+  platform-bound tests they named before (POSIX permission bits, Windows
+  junctions and lookups, macOS's `/tmp`, the private publishability samples);
+  none names `test_batch3_boundaries.py` or another boundary, golden, oracle
+  or intake module. No job reported a warning or an error annotation.
+- **The required job ran every required module,** the nineteen listed in
+  `ci.yml` (the publishability deselect as before), on all four
+  configurations: the prompt-boundary oracles, corpus, matrix (no structural
+  escape), goldens (task: D1 only; retry: as designed) and
+  `test_batch3_boundaries.py` (retry containment, MCP compatibility, D1, the
+  mirror fixture, R2–R4); `test_context_boundary.py` (N2, N4, F8, Context
+  Quality); `test_containment.py` and `test_evidence.py` (N1, N3);
+  `test_jira_parse_fences.py` and `test_intake_linear_patterns.py`
+  (N10–N12); the file-safety, protected-rules, instructions and task-golden
+  modules.
+- **Platform-specific risks did not show:** line endings (the frozen 0.1.4
+  renders and the mirror fixture are read with CRLF normalized, and Windows'
+  checkout converts them), Unicode (the corpus's U+2028, U+2029, NEL and
+  format characters), the file system and Python 3.10 — which the static
+  check had covered until now — all passed.
+- **The extension job** gained the five tests of `evidence.test.ts`.
+
+**The new required TypeScript job, `extension-evidence-boundary`:**
+
+- **Ran:** its steps, in order, all succeeded — checkout
+  (`actions/checkout@3d3c42e5…`), `actions/setup-node@949feb24…`, Install
+  (`npm ci`), "Run the evidence boundary tests", the annotations, and both
+  post steps.
+- **Tested:** the annotation reads 21 tests, 21 passed, 0 failed — exactly
+  `test/evidence.test.ts` (5) and `test/hintImprovement.test.ts` (16), the
+  count the named files gave locally.
+- **Node:** the pinned `setup-node` with `node-version: "22"`. The exact 22.x
+  release is in the job log, which needs authentication: *assumed* 22.x, not
+  observed.
+- **Required:** no `continue-on-error` on the job or the step, so its failure
+  fails the CI run, as the Python safety job's does. **Failure propagation
+  was proved locally** (three injected faults under GitHub's own bash flags,
+  Review A), not on GitHub: nothing failed in this run.
+- **Read-only:** no `permissions` of its own; the workflow's `contents: read`
+  applies; `persist-credentials: false`.
+- **GitHub's own enforcement:** `main` has no branch protection (observed
+  through the public branch API: not protected, no required status checks).
+  "Required" in this plan means required by the workflow, for this job as for
+  the Python safety job. Making GitHub enforce any check is an owner decision,
+  outside 0.1.5's scope so far.
+
+**Not measured by CI:** Recall@5 and MRR (9/9, 0.944) and the record files
+are measured locally by `baseline_report.py`, as in every batch.
+
+**Unexpected findings:** none. The run took 17 minutes against the previous
+run's 31; the Windows full suite was again the longest job.
+
+**Remaining risks and limitations:**
+
+- Containment is structural, and D1 is an instruction to the agent: neither
+  guarantees what a model does.
+- GitHub enforces no status check on `main` (above).
+- The new job's exact Node release, and its behaviour on a real failure, are
+  not observed on GitHub (above).
+- The full-suite and extension jobs are still not required.
+- The deduplication gate has six tokens of headroom (R7).
+- The structured MCP strings of R8 are returned as values.
+- **This post-CI record is not committed.**
+
+**Batch 3's cross-platform verification is complete:** every required job is
+green on Ubuntu (Python 3.13 and 3.10), macOS and Windows, and the required
+TypeScript job is green. **Batch 3 is done.** Batch 4 has not started and
+waits for the owner's approval.
+
+### 44.22 Batch 4 — Credentials and file-safety hardening: S2, B5, O4, F10, F11, F13 (implemented 2026-10-14)
+
+**Status: implemented and verified locally on Windows; not staged, not
+committed, not pushed.** Every Linux and macOS check of this batch is written
+but has **not run**: there is no POSIX machine here (no WSL distribution, no
+container runtime), so the 16 POSIX-only and 1 macOS-only tests of the new
+module, and the two rewritten Batch 0 baselines, first run in CI after a push
+(see *Not executed*). No stop condition of §44.7's Batch 4 was hit: the
+credentials file keeps its location and format; Windows behaves as before,
+but for the atomic write and the link refusal; the documented file-safety
+policy is unchanged for every other file. Two owner decisions were open
+(B4-1, B4-2): **both approved, and the final pre-commit review done** (see
+*Final pre-commit security review*, at the end of this section).
+
+- **Starting point:** `dc1e982` (HEAD = `origin/main`), with §44.21's
+  uncommitted post-CI record in this plan, kept as it was.
+- **Version:** 0.1.4, unchanged.
+- **Scope:** §44.7's Batch 4 — S2 (B5), S3 (F13), S4 (F10, F11) and what
+  Batch 0's POSIX runs found (O4). Nothing of Batch 5 (UI, accessibility,
+  docs beyond what this batch changes, release) or the History / manual reopen
+  UX (D6) was done; branch protection and rulesets are untouched.
+- **Decisions D1–D10:** unchanged.
+- **Protected local files:** `.bugpilot/verification.md`,
+  `.bugpilot/ai_behavior.md` and `.vscode/extensions.json` are untouched (same
+  SHA-256), and the untracked `.bugpilot/` is kept whole.
+
+#### What each item meant, from the plan
+
+| Item | The plan's requirement | Where it was found |
+| --- | --- | --- |
+| **S2 (B5)** | "The credentials file is born `600`, new or rewritten, through the atomic writer. It is always `600`, never the old bits." | §44.2.B: `write_text`, then `chmod 600`; for a moment it exists with the umask's bits, and the write is not atomic. Batch 0 observed `644`, then `600`, on Linux and macOS |
+| **O4** | "The atomic writer refuses the link." | §44.16: the file was written through a link at its own path, on Windows, Linux and macOS |
+| **S3 (F13)** | "`task-preview <id>` refuses an `issue.json` read through a linked `.ai` or work-item folder, as `context-preview` already does." | §43.7, §43.11 |
+| **S4 (F10)** | "The Fix Mode payload file gets exclusive create." | §43.7: created without exclusive create |
+| **S4 (F11)** | "The description scratch file is per run and removed after use." | §43.7: one file in globalStorage, shared and kept |
+
+#### Files
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/artifact_io.py` | `atomic_write_text(…, private=False)`: `private` makes the temp file `0600` before a byte is written (`_owner_only`) and, on POSIX, removes the in-place fallback; every write now checks that the temp file it opened is the file at its name (`_check_temp`, W1) and removes its temp file whatever fails (W2); the retry is `_replace` |
+| `bugpilot/core/user_config.py` | both writers go through `_write_config`: a link or junction at the file's path is refused in one sentence naming no folder of the user's (`_refuse_link_at`, which `save_jira_site` now calls before it reads — R4-1), then `atomic_write_text(…, private=True)`; `_restrict_permissions` (the `chmod`) is gone |
+| `bugpilot/core/task_preview.py` | F13: `preview_work_item` refuses before reading anything when `.ai`, the work item's folder or `issue.json` is a link or junction |
+| `extension/src/app/scratchFile.ts` | **new:** `scratchFileName` (a random UUID), `writeScratchFile` (nothing at the name — not even a dangling link; exclusive create; `0600`; the file opened checked to be the one at its name), `removeScratchFile` |
+| `extension/src/app/fixModeTransport.ts` | F10: the payload file through `scratchFile.ts` |
+| `extension/src/app/controller.ts` | F11: `FilesPort` gains optional `writeScratchFile` / `removeScratchFile`; a run writes its description file with the first and removes it when the run is over, fails or never starts |
+| `extension/src/host/ports.ts`, `extension/src/extension.ts` | F11: the host's scratch port, and a per-run description path (`bug-description-<uuid>.md`) |
+| `tests/test_batch4_file_safety.py` | **new, required in CI:** 39 tests (37, and 2 from the final review) |
+| `tests/test_file_safety_baseline.py` | the two Batch 0 credentials baselines flipped to "fixed" (born mode, link at the path), each saying what Batch 0 recorded |
+| `extension/test/scratchFile.test.ts` | **new, required in CI:** 6 tests on the real file system |
+| `extension/test/controller.test.ts` | the harness records scratch writes and removals; the long-description test reads them; five F11 tests |
+| `.github/workflows/ci.yml` | `tests/test_batch4_file_safety.py` in the required Python job; `test/scratchFile.test.ts` the third named file of the required TypeScript job; B4-1: the full-suite and extension jobs required |
+| `docs/safety.md` | the credentials file, the atomic writer's temp-file check and failure cleanup, the Windows fallback's limit, F13, and the extension's scratch files |
+
+#### The design, as built
+
+**S2 and B5 — the credentials file.** `save_user_config` and `save_jira_site`
+write through `_write_config`, which calls the atomic writer with
+`private=True`:
+
+1. `mkstemp` creates the temp file new (`O_EXCL`) in `~/.bugpilot` (or
+   `BUGPILOT_CONFIG_DIR`), with mode `0600 & ~umask` — owner-only from its
+   first moment, and narrower still under a umask that takes the owner's bits;
+2. `_check_temp` (below) confirms it is the file at its name;
+3. `_owner_only` sets `0600` through the descriptor (`fchmod`), never by path,
+   before the token is written;
+4. the content is written, then `os.replace` renames it over the target.
+
+So the file at its final name is `0600` from the instant it appears there,
+new or rewritten, whatever its old bits — S2's "always 600, never the old
+bits", the one exception to §43.11's rule that a rewrite keeps its bits.
+**Before:** `write_text` (born `0666 & ~umask`, so `644` under 022, in place),
+then `chmod 600`. **After:** born `0600` (POSIX), atomic.
+
+- **No unsafe fallback.** When the rename keeps failing, an ordinary file is
+  written in place (artifact_io's Windows rule). A private file on POSIX never
+  is — that write would create the file with the umask's bits, or keep old,
+  wider ones — the rename's error is raised and the old file is left as it was.
+  On Windows, which has no such bits, a private file falls back like any other.
+- **Format and location** unchanged: the same flat table in the same order, at
+  the same path; reading is unchanged.
+- **Errors carry no content:** the link refusal names the file as a person
+  does (`~/.bugpilot/config.toml` or `BUGPILOT_CONFIG_DIR/config.toml`); an
+  `OSError` names paths only. The CLI shows the refusal as one sentence
+  (`ERROR: …`, or `INVALID_INPUT` in JSON), as every `UnsafePathError`.
+
+**O4 — a link at the file's path.** `_write_config` refuses a symbolic link or
+junction at `config.toml` — to a file, to a folder, or dangling — before
+anything is created; the atomic writer's own `refuse_link` checks again. The
+target and the link are left byte for byte as they were. **The folder holding
+the file is not judged:** like a repository root (§44.10), `~/.bugpilot` or
+`BUGPILOT_CONFIG_DIR` may itself be a link, and macOS's `/tmp → /private/tmp`
+is never refused. That differs from the User Instructions file in the same
+folder, whose reader (`link_problem`) also refuses a linked folder — owner
+decision **B4-2**.
+
+**W1 — found in this batch: Windows' exclusive create follows a dangling
+link.** Observed on this machine, for Python's `O_EXCL` (what `mkstemp` uses)
+and for Node's `wx`: with a dangling symbolic link at the name, the create
+succeeds and **creates the link's target**, where POSIX refuses. So a link
+planted at a temp file's random name would have received what was written next
+— for the credentials file, the token. The likelihood is very low (the name is
+random — `mkstemp`'s eight characters, a UUID in the extension — and making a
+link on Windows needs a privilege or Developer Mode, in the user's own
+folder), but it voids the stated "a link planted at a temp name is never
+written through". **Fixed, deterministically, before a byte is written:**
+
+- Python (`_check_temp`, every atomic write): `fstat` of the descriptor
+  against `lstat` of the name — a link, or a different file, is refused
+  (`UnsafePathError`), the descriptor closed and the name removed;
+- TypeScript (`writeScratchFile`): anything at the name — a dangling link
+  included — is refused first, and the file opened is checked against the name
+  (`ino`, `dev`, as `bigint`) before it is written.
+
+Windows has then already created an empty file where the link pointed; that
+location is not BugPilot's to touch (*Residual risks*).
+
+**W2 — found in this batch: the atomic writer left its temp file behind** when
+the write itself failed (a `UnicodeEncodeError`, a full disk) or the rename
+failed with anything but `PermissionError` (a folder at the target's name, an
+I/O error). Every caller's failure path now removes the temp file and leaves
+the target as it was; success is unchanged.
+
+**F13.** `preview_work_item` checks `.ai`, the work item's folder and
+`issue.json` itself with `is_link_or_junction` before `load_issue` or the
+persisted Fix Mode is read, and raises `TaskPreviewError` (`INVALID_INPUT`):
+".ai/<id> is behind a link or junction, so nothing in it was read." —
+`context-preview`'s words; no absolute path. The check of `issue.json` itself
+goes one step past the plan's "linked `.ai` or work-item folder"; it is the
+rule `read_work_item_text` already applies in the same module.
+
+**F10.** The payload file (Fix Mode, review, verification) is
+`bugpilot-<kind>-<uuid>.json` in the system's temporary folder, written by
+`writeScratchFile` and removed after the command, success or failure (as
+before). **Before:** a plain create (`mode 0600`, no `wx`) under
+`<prefix>-<pid>-<time>-<6 random characters>`.
+
+**F11.** The description file is `bug-description-<uuid>.md` in global storage,
+a new one for each run, written by the port's `writeScratchFile` and removed
+by `removeScratchFile` when the run is over — completed, failed, stopped, or
+never started (a reset during setup). **Before:** one `bug-description.md`
+shared by every window, written with a plain create and never removed. A
+`bug-description.md` an earlier version left is **not** removed (an older
+window may still be using it); it holds the last long description written
+with that version.
+
+#### Race conditions: what is deterministic, and what is not
+
+| Situation | Guarantee | Kind |
+| --- | --- | --- |
+| A link at the credentials file's name when the write starts | refused, nothing written | deterministic |
+| A link put at that name *during* the write | the write's rename replaces the link and never follows it; on POSIX there is no in-place fallback that could | deterministic (POSIX); on Windows the fallback after failed renames re-checks first, a link made in that instant could redirect it |
+| A link at the temp file's name | refused before a byte is written (`O_EXCL`; W1's check on Windows) | deterministic |
+| The temp name replaced by a link *between the write and the rename* | the rename moves whatever is at the temp name; the written content stays in the file the descriptor held and is never written through the link — but the target can end up a link (refused at the next write) | not prevented; needs write access to the user's own config folder |
+| The config folder swapped for a link mid-write | not defended: it is the user's folder | out of the threat model (§44.4: same-user attacker) |
+| A reader during the write | sees a whole old or new version (`os.replace`) | deterministic on POSIX (Batch 0 measured 0 torn reads); Windows' fallback can tear, by design |
+| The extension's scratch files | an unguessable name, exclusive create, nothing at the name, identity check | deterministic but for a dangling link made in the instant between the check and the create on Windows (behind a UUID) |
+
+The concurrent tests show the deterministic rows by construction; they sample,
+and no sequential or sampling test proves race freedom.
+
+#### Tests and independent verification
+
+Modes are read with `lstat`, link targets compared byte for byte, temp files
+found by name, the link's own path checked with `readlink` — never by asking
+the product's helpers. `tests/test_batch4_file_safety.py` (37):
+
+- **S2 / B5:** location and format (the TOML written out by hand); every state
+  of a new file — the temp file as created, as renamed, the file in place —
+  owner-only under umasks 022, 002, 000, 077 and 277 (wrapping the real
+  `mkstemp` and `os.replace` to read each state as it happens); a rewrite
+  `0600` from `644`, `640`, `664`, `444`, `755`, `600`, setuid and setgid;
+  only a private write ignores old bits; a concurrent observer (folder listing
+  and reads, forty writes) never sees the file readable by others or half
+  written.
+- **O4:** a link to a file (both writers), a dangling link, a link to a folder
+  (a junction on Windows): refused, target and link unchanged, no temp file,
+  no token, email or absolute path in the message; the folder behind a link
+  (works, documented policy); macOS's `/tmp`; a link swapped in and out by a
+  second thread while a hundred writes run — the target is never written.
+- **The atomic writer:** a dangling link planted at the temp name, for the
+  credentials file and an ordinary file — the secret never reaches its target
+  (W1); a failed write and a failed rename leave the target and no temp file
+  (W2), ordinary and private; a private write never falls back in place on
+  POSIX; an ordinary one still does; a folder at the target's name is an
+  error, left as it was; fifty writes are bounded.
+- **F13:** a linked `.ai` and a linked work-item folder (junctions on
+  Windows), and a link at `issue.json`: refused, the CLI's JSON says
+  `INVALID_INPUT`, `context-preview` refuses alike; a real work item previews
+  as before.
+
+`tests/test_file_safety_baseline.py`: the born-mode baseline now reads the
+same three states (POSIX); the link baseline expects the refusal.
+
+`extension/test/scratchFile.test.ts` (6, real files and links): the UUID
+name, `0600`, `EEXIST` for a file, a link and a dangling link (target neither
+written nor created), removal of a link never its target, and F10's payload
+file named, owner-only and gone. `controller.test.ts`: F11's write and removal
+for a completed run, a failed run, a run that never starts, two runs (two
+files), and no file for a short description.
+
+**Mutation check** (scratch copies of the package): the 0.1.4 credentials
+write, O4's refusal, W1's check, W2's cleanup and F13's refusal, each removed,
+are caught on Windows. Making the credentials write non-private, and allowing
+a private in-place fallback, change only POSIX behaviour: the POSIX tests that
+catch them have not run (*Not executed*).
+
+#### Compatibility of the shared atomic writer
+
+- **Every other caller** (`private=False`, 25 call sites) keeps §43.11's policy:
+  a new file `0600`, a rewrite its nine bits, no setuid/setgid/sticky, the
+  in-place fallback on failed renames. Batch 0's POSIX permission tests are
+  unchanged.
+- **New for every caller:** W1's check (a link at the random temp name is
+  refused), W2's cleanup (no temp file left on a failure).
+- **Windows:** unchanged but for the credentials file now being written
+  atomically (a temp file and a rename, not in place) and refusing a link.
+
+#### Performance (Windows, this machine, median of 300)
+
+| Operation | `HEAD` | Batch 4 |
+| --- | ---: | ---: |
+| `save_user_config` | 1.1 ms | 2.4–2.5 ms (a temp file and a rename, as every atomic write) |
+| `atomic_write_text`, ordinary | 2.1–2.4 ms | 2.3–2.5 ms (`fstat` + `lstat`, within noise) |
+
+No traversal, no repeated reads, no new retry; the checks are a fixed number
+of system calls per write. No temp file was left in any timing run.
+
+#### Required CI coverage
+
+- `tests/test_batch4_file_safety.py` joins `safety-and-baselines` (four
+  configurations); `test/scratchFile.test.ts` joins the required TypeScript
+  job, now 27 tests (`node --test` of three named files).
+- **Kept,** checked with the workflow checker extended for this batch
+  (`js-yaml`, against `HEAD`'s workflow): the configurations, `contents: read`,
+  the SHA pins, `persist-credentials: false`, no `continue-on-error` on either
+  required job, the `tee` with pipefail, the annotations and the file-safety
+  artifact, the publishability deselect; the full-suite and extension jobs
+  unchanged.
+- **Verified locally:** the TypeScript step under GitHub's own
+  `bash -eo pipefail`, 27 passed, the annotation reads them. **Not run on
+  GitHub:** nothing was pushed.
+
+#### Full verification
+
+On Windows 11, Python 3.14.6, Node 24.21, with an empty home and no `JIRA_*`
+variables:
+
+| Check | Command | Result |
+| --- | --- | --- |
+| The new module | `pytest tests/test_batch4_file_safety.py` | 20 passed, 17 skipped (16 POSIX-only, 1 macOS-only) |
+| The two file-safety modules | `pytest tests/test_batch4_file_safety.py tests/test_file_safety_baseline.py` | 24 passed, 34 skipped |
+| Python full suite | `python -X utf8 -m pytest -q -p no:cacheprovider -rfEs` (`PYTHONPATH` = repository) | **3,146 passed, 35 skipped, 0 failed** (20 min 46 s); Batch 3's run: 3,126 / 18 — the 37 new tests are the difference |
+| The required Python job's command | the `safety-and-baselines` step's `pytest` line, verbatim | **1,194 passed, 35 skipped, 1 deselected, 0 failed** (4 min 29 s); its observations: `credentials_followed_link: false` (Batch 0: `true`), the links at `.ai` and the work-item folder refused, a root behind a link working |
+| The required TypeScript step | in `extension/`, under `bash --noprofile --norc -eo pipefail`: `node --test test/evidence.test.ts test/hintImprovement.test.ts test/scratchFile.test.ts 2>&1 \| tee …` | **27 passed, 0 failed**; the annotation reads them |
+| Extension | in `extension/`: `npx tsc --noEmit -p .`; `npm test` | typecheck clean; **2,341 passed, 0 failed, 0 skipped** (Batch 3: 2,330; +6 scratch-file, +5 F11) |
+| The CLI | `bugpilot jira-site set … [--json]` with a link at `config.toml` | one sentence (`ERROR: …`), `INVALID_INPUT` in JSON; the link and its target unchanged |
+| Retrieval, Git History, Context Quality | `python tests/baseline_report.py` against `tests/baselines/0.1.5-batch3/` | identical: Recall@5 9/9, MRR 0.944; the task median 3,090 tokens |
+| Goldens and the prompt-boundary matrix | inside the full suite | task, context and retry goldens unchanged; 0 escapes; N1–N4, N10–N12, D1, retry/MCP/hint tests all pass |
+| Publishability | inside the full suite (the private word list present; untracked files scanned) | passed |
+| Python 3.10 | the static check over the five changed or new `.py` files | parse as 3.10, no 3.12-only f-string form (no 3.10 interpreter here) |
+| `git diff --check`; new files | `git diff --check`; a scan of the untracked files | clean; no trailing whitespace, a final newline, no mixed line endings |
+| The workflow | the checker, extended for Batch 4 | passes |
+| Mutation check | seven scratch-copy regressions | five caught on Windows; the two POSIX-only ones await a POSIX run |
+| No runtime dependency | — | none added (`node:crypto` and `fs` are built-ins) |
+| Protected local files | `sha256sum` | unchanged; nothing staged |
+
+#### Not executed
+
+- **POSIX:** 16 tests of the new module (born mode under five umasks, the
+  rewrite modes, private-only, the concurrent observer, the swapped link, the
+  no-fallback rule's POSIX branch), the macOS `/tmp` test, and the two
+  rewritten Batch 0 baselines' POSIX test. They run first in CI.
+- **CI's Node 22** for the three TypeScript files (Node 24 here; the files
+  load only `node:` built-ins).
+
+#### Known limitations and residual risks
+
+- **W1's leftover:** on Windows, a create through a dangling link has already
+  made an empty file where the link pointed before the check refuses it.
+- **Windows' fallback race:** after renames refused by another process's
+  handle, an ordinary — and on Windows a private — file is written in place
+  after a second link check; a link made in that instant could redirect it.
+- **The temp name swapped between write and rename** (above): needs write
+  access to the user's own folder.
+- **The config folder may be a link** (B4-2).
+- **`~/.bugpilot` itself** is created with the umask's mode (usually `755`):
+  others can list it, not read the `600` file. Unchanged.
+- **The legacy `bug-description.md`** stays in global storage until removed by
+  hand.
+- **F11's controller tests run in the extension job,** which is not required
+  (B4-1); `scratchFile.test.ts` is required.
+
+#### Decisions for the owner
+
+- **B4-1 — making the full suite and the extension job required.** §44.16 says
+  "a decision for Batch 4, not a fix"; §44.16's batch table lists it under
+  Batch 4. Read as a decision, it is not done. Both jobs have passed on every
+  system in the last two runs (38498836187, 38597252135); their one failure
+  (24a3245) was a Windows test assumption, since fixed. **Recommended:** make
+  both required — two lines (`continue-on-error` removed), the extension job
+  then covering F11's controller tests too.
+- **B4-2 — a linked configuration folder.** Kept as allowed (as a repository
+  root), or refused as the User Instructions reader refuses it.
+  **Recommended:** keep: refusing it would break a dotfiles setup that links
+  the whole folder, while the file itself, the case O4 names, is refused.
+
+#### Deviations, recorded
+
+- **W1 and W2** were found and fixed in this batch; neither is in §44.6's list.
+  W1 voided a statement `docs/safety.md` already made.
+- **F13 also checks `issue.json` itself** (above).
+- **`scratchFile.ts` is a new module,** and the extension's `FilesPort` gains
+  two optional methods; §44.7 named only "the Fix Mode payload transport and
+  the description scratch file".
+- **The required TypeScript job** runs a third file.
+
+#### Status
+
+**Batch 4: implemented and verified locally on Windows; not staged, not
+committed, not pushed.** HEAD is `dc1e982` = `origin/main`. §44.21's post-CI
+record is kept as it was. **For the owner:** B4-1 and B4-2; then a pre-commit
+review; then a commit and the CI run that executes the POSIX tests for the
+first time. Batch 5 has not started.
+
+#### Final pre-commit security review (2026-10-14)
+
+**Decisions, by the owner:**
+
+- **B4-1: yes.** The three full Python suite jobs and the extension job are
+  required. Applied (below).
+- **B4-2: yes — allow a linked configuration folder.** Kept as built: a link
+  at the credentials file itself is refused; a linked `~/.bugpilot` or
+  `BUGPILOT_CONFIG_DIR`, and macOS's `/tmp → /private/tmp`, are not.
+  **Documented limit:** a folder someone else controls is outside the
+  guarantee — whoever can change it can replace the file between BugPilot's
+  check and its write (`docs/safety.md`).
+
+**Scope:** the whole Batch 4 diff; `artifact_io.py`, `user_config.py`,
+`task_preview.py`; `scratchFile.ts`, `fixModeTransport.ts`, `controller.ts`,
+the host's ports and `extension.ts`; the runner's abort path; the CLI's
+`--description-file`; both file-safety test modules.
+
+**Findings:**
+
+| # | Finding | Severity | Disposition |
+| --- | --- | --- | --- |
+| R4-1 | `save_jira_site` read the credentials file before writing it, and read it through a link the write then refused: the content behind the link was read (not written, not shown), and on POSIX a link to a FIFO would block the read for ever | Low | **Fixed:** the link is refused before anything is read (`_refuse_link_at`, used by both writers); tests: nothing behind the link is read (every system), a link to a FIFO returns at once (POSIX) |
+| R4-2 | The CI's full-suite and extension jobs were non-blocking | — | **Changed (B4-1)** |
+| R4-3 | On Stop, the description file is removed when the CLI process has closed — but if it survives even the forced kill, the runner settles after 8 s and the file is removed while it may still run | Info | **No change:** the CLI reads the file once, while parsing its arguments, and records only the description (`issue.json`, `context.md`); no agent and no later step reads the file |
+| R4-4 | A run killed with VS Code, or a CLI killed mid-write, leaves its file: a `bug-description-<uuid>.md` in global storage, or a `0600` `.config.toml.<random>.tmp` holding the token in `~/.bugpilot` | Info | **Documented:** no sweep; both are owner-only, in the user's own folders |
+| R4-5 | `load_user_config`, which every command calls, still reads `config.toml` through a link | Info | **No change:** O4 is about writing; reading through a link writes nothing anywhere. Pre-existing, out of Batch 4's scope |
+| R4-6 | W1's leftover: on Windows, an empty file where a dangling link pointed | Info | **No change:** it needs a link already at the exact random temp name (`mkstemp`'s eight random characters; a UUID in the extension) before the create — nobody can place one there without predicting the name; and no content reaches it, deterministically |
+
+**Review A — the credentials file's mode (POSIX).**
+
+| Property | Established by the code | Verified on POSIX |
+| --- | --- | --- |
+| The temp file starts no broader than `0600` | `mkstemp`: `O_CREAT \| O_EXCL`, mode `0600 & ~umask` | **not yet** (`test_every_state_of_a_new_credentials_file_is_owner_only`, five umasks) |
+| `0600` set before the token is written | `_owner_only` (`fchmod` on the descriptor) runs before `fdopen` and the write | not yet (same test: the temp file's mode as renamed) |
+| No `0644` intermediate | the file reaches its name only by `os.replace`, already `0600` | not yet (same test: the file in place; the concurrent observer) |
+| A rewrite is `0600`, never the old bits | `private=True` skips `_keep_permissions` | not yet (eight old modes) |
+| No in-place fallback on failure | `private and _POSIX` raises the rename's error | not yet (`test_a_private_write_never_falls_back_in_place_on_posix`, its POSIX branch) |
+| Temp file removed after a failure | `finally`, unless the rename succeeded | **verified on Windows** (W2's tests; the code path is the same on POSIX) |
+| Other callers keep §43.11's bits | `private=False` is the default; the 25 other call sites pass nothing | Batch 0's POSIX tests unchanged; not rerun |
+
+Nothing in this table is claimed from Windows behaviour: Windows has no POSIX
+permission bits, and its tests of these properties skip.
+
+**Review B — links and races.** The credentials file's write path, in order:
+`_refuse_link_at` (the file), `mkstemp` in the folder, `_check_temp`, `fchmod`,
+the write, `os.replace`; on any failure the temp file goes.
+
+- **Prevented deterministically:**
+  - a link — live, dangling, to a folder — at `config.toml` when a write
+    starts: refused before anything is read or written;
+  - a link at the temp file's name: `O_EXCL` on POSIX, and on Windows
+    `_check_temp` refuses before a byte is written (W1);
+  - writing through a link put at `config.toml` during the write: the rename
+    replaces it, never follows it — observed on Windows for a live and a
+    dangling link (`os.replace`); POSIX `rename` replaces the link by
+    definition, and the swapped-link test shows it in CI; on POSIX there is no
+    fallback that could follow it;
+  - a credential-bearing temp file left by a failure the process survives.
+- **Prevented under the attacker model** (§44.4: no other account controls the
+  user's home): a link planted at the temp name in advance (it would have to
+  be the exact random name); the extension's scratch files' names (UUIDs).
+- **Still open to a concurrent writer in the same folder** — check, then use:
+  - Windows' in-place fallback, after renames another process's handle
+    refused: a link made between its second check and the write could
+    redirect it (a private file falls back too on Windows);
+  - the temp name replaced between the write and the rename: the rename then
+    moves the replacement into place; the content stays in the file the
+    descriptor held;
+  - the folder itself swapped for a link mid-write (B4-2's limit).
+
+None of the check-then-use steps is described as race-free; the swapped-link
+test samples interleavings, it does not prove their absence.
+
+**Review C — F10, F11, F13.**
+
+- **F10:** a UUID name; nothing at it (pre-check), exclusive create (`wx`),
+  the file opened checked against its name; `0600` (POSIX; `& ~umask`);
+  removed in `finally`, success or failure (`.catch` ignores an already-gone
+  file); a planted link is refused before the payload is written. The shared
+  temporary folder stays the location: on Linux another account can neither
+  read a `0600` file nor, in sticky `/tmp`, rename or delete it.
+- **F11:** a UUID name per run, so two runs or two windows never share or
+  remove each other's file; written with the scratch rules; removed when the
+  run completes, fails to start the process, is stopped, or never starts
+  (tests for each but Stop, whose removal is the same `finally`). Not removed
+  before the process closes (R4-3). The 0.1.4 `bug-description.md` is left for
+  an older window that may still use it (documented); orphans as R4-4.
+- **F13:** `.ai`, the work item's folder and `issue.json` are checked before
+  `load_issue` or the persisted Fix Mode is read; a real work item previews
+  as before; the error is `TaskPreviewError`, `INVALID_INPUT`, one sentence,
+  no absolute path — the shape `task-preview` already used for every refusal.
+
+**B4-1 — the CI change.**
+
+- `continue-on-error: true` removed from the `full-suite` job (three
+  configurations) and the `extension` job; no step anywhere has one. Their
+  names lose "first runs" and "not yet required"; the header says which jobs
+  are required.
+- **Unchanged:** the matrices, `fail-fast: false`, the pinned actions,
+  `permissions: contents: read`, the installs, the test commands, the
+  annotations and the artifact, the publishability deselect. The checker
+  compares both jobs with `HEAD`'s minus the name and the flag, and asserts
+  that no job or step may fail silently.
+- **Failure propagation, shown locally:** the full suite's run line (`shell:
+  bash`, so GitHub's `bash -eo pipefail`) and the extension's unit-test line,
+  each on a test written to fail, exited 1, and `ci_report.py` emitted an
+  error annotation for each; the typecheck step has no pipe.
+- **All nine jobs are now blocking:** four safety configurations, the
+  TypeScript job, three full suites, the extension job. Branch protection and
+  rulesets are untouched: GitHub still enforces no check on `main` (§44.21).
+
+**Executed on the reviewed tree** (Windows 11, Python 3.14.6, Node 24.21, an
+empty home, no `JIRA_*`):
+
+| Check | Result |
+| --- | --- |
+| The two file-safety modules | 27 passed, 35 skipped (33 POSIX-only, 2 macOS-only) |
+| Python full suite (`python -X utf8 -m pytest -q -p no:cacheprovider -rfEs`) | **3,147 passed, 36 skipped, 0 failed** (19 min 49 s) |
+| The required Python job's command, verbatim | **1,195 passed, 36 skipped, 1 deselected, 0 failed** (4 min 26 s) |
+| The required TypeScript step, under `bash -eo pipefail` | **27 passed, 0 failed** |
+| Extension: `tsc --noEmit`; `npm test` | clean; **2,341 passed, 0 failed, 0 skipped** |
+| Failure propagation (the full suite's and the extension's run lines, on tests written to fail) | exit 1 each, an error annotation each |
+| The workflow checker, against `HEAD` | passes: no `continue-on-error` anywhere; both jobs as `HEAD`'s but for name and flag |
+| Mutation check: eight scratch-copy regressions | six caught on Windows (R4-1's included); the two POSIX-only ones await POSIX |
+| Retrieval, Git History, Context Quality (`baseline_report.py` against `0.1.5-batch3`) | identical: Recall@5 9/9, MRR 0.944; the task median 3,090 tokens |
+| Goldens, the prompt-boundary matrix (0 escapes), N1–N4, N10–N12, D1, retry, MCP, hint improver, both oracles | inside the full suite: all pass |
+| Publishability | inside the full suite: passed |
+| Python 3.10 | static check of the five changed or new `.py` files: they parse as 3.10 |
+| `git diff --check` | clean |
+| Protected local files | unchanged; nothing staged |
+
+**POSIX verification: unavailable here.** There is no WSL distribution, no
+container runtime, no Python 3.10 and no Node 22 on this machine. Not
+executed: 35 tests of the two file-safety modules — 33 POSIX-only (17 in
+`test_batch4_file_safety.py`, the FIFO test among them, and 16 in the Batch 0
+module) and 2 macOS-only — Python 3.10 at run time (statically checked
+only), and Node 22.
+
+**Proposed isolated verification, before `main`** (not done; each step needs
+the owner's approval):
+
+1. Commit Batch 4 on a local branch, `verify/0.1.5-batch4`, from `dc1e982` —
+   the same commit that would go to `main`.
+2. Push only that branch. The workflow runs on pushes to `main` only, so
+   start it on the branch: **Run workflow** (`workflow_dispatch`, which runs
+   the branch's own `ci.yml`), or a draft pull request to `main`
+   (`pull_request`).
+3. Read every job, step and annotation through the public API, as for every
+   batch: the four POSIX-bearing configurations, Python 3.10, Node 22.
+4. Green: fast-forward `main` to that same commit, so the verified SHA is the
+   one released, and delete the branch. Red: fix on the branch; `main` never
+   sees it.
+
+This departs from committing directly on `main`, deliberately and once.
+
+**Pre-commit readiness:** the code, the tests and the CI change are complete
+and green on Windows; the review found nothing above Low. **Ready to commit
+once the POSIX tests have run green** — through the isolated run above, or by
+the owner's choice to commit to `main` and let its CI run verify.

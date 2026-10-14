@@ -18,6 +18,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
+from .artifact_io import atomic_write_text
+from .safe_paths import UnsafePathError, is_link_or_junction
+
 # There is deliberately no default Jira site.
 #
 # There used to be one — a single hard-coded tenant, used
@@ -126,8 +129,7 @@ def save_user_config(
     if jira_base_url:
         data["jira_base_url"] = jira_base_url
     _token_store().save(data, jira_token)
-    path.write_text(_dump_toml(data), encoding="utf-8")
-    _restrict_permissions(path)
+    _write_config(path, data)
     return path
 
 
@@ -141,20 +143,46 @@ def save_jira_site(jira_base_url: str) -> Path:
     """
     path = user_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Refused before it is read, not only before it is written: nothing behind a link — a FIFO
+    # would block the read — is opened at all (0.1.5, O4).
+    _refuse_link_at(path)
     data = _parse_toml(path.read_text(encoding="utf-8", errors="replace")) if path.exists() else {}
     data["jira_base_url"] = jira_base_url
-    path.write_text(_dump_toml(data), encoding="utf-8")
-    _restrict_permissions(path)
+    _write_config(path, data)
     return path
 
 
-def _restrict_permissions(path: Path) -> None:
-    """Best-effort tighten of file permissions (the file may hold a token)."""
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        # No-op where chmod is unsupported (e.g. some Windows filesystems).
-        pass
+def _write_config(path: Path, data: dict[str, str]) -> None:
+    """The file that may hold the Jira token, written owner-only from its first moment (0.1.5, S2, B5, O4).
+
+    Through the atomic writer, ``private``: the temp file is created new and
+    owner-only (0600 on POSIX) before the token is written into it, then renamed
+    into place — so the file is never visible with the umask's bits, and a
+    rewrite never keeps old, wider ones (0.1.4 wrote it, then ``chmod``-ed it).
+
+    A link or junction at the file's own path is refused, as for every file
+    BugPilot writes whole; the token never follows it. The folder holding it is
+    the user's to place (``~/.bugpilot``, or ``BUGPILOT_CONFIG_DIR``), as a
+    repository root is. Nothing of the file's content is in any message.
+    """
+    _refuse_link_at(path)
+    atomic_write_text(path, _dump_toml(data), private=True)
+
+
+def _refuse_link_at(path: Path) -> None:
+    """O4: a symbolic link or junction at the credentials file's own path, refused in one sentence."""
+    if is_link_or_junction(path):
+        raise UnsafePathError(
+            f"BugPilot cannot write {_shown_config_path()}: it is a symbolic link or junction, and the file "
+            "that holds the Jira token is written only as a real file. Nothing was written."
+        )
+
+
+def _shown_config_path() -> str:
+    """The credentials file as a person names it, never with their own folder in it."""
+    override = os.getenv(CONFIG_DIR_ENV)
+    folder = CONFIG_DIR_ENV if override and override.strip() else "~/.bugpilot"
+    return f"{folder}/{_CONFIG_FILE_NAME}"
 
 
 # --- minimal flat-TOML reader/writer ----------------------------------------

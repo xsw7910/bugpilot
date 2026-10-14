@@ -16,10 +16,12 @@
 #   and the file-safety tests — run for real on POSIX, where the permission
 #   policy (§43.11, L-3) had never run before. Ubuntu also runs the Python
 #   floor, 3.10.
-# - full-suite and extension (not yet required): the whole Python suite on all
-#   three systems and the extension's unit tests, which have only ever run on
-#   Windows. Their first results are triaged before they become required
-#   (plan §44.16); until then a failure there is reported, not blocking.
+# - extension-evidence-boundary (required): the extension's evidence quoting,
+#   hint-prompt and scratch-file tests (0.1.5 Batches 3 and 4).
+# - full-suite and extension (required since 0.1.5 Batch 4, decision B4-1):
+#   the whole Python suite on all three systems, and the extension's typecheck
+#   and unit tests. They ran non-blocking from Batch 0 until their results had
+#   been triaged (plan §44.16, §44.22).
 #
 # Results: each job ends by publishing its summary, failed tests, skips and
 # file-safety observations as annotations on the run (tests/ci_report.py).
@@ -103,6 +105,7 @@ jobs:
           tests/test_jira_parse_fences.py
           tests/test_intake_linear_patterns.py
           tests/test_file_safety_baseline.py
+          tests/test_batch4_file_safety.py
           tests/test_ci_report.py
           tests/test_core_robustness.py
           tests/test_write_boundaries.py
@@ -130,8 +133,9 @@ jobs:
 
   extension-evidence-boundary:
     # Required: the TypeScript half of the evidence quoting rules and the hint
-    # improver's prompt boundary (0.1.5, plan §44.21). Only these two files run
-    # here; the full extension suite stays in the job below, not yet required.
+    # improver's prompt boundary (0.1.5, plan §44.21), and the scratch files the
+    # extension hands the CLI (F10, F11; §44.22). Only these three files run
+    # here; the full extension suite runs in the job below.
     name: Extension evidence boundary (ubuntu-latest)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -150,11 +154,11 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Run the evidence boundary tests
+      - name: Run the evidence boundary and scratch-file tests
         shell: bash
         # Named files, not a glob: a missing file fails the step. `shell: bash`
         # runs with pipefail, so the tee keeps node's result.
-        run: node --test test/evidence.test.ts test/hintImprovement.test.ts 2>&1 | tee ../extension-evidence.log
+        run: node --test test/evidence.test.ts test/hintImprovement.test.ts test/scratchFile.test.ts 2>&1 | tee ../extension-evidence.log
 
       - name: Publish the results as annotations
         if: always()
@@ -162,10 +166,9 @@ jobs:
         run: python3 ../tests/ci_report.py node ../extension-evidence.log
 
   full-suite:
-    name: Full Python suite, first runs (${{ matrix.os }}; not yet required)
+    name: Full Python suite (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -206,10 +209,9 @@ jobs:
         run: python tests/ci_report.py pytest pytest-full.log
 
   extension:
-    name: Extension unit tests (ubuntu-latest; not yet required)
+    name: Extension unit tests (ubuntu-latest)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     defaults:
       run:
         working-directory: extension

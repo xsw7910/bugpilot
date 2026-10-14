@@ -6,9 +6,10 @@ These tests are that run, in CI on Ubuntu and macOS:
 
 - a new file is owner-only whatever the umask; a rewrite keeps its nine
   permission bits; setuid, setgid and sticky are never carried;
-- the Jira credentials file ends owner-only — and today is *born* with the
-  umask's bits first, and written through a link at its path (EXPECTED_CURRENT
-  baselines for S2, not fixed in Batch 0);
+- the Jira credentials file ends owner-only; Batch 0 recorded that it was
+  *born* with the umask's bits first and written through a link at its path
+  (S2, B5, O4), which Batch 4 fixed — it is born owner-only and refuses the
+  link (`test_batch4_file_safety.py` holds the rest of S2);
 - a link at the target, at `.ai` or at the work item's folder is refused;
 - a repository root behind a link — macOS's own `/tmp` and `/var` are links into
   `/private` — is where the developer works, and is not refused;
@@ -160,36 +161,50 @@ def test_the_credentials_file_ends_owner_only_new_and_rewritten(umask):
 
 
 @posix_only
-def test_the_credentials_file_is_born_with_the_umasks_permissions(umask, monkeypatch):
-    """EXPECTED_CURRENT_ESCAPE (S2, B5): written with `write_text`, then chmod-ed — so for a moment it exists
-    group- and world-readable under a 022 umask. 0.1.5 S2 creates it 0600 from the start."""
+def test_the_credentials_file_is_born_owner_only(umask, monkeypatch):
+    """Fixed in Batch 4 (S2, B5; Batch 0 recorded EXPECTED_CURRENT_ESCAPE: written with `write_text`, then
+    chmod-ed, so for a moment it existed `644` under a 022 umask). Every state the file system shows of it — the
+    temp file as created, the temp file as renamed, the file in place — is read here with `lstat`, and none is
+    readable by anyone but its owner."""
+    import tempfile
+
     umask(0o022)
-    born: list[int] = []
-    restrict = user_config._restrict_permissions
+    seen: list[tuple[str, int]] = []
+    real_mkstemp, real_replace = tempfile.mkstemp, os.replace
 
-    def observe(path: Path) -> None:
-        born.append(_mode(path))
-        restrict(path)
+    def mkstemp(*args, **kwargs):
+        handle, name = real_mkstemp(*args, **kwargs)
+        seen.append(("created", _mode(Path(name))))
+        return handle, name
 
-    monkeypatch.setattr(user_config, "_restrict_permissions", observe)
+    def replace(source, target):
+        seen.append(("renamed", _mode(Path(source))))
+        real_replace(source, target)
+        seen.append(("in place", _mode(Path(target))))
+
+    monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
+    monkeypatch.setattr(os, "replace", replace)
     path = user_config.save_user_config("dev@example.invalid", "synthetic-token", "https://jira.example.invalid")
-    OBSERVED["credentials_born_mode"] = oct(born[0])
-    assert born == [0o644]
+    OBSERVED["credentials_born_mode"] = oct(seen[0][1])
+    assert [stage for stage, _mode_seen in seen] == ["created", "renamed", "in place"]
+    assert all(mode == 0o600 for _stage, mode in seen), seen
     assert _mode(path) == 0o600
 
 
-def test_the_credentials_file_is_written_through_a_link_at_its_path(tmp_path):
-    """EXPECTED_CURRENT_ESCAPE (S2, B5): unlike every atomically written file, the credentials file follows
-    a link put at its path — the token lands wherever the link points."""
+def test_a_link_at_the_credentials_files_path_is_refused(tmp_path):
+    """Fixed in Batch 4 (O4; Batch 0 recorded EXPECTED_CURRENT_ESCAPE: unlike every atomically written file, the
+    credentials file followed a link put at its path, and the token landed wherever it pointed). Refused now, as
+    every file BugPilot writes whole refuses one: the target and the link are left as they were."""
     outside = tmp_path / "outside.toml"
-    outside.write_text("untouched\n", encoding="utf-8")
+    outside.write_bytes(b"untouched\n")
     path = user_config.user_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     _link_file(path, outside)
-    user_config.save_user_config("dev@example.invalid", "synthetic-token", "https://jira.example.invalid")
-    followed = "synthetic-token" in outside.read_text(encoding="utf-8")
-    OBSERVED["credentials_followed_link"] = followed
-    assert followed and path.is_symlink()
+    with pytest.raises(UnsafePathError):
+        user_config.save_user_config("dev@example.invalid", "synthetic-token", "https://jira.example.invalid")
+    OBSERVED["credentials_followed_link"] = "synthetic-token" in outside.read_text(encoding="utf-8")
+    assert outside.read_bytes() == b"untouched\n"
+    assert path.is_symlink() and Path(os.readlink(path)).name == outside.name
 
 
 # --- links ---------------------------------------------------------------------------------------

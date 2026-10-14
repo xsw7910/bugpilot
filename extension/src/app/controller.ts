@@ -315,6 +315,15 @@ export interface FilesPort {
    * (`writeWorkItemFile` in `sessionReset.ts`).
    */
   writeFile(file: string, contents: string, workItem?: WorkItemFolder): Promise<void>;
+  /**
+   * A run's scratch input — a description too long for a command line — at the
+   * per-run path `descriptionFilePath` gave: created new and owner-only, never
+   * into or through anything already at the name (0.1.5, F11; `scratchFile.ts`).
+   * Without it, `writeFile` writes it.
+   */
+  writeScratchFile?(file: string, contents: string): Promise<void>;
+  /** Removes a run's scratch input once the run is over, whatever its outcome (0.1.5, F11). */
+  removeScratchFile?(file: string): Promise<void>;
 }
 
 /** The repository and work item a file in `.ai/<work item>/` belongs to. */
@@ -418,7 +427,7 @@ export interface ControllerPorts {
     readonly load: () => Promise<JiraSiteOutcome>;
     readonly save: (site: string) => Promise<JiraSiteOutcome>;
   };
-  /** Where a description too long for argv is written. */
+  /** Where a description too long for argv is written: a new path for each run, removed after it (0.1.5, F11). */
   readonly descriptionFilePath: () => string;
   readonly now?: () => number;
   /** Persist the form so a reopened window starts where the developer left off. */
@@ -2136,7 +2145,19 @@ export class Controller {
       if (!confirmed) return;
     }
 
-    for (const file of built.files) await this.#ports.files.writeFile(file.path, file.contents);
+    // A run's scratch inputs (a long description): created new at the per-run path, removed when the run is
+    // over or never starts (0.1.5, F11).
+    const scratch = built.files.map((file) => file.path);
+    const files = this.#ports.files;
+    try {
+      for (const file of built.files) {
+        if (files.writeScratchFile) await files.writeScratchFile(file.path, file.contents);
+        else await files.writeFile(file.path, file.contents);
+      }
+    } catch (error) {
+      await this.#discardScratch(scratch);
+      throw error;
+    }
 
     // Checked again at the door: a recording or a clean pressed while this run
     // was still being set up (the environment, the Fresh confirmation, the files
@@ -2145,9 +2166,13 @@ export class Controller {
     // chose the reset after pressing Run.
     if (this.#reset !== undefined || epoch !== this.#sessionEpoch) {
       this.#ports.log.info("Run not started: the session was reset while it was being set up.");
+      await this.#discardScratch(scratch);
       return;
     }
-    if (this.#refuseRunForMutation()) return;
+    if (this.#refuseRunForMutation()) {
+      await this.#discardScratch(scratch);
+      return;
+    }
     const tracker = new ProgressTracker(form.plan, this.#ports.now);
     let runWarnings: readonly string[] = [];
     const abort = new AbortController();
@@ -2315,6 +2340,7 @@ export class Controller {
         this.#ports.ui.notify("error", `bugpilot could not run: ${reason}`);
       }
     } finally {
+      await this.#discardScratch(scratch);
       this.#running = false;
       this.#abort = undefined;
     }
@@ -5695,6 +5721,22 @@ export class Controller {
    */
   #offersRecording(): boolean {
     return this.#offersPostFix() && !this.#running && this.#mutation === undefined;
+  }
+
+  /**
+   * A run's scratch inputs, removed once nothing will read them (0.1.5, F11). Never raises: a file that
+   * cannot be removed is logged by its error code, and the run's own outcome stands.
+   */
+  async #discardScratch(files: readonly string[]): Promise<void> {
+    const port = this.#ports.files;
+    if (port.removeScratchFile === undefined) return;
+    for (const file of files) {
+      try {
+        await port.removeScratchFile(file);
+      } catch (error) {
+        this.#ports.log.error(`A run's scratch file was not removed (${(error as { code?: string }).code ?? "unknown error"}).`);
+      }
+    }
   }
 
   /**

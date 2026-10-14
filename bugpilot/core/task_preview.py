@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .ai_behavior import DEFAULT_AI_BEHAVIOR_VERSION, resolve_ai_behavior
-from .artifacts import CONTEXT_ARTIFACT, TASK_ARTIFACT
+from .artifacts import CONTEXT_ARTIFACT, ISSUE_ARTIFACT, TASK_ARTIFACT
 from .branch_policy import resolve_branch_policy
 from .config import issue_dir
 from .fix_mode_state import select_fix_mode
@@ -117,6 +117,15 @@ def preview_work_item(repo_root: Path, work_item_id: str) -> TaskPreview:
         validate_work_item_id(work_item_id)
     except ValueError as exc:
         raise TaskPreviewError(str(exc)) from exc
+    # Never through a link or junction (0.1.5, F13): at `.ai`, the work item's folder or
+    # `issue.json` itself, nothing is read — as `context-preview` and the prepared task's
+    # own read (`read_work_item_text`) already refuse.
+    folder = issue_dir(repo_root, work_item_id)
+    if any(is_link_or_junction(item) for item in (repo_root / ".ai", folder, folder / ISSUE_ARTIFACT)):
+        raise TaskPreviewError(
+            f".ai/{work_item_id} is behind a link or junction, so nothing in it was read. "
+            "BugPilot reads a work item only from its real folder in this repository."
+        )
     issue = load_issue(repo_root, work_item_id)
     if issue is None:
         raise TaskPreviewError(

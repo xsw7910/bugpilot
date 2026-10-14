@@ -111,6 +111,8 @@ interface Harness {
   readonly streamRuns: StreamRun[];
   readonly jsonRuns: StreamRun[];
   readonly written: { path: string; contents: string; workItem?: WorkItemFolder }[];
+  /** A run's scratch inputs (0.1.5, F11): each write and removal, with how many runs had started by then. */
+  readonly scratch: { op: "write" | "remove"; path: string; runsStarted: number }[];
   readonly opened: string[];
   readonly clipboard: string[];
   readonly notices: { kind: string; message: string }[];
@@ -176,6 +178,8 @@ interface HarnessOptions {
   /** The streaming run's exit code; 0 unless a test says otherwise. */
   readonly exitCode?: number;
   readonly streamThrows?: Error;
+  /** The host's per-run description path; default one fixed path. */
+  readonly descriptionFilePath?: () => string;
   /** The Repository Profile port; absent means the host has none. */
   readonly repositoryProfile?: NonNullable<ControllerPorts["repositoryProfile"]>;
   /** The User / Project instructions port; absent means the host has none. */
@@ -295,6 +299,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
   const streamRuns: StreamRun[] = [];
   const jsonRuns: StreamRun[] = [];
   const written: { path: string; contents: string; workItem?: WorkItemFolder }[] = [];
+  const scratch: { op: "write" | "remove"; path: string; runsStarted: number }[] = [];
   const opened: string[] = [];
   const clipboard: string[] = [];
   const notices: { kind: string; message: string }[] = [];
@@ -375,6 +380,12 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
       },
       writeFile: async (file, contents, workItem) => {
         written.push({ path: file, contents, ...(workItem === undefined ? {} : { workItem }) });
+      },
+      writeScratchFile: async (file) => {
+        scratch.push({ op: "write", path: file, runsStarted: streamRuns.length });
+      },
+      removeScratchFile: async (file) => {
+        scratch.push({ op: "remove", path: file, runsStarted: streamRuns.length });
       },
     },
     ui: {
@@ -484,7 +495,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
         return { kind: "loaded", site, fromEnvironment: options.jiraSite?.fromEnvironment === true };
       },
     },
-    descriptionFilePath: () => "/tmp/bugpilot-description.md",
+    descriptionFilePath: options.descriptionFilePath ?? (() => "/tmp/bugpilot-description.md"),
     ...(options.extensionVersion === undefined
       ? {}
       : { extensionVersion: options.extensionVersion }),
@@ -580,6 +591,7 @@ function harness(options: HarnessOptions = {}): Harness & { release: () => void 
     streamRuns,
     jsonRuns,
     written,
+    scratch,
     opened,
     clipboard,
     notices,
@@ -742,14 +754,74 @@ test("a long description is written to a file before the process starts", async 
     jiraForm({ source: "manual", issueKey: "", description: "x".repeat(5_000) }),
   );
 
-  assert.deepEqual(
-    h.written.map((file) => file.path),
-    ["/tmp/bugpilot-description.md"],
-  );
+  // Created new, as the run's own scratch input (0.1.5, F11), before the process started.
+  assert.deepEqual(h.scratch[0], { op: "write", path: "/tmp/bugpilot-description.md", runsStarted: 0 });
+  assert.deepEqual(h.written, []);
   assert.ok(
     h.streamRuns[0]!.args.some((arg) => arg.startsWith("--description-file=")),
     "the flag carries its value with =, so argparse cannot mistake it for an option",
   );
+});
+
+const LONG = { source: "manual" as const, issueKey: "", description: "x".repeat(5_000) };
+
+test("F11: a long description's scratch file is removed once the run is over", async () => {
+  const h = harness({ events: successfulRun });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm(LONG));
+
+  assert.deepEqual(h.scratch, [
+    { op: "write", path: "/tmp/bugpilot-description.md", runsStarted: 0 },
+    { op: "remove", path: "/tmp/bugpilot-description.md", runsStarted: 1 },
+  ]);
+});
+
+test("F11: the scratch file is removed when the run fails, too", async () => {
+  const h = harness({ streamThrows: new Error("spawn ENOENT") });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm(LONG));
+
+  assert.deepEqual(h.scratch.map((entry) => entry.op), ["write", "remove"]);
+});
+
+test("F11: each run gets a scratch file of its own, and each is removed", async () => {
+  // The host names one per run (`scratchFileName`); two windows, or two runs, never share one.
+  let made = 0;
+  const h = harness({ events: successfulRun, descriptionFilePath: () => `/storage/bug-description-${++made}.md` });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm(LONG));
+  await h.controller.run(jiraForm(LONG));
+
+  assert.deepEqual(h.scratch.map((entry) => `${entry.op} ${entry.path}`), [
+    "write /storage/bug-description-1.md",
+    "remove /storage/bug-description-1.md",
+    "write /storage/bug-description-2.md",
+    "remove /storage/bug-description-2.md",
+  ]);
+});
+
+test("F11: a run that never starts removes the scratch file it wrote", async () => {
+  let answer: (value: boolean) => void = () => {};
+  const h = harness({ confirmAnswer: () => new Promise<boolean>((resolve) => (answer = resolve)) });
+  await h.controller.refreshEnvironment();
+  const running = h.controller.run(jiraForm({ ...LONG, fresh: true }));
+  await tick();
+  const resetting = h.controller.handle(RESET_KEEP);
+  await tick();
+  answer(true);
+  await running;
+  await resetting;
+
+  assert.equal(h.streamRuns.length, 0, "a run started after the session was reset");
+  assert.deepEqual(h.scratch.map((entry) => entry.op), ["write", "remove"]);
+});
+
+test("F11: a description short enough for a command line needs no scratch file", async () => {
+  const h = harness({ events: successfulRun });
+  await h.controller.refreshEnvironment();
+  await h.controller.run(jiraForm({ source: "manual", issueKey: "", description: "crash on save" }));
+
+  assert.deepEqual(h.scratch, []);
 });
 
 test("Stop aborts the run and reports it as stopped, not failed", async () => {

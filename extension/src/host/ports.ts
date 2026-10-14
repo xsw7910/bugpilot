@@ -34,6 +34,7 @@ import { CAPTURED_REVIEW_TIMEOUT_MS } from "../app/reviewRun.ts";
 import type { SessionCandidate } from "../app/session.ts";
 import type { ControllerPorts, FilesPort, UiPort } from "../app/controller.ts";
 import type { GitignoreEntry, GitignoreIo } from "../app/gitignore.ts";
+import { removeScratchFile, writeScratchFile } from "../app/scratchFile.ts";
 import type { PanelState } from "../panel/messages.ts";
 
 export function createFilesPort(): FilesPort {
@@ -73,6 +74,9 @@ export function createFilesPort(): FilesPort {
       await mkdir(path.dirname(file), { recursive: true });
       await writeFile(file, contents, "utf8");
     },
+    // A run's description too long for argv (0.1.5, F11): created new, owner-only, and removed after the run.
+    writeScratchFile,
+    removeScratchFile,
   };
 }
 

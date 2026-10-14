@@ -11,9 +11,10 @@
  * Node-only: no `vscode` import, so the file's whole lifecycle is testable.
  */
 
-import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+import { removeScratchFile, scratchFileName, writeScratchFile } from "./scratchFile.ts";
 
 import type { FixModeRequest } from "./controller.ts";
 import type { Envelope } from "../protocol.ts";
@@ -25,8 +26,8 @@ import type { Envelope } from "../protocol.ts";
  * a length limit and, worse, would be text a shell could read: written to a
  * file and named by path, a mode's constraints are data whatever they contain.
  * The file is temporary, outside the repository so it cannot be committed by
- * accident, uniquely named so two saves cannot collide, and removed whether the
- * command succeeded or failed.
+ * accident, named so nobody can predict it and created new and owner-only
+ * (`scratchFile.ts`), and removed whether the command succeeded or failed.
  */
 export async function runFixModeCommand(
   runJson: (args: readonly string[]) => Promise<Envelope>,
@@ -48,16 +49,16 @@ export async function runPayloadCommand(
   prefix: string,
 ): Promise<Envelope> {
   if (request.payload === undefined) return runJson(request.args(""));
-  const file = path.join(
-    tmpdir(),
-    `${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`,
-  );
-  await writeFile(file, `${JSON.stringify(request.payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  // In the shared temporary folder: a name nobody can predict, created new and
+  // owner-only, so nothing planted there first is written into or through
+  // (0.1.5, F10: it used to be a plain create under a guessable name).
+  const file = path.join(tmpdir(), scratchFileName(prefix, ".json"));
+  await writeScratchFile(file, `${JSON.stringify(request.payload, null, 2)}\n`);
   try {
     return await runJson(request.args(file));
   } finally {
     // Cleanup on both paths: a failed save leaves nothing behind either.
-    await rm(file, { force: true }).catch(() => {});
+    await removeScratchFile(file).catch(() => {});
   }
 }
 

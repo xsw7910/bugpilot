@@ -43,6 +43,7 @@ import type { InstructionScope, InstructionsOutcome } from "./app/instructions.t
 import type { RepositoryProfileOutcome, RepositoryProfilePayload } from "./app/repositoryProfile.ts";
 import type { FormState } from "./app/form.ts";
 import { claudeProjectSlug, resumeCommand } from "./app/session.ts";
+import { scratchFileName } from "./app/scratchFile.ts";
 import { diagnose } from "./errors.ts";
 import { discoverExecutable } from "./executable.ts";
 import { ManagedRuntimeManager } from "./managedRuntime.ts";
@@ -310,8 +311,10 @@ export function activate(context: vscode.ExtensionContext): void {
       },
       // Kept out of the repository: a scratch file for a description too long
       // for a command line is the extension's business, not the project's.
+      // One per run, under a name nobody can predict, removed after the run
+      // (0.1.5, F11: it was one shared `bug-description.md`, kept).
       descriptionFilePath: () =>
-        path.join(context.globalStorageUri.fsPath, "bug-description.md"),
+        path.join(context.globalStorageUri.fsPath, scratchFileName("bug-description", ".md")),
       saveForm: (form) => {
         void context.workspaceState.update(FORM_STATE_KEY, form);
         // The form is this workspace's; the attachments it names live in
