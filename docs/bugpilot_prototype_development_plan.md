@@ -17974,7 +17974,11 @@ on every job and CI1 is closed (§44.17). Batch 2 implemented and verified
 locally on `d090ffe` (2026-10-13), not committed (§44.18). Its size growth
 was accepted as an exception (B2-1), and the intake finding N10 was fixed
 first, as its own change (B2-2, §44.19). So were the two further intake
-findings N11 and N12 (§44.20). Batches 3–5 have not started.** The plan below
+findings N11 and N12 (§44.20). Both committed as `32ec238` (intake) and
+`24a3245` (Batch 2) and pushed. Their CI run passed on Linux and macOS and
+failed on Windows, on one test's line-ending assumption. The approved
+one-line test fix follows as its own commit, and its CI run is the
+cross-platform check (§44.20). Batches 3–5 have not started.** The plan below
 is otherwise as written.
 
 - **Starting point:** released 0.1.4, `a1ce8dd`.
@@ -21402,3 +21406,145 @@ two-commit plan above is ready to execute when approved.
 
 Not done, by instruction: staging, committing, pushing, tagging, publishing,
 a version bump, Batch 3.
+
+#### Commits, push and CI (2026-10-13)
+
+The owner approved the two-commit split.
+
+**The four pre-commit checks** all passed:
+
+1. **A's `ci.yml`.** `HEAD` → A adds exactly three lines and removes none.
+   A → the working tree adds only Batch 2's two.
+2. **Allocation.** All 47 changed or new paths were accounted for: 5 in A,
+   42 in B, and `ci.yml` in both (its intermediate version in A). None was
+   left out and none duplicated. The new tests, the reference, the goldens
+   and the baselines are in the intended commits.
+3. **The protected files.** `.bugpilot/verification.md`,
+   `.bugpilot/ai_behavior.md` and `.vscode/extensions.json` are untracked
+   and unstaged. Their SHA-256 values are the recorded ones.
+4. **The final tree.** After B, all 47 committed files equal the tested
+   working tree, on disk and as committed blobs. `git diff HEAD` is empty.
+   - A's staged content was also byte for byte the Commit A tree tested in
+     the scratchpad.
+   - B's staged whitespace check reported only the six accepted golden lines.
+
+**The commits** were made with the noreply identity, and hooks ran:
+
+| Commit | Hash | Contents |
+| --- | --- | --- |
+| A, "fix(security): eliminate quadratic-time intake parsing" | `32ec238c376af5e54d694d40432af0be9ac7a69c` | 6 files, +785 −22 |
+| B, "fix(security): contain context evidence and one-line fields" | `24a32459cd94f656e697a2fbc665e09217a51901` | 42 files, +13,833 −677 (the records' JSON is most of it) |
+
+**The push** was a fast-forward, `d090ffe..24a3245`, after checking that the
+remote had not moved. Local `HEAD`, `origin/main` and GitHub's `main` read
+`24a3245`. There are no tags. Only `.bugpilot/` and `.vscode/extensions.json`
+remain untracked.
+
+**CI:** [GitHub Actions run 38473559789](https://github.com/xsw7910/bugpilot/actions/runs/38473559789),
+for `24a3245`.
+
+- **When:** 21:50–22:00 UTC.
+- **Conclusion:** failure. It was read from the run's public annotations.
+- **One run only:** a single push runs CI on its head, so Commit A has no
+  CI run of its own. Its tree was verified locally (§44.20).
+
+| Job | Required | Result | Expected |
+| --- | --- | --- | --- |
+| Safety and baselines, ubuntu-latest, Python 3.13 | yes | **success**: 1,044 passed, 20 skipped, 1 deselected | 1,044 / 20 ✓ |
+| Safety and baselines, ubuntu-latest, Python 3.10 | yes | **success**: 1,044 passed, 20 skipped, 1 deselected | 1,044 / 20 ✓ |
+| Safety and baselines, macos-latest, Python 3.13 | yes | **success**: 1,045 passed, 19 skipped, 1 deselected | 1,045 / 19 ✓ |
+| Safety and baselines, windows-latest, Python 3.13 | yes | **failure**: 1 failed, 1,044 passed, 19 skipped, 1 deselected | 1,045 / 19 |
+| Full Python suite, ubuntu-latest | no | success: 2,989 passed, 26 skipped | 2,989 / 26 ✓ |
+| Full Python suite, macos-latest | no | success: 2,990 passed, 25 skipped | 2,990 / 25 ✓ |
+| Full Python suite, windows-latest | no | failure: 1 failed, 2,995 passed, 19 skipped | 2,996 / 19 |
+| Extension, ubuntu-latest | no | success: 2,325 tests, 2,323 passed, 2 skipped | ✓ |
+
+**The failure:** one test on Windows, in both Windows jobs.
+`tests/test_context_boundary.py::test_the_effective_context_notes_a_context_prepared_before_containment_and_shows_it_as_stored`
+fails at its assertion "shown exactly as stored".
+
+- **Cause:** a test assumption about line endings, not a product defect.
+  - The test copies the frozen fixture `golden/context_0.1.4/manual-typical.txt`
+    into a work item as raw bytes.
+  - It then compares the Effective Context's text with those bytes.
+  - The GitHub Windows runner checks text files out with CRLF line endings.
+    `read_work_item_text` unifies CRLF to LF, by design and as 0.1.4 did, so
+    the text no longer equals the CRLF bytes.
+  - Locally the fixture is LF (`git ls-files --eol`: `w/lf`), because it was
+    written from `git show`. So the test passed here.
+- **Reproduced locally:** the test's own steps were run on a CRLF copy of
+  the fixture, in the scratchpad only. The text equals the bytes with CRLF
+  unified, not the raw bytes, and the S7 note is shown either way.
+- **Proposed fix, not applied** (CI failures are reported, not fixed without
+  approval): compare with `legacy.decode("utf-8").replace("\r\n", "\n")`, as
+  `boundary_golden.read_golden` and the other tests that read these fixtures
+  do. It is a one-line test change. A follow-up commit and CI run would
+  confirm it on Windows. *Approved and applied: see* The Windows line-ending
+  fix *below.*
+
+**What this run does and does not establish:**
+
+- **Established on Linux (Python 3.13 and 3.10) and macOS:** every Batch 2,
+  N10, N11 and N12 security test, in the required jobs.
+  - This includes the U+2028 committed-path test and the POSIX N3 test.
+  - Python 3.10 is now verified by a run, not only statically.
+- **Established on Windows:** every other test of both Windows jobs passed.
+  That covers all of N10–N12 and all of Batch 2 except this one S7 test.
+- **Not established:** a green required job on Windows. **The required
+  check is red** until the test is fixed.
+- **Not established:** a CI run of Commit A on its own.
+
+**Outstanding risks:**
+
+- `main` holds a red required check on Windows: a test defect.
+- The test-side reading of fixtures is now known to be CRLF-sensitive. A
+  grep for raw-byte comparisons with golden fixtures found no other in the
+  new tests; the other readers normalize.
+- The limits of §44.18 and §44.20 stand: containment is structural, and the
+  pattern scans are not proofs.
+
+#### The Windows line-ending fix (2026-10-13)
+
+The owner approved the test-only fix, one follow-up commit and a normal
+push.
+
+**The change:** one assertion in `tests/test_context_boundary.py`, in
+`test_the_effective_context_notes_a_context_prepared_before_containment_and_shows_it_as_stored`.
+
+- `assert preview.text == legacy.decode("utf-8"), "shown exactly as stored"`
+  became `assert preview.text == legacy.decode("utf-8").replace("\r\n", "\n"), "shown exactly as stored"`.
+- A two-line comment says why: the reader (`read_work_item_text`) unifies
+  CRLF, and a CRLF checkout of the fixture holds the same context.
+- This is the convention `boundary_golden.read_golden` and every other
+  fixture reader in these tests already use.
+- **Unchanged:** the product, the fixtures and the goldens. Every other
+  assertion stays as it was: the earlier-format note shown, no reason to
+  rebuild, the format marker null with the current format 2, and the note
+  within 400 characters.
+
+**Verified locally** (Windows, Python 3.14.6):
+
+- **Three fixtures.** The repaired test was run, unchanged, from a scratch
+  pytest driver. The driver points its fixture directory at a temporary copy
+  of `golden/context_0.1.4/manual-typical.txt` in three forms: as stored
+  (LF here), an explicit LF copy, and a CRLF copy (148 line breaks), as the
+  Windows runner checks it out.
+  - All three pass.
+  - All three give the same preview text, 3,044 characters.
+  - In all three the earlier-format note is shown, `context_format` is null
+    (the format reading is unchanged) and the state is "current".
+  - The old assertion holds for the LF forms and fails for the CRLF one,
+    which is CI's failure reproduced and resolved.
+- **The required CI command:** 1,046 passed, 18 skipped, 1 deselected.
+- **The full Python suite:** 2,998 passed, 18 skipped, 0 failed (23 min); the skips are the same POSIX- and macOS-only tests.
+- **`git diff --check`:** clean.
+
+**Status:** committed as one follow-up commit (below, after the push).
+**Cross-platform verification is pending** until its CI run finishes; it is
+not claimed here.
+
+**Next:**
+
+- The new CI run's results, recorded after this commit.
+- The owner's review.
+- Batch 3 has not started.

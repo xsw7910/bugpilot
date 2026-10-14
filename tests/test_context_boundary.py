@@ -843,7 +843,9 @@ def test_the_effective_context_notes_a_context_prepared_before_containment_and_s
     del data["context_format"]
     (root / ".ai" / item / "run.json").write_text(json.dumps(data), encoding="utf-8")
     preview = preview_context(root, item)
-    assert preview.text == legacy.decode("utf-8"), "shown exactly as stored"
+    # As stored, with CRLF unified as the reader unifies it (`read_work_item_text`) — a CRLF checkout of the
+    # fixture, as on the Windows runner, holds the same context.
+    assert preview.text == legacy.decode("utf-8").replace("\r\n", "\n"), "shown exactly as stored"
     assert EARLIER_FORMAT_WARNING in preview.warnings
     assert preview.state in ("current", "stale", "unknown") and not any(
         reason.code.startswith("context_format") for reason in preview.reasons), "a note, never a reason to rebuild"
