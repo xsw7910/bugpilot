@@ -61,10 +61,10 @@ EXPECTED_PATH = TESTS / "golden" / "prompt_boundary" / "expected.json"
 #: What the living expectations describe, kept with them. Each batch that changes the boundaries says so here;
 #: the frozen records (`tests/baselines/0.1.5-batch*/prompt_boundary.json`) keep what they described.
 DESCRIBES = (
-    "BugPilot 0.1.5 as of Batch 2: 0.1.4 (a1ce8dd) with the editable layers' containment repaired (N1, the "
-    "unclosed HTML comment, N7), attachment names written safely (N3), and context.md's evidence quoted in "
-    "fenced blocks with its short fields on one line (F8, N2, N4); the retry prompt and MCP findings are still "
-    "those of 0.1.4, for Batch 3"
+    "BugPilot 0.1.5 as of Batch 3: 0.1.4 (a1ce8dd) with the editable layers' containment repaired (N1, the "
+    "unclosed HTML comment, N7), attachment names written safely (N3), context.md's evidence quoted in fenced "
+    "blocks with its short fields on one line (F8, N2, N4), and the retry prompt's feedback contained and its "
+    "earlier report quoted (M3); MCP text (N5) and the hint improver (N6) are tested outside this matrix"
 )
 
 EXPECTED_CURRENT_ESCAPE = "EXPECTED_CURRENT_ESCAPE"

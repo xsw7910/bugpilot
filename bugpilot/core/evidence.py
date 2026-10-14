@@ -16,6 +16,7 @@ The building blocks the prompt-boundary hardening shares (plan §44.5):
 - :func:`section_starts` is the one reader of a document's own ``## `` sections:
   a line inside a fenced code block is never one, and a fence that never
   closes hides everything after it, as it does for a Markdown reader.
+  :func:`fence_left_open` reads fences the same way, to close a cut excerpt.
 
 Containment is structural. It decides what a Markdown reader takes for the
 document's sections; it cannot make a model disregard what quoted text says.
@@ -75,6 +76,24 @@ def evidence_block(text: str, *, info: str = "text") -> str:
     label = " ".join(visible_escapes(info, keep="").replace("`", "").split())
     opening = f"{fence}{label}"
     return f"{opening}\n{fence}" if body == "" else f"{opening}\n{body}\n{fence}"
+
+
+def fence_left_open(text: str) -> str | None:
+    """The fence still open where ``text`` ends — its backticks or tildes — or None.
+
+    Fences are read as :func:`section_starts` reads them. For a cut excerpt of a
+    BugPilot document: a cut inside a quoted block is closed with this, so the
+    excerpt never ends inside one (0.1.5, N5).
+    """
+    fence: str | None = None
+    for line in text.split("\n"):
+        mark = code_fence(line)
+        if fence is None:
+            if mark:
+                fence = mark
+        elif mark and mark[0] == fence[0] and len(mark) >= len(fence) and line.strip() == mark:
+            fence = None
+    return fence
 
 
 def one_line(text: str) -> str:

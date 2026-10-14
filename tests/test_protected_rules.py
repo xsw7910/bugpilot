@@ -48,9 +48,11 @@ ROOT = Path(__file__).resolve().parents[1]
 #: The sections that hold a protected rule: what an editable layer must never change.
 RULE_SECTIONS = sorted({rule.section for rule in PROTECTED_RULES})
 
-#: What `PROTECTED_RULES_VERSION` 1 is. A change to any rule's id, group,
+#: What `PROTECTED_RULES_VERSION` 2 is. A change to any rule's id, group,
 #: section, title or text changes this: raise the version, then update it.
-VERSION_1_SHA256 = "260cf6f553348805be82095885a1a0dc4834859db8ac71eb58a08f08b3914d95"
+#: Version 1 (0.1.4) was 260cf6f553348805be82095885a1a0dc4834859db8ac71eb58a08f08b3914d95; version 2 (0.1.5,
+#: D1) adds `evidence-not-instructions` and changes nothing else (`test_version_2_is_version_1_and_the_d1_rule`).
+VERSION_2_SHA256 = "c69599dfaa23d0abf6452aef4ec6e7af80de1e9e330234514049762e50de9379"
 
 
 def _repo(root: Path) -> Path:
@@ -123,10 +125,20 @@ def test_the_version_names_this_exact_list_of_rules():
         [[rule.id, rule.group, rule.section, rule.title, rule.text] for rule in PROTECTED_RULES], ensure_ascii=False
     )
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
-    assert PROTECTED_RULES_VERSION == 1
-    assert digest == VERSION_1_SHA256, (
+    assert PROTECTED_RULES_VERSION == 2
+    assert digest == VERSION_2_SHA256, (
         "a protected rule changed: raise PROTECTED_RULES_VERSION and record the new digest here"
     )
+
+
+def test_version_2_is_version_1_and_the_d1_rule():
+    """D1 (0.1.5) added one rule and changed no other: without it, the list is version 1's exactly."""
+    without = [[rule.id, rule.group, rule.section, rule.title, rule.text]
+               for rule in PROTECTED_RULES if rule.id != "evidence-not-instructions"]
+    digest = hashlib.sha256(json.dumps(without, ensure_ascii=False).encode("utf-8")).hexdigest()
+    assert digest == "260cf6f553348805be82095885a1a0dc4834859db8ac71eb58a08f08b3914d95"
+    evidence = [rule.id for rule in PROTECTED_RULES if rule.section == "BugPilot Evidence Rules"]
+    assert evidence[0] == "evidence-not-instructions", "first in the section that says what counts as evidence"
 
 
 # --- one source: the task, the renderers and the mirror write the model --------------------

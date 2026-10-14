@@ -68,6 +68,7 @@ from bugpilot.core.artifacts import CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_
 from bugpilot.core.branch_policy import check_branch_policy
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
 from bugpilot.core.config import issue_dir
+from bugpilot.core.evidence import evidence_block, fence_left_open, one_line
 from bugpilot.core.fix_mode_state import fix_mode_metadata, fix_mode_registry
 from bugpilot.core.fix_mode_store import catalog_for
 from bugpilot.core.fix_modes import FixMode, FixModeError
@@ -174,8 +175,13 @@ def _run(what: str, repo_root: Path, request: InvestigationRequest) -> workflow.
         raise ToolError(f"Could not {what} [{errors.error_code_for(exc)}]: {exc}") from exc
 
 
-def _read_artifact(root: Path, work_item_id: str, name: str, limit: int = 4000) -> str | None:
-    """Return an artifact excerpt verbatim.
+#: How much of an artifact a tool hands back, and what it says when it cuts.
+EXCERPT_LIMIT = 4000
+_EXCERPT_CUT = "…(truncated)"
+
+
+def _read_artifact(root: Path, work_item_id: str, name: str) -> str | None:
+    """An artifact's text, verbatim, or None when it is missing or unreadable.
 
     Deliberately **not** run through ``sanitize_comment_text``. That redactor is
     built for outbound Jira comments and mangles code: it turns
@@ -189,10 +195,37 @@ def _read_artifact(root: Path, work_item_id: str, name: str, limit: int = 4000) 
     if not path.exists():
         return None
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
-    return text if len(text) <= limit else text[:limit] + "\n…(truncated)"
+
+
+def _context_excerpt(root: Path, work_item_id: str) -> str | None:
+    """The start of ``context.md``, cut where it never ends inside a quoted block (0.1.5, N5).
+
+    The context is BugPilot's own document, its evidence already fenced. A cut
+    that falls inside a block closes it, and the cut is said after the close,
+    so the excerpt holds no fence left open over what a client adds after it.
+    """
+    text = _read_artifact(root, work_item_id, CONTEXT_ARTIFACT)
+    if text is None or len(text) <= EXCERPT_LIMIT:
+        return text
+    cut = text[:EXCERPT_LIMIT]
+    fence = fence_left_open(cut)
+    return f"{cut}\n{fence}\n{_EXCERPT_CUT}" if fence else f"{cut}\n{_EXCERPT_CUT}"
+
+
+def _report_excerpt(root: Path, work_item_id: str) -> str | None:
+    """``fix_report.md``, quoted as earlier AI output: a claim to check, never an instruction (0.1.5, N5).
+
+    Cut before it is fenced, so the fence is computed over what is shown and a
+    cut can never leave it open; the cut is said after the block.
+    """
+    text = _read_artifact(root, work_item_id, FIX_REPORT_ARTIFACT)
+    if not text:
+        return text  # missing (None) or empty (""), as before: there is nothing to quote
+    block = evidence_block(text[:EXCERPT_LIMIT], info="text earlier-ai-output fix-report")
+    return f"{block}\n{_EXCERPT_CUT}" if len(text) > EXCERPT_LIMIT else block
 
 
 def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> dict[str, object]:
@@ -207,7 +240,8 @@ def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> 
     return {
         "work_item_id": work_item_id,
         "source": issue.source if issue else None,
-        "title": issue.title if issue else None,
+        # On one line (0.1.5, N5): the issue keeps its title; only what is shown changes.
+        "title": one_line(issue.title) if issue else None,
         "issue_dir": f".ai/{work_item_id}",
         "agent_task": f".ai/{work_item_id}/{TASK_ARTIFACT}" if task_path.exists() else None,
         "generated_files": result.generated_files,
@@ -220,7 +254,7 @@ def _package(root: Path, work_item_id: str, result: workflow.WorkflowResult) -> 
         # changes how the task was written.
         "warnings": list(result.warnings),
         "next_step": _next_step(work_item_id, result.fix_mode),
-        "context_excerpt": _read_artifact(root, work_item_id, CONTEXT_ARTIFACT),
+        "context_excerpt": _context_excerpt(root, work_item_id),
     }
 
 
@@ -492,7 +526,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             "work_item_id": item,
             "fix_report": report if (issue_dir(bound.repo_root, item) / FIX_REPORT_ARTIFACT).exists() else None,
             "overview": overview,
-            "report_excerpt": _read_artifact(bound.repo_root, item, FIX_REPORT_ARTIFACT),
+            "report_excerpt": _report_excerpt(bound.repo_root, item),
         }
 
     @server.tool()
@@ -522,7 +556,17 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
             raise ToolError(f"Memory search failed: {exc}") from exc
         return {
             "query": query,
-            "matches": results,
+            # The same records, each name, heading and keyword on one line (0.1.5): a memory's
+            # first heading and its file name are earlier output; the score stays a number.
+            "matches": [
+                {
+                    **match,
+                    "file": one_line(str(match["file"])),
+                    "title": one_line(str(match["title"])),
+                    "matched_keywords": [one_line(str(keyword)) for keyword in match["matched_keywords"]],
+                }
+                for match in results
+            ],
             "report": markdown,
         }
 
@@ -550,7 +594,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         return {
             "work_item_id": item,
             "source": issue.source if issue else None,
-            "title": issue.title if issue else None,
+            "title": one_line(issue.title) if issue else None,
             # The one authoritative run state: running, prepared or failed.
             "status": run.status,
             "steps": record["steps"],
@@ -631,7 +675,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         # A local re-implementation routed "crash in opencsv-2" to the Jira tool.
         looks_like_key = is_known_work_item_id(work_item.strip())
         tool = "prepare_jira_bug" if looks_like_key else "prepare_bug_description"
-        argument = f'issue_key="{work_item}"' if looks_like_key else f'description="{work_item}"'
+        # One line, and a quoted value that cannot end early (0.1.5, N5): a `"` in the work item used
+        # to close the argument, and a line break to start a heading of the prompt.
+        quoted = one_line(work_item).replace("\\", "\\\\").replace('"', '\\"')
+        argument = f'issue_key="{quoted}"' if looks_like_key else f'description="{quoted}"'
         return handoff.mcp_prompt(tool, argument)
 
     return server

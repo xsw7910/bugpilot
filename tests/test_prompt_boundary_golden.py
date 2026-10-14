@@ -30,7 +30,10 @@ def test_the_goldens_show_todays_exposure_as_plainly_as_todays_normal_output():
 
     `context.md` was fixed in Batch 2 (Batch 0 recorded two `## Context Quality` sections in the forged-title
     golden, and the description's and the comment's forged sections): each forged case now has exactly the
-    sections of the typical one. The retry prompt is Batch 3's, and still shows its exposure.
+    sections of the typical one. The retry prompt was fixed in Batch 3 (Batch 0 recorded the feedback's forged
+    `## BugPilot Delivery Safety`, the report's `## BugPilot Safety Rules` and the feedback's fence left open
+    over the rest of the prompt): the forged retry now has exactly the top-level sections of the typical one,
+    and no golden leaves a fence open.
     """
     typical = commonmark.top_level_headings(RENDERED[golden.CONTEXT_DIR / "manual-typical.txt"])
     forged_title = RENDERED[golden.CONTEXT_DIR / "manual-forged-title.txt"]
@@ -41,7 +44,9 @@ def test_the_goldens_show_todays_exposure_as_plainly_as_todays_normal_output():
         RENDERED[golden.CONTEXT_DIR / "jira-typical.txt"]
     )
     for path in sorted(RENDERED):
-        if path.parent == golden.CONTEXT_DIR:
-            assert not commonmark.structure(RENDERED[path]).unclosed_fences(), path.name
+        assert not commonmark.structure(RENDERED[path]).unclosed_fences(), path.name
     forged_retry = RENDERED[golden.RETRY_DIR / "fix-forged-feedback-and-report.txt"]
-    assert commonmark.structure(forged_retry).unclosed_fences()
+    assert commonmark.top_level_headings(forged_retry) == commonmark.top_level_headings(
+        RENDERED[golden.RETRY_DIR / "fix-typical.txt"]
+    )
+    assert (2, "BugPilot Safety Rules") not in commonmark.top_level_headings(forged_retry)

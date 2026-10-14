@@ -99,6 +99,7 @@ jobs:
           tests/test_containment.py
           tests/test_evidence.py
           tests/test_context_boundary.py
+          tests/test_batch3_boundaries.py
           tests/test_jira_parse_fences.py
           tests/test_intake_linear_patterns.py
           tests/test_file_safety_baseline.py
@@ -126,6 +127,39 @@ jobs:
           path: ${{ runner.temp }}/bugpilot-baseline
           if-no-files-found: ignore
           retention-days: 30
+
+  extension-evidence-boundary:
+    # Required: the TypeScript half of the evidence quoting rules and the hint
+    # improver's prompt boundary (0.1.5, plan §44.21). Only these two files run
+    # here; the full extension suite stays in the job below, not yet required.
+    name: Extension evidence boundary (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm ci
+
+      - name: Run the evidence boundary tests
+        shell: bash
+        # Named files, not a glob: a missing file fails the step. `shell: bash`
+        # runs with pipefail, so the tee keeps node's result.
+        run: node --test test/evidence.test.ts test/hintImprovement.test.ts 2>&1 | tee ../extension-evidence.log
+
+      - name: Publish the results as annotations
+        if: always()
+        shell: bash
+        run: python3 ../tests/ci_report.py node ../extension-evidence.log
 
   full-suite:
     name: Full Python suite, first runs (${{ matrix.os }}; not yet required)

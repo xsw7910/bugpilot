@@ -246,7 +246,7 @@ def test_the_rawline_section_names_cover_every_rendered_heading(tmp_path):
         name: [text for _level, text in commonmark.top_level_headings(document) if not rawline.imitates_bugpilot(text)]
         for name, document in documents.items()
     }
-    # The retry prompt's own feedback and report headings are the text it quotes, not BugPilot's (§44.2.A).
-    assert unknown["task.md"] == [] and unknown["context.md"] == []
-    assert sorted(unknown["retry"]) == ["Analysis", "Changes", "Fix Report: JR-12345", "Required Next Attempt",
-                                        "Review Notes", "Summary", "Verification"]
+    # Until Batch 3 the retry prompt's top-level headings included the feedback's and the report's own ("Analysis",
+    # "Changes", "Fix Report: JR-12345", "Required Next Attempt", "Review Notes", "Summary", "Verification": the
+    # text it quotes, not BugPilot's, §44.2.A). The feedback's are now two levels down and the report is quoted.
+    assert unknown == {"task.md": [], "context.md": [], "retry": []}

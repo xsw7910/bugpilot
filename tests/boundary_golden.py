@@ -16,6 +16,11 @@ line). The 0.1.4 renders they replaced are kept, frozen, in
 that each golden differs from its 0.1.4 render only as designed, and that a
 0.1.4 context still parses.
 
+Batch 3 changed the retry goldens (feedback contained, the earlier report
+fenced, one line saying `task.md`'s rules still apply). Their 0.1.4 renders
+are kept the same way, in `golden/retry_0.1.4/`; `test_batch3_boundaries.py`
+checks each retry golden differs from its 0.1.4 render only as designed.
+
 Text files, not Markdown, as the task goldens are (`task_golden.py`): code
 search reads `.md` as documentation.
 """

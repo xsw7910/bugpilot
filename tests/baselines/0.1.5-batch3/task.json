@@ -1,0 +1,2064 @@
+{
+  "environment": {
+    "base_commit": "c3a7e30",
+    "ripgrep": "ripgrep 15.1.0 (rev af60c2de9d)"
+  },
+  "median": {
+    "chars": 12362,
+    "words": 1923,
+    "approx_tokens": 3090
+  },
+  "cases": {
+    "jira-fix-current": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 11657,
+      "words": 1843,
+      "approx_tokens": 2914,
+      "sha256": "f1be5ce60fb7537a0bfe4c038948caccab841a78febcae24ffcefb49a5c29519",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-current-jira-comment": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": true,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 12362,
+      "words": 1961,
+      "approx_tokens": 3090,
+      "sha256": "e83545095a0d61c5dd6381d761a7387e8b39375943b9f43ac3c645eebd7154c7",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Report Status to Jira (before commit)",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-per-issue": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "per-issue",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 11883,
+      "words": 1849,
+      "approx_tokens": 2971,
+      "sha256": "b8e637da07a3f56b265654fea1ba2fe2f6445314163697e7a5402d32203eec90",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-ask": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "ask",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 11889,
+      "words": 1865,
+      "approx_tokens": 2972,
+      "sha256": "757d23aa55b25a9a3960fa564ccfd3823d85bd1f4e23f512f71edccc5b0fd6c2",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-current-attachments-hint": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 2,
+      "hint": true,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 12787,
+      "words": 2023,
+      "approx_tokens": 3197,
+      "sha256": "d1de7e1a7623290d72f082583734c12de5712e7348cdec929cdfa2dbe619b171",
+      "sections": [
+        "Developer Hint",
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Developer Attachments",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-current-configured": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": true,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 12363,
+      "words": 1946,
+      "approx_tokens": 3091,
+      "sha256": "e04fc978046416e0652acdc34fe61ecf36c921e264de2f4ac6d47b256befa09b",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Project / Team Instructions",
+        "Verification Policy",
+        "AI Behavior",
+        "User Instructions",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-current-verification-file": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": true,
+      "verification_file": true,
+      "ai_behavior": false,
+      "chars": 11975,
+      "words": 1884,
+      "approx_tokens": 2994,
+      "sha256": "cd161c77724cf2ef2982115bd57e4ced0d5e4cb03053ab76651c81412c08c649",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Project / Team Instructions",
+        "Verification Policy",
+        "AI Behavior",
+        "User Instructions",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-investigation-current": {
+      "work_item_source": "jira",
+      "fix_mode": "investigation",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 12305,
+      "words": 1923,
+      "approx_tokens": 3076,
+      "sha256": "5f3fb9ae99850de9394443e1501079d1ad3cece8302e93b0053f6b1e2ec8ffc9",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Investigation Handoff"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-investigation-current-jira-comment": {
+      "work_item_source": "jira",
+      "fix_mode": "investigation",
+      "branch_policy": "current",
+      "jira_comment": true,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 12955,
+      "words": 2025,
+      "approx_tokens": 3239,
+      "sha256": "f7f80da0fd8e31cf360137366293d6c20ea61120f20ff2f054fab155943e81a4",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Report Status to Jira",
+        "Investigation Handoff"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-investigation-per-issue": {
+      "work_item_source": "jira",
+      "fix_mode": "investigation",
+      "branch_policy": "per-issue",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 12531,
+      "words": 1929,
+      "approx_tokens": 3133,
+      "sha256": "17f0f24e7188d280197c6af29348e4168d535fd3059a3ab4a1a4733c12cf3215",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Investigation Handoff"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "manual-fix-current": {
+      "work_item_source": "manual",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 11736,
+      "words": 1843,
+      "approx_tokens": 2934,
+      "sha256": "8bc8a08eeb40ec0134715149a21dff95c4e98b3b1b4c06718fde76d4b7676fe5",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "manual-fix-ask-attachments": {
+      "work_item_source": "manual",
+      "fix_mode": "fix",
+      "branch_policy": "ask",
+      "jira_comment": false,
+      "attachments": 1,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 12546,
+      "words": 1958,
+      "approx_tokens": 3136,
+      "sha256": "814aa8aae0d181f87f347502a4abb83436f62f9a848d3eb116d54fe9b0f4b5af",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Developer Attachments",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "manual-investigation-current": {
+      "work_item_source": "manual",
+      "fix_mode": "investigation",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": false,
+      "chars": 12396,
+      "words": 1923,
+      "approx_tokens": 3099,
+      "sha256": "0cb3ea75ac59d10bd20a4d49d7bc1e739ff109e28c54235a3cae11c06bb6d760",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Investigation Handoff"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-current-ai-behavior": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": true,
+      "chars": 12023,
+      "words": 1894,
+      "approx_tokens": 3006,
+      "sha256": "56722e5185a2aef0254146cf5d98ab08f8b383abac2674a2193a96000ef48b69",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-current-configured-ai-behavior": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": true,
+      "verification_file": false,
+      "ai_behavior": true,
+      "chars": 12729,
+      "words": 1997,
+      "approx_tokens": 3182,
+      "sha256": "9b89abce0ab909a1009ce9632240cacafce8b0f426a476481f4d9b6a1f1a0b18",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Project / Team Instructions",
+        "Verification Policy",
+        "AI Behavior",
+        "User Instructions",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-fix-current-verification-file-ai-behavior": {
+      "work_item_source": "jira",
+      "fix_mode": "fix",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": true,
+      "ai_behavior": true,
+      "chars": 11697,
+      "words": 1841,
+      "approx_tokens": 2924,
+      "sha256": "17590af46a2a642694cc3ee4d5dbc3a87d7fe33f0dc584b806a52c2569574bd2",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Optional Assisted Delivery"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    },
+    "jira-investigation-current-ai-behavior": {
+      "work_item_source": "jira",
+      "fix_mode": "investigation",
+      "branch_policy": "current",
+      "jira_comment": false,
+      "attachments": 0,
+      "hint": false,
+      "configured": false,
+      "verification_file": false,
+      "ai_behavior": true,
+      "chars": 12671,
+      "words": 1974,
+      "approx_tokens": 3168,
+      "sha256": "166707a1c26e70338e369cb7021abb2159ddd709201f0e1359e5ca99f44b6fed",
+      "sections": [
+        "Execution Location",
+        "BugPilot Safety Rules",
+        "Repository Context",
+        "Verification Policy",
+        "AI Behavior",
+        "Branch Instructions",
+        "Required Input Files",
+        "AI Fix Mode",
+        "BugPilot Rule Precedence",
+        "BugPilot Evidence Rules",
+        "Required Output Files",
+        "BugPilot Delivery Safety",
+        "Investigation Handoff"
+      ],
+      "precedence_layers": [
+        "BugPilot safety rules",
+        "Repository context",
+        "Project / team instructions",
+        "User instructions",
+        "AI Fix Mode",
+        "Developer hint"
+      ],
+      "rule_counts": {
+        "force_push": 1,
+        "force_flags": 2,
+        "push_main_master": 1,
+        "work_on_main_master": 1,
+        "false_test_claims": 2,
+        "mass_format": 1,
+        "pr_creation": 1,
+        "jira_field_mutation": 1,
+        "jira_transition_assign": 1,
+        "commit_push_approval": 1,
+        "delete_files": 1,
+        "stage_ai_artifacts": 1,
+        "destructive_git": 2,
+        "low_confidence": 1
+      },
+      "canonical_rules": {
+        "destructive_git": [
+          "BugPilot Safety Rules"
+        ],
+        "merge": [
+          "BugPilot Safety Rules"
+        ],
+        "pr_creation": [
+          "BugPilot Safety Rules"
+        ],
+        "force_push": [
+          "BugPilot Safety Rules"
+        ],
+        "force_flags": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_field_mutation": [
+          "BugPilot Safety Rules"
+        ],
+        "jira_transition_assign": [
+          "BugPilot Safety Rules"
+        ],
+        "credentials": [
+          "BugPilot Safety Rules"
+        ],
+        "delete_files": [
+          "BugPilot Safety Rules"
+        ],
+        "mass_format": [
+          "BugPilot Safety Rules"
+        ],
+        "false_test_claims": [
+          "BugPilot Safety Rules",
+          "Verification Policy"
+        ],
+        "work_on_main_master": [
+          "Branch Instructions"
+        ],
+        "commit_push_approval": [
+          "BugPilot Delivery Safety"
+        ],
+        "push_main_master": [
+          "BugPilot Delivery Safety"
+        ],
+        "stage_ai_artifacts": [
+          "BugPilot Delivery Safety"
+        ],
+        "secret_files": [
+          "BugPilot Delivery Safety"
+        ],
+        "invented_evidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "low_confidence": [
+          "BugPilot Evidence Rules"
+        ],
+        "no_op": [
+          "BugPilot Evidence Rules"
+        ],
+        "report_contract": [
+          "Required Output Files"
+        ],
+        "conflict_review_notes": [
+          "BugPilot Rule Precedence"
+        ]
+      }
+    }
+  }
+}

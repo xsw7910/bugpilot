@@ -1,0 +1,115 @@
+# Agent Retry Prompt: JR-12345
+
+## AI Fix Mode
+
+- Mode: Standard Fix
+- Mode ID: `standard`
+- Execution: fix
+
+This retry runs under the same Fix Mode as `.ai/JR-12345/task.md`. Follow the mode as written there. BugPilot's safety, evidence and delivery rules still win any conflict with it.
+
+## Purpose
+
+The previous attempt did not fully resolve the issue, or the developer wants a second focused attempt.
+
+## Required Reading
+
+- .ai/JR-12345/fix_report.md
+- .ai/JR-12345/user_feedback.md
+- current git diff
+
+## Developer Feedback
+
+# User Feedback: JR-12345
+
+## Required Next Attempt
+
+Keep the change, and add a test for it.
+
+## Previous Attempt Summary
+
+### fix_report.md
+
+present
+
+# Fix Report: JR-12345
+
+## Summary
+
+The selector reset the format on reopen.
+
+## Analysis
+
+The dialog rebuilt its state.
+
+## Changes
+
+- Kept the chosen format.
+
+## Verification
+
+- Ran the export tests.
+
+## Review Notes
+
+- None.
+
+## Retry Instructions
+
+- First explain why the previous attempt did not fully resolve the issue.
+- Re-check the implementation location.
+- Use user_feedback.md as the main correction for this retry.
+- If current git diff exists, review it before editing.
+- If the previous change is wrong, explain whether to revert or adjust it.
+- Do not make broad refactors.
+- Do not modify unrelated files.
+- Do not commit or push automatically.
+- Do not update Jira.
+- Do not claim tests passed unless they were run.
+- Update fix_report.md.
+
+## Branch
+
+- Branch policy: use the current branch, as in the first attempt.
+- Continue on the current branch. A retry does not call for a new branch.
+- Never work directly on main/master.
+
+## BugPilot Delivery Safety
+
+For every commit or push made from this task, in every Fix Mode, including a later implementation pass the developer starts from it:
+
+- Commit or push only after the developer explicitly approves it, never automatically. A pass allowed to change source code may ask once its work is done.
+- Before staging anything, verify the current branch is not `main` or `master` and HEAD is not detached. If either is true, do not commit and do not push: ask the developer whether to create or switch to the suggested branch.
+- Commit on the current branch. It does not have to start with `feature/` or include `JR-12345`.
+- Stage only intended source, test, or documentation files: never `.ai/`, `.ai_memory/`, `issue.json`, `jira_field_report.md`, or files containing `JIRA_TOKEN`, `password`, `api_key`, `secret`, `access_token`, `refresh_token`, or `key=...`.
+- Never push main/master.
+- Never force push or use `--force` or `--force-with-lease`; never merge, create pull requests, or transition, assign, or change Jira fields.
+
+## Optional Assisted Delivery
+
+After completing the retry and updating the fix report, show the developer a delivery summary with:
+- `git status`
+- changed files
+- test result summary
+- proposed commit message
+- current branch
+- target remote
+
+Then ask exactly:
+
+"Do you want me to commit and push this branch to origin?"
+
+Only if the developer explicitly answers yes:
+- Apply every rule in BugPilot Delivery Safety above; stage nothing it excludes.
+- Run `git commit` with the proposed message.
+- Run `git push -u origin <current-branch>`.
+
+## Required Output Files
+
+- .ai/JR-12345/fix_report.md — update every section for this attempt: Summary, Analysis, Changes, Tests, Review Notes. Do not leave a previous attempt's claims standing where this attempt learned otherwise.
+
+## How to Run
+
+Run your AI agent manually from the target repo root and paste:
+
+Read .ai/JR-12345/agent_retry_prompt.md and continue the workflow.

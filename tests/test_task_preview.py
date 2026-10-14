@@ -351,7 +351,7 @@ def test_the_json_names_sections_and_sources_and_carries_no_policy_text_twice(re
     assert sum(section["lines"] for section in payload["sections"]) == len(lines) - payload["sections"][0]["line"] + 1
 
     sources = payload["sources"]
-    assert sources["protected_rules"] == {"rules_version": 1}
+    assert sources["protected_rules"] == {"rules_version": 2}  # 0.1.5, D1
     assert sources["verification"]["source"] == "verification-file" and sources["verification"]["default_version"] == 1
     assert sources["ai_behavior"]["source"] == "ai-behavior-file" and sources["ai_behavior"]["has_project_additions"]
     assert sources["user_instructions"]["configured"] and sources["project_instructions"]["configured"]
