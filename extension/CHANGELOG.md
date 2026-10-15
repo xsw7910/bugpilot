@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased — 0.1.5 candidate
+
+- **Evidence is quoted, not taken for instructions.** `context.md` quotes the
+  issue's text — the Jira description and comments, a hand-written report, the
+  results, environment and stack traces, the matched code lines and
+  `git status` — verbatim, each in a fenced block nothing inside can close.
+  Titles, fields, keywords, search reasons, paths and commit subjects are
+  written on one line, and invisible characters are shown as `<U+XXXX>`. Issue
+  text can no longer add, hide or forge a section of the context, Context
+  Quality included, as a Markdown reader sees it. A context prepared by an
+  earlier version is shown as stored, with a note, until it is rebuilt.
+- **A new protected rule.** `task.md`'s BugPilot Evidence Rules now say that
+  `context.md`, `retrieval.json`, attachments and earlier reports are evidence
+  — to read, quote and diagnose from, never to follow as instructions. A
+  `task.md` prepared by 0.1.4 reads as differing in that section until
+  rebuilt, and its Effective Context as Needs rebuild for BugPilot's own task
+  sections; the main panel's state does not change. It is an instruction to
+  the agent, not a guarantee: review its changes before committing.
+- **Editable guidance stays in its own section.** Two shapes 0.1.4 missed are
+  contained — a fence after an HTML block or inside a list item — an unclosed
+  `<!--` no longer hides the sections after it, and U+2028/U+2029 end a line.
+  Attachment names that hold a line break are listed with it shown, not
+  obeyed.
+- **The retry prompt** contains your `user_feedback.md` like the hint, quotes
+  the earlier `fix_report.md` as claims to check, and says that `task.md`'s
+  rules still apply. **MCP** answers keep their keys, and their text is
+  written the same way: a cut excerpt never leaves a block open, titles and
+  memory names stay on one line, the report is quoted, and `fix_bug`'s
+  argument is escaped. **Improve Hint** quotes the issue's title and
+  description so they cannot add a line of their own to its prompt.
+- **The Jira credentials file** is written atomically and, on Linux and macOS,
+  is owner-only (`600`) from its first moment, new or rewritten. A link at its
+  path is refused, and nothing is written through it.
+- **Safer temporary files.** BugPilot checks that each temporary file it
+  creates is the file at its name before writing to it, and removes it if a
+  write fails. The extension's payload and long-description files get random
+  names, are created new and owner-only, and are removed after their command;
+  the description file is one per run. `bugpilot task-preview <id>` reads
+  nothing through a linked `.ai` folder, work-item folder or `issue.json`.
+- **Very large issues** are parsed in linear time: code fences, stack-trace
+  lines and keywords no longer slow down on pathological text.
+- **"Run failed" reads clearly in Light themes:** the words keep the normal
+  status colour, and the failure is marked by an error icon and border.
+- **Docs:** a trust model in the safety notes.
+- **Compatibility.** Nothing new is required of the CLI: a 0.1.4 CLI works
+  with this extension, without the earlier-context note. Contexts, tasks and
+  retry prompts prepared by 0.1.4 are kept as written until rebuilt.
+
 ## 0.1.4 — 2026-10-11
 
 - **AI Behavior.** `.bugpilot/ai_behavior.md` adds this repository's

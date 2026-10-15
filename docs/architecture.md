@@ -787,8 +787,9 @@ read in `cli.py`); `BUGPILOT_CONFIG_DIR` is read in `user_config.py`.
 
 **User config file** (`~/.bugpilot/config.toml`, written by `bugpilot setup`):
 `jira_email` and — for now — `jira_token`. SMTP/Graph secrets are still
-environment-only. The token is stored in plaintext (perms `600` where the OS
-allows) behind the `TokenStore` seam, pending a move to the Windows Credential
+environment-only. The token is stored in plaintext behind the `TokenStore` seam — written
+atomically, owner-only (`600`) from its first moment on Linux and macOS, never
+through a link at its path (0.1.5) — pending a move to the Windows Credential
 Manager. Nothing is echoed in errors or the `doctor` report.
 
 ---
@@ -809,7 +810,21 @@ The guarantees enforced across the code (see also [safety.md](safety.md)):
 - `cleanup` cannot delete outside `.ai` / `.ai_memory/bugs`.
 - Secret redaction (`sanitize_comment_text`) runs on every outbound text
   (Jira comment, email). The Jira API token saved by `setup` is stored in
-  plaintext for now (perms `600` where supported), behind a replaceable seam.
+  plaintext for now (`600` from its first moment on Linux and macOS, never
+  written through a link at its path), behind a replaceable seam.
+
+### 8.1 Trust model and where it is enforced
+
+The four classes of [safety.md](safety.md#trust-model) map onto the code (0.1.5, plan §44.3):
+
+| Class | Written by | Enforced in |
+| --- | --- | --- |
+| BugPilot's own rules | BugPilot | `protected_rules.py` (one source, versioned; `bugpilot protected-rules show`), rendered by `prompts.py` |
+| Guidance people write | developers, teams, the MCP client | `instructions.normalize_instructions` + `contained_markdown` (every editable layer, the hint, `user_feedback.md`) |
+| Evidence | Jira, the developer's report, the repository | `evidence.evidence_block` and `evidence.one_line`, used by `context.py`, `git_history.py`, `memory.py`, the MCP server; the extension's `src/app/evidence.ts` mirrors them for the hint improver |
+| Earlier AI output | earlier agent attempts, memory | `evidence_block` with an `earlier-ai-output` label: the retry prompt, the result overview, MCP's `report_excerpt` |
+
+Files follow one rule set (`artifact_io.atomic_write_text`, `safe_paths`): written through a temp file created new and checked to be the file at its name, then renamed; never through a link BugPilot can see; owner-only when new, a rewrite keeping its bits — except the credentials file, always `600`. What the containment and the file rules guarantee, and what they cannot, is stated in [safety.md](safety.md#trust-model).
 
 ---
 

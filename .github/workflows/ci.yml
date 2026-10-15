@@ -107,6 +107,7 @@ jobs:
           tests/test_file_safety_baseline.py
           tests/test_batch4_file_safety.py
           tests/test_ci_report.py
+          tests/test_release_workflow.py
           tests/test_core_robustness.py
           tests/test_write_boundaries.py
           tests/test_cleanup_safety.py

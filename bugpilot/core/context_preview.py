@@ -62,11 +62,12 @@ STATE_UNKNOWN = "unknown"
 NO_CONTEXT = "No generated context available. Build context first."
 
 #: Said of a context whose run record has no format marker, or an older one (S7). A note, not a reason: it asks
-#: for no rebuild, and the context is shown as stored.
+#: for no rebuild, and the context is shown as stored. It names only itself: a 0.1.4 work item can still read
+#: Needs rebuild for another reason (its task.md's Evidence Rules, D1), shown beside it.
 EARLIER_FORMAT_WARNING = (
     "This context was prepared before BugPilot quoted evidence in fenced blocks (0.1.5): text from the issue "
-    "and the repository is not set apart in it. Rebuilding the context writes it the new way; nothing else "
-    "requires a rebuild."
+    "and the repository is not set apart in it. Rebuilding the context writes it the new way; this alone "
+    "never requires a rebuild."
 )
 
 #: What a reader is told for each state.

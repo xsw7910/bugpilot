@@ -1,0 +1,8 @@
+# The release workflow's build tools (.github/workflows/release.yml), pinned.
+# Compiled with hashes into release-requirements.txt for the release runner
+# (ubuntu-latest, CPython 3.13); docs/development.md says how to update them.
+# setuptools is the build backend: the workflow builds without isolation, so
+# this pin is the setuptools that builds the wheel and the sdist.
+build==1.6.1
+twine==7.0.0
+setuptools==84.0.0

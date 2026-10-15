@@ -3857,7 +3857,22 @@ test("rows 7: the header is the disclosure, an icon, the heading and the status 
   assert.match(pill, /border: 1px solid color-mix\(in srgb, var\(--vscode-foreground\) \d+%, transparent\);/);
   assert.match(pill, /background: color-mix\(in srgb, var\(--vscode-foreground\) \d+%, transparent\);/);
   assert.match(CSS, /\.workflow-status:empty \{\s*display: none;/);
-  assert.match(CSS, /\.workflow-status\.is-failed \{[^}]*color: var\(--vscode-errorForeground\);[^}]*border-color:/s);
+  // Failed (0.1.5, S5, §44.11): the words keep the description colour — no colour of their own — and the
+  // failure is a border at full strength and an `error` codicon, decorative, before the words, both in the
+  // Problems error icon's colour: errorForeground, only the fallback, is 2.68:1 as an icon in Light Modern.
+  const ERROR_ICON = /var\(--vscode-problemsErrorIcon-foreground, var\(--vscode-errorForeground\)\);/;
+  const failed = /\.workflow-status\.is-failed \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(failed, new RegExp(`border-color: ${ERROR_ICON.source}`));
+  assert.doesNotMatch(failed, /(^|[^-])color:/, "the failed words take a colour of their own again");
+  const glyph = /\.workflow-status\.is-failed::before \{([^}]*)\}/.exec(CSS)?.[1] ?? "";
+  assert.match(glyph, /content: "\\ea87" \/ "";/, "the error codicon, with empty alternative text");
+  assert.match(glyph, /font: [^;]*codicon;/);
+  assert.match(glyph, new RegExp(`(^|[^-])color: ${ERROR_ICON.source}`));
+  assert.match(CSS, new RegExp(`body\\.vscode-high-contrast \\.workflow-status\\.is-failed,\\s*body\\.vscode-high-contrast-light \\.workflow-status\\.is-failed \\{\\s*border-color: ${ERROR_ICON.source}`));
+  // No failed-state rule names errorForeground on its own (it would undo the fix in Light Modern).
+  for (const rule of CSS.match(/[^}]*\.workflow-status\.is-failed[^{]*\{[^}]*\}/g) ?? []) {
+    assert.doesNotMatch(rule.replace(ERROR_ICON, ""), /--vscode-errorForeground/, rule);
+  }
   assert.match(CSS, /body\.vscode-high-contrast \.workflow-status,\s*body\.vscode-high-contrast-light \.workflow-status \{[^}]*border-color: var\(--vscode-contrastBorder/s);
 });
 

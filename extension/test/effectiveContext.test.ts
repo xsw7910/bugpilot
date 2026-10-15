@@ -124,7 +124,7 @@ test("a context prepared before evidence containment is noted as the CLI says, a
   // The CLI's own note, carried as a warning: a 0.1.5 CLI reading a run record without the format marker.
   const note =
     "This context was prepared before BugPilot quoted evidence in fenced blocks (0.1.5): text from the issue and the " +
-    "repository is not set apart in it. Rebuilding the context writes it the new way; nothing else requires a rebuild.";
+    "repository is not set apart in it. Rebuilding the context writes it the new way; this alone never requires a rebuild.";
   const generated = { artifacts: { context: true }, run_status: "prepared", context_step: "pass", context_format: null, context_format_current: 2 };
   const view = contextStatusView(snapshot({ generated, warnings: [note] }), NONE);
   assert.deepEqual([view.state, view.headline, view.needsRebuild, view.reasons], ["current", "Context status: Current", false, []]);

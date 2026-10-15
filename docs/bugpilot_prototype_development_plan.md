@@ -17984,9 +17984,18 @@ implemented and verified locally on `c3a7e30` (2026-10-13), not committed
 security review done. Batch 3 committed as `dc1e982` and pushed; its CI run
 passed on all nine jobs, the new required TypeScript job included, so Batch
 3's cross-platform verification is complete (§44.21). Batch 4 implemented
-and verified locally on Windows on `dc1e982` (2026-10-14), not committed;
-decisions B4-1 and B4-2 approved and its final pre-commit review done; its
-POSIX tests have not run yet (§44.22). Batch 5 has not started.** The plan below is otherwise as written.
+and reviewed (B4-1 and B4-2 approved), then committed as `1b60232` on the
+verification branch `verify/0.1.5-batch4`, not on `main`; its isolated CI run
+passed on all nine jobs, the POSIX file-safety tests included, so Batch 4's
+cross-platform verification is complete. `main` was fast-forwarded to
+`1b60232` and pushed, and its CI run passed on all nine jobs, identical to
+the isolated run: **Batch 4 is done** (§44.22). Batch 5 implemented and
+validated locally on `1b60232` (2026-10-14), up to, not including, the
+version bump; not committed (§44.23). The release workflow was then
+hardened the same day (B5-R2 done; the `pypi` approval gate, B5-R1, still
+to be configured on GitHub), and a final pre-commit review found and fixed
+three more issues. The commit awaits the owner's approval. The version bump, the 0.1.5 candidates, the
+commits and every publish wait for the owner's approval.** The plan below is otherwise as written.
 
 - **Starting point:** released 0.1.4, `a1ce8dd`.
 - **Version:** stays 0.1.4 until the release gates in §44.13 pass.
@@ -18767,6 +18776,7 @@ runs found). *Implemented 2026-10-14: §44.22.*
   goes to the owner first.
 
 **Batch 5 — UI, docs, final validation and the release** (S5, S6).
+*Implemented 2026-10-14 up to the version bump: §44.23.*
 
 - **Scope:**
   - the contrast fix;
@@ -18934,6 +18944,10 @@ Planning implements no workflow. `ci.yml` is written in Batch 0.
 - **Acceptance:** the Batch 5 matrix measures:
   - the text at 4.5:1 or more in Light, Dark and both High Contrast themes;
   - the icon and the border at 3:1 or more against the background.
+- *As built (§44.23, B5-1): the icon and the border take the Problems error
+  icon's colour, `--vscode-problemsErrorIcon-foreground`, with
+  `--vscode-errorForeground` as the fallback. As an icon or a border,
+  `errorForeground` measured 2.68:1 in Light Modern, under the 3:1 bar.*
 
 **A hand-written item reopened after Reset Session (deferred, D6).**
 
@@ -22376,7 +22390,9 @@ credentials file keeps its location and format; Windows behaves as before,
 but for the atomic write and the link refusal; the documented file-safety
 policy is unchanged for every other file. Two owner decisions were open
 (B4-1, B4-2): **both approved, and the final pre-commit review done** (see
-*Final pre-commit security review*, at the end of this section).
+*Final pre-commit security review*, at the end of this section). **Since then
+committed as `1b60232` on `verify/0.1.5-batch4` and verified on Linux, macOS
+and Windows** (see *Isolated cross-platform verification*).
 
 - **Starting point:** `dc1e982` (HEAD = `origin/main`), with §44.21's
   uncommitted post-CI record in this plan, kept as it was.
@@ -22849,3 +22865,1105 @@ This departs from committing directly on `main`, deliberately and once.
 and green on Windows; the review found nothing above Low. **Ready to commit
 once the POSIX tests have run green** — through the isolated run above, or by
 the owner's choice to commit to `main` and let its CI run verify.
+
+#### Isolated cross-platform verification (2026-10-14)
+
+**The commit:** `1b602324550a67fd985f1a314d2aba6967779c8a`, "fix(security):
+harden credentials and temporary file safety", on the branch
+**`verify/0.1.5-batch4`**, from `dc1e982`, approved by the owner for an
+isolated verification before `main`.
+
+- **Contents:** the 15 Batch 4 files (+1,723 / −87), staged by explicit path:
+  the production code, the extension's scratch files, both file-safety test
+  modules, `scratchFile.test.ts`, the controller tests, `ci.yml`,
+  `docs/safety.md`, and this plan with §44.21's post-CI record and §44.22.
+- **Checks before committing:** the staged whitespace check clean; no staged
+  blob with a carriage return; no runtime dependency (`dependencies = []`);
+  version 0.1.4; no staged file but these.
+- **Identity:** the noreply identity; nothing amended.
+- **Left out:** `.bugpilot/` and `.vscode/extensions.json`, untracked and
+  unchanged (same SHA-256).
+
+**The push:** only the branch (`* [new branch] verify/0.1.5-batch4`); it
+reads `1b60232` on GitHub, and `main` still reads `dc1e982`, locally and on
+GitHub. The workflow runs on pushes to `main` only, so the branch push ran
+nothing (checked: no run, no pull request for the commit).
+
+**The trigger:** `workflow_dispatch` — **Run workflow** on the **CI** workflow,
+"Use workflow from" `verify/0.1.5-batch4`, by the owner: this session has no
+GitHub sign-in (no `gh`, no token, and git's credential is not extracted). A
+dispatch runs the branch's own `ci.yml` and checks out that ref; the run's
+`head_sha` is the verification commit. The owner first opened the **Release**
+workflow's dialog by mistake (its "Version to publish" field); it was closed
+without running — no Release run exists.
+
+**CI:** [GitHub Actions run 38638853209](https://github.com/xsw7910/bugpilot/actions/runs/38638853209),
+`workflow_dispatch`, branch `verify/0.1.5-batch4`, `head_sha` `1b60232`.
+
+- **When:** 2026-10-14 from 21:15:39 UTC; completed 21:31:32 UTC (16 minutes; the Windows full suite the longest).
+- **Conclusion:** **success, all nine jobs** — every job read on its own (conclusion,
+  every step, annotations) through the public API; job logs need a sign-in
+  and were not read.
+
+| Job | Required | Result | Previous run (38597252135, `dc1e982`) |
+| --- | --- | --- | --- |
+| Safety and baselines, ubuntu-latest, Python 3.13 | yes | **success**: 1,210 passed, 21 skipped, 1 deselected | 1,172 / 20 |
+| Safety and baselines, ubuntu-latest, Python 3.10 | yes | **success**: 1,210 passed, 21 skipped, 1 deselected | 1,172 / 20 |
+| Safety and baselines, macos-latest, Python 3.13 | yes | **success**: 1,212 passed, 19 skipped, 1 deselected | 1,173 / 19 |
+| Safety and baselines, windows-latest, Python 3.13 | yes | **success**: 1,194 passed, 37 skipped, 1 deselected | 1,173 / 19 |
+| Extension evidence boundary, ubuntu-latest | yes | **success**: 27 tests, 27 passed | 21 / 21 |
+| Full Python suite, ubuntu-latest | **yes (B4-1)** | **success**: 3,155 passed, 27 skipped, 1 deselected | 3,117 / 26 (non-blocking) |
+| Full Python suite, macos-latest | **yes (B4-1)** | **success**: 3,157 passed, 25 skipped, 1 deselected | 3,118 / 25 (non-blocking) |
+| Full Python suite, windows-latest | **yes (B4-1)** | **success**: 3,145 passed, 37 skipped, 1 deselected | 3,124 / 19 (non-blocking) |
+| Extension unit tests, ubuntu-latest | **yes (B4-1)** | **success**: 2,341 tests, 2,339 passed, 2 skipped | 2,330: 2,328 / 2 (non-blocking) |
+
+**The POSIX tests ran — the point of this run.** Where Batch 4's 39 tests went:
+
+- **Linux** (3.13 and 3.10): 38 ran; the one skip is the macOS-only `/tmp`
+  test. +38 passed, +1 skipped against the previous run, in the safety job and
+  the full suite alike.
+- **macOS:** all 39 ran, the `/tmp` test included (+39 passed, no new skip).
+- **Windows:** 21 ran, 18 skipped as POSIX- or macOS-only (+21 / +18), as
+  locally (where one more passes: the private publishability samples exist
+  here).
+- **No skip on Linux or macOS** names `test_batch4_file_safety.py` or
+  `test_file_safety_baseline.py` except the macOS-only tests on Linux; every
+  other skip is a Windows-only junction test or the private publishability
+  samples, as in every earlier run. No job reported a warning or an error
+  annotation.
+
+**What Linux and macOS observed** (the file-safety artifact, published as an
+annotation; identical on Ubuntu 3.13, Ubuntu 3.10 and macOS 3.13):
+
+| Check | Observed | Batch 0 recorded |
+| --- | --- | --- |
+| Credentials file, born mode (umask 022) | **`0600`** | `644`, then `chmod 600` |
+| Credentials file, final mode: new; rewritten from `644` | `0600`; `0600` | `0600`; `0600` |
+| Credentials file, link at its path | **refused, not followed** (also on Windows) | followed |
+| A new ordinary file, umask 000 / 002 / 022 / 077 | `0600` each | the same |
+| Rewrite of `444` / `600` / `640` / `644` / `664` / `755` | each kept | the same |
+| setuid, setgid, sticky (`4644`, `2644`, `1644`) | dropped: `644` | the same |
+| Atomic replace, a concurrent reader | 0 torn reads (80, 3,962 and 261 reads) | 0 torn |
+| A link at `.ai` or `.ai/JR-12345` | refused | refused |
+| A repository root behind a link | every write path works | works |
+| macOS `/tmp → /private/tmp` | every write path works, resolved under `/private` | works |
+
+And, by the tests that passed there (each asserts on `lstat` modes, byte
+contents and names, never on the product's helpers):
+
+- every state of a new credentials file — the temp file as created, as
+  renamed, the file in place — owner-only under umasks 022, 002, 000, 077 and
+  277, `0600` before the token is written;
+- a rewrite `0600` from `644`, `640`, `664`, `444`, `755`, `600`, setuid and
+  setgid (any mode the runner refused to set is a pytest skip, and none was
+  reported);
+- a concurrent observer never saw the file readable by others or half written;
+- links at the path — to a file, dangling, to a folder — refused, their
+  targets byte for byte unchanged; nothing read through the link; a link to a
+  FIFO refused without blocking; a link swapped in during a hundred writes
+  never written through;
+- a private write never falls back in place; a failed write or rename leaves
+  no temp file; a dangling link at the temp name never receives the secret
+  (W1, which on POSIX `O_EXCL` already refuses);
+- a linked configuration folder works (B4-2), and on macOS a folder under
+  `/tmp`;
+- F13 refused through a linked `.ai`, work-item folder and `issue.json`.
+
+**Also covered by the required jobs, on every system:** the prompt-boundary
+oracles, corpus, matrix (0 escapes) and goldens (task, context, retry); N1–N4;
+N10–N12; D1; the retry, MCP and hint-improver boundaries; the task goldens
+(Context Quality is asserted by its own tests in the full suite). **Python
+3.10** ran for real (3.10.22) in the Ubuntu safety job. **The TypeScript
+job's** Node is the pinned `setup-node` with `"22"`; its exact release is in
+the log, not read (*assumed* 22.x). Retrieval's Recall@5 and MRR are measured
+locally by `baseline_report.py`, not in CI: 9/9 and 0.944, unchanged.
+
+**The four previously non-blocking jobs are blocking** in the commit's
+workflow (no `continue-on-error` at job or step level). This run passed them;
+a failing one would have failed the run, as shown locally (§44.22, *Final
+pre-commit security review*). GitHub's branch protection is unchanged.
+
+**Unexpected findings:** none. No platform-specific failure — newlines,
+Unicode, file systems and Python 3.10 all passed.
+
+**Outstanding risks, unchanged by this run:** containment and the file rules
+are what they are; the check-then-use steps listed in *Review B* (Windows'
+in-place fallback, the temp name swapped between write and rename, a folder
+someone else controls) remain outside the guarantee; W1's empty leftover file
+on Windows; orphaned scratch files after a crash; GitHub enforces no check on
+`main`. **This post-CI record is not committed.**
+
+**Recommendation:** **`1b60232` is safe to fast-forward to `main`**, on the owner's approval:
+every required job passed on every system, and the POSIX properties Batch 4
+exists for were observed, not assumed. A fast-forward makes `main` the very SHA
+this run verified; the push to `main` then runs CI once more, on the same tree.
+This post-CI record needs its own commit, or travels with a later one. Nothing
+was merged or pushed to `main`, and the branch is kept.
+
+#### Fast-forward to `main` and its CI run (2026-10-14) — Batch 4 done
+
+**The fast-forward**, approved by the owner after the isolated run:
+
+- **Checked first** (after `git fetch`): `origin/main` and local `main` at
+  `dc1e982`; `verify/0.1.5-batch4` at `1b60232` locally and on GitHub; the
+  verified commit exactly one ahead of `main`, its parent `dc1e982`; nothing
+  staged; the only tracked change in the working tree this post-CI record;
+  `.bugpilot/` and `.vscode/extensions.json` untracked and unchanged.
+- **How:** local `main` was moved without checking it out —
+  `git fetch . refs/heads/verify/0.1.5-batch4:refs/heads/main`, which accepts
+  only a fast-forward (`dc1e982..1b60232`) — because checking out `main` at
+  `dc1e982` would have collided with the uncommitted plan update. The plan was
+  also copied aside first. Then the checkout moved to `main`, at the same
+  commit, the update unchanged byte for byte. No rebase, squash, amend,
+  cherry-pick or merge commit: `main` is the very SHA the isolated run
+  verified.
+- **The push:** a normal fast-forward, `dc1e982..1b60232 main -> main`, after
+  checking that GitHub's `main` still read `dc1e982`. Local `main`,
+  `origin/main` and GitHub's `main` read `1b602324550a67fd985f1a314d2aba6967779c8a`;
+  `verify/0.1.5-batch4` still exists at the same commit; no tags, no
+  releases. This post-CI record was not part of the push.
+
+**CI on `main`:** [GitHub Actions run 38641590465](https://github.com/xsw7910/bugpilot/actions/runs/38641590465),
+`push` to `main`, `head_sha` `1b60232`.
+
+- **When:** 2026-10-14, 21:36:48–21:53:09 UTC (16 minutes; the Windows full suite the longest); the only run for the push.
+- **Conclusion:** **success, all nine jobs**; every step of every job succeeded, and every annotation is a notice — no warning, no error — every job read on its own (conclusion,
+  every step, annotations); the job logs were not read.
+
+| Job | Required | Result on `main` |
+| --- | --- | --- |
+| Safety and baselines, ubuntu-latest, Python 3.13 | yes | **success**: 1,210 passed, 21 skipped, 1 deselected |
+| Safety and baselines, ubuntu-latest, Python 3.10 | yes | **success**: 1,210 passed, 21 skipped, 1 deselected |
+| Safety and baselines, macos-latest, Python 3.13 | yes | **success**: 1,212 passed, 19 skipped, 1 deselected |
+| Safety and baselines, windows-latest, Python 3.13 | yes | **success**: 1,194 passed, 37 skipped, 1 deselected |
+| Extension evidence boundary, ubuntu-latest | yes | **success**: 27 tests, 27 passed |
+| Full Python suite, ubuntu-latest | yes | **success**: 3,155 passed, 27 skipped, 1 deselected |
+| Full Python suite, macos-latest | yes | **success**: 3,157 passed, 25 skipped, 1 deselected |
+| Full Python suite, windows-latest | yes | **success**: 3,145 passed, 37 skipped, 1 deselected |
+| Extension unit tests, ubuntu-latest | yes | **success**: 2,341 tests, 2,339 passed, 2 skipped |
+
+**Against the isolated run 38638853209** (the same commit, dispatched on the
+branch): **no difference.** Every job's passed, skipped and deselected counts are the same, every skip list is the same (macOS-only, Windows-only and the private publishability samples, as before), and the file-safety observations are the same but for how many reads the concurrent reader made. Only the timings differ.
+
+**The POSIX evidence, again** (the file-safety artifact on Ubuntu 3.13, Ubuntu
+3.10 and macOS 3.13): the credentials file born **`0600`**, `0600` new and rewritten from `644`, a link at its path **refused, not followed** (on Windows too); ordinary files `0600` new under four umasks, six rewrite modes kept, setuid, setgid and sticky dropped; the atomic replace with **0 torn reads** (879, 156 and 308 reads); macOS's `/tmp → /private/tmp` working, resolved under `/private`; Python **3.10.22** on the floor job. The named-pipe refusal, the no-read-through test, the swapped-link test, the failure cleanup and F13 passed with the rest of `test_batch4_file_safety.py`, which skipped only its macOS-only test on Linux and nothing on macOS.
+
+**Confirmed by this run, on `main`:**
+
+- **B4-1:** the nine jobs are required — no `continue-on-error` in the
+  workflow on `main` — and all passed.
+- **B4-2:** a linked configuration folder works, and on macOS a folder under
+  `/tmp`; a link at the credentials file itself is refused.
+- S2/B5, O4, W1, W2, F10, F11 (the extension's controller tests in the
+  required extension job) and F13, by the tests listed in *Isolated
+  cross-platform verification*; N1–N4, N10–N12, D1, the retry, MCP and
+  hint-improver boundaries, both oracles and every golden, in the required
+  jobs on every system; Python 3.10 for real; the TypeScript job's 27 tests.
+  Retrieval's Recall@5 and MRR stay a local measurement (9/9, 0.944).
+
+**Documented limits, unchanged:** containment is structural and D1 is an
+instruction; the check-then-use steps of *Review B* (Windows' in-place
+fallback, the temp name swapped between write and rename, a folder someone
+else controls) are outside the guarantee; W1's empty leftover file on Windows;
+orphaned scratch files after a crash; GitHub enforces no check on `main`
+(branch protection untouched).
+
+**Batch 4 is done:** committed (`1b60232`), on `main`, and verified on Linux
+(Python 3.13 and 3.10), macOS and Windows, with every required job green.
+**This post-CI record (the isolated run's and this one) is not committed.**
+Batch 5 has not started and waits for the owner's approval.
+
+### 44.23 Batch 5 — UI, docs, final validation and release readiness: S5, S6 (implemented 2026-10-14)
+
+**Status: implemented and validated locally; not staged, not committed, not
+pushed. The version is still 0.1.4.** No stop condition of §44.7's Batch 5 was
+hit: no new Critical or High finding. Two defects found by the real VS Code
+pass were fixed (B5-1, B5-2); two release-process findings (B5-R1, B5-R2) are
+the owner's, because they are GitHub settings or the release workflow, which
+this batch may not change. **0.1.5 is ready for the owner's release review;
+the version bump, the release candidates at 0.1.5, the commits, the push, the
+PyPI workflow and the Marketplace wait for the owner's approval.**
+
+*Update, the same day: the owner approved B5-R1 and B5-R2. B5-R2, a
+wrong-branch guard and release-security tests are implemented in the
+repository; B5-R1 is a GitHub setting, specified and verified as **not yet
+configured** (*Release security hardening*, below).*
+
+- **Starting point:** `1b60232` (HEAD = `origin/main` = `verify/0.1.5-batch4`),
+  with §44.22's uncommitted post-CI records in this plan, kept as they were.
+- **Version:** 0.1.4, unchanged.
+- **Scope:** §44.7's Batch 5 up to, not including, the version bump: S5, S6,
+  the changelog candidate entry, the real VS Code pass, the final security,
+  compatibility, CI, size and performance review, and content candidates
+  built and installed as for 0.1.4 (§43.10). The History / manual reopen UX
+  (D6) was not touched.
+- **Decisions D1–D10, B2-1, B3-1, B4-1, B4-2:** unchanged and applied as decided.
+- **Protected local files:** `.bugpilot/verification.md`,
+  `.bugpilot/ai_behavior.md` and `.vscode/extensions.json` are untouched (same
+  SHA-256 prefixes `2e2abd9f…`, `d72ff37c…`, `ed49e208…`), and the untracked
+  `.bugpilot/` is kept whole.
+- **Git:** nothing staged; no commit, tag, push or release. `main`,
+  `origin/main` and `verify/0.1.5-batch4` all read `1b60232`, locally and on
+  GitHub; the verification branch is unchanged. No GitHub setting was changed.
+
+#### Files
+
+| File | Change |
+| --- | --- |
+| `extension/media/panel.css` | S5: the failed state's words keep `--vscode-descriptionForeground`; the failure is a full-strength border and a decorative `error` codicon (empty alternative text), both in the Problems error icon's colour (B5-1); High Contrast keeps that border |
+| `extension/test/panel.test.ts` | S5's rules: no colour of the words' own, the codicon with empty alt text, the token with its fallback, and no failed-state rule naming `errorForeground` alone |
+| `bugpilot/core/context_preview.py` | B5-2: the S7 note ends "this alone never requires a rebuild" |
+| `extension/test/effectiveContext.test.ts` | the same wording in the CLI-shaped fixture |
+| `docs/safety.md` | S6: a *Trust model* section (the four classes, the field rule, D1, what containment does not do, the file rules' boundary); F12 qualified for `task-preview` and `context-preview` |
+| `docs/architecture.md` | S6: §8.1 maps each class to the module that enforces it; the credentials statements now say `600` from the first moment on Linux and macOS, never through a link |
+| `extension/CHANGELOG.md` | the "Unreleased — 0.1.5 candidate" entry (§44.13) |
+| this plan | §44.11 note, §44.7 note, the §44 status line, and this record |
+
+#### S5 — "Run failed", as built
+
+- **Words:** the normal status colour, `--vscode-descriptionForeground`, like
+  every other state; no colour of their own.
+- **Failure mark:** a 1px border at full strength and the `error` codicon
+  (U+EA87) before the words, both in
+  `var(--vscode-problemsErrorIcon-foreground, var(--vscode-errorForeground))`;
+  in High Contrast the failed border keeps that colour where other states take
+  the theme's contrast border. No hard-coded colour.
+- **Screen readers:** the glyph's alternative text is empty, so the status
+  region (`role="status"`, live polite) carries only the words. Seen in
+  Chromium's accessibility tree: one text child, "Run failed", no glyph.
+- **Deviation from §44.11 (B5-1):** §44.11 put the icon and border in
+  `--vscode-errorForeground`. The real window measured that token at **2.68:1**
+  against the pill and 2.96:1 against the panel in Default Light Modern
+  (`#f85149`), under the 3:1 non-text bar §44.11 sets. Measured in the real
+  window, the Problems error icon's colour (VS Code's own colour for the
+  `error` icon) is at 3:1 or more, inside and outside the pill, in every
+  default theme: Dark Modern 4.05/4.62, Light Modern 3.79/4.18, High Contrast
+  8.55, High Contrast Light 6.61, Dark+ 3.43/3.94, Light+ 3.76/4.06.
+  `errorForeground` stays as the fallback. The acceptance criteria are
+  unchanged; only the token that meets them is different.
+- **Layout:** at 200 and 280px the failed pill now sits on its own line under
+  "Workflow Steps" (the icon adds about 18px); at 360px it stays beside the
+  heading. It fits the panel and stays one line itself. The quiet states
+  ("Not started", "Ready", "Needs rebuild") have no icon and keep their
+  0.1.4 layout.
+
+#### The real VS Code pass
+
+VS Code 1.139.1, a disposable profile (`C:\temp\bugpilot-015-b5`): its own
+user data, extensions and home; PATH without `bugpilot`, `claude` or `codex`;
+no `JIRA_*`; `bugpilot.executablePath` pointing at a scratch venv whose
+`bugpilot` imports this working tree. The extension is a test VSIX built from
+the working tree (rebuilt after B5-1). Driven over the Chrome DevTools
+Protocol; screenshots in the session scratchpad.
+
+| Check | Result |
+| --- | --- |
+| Prepare a synthetic hand-written bug (Fix with AI off) | 5/5: one work item, contained `context.md` (`context_format` 2, evidence fences), no terminal, no agent |
+| Effective views on a contained context | 13/13: Effective AI Task equal byte for byte to `task-preview`, matches the prepared `task.md`, Copy exact; Effective Context *Current* with the stored text; opening and refreshing ran nothing and wrote nothing |
+| Effective views on a 0.1.4 context (prepared by the released 0.1.4 CLI, reopened from Results › History) | 15/15: the stored 0.1.4 text shown as written; the S7 note listed as a warning, not a reason; Effective Context *Needs rebuild* for exactly one reason, *BugPilot's own task sections*; Effective AI Task "Prepared task.md: differs in BugPilot Evidence Rules"; the main panel's state stayed *Ready*; nothing written |
+| S5 on a real failed run, 4 themes × 3 widths | 96/96 (after B5-1): words 5.34–9.96:1, icon and border 3.79:1 or more inside and outside, theme tokens, glyph and font present, pill inside the panel, every text leaf of the main view at its WCAG bar |
+| The 0.1.4 matrix (main view, ⋯ More, three settings sections, a hovered button, Effective AI Task, Effective Context, Protected Rules, AI Behavior Preview), 4 themes × 3 widths | 161/161, as in §43.6 |
+| Keyboard and accessibility tree | 32/32 (see the harness note) |
+
+- **The run that failed** was real: the disposable repository's `.ai` folder
+  was denied "create folders" for the current user (an explicit deny entry)
+  for the duration, then the entry was removed; no work item was created.
+  (The folder could not be moved aside: the extension's watcher holds it on
+  Windows.)
+- **Harness notes, no product defect:**
+  - the first Protected Rules PageDown check pressed the key while the view
+    still read "Asking the BugPilot CLI…"; waiting for the 21 rules, it
+    scrolls (0 → 477);
+  - a History click right after a wheel scroll missed once; moving the mouse
+    first, it opens the item;
+  - a `role="status"` region takes no accessible name from its content; the
+    check reads its text children instead.
+- **B5-2 (found here, fixed):** on a 0.1.4 work item the Effective Context
+  reads *Needs rebuild* (D1's changed task section) next to the S7 note, which
+  ended "nothing else requires a rebuild" — a contradiction on screen. The
+  note now ends "this alone never requires a rebuild". The S7 text was new in
+  0.1.5 and never released; its length test (≤ 400 characters) still passes.
+
+#### Final security review
+
+Reviewed again against the code and the tests that pin it; Batch 5 changed no
+security mechanism (one CSS rule, one sentence of a note, docs).
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| N1–N4, the context evidence boundary, U+2028/U+2029 | contained; 0 structural escapes in the corpus | §44.17–§44.18; the corpus below |
+| Retry prompt, MCP text, D1, hint improver, Review Notes and paths | as §44.21 | the MCP comparison below; `test_batch3_boundaries.py`, `evidence.test.ts`, `hintImprovement.test.ts` |
+| N10–N12 | linear | `test_jira_parse_fences.py`, `test_intake_linear_patterns.py` |
+| S2/B5, O4, W1/W2, F10/F11/F13, atomic-write compatibility, umask | as §44.22, verified on Linux, macOS and Windows in CI runs 38638853209 and 38641590465 | `test_batch4_file_safety.py`, `scratchFile.test.ts` |
+| Windows limits, macOS paths | as documented in `docs/safety.md` | ibid. |
+| The changelog's and `docs/safety.md`'s claims | match the code | each claim re-read against its code: temp files only through `artifact_io`, `fix_bug`'s argument through `one_line` and escaped quotes, the hint improver's `oneLine`/`evidenceBlock`, attachment names with `<U+XXXX>` |
+
+#### Corpus and oracles
+
+Run again for this batch (`tests/prompt_boundary_baseline.py --write`, into
+the session scratchpad; no record added under `tests/baselines/`, since
+Batch 5 renders nothing differently):
+
+- **Corpus:** 74 cases (73 in the matrix: 65 hostile, 9 benign), 24 of 30
+  sources injectable, 1,887 observations, judged by both oracles.
+- **Outcomes (escape / ambiguous / safe / refused):** 0 / 443 / 1,405 / 39 —
+  `context.md` 0 / 267 / 755 / 0, the retry prompt 0 / 59 / 160 / 0, `task.md`
+  0 / 117 / 490 / 39. **No structural escape.**
+- **Identical, outcome by outcome,** to the Batch 3 record and to the living
+  expectations (`tests/golden/prompt_boundary/expected.json`); no
+  expectation was updated.
+- **The ambiguous outcomes, reviewed:** each is a hostile line that a parser
+  places inside a quoted block or a contained section, where a reader still
+  meets it — the documented limit of structural containment (§44.18,
+  §44.21). By class: evidence 328, editable 67, earlier AI output 48. Attachment
+  names are 61 of 62 ambiguous: their `<U+XXXX>` escapes keep the text
+  readable by design (D2). None is a forged section.
+- **The refusals** (39) are custom Fix Mode sections the store refuses.
+
+#### Compatibility
+
+| Surface | Result |
+| --- | --- |
+| CLI | the content wheel's `doctor --json` reports the same five capabilities as 0.1.4; no new one is required (§44.12) |
+| MCP | every tool's answer keys and types, the nine tools' input and output schemas and the prompt list are identical to released 0.1.4 (`a1ce8dd`) and to `1b60232` |
+| Extension and CLI skew | in the real window, 11/11: this extension with the released 0.1.4 CLI (PyPI) is ready, with no blocked or outdated-CLI card; its Effective views render, with no S7 note; the task prepared by 0.1.5 reads as differing in BugPilot Evidence Rules there (0.1.4 renders without D1); back on the working tree's CLI, ready again. A 0.1.5 CLI with 0.1.4 artifacts: the real-window pass above |
+| Retrieval | Recall@5 9/9, MRR 0.944; Search Confidence 10/10 on target |
+| Context Quality, Git History v2 | identical to `tests/baselines/0.1.5-batch3/` outside the environment and the live repository's raw counts |
+| `task.md` goldens | unchanged by this batch (all 17 byte-identical to Batch 3's, D1 included); no golden regenerated |
+| Context Preview, retry, Fix Mode and hint, config and credentials, work items | in the suites below |
+
+#### CI review (no setting changed)
+
+- `.github/workflows/ci.yml` is unchanged by this batch: four job
+  definitions, nine required runs, no `continue-on-error` anywhere, actions
+  pinned to full SHAs, `contents: read`, triggers `push` and `pull_request` to
+  `main` and `workflow_dispatch`. The required safety job lists 20 modules,
+  `test_batch4_file_safety.py` included; the required TypeScript job runs
+  `evidence`, `hintImprovement` and `scratchFile` (27 tests).
+- Batch 5 adds no test module. Its tests are in `panel.test.ts` and
+  `effectiveContext.test.ts` (the extension job, required since B4-1) and in
+  `test_context_boundary.py` (the required safety job).
+- **Branch protection is off on `main`** (no rule, no Ruleset): a commit can
+  reach `main` without a green run, and a force push or deletion is possible.
+  A release-process risk, not a code defect. **Recommended (the owner's
+  decision; not done):** one repository Ruleset on the default branch,
+  *Active*, with:
+  - *Restrict deletions* and *Block force pushes*;
+  - *Require status checks to pass* with the nine checks by name —
+    "Safety and baselines (ubuntu-latest, Python 3.13)", "Safety and
+    baselines (ubuntu-latest, Python 3.10)", "Safety and baselines
+    (macos-latest, Python 3.13)", "Safety and baselines (windows-latest,
+    Python 3.13)", "Extension evidence boundary (ubuntu-latest)", "Full
+    Python suite (ubuntu-latest)", "Full Python suite (macos-latest)", "Full
+    Python suite (windows-latest)", "Extension unit tests (ubuntu-latest)";
+  - no pull-request requirement, and *Repository admin* on the bypass list,
+    so the Batch 4 flow (verify a SHA on a branch, then fast-forward `main`)
+    keeps working and an emergency push stays possible, recorded as a bypass.
+
+#### Release process review (no setting changed)
+
+- **B5-R1 — the `pypi` environment has no approval gate (Medium).** Read
+  through GitHub's public API on 2026-10-14: `protection_rules: []`, no
+  deployment branch policy, unchanged since it was created on 2026-10-09.
+  `docs/development.md` says the environment has required reviewers "so the
+  publish job waits for approval". So a dispatch of `release.yml` publishes
+  without a pause, from whichever branch is chosen; a PyPI version can never
+  be replaced. The workflow's own version check makes a run for an
+  already-published version fail. **Recommended before the 0.1.5 PyPI run:**
+  add the owner as a required reviewer of `pypi`, and limit its deployment
+  branches to `main`.
+- **B5-R2 — `release.yml`'s actions are not pinned (Low–Medium).** It uses
+  `actions/checkout@v7`, `actions/setup-python@v7`,
+  `actions/upload-artifact@v7`, `actions/download-artifact@v8` and
+  `pypa/gh-action-pypi-publish@release/v1` (a moving branch, in the job that
+  holds `id-token: write`), and installs `build` and `twine` unpinned. CI
+  pins its actions to SHAs (D5). **Recommended:** pin them as CI does, in a
+  reviewed change before the release; not done here (§44.6 keeps
+  `release.yml` untouched).
+- *Both were approved and acted on: see the next section.*
+- Unchanged and sound: manual dispatch only, `contents: read`,
+  `persist-credentials: false`, the exact-version check, `twine check
+  --strict`, publishing exactly the built files, Trusted Publishing with no
+  stored token.
+
+#### Release security hardening: B5-R1 and B5-R2 (2026-10-14)
+
+*Amended by the final pre-commit review below (RV-1–RV-3): the preflight
+also ties CI's results to `ci.yml`'s own runs (the build job gains
+`actions: read`), every script step says `shell: bash`, and the tests
+number 73, with 37 broken copies.*
+
+**Decisions (owner, 2026-10-14):**
+
+- **B5-R1 — approved:** publishing to PyPI requires an authorized reviewer's
+  approval, and the `pypi` environment allows deployments from `main` only.
+  It is a GitHub setting: **specified here, not changed by this work, and not
+  yet configured** (verified below).
+- **B5-R2 — approved:** the release workflow uses verified full commit SHAs
+  and reproducible, version-pinned build tools. **Implemented in the
+  repository.**
+- **Authorized:** B5-R2, a wrong-branch guard, release-security tests in a
+  blocking CI job, docs, this record. **Not done, as instructed:** no GitHub
+  setting or Ruleset changed, no Release dispatch, no publish, nothing
+  staged, committed, pushed, tagged or bumped. The PyPI Trusted Publisher
+  identity (owner `xsw7910`, repository `bugpilot`, workflow `release.yml`,
+  environment `pypi`) is unchanged.
+
+**Findings, exactly:**
+
+| # | Finding | Severity | Now |
+| --- | --- | --- | --- |
+| F-R1 (B5-R1) | `pypi` environment: `protection_rules: []`, `deployment_branch_policy: null`, `can_admins_bypass: true`, created and last updated 2026-10-09T04:00:19Z (read through the public API twice on 2026-10-14). Probably created by GitHub at the first run that named it, which adds no rule (inferred). `docs/development.md` said it had required reviewers | Medium | specified; **GitHub-side, open** |
+| F-R2 (B5-R2) | five actions by moving refs (`@v7`, `@v8`, `@release/v1`); `pip install --upgrade build twine`; the backend (`setuptools>=77`) resolved afresh in an isolated build environment at each run | Low–Medium | **fixed** |
+| F-R3 | any branch could be dispatched: the version check compared file names only, so another branch at the same version would have built and published its own code; nothing checked that CI had passed on the commit, or that the extension's version moved with the CLI's | Medium | **fixed** in the workflow; the environment's branch rule (F-R1) is the GitHub-side half |
+| F-R4 | the publish job printed the files' SHA-256 but did not compare them with the build job's | Low | **fixed** |
+| F-R5 | found while implementing, before anything reached the repository: (a) `run: … --only-binary=:all: -r …` as a plain YAML scalar is invalid (`": "`), which GitHub rejects — caught by js-yaml, now refused by the tests' reader; (b) `sha256sum` writes `hash *name` on Windows (binary mode), which broke a name comparison — caught by the dry run, now independent of the mode | — | fixed |
+
+**Workflow changes** (`.github/workflows/release.yml`; the trigger, the two
+jobs, their names, the artifact name and the environment name are kept):
+
+- **Inputs:** `version` (as before) and a new required `commit`: the release
+  commit's full SHA.
+- **Build job**, in order, failing closed:
+  1. a first step that refuses any `GITHUB_REF` but `refs/heads/main`,
+     before checkout;
+  2. checkout (`persist-credentials: false`) and Python 3.13, both pinned;
+  3. `scripts/release_preflight.py` (new, standard library only), with the
+     inputs and the token passed through `env`, never pasted into the script.
+     It refuses unless the run is on main, the commit entered equals
+     `GITHUB_SHA` and `git rev-parse HEAD`, the version entered equals
+     `__version__` and `extension/package.json`'s version, and the newest
+     run of each of the nine required CI checks on that commit — reported by
+     the `github-actions` app — completed with success. Any error reading CI
+     refuses;
+  4. `python -m pip install --disable-pip-version-check --require-hashes
+     --only-binary=:all: -r .github/release-requirements.txt`;
+  5. `python -m build --no-isolation --sdist --wheel --outdir dist .` — the
+     pinned setuptools is the backend;
+  6. the exact-version file check and `twine check --strict` (unchanged);
+  7. the SHA-256 of `dist/` into the step summary (now with the Python and
+     pip versions) and into a job output;
+  8. the artifact upload, pinned.
+- **Permissions:** default `contents: read`; build job `contents: read` and
+  `checks: read` (for the CI query only); publish job `id-token: write` only.
+- **Publish job:** `needs: build`, `if: github.ref == 'refs/heads/main'`,
+  environment `pypi`, then download (pinned) → `sha256sum --check --strict`
+  against the build job's output, and refusal of any file it did not hash →
+  `pypa/gh-action-pypi-publish` (pinned; no inputs, so OIDC to PyPI with
+  PEP 740 attestations, its default).
+
+**Pinned actions** (newest stable release of each, in the major the workflow
+already used; each tag resolved to its commit through GitHub's API on
+2026-10-14 — `git/ref/tags/<tag>`, an annotated tag followed through
+`git/tags/<sha>` — never guessed):
+
+| Action | Release | Published | Commit |
+| --- | --- | --- | --- |
+| `actions/checkout` | v7.0.1 | 2026-07-20 | `3d3c42e5aac5ba805825da76410c181273ba90b1` |
+| `actions/setup-python` | v7.0.0 | 2026-07-20 | `5fda3b95a4ea91299a34e894583c3862153e4b97` |
+| `actions/upload-artifact` | v7.0.2 | 2026-10-07 | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
+| `actions/download-artifact` | v8.0.2 | 2026-10-07 | `9000827ccba6bdab643e8b6fd33ac0654aef8333` |
+| `pypa/gh-action-pypi-publish` | v1.14.2 (annotated tag) | 2026-07-29 | `dc37677b2e1c63e2034f94d8a5b11f265b73ba33` |
+
+- Each is also the newest stable release overall, and each `v<major>` tag
+  (for pypi-publish, the `release/v1` branch the workflow used) points at the
+  same commit, so the change pins what ran before.
+- The first three are the commits CI already pins (Batch 0's verification
+  agrees). `actions/setup-node` v7.1.0 (`949feb24…`, CI only) is in the
+  tests' table too.
+- **pypi-publish and SHA pinning:** its README supports pinning to a full
+  commit SHA. Pinned so, it runs the container image
+  `ghcr.io/pypa/gh-action-pypi-publish:<that SHA>`, referenced by tag, not
+  by digest: the image's integrity rests on pypa's registry (residual).
+
+**Build tools** (`.github/release-requirements.in`, three pins;
+`.github/release-requirements.txt`, the hashed file):
+
+- **Pins:** `build==1.6.1`, `twine==7.0.0`, `setuptools==84.0.0`: the newest
+  of each. 84.0.0 is also the setuptools that built the released 0.1.4 wheel
+  (its `WHEEL` says `Generator: setuptools (84.0.0)`). With their
+  dependencies, 30 packages, each `==` and SHA-256-hashed. twine needs
+  `keyring`, which on Linux needs SecretStorage, jeepney and cryptography, so
+  the file is resolved for the release runner (Linux x86_64, CPython 3.13).
+- **Choice:** one requirements file in pip's own hash format, installed with
+  plain pip in `--require-hashes` mode, which fails on anything unpinned or
+  unhashed. No lock tool runs in the workflow. uv 0.13.1 wrote the file
+  once (`uv pip compile … --python-platform x86_64-manylinux_2_28
+  --generate-hashes`, the command in its header) and is not a dependency of
+  anything; `docs/development.md` has the update procedure.
+- **Verified independently of uv:**
+  - every hash is a SHA-256 PyPI lists for a file of exactly that release,
+    and none is yanked (PyPI's JSON API);
+  - the closure is complete for the runner: each pinned package's
+    `Requires-Dist`, with markers evaluated for Linux x86_64 and CPython
+    3.13, names a pinned package at a satisfying version, and nothing pinned
+    is unneeded;
+  - `pip download --require-hashes --only-binary=:all:` for that platform
+    fetched all 30 wheels;
+  - the same versions built the tree without isolation, and `twine check
+    --strict` passed, on Windows.
+- **Not claimed:** byte-for-byte reproducible artifacts. The no-isolation
+  build's wheel (66 members) and sdist (72) have the same contents as an
+  isolated build's, member for member; the archives differ in bytes (file
+  times).
+- **Left floating, on purpose:** Python's patch release (`"3.13"`, for its
+  security fixes; the step summary records it) and the runner's own pip,
+  whose resolver is moot in hash mode.
+
+**Wrong-branch publishing — the layers:**
+
+1. the build job's first step (`GITHUB_REF` must be `refs/heads/main`);
+2. the preflight: main again, the reviewed commit, the version, CI green;
+3. the publish job's `if: github.ref == 'refs/heads/main'`;
+4. **GitHub-side, not yet configured:** the `pypi` environment's branch rule
+   (`main`) and required reviewer (F-R1).
+
+Layers 1–3 are in the repository and tested; layer 4 is the only one a
+changed workflow cannot remove.
+
+The preflight was run locally against GitHub's real records, read-only:
+- `1b60232`: accepted, all nine checks green.
+- The same commit on `refs/heads/verify/0.1.5-batch4`, with version 0.1.5:
+  refused for both.
+- `c3a7e30`: refused, five of the nine checks missing (its CI predates them).
+- `a1ce8dd`, the released 0.1.4: refused, all nine missing. Its only check
+  runs are the Release workflow's own two jobs, which cannot stand in for CI.
+
+**Trusted Publishing, preserved:**
+
+- `id-token: write` only in the publish job; the build job gets no publishing
+  credential and no environment.
+- The artifact passes unchanged: hashed in the build job, checked in the
+  publish job. The checksums are in the run summary.
+- The publish action uses OIDC, with no token and no `secrets.` anywhere.
+- The publish job keeps the `pypi` environment.
+- A failure before approval, or a failed build, cannot publish (`needs:
+  build`; nothing publishes outside the publish job).
+- Only `workflow_dispatch` starts the workflow. CI has no OIDC token, no
+  environment and no publish action.
+
+**Tests** (`tests/test_release_workflow.py` and its reader
+`tests/workflow_yaml.py`; in the required safety job, so on all four
+configurations):
+
+- **What they hold:** every check of §44.23's brief that the files can prove.
+  - every `uses:` in every workflow pinned to a full SHA, with its `# vX.Y.Z`,
+    and equal to the verified table;
+  - the hashed file: only `name==version` lines with hashes, no index
+    options, the three input pins honoured;
+  - exactly one install (the hashed one) and one build (no isolation), and
+    nothing else fetching code;
+  - `workflow_dispatch` only, with both inputs required;
+  - the permissions above;
+  - the guard's position and environment;
+  - the environment, `needs`, the artifact hand-off and the hash check;
+  - no expression inside a `run` script;
+  - CI unable to publish;
+  - the preflight's nine names equal to `ci.yml`'s jobs as GitHub names them;
+  - the preflight's own rules (ref, commit, version, Unicode digits, input
+    with a line break, CI newest-run, another app's check, an unreadable CI).
+- **Broken copies:** 28 deliberately broken copies, each of which fails the
+  checks.
+  - The workflow changes: a tag, a branch, no tag comment, a wrong SHA, CI on
+    a tag, a push trigger, no commit input, `--upgrade`, no
+    `--require-hashes`, an isolated build, a `curl | sh`, OIDC in the build
+    job, write by default, no environment, no `needs`, no publish guard, no
+    ref guard, no preflight, an expression in a script, a token, no hash
+    check, a checkout in the publish job, OIDC in CI.
+  - The requirements changes: an unpinned requirement, an unhashed one, a
+    loose hash, another index, an input pin not followed.
+  - The invalid `": "` line is refused too.
+- **Reader validation:** the reader agrees with js-yaml on both workflows (0
+  differences) and refuses anchors, aliases, tags, nested flow mappings,
+  duplicate keys, tabs, document markers and multi-line plain scalars.
+- **Result:** 58 passed.
+- **What the files cannot prove:** the environment's reviewer, branch rule
+  and admin bypass, and any Ruleset. They are GitHub settings, verified there
+  (below).
+
+**Local dry run of the workflow's own shell steps** (read from `release.yml`,
+run with `bash -e` on a clean tree, the pinned tool versions; 16/16):
+
+- the ref guard on main, on a branch and on a tag;
+- the build, and its refusal of an existing `dist/`;
+- the version check for 0.1.4, for 0.1.5, and for an injection attempt
+  (refused, nothing run);
+- `twine check --strict` and the hash record;
+- the publish-side check: the same files pass; one changed byte, an extra
+  file and an empty hash list are each refused.
+
+Not run locally: the hashed install (it needs the Linux runner) and anything
+GitHub itself does (OIDC, the environment's wait). **The first real run of the
+new workflow is the 0.1.5 release.**
+
+**Regression after the hardening:**
+
+| Gate | Result |
+| --- | --- |
+| Python full suite (Windows, isolated home, no `JIRA_*`) | 3,205 passed, 36 skipped (Batch 5's 3,147 + the 58 new tests) |
+| The required safety job's command (now 21 modules) | 1,253 passed, 36 skipped, 1 deselected |
+| `tests/test_release_workflow.py` | 58 passed |
+| The required TypeScript job's three files | 27 passed |
+| Extension typecheck; unit tests | clean; 2,341 passed (the extension is untouched by this work) |
+| Publishability (untracked files included) | 20 passed |
+| Prompt-boundary corpus and both oracles | 0 / 443 / 1,405 / 39, identical to Batch 3's record and the living expectations |
+| Retrieval | Recall@5 9/9, MRR 0.944, Search Confidence 10/10 on target |
+| Context Quality, Git History, `task.md` measures and goldens | identical to `0.1.5-batch3`; no golden regenerated |
+| UI and accessibility fixes (S5, B5-2) | the extension's files are byte-identical to the tree the real VS Code pass validated; their unit tests pass |
+| CI workflow checker | four jobs, nine runs, no `continue-on-error`, 21 required modules |
+| Python 3.10 static check | the three new Python files parse as 3.10 |
+| `git diff --check`; the new files | clean; LF, a final newline, no trailing space |
+| Runtime dependencies | none added: `pyproject.toml` unchanged, the wheel's `Requires-Dist` only the optional extras, `pip show` lists no requirement |
+
+**Packaging after the hardening** (`C:\temp\bugpilot-015-b5r-rel`, a clean
+`git archive` tree with this work's files, built by the workflow's own build
+step with the pinned versions, without isolation; version 0.1.4, content
+only):
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `bugpilot-0.1.4-py3-none-any.whl` | 341,400 | `ebe953a4f432d91c99286aef4b161205e9ae0798a042dda294437d42f9daef58` |
+| `bugpilot-0.1.4.tar.gz` | 316,275 | `a945f38d1e49f40ca4fd7b4b5a3c8323ae8b5bfddcd37e13b96e544869929122` |
+| `bugpilot-0.1.4.vsix` | 566,700 | `41a272e5490c46ddbc8bb02f676861679515d7d1848ebf774f47e62044bfbff0` (Batch 5's; its sources are unchanged) |
+
+- **Contents:** the same members, byte for byte, as Batch 5's candidates
+  (wheel 66, sdist 72). The sdist holds neither `.github/` nor `scripts/`.
+- **Checks:** `twine check --strict` passes, and the candidate inspection
+  passes in full.
+- **Clean offline install:** `bugpilot 0.1.4`, the five capabilities,
+  BUSL-1.1, no requirement; uninstalled cleanly.
+
+**GitHub-side tasks left (the owner's; none is done):**
+
+1. **Configure `pypi`** (**Settings → Environments → pypi**):
+   - **Required reviewers** checked, with the maintainer `xsw7910`;
+   - **Prevent self-review** unchecked. With one maintainer, who both starts
+     and approves releases, checking it would make every release
+     unapprovable;
+   - no wait timer;
+   - **Allow administrators to bypass configured protection rules**
+     unchecked;
+   - **Deployment branches and tags → Selected branches and tags**, one rule,
+     branch `main`;
+   - no environment secrets.
+2. **Verify it** by reading `GET /repos/xsw7910/bugpilot/environments/pypi`.
+   Expect:
+   - a `required_reviewers` rule naming the maintainer, with
+     `prevent_self_review: false`;
+   - a `branch_policy` rule;
+   - `deployment_branch_policy` `{"protected_branches": false,
+     "custom_branch_policies": true}`;
+   - `can_admins_bypass: false`.
+
+   The branch-policies list answered 404 without a token on 2026-10-14, so
+   check it in the UI or with an authenticated read. Then the live proof: the
+   0.1.5 run's publish job must stop at *Waiting for review*.
+3. **Plan limits:** per GitHub's documentation, reviewers and branch rules
+   are available to public repositories on every current plan; in a private
+   repository, required reviewers need GitHub Enterprise. This repository is
+   public. Nothing above locks the sole maintainer out.
+4. **Optional, recommended:** the Ruleset below.
+5. **No change on PyPI:** the trusted publisher stays as it is.
+
+**Branch protection — recommendation (not done):** `main` is unprotected and
+has no Ruleset (both read through the public API on 2026-10-14). Two
+repository Rulesets, so that the rules that never need a bypass have none:
+
+- **"main — history":** target the default branch, *Active*, *Restrict
+  deletions* and *Block force pushes*, **no bypass**. Nothing in the current
+  flow force-pushes or deletes `main`.
+- **"main — CI green":** target the default branch, *Active*, *Require status
+  checks to pass*, with the nine checks by name, their source limited to
+  *GitHub Actions*.
+  - **Bypass: Repository admin, *Always*,** so an emergency push stays
+    possible, and is recorded as a bypass.
+  - **No pull-request requirement:** one maintainer cannot approve their own
+    pull request, and the flow is direct.
+  - *Require branches to be up to date* off: it applies to pull requests.
+
+**Compatibility with the verify-branch flow (§44.22):**
+- The flow — push a commit to `verify/*`, dispatch CI there, then
+  fast-forward `main` to the verified SHA — satisfies "CI green" without a
+  bypass: the checks already exist on that SHA when `main` moves.
+- A direct push of a new commit to `main` would need the bypass, because its
+  checks run only after the push. Dropping the bypass later makes the verify
+  flow mandatory.
+- CI's `cancel-in-progress` can cancel an older run: the target commit's own
+  checks must be green, which is also what the release preflight demands.
+
+**What can be verified, and how:**
+- The rulesets and the rules in force on `main` can be read through the
+  public API (`GET /repos/xsw7910/bugpilot/rulesets`,
+  `GET /repos/xsw7910/bugpilot/rules/branches/main`).
+- The bypass list needs an administrator's view (the UI).
+- The behaviour itself is checked at the next push.
+
+**Release readiness after the hardening:**
+
+- B5-R2, F-R3 and F-R4 are fixed in the working tree.
+- **B5-R1 is open on GitHub's side and blocks the PyPI run** until it is
+  configured and verified.
+- Batch 5 and this hardening are ready for the owner's commit review.
+- Nothing is staged, committed, pushed, tagged, bumped, dispatched or
+  published.
+
+#### Size and performance
+
+Sizes are identical to Batch 3's record: the typical `context.md` 4,104
+characters (about 1,026 tokens), the typical `task.md` 12,156, the typical
+retry prompt 3,824, the 1 MB case's context 1,006,142.
+
+Timings (milliseconds, this machine; never asserted). The machine was slower
+than on Batch 3's day, so Batch 3's own code was measured again beside HEAD and
+this tree:
+
+| Measure | Batch 3 record | `dc1e982` today | `1b60232` today | this tree today | goal (§44.12) |
+| --- | ---: | ---: | ---: | ---: | --- |
+| preparation, median of 5 | 1,276.7 | 1,915.2 | 1,934.7 | 1,878.3 | within run-to-run noise |
+| render a typical `context.md` | 0.452 | 0.485 | 0.475 | 0.451 | under 5 |
+| render with the 1 MB description | 15.2 | — | — | 17.3 | under 100 |
+| render with 500 comments | 0.372 | — | — | 0.560 | — |
+
+The three codes measured the same day differ by less than 3%: Batches 4 and
+5 cost no measurable preparation time. The adversarial inputs (N10–N12's
+pathological texts) stay in the required job's linear-time tests.
+
+- **B2-1 and B3-1** stand as decided; Batch 5 changes no rendered artifact.
+- **Deduplication headroom:** the median `task.md` is 3,090 approximate
+  tokens against the gate's 3,096 (−20.2% from 0.1.3's 3,870): **six tokens
+  left**, unchanged.
+
+#### Release artifacts (content candidates; not the release)
+
+Built outside the repository from `git archive` of `1b60232` (LF, as the
+release workflow builds) plus this batch's eight changed files, **at version
+0.1.4**: they show the 0.1.5 content, not the 0.1.5 release.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `bugpilot-0.1.4-py3-none-any.whl` | 341,400 | `d02443da1f1ebaf35aa4d6289199d0a745b68a103b461099a4b80fff7fdd56b7` |
+| `bugpilot-0.1.4.tar.gz` | 316,293 | `da939729fc62be9fc8bdb57b6efff95e11be939ef471a91941d56393bc575b6b` |
+| `bugpilot-0.1.4.vsix` | 566,700 | `41a272e5490c46ddbc8bb02f676861679515d7d1848ebf774f47e62044bfbff0` |
+
+- **Contents:** `twine check --strict` passes for both; METADATA and PKG-INFO
+  0.1.4 and `BUSL-1.1`; `Requires-Dist` only the three optional extras; the
+  wheel holds only `bugpilot/` and its dist-info (66 files); the sdist no
+  docs, extension, scripts, installer, `.bugpilot`, `.vscode`, `.ai` or
+  `.github`; the VSIX 87 files with `package.json` and the manifest at 0.1.4,
+  `LICENSE.txt`, `THIRD_PARTY_NOTICES.md`, `bug.svg`, `icon.png`, the
+  changelog opening with the candidate entry, no tests, sources or
+  `node_modules`. Every batch's change is present (D1 version 2, `evidence`,
+  the atomic writer's checks, `scratchFile`, S5, B5-2). A scan found no
+  secret-like token and no work email domain in any file.
+- **CLI clean install:** a fresh venv, `pip install --no-index` from the
+  built files: `bugpilot 0.1.4`, BUSL-1.1; in a fresh Git repository with an
+  empty home, `doctor` lists `verification-text`, `ai-behavior-text`,
+  `protected-rules`, `task-preview`, `context-preview`; `protected-rules
+  show`: version 2, 21 rules, not editable; `task-preview`: 15 sections with
+  D1; `context-preview`: unavailable; a prepared bug is contained
+  (`context_format` 2). `pip uninstall` removed the package and its
+  executables.
+- **Managed runtime, offline** (a second fresh profile,
+  `C:\temp\bugpilot-015-b5-rt`, no `bugpilot.*` setting, no CLI anywhere;
+  `PIP_NO_INDEX=1` and `PIP_FIND_LINKS=<the built dist>` in the window's
+  environment only):
+  - first launch 18/18: *BugPilot CLI is required.* with **Install BugPilot
+    Runtime** first; nothing ran for 51 s;
+  - install 21/21: one `python -I -m venv …\runtime\0.1.4\venv` and one `pip
+    install … --only-binary=:all: bugpilot==0.1.4`, started by the extension
+    host with no shell; `runtime.json` written after `--version`; Diagnostics
+    "Ready · 0.1.4"; all 65 hashed files of the wheel's RECORD identical on
+    disk;
+  - prepare-only Run 11/11: five artifacts, code search passed, no terminal,
+    agent, venv or pip; the context contained (`context_format` 2, four
+    evidence fences).
+- **VSIX uninstall:** `--uninstall-extension` removes it from the list; VS
+  Code deletes the folder at its next start. The managed runtime stays in
+  the extension's global storage, as VS Code keeps an extension's global
+  storage; the READMEs do not say so (Info).
+- **Pending the owner's approval:** the version bump to 0.1.5 in lockstep
+  (§43.10), the candidates rebuilt at 0.1.5 from the reviewed commit, their
+  clean installs and managed runtime (it installs `bugpilot==0.1.5`), the
+  commit review, commits and push, the PyPI workflow, the final VSIX smoke
+  against live PyPI, and the Marketplace.
+
+#### Full verification (Windows, this machine)
+
+| Gate | Result |
+| --- | --- |
+| Python full suite (isolated home, no `JIRA_*`) | 3,147 passed, 36 skipped |
+| The required safety job's command (20 modules, as in `ci.yml`) | 1,195 passed, 36 skipped, 1 deselected |
+| The required TypeScript job's three files | 27 passed |
+| Extension typecheck | clean |
+| Extension unit tests | 2,341 passed |
+| `node --test test/panel.test.ts` (S5) | 235 passed |
+| Publishability | 20 passed |
+| Python 3.10 static check (the package) | 61 files parse as 3.10 |
+| The CI workflow checker | four jobs, nine runs, no `continue-on-error` |
+| `git diff --check` | clean |
+| Retrieval, Search Confidence, Context Quality, Git History, `task.md` measures | identical to `0.1.5-batch3` (above) |
+
+Linux and macOS: not run locally (no WSL or container runtime on this
+machine); see *Cross-platform*.
+
+#### Cross-platform
+
+Batch 5's changes ran on Windows only. They are platform-independent (a CSS
+rule, one sentence of a CLI note, docs), and every test that covers them is in
+a required CI job, so the first CI run after the commit is their Linux and
+macOS run. Everything earlier was verified on all three systems by CI runs
+38638853209 and 38641590465 (`1b60232`). Nothing is claimed for Linux or macOS
+beyond those runs.
+
+#### Residual risks
+
+| Risk | Impact | Likelihood | Mitigation now | Blocks 0.1.5 | Future |
+| --- | --- | --- | --- | --- | --- |
+| Windows in-place fallback race (after refused renames, a write in place after a second link check) | Medium | Low: a local process with write access to the user's folder, timed to a refused rename | four retries, the second link check; documented | No | a handle-based replace |
+| A process that controls the config folder or home | High if it happens | Low; outside the trust model (the same user) | a link at the credentials file refused; documented; the folder may be a link (B4-2) | No | an ownership and mode check of `~/.bugpilot` on POSIX |
+| W1's leftover (Windows: a create through a dangling link leaves an empty file where it pointed) | Low | Low: a link planted at an unpredictable temp name | refused before any byte; documented | No | opening with the reparse-point flag |
+| Orphaned scratch files after a crash | Low (issue text, owner-only, in the extension's storage) | Medium (any crash mid-run) | random names, `0600`, private storage | No | a sweep at activation, like attachment GC |
+| 0.1.4-era contexts and tasks (not contained; R4's forged section on a POSIX line-break attachment name) | Medium for old items | Low–Medium (upgraders reopening old items) | never rewritten; S7 note; Effective views flag them; Rebuild replaces them | No | F14: the handoff warns on a stale `task.md` |
+| Unicode format characters (Cf) kept in editable guidance (R5) | Low | Low (the developer's own text) | evidence escapes them (D2); class 2 keeps them by design | No | a lint warning in the editors |
+| Six tokens of deduplication headroom | process | Medium for 0.1.6 | the gate is kept | No | an offsetting reduction or an owner decision |
+| Branch protection off | Medium | Low | the owner's gated flow | No (code); recommended before the release commits | the Ruleset above |
+| B5-R1: no approval gate on `pypi` (approved; not yet configured) | Medium (an irreversible publish) | Low–Medium (one mistaken dialog already happened, not run) | in the workflow: main only, the reviewed commit, the version, CI green, the hash check | **Yes, the PyPI run,** until configured and verified | — |
+| B5-R2: release actions and build tools unpinned | — | — | **fixed:** SHA pins, hashed tools, tests in the required job | No | the publish action's image is pulled by tag (its SHA), not by digest; Python's patch release and the runner's pip float |
+| §44.20–§44.22 limits: containment structural and D1 an instruction; ambiguous outcomes (a forged title inside a quoted block is still a line a reader meets); MCP structured values (R8); F12; the temp name swapped between write and rename; `~/.bugpilot` at the umask's mode; the legacy `bug-description.md` | as recorded there | as recorded there | documented in `docs/safety.md` and §44.18–§44.22 | No | as recorded there |
+| The managed runtime stays after uninstall | Info | — | VS Code's behaviour | No | a README line |
+| A permission error creating the work-item folder reads "bugpilot hit an unexpected error" (pre-existing) | Info | Low | the log has the trace | No | a named failure |
+
+#### Final pre-commit review (2026-10-14)
+
+**Scope:**
+- the whole Batch 5 diff, tracked and untracked;
+- the release preflight against GitHub's real API;
+- the release workflow, the pins and the hashed build tools;
+- the release-security tests;
+- B5-R1's readiness;
+- the full regression.
+
+**Nothing was staged, committed, pushed, tagged, bumped, dispatched or
+published; no GitHub setting was changed.** `main`, `origin/main` and
+`verify/0.1.5-batch4` still read `1b60232`. The three protected local files
+are unchanged, and none of the five new files is ignored by git.
+
+**Findings and fixes:**
+
+| # | Finding | Severity | Disposition |
+| --- | --- | --- | --- |
+| RV-1 | The preflight took a check run as CI's if it had a required name and came from GitHub Actions, without tying it to `ci.yml`: a job of the same name in another workflow run on the commit would have counted. It read check runs with GitHub's default `filter=latest`, which could leave out a re-run still in progress. It did not see a CI run that was queued with no check runs yet. An error while judging the answer, rather than while reading it, ended in a traceback, not a refusal | Medium | **Fixed.** The preflight now also reads the commit's workflow runs (Actions API; the build job gains `actions: read`). It counts only check runs whose check suite belongs to a run of `.github/workflows/ci.yml` on that very commit, refuses while any such run is not completed, refuses when the newest one did not succeed, reads check runs with `filter=all`, and checks that pagination adds up (`total_count`, at most 20 pages). Any error reading or judging refuses |
+| RV-2 | A guard step could be switched off without touching its text: `continue-on-error`, a step-level `if:`, a workflow `defaults: run: shell:` without `-e` (the hash check's first line could then fail and the script go on), or a workflow or job `env` such as `PIP_INDEX_URL` | Medium | **Fixed.** Every `run` step says `shell: bash` (`-eo pipefail`, whatever a default says). The tests refuse `continue-on-error`, step `if:`, and workflow- or job-level `defaults` and `env` in `release.yml` |
+| RV-3 | The tests did not hold checkout's inputs (`persist-credentials: false`, no `ref`), nor that setup-python's version is the one the hashed file was resolved for | Low | **Fixed** in the tests (exact checkout inputs; `python-version` equals the requirements' `--python-version`) |
+| RV-4 | CI is read once, before the build. A CI re-run started afterwards cannot stop a publish that is approved later | Info | **Documented** (`release_preflight.py`, `docs/development.md`): the reviewer looks at the commit's CI before approving |
+| RV-5 | A newer commit reaching `main` after the dispatch | Info | **No effect.** `GITHUB_SHA` is fixed at dispatch, and the pinned checkout, with no `ref`, checks out `github.context.sha` (read in `actions/checkout`'s `src/input-helper.ts` at `3d3c42e5…`). The preflight demands the commit entered = `GITHUB_SHA` = `HEAD`, so the release builds the reviewed commit; if main moved between the review and the dispatch, it refuses |
+| RV-6 | The publish action's container is pulled by a tag equal to its SHA, not by digest; Python's patch release and the runner's pip float | Info | Accepted residuals (recorded above) |
+| RV-7 | The tests' YAML reader is a strict subset reader: a legitimate workflow edit outside the subset fails the tests | Info | By design: such an edit is reviewed with the reader and the tests |
+
+**The release preflight, against GitHub's real records** (read-only,
+unauthenticated, public API):
+
+| Commit | CI on GitHub | Preflight |
+| --- | --- | --- |
+| `1b60232` (HEAD) | two `ci.yml` runs (push 38641590465, dispatch 38638853209), both green | **accepted:** "all 9 CI checks green in .github/workflows/ci.yml" |
+| `1b60232` from `refs/heads/verify/0.1.5-batch4`, version 0.1.5 | — | refused: not main; version not the source's |
+| `dc1e982` (Batch 3) | one `ci.yml` run; four jobs then had other names ("…; not yet required") | refused: four required checks have not run |
+| `c3a7e30` | the eight-job CI of that time | refused: five required checks missing |
+| `a1ce8dd` (released 0.1.4) | only the Release workflow's own run | refused: "no run of .github/workflows/ci.yml on this commit". The release workflow's own checks never count, so the design never needs the release run itself to have passed CI |
+
+**The preflight's rules, as tested** (`tests/test_release_workflow.py`):
+
+- main only, including against a pull-request merge ref and a tag;
+- the full lowercase SHA = `GITHUB_SHA` = `HEAD`, an empty `HEAD` refused;
+- the version: ASCII digits only, so a Unicode digit or an input with a line
+  break is refused before it is echoed; it must equal both version sources;
+- the newest check run of each job decides: a re-run's failure overrides an
+  earlier success, and a later success counts;
+- refused: queued, in progress, cancelled, skipped or neutral checks; a
+  missing job; a queued, running or waiting `ci.yml` run, even one with no
+  check runs yet; a newest run that failed or was cancelled while an older
+  one passed;
+- ignored: a check of the same name from another app, from another
+  workflow's check suite or for another commit — and a failing check of
+  another workflow cannot spoil CI's green result;
+- every error refuses: a network error, an answer without an id, fewer items
+  than `total_count`, a missing list or count, more than 20 pages;
+- once the source is refused, CI is not read at all.
+
+**The workflow, reviewed:**
+
+- **Pins:** the five actions are pinned to full SHAs. Each was re-resolved
+  from its tag through GitHub's API at this review: unchanged, and so is
+  `actions/setup-node` v7.1.0 (`949feb24…`, CI).
+- **Runner compatibility:** checkout, setup-python and upload-artifact are
+  the commits CI runs green on `ubuntu-latest`. download-artifact v8.0.2 and
+  pypi-publish v1.14.2 are the commits `@v8` and `@release/v1` pointed at
+  when 0.1.4 was published (their release dates; nothing newer exists). That
+  is inferred: the run's logs need authentication.
+- **Only `workflow_dispatch`** starts the workflow, and nothing but main can
+  publish: the ref guard, the preflight, the publish job's `if`, and — once
+  configured — the environment's branch rule.
+- **Permissions:**
+  - build job: read-only (`contents`, `checks`, `actions`);
+  - publish job: only `id-token: write`;
+  - the publish job keeps `pypi`.
+- **The artifacts:**
+  - checked (exact version, `twine check --strict`) and hashed in the build
+    job;
+  - re-hashed against the build job's output in the publish job;
+  - nothing rebuilt after approval;
+  - no PyPI token or secret anywhere.
+
+**The dependencies, reviewed:**
+
+- **The hashed file:**
+  - every hash is one of PyPI's files for exactly that release;
+  - the Linux x86_64 / CPython 3.13 closure is complete, with nothing extra;
+  - pip downloaded all 30 wheels in `--require-hashes` mode.
+- **`--require-hashes` is enforced:** the workflow's only install uses it
+  with `--only-binary=:all:`, and the tests hold that.
+- **Isolation:** `--no-isolation` is intentional: the backend is the pinned
+  setuptools.
+- **Python 3.13:**
+  - the pinned versions were installed on CPython 3.13.16 (a scratch copy
+    installed by uv);
+  - the workflow's own shell steps passed there, 16/16, with `bash
+    --noprofile --norc -eo pipefail` as `shell: bash` runs them;
+  - the 3.13 build has the same contents as Batch 5's candidates, member for
+    member.
+- **Not claimed:** byte-for-byte reproducibility.
+- **No runtime dependency added:** the wheel lists only the optional extras,
+  and `pip show` lists no requirement.
+- **No secrets or unwanted files:** the candidate inspection passes, and the
+  sdist holds neither `.github/` nor `scripts/`.
+
+**Tests** (`tests/test_release_workflow.py`, 73 tests, in the required safety
+job on Ubuntu 3.13, Ubuntu 3.10, macOS and Windows, and in the three full
+suites):
+
+- **Checks on the real files:** pins, the hashed file, the build tools,
+  trigger, permissions, the guard, publishing, bypasses, injection, and CI's
+  inability to publish.
+- **37 broken copies,** each of which must fail — the 28 recorded above,
+  plus:
+  - a preflight allowed to fail;
+  - a skippable ref guard;
+  - a job allowed to fail;
+  - a script without `bash -e`;
+  - a default shell;
+  - a package index from the environment;
+  - a checkout of another ref;
+  - a checkout that keeps credentials;
+  - another Python than the lock's.
+- **The checks are structural** (parsed jobs, steps, permissions, order),
+  except where an exact command is the point: the one install, the one build,
+  the guard, the preflight.
+- **The reader:** it matches js-yaml on both workflows after this review's
+  changes (0 differences), and covers every construct they use — block
+  mappings and sequences, a sequence at its key's indentation, quoted and
+  plain scalars, flow sequences, one-line flow mappings (`ci.yml`'s matrix),
+  `|` and `>-` blocks, comments.
+- **Not weakened:** this review changed no test outside the new module and
+  regenerated no golden file.
+
+**B5-R1 — configuration readiness** (proposed; **verified on GitHub as not
+configured**: `protection_rules: []`, `deployment_branch_policy: null`,
+`can_admins_bypass: true`, unchanged since 2026-10-09):
+
+| Setting (Settings → Environments → `pypi`) | Proposed | Verified on GitHub |
+| --- | --- | --- |
+| Required reviewers | checked; reviewer `xsw7910` | **no** (no rule) |
+| Prevent self-review | **unchecked** — the sole maintainer both dispatches and approves; checked, no release could be approved | **no** (no rule) |
+| Wait timer | off | (none) |
+| Allow administrators to bypass configured protection rules | **unchecked** | **no** (`can_admins_bypass: true`) |
+| Deployment branches and tags | Selected branches and tags: branch `main` | **no** (no policy) |
+| Environment secrets | none | not readable without authentication; the workflow uses none |
+
+Verification after configuring:
+- read `GET /repos/xsw7910/bugpilot/environments/pypi` and expect:
+  - `required_reviewers` (`prevent_self_review: false`, the maintainer);
+  - a `branch_policy` rule;
+  - `deployment_branch_policy` `{"protected_branches": false,
+    "custom_branch_policies": true}`;
+  - `can_admins_bypass: false`;
+- check the branch list (`main` only) in the UI;
+- the first real run must stop at *Waiting for review*.
+
+No release is dispatched to test the gate.
+
+**Regression** (Windows; Python 3.14.6; Node 24.21.0):
+
+| Gate | Result |
+| --- | --- |
+| Python full suite (isolated home, no `JIRA_*`) | 3,220 passed, 36 skipped (3,147 + the 73 release tests) |
+| The required safety job's command (21 modules) | 1,268 passed, 36 skipped, 1 deselected |
+| `tests/test_release_workflow.py` | 73 passed |
+| The required TypeScript job's three files | 27 passed |
+| Extension typecheck; unit tests | clean; 2,341 passed |
+| Publishability (untracked files included) | 20 passed |
+| Prompt-boundary corpus and both oracles | 0 / 443 / 1,405 / 39 — identical to Batch 3's record and the living expectations |
+| Retrieval | Recall@5 9/9, MRR 0.944; Search Confidence 10/10 on target (7 high, 2 medium, 1 low) |
+| Context Quality, Git History, `task.md` measures, goldens | identical to `0.1.5-batch3`; no golden regenerated |
+| D1 | `protected-rules show`: version 2, 21 rules, the Evidence rule present, not editable |
+| N1–N4, N10–N12, Batch 4's credentials and file safety | in the required command above (their modules unchanged) |
+| UI and accessibility (S5, B5-2) | the extension's files are unchanged since the real VS Code pass; their unit tests pass |
+| Packaging | the workflow's shell steps on CPython 3.13.16 with the pinned tools: 16/16; the build's contents equal Batch 5's candidates; `twine check --strict` and the full candidate inspection pass |
+| Pins and hashes, re-verified | six action tags → the recorded commits; 30 hashed packages against PyPI; pip `--require-hashes` download for Linux/3.13 |
+| CI workflow checker; Python 3.10 static check; `git diff --check`; new files | four jobs / nine runs, no `continue-on-error`, 21 modules; the three new Python files parse as 3.10; clean; LF, final newline, no trailing space or tab |
+
+**Cross-platform status:**
+- Verified only on this Windows machine:
+  - Python 3.14.6, plus the Python 3.13.16 build check;
+  - Node 24.21.0.
+- **Not yet verified** on Ubuntu (Python 3.13 and 3.10), macOS, Windows CI or
+  Node 22: everything in this batch runs there for the first time in the CI
+  run after the commit, where the new module is in the required job.
+- Batch 4 and earlier stay verified on all three systems (CI runs
+  38638853209 and 38641590465).
+- The new workflow's GitHub-side behaviour — OIDC, the environment's wait,
+  the API from inside a run — is first exercised by the 0.1.5 release run.
+
+**Commit scope** (one commit; nothing staged):
+
+| Change | Files |
+| --- | --- |
+| Batch 5 UI (S5, B5-2) | `extension/media/panel.css`, `extension/test/panel.test.ts`, `bugpilot/core/context_preview.py`, `extension/test/effectiveContext.test.ts` |
+| Batch 5 docs (S6, changelog) | `docs/safety.md`, `docs/architecture.md`, `extension/CHANGELOG.md` |
+| Release hardening (B5-R2, F-R3, F-R4, RV-1–RV-3) | `.github/workflows/release.yml`, `.github/release-requirements.in` (new), `.github/release-requirements.txt` (new), `scripts/release_preflight.py` (new), `docs/development.md` |
+| Release-security tests and CI | `tests/test_release_workflow.py` (new), `tests/workflow_yaml.py` (new), `.github/workflows/ci.yml` |
+| Records | `docs/bugpilot_prototype_development_plan.md` (§44.22's uncommitted post-CI records, §44.23, the §44 status line) |
+
+Sixteen paths — 11 modified, 5 new. Never `.bugpilot/` or
+`.vscode/extensions.json`; stage by path, not with `-A`. The author is the
+noreply identity, as for every earlier commit.
+
+**Release blockers left:**
+
+1. **B5-R1** on GitHub, configured and verified — before any PyPI run.
+2. This commit's own CI, on all three systems.
+3. The owner's approval of the version bump, then the candidates at 0.1.5,
+   their clean installs and managed runtime, the commit review, the PyPI
+   workflow (the first run of the hardened workflow) and the Marketplace.
+
+**Recommendation:** the Batch 5 implementation commit is **ready**, on the
+owner's approval, with the scope above. B5-R1 does not block the commit,
+only the PyPI run.
+
+#### Release readiness (§44.13)
+
+1. All Must-haves (M1–M5) and approved Should-haves (S1–S8) are done.
+2. Neither oracle reports a forged section in any document, for any corpus
+   case.
+3. CI is green on all three systems for `1b60232`; Batch 5 is not yet
+   committed, so not yet run there.
+4. The real VS Code pass in four themes and three widths: done (above).
+5. The release review: no Critical or High finding. B5-1 and B5-2 fixed;
+   B5-R2, F-R3 and F-R4 fixed in the repository; the final pre-commit
+   review's RV-1–RV-3 fixed; **B5-R1 open on GitHub's side, blocking the
+   PyPI run.**
+6. **Pending owner approval:** the version bump to 0.1.5, then items 7–10.
+
+**Batch 5 and the release hardening are implemented, reviewed and validated
+locally, and the commit is ready on the owner's approval (scope above). Not
+staged, not committed, not pushed; nothing bumped, built at 0.1.5, tagged,
+dispatched or published; no GitHub setting changed.**

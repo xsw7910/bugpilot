@@ -3021,16 +3021,38 @@ button.icon .codicon {
   border-color: color-mix(in srgb, var(--vscode-progressBar-background, var(--vscode-focusBorder)) 60%, transparent);
 }
 
+/* Failed (0.1.5, S5): the words keep the status colour every state uses —
+   errorForeground text measured 3.16:1 in Light themes — and the failure is
+   shown by the border, at full strength, and an `error` codicon before the
+   words, both in the colour VS Code gives its own error icon (Problems).
+   errorForeground is only the fallback: as an icon or a border it measured
+   2.68:1 in Light Modern, under the 3:1 non-text bar; the Problems icon's
+   colour measured 3.4:1 or more in every default theme. The glyph is
+   decorative (`/ ""`): the words say what it means, and a screen reader reads
+   only them. */
 .workflow-status.is-failed {
-  color: var(--vscode-errorForeground);
-  border-color: color-mix(in srgb, var(--vscode-errorForeground) 55%, transparent);
+  border-color: var(--vscode-problemsErrorIcon-foreground, var(--vscode-errorForeground));
 }
 
-/* High Contrast: the theme's own border, at full strength, and no fill. */
+.workflow-status.is-failed::before {
+  content: "\ea87" / "";
+  margin-right: 4px;
+  font: normal normal normal 14px/1 codicon;
+  vertical-align: -2px;
+  color: var(--vscode-problemsErrorIcon-foreground, var(--vscode-errorForeground));
+}
+
+/* High Contrast: the theme's own border, at full strength, and no fill —
+   but a failure keeps its error border there too. */
 body.vscode-high-contrast .workflow-status,
 body.vscode-high-contrast-light .workflow-status {
   border-color: var(--vscode-contrastBorder, var(--vscode-foreground));
   background: none;
+}
+
+body.vscode-high-contrast .workflow-status.is-failed,
+body.vscode-high-contrast-light .workflow-status.is-failed {
+  border-color: var(--vscode-problemsErrorIcon-foreground, var(--vscode-errorForeground));
 }
 
 .steps {
