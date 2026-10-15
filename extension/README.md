@@ -76,7 +76,7 @@ For the MCP server as well, use `pipx install "bugpilot[mcp]"` or
 `python -m pip install "bugpilot[mcp]"` instead. Then check it:
 
 ```powershell
-bugpilot --version          # bugpilot 0.1.4
+bugpilot --version          # bugpilot 0.1.5
 ```
 
 **Which CLI runs.** The extension uses the first of these:

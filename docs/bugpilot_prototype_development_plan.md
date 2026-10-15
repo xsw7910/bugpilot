@@ -17994,8 +17994,11 @@ validated locally on `1b60232` (2026-10-14), up to, not including, the
 version bump; not committed (§44.23). The release workflow was then
 hardened the same day (B5-R2 done; the `pypi` approval gate, B5-R1, still
 to be configured on GitHub), and a final pre-commit review found and fixed
-three more issues. The commit awaits the owner's approval. The version bump, the 0.1.5 candidates, the
-commits and every publish wait for the owner's approval.** The plan below is otherwise as written.
+three more issues. Committed as `086a306` and pushed; its CI run passed on all
+nine jobs: **Batch 5 is done** (§44.23). The version is bumped to 0.1.5 in
+the working tree and release candidates are verified locally, not committed
+(§44.24). The bump commit, its CI and every publish wait for the owner's
+approval, and publication also for B5-R1.** The plan below is otherwise as written.
 
 - **Starting point:** released 0.1.4, `a1ce8dd`.
 - **Version:** stays 0.1.4 until the release gates in §44.13 pass.
@@ -23967,3 +23970,433 @@ only the PyPI run.
 locally, and the commit is ready on the owner's approval (scope above). Not
 staged, not committed, not pushed; nothing bumped, built at 0.1.5, tagged,
 dispatched or published; no GitHub setting changed.**
+
+#### Commit, push and CI (2026-10-15) — Batch 5 verified on every platform
+
+**Approved by the owner:** one commit of the 16 reviewed paths, a normal push
+to `main`, and the CI verification. Not approved, and not done: a version
+bump, tags, the Release workflow, PyPI, the Marketplace, any change to
+GitHub's environments, Rulesets or branch protection.
+
+**Before the commit:**
+- On `main`, after `git fetch`, `HEAD`, `origin/main` and GitHub's `main`
+  all read `1b60232`.
+- The working tree held exactly the 11 modified and 5 new paths of the
+  reviewed scope; nothing was staged; `git diff --check` was clean.
+- Versions: `__version__`, `extension/package.json` and its lock file at
+  0.1.4. No dependency manifest changed.
+- §44.22's post-CI records were in the plan.
+- `.bugpilot/verification.md`, `.bugpilot/ai_behavior.md` and
+  `.vscode/extensions.json` were unchanged and untracked; no tags; no active
+  git hook.
+- The release tests and publishability passed again (93), every `uses:` is a
+  full SHA with its tag, `id-token: write` only in the publish job (in
+  `pypi`), none in CI.
+
+**The commit:** `086a306bb6a2b8a936634f4b245a21a381c4db62`, "fix(security):
+pin and guard the release, finish 0.1.5 Batch 5".
+- Parent `1b60232`; author and committer the noreply identity.
+- The message is the one reviewed in *Final pre-commit review*.
+- The 16 paths were staged by name (`git add -- <paths>`, never `-A`), with
+  no unstaged change left in them; the index holds LF.
+- Exactly 16 files: 11 modified (`.github/workflows/ci.yml`,
+  `.github/workflows/release.yml`, `bugpilot/core/context_preview.py`,
+  `docs/architecture.md`, `docs/bugpilot_prototype_development_plan.md`,
+  `docs/development.md`, `docs/safety.md`, `extension/CHANGELOG.md`,
+  `extension/media/panel.css`, `extension/test/effectiveContext.test.ts`,
+  `extension/test/panel.test.ts`) and 5 added
+  (`.github/release-requirements.in`, `.github/release-requirements.txt`,
+  `scripts/release_preflight.py`, `tests/test_release_workflow.py`,
+  `tests/workflow_yaml.py`); 2,932 insertions, 39 deletions.
+- `.bugpilot/` and `.vscode/extensions.json` stayed untracked.
+
+**The push:** after another `git fetch` (GitHub's `main` still `1b60232`, the
+commit a fast-forward of it, no tag local or remote), a normal push:
+`1b60232..086a306  main -> main`. Local `HEAD`, `origin/main` and GitHub's
+`main` read `086a306`; `verify/0.1.5-batch4` still reads `1b60232` and is
+kept.
+
+**CI:** [GitHub Actions run 38751760170](https://github.com/xsw7910/bugpilot/actions/runs/38751760170),
+`push` to `main`, `head_sha` `086a306`, attempt 1, created 14:28:49Z,
+finished 14:45:53Z (2026-10-15). **Conclusion: success.** Every job was read
+on its own (conclusion, every step, annotations); the job logs were not read
+(they need authentication).
+
+| Job (required) | Result | Tests (Batch 4's run 38641590465 → this run) | Python |
+| --- | --- | --- | --- |
+| Safety and baselines (ubuntu-latest, Python 3.13) | success | 1,210 → **1,283 passed**, 21 skipped, 1 deselected | 3.13.16 |
+| Safety and baselines (ubuntu-latest, Python 3.10) | success | 1,210 → **1,283 passed**, 21 skipped, 1 deselected | 3.10.22 |
+| Safety and baselines (macos-latest, Python 3.13) | success | 1,212 → **1,285 passed**, 19 skipped, 1 deselected | 3.13.15 |
+| Safety and baselines (windows-latest, Python 3.13) | success | 1,194 → **1,267 passed**, 37 skipped, 1 deselected | 3.13.15 |
+| Extension evidence boundary (ubuntu-latest) | success | 27 passed, 0 skipped | Node 22 (as configured) |
+| Full Python suite (ubuntu-latest) | success | 3,155 → **3,228 passed**, 27 skipped, 1 deselected | 3.13 |
+| Full Python suite (macos-latest) | success | 3,157 → **3,230 passed**, 25 skipped, 1 deselected | 3.13 |
+| Full Python suite (windows-latest) | success | 3,145 → **3,218 passed**, 37 skipped, 1 deselected | 3.13 |
+| Extension unit tests (ubuntu-latest) | success | 2,341 (2,339 passed, 2 skipped, as before) | Node 22 (as configured) |
+
+- **The release-security module ran everywhere it was meant to:** every
+  safety job and every full suite passed exactly 73 more tests than at
+  `1b60232` — the 73 of `tests/test_release_workflow.py`. Linux and macOS
+  pass 1,283 and 1,285 against Windows' 1,267 because of POSIX-only file
+  tests skipped on Windows, as before.
+- **No new skip:** each job's skip list is identical, line for line, to
+  Batch 4's run, and none names the new module. No step was skipped; every
+  annotation is a notice.
+- **Proven for the first time by real runs:**
+  - Python 3.10 (3.10.22) for the new module and the preflight;
+  - Linux and macOS for the reader, the mutations and the preflight's rules.
+- **Node 22:** the TypeScript security tests (27) and the extension suite
+  pass under Node 22 as configured (`actions/setup-node` with
+  `node-version: "22"`); the version is the workflow's, since the logs were
+  not read.
+- **Still green:**
+  - the UI and accessibility tests (S5's rules in `panel.test.ts`, B5-2's
+    fixture);
+  - N1–N4 and N10–N12 (their modules in the required job);
+  - Batch 4's file safety: on Linux 3.13, Linux 3.10 and macOS the
+    credentials file is born `0o600` and a link is not followed; on Windows
+    the link is refused too;
+  - both prompt-boundary oracles;
+  - the goldens (no unexpected difference);
+  - no runtime dependency added.
+- **No release:** the only workflow run since the push is this CI run; the
+  Release workflow did not run. No tag or release exists.
+- **The guard, on the real commit:** run locally and read-only,
+  `scripts/release_preflight.py` accepts `086a306` from GitHub's real
+  records ("all 9 CI checks green in .github/workflows/ci.yml"). That is
+  evidence that the guard reads CI as designed; it is not a release run.
+- **Notices, informational:**
+  - GitHub warns that `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19. The
+    Release workflow runs on `ubuntu-latest`, so its first real run will
+    probably be on the new image: watch it (the hashed wheels are manylinux,
+    and Python comes from the pinned setup-python).
+  - macOS queues may be longer.
+
+**B5-R1 stays OPEN and blocks any publication.**
+- As read on 2026-10-14 and 2026-10-15, the `pypi` environment has no
+  protection rule, no branch policy, and lets administrators bypass.
+- The `environment: pypi` line in the workflow is not the gate.
+- The settings and their verification are in *Final pre-commit review*.
+
+**Before the first real Release run**, each needing the owner's separate
+approval:
+1. B5-R1 configured on GitHub and verified;
+2. the version bump to 0.1.5, in lockstep (§43.10), and its commit's CI;
+3. release candidates at 0.1.5 reviewed — clean installs and the managed
+   runtime;
+4. publishing explicitly authorized: the PyPI workflow from `main` with the
+   bump commit's SHA, approval in the `pypi` environment, then the final VSIX
+   smoke against live PyPI and the Marketplace.
+
+Passing release-security tests authorize nothing.
+
+**Residual risks** (unchanged by this run; the table above *Release
+readiness* stands):
+- B5-R1 open;
+- branch protection off (Ruleset recommended, not created);
+- the release workflow's GitHub-side behaviour (OIDC, the environment's
+  wait, the API from inside a run, the new runner image) is first exercised
+  at the 0.1.5 release;
+- CI read once before the build (RV-4);
+- the publish image pulled by tag;
+- containment is structural and D1 an instruction;
+- the Windows fallback race and W1's leftover;
+- orphaned scratch files;
+- 0.1.4-era artifacts;
+- six tokens of deduplication headroom.
+
+**Batch 5 is done:** committed (`086a306`), pushed to `main`, and verified by
+CI on Linux (Python 3.13 and 3.10), macOS and Windows, with all nine
+required jobs green. **This post-CI record is not committed.** The 0.1.5
+release-preparation phase (bump, candidates, publication) waits for the
+owner's approval, and publication also for B5-R1.
+
+### 44.24 Release candidate preparation — 0.1.5 (2026-10-15)
+
+**Status: the version is bumped to 0.1.5 in the working tree, and release
+candidates are built and verified locally. Nothing is staged, committed,
+pushed, tagged, dispatched or published; no GitHub setting was changed.
+B5-R1 is still open and blocks publication.**
+
+**Scope and authorization:**
+- **Authorized by the owner:** the bump, the candidates, their verification,
+  and this record.
+- **Not authorized, and not done:** staging, a commit, a push, a tag, a GitHub
+  Release, any workflow dispatch, PyPI, the Marketplace, settings, or deleting
+  `verify/0.1.5-batch4`.
+
+**Starting point:** `main` = `origin/main` = GitHub's `main` =
+`086a306` (Batch 5), with §44.23's post-CI record uncommitted in this plan and
+kept. `.bugpilot/` and `.vscode/extensions.json` are untouched (SHA-256
+prefixes as before).
+
+#### Version changes
+
+As for 0.1.4 (§43.10): the version fields and their documented examples, not a
+blanket replacement.
+
+| File | Change |
+| --- | --- |
+| `bugpilot/__init__.py` | `__version__ = "0.1.5"`, the only Python version source: `pyproject.toml` reads it dynamically, and so do `--version`, `doctor`, the MCP server's `serverInfo` and the Jira User-Agent |
+| `extension/package.json`, `extension/package-lock.json` | `npm version 0.1.5 --no-git-tag-version`: exactly three version fields; no tag, no commit, no dependency change (the manifest has no version hook) |
+| `LICENSE`, `extension/LICENSE.txt` | the Licensed Work: "BugPilot CLI and Tools Version 0.1.5." and "BugPilot for VS Code Version 0.1.5." (the licence tests require each to name its component's version) |
+| `README.md`, `extension/README.md` | the expected `bugpilot --version` output |
+| `docs/architecture.md` | the package version line |
+| `docs/development.md` | the Change Date history: "BugPilot 0.1.4's Change Date is 2030-10-11, and BugPilot 0.1.5 keeps it." |
+| `extension/CHANGELOG.md` | "Unreleased — 0.1.5 candidate" becomes `## 0.1.5 — 2026-10-15` (§44.13). Two bullets were added after review — see *Release notes* |
+
+**Left alone on purpose:**
+- the historical "(0.1.4)" and "since 0.1.4" mentions in code comments and
+  docs;
+- the compatibility statements ("a 0.1.4 CLI", "older than 0.1.4");
+- the changelog's earlier entries, the baselines and the golden fixtures.
+
+No document says 0.1.5 is published.
+
+**The Change Date — an owner decision, flagged:** both licence files keep
+**2030-10-11**.
+- This follows the precedent of 0.1.1–0.1.3, which kept 0.1.0's date.
+- It is valid under BUSL 1.1, which requires a Change Date no later than the
+  fourth anniversary of the version's first public distribution: 2030-10-15 or
+  later for 0.1.5.
+- The alternative is a new date, as 0.1.4 had. That is a legal parameter for
+  the owner, with qualified review if wanted; nothing else depends on it.
+
+#### Build — commands and environment
+
+Built outside the repository, in `C:\temp\bugpilot-015-rc`:
+
+- **Source:** `git -c core.autocrlf=false archive 086a306` with the 11
+  modified paths laid over it as LF — exactly what git would store. All 436
+  tracked files are identical to the working tree, the two binary files byte
+  for byte.
+- **Python:** CPython 3.13.16 (a scratch copy installed by uv) and pip
+  26.2.1.
+  - **Build tools:** installed `--require-hashes --only-binary=:all:` from a
+    Windows companion of `.github/release-requirements.txt`, compiled by uv
+    from the same `release-requirements.in` for `x86_64-pc-windows-msvc`.
+  - **Equivalence:** the 25 packages both platforms need are at the same
+    versions — `build` 1.6.1, `twine` 7.0.0, `setuptools` 84.0.0 among them.
+    The differences are platform-only: `colorama` and `pywin32-ctypes` on
+    Windows; `cffi`, `cryptography`, `jeepney`, `pycparser` and
+    `secretstorage` on Linux.
+- **Commands — the release workflow's own build-job steps,** read from
+  `release.yml` and run with `bash --noprofile --norc -eo pipefail`:
+  - `test ! -e dist; python -m build --no-isolation --sdist --wheel
+    --outdir dist .`;
+  - the exact-version check for 0.1.5;
+  - `python -m twine check --strict dist/*`;
+  - the SHA-256 record.
+
+  The same run checks the publish job's hash comparison against a copy: the
+  same files pass; one changed byte, an extra file and an empty hash list are
+  each refused. 16/16.
+- **VSIX:** in the same tree's `extension/`:
+  - `npm ci`;
+  - `npm run build`;
+  - `node scripts/check-package.mjs` (85 files, 72 built JavaScript, all
+    current);
+  - `vsce package --no-dependencies`;
+  - with Node 24.21.0, npm 11.19.0, @vscode/vsce 3.9.2 and TypeScript 5.9.3.
+- **Not executed:** the PyPI publish action, `vsce publish`, and any
+  workflow.
+
+#### Release candidates
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `bugpilot-0.1.5-py3-none-any.whl` | 340,756 | `6c0904aef87fac5ec9b7207e662fc397425a989d059f47b74e80ac5996bb85e9` |
+| `bugpilot-0.1.5.tar.gz` | 316,362 | `3380f73957040e4a9d508d8835485fa30bf042d802fb460ce339ee66fe4cd377` |
+| `bugpilot-0.1.5.vsix` | 566,819 | `28c7ea31d3a31dc7b775469d4fa7f721f05db9b61c02c85a72b549fac5646fb2` |
+
+These are local candidates. The wheel and sdist PyPI receives are built by
+the release workflow on its own runner, and their hashes will differ (file
+times): the run summary records them. The VSIX for the Marketplace should be
+rebuilt from the release commit, or checked against these hashes.
+
+#### Packaging inspection
+
+**Wheel:**
+- METADATA `Version: 0.1.5`, `License-Expression: BUSL-1.1`,
+  `Requires-Python: >=3.10`.
+- `Requires-Dist` only the three optional extras, as in 0.1.4: no runtime
+  dependency.
+- 66 files, only `bugpilot/` and its dist-info, carrying a LICENSE that reads
+  0.1.5 and 2030-10-11.
+- `WHEEL` reports setuptools 84.0.0 and `py3-none-any`; the entry points are
+  `bugpilot` and `bugpilot-mcp`.
+- Every batch's change is present: D1 at protected-rules version 2,
+  `evidence.py`, the atomic writer's checks, the reworded S7 note.
+
+**sdist:**
+- PKG-INFO 0.1.5, BUSL-1.1.
+- 72 files: no docs, extension, scripts, installer, `.github`, `.bugpilot`,
+  `.vscode` or `.ai`.
+
+**VSIX:**
+- `package.json` and the manifest at 0.1.5.
+- `LICENSE.txt` reads 0.1.5 and 2030-10-11.
+- The changelog opens with `## 0.1.5 — 2026-10-15`.
+- Also present: `THIRD_PARTY_NOTICES.md`, `readme.md`, `bug.svg`,
+  `icon.png`, S5's CSS, `scratchFile.js` and `evidence.js`.
+- 87 files: no tests, sources, `node_modules`, scripts, `.bugpilot`,
+  `.vscode`, `.env` or key files.
+
+**All three:**
+- `twine check --strict` passes for the wheel and the sdist.
+- The sensitive-content scan finds no secret-like token and no work email
+  domain.
+
+**Against the Batch 5 content candidates (0.1.4):** the same members, and only
+version-bearing ones differ.
+- Wheel: `__init__.py`, METADATA, LICENSE and RECORD.
+- sdist: `__init__.py`, the two PKG-INFOs, LICENSE and the README's version
+  line.
+- VSIX: the manifest, `package.json`, `LICENSE.txt`, `readme.md` and the
+  changelog.
+
+All 72 compiled JavaScript files are byte-identical to the Batch 5 VSIX that
+passed the real VS Code pass (§44.23).
+
+#### Clean installation
+
+- **CLI from the wheel, offline, in fresh venvs on CPython 3.13.16 and
+  3.14.6:**
+  - `bugpilot 0.1.5`; `--help` lists every command;
+  - `doctor` reports 0.1.5 and the same five capabilities as 0.1.4;
+  - `protected-rules show` gives version 2 and 21 rules;
+  - `task-preview` gives 15 sections, D1 included;
+  - in a fresh Git repository with an empty home, a hand-written bug prepares
+    the five artifacts with a contained `context.md` (`context_format` 2);
+  - without the `mcp` extra, `bugpilot-mcp` prints its documented
+    install guidance;
+  - `pip uninstall` removes the package and its executables.
+- **The documented release check** (`scripts/check_cli_contract.py
+  --bugpilot <venv>\bugpilot.exe --expect-version 0.1.5`): all 39 command lines
+  the extension sends were accepted.
+- **MCP:** a fresh 3.13 venv with `bugpilot[mcp]==0.1.5` (bugpilot from the
+  candidate files, `mcp` 2.3.0 from PyPI).
+  - `bugpilot-mcp` ran over stdio, importing the installed wheel (checked from
+    a neutral directory).
+  - `initialize` answered `serverInfo` bugpilot 0.1.5, protocol 2025-06-18.
+  - The nine tools' names and input and output schemas, and the `fix_bug`
+    prompt, are identical to released 0.1.4's.
+  - `list_fix_modes` returned the five modes.
+- **VS Code 1.139.1:** a fresh profile, `C:\temp\bugpilot-015-rc-rt`, with no
+  `bugpilot` setting, no CLI on PATH, and pip limited to the candidate files
+  (`PIP_NO_INDEX`, `PIP_FIND_LINKS`) in the window's environment.
+  - **First launch, 18/18:** "BugPilot CLI is required." with **Install
+    BugPilot Runtime** first ("Would install bugpilot 0.1.5"); Diagnostics
+    "Extension 0.1.5"; nothing ran for 50 s.
+  - **Command registration, 3/3:** the 21 commands the manifest puts in the
+    Command Palette are all listed, plus only VS Code's own two "Focus on …
+    View"; **Show Log** runs and opens the BugPilot output.
+  - **Managed runtime, offline, 21/21:**
+    - one `python -I -m venv …\runtime\0.1.5\venv` and one `pip install …
+      --only-binary=:all: bugpilot==0.1.5`, started by the extension host with
+      no shell;
+    - `runtime.json` written after `--version`;
+    - Diagnostics "CLI 0.1.5", "BugPilot runtime Ready · 0.1.5"; the five Fix
+      Modes load;
+    - all 65 hashed files of the wheel's RECORD identical on disk.
+  - **Prepare-only Run, 11/11:** five artifacts, code search passed, no
+    terminal, agent, venv or pip; the source tree untouched.
+  - **Restart, 10/10:** ready on its own; no venv or pip; the managed
+    `bugpilot` the only one run; `runtime.json` and the runtime directory not
+    rewritten.
+  - **Uninstall:** the extension is no longer listed. VS Code keeps the managed
+    runtime in its global storage, as before (Info).
+- **Extension and CLI compatibility:** the installed extension and the managed
+  0.1.5 CLI agree (Diagnostics, Fix Modes, the Run). The 0.1.5 extension with
+  the released 0.1.4 CLI was verified in §44.23 (11/11), and the extension's
+  code is unchanged since.
+
+#### Regression (Windows, the bumped tree)
+
+| Gate | Result |
+| --- | --- |
+| Python full suite (isolated home, no `JIRA_*`) | 3,220 passed, 36 skipped — the same as before the bump |
+| The required safety job's command (21 modules) | 1,268 passed, 36 skipped, 1 deselected — the same |
+| Release-security tests and publishability (licence ties included) | 93 passed |
+| `manifest.test.ts` (the extension's licence tie) | 24 passed |
+| The required TypeScript job's three files | 27 passed |
+| Extension typecheck; unit tests | clean; 2,341 passed |
+| Prompt-boundary corpus and both oracles | 0 / 443 / 1,405 / 39, identical to Batch 3's record and the living expectations |
+| Retrieval | Recall@5 9/9, MRR 0.944; Search Confidence 10/10 on target |
+| Context Quality, Git History, `task.md` measures, goldens | identical to `0.1.5-batch3` (only the record's `base_commit` differs); no golden regenerated |
+| N1–N4, N10–N12, D1, retry, MCP, hint improver, Batch 4 file safety | in the required command above; D1 and the MCP schemas also in the clean installs |
+| `git diff --check` | clean |
+
+Not run again here: Linux, macOS, Python 3.10 and Node 22. They ran for
+`086a306` (§44.23), and the bump changes only version strings — but they run
+again on the bump commit, and the release guard requires that run.
+
+#### Release guard
+
+- **Tested without dispatching anything,** read-only.
+- **On the bumped tree, every missing or mismatched input is refused before
+  CI is read:**
+  - no commit, or a short SHA ("a full 40-character lowercase SHA");
+  - the old version 0.1.4 against the bumped source ("is not
+    bugpilot/__init__.py's (0.1.5)");
+  - a `v`-prefixed version;
+  - no ref;
+  - a commit that is not the checkout.
+- **In a clean clone of `086a306`, as the workflow would check it out:**
+  - **0.1.5 is refused,** because that commit's own source says 0.1.4. A 0.1.5
+    release needs the bump commit, and that commit's own green CI;
+  - 0.1.4 is accepted, since its CI is green — see RC-2.
+- **The unit rules** (`tests/test_release_workflow.py`, 73) pass on the bumped
+  tree. `test_the_source_versions_move_together` now holds 0.1.5 = 0.1.5.
+- **Not done, on purpose:** the guard was not pointed at the bumped,
+  uncommitted tree with an earlier green commit (see RC-1). No release was
+  dispatched.
+
+**Findings:**
+
+| # | Finding | Severity | Disposition |
+| --- | --- | --- | --- |
+| RC-1 | The preflight reads the version from the files on disk and checks `HEAD`, but not that the working tree is clean. In the workflow the tree is a fresh checkout of `GITHUB_SHA`, so this cannot arise. Run locally on an uncommitted tree, the guard is no evidence of anything | Low | Documented. Optional hardening for a later change, with review: refuse when `git status --porcelain` is not empty |
+| RC-2 | The guard accepts a CI-green commit at a version that is already on PyPI (0.1.4 at `086a306`) | Info | PyPI never accepts a version twice, so such a publish fails after approval; the environment's reviewer (B5-R1) is the human check |
+| RC-3 | `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19 (GitHub's CI notice). The release workflow's first run will probably be on the new image | Info | Watch the first run; the hashed wheels are manylinux, and Python comes from the pinned setup-python |
+| RC-4 | The Change Date for 0.1.5 | Owner decision | Kept at 2030-10-11 (above) |
+
+#### B5-R1
+
+**Still OPEN.** Read through GitHub's API at 2026-10-15T16:19Z:
+`protection_rules: []`, `deployment_branch_policy: null`, `can_admins_bypass:
+true`, unchanged since 2026-10-09.
+
+Publication stays blocked until the `pypi` environment is configured and
+independently verified:
+- required reviewer `xsw7910`;
+- *Prevent self-review* off;
+- administrator bypass off;
+- deployment branch `main` only;
+- no secrets.
+
+A green CI run does not replace this gate.
+
+#### Remaining blockers, by severity
+
+1. **Blocks publication:**
+   - B5-R1, configured and verified;
+   - the bump commit — the owner's review, a commit, a push, and its CI
+     green on all nine jobs; the release guard needs that commit's own CI.
+2. **Needs the owner's decision:** the Change Date (RC-4); whether to rebuild
+   the VSIX from the bump commit or check it against the hashes above.
+3. **At publication, each explicitly authorized:**
+   - the PyPI workflow from `main`, with the bump commit's full SHA and 0.1.5;
+   - approval in `pypi`, after checking the run's artifact;
+   - the live-PyPI install check and the final VSIX smoke;
+   - the Marketplace.
+4. **Watch:** the first run on Ubuntu 26 (RC-3).
+
+#### Readiness
+
+**The 0.1.5 release candidates are verified locally and ready for the owner's
+review.** Next: a version-bump commit and its CI, on the owner's approval.
+- Nothing here publishes.
+- 0.1.5 is not released.
+- The changelog's date (2026-10-15) may move to the publication date, as the
+  owner decides.

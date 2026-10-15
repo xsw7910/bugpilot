@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 0.1.5 candidate
+## 0.1.5 — 2026-10-15
 
 - **Evidence is quoted, not taken for instructions.** `context.md` quotes the
   issue's text — the Jira description and comments, a hand-written report, the
@@ -43,7 +43,12 @@
   lines and keywords no longer slow down on pathological text.
 - **"Run failed" reads clearly in Light themes:** the words keep the normal
   status colour, and the failure is marked by an error icon and border.
-- **Docs:** a trust model in the safety notes.
+- **Releases of the CLI** to PyPI are built only from `main`, from a commit
+  whose CI passed, by GitHub Actions pinned to exact commits with build tools
+  pinned by hash, and the files published are checked against the files
+  built.
+- **Docs:** a trust model in the safety notes, including what containment
+  cannot do: an agent still reads the quoted text.
 - **Compatibility.** Nothing new is required of the CLI: a 0.1.4 CLI works
   with this extension, without the earlier-context note. Contexts, tasks and
   retry prompts prepared by 0.1.4 are kept as written until rebuilt.

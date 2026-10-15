@@ -45,7 +45,7 @@ bugpilot --version
 Expected:
 
 ```text
-bugpilot 0.1.4
+bugpilot 0.1.5
 ```
 
 The MCP server needs the optional MCP SDK: `pipx install "bugpilot[mcp]"`, or `python -m pip install "bugpilot[mcp]"`.
