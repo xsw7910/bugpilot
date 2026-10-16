@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+import _isolation
+
 REPO = Path(__file__).resolve().parents[1]
 EXPECTED_TOOLS = {
     "list_fix_modes",
@@ -44,7 +46,8 @@ class Client:
         self.process = subprocess.Popen(
             [sys.executable, "-m", "bugpilot.mcp_server"],
             cwd=cwd,
-            env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONIOENCODING": "utf-8"},
+            # The sources after the isolation guard's loader, never in place of it (plan §14.1.A).
+            env={**os.environ, "PYTHONPATH": _isolation.child_pythonpath(REPO), "PYTHONIOENCODING": "utf-8"},
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

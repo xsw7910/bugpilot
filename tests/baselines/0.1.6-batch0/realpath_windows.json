@@ -1,0 +1,11 @@
+{
+ "platform": "win32",
+ "separators_and_dots": true,
+ "trailing_separator": true,
+ "forward_slashes": true,
+ "case_variant_resolves_to_stored_case": true,
+ "strict_missing_raises": true,
+ "symlink_resolves_to_target": true,
+ "junction_resolves_to_target": true,
+ "subst_drive": "not observed: needs a drive letter; CI only by owner decision"
+}

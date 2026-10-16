@@ -8,6 +8,7 @@ import pathlib
 
 import pytest
 
+import _isolation
 from bugpilot.cli import main
 from bugpilot.cli_json import SCHEMA_VERSION, failure, success
 from bugpilot.core import errors
@@ -132,7 +133,9 @@ def test_module_entry_points_both_work(tmp_path):
             cwd=tmp_path,
             capture_output=True,
             text=True,
-            env={**os.environ, "PYTHONPATH": str(root)},
+            # The sources, after the isolation guard's loader (plan §14.1.A): replacing
+            # PYTHONPATH outright would start this child unguarded, which the guard refuses.
+            env={**os.environ, "PYTHONPATH": _isolation.child_pythonpath(root)},
         )
         assert completed.returncode == 0, completed.stderr
         assert json.loads(completed.stdout)["command"] == "doctor", module

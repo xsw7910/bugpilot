@@ -1,0 +1,243 @@
+{
+ "describes": "BugPilot 0.1.5 (version in the tree) in a synthetic git repository with no .gitignore",
+ "expected_for_0_1_5": "repository-local BugPilot folders are created; Batch 2 flips this to none",
+ "bugpilot_folders_in_repository": [
+  ".ai",
+  ".ai_memory",
+  ".bugpilot"
+ ],
+ "user_configuration_written": [
+  "instructions.md"
+ ],
+ "steps": [
+  {
+   "step": "prepare a Jira item (mock data)",
+   "command": "bugpilot bug JR-12345 --allow-mock --json",
+   "exit": 0,
+   "created": [
+    ".ai",
+    ".ai/JR-12345",
+    ".ai/JR-12345/context.md",
+    ".ai/JR-12345/issue.json",
+    ".ai/JR-12345/retrieval.json",
+    ".ai/JR-12345/run.json",
+    ".ai/JR-12345/task.md",
+    ".ai_memory",
+    ".ai_memory/bugs",
+    ".ai_memory/bugs/JR-12345.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "prepare a hand-written bug",
+   "command": "bugpilot bug --description=Saving a record crashes with a KeyError in src/record.py --title Save crash --json",
+   "exit": 0,
+   "created": [
+    ".ai/local_<timestamp>",
+    ".ai/local_<timestamp>/context.md",
+    ".ai/local_<timestamp>/issue.json",
+    ".ai/local_<timestamp>/retrieval.json",
+    ".ai/local_<timestamp>/run.json",
+    ".ai/local_<timestamp>/task.md",
+    ".ai_memory/bugs/local_<timestamp>.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "retry (feedback template and retry prompt)",
+   "command": "bugpilot bug JR-12345 --retry --json",
+   "exit": 0,
+   "created": [
+    ".ai/JR-12345/agent_retry_prompt.md",
+    ".ai/JR-12345/user_feedback.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "manual-result (fix report template)",
+   "command": "bugpilot manual-result JR-12345",
+   "exit": 0,
+   "created": [
+    ".ai/JR-12345/fix_report.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "record-review",
+   "command": "bugpilot record-review JR-12345 --from-file <input>/review.json --json",
+   "exit": 0,
+   "created": [
+    ".ai/JR-12345/review_report.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "record-verification",
+   "command": "bugpilot record-verification JR-12345 --from-file <input>/checks.json --json",
+   "exit": 0,
+   "created": [
+    ".ai/JR-12345/verification_report.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "jira-comment-draft",
+   "command": "bugpilot jira-comment-draft JR-12345",
+   "exit": 0,
+   "created": [
+    ".ai/JR-12345/jira_comment_draft.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "notify (preview only)",
+   "command": "bugpilot notify JR-12345",
+   "exit": 0,
+   "created": [
+    ".ai/JR-12345/email_draft.md",
+    ".ai/JR-12345/notification.eml"
+   ],
+   "removed": []
+  },
+  {
+   "step": "project instructions set",
+   "command": "bugpilot instructions set --scope project --from-file <input>/project.md --json",
+   "exit": 0,
+   "created": [
+    ".bugpilot",
+    ".bugpilot/instructions.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "verification policy set",
+   "command": "bugpilot verification set --from-file <input>/verification.md --json",
+   "exit": 0,
+   "created": [
+    ".bugpilot/verification.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "ai-behavior set",
+   "command": "bugpilot ai-behavior set --from-file <input>/behavior.md --json",
+   "exit": 0,
+   "created": [
+    ".bugpilot/ai_behavior.md"
+   ],
+   "removed": []
+  },
+  {
+   "step": "project-settings set",
+   "command": "bugpilot project-settings set --from-file <input>/settings.json --json",
+   "exit": 0,
+   "created": [
+    ".bugpilot/project_settings.json"
+   ],
+   "removed": []
+  },
+  {
+   "step": "repository-profile set",
+   "command": "bugpilot repository-profile set --mode generic",
+   "exit": 0,
+   "created": [
+    ".bugpilot/repository_profile.json"
+   ],
+   "removed": []
+  },
+  {
+   "step": "project fix mode",
+   "command": "bugpilot fix-mode duplicate standard team-fix --scope project --json",
+   "exit": 0,
+   "created": [
+    ".bugpilot/fix_modes",
+    ".bugpilot/fix_modes/team-fix.json"
+   ],
+   "removed": []
+  },
+  {
+   "step": "user instructions set (configuration folder)",
+   "command": "bugpilot instructions set --scope user --from-file <input>/user.md --json",
+   "exit": 0,
+   "created": [],
+   "removed": []
+  },
+  {
+   "step": "doctor (read-only)",
+   "command": "bugpilot doctor --json",
+   "exit": 0,
+   "created": [],
+   "removed": []
+  },
+  {
+   "step": "list (read-only)",
+   "command": "bugpilot list --json",
+   "exit": 0,
+   "created": [],
+   "removed": []
+  },
+  {
+   "step": "status (read-only)",
+   "command": "bugpilot status JR-12345 --json",
+   "exit": 0,
+   "created": [],
+   "removed": []
+  },
+  {
+   "step": "check-results (read-only)",
+   "command": "bugpilot check-results JR-12345 --json",
+   "exit": 0,
+   "created": [],
+   "removed": []
+  },
+  {
+   "step": "task-preview (read-only)",
+   "command": "bugpilot task-preview JR-12345 --json",
+   "exit": 0,
+   "created": [],
+   "removed": []
+  },
+  {
+   "step": "context-preview (read-only)",
+   "command": "bugpilot context-preview JR-12345 --json",
+   "exit": 0,
+   "created": [],
+   "removed": []
+  },
+  {
+   "step": "review-package (read-only)",
+   "command": "bugpilot review-package JR-12345 --json",
+   "exit": 0,
+   "created": [],
+   "removed": []
+  }
+ ],
+ "git_status": [
+  "?? .ai/JR-12345/agent_retry_prompt.md",
+  "?? .ai/JR-12345/context.md",
+  "?? .ai/JR-12345/email_draft.md",
+  "?? .ai/JR-12345/fix_report.md",
+  "?? .ai/JR-12345/issue.json",
+  "?? .ai/JR-12345/jira_comment_draft.md",
+  "?? .ai/JR-12345/notification.eml",
+  "?? .ai/JR-12345/retrieval.json",
+  "?? .ai/JR-12345/review_report.md",
+  "?? .ai/JR-12345/run.json",
+  "?? .ai/JR-12345/task.md",
+  "?? .ai/JR-12345/user_feedback.md",
+  "?? .ai/JR-12345/verification_report.md",
+  "?? .ai/local_<timestamp>/context.md",
+  "?? .ai/local_<timestamp>/issue.json",
+  "?? .ai/local_<timestamp>/retrieval.json",
+  "?? .ai/local_<timestamp>/run.json",
+  "?? .ai/local_<timestamp>/task.md",
+  "?? .ai_memory/bugs/JR-12345.md",
+  "?? .ai_memory/bugs/local_<timestamp>.md",
+  "?? .bugpilot/ai_behavior.md",
+  "?? .bugpilot/fix_modes/team-fix.json",
+  "?? .bugpilot/instructions.md",
+  "?? .bugpilot/project_settings.json",
+  "?? .bugpilot/repository_profile.json",
+  "?? .bugpilot/verification.md"
+ ]
+}

@@ -276,10 +276,17 @@ def _median_seconds(action: Callable[[], object], runs: int) -> float:
 
 
 def measure_performance(preparation_runs: int = 5) -> dict[str, object]:
-    """Render and preparation timings of 0.1.4 today, with the sizes the 5% growth goal is measured on."""
+    """Render and preparation timings of 0.1.4 today, with the sizes the 5% growth goal is measured on.
+
+    The preparations run `workflow.run_investigation`, which reads the user
+    configuration: refused outside the test isolation (plan §11.1).
+    """
     import shutil
 
+    import _isolation
     from bugpilot.core import workflow
+
+    _isolation.require_isolated()
     from bugpilot.core.input_adapters import bug_spec_from_description
     from bugpilot.core.models import InvestigationOptions, InvestigationRequest
 
@@ -432,6 +439,9 @@ def build_record(results: dict[str, dict[str, dict[str, Observation]]], performa
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    import _isolation
+
+    _isolation.isolate_session()
     parser = argparse.ArgumentParser(description="The prompt-boundary matrix: every corpus case in every source.")
     parser.add_argument("--update", action="store_true", help="Rewrite the living expectations from today's behaviour.")
     parser.add_argument("--write", metavar="DIR", default=None, help="Record the matrix and timings in DIR.")

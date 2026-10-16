@@ -1,0 +1,96 @@
+{
+ "ai-behavior show --json path fields": {
+  "path": ".bugpilot/ai_behavior.md"
+ },
+ "bug --json": {
+  "agent_task": ".ai/JR-23456/task.md",
+  "generated_files": [
+   ".ai/JR-23456/context.md",
+   ".ai/JR-23456/issue.json",
+   ".ai/JR-23456/retrieval.json",
+   ".ai/JR-23456/run.json",
+   ".ai/JR-23456/task.md",
+   ".ai_memory/bugs/JR-23456.md"
+  ],
+  "issue_dir": ".ai/JR-23456"
+ },
+ "bug --json-lines artifact events": [
+  ".ai/JR-34567/context.md",
+  ".ai/JR-34567/issue.json",
+  ".ai/JR-34567/retrieval.json",
+  ".ai/JR-34567/run.json",
+  ".ai/JR-34567/task.md",
+  ".ai_memory/bugs/JR-34567.md"
+ ],
+ "bug --retry --json": {
+  "feedback_file": ".ai/JR-23456/user_feedback.md",
+  "retry_prompt": ".ai/JR-23456/agent_retry_prompt.md"
+ },
+ "check-results --json (no report)": {
+  "missing": [
+   ".ai/JR-23456/fix_report.md"
+  ],
+  "warnings": [
+   "missing .ai/JR-23456/fix_report.md"
+  ]
+ },
+ "doctor --json": {
+  "ai_artifacts_ignored": false,
+  "ai_artifacts_ignored_paths": {
+   ".ai": false,
+   ".ai_memory": false
+  },
+  "capabilities": [
+   "ai-behavior-text",
+   "context-preview",
+   "protected-rules",
+   "task-preview",
+   "verification-text"
+  ]
+ },
+ "fetch --json": {
+  "generated_files": null,
+  "issue_dir": ".ai/JR-45678"
+ },
+ "instructions show --json path fields": {
+  "project": ".bugpilot/instructions.md",
+  "user": "BUGPILOT_CONFIG_DIR/instructions.md"
+ },
+ "list --json item keys": [
+  "prepared",
+  "source",
+  "title",
+  "work_item_id"
+ ],
+ "project-settings show --json path fields": {
+  "path": ".bugpilot/project_settings.json"
+ },
+ "record-review --json": {
+  "review_report": ".ai/JR-23456/review_report.md"
+ },
+ "record-verification --json": {
+  "verification_report": ".ai/JR-23456/verification_report.md"
+ },
+ "repository-profile show --json path fields": {
+  "path": ".bugpilot/repository_profile.json"
+ },
+ "status --json": {
+  "generated_files": [
+   ".ai/JR-23456/agent_retry_prompt.md",
+   ".ai/JR-23456/context.md",
+   ".ai/JR-23456/fix_report.md",
+   ".ai/JR-23456/issue.json",
+   ".ai/JR-23456/retrieval.json",
+   ".ai/JR-23456/run.json",
+   ".ai/JR-23456/task.md",
+   ".ai/JR-23456/user_feedback.md",
+   ".ai_memory/bugs/JR-23456.md"
+  ]
+ },
+ "summarize-results --json": {
+  "fix_report": ".ai/JR-23456/fix_report.md"
+ },
+ "verification show --json path fields": {
+  "path": ".bugpilot/verification.md"
+ }
+}

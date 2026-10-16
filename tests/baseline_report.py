@@ -360,6 +360,10 @@ def _on_target(section: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    import _isolation
+
+    # It renders the task goldens and runs retrieval: inside the test isolation (plan §11.1).
+    _isolation.isolate_session()
     parser = argparse.ArgumentParser(description="Measure task.md and retrieval, and record or compare the numbers.")
     parser.add_argument("--write", metavar="DIR", default=None, help="Write a new record to DIR (never over an existing one).")
     parser.add_argument("--title", default="Measurement record", help="The report's title, with --write.")

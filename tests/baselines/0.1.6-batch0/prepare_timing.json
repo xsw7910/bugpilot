@@ -1,0 +1,14 @@
+{
+ "describes": "python -m bugpilot bug JR-12345 --allow-mock --json, a fresh synthetic repository each run, interpreter start included; never compared (machine-dependent)",
+ "runs": 5,
+ "median_ms": 3079.2,
+ "all_ms": [
+  3096.1,
+  3044.7,
+  3079.2,
+  3102.2,
+  3075.3
+ ],
+ "platform": "Windows",
+ "python": "3.14.6"
+}

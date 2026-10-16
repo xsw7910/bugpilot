@@ -35,6 +35,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+import _isolation
 from bugpilot.core.ai_behavior import resolve_ai_behavior
 from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.fix_modes import INVESTIGATE_FIRST_FIX, STANDARD_FIX, FixMode
@@ -175,8 +176,10 @@ def _resolved_inputs(
     """The Repository Profile, instructions and settings, read from a fresh synthetic repository.
 
     The user configuration directory is a fresh empty one for the duration, so
-    the developer's own `~/.bugpilot` never reaches a golden file.
+    the developer's own `~/.bugpilot` never reaches a golden file. Since 0.1.6
+    Batch 0A it also refuses to run outside the test isolation (plan §11.1).
     """
+    _isolation.require_isolated()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory) / "repo"
         config = Path(directory) / "config"
@@ -372,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     """`python tests/task_golden.py [--update]`: show the matrix's numbers, or rewrite the golden files."""
     import argparse
 
+    _isolation.isolate_session()
     parser = argparse.ArgumentParser(description="The task.md golden matrix.")
     parser.add_argument("--update", action="store_true", help="Rewrite every golden file from today's generate_task.")
     args = parser.parse_args(argv)

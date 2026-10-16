@@ -31,6 +31,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+import _isolation
 import prompt_boundary_corpus as corpus
 import prompt_boundary_sources as sources
 from bugpilot.core.fix_modes import INVESTIGATE_FIRST_FIX
@@ -77,7 +78,13 @@ RETRY_CASES: dict[str, Build] = {
 
 
 def render_all() -> dict[Path, str]:
-    """Every golden file's path and today's text."""
+    """Every golden file's path and today's text.
+
+    Called at collection time by `test_prompt_boundary_golden.py`; the test
+    isolation is already in place then (`tests/conftest.py`, plan §11.1), and
+    this refuses to run without it.
+    """
+    _isolation.require_isolated()
     with tempfile.TemporaryDirectory() as directory:
         workspace = sources.Workspace(Path(directory))
         texts = {CONTEXT_DIR / f"{name}.txt": build(workspace) for name, build in CONTEXT_CASES.items()}
@@ -92,6 +99,7 @@ def read_golden(path: Path) -> str:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    _isolation.isolate_session()
     parser = argparse.ArgumentParser(description="The context.md and retry prompt goldens.")
     parser.add_argument("--update", action="store_true", help="Rewrite every golden file from today's renderers.")
     args = parser.parse_args(argv)

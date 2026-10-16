@@ -1,0 +1,112 @@
+{
+ "describes": "tests/golden/task/*.txt as committed (0.1.5); approx_tokens = round(chars / 4)",
+ "baseline_0_1_3_median_approx_tokens": 3870.0,
+ "ceiling_approx_tokens": 3096,
+ "median_approx_tokens": 3090,
+ "normalized_median_approx_tokens": 3090,
+ "normalized_note": "0.1.5 tasks name no absolute work folder, so the normalized measure (US-D30) equals the raw one",
+ "cases": {
+  "jira-fix-current": {
+   "chars": 11657,
+   "approx_tokens": 2914,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-current-jira-comment": {
+   "chars": 12362,
+   "approx_tokens": 3090,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-per-issue": {
+   "chars": 11883,
+   "approx_tokens": 2971,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-ask": {
+   "chars": 11889,
+   "approx_tokens": 2972,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-current-attachments-hint": {
+   "chars": 12787,
+   "approx_tokens": 3197,
+   "ai_path_mentions": 7,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-current-configured": {
+   "chars": 12363,
+   "approx_tokens": 3091,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-current-verification-file": {
+   "chars": 11975,
+   "approx_tokens": 2994,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-investigation-current": {
+   "chars": 12305,
+   "approx_tokens": 3076,
+   "ai_path_mentions": 6,
+   "absolute_path_mentions": 0
+  },
+  "jira-investigation-current-jira-comment": {
+   "chars": 12955,
+   "approx_tokens": 3239,
+   "ai_path_mentions": 6,
+   "absolute_path_mentions": 0
+  },
+  "jira-investigation-per-issue": {
+   "chars": 12531,
+   "approx_tokens": 3133,
+   "ai_path_mentions": 6,
+   "absolute_path_mentions": 0
+  },
+  "manual-fix-current": {
+   "chars": 11736,
+   "approx_tokens": 2934,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "manual-fix-ask-attachments": {
+   "chars": 12546,
+   "approx_tokens": 3136,
+   "ai_path_mentions": 6,
+   "absolute_path_mentions": 0
+  },
+  "manual-investigation-current": {
+   "chars": 12396,
+   "approx_tokens": 3099,
+   "ai_path_mentions": 6,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-current-ai-behavior": {
+   "chars": 12023,
+   "approx_tokens": 3006,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-current-configured-ai-behavior": {
+   "chars": 12729,
+   "approx_tokens": 3182,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-fix-current-verification-file-ai-behavior": {
+   "chars": 11697,
+   "approx_tokens": 2924,
+   "ai_path_mentions": 5,
+   "absolute_path_mentions": 0
+  },
+  "jira-investigation-current-ai-behavior": {
+   "chars": 12671,
+   "approx_tokens": 3168,
+   "ai_path_mentions": 6,
+   "absolute_path_mentions": 0
+  }
+ }
+}

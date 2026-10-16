@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import _isolation
 from bugpilot.core.ai_behavior import render_document as render_ai_behavior
 from bugpilot.core.ai_behavior import resolve_ai_behavior
 from bugpilot.core.context import build_context
@@ -101,9 +102,15 @@ _FEEDBACK = "# User Feedback: JR-12345\n\n## Required Next Attempt\n\nKeep the c
 
 
 class Workspace:
-    """A synthetic repository and user configuration, and the product's renderers over them."""
+    """A synthetic repository and user configuration, and the product's renderers over them.
+
+    Every renderer runs inside `configured()`, and the workspace refuses to
+    exist outside the test isolation (plan §11.1): module-scoped fixtures build
+    it before any per-test fixture runs.
+    """
 
     def __init__(self, base: Path) -> None:
+        _isolation.require_isolated()
         self.root = base / "repo"
         self.config = base / "config"
         self.config.mkdir(parents=True, exist_ok=True)
@@ -196,7 +203,8 @@ class Workspace:
             self.root / ".ai_memory" / "bugs" / "JR-11111.md",
             f"# JR-11111: {heading}\n\nFixed in src/export/format_selector.py: the format was reset.\n",
         )
-        _matched, report, _results = search_memory(self.root, "export format", terms=["export", "format"])
+        with self.configured():
+            _matched, report, _results = search_memory(self.root, "export format", terms=["export", "format"])
         return report
 
     # --- the retry prompt ---------------------------------------------------------------------
@@ -207,7 +215,10 @@ class Workspace:
         target = self.root / ".ai" / ISSUE_KEY
         self._write(target / "user_feedback.md", feedback)
         self._write(target / "fix_report.md", report)
-        return _build_retry_prompt(self.root, ISSUE_KEY, fix_mode=fix_mode)
+        # Inside the workspace's configuration: the builder resolves Fix Modes,
+        # which reads the user configuration folder (plan §11.1).
+        with self.configured():
+            return _build_retry_prompt(self.root, ISSUE_KEY, fix_mode=fix_mode)
 
 
 def jira_issue(**fields: object) -> IssueArtifact:

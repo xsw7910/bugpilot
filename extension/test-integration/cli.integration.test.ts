@@ -53,9 +53,17 @@ import { aiBehaviorFingerprint, readsAiBehaviorText, runAiBehaviorPolicy } from 
 import { readsProtectedRules, runProtectedRules } from "../src/app/protectedRules.ts";
 import { readsTaskPreview, runTaskPreview, taskBlocks } from "../src/app/effectiveTask.ts";
 import { readsContextPreview, runContextPreview } from "../src/app/effectiveContext.ts";
+import { isolateIntegrationSuite } from "./isolation.ts";
 
 /** The repository under development, not whatever happens to be installed. */
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
+
+/**
+ * First, before any test runs: this process and every child it starts get a
+ * disposable home and no Jira or mail variables, and every Python child gets
+ * the isolation guard (0.1.6 Batch 0A, plan §11.1; `isolation.ts`).
+ */
+const ISOLATION = isolateIntegrationSuite(REPO_ROOT);
 
 /**
  * How to run the sources: `python -m bugpilot`.
@@ -68,12 +76,14 @@ const PYTHON = process.platform === "win32" ? "python" : "python3";
 const MODULE = ["-m", "bugpilot"];
 
 const ENVIRONMENT = {
-  PYTHONPATH: REPO_ROOT,
+  // The isolation guard first, then the sources.
+  PYTHONPATH: ISOLATION.pythonPath,
   PYTHONIOENCODING: "utf-8",
 } as const;
 
+/** Every CLI child goes through the isolation's spawn, which refuses an unisolated one before it starts. */
 function runner(): Runner {
-  return new Runner(PYTHON);
+  return new Runner(PYTHON, ISOLATION.spawn);
 }
 
 /** A throwaway git repository with something to find in it. */
@@ -348,7 +358,7 @@ test("the Fix Mode a form carries reaches issue.json and task.md, for a built-in
   // A project custom mode, created the way Duplicate & Customize creates one.
   execFileSync(PYTHON, [...MODULE, "fix-mode", "duplicate", "conservative", "team-safe", "--scope", "project"], {
     cwd: root,
-    env: { ...process.env, ...ENVIRONMENT },
+    env: ISOLATION.checkedEnv({ ...process.env, ...ENVIRONMENT }, PYTHON, MODULE),
     stdio: "ignore",
   });
 
@@ -595,7 +605,17 @@ test("whatever bugpilot is on PATH is classified, not misread", async () => {
   // assertion is deliberately about the *classification*, not about which
   // install happens to be first: what must never happen is calling a real
   // install "not found", which sends the developer to install a second one.
-  const verdict = await discoverExecutable({ cwd: repository(), timeoutMs: 120_000 });
+  //
+  // Started through the isolation's spawn like every other CLI child (0.1.6
+  // plan §14.1.A). An installed bugpilot is a console script, not `python`, so
+  // the spawn judges it by its environment: the isolated home, no Jira or mail
+  // variables, the guard's loader inherited on PYTHONPATH.
+  const started: string[] = [];
+  const spawn: typeof ISOLATION.spawn = (command, args, options) => {
+    started.push(path.basename(command));
+    return ISOLATION.spawn(command, args, options);
+  };
+  const verdict = await discoverExecutable({ cwd: repository(), timeoutMs: 120_000, spawn });
   console.log(`      PATH bugpilot -> ${verdict.kind}`);
   if (verdict.kind === "not-found") {
     assert.match(
@@ -609,6 +629,7 @@ test("whatever bugpilot is on PATH is classified, not misread", async () => {
     ["ready", "incompatible", "unhealthy", "unresponsive"].includes(verdict.kind),
     verdict.kind,
   );
+  assert.ok(started.length > 0, "the PATH bugpilot must start through the isolation's spawn");
 });
 
 // --- Reset Session's Delete generated files (§37.103) ---------------------------
@@ -1041,4 +1062,13 @@ test("AI Behavior's Edit path through the real CLI: the template adds nothing, s
   assert.equal(aiBehaviorFingerprint(created.snapshot), aiBehaviorFingerprint(before.snapshot), "creating the empty file was a change");
   const reset = await runAiBehaviorPolicy(run, { kind: "reset" });
   assert.equal(reset.kind === "loaded" && reset.snapshot.fileExists, false);
+});
+
+// --- the isolation itself ----------------------------------------------------
+
+test("no Python child of this suite reached for the developer's real BugPilot data", () => {
+  // Runs last (node:test runs a file's top-level tests in order). The guard
+  // refuses before any read or write; this makes a refusal that a CLI
+  // swallowed visible as a failure, not a quiet pass.
+  assert.deepEqual(ISOLATION.violations(), []);
 });

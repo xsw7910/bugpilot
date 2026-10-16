@@ -1,0 +1,3138 @@
+# BugPilot 0.1.6 — Unified External Storage
+
+Canonical development plan for BugPilot 0.1.6. It is the authoritative plan
+for the 0.1.6 implementation, and every 0.1.6 implementation prompt must cite
+it. `docs/bugpilot_prototype_development_plan.md` remains the record of
+everything up to and including 0.1.5. Its §45 points here, and none of its
+records are superseded or rewritten.
+
+| | |
+| --- | --- |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED only US-D32 and US-D33, for Batch 0A's scope. **Batch 0A's final local verification is complete.** Its review findings (H-1, M-1, M-2, N-1, L-1, L-2, L-3, L-8) are remediated and re-verified locally. On 2026-10-16 the owner approved committing and pushing it to `main`, with one CI run. **CI verification is PENDING** (§14.1.A, §18, §19). Batch 0B, Batch 1 and every later batch have **NOT STARTED**. |
+| **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
+| **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
+| **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
+| **Nature** | An intentional breaking change of where BugPilot keeps its data. No migration and no legacy fallback (R4). |
+| **Maintenance** | Updated after every batch: the batch status table (§14.0), the decision log (§16.1), the progress log (§18) and the commit/CI log (§19). |
+
+Status labels used throughout:
+
+- **APPROVED**: a fixed requirement or an owner decision.
+- **PROPOSED**: this plan's recommendation; it needs owner approval before the batch that depends on it.
+- **OPEN**: a real choice with alternatives; the owner decides.
+- **DEFERRED**: out of 0.1.6, recorded so that it is not lost.
+
+Nothing marked PROPOSED or OPEN is a decision yet.
+
+A **review recommendation** (§16.1, since r2) is the architecture review's technical advice: *Accept*, *Accept conditionally*, *Keep open* or *Defer*. It is not an owner decision. An entry becomes APPROVED only when the owner says so explicitly, and §16.1 records the date.
+
+---
+
+## 1. Executive summary
+
+BugPilot keeps its data in four places today:
+
+- `<repo>/.ai/<work-item>/`: the work-item package.
+- `<repo>/.ai_memory/bugs/`: similar-fix memory.
+- `<repo>/.bugpilot/`: repository settings, Fix Modes and the Repository Profile.
+- `~/.bugpilot/`: credentials, User Instructions and user Fix Modes. `BUGPILOT_CONFIG_DIR` can relocate it.
+
+The repository-local paths are not configuration that a few modules read:
+
+- **Python:** 226 path-literal lines in 39 production modules.
+- **TypeScript:** 17 code lines in the extension compute `.ai` paths themselves, and 19 lines name `.bugpilot` files.
+- **Agent-facing text:** the paths are part of the agent contract. That covers:
+  - the one-line handoff;
+  - five protected `task.md` sections;
+  - the retry prompt;
+  - the review prompt;
+  - the MCP tool results;
+  - the Claude Code skill.
+- **Tests:** about 720 test lines in 55 Python test files pin them, plus 31 golden files and the cross-language handoff tests.
+
+**What 0.1.6 does.** Every BugPilot-owned persistent file moves under one user-level root:
+
+```text
+~/.bugpilot/
+├── config/                       global configuration (credentials, User Instructions, user Fix Modes)
+└── repositories/<repository-id>/ one namespace per repository
+    ├── repository.json           the identity record
+    ├── settings/                 what <repo>/.bugpilot/ held
+    ├── work/<work-item-id>/      what <repo>/.ai/<work-item-id>/ held
+    └── memory/                   what <repo>/.ai_memory/bugs/ held
+```
+
+- **No reads from the old locations.** 0.1.6 never reads or writes `<repo>/.ai/`, `<repo>/.ai_memory/` or `<repo>/.bugpilot/`.
+- **No migration.** It never imports, copies, renames or deletes anything from those folders, or from the 0.1.5 files in `~/.bugpilot/`.
+- **The repository stays clean.** It is the agent's working directory, and BugPilot writes nothing into it.
+
+**The three hard parts:**
+
+1. **Agent handoff (§9).**
+   - **Current state.** Agents read `task.md`, `context.md`, `retrieval.json` and the attachments, and write `fix_report.md`, through repository-relative paths.
+   - **What changes outside the repository:**
+     - Claude Code asks before reading or writing there.
+     - Copilot CLI asks too.
+     - Codex reads freely but needs approval to write.
+     - The extension's shell-safety gate refuses absolute paths that contain a backslash, `~` or non-ASCII letters.
+   - **Provisional recommendation** (US-D10 stays OPEN until the Batch 0B probes and §9.10's acceptance):
+     - the absolute work-folder path in the prompt and in `task.md`, with each agent's own permission prompts left as they are;
+     - the existing copy-to-clipboard paths as the fallback;
+     - a narrow `--add-dir` grant only as an explicit opt-in, deferred for now.
+2. **Repository identity (§7).** The ID is `<slug>-<16 hex of SHA-256>`, computed over the canonical real path of the directory BugPilot runs in. It resolves symlinks and junctions (and is expected to resolve `subst`, NOT VERIFIED: §7.3), and folds case on Windows only. The rule is "prefer split over merge": an unusual spelling may open a second namespace, but two repositories never share one. A `repository.json` record detects the impossible-in-practice hash collision and refuses it.
+3. **Team-shared settings (US-D9).** Project Instructions, the Verification Policy, AI Behavior, the Repository Profile, branch naming and project Fix Modes were designed to be committed with the code. R4 forbids reading `<repo>/.bugpilot/`, so in 0.1.6 they become per-user, per-repository settings. This is the largest product consequence of the change, and the owner must accept it explicitly.
+
+**Plan shape (§14).** Six batches, with Batch 0 in two separately authorized scopes:
+
+| Batch | Content |
+| --- | --- |
+| 0A | test isolation with a fail-closed guard, inventory ratchet, synthetic baselines; no agent accounts |
+| 0B | live agent capability probes, separately owner-authorized; outcomes PASS, FAIL or UNKNOWN |
+| 1 | storage foundation |
+| 2 | the Python switch: CLI, MCP, prompts |
+| 3 | extension and handoff |
+| 4 | security and cross-platform validation |
+| 5 | UX, docs, packaging, readiness |
+
+- **Where each batch lands (§15):**
+  - Batches 0A and 1 are test-only or additive, and can land on `main`.
+  - Batches 2–4 change shared CLI/extension contracts. They stay on `verify/0.1.6-storage` until integration is complete (§15.4), and reach `main` only by an owner-approved fast-forward after all nine CI checks are green.
+
+**Readiness.** The plan is ready for owner decisions.
+
+- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15). 33 still await the owner: 14 OPEN and 19 PROPOSED. 4 items are DEFERRED.
+- **The 2026-10-15 architecture review recommends:**
+
+  | Recommendation | Count | Decisions |
+  | --- | ---: | --- |
+  | Accept | 28 | |
+  | Accept conditionally | 2 | US-D5, US-D26 |
+  | Keep open | 3 | US-D10, US-D14, US-D28 |
+  | Defer | 2 | US-D11, US-D20 |
+
+  None of these is an approval.
+- **Batch 0A** can be authorized on its own; it needs US-D32 and US-D33.
+- **Batch 2,** the storage-changing batch, cannot begin until:
+  - US-D10 and US-D28 are decided, from Batch 0B evidence;
+  - US-D14 is decided (§16.4);
+  - the §8.10 contract is approved.
+
+The seven with the widest product consequences are:
+
+| Decision | Topic |
+| --- | --- |
+| US-D2 | global config location |
+| US-D3 | the data-root variable |
+| US-D4 | what "the repository root" is |
+| US-D9 | team settings |
+| US-D10 | handoff |
+| US-D13 | `task.md` path text |
+| US-D14 | the protected staging rule |
+
+---
+
+## 2. Approved requirements
+
+These are the owner's fixed requirements. Every one is **APPROVED**.
+
+| Id | Requirement | Plan sections |
+| --- | --- | --- |
+| **R1** | **Unified external storage.** All BugPilot-generated data lives outside the source repository, under a user-level root, `~/.bugpilot/` by default, resolved through the platform's home-directory API and never hard-coded. | §6, §8 |
+| **R2** | **One root.** It holds global configuration, repository registrations, repository settings, work-item artifacts, similar-fix memory, caches and indexes, and other BugPilot-owned persistent data. Temporary files may use private temporary locations, but never create persistent BugPilot state inside the repository. | §6 |
+| **R3** | **Repository isolation.** Each repository has its own namespace. Two repositories may use the same Jira key, local id or branch name without colliding. The Repository ID is stable, based on the normalized root, and handles collisions. No relocation or automatic identity merging unless approved later. | §7 |
+| **R4** | **No legacy compatibility or migration.** BugPilot never loads or writes `<repo>/.ai/`, `<repo>/.ai_memory/` or `<repo>/.bugpilot/`. `~/.bugpilot/config.toml` and `~/.bugpilot/instructions.md` may move. Nothing is imported, renamed, copied, merged or deleted, and legacy folders are left untouched. There are no temporary readers or migration utilities. The breaking change and the reconfiguration it needs, Jira credentials included, are documented. | §13 |
+| **R5** | **The repository stays clean.** BugPilot creates no persistent BugPilot-owned directory under the repository. The developer's own files, build outputs and an agent's intended source edits are outside this requirement. | §10.2 (T-S20), §11.3 |
+| **R6** | **Product capabilities are preserved.** These must all keep working: <ul><li>Jira and hand-written intake</li><li>Build Context, Fix with AI, AI Session launch and reopen, retry</li><li>Artifacts, History, review and verification</li><li>Fix Modes, Project and User Instructions, Verification Policy, AI Behavior, Protected Rules, Repository Profile</li><li>Git History Retrieval, Similar Fix Memory</li><li>MCP tools, Managed Runtime, CLI and extension integration</li></ul>Storage paths may break; no unrelated feature is removed. | §4, §9.10, §14 |
+| **R7** | **Security guarantees are preserved.** <ul><li>prompt-boundary containment and the Protected Evidence Rules;</li><li>credentials born `600`;</li><li>final-component link refusal;</li><li>atomic writes and temp-file safety;</li><li>no credential disclosure;</li><li>read-only previews;</li><li>safe MCP and CLI output;</li><li>hostile path components;</li><li>per-OS behaviour.</li></ul>No invariant weakens. | §10 |
+| **R8** | **No automatic agent permission expansion.** Agent filesystem permissions are never widened silently, and the repository stays the agent's working directory. | §9 |
+
+---
+
+## 3. Explicit non-goals
+
+- **No migration.** No import, copy, merge, rename or delete of 0.1.5 data. **No legacy fallback** reader of any kind (R4).
+- **No relocation or identity merging.** No tooling to follow a moved repository, no merging of two namespaces, and no automatic re-association of a subdirectory, moved repository, clone or worktree with another namespace (US-D8, DEFERRED; §7.1).
+- **No git-root discovery.** The repository scope stays the directory BugPilot runs in (US-D4). Only a diagnostic notes a subdirectory (§7.1).
+- **No team sharing.** No mechanism to share repository settings across a team in 0.1.6 (US-D9; a later design, DEFERRED).
+- **No repository scanning.** No "Repository Intelligence" scanning, indexing or cache layer. The proposed layout has no `cache/` directory, because nothing would use it (US-D1).
+- **No OS credential store.** No move to the Windows Credential Manager or macOS Keychain; the existing `TokenStore` seam stays (DEFERRED, US-D35).
+- **No broad redesign.** No broad Settings redesign, and no new panel feature beyond storage status and diagnostics (§16 of the brief).
+- **No cleanup tooling.** No retention or garbage collection of orphaned repository namespaces (DEFERRED, US-D38).
+- **No XDG paths.** No `$XDG_DATA_HOME` or platform-native application-data directory (DEFERRED, US-D37).
+- **No sandbox changes.** No change to agent sandbox modes, and no default `--add-dir` grant (R8).
+- **No unrelated changes.** No change to retrieval, ranking, Context Quality, prompt-boundary containment or the protected rules' meaning.
+
+---
+
+## 4. Current architecture audit
+
+### 4.1 Method
+
+- **Static inspection only.** Nothing that writes was run against the developer's configuration or repository.
+- **Coverage:**
+  - every production Python module;
+  - the extension's `src/` and `media/panel.js`;
+  - `package.json`;
+  - the Python and TypeScript test suites;
+  - the golden and baseline files;
+  - `.github/workflows/`;
+  - `skills/`, `scripts/` and the public docs.
+- **Text search was followed by tracing the data flow** through:
+  - the path helpers and artifact writers;
+  - work-item lookup;
+  - History, review, verification and retry;
+  - memory and Git History;
+  - the MCP entry points;
+  - agent launch, CLI argv and the prompt renderers.
+- **External agent capabilities** (§9.2) come from the vendors' current documentation. Live behaviour is listed as unverified wherever it was not observed.
+- **Starting point.** The audit started on `main` at `ee3fb005f3befa36e187da05011b8b98c72d12f1`. The working tree had:
+  - `docs/bugpilot_prototype_development_plan.md` modified (+667/−3: the uncommitted 0.1.5 post-release records);
+  - untracked `.bugpilot/ai_behavior.md`, `.bugpilot/verification.md` and `.vscode/extensions.json`.
+
+  `.ai/`, `.ai_memory/` and `.bugpilot/` exist locally and are not tracked (the first two are git-ignored). They were not opened or modified.
+
+### 4.2 How a path is decided today
+
+**Repository root:**
+
+| Entry point | Root | Where |
+| --- | --- | --- |
+| CLI | `Path.cwd()`: the working directory, **not** the git top-level. Running from a subdirectory writes `.ai/` there. | `bugpilot/cli.py:747` |
+| MCP | explicit argument, then `BUGPILOT_MCP_REPO_ROOT`, then `os.getcwd()`, `resolve()`d once at startup | `bugpilot/mcp_server.py:118-126`, `:333-337` |
+| Extension | the workspace folder that holds a `.git` **directory**. With several candidates, the developer picks one, and the pick is stored in `workspaceState["bugpilot.repoRoot"]`. Worktrees and submodules (where `.git` is a file) are not recognized. | `extension/src/workspace.ts:43-60`, `extension/src/host/host.ts:36-45`, `extension/src/app/environment.ts:87-102` |
+| Extension → CLI | every CLI spawn, terminal and agent runs with `cwd = root` | `extension/src/extension.ts`, `controller.ts:2264`, `:3007`, `:5460`, `:5531` |
+
+**Work items and memory: the Python chokepoints.** These are in `bugpilot/core/config.py`:
+
+| Line | Function | Behaviour |
+| --- | --- | --- |
+| 203–205 | `issue_dir(repo_root, id)` | returns `repo_root / ".ai" / id` (read side) |
+| 208–219 | `writable_issue_dir(repo_root, id, create=)` | validates the id, then `safe_paths.writable_dir(repo_root, (".ai", id))` |
+| 233–234 | `memory_dir(repo_root)` | returns `repo_root / ".ai_memory" / "bugs"` |
+| 237–242 | `writable_memory_file(repo_root, id)` | the memory file, checked like `writable_issue_dir` |
+
+`issue_dir` has 29 call sites and `writable_issue_dir` 12; most artifact I/O goes through these four. **Twelve sites build the path themselves instead:**
+
+- `cli.py:1046`, `:1149`, `:1313`, `:1387`, `:1895` (`list`), `:2922`, `:2931`
+- `workflow.py:2219`
+- `context_preview.py:168`
+- `task_preview.py:124`, `:223`
+- `cleanup.py:42-43`
+
+**Repository settings.** Each module joins `repo_root / ".bugpilot"` itself:
+
+| Module | Lines |
+| --- | --- |
+| `instructions.py` | `:148-149` |
+| `verification.py` | `:149-150` |
+| `ai_behavior.py` | `:138-139` |
+| `project_settings.py` | `:107-108`, `:115` |
+| `repository_profile.py` | `:145-146`, `:215` |
+| `fix_mode_store.py` | `:276-286` (`.bugpilot/fix_modes`) |
+
+The same files also define three separate `PROJECT_CONFIG_DIR = ".bugpilot"` constants: `instructions.py:56`, `project_settings.py:60` and `repository_profile.py:57`. `fix_mode_store.py:49` names the same folder again as `FIX_MODE_DIR_NAME`.
+
+**User configuration:**
+
+- `user_config.user_config_dir()` (`user_config.py:44-53`) returns `BUGPILOT_CONFIG_DIR` or `Path.home() / ".bugpilot"`. The following hang off it:
+  - `config.toml` (`:56-57`);
+  - User Instructions (`instructions.py:144-145`);
+  - user Fix Modes (`fix_mode_store.py:272`, `:280`).
+
+**The extension builds its own `.ai` paths.** The CLI never sends one. The sites:
+
+- `controller.ts:5186-5188` `#itemFile`, plus the direct joins at `:2993`, `:3339`, `:3442`, `:3506`, `:5110`;
+- `host/ports.ts:65-72`, `:194-218`, `:228-266`, `:494`;
+- `app/sessionReset.ts:173-313`.
+
+It also builds `.bugpilot` paths for the policies it opens in an editor (`controller.ts:3846`, `:4252`), and watches that folder (`:4379`, `ports.ts:506-570`).
+
+### 4.3 What reads and writes what (data flow)
+
+**The CLI `bug` pipeline** (`workflow.run_investigation`):
+
+- `_prepare_issue_dir` (`workflow.py:1891-1893`) is called by every step.
+- `issue.json` → `save_issue` (`issue.py:305-316`).
+- `retrieval.json` → `save_retrieval` (`retrieval.py:268-277`). Git History's record is written into it by `_record_git_history` (`workflow.py:1049-1071`). There is no separate Git History file and no cache.
+- `context.md` (`workflow.py:1162-1171`).
+- `task.md` (`:1393-1412`, `:1427-1449`).
+- `run.json` (`run.py`). Its `generated_files` holds `.ai/<id>/…` strings (`workflow.py:2206-2222`).
+- Attachments are copied into `<work>/attachments/` (`attachments.py`). Ownership is recorded in `issue.json` `guidance.attachment_files`.
+- Memory entry: `add_memory_entry` (`memory.py:43-47`) via `workflow.py:1743-1750`. The entry text embeds `.ai/<id>/context.md` and `.ai/<id>/retrieval.json` (`memory.py:24-40`).
+
+**Agent outputs:**
+
+- `fix_report.md`: the agent writes it, as `task.md` tells it to (`prompts.py:287`, `:429`, `:445`), or `manual-result` writes a template (`workflow.py:1860-1880`).
+- Readers of `fix_report.md`:
+  - `check-results`, `summarize-results`, `memory update`, `jira-comment-draft`, email;
+  - MCP `check_results` / `summarize_results`;
+  - the extension (`controller.ts:6529-6536`).
+
+**Review and verification:**
+
+- `record-review` → `review_report.md` (`review_report.py:121-137`).
+- `record-verification` → `verification_report.md` (`verification_report.py:290-305`).
+- `review-package` builds the reviewer prompt, which names `.ai/<id>/…` (`workflow.py:2400-2407`).
+
+**Retry:**
+
+- `retry_prompt_step` (`workflow.py:1830-1850`) writes `user_feedback.md` (template) and `agent_retry_prompt.md` (`_build_retry_prompt`, `:1956-2069`).
+- The **extension** also writes `user_feedback.md` itself, non-atomically. It does so through `writeWorkItemFile` (`sessionReset.ts:280-313`), which `mkdir`s `<root>/.ai/<id>` if it is missing.
+
+**History:**
+
+- `bugpilot list --json` lists `<root>/.ai/` (`cli.py:1889-1929`) and returns ids, source, title and prepared.
+- The extension then reads, per id, `<root>/.ai/<id>` itself (`ports.ts:228-266`):
+  - it stats the folder for its modified time;
+  - it lists the folder and reads `run.json`.
+
+**Reset Session and clean:**
+
+- The extension checks `<root>/.ai/<id>` for links (`sessionReset.ts:190-225`), then calls `bugpilot clean`. `clean` checks every component again through `safe_paths.owned_path` (`cleanup.py:30-58`).
+
+**Previews:**
+
+- `task-preview` and `context-preview` read without writing. They refuse a linked `.ai`, a linked work-item folder, or a linked `issue.json` (`task_preview.py:124-132`, `:214-228`; `context_preview.py:168-172`).
+
+**MCP:**
+
+- Writes go through `workflow`. The tool results return `issue_dir: ".ai/<id>"`, `agent_task: ".ai/<id>/task.md"` and a `next_step` sentence naming both (`mcp_server.py:231-280`).
+- The model reads those paths with its own tools.
+
+**Settings:**
+
+- The extension edits every setting through the CLI. Two exceptions: it opens `.bugpilot/verification.md` and `.bugpilot/ai_behavior.md` in an editor tab for the developer to edit and save directly (§5.1, F09/F10).
+- The extension never touches `~/.bugpilot`. The Jira email and token are in SecretStorage and reach the CLI as `JIRA_EMAIL`/`JIRA_TOKEN` (`extension/src/secrets.ts:44-45`, `:125-129`). Only the site is written to `config.toml`, through `bugpilot jira-site set`.
+
+### 4.4 Findings the audit surfaced (beyond the move itself)
+
+| Id | Finding | Evidence | Disposition |
+| --- | --- | --- | --- |
+| **SF-1** | The project-settings and repository-profile payload files use a plain `writeFile`, with no exclusive create and a pid/time/6-character name. This is the class of issue 0.1.5 fixed for the Fix Mode payload (F10). | `extension/src/app/projectSettings.ts:178-182`, `repositoryProfile.ts:195-199` | **OPEN (US-D39):** fold into Batch 4 by routing both through `scratchFile.ts` |
+| **SF-2** | The extension writes `user_feedback.md` non-atomically, and creates the work-item folder itself. | `sessionReset.ts:280-313`, `ports.ts:65-72` | Removed by US-D18 (the CLI owns the write) |
+| **SF-3** | Fix Mode store errors and `issues[].path` carry absolute paths, and the panel shows them (F12 class). After the move they contain the home directory. | `fix_mode_store.py:312-315`, `:569-572`; `media/panel.js:4637` | Batch 2: display form (US-D22) |
+| **SF-4** | Credentials and evidence will share one tree. An agent grant wider than one work folder (for example "allow `~/.bugpilot` for this session") would expose `config/config.toml`. | §10 T-S9 | Mitigated by design: named work folder, narrow optional grant, `config/` separate. Docs warn. |
+| **SF-5** | The deeper tree brings Windows `MAX_PATH` (260) closer for long attachment names. | §12 | Batch 4 test; slug capped at 24 characters (US-D5) |
+| **SF-6** | The default root `~/.bugpilot` already exists on upgraded machines, created by the umask (often `755`) and holding the 0.1.5 files. | `user_config.py:127`, §44.22 residual risks | New subfolders are created `0700`; the existing root is not re-moded (US-D23) |
+| **SF-7** | The task-size gate leaves about 24 characters of headroom (median 3,090 against a 3,096 ceiling). | `tests/test_task_golden.py:272-278` | US-D13 / US-D30 |
+| **SF-8** | Test isolation is incomplete. Only `BUGPILOT_CONFIG_DIR` is isolated; some goldens render at collection time; module-scoped fixtures run before isolation; CI sets no `HOME`; the extension's integration tests are not isolated. After the move, these would write into the developer's real `~/.bugpilot/repositories`. | `tests/conftest.py:13-17`, `tests/test_prompt_boundary_golden.py:14`, `extension/test-integration/cli.integration.test.ts:70-73` | Batch 0A, before any storage switch (US-D32, revised design in §11.1) |
+| **SF-9** | `--launch-agent`'s failure hint says "complete the workflow" for a retry, where the canonical sentence is "continue the workflow". | `cli.py:1595`, `:1603-1604` | Fixed in passing in Batch 2 |
+| **SF-10** | `scripts/send-via-outlook.ps1` reads `.ai/$Issue/email_draft.md` relative to the current directory. | `scripts/send-via-outlook.ps1:6`, `:39` | Batch 2 |
+
+---
+
+## 5. Complete path inventory
+
+### 5.1 How to read the inventory
+
+- **Grouping.** Each row is a *path family*: one location or one kind of file, and every call site that reaches it. Repetitive call sites are grouped; edge cases that behave differently get their own row or note.
+- **Columns.** Table A covers what the location is (items 1–8 of the brief). Table B covers what happens to it (items 9–14). They share the family id.
+- **Migration.** Item 12 is "Migration requirement", and it is **NONE for every row** (R4). Table B therefore has no migration column; this note records the requirement once.
+- **Line references.** These are in §5.4.
+
+**Totals measured.**
+
+*Production Python:*
+
+| Pattern | Lines |
+| --- | ---: |
+| `.ai/` | 131 |
+| `".ai"` | 16 |
+| `.ai_memory` | 30 |
+| `.bugpilot/` | 51 |
+| `".bugpilot"` | 5 |
+| `~/.bugpilot` | 13 |
+
+- In all: 226 lines across 39 modules, led by `cli.py` (66) and `workflow.py` (38).
+
+*Extension production (`src/` and `media/panel.js`):*
+
+| Pattern | Lines | of which code or string (not comment) |
+| --- | ---: | ---: |
+| `.ai/` | 62 | 17 |
+| `.ai_memory` | 8 | 6 |
+| `.bugpilot` | 73 | 19 |
+
+*Tests:*
+
+- **Python:** 720 matching lines in 55 files. At least 395 of 1,768 test functions reference a path literal directly.
+- **Extension `test/`:** 117 lines with `.ai/`, 60 with `.ai_memory`, 84 with `.bugpilot`.
+- **Extension `test-integration/`:** 3, 3 and 17 lines respectively.
+
+*Goldens:*
+
+| Family | Files | Note |
+| --- | ---: | --- |
+| task | 17 | 93 `.ai/`, 17 `.ai_memory`, 6 `.bugpilot` mentions |
+| context | 4 | |
+| context_0.1.4 | 4 | frozen |
+| retry | 3 | |
+| retry_0.1.4 | 3 | frozen |
+
+*Public docs* (lines that mention a path):
+
+| File | Lines |
+| --- | ---: |
+| `README.md` | 24 |
+| `docs/architecture.md` | 32 |
+| `docs/safety.md` | 21 |
+| `docs/adapter_design.md` | 15 |
+| `extension/README.md` | 31 |
+| `extension/CHANGELOG.md` | 16 (history; not rewritten) |
+
+**Batch 0A reconciliation (2026-10-15).** The line counts above were re-measured on the unchanged production sources by the same method, and they match exactly:
+
+- **Python:** 131 / 16 / 30 / 51 / 5 / 13 lines; 226 lines in 39 modules.
+- **Extension:** 62 / 8 / 73 lines.
+
+The ratchet (`tests/storage_inventory.json`, §11.2) records a finer measure: occurrences per file and per pattern family, across 71 files. No family turned up that §5 lacks.
+
+| Family | Occurrences | Files |
+| --- | ---: | ---: |
+| `ai-dir` | 245 | 47 |
+| `ai-memory` | 39 | 16 |
+| `bugpilot-dir` | 115 | 27 |
+| `home-bugpilot` | 18 | 11 |
+| `config-dir-env` | 5 | 3 |
+| `agent-instruction` | 17 | 11 |
+| `path-helper` | 104 | 25 |
+| `path-constant` | 106 | 21 |
+| `home-lookup` | 3 | 3 |
+
+### 5.2 Table A — what each location is
+
+Abbreviations: R = read, W = write, D = delete, O = opened in an editor, L = named to an agent or launch.
+
+| Id | (1) Current location | (2) Responsible module / function | (3) R/W/D | (4) Consumers | (5) Secrets | (6) User / model data | (7) Security expectation today | (8) Ownership and lifecycle |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **F01** | `<repo>/.ai/<id>/` (the folder) | `config.issue_dir` / `writable_issue_dir`, `safe_paths.writable_dir` / `owned_path`, `workflow._prepare_issue_dir`; extension `sessionReset.ts`, `ports.ts`, `controller.ts #itemFile` | R W D | every step; `list`, `status`, previews; MCP; extension (History, Results, Reset Session, watchers) | no | yes, both | id validated (`identity.WORK_ITEM_ID_RE`); every component checked for links (`.ai`, `<id>`); refused rather than followed; the repo root may be a link | created by the first step; kept by default; removed by `clean`, `--fresh` and Reset Session |
+| **F02** | `<id>/issue.json`, `retrieval.json` (with Git History's `git_history` section), `context.md`, `task.md`, `run.json` | `issue.save_issue`, `retrieval.save_retrieval`, `workflow` context and prompt steps, `run.py` | R W | the pipeline, `task-preview`, `context-preview`, MCP, extension (direct reads), the agent (task, context, retrieval) | no | Jira and hand-written evidence; BugPilot's prompts | atomic writer (`artifact_io.atomic_write_text`): temp in the same folder, `_check_temp`, rename; new files `600`; a link at the file refused | rewritten per run; `run.json` holds runtime state only |
+| **F03** | `<id>/fix_report.md`, `review_report.md`, `verification_report.md` | the agent; `manual_result_step`; `review_report.record_review_report`; `verification_report.record` | R W | check/summarize/memory update/Jira draft/email; MCP; extension; retry prompt; captured review | no | model output; developer-recorded results | atomic writer for BugPilot's writes; the agent writes with its own tools | the agent's report is replaced per attempt; review and verification records refuse overwrite without `--replace` |
+| **F04** | `<id>/user_feedback.md`, `agent_retry_prompt.md` | `retry_prompt_step`; `_build_retry_prompt`; **extension `writeWorkItemFile`** (writes feedback directly, non-atomically) | R W O | the retry agent; the developer (edits feedback) | no | developer text; BugPilot prompt | Python: atomic, link-checked. TS: lstat checks, plain `writeFile` (SF-2) | per retry |
+| **F05** | `<id>/jira_field_report.md`, `jira_comment_draft.md`, `jira_comment_post_result.json`, `jira_comment_on.flag`, `email_draft.md`, `notification.eml` | `jira_validate_step`, `jira_comment_draft_step`, `jira_comment_step`, `notify_step`, the `--jira-comment` marker; `scripts/send-via-outlook.ps1` (reads the draft) | R W | the developer; `jira-comment --execute`; Outlook script | no (sanitized) | derived from artifacts | atomic writer | on demand |
+| **F06** | `<id>/attachments/<name>` | `attachments.copy_attachments`, `remove_attachments`, `listed_attachments`, `attachment_names`; ownership in `issue.json` `guidance.attachment_files` | R W D | `task.md` (by path); the agent (opens the files) | possibly (the developer's files) | developer files | `refuse_link`; byte copy; 10 files of at most 10 MB; names written with visible escapes (N3) | replaced with `--replace-attachments`; removed with the folder |
+| **F07** | `<repo>/.ai_memory/bugs/<id>.md` | `memory.add_memory_entry`, `search_memory`; `config.memory_dir` / `writable_memory_file`; `memory_update_step`; `cleanup` (`--include-memory`); MCP `search_memory` | R W D | the Similar Fixes step (scores every entry); MCP; `delivery-check` | no | earlier AI and run output | link-checked at `.ai_memory` and `bugs`; atomic writer | outlives the work item; removed only by `clean --include-memory` |
+| **F08** | `<repo>/.bugpilot/instructions.md` (Project Instructions) | `instructions.project_instructions_path`, `read_instructions`, `save_instructions`; CLI `instructions` | R W D | every `task.md`; `task-preview`; extension (through the CLI) | no | team- or developer-written | `link_problem` refuses a link at the folder or the file; 20,000-character cap; atomic writer | **designed to be committed** (`instructions.py:7-8`) |
+| **F09** | `<repo>/.bugpilot/verification.md` | `verification.verification_path`, `save_verification`, `remove_verification`; CLI `verification` | R W D O | `task.md`; extension (stat, lstat and **editor open** at `controller.ts:4252`, `:4296`; watcher) | no | team-written | as F08, plus a strict front-matter parser and lint | committed by design |
+| **F10** | `<repo>/.bugpilot/ai_behavior.md` | `ai_behavior.ai_behavior_path`, `save_ai_behavior`, `remove_ai_behavior`; CLI `ai-behavior` | R W D O | `task.md`; extension (editor open at `controller.ts:3846`, `:3887`) | no | team-written | as F09 | committed by design |
+| **F11** | `<repo>/.bugpilot/project_settings.json` | `project_settings.settings_path`, `save_project_settings`; CLI `project-settings` | R W | `task.md` (branch template, legacy switches); extension (through the CLI) | no | team settings | link check of `.bugpilot` and the file; atomic writer | committed by design |
+| **F12** | `<repo>/.bugpilot/repository_profile.json` | `repository_profile.profile_path`, `save_repository_profile`; CLI `repository-profile` | R W | `task.md` Repository Context | no | team facts | as F11 | committed by design (`cli.py:1957-1958`) |
+| **F13** | `<repo>/.bugpilot/fix_modes/<id>.json` | `fix_mode_store.FixModeStore.scope_dir("project")`, create, update, delete | R W D | the effective registry; `task.md`; MCP `list_fix_modes`; extension (through the CLI) | no | team workflows | refuses a link at the folder or its parent; resolved-parent containment; refuses a link at the file | committed by design (`fix_mode_store.py:6`) |
+| **F14** | `~/.bugpilot/config.toml` (or `BUGPILOT_CONFIG_DIR/config.toml`) | `user_config.load_user_config`, `save_user_config`, `save_jira_site`; `setup`; `jira-site` | R W | `config.load_config` (every command), `doctor` | **YES: the Jira token** (CLI setup); the extension keeps the token in SecretStorage and writes only the site | credentials | private atomic write (`600` from birth, no POSIX in-place fallback); a link at the file refused (O4); the folder may be a link (B4-2) | the user's own; never deleted by BugPilot |
+| **F15** | `~/.bugpilot/instructions.md` (User Instructions) | `instructions.user_instructions_path` | R W D | every `task.md` | no | developer text | as F08; the folder may not be a link (unlike F14, B4-2) | the user's own |
+| **F16** | `~/.bugpilot/fix_modes/<id>.json` | `FixModeStore.scope_dir("user")` | R W D | as F13 | no | developer workflows | as F13 | the user's own |
+| **F17** | `BUGPILOT_CONFIG_DIR` (environment) | `user_config.user_config_dir` | — | tests (`tests/conftest.py:13-17`), `scripts/check_cli_contract.py:41-52`, one integration test; F14–F16 | no | — | display name hides the path (`user_config.py:181-185`) | — |
+| **F18** | Extension `globalStorageUri`: `runtime/<version>/venv`, `runtime.json`, `<version>.lock`; `attachments/<16 hex>/<name>` (staging); `bug-description-<uuid>.md`. Plus `globalState` (`bugpilot.attachmentReferences.<hash>`, `bugpilot.attachmentGcVersion`, `bugpilot.lastAgent`), `workspaceState` (`bugpilot.repoRoot`, `bugpilot.form` with absolute attachment paths, `bugpilot.workItem`, `bugpilot.reviewedFixes`) and SecretStorage (`bugpilot.jiraCredentials`) | `extension.ts:89-150`, `:316-317`; `managedRuntime.ts`; `attachmentStorage.ts`; `scratchFile.ts`; `secrets.ts` | R W D | the extension; the CLI receives `--attach` and `--description-file` paths | SecretStorage: yes | developer files and form state | scratch: UUID name, exclusive create, `0600`, removed after the run; attachment GC removes only inside its own folder (30-day retention) | VS Code owns the lifecycle (removed when the extension is uninstalled) |
+| **F19** | OS temp folder: extension payloads `bugpilot-{fix-mode,review,verification}-<uuid>.json` (`scratchFile.ts`); `bugpilot-{project-settings,repository-profile}-<pid>-<ts>-<rand>.json` (**plain `writeFile`**, SF-1); hint improver `mkdtemp bugpilot-hint-*`; flag probe cwd. Python: `mkstemp` temp files in the **target's own folder** (`artifact_io.py:124`) | `fixModeTransport.ts:46-63`, `projectSettings.ts:178-182`, `repositoryProfile.ts:195-199`, `ports.ts:417-439`, `artifact_io.atomic_write_text` | W D | CLI (`--from-file`); hint-improver agent | no | settings payloads; issue text (hint improver) | per row; SF-1 is the gap | removed after the command |
+| **F20** | `~/.claude/projects/<slug(root)>/` (Claude's own session store) | extension `session.ts:26-28`, `extension.ts:790-808` (Resume Agent Session) | R | the extension | no | the agent's | read-only | Claude's; **depends on the agent's cwd being the repository root** |
+| **F21** | `<repo>/.gitignore` | extension `gitignore.ts:18-21`, `:74-162`; `controller.ts:1601-1683`; `ports.ts:451-485`; doctor `ai_artifacts_ignored*` (`git_ops.artifact_directories_ignored`, `git_ops.py:66-100`) | R W | the panel's Repository Files notice and the "Add to .gitignore" quick fix | no | — | refuses a linked `.gitignore`; edits a dirty buffer without saving it | the developer's file, written only on their click |
+| **F22** | Code-search, review and lint guards naming `.ai` / `.ai_memory` | `search.EXCLUDE_DIRS` (`search.py:40-41`), `review_changes._PATHSPEC` (`review_changes.py:35`), `verification.py:322` lint | R (exclusion) | Code Search; captured review diff; Verification Policy lint | no | — | keeps BugPilot's own files out of evidence | constant |
+| **F23** | Agent-facing path strings (handoff, `task.md`, retry, review, MCP, skill) | §5.5 | L | the agent | no | — | protected sections; the PLAIN_PROMPT gate | rendered per run |
+| **F24** | CLI JSON, JSON-lines and MCP path fields | `cli.py` (`issue_dir`, `agent_task`, `generated_files`, `missing`, `fix_report`, `feedback_file`, `retry_prompt`, `review_report`, `verification_report`, settings `path`), `cli_json.py:137-140`, `mcp_server.py:231-280`, `doctor.py:65-66` | — | extension, MCP clients, scripts | no | — | "no absolute path in normal output" (`docs/safety.md:68`, `:73`) | contract |
+| **F25** | Persisted path strings inside artifacts: `run.json.generated_files`; memory entry text (`- Context: .ai/<id>/context.md`) | `workflow._generated_files` (`:2206-2222`); `memory.build_memory_entry` (`:24-40`) | W (and R by the extension and MCP) | extension progress (`progress.ts:410-429`, not rendered); MCP `get_status`; Similar Fixes scoring | no | — | — | per run |
+| **F26** | Diagnostic trace | `logging_utils` (`bugpilot.execution` logger; **not persisted**) | — | an opt-in handler | no | — | never content (counts only) | none on disk |
+| **F27** | MCP server state | `mcp_server._Bound` (root bound at startup, an in-process lock) | — | — | no | — | the id is validated for every call (`_checked`, `_existing`) | **none on disk** |
+| **F28** | Agent CLI state outside BugPilot (`~/.codex`, Copilot `config.json` trust list) | — | — | — | — | — | — | not BugPilot's; unchanged |
+| **F29** | Test harness storage | `tests/conftest.py`, `tests/task_golden.py:189-214`, `tests/prompt_boundary_sources.py:118-210`, `tests/boundary_golden.py`, `extension/test-integration/*` | R W D | the suites | no (fake values) | synthetic | `BUGPILOT_CONFIG_DIR` isolation only (SF-8) | tmp folders |
+
+### 5.3 Table B — what happens to each location in 0.1.6
+
+`<R>` is the data root and `<repo-dir>` is `<R>/repositories/<repository-id>`. Migration is **NONE** for every row.
+
+| Id | (10) Proposed new location | (11) Code changes | (12) Test changes | (13) Risk | (14) Batch |
+| --- | --- | --- | --- | --- | --- |
+| F01 | `<repo-dir>/work/<id>/` | `config.issue_dir` / `writable_issue_dir` delegate to `storage`; the 12 direct joins (§4.2) routed through it; `safe_paths` generalized to a data-root boundary; extension: no `.ai` joins (US-D17) | path updates in about 50 Python modules; new storage, pollution and isolation suites | **High** | 1 (API), 2 (Python), 3 (extension) |
+| F02 | `<repo-dir>/work/<id>/…` (file names unchanged) | through F01 only; `task.md` text (F23) | goldens (§11.6) | Medium | 2 |
+| F03 | `<repo-dir>/work/<id>/…` | the agent is told the absolute path (US-D13); `manual-result` the documented fallback when the agent cannot write (§9.6) | report tests; live handoff probes | **High** (agent write permission) | 2, 3 |
+| F04 | `<repo-dir>/work/<id>/…` | **the CLI owns the `user_feedback.md` write** (`bug <id> --retry --feedback-file <tmp>`; US-D18); `writeWorkItemFile` and the `ports.ts` guard removed | `sessionReset.test.ts`; argv contract fixture | Medium | 2 (CLI flag), 3 (extension) |
+| F05 | `<repo-dir>/work/<id>/…` | through F01; `send-via-outlook.ps1` takes the draft path the CLI prints (SF-10) | `test_email_notify`, `test_cli_*` | Low | 2 |
+| F06 | `<repo-dir>/work/<id>/attachments/` | none beyond F01; long-path check (SF-5) | `test_attachments` paths; a `MAX_PATH` probe | Medium | 2, 4 |
+| F07 | `<repo-dir>/memory/<id>.md` (US-D1: `bugs/` dropped) | `memory_dir` / `writable_memory_file` → `storage`; `search_memory` `file` field shown as `memory/<id>.md`; entry text names `work/<id>/…` | `test_context_task_artifacts`, `test_similar_fixes_settings`, `test_cleanup_safety`, MCP | Medium | 2 |
+| F08 | `<repo-dir>/settings/instructions.md` | `project_instructions_path` → `storage`; one `display_path` | `test_instructions`, `test_task_preview` | Medium (US-D9) | 2 |
+| F09 | `<repo-dir>/settings/verification.md` | `verification_path` → `storage`; `show --json` `path` absolute; extension opens the path the CLI gives | `test_verification_policy`; extension policy tests | Medium | 2, 3 |
+| F10 | `<repo-dir>/settings/ai_behavior.md` | as F09 | `test_ai_behavior`; extension | Medium | 2, 3 |
+| F11 | `<repo-dir>/settings/project_settings.json` | `settings_path` → `storage` | `test_project_settings` | Low | 2 |
+| F12 | `<repo-dir>/settings/repository_profile.json` | `profile_path` → `storage`; `repository_profile_contract.json` `path` | `test_repository_profile` | Low | 2 |
+| F13 | `<repo-dir>/settings/fix_modes/<id>.json` | `FixModeStore` takes the storage object; error text in display form (SF-3) | `test_fix_mode_store`, `test_fix_mode_custom` | Medium | 2 |
+| F14 | `<R>/config/config.toml` (US-D2) | `user_config_dir` → `storage.global_storage().config_dir`; the private write unchanged; `_shown_config_path` renders `~/.bugpilot/config/config.toml` | `test_batch4_file_safety` S2/O4 paths; `test_setup`; `test_jira_site` | **High** (credentials) | 2 |
+| F15 | `<R>/config/instructions.md` | via `storage` | `test_instructions` | Low | 2 |
+| F16 | `<R>/config/fix_modes/<id>.json` | via `storage` | `test_fix_mode_store` | Low | 2 |
+| F17 | replaced by `BUGPILOT_HOME` = the data root (US-D3); `BUGPILOT_CONFIG_DIR` no longer honoured (one safe warning, its value never read) | `storage.data_root()`; conftest, `check_cli_contract.py`, integration tests | all isolation fixtures | Medium | 0A (tests isolate `HOME` too), 2 |
+| F18 | **unchanged**: VS Code-owned extension storage (US-D19) | none | none | Low | — |
+| F19 | unchanged; SF-1 routed through `scratchFile.ts` if US-D39 | `projectSettings.ts`, `repositoryProfile.ts` | `scratchFile.test.ts` pattern | Low | 4 |
+| F20 | unchanged; the agent's cwd stays the repository root | none | none | Low | — |
+| F21 | **removed** if US-D16: no notice, no quick fix, no doctor keys (BugPilot writes nothing in the repository to ignore) | `gitignore.ts`, `controller.ts` notice, doctor keys, `git_ops.artifact_directories_ignored` | `gitignore.test.ts` (removed), `controller.test.ts`, `page.test.ts`, `test_core_robustness.py:303-371` | Low | 2, 3 |
+| F22 | **kept** as legacy-name guards (US-D15): a left-behind `.ai/` must not become Code Search evidence or review diff | comments only | ratchet allowlist (§11.2) | Low | 2 |
+| F23 | rewritten (§9, US-D13) | `handoff.py`, `prompts.py`, `workflow.py` (retry, review), `mcp_server.py`, `context.py`, `memory.py`, `SKILL.md`, extension `controller.ts:3349-3351`, `nextAction.ts:206-208` | goldens; `test_handoff`; cross-language tests | **High** | 2, 3 |
+| F24 | absolute in designated path fields; display form in messages (US-D22, US-D26, US-D27) | `cli.py`, `cli_json.py`, `mcp_server.py`, `doctor.py` | `test_cli_json`, `test_cli_phase2`, `test_mcp_server`, `test_batch3_boundaries` | Medium | 2 |
+| F25 | `generated_files` relative to `<repo-dir>` (`work/<id>/task.md`, `memory/<id>.md`; US-D25); memory entry text likewise | `workflow._generated_files`, `memory.build_memory_entry` | `test_workflow`, `test_run_artifact` | Low | 2 |
+| F26 | unchanged | messages use the display form | — | Low | 2 |
+| F27 | unchanged (the repository identity is resolved once at startup) | `mcp_server.build_server` | `test_mcp_server` | Low | 2 |
+| F28 | unchanged | — | — | — | — |
+| F29 | the test data root isolated (`BUGPILOT_HOME`, `HOME`, `USERPROFILE`, `BUGPILOT_CONFIG_DIR`, no `JIRA_*`) for the whole session, before collection, with a fail-closed guard (§11.1) | `tests/_isolation.py`, `tests/conftest.py`, the golden helpers, integration tests, `ci.yml` env | `tests/test_isolation_guard.py` | **High** (a test run writing into, or reading, the real home) | 0A |
+
+### 5.4 Line-level references by family
+
+Python paths are relative to the repository root, and extension paths are relative to `extension/`.
+
+**F01 — the work-item folder.** Python:
+
+- `bugpilot/core/config.py:203-242`
+- `bugpilot/core/safe_paths.py:75-173`
+- `bugpilot/core/workflow.py:172`, `:385-393`, `:1891-1893`, `:2236`
+- `bugpilot/core/cleanup.py:30-58`
+- `bugpilot/cli.py`: `:1313` (`existed`), `:1895-1905` (`list`), `:2922`, `:2931`
+- `bugpilot/mcp_server.py:145-158`, `:183-200`
+- `bugpilot/core/identity.py:50` (`WORK_ITEM_ID_RE`), `:82-100`
+
+Extension:
+
+- `src/app/controller.ts`: `:2431`, `:2693-2697`, `:2769-2771`, `:2804`, `:2824`, `:2993`, `:3339`, `:3442`, `:3506-3508`, `:5056`, `:5110-5112`, `:5186-5188`, `:5950`, `:6179`, `:6529-6536`
+- `src/host/ports.ts:65-72`, `:194-218`, `:228-266`, `:494`
+- `src/app/sessionReset.ts:173`, `:190-313`
+
+**F02 — the core artifacts.**
+
+- `bugpilot/core/artifacts.py:23-47` (names)
+- `issue.py:301-341`
+- `retrieval.py:264-300`
+- `run.py:82-83`, `:105`, `:172`
+- `workflow.py:1049-1087` (Git History record), `:1162-1171` (context), `:1393-1449` (task)
+- `task_preview.py:118-132`, `:214-228`
+- `context_preview.py:160-205`
+
+**F03 — the reports.**
+
+- `fix_report.py:63`
+- `review_report.py:92`, `:121-137`
+- `verification_report.py:99`, `:290-313`
+- `workflow.py:1475-1481` (`check_result_files`), `:1861-1880` (`manual_result_step`)
+- `cli.py:1080-1160`, `:1626-1760`
+
+**F04 — retry.**
+
+- `workflow.py:1831-1850`, `:1956-2069`
+- `cli.py:1799-1851`
+- extension `controller.ts:2431-2439`, `:2693-2701`; `src/app/nextAction.ts:206-208`
+
+**F05 — Jira and notification files.**
+
+- `workflow.py:708-730` (`jira_validate_step`), `:1642-1670` (`notify_step`), `:1759-1815`, `:2183-2187` (`jira_comment_on.flag`)
+- `cli.py:885-888`, `:2981-2987`, `:3038-3039`
+- `scripts/send-via-outlook.ps1:6`, `:39`
+
+**F06 — attachments.**
+
+- `attachments.py:17-19`, `:31`, `:76-255`
+- `workflow.py:454`, `:466-470`, `:1298`
+- `prompts.py:461-509`
+
+**F07 — memory.**
+
+- `memory.py:24-105`
+- `config.py:233-242`
+- `workflow.py:1721-1750`, `:2219-2221`, `:2486`
+- `cleanup.py:43-56`
+- `mcp_server.py` (`search_memory`, about lines 557-571)
+
+**F08–F13 — repository settings.**
+
+| Family | References |
+| --- | --- |
+| F08 | `instructions.py:1-9`, `:56`, `:144-187`, `:235-296` |
+| F09 | `verification.py:65-66`, `:149-150`, `:209-293`; extension `controller.ts:3720-3740`, `:4252-4349`, `src/app/verificationPolicy.ts:41`, `src/host/ports.ts:534-541` |
+| F10 | `ai_behavior.py:59-60`, `:138-230`; extension `controller.ts:3753-3927`, `src/app/aiBehaviorPolicy.ts:42`, `ports.ts:548-555` |
+| F11 | `project_settings.py:60-61`, `:107-218` |
+| F12 | `repository_profile.py:57-58`, `:145-146`, `:212-275` |
+| F13 | `fix_mode_store.py:1-26`, `:49-50`, `:268-316`, `:526-573` |
+
+Extension, for all of these: the policy watcher at `controller.ts:4379` and `ports.ts:506-518`, and the lstat kind check in `src/host/bugpilotFiles.ts:13-20`.
+
+**F14–F17 — user configuration.**
+
+- `user_config.py:33-57`, `:116-185`
+- `config.py:127-147`
+- `instructions.py:144-164`
+- `fix_mode_store.py:268-286`
+- `jira.py:74-77` (the message naming `~/.bugpilot/config.toml`)
+- `cli.py:521-522`, `:568-584`, `:2057-2089`
+- extension `src/app/jiraConnection.ts:99`, `src/panel/html.ts:1278`
+
+**F18–F21 — the extension's other storage.**
+
+- `src/extension.ts:89-150`, `:316-317`, `:442-476`, `:519-527`, `:790-808`, `:839-867`
+- `src/managedRuntime.ts:155-165`, `:336-381`
+- `src/app/attachmentStorage.ts:34-355`
+- `src/app/scratchFile.ts:55-71`
+- `src/app/fixModeTransport.ts:46-63`
+- `src/app/projectSettings.ts:178-182`, `src/app/repositoryProfile.ts:195-199`
+- `src/app/gitignore.ts:18-162`
+- `controller.ts:850-927`, `:1601-1683`
+- `src/host/ports.ts:417-485`, `:645-653`
+
+### 5.5 Separate audit: paths embedded in prompts and user-visible strings
+
+A path in agent-facing text tells a model what to read or write. It is part of the handoff (§9), not just display. Action codes:
+
+- **R**: the agent is told to read.
+- **W**: the agent is told to write.
+- **X**: the agent is told to run a command from the repository root.
+- **D**: descriptive only.
+
+**A. Agent-facing.** All must change in 0.1.6 unless marked.
+
+| Where | Text (abbreviated) | Act |
+| --- | --- | --- |
+| `bugpilot/core/handoff.py:85` (`handoff_prompt`); used by `agent_runner.py:43`, `copilot.py:45`, `cli.py:1433-1434`, `:1604`; mirrored at `extension/src/app/controller.ts:3349-3351` | "Read .ai/{id}/task.md and complete the workflow." | R |
+| `handoff.py:90` (`retry_handoff_prompt`) with `cli.py:1824`; mirrored at `nextAction.ts:206-208` | "Read .ai/{id}/agent_retry_prompt.md and continue the workflow." | R |
+| `handoff.py:99-106` (`mcp_prompt`), `mcp_server.py:85-101` (INSTRUCTIONS) | "read the returned task.md and context.md" (bare names) | R. Wording kept; the returned paths change |
+| `handoff.py:116-127` (`skill_steps`); `skills/bugpilot-investigate/SKILL.md:18-42` (pinned by `tests/test_handoff.py:83-101`) | "Read `.ai/<ISSUE>/task.md` and `.ai/<ISSUE>/context.md`"; retry files | R, X |
+| `prompts.py:380-382`, Execution Location (protected) | "`.ai/{id}/` paths are relative to the target repository root." | D → the work-folder statement |
+| `prompts.py:393-395`, Required Input Files (protected) | "Read `.ai/{id}/context.md` …", "Read and inspect `.ai/{id}/retrieval.json` …" | R |
+| `prompts.py:429`, `:445`, Required Output Files (protected); `prompts.py:287`, Investigation Handoff (protected) | "Write one report: `.ai/{id}/fix_report.md` …" | **W** |
+| `prompts.py:349-351`, `:362-364`, Report Status to Jira (protected, opt-in) | "Run these two commands from the target repo root: `bugpilot jira-comment-draft {id}` …" | X. Wording kept; the CLI resolves storage from cwd |
+| `prompts.py:499`, Developer Attachments | "File: `.ai/{id}/attachments/{name}`" | R |
+| `protected_rules.py:186-191`, `stage-intended-files-only` (rules v2, SHA-pinned) | "never `.ai/`, `.ai_memory/`, `issue.json` …" | D. **US-D14**: kept unchanged by default |
+| `protected_rules.py:109-152` | bare `fix_report.md`, `context.md`, `retrieval.json` | unchanged |
+| `verification.py:457-476`, `ai_behavior.py:381-388`, `instructions.py:499-504` (Source and problem lines in `task.md`) | "Source: repository Verification Policy (.bugpilot/verification.md)." | D → the display form (US-D22) |
+| `context.py:96-97` (`context.md`) | "See `.ai/{id}/retrieval.json` …" | R |
+| `memory.py:96`, `:156` (Similar Fixes in `context.md`) | "`.ai_memory/bugs/<other>.md` score=…" | R → `memory/<other>.md` |
+| `workflow.py:1983-2068` (retry prompt) | Required Reading list; "BugPilot's rules in `.ai/{id}/task.md` still apply"; Required Output `.ai/{id}/fix_report.md`; How to Run | R, **W**, X |
+| `workflow.py:2400-2407` (`review-package` prompt, captured and terminal review) | "Use: - .ai/{id}/context.md …" | R |
+| `review_changes.py:92-104` | "Review the files fix_report.md names instead." | unchanged |
+| `mcp_server.py:245-247`, `:261-280` (`issue_dir`, `agent_task`, `next_step`), `:358-361` (tool description: "into .ai/<issue_key>/"), `:488-530` (`check_results`, `summarize_results`), `:557-571` (`search_memory`) | relative `.ai/` paths | R |
+| `workflow.py:466-470`, `:1914`, `issue.py:329`, `:417`, `retrieval.py:292`, `:391`, `run.py:105`, `:172`, `fix_mode_state.py:167`, `:212` (errors and warnings that reach the agent through MCP `ToolError`) | "….ai/{id}/run.json could not be read" | D → the display form |
+
+**B. Human-facing.** All must change; the extension changes in Batch 3.
+
+| Surface | Sites | Change |
+| --- | --- | --- |
+| CLI help | `cli.py:210`, `:326-330`, `:353`, `:422`, `:427`, `:477`, `:488`, `:521-522`, `:539`, `:568-584`, `:600-616`, `:632-648`, `:696`, `:725` | name the work-item folder and the settings in words, plus `bugpilot doctor` for where they are |
+| CLI printed output | `cli.py:885-888`, `:929`, `:1050`, `:1077`, `:1101-1123`, `:1221-1268`, `:1419-1434`, `:1595-1604`, `:1676`, `:1753`, `:1838-1849`, `:1921`, `:2089`, `:2157-2508`, `:2981-2987`, `:3038-3056`; core messages `review_report.py:123`, `:134`, `verification_report.py:292`, `:302`, `workflow.py:1588`, `:1790`, `task_preview.py:126-132`, `:224-228`, `context_preview.py:172`, `:203`, `jira.py:74-77`, `user_config.py:181-185`, `safe_paths.py:91-103`, `:148-152` ("inside this repository"), `email_notify.py:100`, `verification.py:322`, `:373-376` | the display form (`~/.bugpilot/repositories/<id>/work/JR-12345/`); handoff lines carry the absolute path |
+| JSON fields | §5.2 F24 | US-D26 |
+| Extension UI | `controller.ts:850-927` and `:1678-1679` (gitignore notice), `:3466`, `:3514`, `:3521`, `:3729-4327` (`.bugpilot` notices), `:2142`, `:2430-2439`, `:2719`, `:2778-2830`, `:3147-3151`, `:5796`, `:5958`, `:6154`, `:6262` (bare names); `src/app/results.ts:79`, `:187`; `sessionReset.ts:290-351`; `ports.ts:69`; `panel/html.ts:1163`, `:1229`, `:1278`, `:1281` ("which can be committed"), `:1327`, `:1345-1346`, `:1419`, `:1436-1437`; `jiraConnection.ts:99`; `verificationPolicy.ts:41`, `:124-245`; `aiBehaviorPolicy.ts:42`, `:114-216`; `package.json` titles (no paths) | US-D9 wording; display form; gitignore UI removed if US-D16 |
+| Docs | `README.md` (24 lines: the handoff at `:73-76`, gitignore at `:79-83`), `extension/README.md` (31: `:114-137`, `:709-711`, `:920-926`, `:1025-1057`), `docs/architecture.md` (32: `:20`, `:742-770`, `:774-797`), `docs/safety.md` (21: `:19`, `:31`, `:36`, `:43`, `:51-68`, `:109-111`, `:127-140`, `:157`), `docs/adapter_design.md` (15), `docs/notifications.md:7`, `:71`, `docs/development.md:14`, `docs/mcp_setup.md:136`, `docs/skill_setup.md:12` | Batch 5. `extension/CHANGELOG.md` and the historical plans are records and are not rewritten. |
+
+**Counts.** These group repeated and templated lines as one site.
+
+| Category | Directory-path sites | Bare file names | Agent-facing? |
+| --- | ---: | ---: | --- |
+| Protected `task.md` sections and rules | 7 | 5 | yes: W×3, R×2, X×3 |
+| Other agent prompts (`task.md`, `context.md`, retry, review) | 22 | 4 | yes |
+| MCP output | 11 | 2 | yes |
+| Skill | 3 | 1 | yes |
+| CLI messages | about 90 | about 15 | handoff lines at `cli.py:1077`, `:1434`, `:1604`, `:1849` |
+| CLI JSON fields | about 24 | — | consumed by the extension and MCP clients |
+| Extension UI | about 24 `.ai`-family, about 45 `.bugpilot`-family | about 20 | the handoff and retry one-liners |
+| Docs | about 160 (plus 314 in historical plans) | — | `README.md:76` repeats the handoff |
+
+---
+
+## 6. Target directory structure
+
+### 6.1 Layout (PROPOSED, US-D1 and US-D2)
+
+```text
+<data root>                         ~/.bugpilot, or $BUGPILOT_HOME (US-D3)
+│                                   Windows: C:\Users\you\.bugpilot
+│                                   macOS:   /Users/you/.bugpilot     Linux: /home/you/.bugpilot
+├── config/                         0700   global configuration (F14–F16)
+│   ├── config.toml                 0600   Jira site, email and (CLI setup) token; written private
+│   ├── instructions.md                    User Instructions
+│   └── fix_modes/<mode-id>.json           user-scope Fix Modes
+└── repositories/                   0700
+    └── <repository-id>/            0700   for example checkout-9f2c41d07ab3e815 (§7)
+        ├── repository.json         0600   identity record (§7.5): schema_version, repository_id, root
+        ├── settings/               0700   was <repo>/.bugpilot/ (F08–F13)
+        │   ├── instructions.md            Project Instructions (US-D9 wording)
+        │   ├── verification.md            Verification Policy
+        │   ├── ai_behavior.md             AI Behavior additions
+        │   ├── project_settings.json      branch template, legacy Verification switches
+        │   ├── repository_profile.json    Repository Profile
+        │   └── fix_modes/<mode-id>.json   project-scope Fix Modes
+        ├── work/                   0700   was <repo>/.ai/ (F01–F06)
+        │   └── <work-item-id>/     0700   JR-12345, local_20260101090000
+        │       ├── issue.json  retrieval.json  context.md  task.md  run.json
+        │       ├── fix_report.md  review_report.md  verification_report.md
+        │       ├── user_feedback.md  agent_retry_prompt.md
+        │       ├── jira_field_report.md  jira_comment_draft.md
+        │       ├── jira_comment_post_result.json  jira_comment_on.flag
+        │       ├── email_draft.md  notification.eml
+        │       └── attachments/<name>
+        └── memory/                 0700   was <repo>/.ai_memory/bugs/ (F07)
+            └── <work-item-id>.md
+```
+
+**Design choices**
+
+| Choice | Why |
+| --- | --- |
+| File names inside a work item are unchanged | Every reader and writer agrees on `artifacts.py`'s names, and there is no reason to rename them. Only the folder moves. |
+| Memory is a sibling of `work/`, not inside it | Memory outlives a work item: `clean` keeps it unless `--include-memory`, and `--fresh` keeps it too. A layout that put memory under `work/<id>/` would make "delete the work item" delete the memory. The brief requires that memory not be treated as work-item storage. |
+| Credentials live in `config/`, never under `repositories/` | `config/` is the only folder holding a secret. Any grant an agent might get (US-D11) names a single `work/<id>/` and never an ancestor of `config/`. |
+| `memory/<id>.md`, not `memory/bugs/<id>.md` | `bugs/` held nothing else. It is dropped in the new layout (no migration means no reason to keep it). |
+| No `cache/` | Nothing today caches or indexes: Git History writes into `retrieval.json`, and memory search reads files directly. An empty, documented-but-unused directory is a maintenance trap (US-D36, DEFERRED). |
+| No `state/` or `logs/` | The CLI and MCP persist no state of their own (F26, F27). `run.json` is per work item. |
+| No per-repository `repository.json` beyond identity | Its only jobs are collision detection and diagnostics (§7.5). |
+
+### 6.2 What stays where it is
+
+| Location | Why it stays |
+| --- | --- |
+| **The extension's VS Code storage** (F18): managed runtime, attachment staging, per-run description file, `globalState`, `workspaceState`, SecretStorage | **PROPOSED, US-D19.** These are the extension's own runtime and staging state, not BugPilot-generated work data. VS Code creates, isolates and deletes them with the extension. None of them is inside a repository (R5). Moving the 0.1.5 managed runtime would change a released, verified install path for no storage benefit. |
+| **OS temp payloads** (F19) | Temporary by design: removed after their command (R2 allows it). |
+| **Atomic-write temp files** | They stay *in the target's own folder* (`artifact_io.py:124`). That is how the rename is atomic. They are now inside the data root, never inside the repository. |
+| **The agent's own state** (F20, F28) | Not BugPilot's. |
+
+### 6.3 What 0.1.6 leaves untouched
+
+All of these are **never read, written, moved, renamed or deleted** by 0.1.6:
+
+| Location | What it holds | 0.1.6 equivalent |
+| --- | --- | --- |
+| `<repo>/.ai/`, `<repo>/.ai_memory/`, `<repo>/.bugpilot/` | the 0.1.5 work items, memory and repository settings | §6.1 |
+| `~/.bugpilot/config.toml` | the 0.1.5 credentials (may hold a plaintext token) | `config/config.toml` |
+| `~/.bugpilot/instructions.md` | the 0.1.5 User Instructions | `config/instructions.md` |
+| `~/.bugpilot/fix_modes/` | the 0.1.5 user Fix Modes | `config/fix_modes/` |
+
+Notes on the legacy files:
+
+- **Same root folder.** The 0.1.5 files sit directly in the default data root, beside `config/` and `repositories/`. The new names never collide with them, and a 0.1.5 installation keeps working with them after a downgrade (§14 rollback).
+- **Legacy guards.** The F22 guards (Code Search exclusion, review pathspec, lint) keep naming `.ai` and `.ai_memory`, so a left-behind folder never becomes evidence (US-D15). They exclude a path; they never read from it.
+- **Optional presence notice** (US-D20, OPEN; the review recommends **deferring** it).
+  - **If ever approved:** `doctor` would report whether each legacy path *exists*: an `lstat`, never a read, to explain the breaking change. That is detection for a message, not a fallback.
+  - **Under the review's recommendation:** 0.1.6 probes no legacy path at all, and §13's documentation explains the change instead.
+
+---
+
+## 7. Repository identity
+
+### 7.1 Repository scope (US-D4, OPEN; review: accept, with a diagnostic)
+
+The repository root is **the directory BugPilot runs in**, exactly as today:
+
+- the CLI's working directory;
+- the MCP server's bound root;
+- the extension's chosen workspace folder, passed to the CLI as cwd.
+
+0.1.6 adds **no** git top-level discovery, for identity or for scope, and no relocation.
+
+| | Keep today's root (recommended) | Use `git rev-parse --show-toplevel` |
+| --- | --- | --- |
+| Behaviour change | none: Code Search scope, `Path.cwd()` and the extension's folder choice all stay as they are | running from a subdirectory joins the top-level's namespace, but Code Search would still be scoped to the subdirectory unless that changes too |
+| Cost | none | a `git` call on every command; a new failure mode without git; a scope change that is out of this project's theme |
+| Limitation | running BugPilot from a subdirectory creates a separate namespace (as today it creates a separate `.ai/`) | — |
+
+**Diagnostic for a subdirectory** (review recommendation, part of US-D4). This is a hint only: it changes no path, no identity and no scope.
+
+- `doctor`, and only `doctor`, runs `git rev-parse --show-toplevel` once.
+- It reports `storage.below_git_toplevel` (§8.10):
+  - `true` when the root is a subdirectory of a git top-level;
+  - `false` when it is the top-level;
+  - `null` without git or outside a checkout.
+- When it is `true`, the panel's Diagnostics shows one line: "BugPilot is running in a subfolder of this Git repository, so this folder's work items are kept apart from the repository root's."
+- The `doctor` field comes with Batch 2's `storage` object; the panel line comes in Batch 5.
+
+**Scope in 0.1.6:**
+
+| Situation | Namespace |
+| --- | --- |
+| A subdirectory of a repository | its own, separate from the top-level's (as its own `.ai/` is today) |
+| A moved or renamed repository | a **different identity**; the old namespace stays where it was, orphaned, never deleted |
+| A new clone at another path, even of the same remote | a **different namespace** |
+| Each git worktree | its **own namespace** (US-D7) |
+| Re-associating any of these with an earlier namespace | **none in 0.1.6**: no automatic merge, relocation or "this used to be…" lookup (US-D8; relocation DEFERRED) |
+
+### 7.2 The algorithm (PROPOSED, US-D5)
+
+```text
+input   root: the directory BugPilot runs in (absolute or relative to the process cwd)
+
+canonical  = os.path.realpath(root, strict=True)
+             # resolves symlinks, Windows junctions and other name-surrogate
+             # reparse points, `.`/`..`, redundant separators and (Windows)
+             # (expected, NOT VERIFIED: §7.3) subst and mapped drives to their final path; on Windows
+             # also the stored letter case. strict: a root that does not
+             # exist is an error, never a guess.
+key        = os.path.normcase(canonical) on Windows (lower case, backslashes)
+             canonical unchanged on Linux and macOS (no case folding, no
+             Unicode normalization: "prefer split over merge", §7.3)
+digest     = sha256(b"bugpilot-repository-v1\0" + key.encode("utf-8", "surrogateescape"))
+hash16     = digest.hexdigest()[:16]                       # 64 bits
+slug       = basename(canonical) → NFKD → ASCII → lower case;
+             every run of characters outside [a-z0-9._-] → "-";
+             leading and trailing "." and "-" stripped; at most 24 characters;
+             "repository" when nothing is left
+repository_id = f"{slug}-{hash16}"                         # matches ^[a-z0-9][a-z0-9._-]{0,23}-[0-9a-f]{16}$
+```
+
+Each step and its reason:
+
+| Step | Why |
+| --- | --- |
+| Hash a canonical path, not the git remote | A remote names a project, not a checkout. Two clones of one remote are two working trees with different branches and different work in progress, and must not share `work/JR-12345/` (R3). A repository may also have no remote, or several. |
+| Hash, not inode | `(st_dev, st_ino)` survives renames, but it is not stable across a backup restore or a re-clone at the same path. `st_dev` can change across reboots for removable and network volumes, and an inode can be reused after deletion. A path is explainable to a person; an inode is not. |
+| A versioned prefix (`bugpilot-repository-v1\0`) | A future change of algorithm gives new IDs deliberately, never by accident. |
+| 64 bits of SHA-256 | Collision probability for k repositories is about k²/2⁶⁵: about 3×10⁻¹² for 10,000 repositories. The record (§7.5) catches the impossible case anyway. |
+| The slug | Display only: it makes `~/.bugpilot/repositories/` navigable by a person. Uniqueness comes only from the hash. |
+| The slug's fixed character class | Keeps every hostile basename harmless as a path segment: newlines, `..`, separators, reserved Windows device names (`CON`, `NUL`; the hash suffix makes `con-…` an ordinary name), trailing dots or spaces, non-ASCII, shell metacharacters. |
+| At most 24 characters | Keeps Windows `MAX_PATH` within reach (SF-5). |
+| Lower case | Avoids case-only differences between platforms. |
+| `surrogateescape` | A POSIX path with undecodable bytes still hashes deterministically. |
+| Computed once per process per root | Memoized (§12). The MCP server computes it once at startup. |
+
+### 7.3 Behaviour in each case the brief names
+
+The guiding rule is **prefer split over merge**:
+
+- **Merging two repositories is unsafe.** Two different checkouts sharing one namespace is cross-repository confusion: one repository's `task.md` handed to an agent in the other.
+- **Splitting one repository is safe.** One checkout reaching two namespaces through two spellings is a visible nuisance (its work items "disappear"), never an unsafe one.
+
+Every rule below chooses the split when it cannot be sure.
+
+| Case | Result | How |
+| --- | --- | --- |
+| Two repositories with the same basename | different IDs, same slug (`app-1f…`, `app-9c…`) | different canonical paths → different hashes |
+| One repository through different spellings (`C:/x/repo`, `c:\x\repo\`, `C:\x\.\repo`) | **one ID** | `realpath` normalizes separators, `.`, `..` and trailing separators; Windows `normcase` folds case |
+| Windows letter-case differences (`c:\Work\Repo` vs `C:\work\repo`) | **one ID** | `realpath` returns the stored case (observed during this audit on this checkout: a lower-case drive letter and an all-capitals spelling both resolved to the stored spelling), then `normcase` |
+| Windows per-directory case sensitivity (WSL `setcaseinfo`), two folders differing only in case | the two keys are equal, so the record check sees the other root and **refuses** (§7.5) | merge prevented; the user sees a one-sentence error. Extremely rare; documented |
+| Root reached through a symlink or junction | **one ID**: the target's | `realpath` follows the link for identity only. Writes still refuse links *below* the data root (§8.5). The root itself may sit behind a link, as today. |
+| `subst` drive or mapped network drive vs its UNC path | **one ID** (expected) | `realpath` uses the final path. **NOT VERIFIED**, locally or in CI: a `subst` drive letter is a session-wide change outside a test's own folder, so its test is deferred pending separate owner approval (D0A-5). Mapped network drives are not observed either. |
+| macOS case-insensitive APFS: `/Users/you/Repo` vs `/Users/you/repo` | **one ID** when the root comes from the working directory, which every entry point uses: `getcwd()` on macOS returns the stored spelling. **Two IDs** when `BUGPILOT_MCP_REPO_ROOT` is set with a different case. | `realpath` does not fold case on POSIX. The split is the safe failure. **Unverified**: observed on macOS CI in Batch 0A |
+| macOS `/var` → `/private/var`, `/tmp` → `/private/tmp` | one ID (the `/private` path) | `realpath` |
+| NFC vs NFD spellings of the same folder (macOS) | one ID from `getcwd()`; possibly two from an explicit root | no Unicode normalization on purpose: on Linux two such folders are different folders |
+| Repository moved or renamed | **a new ID**; the old namespace stays where it was, orphaned, not deleted | no relocation in 0.1.6 (US-D8, DEFERRED). §13 tells the user how to find old data. |
+| Repository cloned to a new path | a new ID (correct: a different working tree) | — |
+| Several VS Code windows or workspaces on one repository | **one ID**: every window resolves the same root | concurrency in §8.7 |
+| A multi-root workspace with two repositories | two IDs; the extension uses the folder the developer chose (unchanged) | — |
+| Git worktrees (`git worktree add ../repo-wt`) | **one ID per worktree** (PROPOSED, US-D7) | Each worktree is a separate working tree, usually on a different branch for a different bug. Sharing `work/` between worktrees would let one worktree's agent read another's work. Keying by `git rev-parse --git-common-dir` would merge them. The extension today does not even recognize a worktree root (`.git` is a file; `host.ts:36-45`), a limitation that stays. |
+| Nested repositories (a submodule or a vendored checkout inside another) | the namespace of whichever directory BugPilot runs in | §7.1 |
+| A root that does not exist, or cannot be resolved | error before anything is written | `strict=True` |
+
+**Batch 0A local observation** (this machine only: Windows 11, Python 3.14.6; `tests/baselines/0.1.6-batch0/realpath_windows.json`):
+
+- `realpath` resolved these to the stored spelling: separators and `.`/`..`, a trailing separator, forward slashes, a case variant, a symbolic link (available here), and a junction.
+- `strict=True` raised for a missing folder.
+- `subst` was not observed: **NOT VERIFIED**, its test deferred pending separate owner approval (D0A-5).
+
+Every row above marked "Unverified" stays unverified until an owner-dispatched CI run records the other systems: `tests/test_storage_baseline.py` writes them to the file-safety artifact. No CI has run for 0.1.6. The `subst` row is different: no CI run observes it either, until the owner approves its test (D0A-5).
+
+### 7.4 Privacy of `repository.json` (US-D6, PROPOSED)
+
+`repository.json` stores the canonical root path, for example `C:\Users\you\src\app`.
+
+- **The cost:** one more file on disk naming a local path.
+- **Where it lives:** in the user's own data root, created `0600` in a `0700` folder.
+- **Where it never appears:**
+  - in `task.md`, which names only the work folder (§9.4);
+  - in any prompt;
+  - in any normal CLI or MCP output, except `doctor --json`'s storage section (US-D21, US-D22).
+
+**The benefit:**
+
+- collision and mismatch detection (§7.5);
+- `doctor` can tell a person which repository a namespace belongs to;
+- after a repository moves (US-D8), the user can identify an orphaned namespace by reading one file.
+
+**The alternative:** store only the digest. That loses all three benefits.
+
+### 7.5 The identity record and collision handling (US-D24, PROPOSED)
+
+`repository.json`:
+
+```json
+{
+  "schema_version": 1,
+  "repository_id": "checkout-9f2c41d07ab3e815",
+  "root": "C:\\Users\\you\\src\\checkout"
+}
+```
+
+- **The content is deterministic:** no timestamp and no host name. Two processes creating it at once write identical bytes (§8.7).
+- **The repository namespace is not ready until the record has been written or verified.** The write path is `ensure()` (§8.3).
+
+| State found | Write path (`ensure()`) | Read path (no `ensure()`) |
+| --- | --- | --- |
+| The `<repository-id>` folder is absent | create the folders (`0700`), then the record | "no such work item" or default settings; **nothing is created** |
+| Record absent, folder present (an interrupted `ensure()`) | write the record (deterministic, so harmless) | proceed |
+| Record present; `normcase(root)` equals our key | proceed | proceed |
+| Record present; a different root | **refuse**: `StorageIdentityError`, one sentence naming the record's display path, no absolute path; nothing written | **refuse** the read: a namespace whose record names another repository is never read |
+| Record unreadable, not JSON, wrong `schema_version`, wrong id, a link, or not a regular file | **refuse**, same sentence family; the developer may delete the record | **refuse** |
+
+- **No automatic repair or overwrite.** A record that disagrees is the only evidence of a collision, and overwriting it would erase that evidence.
+- **Error code:** the refusal is reported as `INVALID_INPUT`. `StorageIdentityError` subclasses `UnsafePathError`, so every entry point already turns it into one sentence (`cli.py:755-759`).
+
+### 7.6 Limitations, stated
+
+- **A move or rename starts an empty namespace.** Old data stays where it was until the user acts (US-D8).
+- **A subdirectory gets its own namespace,** as it gets its own `.ai/` today (US-D4). `doctor` says so (§7.1).
+- **No automatic re-association.** A subdirectory, moved repository, new clone or worktree is never joined with another namespace in 0.1.6 (§7.1).
+- **Spelling-dependent IDs on macOS:** an explicitly configured root with different case or Unicode normalization than the stored name splits the namespace.
+- **Windows case-sensitive directories** that differ only in case are refused, not distinguished.
+- **The ID changes if the algorithm version changes.** That needs an owner decision and a release note.
+
+---
+
+## 8. Storage API contracts
+
+### 8.1 Principles
+
+1. **One resolver.**
+   - `bugpilot/core/storage.py` is the only code that knows the data root, the repository ID or the layout.
+   - Every other Python module asks it.
+   - The extension asks the CLI (§8.9).
+2. **Resolution never creates.**
+   - Computing a path is pure, apart from `realpath`.
+   - Creating folders and the identity record happens only on a write path (`create=True` / `ensure()`).
+   - This is what keeps `task-preview`, `context-preview`, `list`, `status`, `doctor` and MCP reads write-free, a guarantee 0.1.4 and 0.1.5 already document (`docs/safety.md:68`, `:73`).
+3. **Same signatures where possible.**
+   - `config.issue_dir`, `writable_issue_dir`, `memory_dir` and `writable_memory_file` keep their signatures and delegate to `storage`.
+   - This is implementation scaffolding inside 0.1.6, not legacy compatibility: they point only at the new layout.
+   - It keeps the diff of about 50 modules mechanical, and lets `tests/test_containment.py` stay unchanged.
+4. **No new dependency.** The standard library only, on Python 3.10.
+
+### 8.2 Module surface (PROPOSED)
+
+```python
+# bugpilot/core/storage.py — names are proposals, settled in Batch 1
+
+DATA_ROOT_ENV = "BUGPILOT_HOME"                 # US-D3 (name OPEN)
+STORAGE_LAYOUT_VERSION = 1                      # repository.json schema_version
+
+class StorageError(UnsafePathError): ...        # one sentence; never an absolute path
+class StorageIdentityError(StorageError): ...   # record mismatch or corrupt (§7.5)
+
+def data_root() -> Path
+    # $BUGPILOT_HOME if set (stripped, must be absolute, no C0/C1 control,
+    # U+2028/U+2029 or NUL characters, else StorageError), else Path.home() / ".bugpilot".
+    # Never creates. Path.home() failing (no HOME / USERPROFILE) is a StorageError.
+
+@dataclass(frozen=True)
+class RepositoryIdentity:
+    repository_id: str        # "<slug>-<hash16>"
+    root: Path                # canonical (realpath) form, for display and the record
+    key: str                  # normcase(root) on Windows, root elsewhere
+
+def repository_identity(repo_root: Path) -> RepositoryIdentity     # §7.2; memoized
+
+@dataclass(frozen=True)
+class GlobalStorage:
+    root: Path
+    config_dir: Path                     # <root>/config
+    config_file: Path                    # <root>/config/config.toml
+    user_instructions_file: Path         # <root>/config/instructions.md
+    user_fix_modes_dir: Path             # <root>/config/fix_modes
+    def ensure_config_dir(self) -> Path  # 0700, link-checked; never touches <root>'s mode
+
+def global_storage() -> GlobalStorage
+
+@dataclass(frozen=True)
+class RepositoryStorage:
+    root: Path                           # the data root
+    identity: RepositoryIdentity
+    directory: Path                      # <root>/repositories/<id>
+    settings_dir: Path                   # .../settings
+    work_root: Path                      # .../work
+    memory_dir: Path                     # .../memory
+
+    def ensure(self) -> None                                     # §7.5; idempotent
+    def record_state(self) -> Literal["absent", "ok", "missing-record", "mismatch", "corrupt"]
+    def work_item_dir(self, work_item_id: str, *, create: bool) -> Path
+    def memory_file(self, work_item_id: str, *, create: bool) -> Path
+    def settings_file(self, name: SettingsName, *, create: bool) -> Path
+    def fix_modes_dir(self, *, create: bool) -> Path
+    def work_items(self) -> list[WorkItemEntry]                 # id, path, mtime; for `list`
+
+def repository_storage(repo_root: Path) -> RepositoryStorage
+
+def display_path(path: Path) -> str
+    # "~/.bugpilot/repositories/<id>/work/JR-12345/task.md", or
+    # "BUGPILOT_HOME/…" when the override is set: never the user's own folder (US-D22)
+```
+
+`SettingsName` is the closed set: `instructions.md`, `verification.md`, `ai_behavior.md`, `project_settings.json` and `repository_profile.json`. Nothing else can be addressed under `settings/`.
+
+### 8.3 Contracts
+
+| Concern | Contract |
+| --- | --- |
+| **Global root** | `data_root()` as above. No `~` expansion inside `BUGPILOT_HOME`: a value starting with `~` is relative, so it is refused (as a relative `bugpilot.executablePath` is refused today). The root itself **may** be a symbolic link or junction: the user's choice, as `~/.bugpilot` may be today (owner decision B4-2). |
+| **Repository identity** | §7.2. Raises `StorageError` for a root that does not exist. |
+| **Per-repository settings** | `settings_file(name, create=False)` for reads. Writers call `create=True`, which runs `ensure()` and then creates `settings/` with `0700`. `link_problem` semantics are kept: a link at `settings/` or at the file is refused, for reads too. |
+| **Work-item folders** | `work_item_dir(id, create=)`. The id is validated by `identity.validate_work_item_id` *before* any path is built, and an invalid id raises `StorageError`. `create=False` returns the path without checking existence (the caller reports "not prepared"), but still refuses links on existing components. |
+| **Memory** | `memory_file(id, create=)`. `memory/` is created only by a memory writer. Readers glob `memory/*.md` only when `memory/` is a real folder. |
+| **Cache** | none (US-D36). |
+| **Safe creation** | Each missing component below the data root (`config`, `repositories`, `<id>`, `settings`, `work`, `<work item>`, `memory`, `fix_modes`, `attachments`) is created one at a time with `mkdir(mode=0o700)`, which is subject to the umask, so never wider. It is re-checked with `is_link_or_junction` after creation. An existing component must be a real directory, not a link or junction. The result is compared with `realpath(data root) / parts`, as `safe_paths.writable_dir` does today. |
+| **Owned files** | Unchanged: `artifact_io.atomic_write_text` (new files `0600`, rewrites keep their bits, `_check_temp`, cleanup on failure). `private=True` stays for `config.toml` only. |
+| **Id validation** | `WORK_ITEM_ID_RE` (unchanged; shared fixture `tests/fixtures/work_item_ids.json`). The repository ID has its own regex (§7.2) and is never accepted from input: always computed. |
+| **Path traversal** | Every segment comes from a validated id, a fixed name or a computed ID. Separators, `.`, `..` and empty segments are refused by `_check_parts` (`safe_paths.py:155-157`). The final `realpath` comparison catches anything a check missed. |
+| **Cross-repository access** | No API takes a repository ID as input: a `RepositoryStorage` exists only for the root it was computed from. The record check (§7.5) refuses a namespace that names another root. MCP binds one at startup (F27). |
+| **Missing or corrupt metadata** | §7.5. A corrupt `run.json`, `issue.json` or `retrieval.json` keeps today's handling (`RunArtifactError`, quiet readers). |
+
+### 8.4 Deletion
+
+- `clean` keeps its semantics with a new base. It calls `owned_path(data_root, ("repositories", id, "work", work_item_id))`, and with `--include-memory` also `("repositories", id, "memory", f"{work_item_id}.md")`.
+- `owned_path` refuses a link at any component, and refuses a target that resolves elsewhere. `rmtree` removes links inside the tree as links.
+- Nothing ever deletes `repository.json`, `settings/`, `config/` or a namespace. Retention is DEFERRED (US-D38).
+
+### 8.5 `safe_paths` generalization (Batch 1)
+
+The functions already take a base and parts (`safe_paths.py:75`, `:107`). Batch 1 adds:
+
+- a `boundary` label for messages. Today the messages say "inside this repository"; they become "inside BugPilot's data folder" for the new base;
+- a `mode` argument for `mkdir`.
+
+The callers on the repository-local base keep their exact messages until Batch 2 removes them. In Batch 1, product behaviour stays unchanged.
+
+### 8.6 Errors and messages
+
+- **One error family.** `StorageError` and `StorageIdentityError` are `UnsafePathError` subclasses, so they reach the CLI as one sentence (`ERROR: …` or `INVALID_INPUT`) with no traceback.
+- **New error code: OPEN.** A new `errors` code, for example `STORAGE_UNAVAILABLE`, could distinguish "cannot create `~/.bugpilot`" (a permission or disk problem) from bad input. It is part of US-D26.
+- **No absolute paths in messages.** Every message names paths in the display form (`display_path`). A system `OSError` can still carry one, the known F12 limit (`docs/safety.md:68`).
+
+### 8.7 Simultaneous callers
+
+| Situation | Behaviour |
+| --- | --- |
+| Two processes create the same repository namespace | `mkdir` per component tolerates `FileExistsError`. The re-check after `mkdir` refuses a link made in between. The identity record is deterministic, so two atomic writes of it produce identical content. |
+| Two VS Code windows and an MCP server on one repository | Same as today: per-file atomic writes; the MCP server's in-process lock serializes its own tools (`mcp_server.py:104-115`). No cross-process lock is added; there is none today either. Two simultaneous preparations of the same work item interleave per file, as in 0.1.5. |
+| Extension and CLI | After US-D17 and US-D18, the extension never writes or deletes under the data root. The CLI is the only writer. |
+| `atomic_write_text` | unchanged; its temp file is in the target's folder, inside the data root |
+
+### 8.8 Interfaces: CLI, MCP and extension (PROPOSED, US-D17, US-D26, US-D27)
+
+This table is the overview. The exact, testable contract is §8.10.
+
+| Surface | 0.1.5 | 0.1.6 |
+| --- | --- | --- |
+| `bug --json` | `issue_dir: ".ai/<id>"`, `agent_task: ".ai/<id>/task.md"`, `generated_files: [".ai/<id>/…"]` | `issue_dir`: absolute work folder. `agent_task`: absolute. `generated_files` relative to the repository namespace (`work/<id>/task.md`, `memory/<id>.md`; US-D25). Keys unchanged. |
+| `bug --json-lines` | `{"type":"artifact","path":".ai/<id>/…"}` | `path` relative to the namespace; the `started` event gains `work_dir` (absolute) |
+| `bug <id> --retry --json` | `feedback_file`, `retry_prompt` relative | absolute; new `--feedback-file <path>` input (US-D18) |
+| `list --json` | `work_item_id`, `source`, `title`, `prepared` | adds `work_dir` (absolute) and `modified` (ISO-8601 UTC, the folder's mtime), so the extension stops `stat`-ing |
+| `status --json` | `generated_files` | as `bug` |
+| `record-review`, `record-verification` | relative report path | absolute |
+| `verification`, `ai-behavior`, `instructions`, `project-settings`, `repository-profile` (`show --json`) | `path: ".bugpilot/…"` (display) | `path`: absolute (the extension opens it); new `display_path` |
+| `doctor --json` | `ai_artifacts_ignored*`; capabilities | Adds a `storage` object: `data_root`, `data_root_display`, `data_root_source`, `repository_id`, `repository_root`, `repository_dir`, `config_dir`, `state` (`ready`, `absent` or `error`), `problem`, `below_git_toplevel` (US-D4) and `legacy_config_dir_variable` (US-D3). No legacy-presence flags (US-D20 deferred). Removes `ai_artifacts_ignored*` if US-D16 is approved. Capability **`unified-storage`**. Still writes nothing. |
+| MCP `prepare_*`, `refine_investigation` | `issue_dir`, `agent_task`, `next_step`, `generated_files` relative | same keys. `issue_dir` and `agent_task` absolute; `next_step` names absolute paths; `generated_files` as `bug` (US-D27). |
+| MCP `search_memory` | `file: ".ai_memory/bugs/…"` | `file: "memory/<id>.md"` |
+| MCP `check_results`, `summarize_results` | relative `missing`, `fix_report` | absolute |
+
+The rule for absolute paths (US-D22):
+
+- Absolute paths appear only in fields whose job is a path, and in the agent handoff (§9).
+- Messages and warnings use the display form.
+- Stored artifacts hold no absolute path, except `repository.json` and the `task.md` work-folder line (§9.4).
+
+### 8.9 The extension's share of the resolver (PROPOSED, US-D17)
+
+- **The CLI resolves; the extension asks.** The CLI is the only resolver of the data root and the repository ID. The extension never computes either, never reads `HOME` for them, and never parses `repository.json`.
+- **Per root, the extension holds `repository_dir`** from `doctor --json` (it already runs `doctor` at environment check, `executable.ts:169`). It refreshes the value when the root changes. Item-scoped CLI responses (`bug`, `list`, `--retry`) also return `work_dir`.
+- **For a work item known only by id**, the extension composes `<repository_dir>/work/<id>`:
+  - examples: the workspace-state restore at `extension.ts:328`, a typed Jira key at `controller.ts:5056`;
+  - only after the id passes the shared `WORK_ITEM_ID_RE`;
+  - only through one helper whose output is tested against Python's on a shared fixture, as `tests/fixtures/work_item_ids.json` is today.
+- **The extension may *read*, *open* and *watch* under that folder:**
+  - `run.json`, `issue.json`, the reports and `retrieval.json`;
+  - files opened in an editor, and the policy files under `settings/`;
+  - it keeps its lstat checks (`bugpilotFiles.ts`), with the base now `repository_dir`.
+- **It never writes or deletes there.**
+  - `user_feedback.md` goes through the CLI (US-D18).
+  - Reset Session's deletion goes through `bugpilot clean` only; the TypeScript pre-check (`sessionReset.ts:190-265`) is retargeted or removed.
+- **Why not have the CLI return every file path?** History reads `run.json` for up to every work item in a repository. Spawning the CLI per item, at about 300 ms each, would make History slow. Composing a validated id under a CLI-given base keeps the CLI the authority on the parts that can go wrong (root, identity, links), without a process per file.
+
+### 8.10 The storage JSON contract (US-D26; review: accept conditionally)
+
+**Why this section exists.** The review asks for an exact, independently testable contract *before* implementation. This section is that contract in prose.
+
+**How it is frozen and tested.**
+
+- Batch 1 freezes it as `tests/fixtures/storage_cli_contract.json`. This is test data only; no product code reads it.
+- The owner's approval of this section and the fixture, at the Batch 1 gate, is a precondition of Batch 2 (§14.3).
+- Python (`tests/test_storage_contract.py`) and TypeScript (`extension/test/storageContract.test.ts`) each test against the fixture, never against the other side's code.
+- A change to the contract is a change to the fixture, reviewed as such.
+
+**Value kinds**
+
+| Kind | Definition | Example |
+| --- | --- | --- |
+| `abs` | an absolute path in the platform's own separators. No trailing separator, never `~`; the canonical form `storage` computed. | `C:\Users\you\.bugpilot\repositories\app-0123456789abcdef\work\JR-12345`; `/home/you/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345` |
+| `ns` | relative to the repository namespace folder. `/` on every OS; no leading `./`; never `..`. | `work/JR-12345/task.md`, `memory/JR-12345.md` |
+| `display` | the display form of §8.2: `~/.bugpilot/…` or `BUGPILOT_HOME/…`, with `/`. Never the user's own folder name. | `~/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/task.md` |
+| `posix-abs` | `abs` written with `/`. Used only inside prompt and handoff text. | `C:/Users/you/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/task.md` |
+| `id` | a repository ID matching `^[a-z0-9][a-z0-9._-]{0,23}-[0-9a-f]{16}$` | `app-0123456789abcdef` |
+
+**Keys.** A key keeps its 0.1.5 name unless it is marked *new* or *removed*. "Value" means the key stays and its value's form changes.
+
+| Command or tool | Key | Kind | Null when | Change |
+| --- | --- | --- | --- | --- |
+| `bug --json` | `issue_dir` | `abs` (the work folder) | never | value (was `.ai/<id>`) |
+| | `agent_task` | `abs` | no `task.md` was written (`--only-issue-details`) | value |
+| | `generated_files[]` | `ns` | — | value |
+| `bug --json-lines`, event `started` | `work_dir` | `abs` | never | **new** |
+| `bug --json-lines`, event `artifact` | `path` | `ns` | — | value |
+| `bug <id> --retry --json` | `feedback_file`, `retry_prompt` | `abs` | never | value |
+| | input `--feedback-file <file>` | a regular UTF-8 file, not a link, copied verbatim into `user_feedback.md` by the atomic writer | — | **new** option (US-D18) |
+| `list --json` | `work_items[].work_dir` | `abs` | never | **new** |
+| | `work_items[].modified` | `YYYY-MM-DDTHH:MM:SSZ` (UTC, the folder's mtime, whole seconds) | the mtime cannot be read | **new** |
+| `status --json` | `generated_files[]` | `ns` | — | value |
+| | `work_dir` | `abs` | never | **new** |
+| `fetch --json` | `issue_dir` | `abs` | never | value |
+| step commands with `--json` (`search`, `context`, …) | `generated_files[]` | `ns` | — | value |
+| `check-results --json` | `missing[]` | `abs` | — | value |
+| `summarize-results --json` | `fix_report` | `abs` | the report is absent | value |
+| `record-review --json` | `review_report` | `abs` | never | value |
+| `record-verification --json` | `verification_report` | `abs` | never | value |
+| `instructions show --json` | each scope's `path` | `abs` | never | value (was a display string) |
+| | each scope's `display_path` | `display` | never | **new** |
+| `verification`, `ai-behavior`, `project-settings`, `repository-profile` `show --json` | `path` | `abs` | never | value |
+| | `display_path` | `display` | never | **new** |
+| `fix-mode list --json` | `issues[].path` | `display` | — | value (was absolute; SF-3) |
+| `doctor --json` | `capabilities[]` | gains `"unified-storage"` | — | value |
+| | `ai_artifacts_ignored`, `ai_artifacts_ignored_paths` | — | — | **removed** only if US-D16 is approved |
+| | `storage` | an object, below | never | **new** |
+| `doctor --json` → `storage` | `data_root` | `abs` | the home cannot be resolved | **new** |
+| | `data_root_display` | `display` | as above | **new** |
+| | `data_root_source` | `"default"` or `"BUGPILOT_HOME"` | never | **new** |
+| | `repository_root` | `abs` | the root cannot be resolved | **new** |
+| | `repository_id` | `id` | as above | **new** |
+| | `repository_dir` | `abs` | as above | **new** |
+| | `config_dir` | `abs` | the data root cannot be resolved | **new** |
+| | `state` | `"ready"` (record verified), `"absent"` (namespace not created yet), `"error"` | never | **new** |
+| | `problem` | one sentence, display paths only | `state` is not `"error"` | **new** |
+| | `below_git_toplevel` | boolean (§7.1) | no git, or not a checkout | **new** (US-D4) |
+| | `legacy_config_dir_variable` | boolean: `true` when `BUGPILOT_CONFIG_DIR` is set (its value is never read or shown) | never | **new** (US-D3) |
+| MCP `prepare_jira_bug`, `prepare_bug_description`, `refine_investigation` | `issue_dir` | `abs` | never | value |
+| | `agent_task` | `abs` | no task | value |
+| | `generated_files[]` | `ns` | — | value |
+| | `next_step` | text naming the `posix-abs` paths of `task.md` and `context.md` | — | value |
+| MCP `check_results` | `missing[]` | `abs` | — | value |
+| MCP `summarize_results` | `fix_report` | `abs` | absent | value |
+| MCP `search_memory` | `matches[].file` | `ns` (`memory/<id>.md`) | — | value |
+| MCP `get_status` | `generated_files[]` | `ns` | — | value |
+| persisted `run.json` | `generated_files[]` | `ns` | — | value; `schema_version` stays 1 (US-D25) |
+| persisted `repository.json` | §7.5 | — | — | **new** file |
+
+**What stays the same.**
+
+- The envelope (`schema_version`, `ok`, `command`, `error.code`, `error.message`) is unchanged.
+- A 0.1.5 client ignores the new keys. The only removed keys are the two `ai_artifacts_ignored*`, and only if US-D16 is approved.
+- `StorageError` and `StorageIdentityError` report `INVALID_INPUT`.
+- Whether to add a separate `STORAGE_UNAVAILABLE` code (the data root cannot be created or written) stays an owner choice within US-D26. Until it is chosen, such failures use the existing generic code.
+
+**How each side checks it.**
+
+- **The fixture** lists, per command and key: the kind, when it is null, and whether the key is new, changed or removed.
+- **`tests/test_storage_contract.py`** runs each command in an isolated repository and data root, and checks every listed key against its kind:
+  - `abs`: absolute and under the isolated data root;
+  - `ns`: `/` only, no `..`, resolving inside the namespace;
+  - `display`: starts with `~/.bugpilot/` or `BUGPILOT_HOME/`, and contains no component of the isolated home's path;
+  - `id`: matches the regex.
+- **`extension/test/storageContract.test.ts`** reads the same fixture, and checks that every key the extension consumes is listed with the kind the extension assumes.
+
+---
+
+## 9. Agent Handoff analysis (critical design gate)
+
+### 9.1 What the handoff depends on today
+
+An agent is started with the repository as its working directory and is given repository-relative paths.
+
+| Surface | Today | Reads | Writes | Source |
+| --- | --- | --- | --- | --- |
+| Fix with AI: terminal launch | `claude "Read .ai/<id>/task.md and complete the workflow."` (with `--session-id <uuid>` when the CLI's `--help` lists it); `codex "<same>"` | `task.md`, then `context.md`, `retrieval.json`, attachments | `fix_report.md` | `extension/src/app/agents.ts:320-370`, `controller.ts:2988-3033`, `:3349-3351`; `src/host/agentTerminals.ts:74-82` (`createTerminal({cwd: root})` + `sendText`) |
+| Fix with AI: extension bridges (Claude Code, Codex extensions) | the prompt is copied to the clipboard, and the agent's view is revealed | as above | as above | `agents.ts:420-510` |
+| Open AI Session / relaunch / Resume Agent Session | `claude --resume <uuid>` / `claude -c`; reads `~/.claude/projects/<slug(root)>` | — | — | `src/app/session.ts:26-72`, `controller.ts:2472-2552`, `extension.ts:790-808` |
+| Retry | `Read .ai/<id>/agent_retry_prompt.md and continue the workflow.` | retry prompt, `user_feedback.md`, `fix_report.md`, `context.md`, `retrieval.json`, `task.md` | `fix_report.md` | `nextAction.ts:206-208`, `workflow.py:1956-2069` |
+| Review with AI: terminal | the `review-package` prompt | `context.md`, `retrieval.json`, `fix_report.md` | none | `workflow.py:2400-2407`, `controller.ts:5460` |
+| Review with AI: captured | `claude -p --output-format json --no-session-persistence --setting-sources "" --strict-mcp-config --permission-mode dontAsk --tools Read Grep Glob --allowedTools Read Grep Glob`, the prompt on stdin | as above | none (no write tool) | `agents.ts:210-252`, `controller.ts:5501-5540` |
+| Hint improver | `claude -p --tools ""` or Codex read-only, in an empty temp folder; the issue text inline | none | none | `src/app/hintImprovement.ts:212` (**unaffected**) |
+| Copy handoff prompt / Copy Again / no-agent fallback | the same sentence on the clipboard | as Fix | as Fix | `controller.ts:2808-2813`, `:3073-3140` |
+| CLI `--launch-agent claude\|copilot` (deprecated) | `subprocess.run([…, prompt], cwd=repo_root)`; a `.cmd` shim runs through `cmd /c` | as Fix | as Fix | `agent_runner.py:60-138` |
+| MCP | the client model calls `prepare_*`, then reads the returned `.ai/<id>/task.md` and `context.md` with its own tools | as Fix | `fix_report.md` | `mcp_server.py:231-280` |
+| Claude Code skill | runs `bugpilot bug <ISSUE> --prepare-only --resume`, then reads `.ai/<ISSUE>/task.md` | as Fix | `fix_report.md` | `skills/bugpilot-investigate/SKILL.md` |
+| Commands `task.md` tells the agent to run | `bugpilot jira-comment-draft <id>`, `bugpilot jira-comment <id> --execute` (opt-in), "from the target repo root" | — | the CLI writes into storage | `prompts.py:349-364` |
+
+### 9.2 What the agents allow outside their working directory
+
+From the vendors' documentation as of 2026-10. **V** = documented (source given). **A** = inferred. **No row was observed live.** The Batch 0B probes (§9.7) observe them, with the owner's separate approval. Until then, every row is documentation, not evidence.
+
+| | Claude Code CLI | OpenAI Codex CLI | GitHub Copilot CLI |
+| --- | --- | --- | --- |
+| **Read** outside cwd, default modes | **Prompts** in default and `acceptEdits` for Read/Grep/Glob. Built-in read-only Bash commands (`cat`…) run without a prompt unless `permissions.blockReadsOutsideWorkingDirectories` (2.1.257+) is set. `auto` mode prompts once for the first outside read. (V: code.claude.com tools-reference, permissions, permission-modes) | **Allowed** in `read-only` and `workspace-write`: the default read access is full. (V: Codex app-server "Sandbox read access", agent-approvals-security). The Windows `elevated` sandbox runs commands as separate users, and whether they can read `%USERPROFILE%\.bugpilot` is **not documented** (A). | **Prompts** ("Allow directory access", once or add to the list). Default scope: cwd, its subdirectories and the system temp folder. (V: docs.github.com configure-copilot-cli) |
+| **Write** outside cwd | **Prompts**. `acceptEdits` auto-accepts only inside the working directory or `additionalDirectories`. In `-p` with no permission host, a prompt becomes a deny. (V: permission-modes, headless) | `workspace-write`: **needs approval** (`on-request`); refused with `-a never`. `read-only`: refused. (V: agent-approvals-security) | **Prompts**. (V) |
+| `dontAsk` (captured review) | Only working-directory reads and pre-approved tools run. A bare `Read` allow rule "matches all file reads", so the captured review **can** read an external path, except most network paths. (V: permission-modes, permissions) | — | — |
+| **Grant one more directory** | `--add-dir <path>`: read **and** edit (edits follow the permission mode); the path must exist; it also widens a Bash sandbox's write set **and loads `.claude/skills\|commands\|agents` from it**. Settings: `permissions.additionalDirectories` (file access only). (V: cli-reference, permissions, sandboxing) | `--add-dir`: "additional directories write access"; config `sandbox_workspace_write.writable_roots`. OpenAI recommends it over full access. (V). Whether `codex exec` accepts `--add-dir`, and what it does in `read-only`: **A** | `--add-dir=PATH` (read/write); must exist; **loads `.github/skills\|agents` from it as trusted config**; `--allow-all-paths` disables path checks entirely. (V: cli-command-reference) |
+| **Prompt input** | argv (`claude "q"`, `-p "q"`); stdin with `-p` only (10 MB); `--append-system-prompt-file` / `--system-prompt-file` (documented for interactive and `-p`; older versions `-p` only, so A for the installed version); `@path` mentions accept absolute paths, but how they are permission-checked is **not documented** | argv (`codex "q"`, `codex exec "q"`); stdin for `exec -` only; `model_instructions_file` **replaces** built-in instructions (unsuitable) | argv (`-p`, `-i`); piped stdin; `--attachment PATH` (whether `.md` is accepted: A) |
+| **Bash or command sandbox** | off by default; **not available on native Windows** | per mode; Windows `mxc`, `elevated` and `unelevated` implementations | local sandbox, best effort for file tools |
+
+**Windows command-line limits** (V: Microsoft Learn):
+
+- CreateProcess `lpCommandLine`: at most 32,767 characters.
+- `cmd.exe`: at most 8,191 characters. This applies to the npm `claude.cmd` and `codex.cmd` shims.
+
+### 9.3 BugPilot's own constraints
+
+1. **The prompt gate.**
+   - The rule: `PLAIN_PROMPT = /^\s*[A-Za-z0-9#][A-Za-z0-9\s.,:#/_-]*$/` (`agents.ts:266`).
+   - Every handoff passes it before it is sent: Fix, Retry, Review and custom commands (`agents.ts:278-280`, `:354`, `:567`, `:672`).
+   - Why it exists: the prompt is typed into the user's shell with `terminal.sendText`, and is quoted with JSON's escaping, which no shell honours fully (§37.27, §37.70).
+   - What it refuses: a backslash (any native Windows path), `~`, parentheses, apostrophes, `@`, `+`, `&`, `%`, and every non-ASCII letter.
+   - Spaces are allowed: the prompt is a single quoted argument.
+   - Example: `C:/Users/you/.bugpilot/…` passes; `C:\Users\you\…` does not, and neither does a forward-slash home whose user name holds a letter outside ASCII.
+2. **`cmd.exe` in the Python launcher.**
+   - `agent_runner._resolve_launch_command` runs a `.cmd` shim as `cmd /c <shim> <prompt>` (`agent_runner.py:133-137`).
+   - `cmd.exe` re-parses its arguments: `%VAR%`, `^` and `&`.
+   - Today's prompt is a fixed shape around a validated id, so it is safe. A home path is not under BugPilot's control. **0.1.6 applies the same plain-prompt rule in Python before launch** (§10, T-S12).
+3. **The working directory.**
+   - The repository stays the agent's cwd (R8). Claude's session-store lookup for Resume Agent Session depends on it (`session.ts:26-28`).
+4. **Size.**
+   - `task.md` is about 12 KB and `context.md` up to tens of KB.
+   - Neither fits through `cmd.exe`'s 8,191 characters, and both fail the prompt gate (Markdown).
+
+### 9.4 Options
+
+**Option A — the absolute external path; the agent's own permissions apply.**
+
+- **How it works:** the prompt and `task.md` name the work folder by absolute path, written with forward slashes.
+- **Reads:**
+  - Codex reads freely (V).
+  - Claude and Copilot ask the developer (V).
+  - Claude's captured review reads under its bare `Read` allow (V).
+- **Writing `fix_report.md`:** Claude and Copilot prompt; Codex `on-request` prompts (V).
+- **R8:** nothing is widened; every outside access is the developer's explicit choice in the agent's own UI.
+- **Costs:**
+  - one or two permission prompts per session, more if the developer chooses "once" rather than "for this folder";
+  - unattended runs (`-p`, `exec -a never`) cannot write the report;
+  - a home path outside the gate's class cannot be launched through a terminal.
+
+**Option B — the task inline.**
+
+- **How it works:** the task text goes through argv, stdin or a system-prompt file.
+- **What it costs or cannot do:**
+  - argv is ruled out by the 8,191 and 32,767 limits and by the gate;
+  - stdin works only for one-shot runs (Claude `-p`, `codex exec -`), while Fix with AI is an interactive session;
+  - Claude's `--append-system-prompt-file` is the one interactive file route. It moves BugPilot's task into the system prompt, must be passed again on `--resume`, is version-dependent (A), and cannot carry attachments;
+  - context and attachments still have to be read from somewhere;
+  - **it does not solve the write side at all.**
+- **What it is good for:** a fallback, through the clipboard into the agent's own input box (no shell involved). The extension already offers this: "Copy effective task" (`controller.ts:3991-4005`) and "Copy context" (`:2821-2831`).
+
+**Option C — the agent's own extra-directory grant** (`--add-dir <work folder>`).
+
+- **Effect:** prompt-free reads and writes inside one named folder, under `acceptEdits`, `workspace-write` and Copilot's path checks (V). OpenAI's documentation recommends it over full access.
+- **R8:** it **is** a widening of the agent's boundary, even if a narrow one. It may therefore never be automatic.
+- **If ever offered, it must be:**
+  - opt-in, through an explicit setting;
+  - visible on the command line;
+  - narrow: exactly `work/<id>/`, never `~/.bugpilot`, `repositories/` or `config/`;
+  - probed per agent version;
+  - re-sent on every launch and relaunch.
+- **A trust hazard of its own:** Claude and Copilot load `.claude/` and `.github/skills|agents` from added directories as trusted configuration. BugPilot would have to guarantee that no such entry can exist in a work folder (T-S16).
+
+**Option D — the safe hybrid** (A by default, B as fallback, C opt-in later). This is the recommendation in §9.5.
+
+### 9.5 Provisional recommendation (US-D10 and US-D28 stay OPEN until Batch 0B evidence; US-D11: review recommends deferring)
+
+**Option D, provisionally.** It is the review's recommendation, not a decision.
+
+- US-D10 stays OPEN until the Batch 0B probes (§9.7) show that Option D works for the combinations the owner supports, against §9.10's acceptance.
+- US-D28 stays OPEN until probe P2.
+- Nothing here grants an agent another directory or changes a sandbox mode.
+
+Concretely:
+
+1. **Prompt text.** The handoff names the absolute task path in forward-slash form, rendered by `handoff.py`. The template stays the same apart from the path:
+
+   ```text
+   Read C:/Users/you/.bugpilot/repositories/checkout-9f2c41d07ab3e815/work/JR-12345/task.md and complete the workflow.
+   Read C:/Users/you/.bugpilot/repositories/checkout-9f2c41d07ab3e815/work/JR-12345/agent_retry_prompt.md and continue the workflow.
+   ```
+
+   The extension's copy of each template stays and is cross-language tested as today. The path comes from the CLI (US-D17).
+2. **Permissions.** No permission flag is added and the cwd stays the repository (R8). The agent's own permission prompts appear, and the developer answers them.
+   - The panel's handoff guidance (the 0.1.2 inline step, §40) gains one sentence: "The agent will ask to read and write this work item's BugPilot folder, which is outside the repository. Allow that folder only."
+   - `docs/safety.md` says the same.
+3. **The gate is unchanged.** When a prompt fails it, the extension does not launch a terminal. It falls back to the existing manual handoff: the prompt goes on the clipboard, with a notice saying why. A shell never sees the text; it is pasted into the agent's own input. The notice names the remedy: a `BUGPILOT_HOME` without such characters (§13). Widening the gate is **not recommended** (US-D12).
+
+   - **Safer launch mechanisms.** A launch without a shell could let more paths through; §9.9 evaluates it. Until its conditions are met (P11 PASS on three systems, plus a separate owner approval), the gate and this fallback stand, and the limitation is documented (§13.4).
+   - **The fallback is not a success.** A handoff completed through this fallback is recorded as **FALLBACK**, not as a successful one-click Fix with AI (§9.10).
+4. **Python launcher (`--launch-agent`).** The same plain-prompt rule applies before `subprocess.run`. A refused prompt prints the manual instruction, which today's not-found path already does (`cli.py:1601-1605`).
+5. **Captured review.** The prompt keeps naming the files, now by absolute path. It relies on the bare `Read` allow (V).
+   - Batch 0B probe P2 informs US-D28, which stays OPEN until then.
+   - If the read is denied, the review prompt carries the bounded `fix_report.md` excerpt inline instead. It is already earlier-AI-output-quoted by 0.1.5's machinery, and stdin has no size problem.
+6. **MCP and the skill.**
+   - `agent_task`, `issue_dir` and `next_step` carry absolute paths. The client model reads with its own tools, under its own permissions, as in A.
+   - The skill reads the `agent_task` path the CLI prints instead of composing `.ai/<ISSUE>/…`.
+7. **Commands named in `task.md`** (`bugpilot jira-comment-draft`, `jira-comment --execute`):
+   - Unchanged. The CLI resolves the namespace from the repository cwd.
+   - Under a sandbox that confines writes to the workspace (Codex `workspace-write`; Claude's Bash sandbox on macOS and Linux), the CLI's write into the data root needs the agent's approval, or the developer runs the command. `jira-comment --execute` also needs the network, which Codex's sandbox already blocks in 0.1.5. These steps are opt-in (`--jira-comment`). The behaviour is documented, not changed.
+8. **Opt-in grant (US-D11).**
+   - **Recommendation:** DEFERRED. Ship 0.1.6 with A + B; measure the prompt burden in Batch 5's live pass; offer C in a later release if the burden is real.
+   - **If the owner wants it in 0.1.6:**
+     - a `bugpilot.agentAccess` setting, `ask` (default) or `grantWorkItemFolder`;
+     - `--add-dir <work folder>` for Claude and Codex only, after a flag probe;
+     - never for Copilot until its `--add-dir` trust loading is probed;
+     - Batch 3 then gains T-S16's tests.
+
+### 9.6 When access is denied
+
+| Denied | What happens | Recovery (no BugPilot permission change) |
+| --- | --- | --- |
+| The read of `task.md` | The agent cannot start the workflow, and says so. | **Copy effective task** in the panel (or `bugpilot task-preview <id>`, read-only, in a terminal), pasted into the agent's input. **Copy context** likewise for `context.md`. |
+| Reads of `context.md`, `retrieval.json` or an attachment | The agent works from what it has. `task.md` already asks it to say plainly when it cannot read an attachment (`prompts.py:511-515`). | As above, for context. Attachments cannot be pasted: the agent reports it. |
+| The write of `fix_report.md` | **Required Output Files (protected) adds one sentence:** "If you cannot write it there, say so and give the report in your reply under the same headings; never write it inside the repository." The second clause matters most: a refused agent must not "helpfully" write the report into the repository root (R5). | `bugpilot manual-result <id>` creates the template, or the panel opens `fix_report.md`; the developer pastes the reply. `check-results` and History then work as usual. |
+| The captured review's read | The review answers with "could not read" (a `-p` deny). | US-D28's inline fallback. |
+| The agent runs under `-p` / `exec -a never` | Writes are refused by design. | As the write row. Unattended agent runs are not a BugPilot entry point in 0.1.6. |
+
+**How these recoveries are scored.** Every recovery in this table keeps the developer's work moving, and none adds a grant or changes a sandbox. A workflow completed through one of them counts as **FALLBACK** for the aspect concerned, never as PASS (§9.10).
+
+### 9.7 Live capability probes (Batch 0B; separately owner-authorized)
+
+**Authorization.**
+
+- No probe runs as part of Batch 0A, any automated suite or CI.
+- Batch 0B starts only on the owner's separate approval, which names the agents and accounts that may be used.
+- Every probe that uses an agent account is run by the owner, or under that approval.
+
+**Isolation.**
+
+- Each probe uses a synthetic repository (`git init`, synthetic files).
+- Before Batch 2 exists, it also uses a **probe kit**:
+  - a synthetic work folder outside the repository, in a fresh temporary folder;
+  - a short synthetic `task.md` that tells the agent to read `context.md` in that folder and write `fix_report.md` there;
+  - a synthetic `context.md` and one text and one image attachment.
+- The probes test what the *agent* allows. Batch 5 repeats them with real 0.1.6 artifacts (§9.10).
+- Never used: the developer's configuration or real repositories, company Jira, real issue text, or real credentials.
+
+**Record per probe and agent** (in §18):
+
+- the probe id;
+- the agent and its version (its own `--version` output);
+- OS and version; the shell and terminal (P10, P11);
+- the sandbox or permission mode as launched;
+- the exact command line, with the home folder written as `<home>`;
+- the outcome;
+- the evidence: the permission prompts the agent showed, and a transcript or screenshot reference stored outside the repository (never committed if it shows personal data);
+- the date, and who ran it.
+
+**Outcomes.**
+
+| Outcome | Meaning |
+| --- | --- |
+| **PASS** | observed to work as the decision needs, with no grant BugPilot added |
+| **FAIL** | observed not to work |
+| **UNKNOWN** | not run, not available (no account, no platform, an agent crash), or inconclusive |
+
+- Only an observed result is PASS or FAIL. **A failed or unavailable probe is reported as FAIL or UNKNOWN, never as passed.**
+- A decision that depends on an UNKNOWN probe stays OPEN, unless the owner explicitly accepts the gap and §16.1 records it.
+
+**Status:** nothing below has been run.
+
+| Id | Probe | Informs | Handoff aspect (§9.10) |
+| --- | --- | --- | --- |
+| P1 | Claude Code interactive with today's flags, on Windows: Read of an external `C:/…` forward-slash path (prompt? offered scope: file, folder or session?); Write of `fix_report.md` there under `acceptEdits` | US-D10, US-D13 | A1, A2, A3 (H1) |
+| P2 | Captured review (`-p … dontAsk --tools Read …`): Read of the external work folder | US-D28 | A5 (H5) |
+| P3 | Codex TUI default preset: external read, external write approval | US-D10 | A1, A2, A3 (H2) |
+| P4 | Codex on Windows with each sandbox implementation available: read of `%USERPROFILE%\.bugpilot\…` | US-D10 | A1 (H2, Windows) |
+| P5 | Copilot CLI: external read and write prompts | US-D10 | A1, A3 (H7) |
+| P6 | The Claude Code and Codex VS Code extension bridges: a pasted prompt with an absolute path | US-D10 | A7 (H3, H4) |
+| P7 | VS Code: `createFileSystemWatcher(new RelativePattern(Uri.file(<outside>), "*"))` events; `revealFileInOS` on a folder; `openTextDocument` + save of a file outside the workspace | US-D17 (watchers, Open Folder, policy editing) | — (extension platform) |
+| P8 | Claude Code with BugPilot's MCP server: reading the returned absolute `agent_task` | US-D27 | A8 (H6) |
+| P9 | `claude --resume <id>` after a session granted outside access: is the grant remembered? | §9.5 guidance text | A9 (H1) |
+| P10 | `sendText` of a gated prompt with spaces in the path (`C:/Users/you two/…`) in PowerShell, `cmd` and Git Bash; the Python launcher through a `.cmd` shim | T-S12 | A6 (H1, H2, H7) |
+| P11 | **Launching without a shell** (§9.9): `createTerminal({shellPath: <agent executable>, shellArgs: [prompt]})`, and `child_process.spawn(<exe>, [prompt], {shell: false})`. Prompts hold a space, `&`, `%`, `^`, `'`, `(`, `\` and a non-ASCII letter. Each is tried with a native executable and with an npm `.cmd` shim, on Windows, macOS and Linux. Records whether the program receives the prompt intact, and whether anything is interpreted. | US-D12 | A6 |
+
+### 9.8 What `task.md` says (US-D13, PROPOSED; token budget US-D30, OPEN)
+
+**Execution Location** (protected section) becomes:
+
+```text
+## Execution Location
+
+- Run your AI agent from the target repository root, not from the bugpilot tool source directory.
+- This work item's BugPilot files are in `<WORK>/`, outside the repository on purpose. Below, `context.md`, `retrieval.json`, `fix_report.md` and `attachments/` mean the files in that folder; never copy them into the repository.
+```
+
+- **Path form.** `<WORK>` is the absolute work folder in forward-slash form. It is the only absolute path in `task.md`, apart from the Required Output line.
+- **Required Input Files:** "Read `context.md`: …" and "Read and inspect `retrieval.json` if present: …".
+- **Required Output Files:** "Write one report: `<WORK>/fix_report.md` …", plus the §9.6 sentence. The write target is the one place where an ambiguous name costs most (a report written into the repository), so it stays absolute.
+- **Developer Attachments:** "File: `attachments/<name>`".
+- **Investigation Handoff:** "Write `fix_report.md` (in the work folder), every section investigation-phrased."
+- **The retry prompt** follows the same pattern: the work folder once, the required output absolute, the rest by name. So does the review prompt.
+
+**Token budget.** The gate `tests/test_task_golden.py:272-278` requires the median golden to stay at least 20% below 0.1.3's 3,870 tokens, a ceiling of 3,096. The median today is 3,090.
+
+| | Effect |
+| --- | --- |
+| A representative `<WORK>` | about 75 characters |
+| Two absolute mentions, minus about six `.ai/<id>/` prefixes removed | net about +90 characters |
+| Plus the Execution Location sentence and the §9.6 sentence | about +60 tokens on the median, over the ceiling |
+
+US-D30 asks the owner to choose:
+
+- **(a)** Measure the gate with the work-folder path collapsed to a fixed `<work>` token. The gate's purpose, a wording reduction, is kept, and machine-specific path length is excluded. *Recommended by the review.*
+
+  The normalized measure alone would be too lenient, so (a) also keeps meaningful size-regression coverage:
+  - **The median gate** stays: the median normalized golden is at most 3,096 tokens. If the designed sentences of §9.6 and §9.8 push it over, the owner re-baselines it once, on a recorded number, in Batch 2.
+  - **A per-golden growth bound.** Each task golden's normalized size may grow over its 0.1.5 size by at most the measured cost of the designed sentences. That cost is fixed as a number in Batch 2 and recorded. Any growth beyond it stops the batch.
+  - **A count of absolute paths.** Each `task.md` golden holds the absolute work path exactly twice (Execution Location and Required Output Files). The retry golden holds it exactly twice as well.
+  - **The raw size is reported.** It is computed with a representative real path, and reported next to the gate (not gated), so that path-length growth stays visible.
+- **(b)** Re-baseline the ceiling by the measured cost.
+- **(c)** Trim other protected wording. Not recommended: the protected text is SHA-pinned and its wording was settled in 0.1.4–0.1.5.
+
+**Privacy.** `<WORK>` contains the OS account name. It is sent to the model provider with the task, as the agent's working directory usually already is. `docs/safety.md` states this in Batch 5.
+
+### 9.9 Safer launch mechanisms (evaluation for US-D12)
+
+**The question.** Could a process-argument API replace typing the prompt into a shell, so that the gate could admit more paths (a backslash, a non-ASCII user name) without opening a shell-injection hole?
+
+**Status.** This is a desk evaluation; nothing was run. Rows marked **A** are inferences that probe P11 must confirm.
+
+| Mechanism | Shell involved? | Safe from injection? | Fit for Fix with AI |
+| --- | --- | --- | --- |
+| VS Code `createTerminal({shellPath: <exe>, shellArgs: [prompt]})` with a **native executable** | none: the terminal starts the program directly with an argument array (**A**) | yes, if the arguments reach the program intact. On Windows that depends on the terminal layer quoting the array to the program's own argument rules (**A**, P11) | partial: the terminal closes when the agent exits, so a relaunch or `--resume` needs a new terminal; the developer's shell profile is not loaded (BugPilot already resolves the agent by absolute path, but tools the agent starts inherit the terminal's environment) |
+| the same, with an **npm `.cmd`/`.bat` shim** (`claude.cmd`, `codex.cmd`) | **yes**: Windows runs a batch file through `cmd.exe`, which re-parses `%`, `^`, `&`, `\|`, `<`, `>` and quotes | **no**: the batch-file argument-injection class ("BatBadBut"; for Node, CVE-2024-27980) | only behind the gate |
+| Node `child_process.spawn(<exe>, args, {shell: false})` | none for a native executable. Node's 2024 security releases refuse a `.bat`/`.cmd` without `shell: true` | yes, for a native executable | **no**: there is no terminal for the developer to watch the agent or answer its permission prompts. It suits one-shot runs only, which is what the captured review already does, with stdin |
+| Python `subprocess.run([<exe>, prompt])` (`--launch-agent`) | none for a native executable; `cmd /c` for a shim (`agent_runner.py:133-137`) | native: yes; shim: no | as today; the shim path keeps the gate (T-S12) |
+| An extension-owned pseudo-terminal (`vscode.Pseudoterminal`) driving the agent's TTY | none | yes | **no**: BugPilot would have to implement terminal I/O for an interactive agent TUI. Out of scope |
+
+**Conclusion (the review's recommendation under US-D12):**
+
+- **npm shims on Windows** (today's common install of Claude Code and Codex): no safe argument API exists. The gate must stay.
+- **Native executables** (for example Claude Code's native installer, Copilot CLI from WinGet): a direct launch could admit any path, *if* P11 shows VS Code passes the argument array intact on all three systems. That is unverified.
+- **For 0.1.6:**
+  - The existing gate stays unchanged for every launch.
+  - The limitation is documented (§13.4, `docs/safety.md`): when the home or `BUGPILOT_HOME` path has a character outside `[A-Za-z0-9 .,:#/_-]`, the developer gets the copy-and-paste handoff, not one-click launch.
+  - A direct launch for native executables becomes a candidate only after P11 passes on all three systems and the owner approves it as a separate change. It would never relax the gate for a shim.
+  - No batch changes the gate without that approval.
+
+### 9.10 Handoff acceptance: what counts as working
+
+**Principle.** The handoff is accepted aspect by aspect, for each supported agent and provider combination, from **real interactive end-to-end evidence**.
+
+- Unit tests show that BugPilot builds the right command line, working directory and text.
+- Unit tests do not show that an agent can do the work.
+
+**Combinations.** The owner confirms which are supported before Batch 5. A combination the owner does not list is documented as unsupported, never silently left untested.
+
+| Id | Combination | Entry point | Aspects that apply |
+| --- | --- | --- | --- |
+| H1 | Claude Code CLI in a VS Code terminal | Fix with AI, Retry, Open AI Session | A1, A2, A3, A4, A6, A9 |
+| H2 | Codex CLI in a VS Code terminal | Fix with AI, Retry | A1, A2, A3, A4, A6 |
+| H3 | the Claude Code VS Code extension (bridge) | Fix with AI | A1, A2, A3, A7 |
+| H4 | the Codex VS Code extension (bridge) | Fix with AI | A1, A2, A3, A7 |
+| H5 | captured review (Claude CLI, `-p`) | Review with AI | A5 |
+| H6 | an MCP client (Claude Code) with `bugpilot-mcp` | the MCP prepare tools | A1, A2, A3, A8 |
+| H7 | the CLI's `--launch-agent claude` / `copilot` (deprecated) | the CLI | A1, A3, A6 |
+
+**Aspects.**
+
+| Aspect | PASS requires | Evidence |
+| --- | --- | --- |
+| A1 task reading | The agent reads `task.md` in the external work folder, after the developer allows that folder in the agent's own prompt, or without a prompt where the agent's defaults allow it. BugPilot added no grant. | 0B: P1, P3, P4, P5; Batch 5 end-to-end |
+| A2 context and attachment reading | The agent reads `context.md`, `retrieval.json`, and one text and one image attachment in the work folder, or says plainly that it cannot read the image (§9.6). | Batch 5 end-to-end |
+| A3 writing `fix_report.md` | The report is written at `<WORK>/fix_report.md` after the developer approves, and **nothing BugPilot-related is written into the repository**: `git status` shows only the intended source edits. | 0B: P1, P3, P5; Batch 5 end-to-end with `git status` |
+| A4 retry | The agent reads the retry prompt, uses `user_feedback.md` (written by the CLI, US-D18), and updates the report in the work folder. | Batch 5 end-to-end |
+| A5 captured review | The review reads the work-folder files and returns a result shown in the panel, under the unchanged read-only flags. | 0B: P2; Batch 5 end-to-end |
+| A6 interactive terminal launch | One click starts the agent in a terminal with cwd = the repository and the handoff prompt. **No clipboard is involved**, and no permission flag is added. | 0B: P10 (P11 if pursued); Batch 3 real pass; Batch 5 end-to-end |
+| A7 VS Code agent-extension handoff | The bridge's designed flow, unchanged from 0.1.5 (prompt on the clipboard, agent view revealed), leads the agent to read the task in the work folder. For H3 and H4 this designed flow is the one-click path. | 0B: P6; Batch 5 end-to-end |
+| A8 MCP handoff | A client calls `prepare_*`, reads the returned absolute `agent_task`, and writes the report in the work folder. | 0B: P8; Batch 5 end-to-end |
+| A9 reopening a session | Open AI Session or Resume reopens the same conversation with cwd = the repository. Whether earlier folder grants persist is recorded, not required. | 0B: P9; Batch 5 end-to-end |
+
+**Results: PASS, FALLBACK, FAIL or UNKNOWN.**
+
+- **FALLBACK:** the work was completed only through a recovery of §9.6, or through the gate's copy-and-paste fallback (§9.5 point 3). It shows that the recovery works. It **never** counts as PASS for one-click Fix with AI (A6), nor for the aspect it stood in for.
+- **UNKNOWN:** not run, not available, or inconclusive. It is never counted as PASS.
+- **Automatic grants:** no aspect may be made to pass by adding a directory grant or changing a sandbox mode. A run that needed one is recorded as FAIL, with the grant named.
+
+**Release rule** (§20). Release readiness requires PASS for every applicable aspect of every combination the owner lists as supported:
+
+- from real interactive end-to-end runs on the release candidates;
+- recorded in §18 with the §9.7 record fields.
+
+A combination with FAIL, FALLBACK or UNKNOWN on a required aspect is either fixed, or listed by the owner in the release notes as unsupported or limited. It is never reported as passing.
+
+---
+
+## 10. Security threat model
+
+### 10.1 Trust boundaries after the move
+
+| Boundary | 0.1.5 | 0.1.6 |
+| --- | --- | --- |
+| **The repository** (working tree, possibly cloned from an untrusted source; the agent's cwd) | BugPilot wrote into it: `.ai/`, `.ai_memory/`, `.bugpilot/`. A hostile tree could plant links at those names; BugPilot refused them. | BugPilot **writes nothing** into it. Repository content is still evidence (Code Search, Git History, Repository Profile detection), contained as in 0.1.5. **A whole class of planted-link attacks on BugPilot's writes disappears.** |
+| **The data root** (`~/.bugpilot` or `BUGPILOT_HOME`) | only credentials, User Instructions and user Fix Modes | **everything**: credentials, settings, Jira evidence, model output. Owned by the user; BugPilot creates it, or uses the folder the user chose. |
+| **Within the data root** | — | `config/` (the only secret) is separate from `repositories/`. Each namespace is separate from every other. Each work item is separate from memory. |
+| **The agent sandbox** | the repository only | the repository, plus whatever the developer approves in the agent's own UI (§9) |
+
+**Attacker model** (unchanged from §44.4):
+
+- Hostile *text*: Jira, attachments, repository files, an MCP client model.
+- Hostile *repository layout*, for a cloned repository.
+- Another local process with the *same* user's rights is **out of scope**: it can already read and change the user's files. BugPilot never claims protection against an attacker who controls the account or the data root.
+
+### 10.2 Threats
+
+**Kind** = prevention (made impossible by construction), detection (refused when seen), or limitation (stated, not prevented).
+
+| Id | Threat | Control in 0.1.6 | Kind | Test (§11) |
+| --- | --- | --- | --- | --- |
+| T-S1 | **A hostile repository path or basename** (newline, `..`, separators, `CON`, non-ASCII, shell metacharacters) | used only through `realpath` → hash; the slug has a fixed character class (§7.2); the root path is never in `task.md`, a prompt or a message (only in `repository.json` and `doctor --json`, as JSON) | prevention | identity: a hostile-name matrix |
+| T-S2 | **Path traversal through a work-item id** (MCP, CLI, a History entry) | `WORK_ITEM_ID_RE` before any path is built; `_check_parts`; a final `realpath` comparison; MCP `_checked` and `_existing` | prevention | `work_item_ids.json` + storage traversal cases |
+| T-S3 | **A symlinked repository root** | identity follows it (§7.3); writes never go to the repository at all | n/a | identity |
+| T-S4 | **A symlinked or junctioned data root** | allowed: the user's choice (B4-2); the canonical root is used for containment | documented policy | storage safety |
+| T-S5 | **A link or junction at `config`, `repositories`, `<id>`, `settings`, `work`, `<work item>`, `memory`, `fix_modes`, `attachments` or a file** | refused, component by component, as stood (never followed), before and after creation; nothing written; one sentence | detection | a link at each component, junctions on Windows |
+| T-S6 | **Windows junctions and other reparse points** | `is_link_or_junction` treats every name-surrogate tag, and any unknown tag, as a link (`safe_paths.py:52-72`) | detection | Windows junction cases |
+| T-S7 | **Cross-repository confusion** | no API accepts a repository ID; the identity record is checked on every read and write path (§7.5); MCP binds once; the extension composes only below a CLI-given `repository_dir` (US-D17) | prevention + detection | two repositories with the same work-item id; a record mismatch |
+| T-S8 | **A concurrent local process changing the tree mid-write** | as 0.1.5: re-check after `mkdir`; `_check_temp`; rename never follows; the Windows in-place fallback re-checks | limitation (a same-user attacker) | race sampling (no proof of race freedom) |
+| T-S9 | **Credential exposure next to evidence** (SF-4) | `config/` is separate from `repositories/`; the handoff names one work folder; an opt-in grant (if ever) names exactly that folder; docs tell the developer to allow that folder only. Codex can already read the whole disk in 0.1.5 | limitation, documented | no handoff or task text names `config/` or the data root itself |
+| T-S10 | **Credential storage** | `config/config.toml` private atomic write (`600` from birth; no POSIX in-place fallback); a link at the file refused (O4); `config/` `0700`; the token never in argv, output or logs (unchanged) | prevention | `test_batch4_file_safety` S2/O4 re-pointed |
+| T-S11 | **Private data in logs or output** | the display form in messages (US-D22); absolute paths only in designated JSON fields, the handoff and `task.md`'s work-folder line; `repository.json` never printed except `doctor --json` | prevention (normal output); limitation (system `OSError` text, F12) | "no home path in messages" over every CLI command |
+| T-S12 | **Argument injection through the home path** (`cmd.exe` `%`, `^`, `&`; shells via `sendText`) | the plain-prompt gate on both sides (TypeScript, and Python `agent_runner`); refused → manual handoff, never "cleaned". A launch without a shell (§9.9) is adopted only for native executables, only after P11 passes on three systems, and only with a separate owner approval; shims always keep the gate | prevention | gate tests with hostile home names; probes P10, P11 |
+| T-S13 | **Stale artifact references** (a History entry for a moved repository; `run.json` paths) | `generated_files` relative to the namespace; History lists only the current namespace; a moved repository simply has an empty namespace | prevention | History after a move |
+| T-S14 | **A read-only preview creating state** | resolution never creates (§8.1); previews and `list`/`status`/`doctor` call no `ensure()` | prevention | snapshot of the data root before and after every read-only command |
+| T-S15 | **Atomic-write regressions in the new tree** | unchanged writer; its temp file in the target's folder (inside the data root) | prevention | existing W1/W2 tests on the new paths |
+| T-S16 | **Agent trust-config loading** (only if US-D11 is ever enabled): `.claude/`, `.github/skills\|agents` in an added folder | BugPilot creates only known names in a work folder; attachments only inside `attachments/`, and a name is never a folder; a check before any grant that the folder holds no dot-entry | prevention (conditional) | Batch 3, only with US-D11 |
+| T-S17 | **Temporary payloads** | unchanged (F19); SF-1 closed if US-D39 | prevention | `scratchFile` pattern |
+| T-S18 | **POSIX modes and umask** | new folders `0700 & ~umask`; new files `0600`; an existing data root's mode is not changed (SF-6, US-D23) | prevention | modes under umasks 022, 002, 000, 077 and 277 (as §44.22) |
+| T-S19 | **macOS home and temp quirks** (`/var` → `/private/var`; `$TMPDIR` per user) | judging only the components BugPilot creates; the data root may sit behind the system's links | detection | macOS CI |
+| T-S20 | **Repository pollution by BugPilot** (R5) | no repository-relative writer remains; the ratchet (§11.2) blocks reintroduction; Add to .gitignore removed (US-D16) | prevention | pollution suite (§11.3) |
+| T-S21 | **The agent writes BugPilot files into the repository** because it was refused outside | the §9.6 sentence in protected Required Output Files | limitation (instruction, not enforcement) | golden; live probe P1 |
+| T-S22 | **Legacy content read by mistake** | no reader names a legacy path; F22 guards only exclude; the canary suite (§11.3) | prevention + detection | canary suite |
+| T-S23 | **A hostile `BUGPILOT_HOME` value** (control characters, relative, `~`) | refused at resolution (§8.3); rendered with visible escapes wherever shown | prevention | storage unit tests |
+| T-S24 | **The test suite writes into the developer's real BugPilot data**: an unisolated test, a collection-time render, a module-scoped fixture, a child process | isolation set before any import or collection (§11.1); the audit-hook guard refuses the operation before it happens, in the test process and in Python children (through the test-only `sitecustomize` loader); a child process with an unisolated environment is refused, and so is a recognizable Python child that would start without the loader | prevention (in-process and recognizable Python children); **limitation**, environment isolation only, for non-Python children, Python started with `-I`, `-E` or `-S`, Python started through a shell, the `py` launcher or a console script, and `scripts/check_cli_contract.py`, which runs outside pytest (§14.1.A) | `tests/test_isolation_guard.py`, against a decoy |
+| T-S25 | **The test suite reads the developer's real BugPilot data** (credentials, settings) | the same isolation; the guard refuses opens for reading and directory listings under the real data root | prevention for content reads and listings; **limitation** for metadata probes (`stat`, `exists`), which raise no audit event, and for path aliases the string comparison does not see: `dir_fd`/`fchdir`-relative paths, open file handles, Windows 8.3 short names, extended-length prefixes (§14.1.A) | same |
+| T-S26 | **An isolation check that itself reads user data** (r1's real-home listing) | withdrawn: no default run lists or reads the real home; the only real-home diagnostic is opt-in, read-only, names only (§11.1) | prevention | review of `tests/_isolation.py` and `tests/conftest.py` |
+
+### 10.3 Guarantees and limits, stated
+
+**Guaranteed (by construction, and tested on Linux, macOS and Windows before release):**
+
+- no BugPilot write lands in the repository;
+- no write follows a link below the data root;
+- no work-item id leaves its namespace;
+- no namespace serves another repository's root;
+- credentials are `600` from birth on POSIX;
+- read-only commands create nothing.
+
+**Not guaranteed:**
+
+- that an agent obeys "never copy them into the repository";
+- that a same-user process cannot race a write;
+- that a developer will not approve a wider folder than the work folder in the agent's own prompt;
+- that system error messages never contain a path.
+
+**Not claimed:** any protection against an attacker who controls the user's account or the data root.
+
+**For the test suite** (§11.1; T-S24 to T-S26):
+
+- **Guaranteed, once Batch 0A is accepted.** No Python code in the test process or its Python children opens, lists, creates, renames or deletes anything under the real BugPilot data root without the run failing first.
+- **Not guaranteed:**
+  - what a non-Python child, or a child started with `-I` or `-E`, does with a path it computes itself (it is isolated by environment only);
+  - a metadata probe (`stat`, `exists`) of a real path.
+
+---
+
+## 11. Test and CI strategy
+
+Tests are designed before implementation. Each new module is listed with its batch; "required" means it joins a required CI job (§11.7).
+
+### 11.1 Test isolation first (Batch 0A, US-D32; revised 2026-10-15)
+
+**What is wrong today (SF-8).** Once every write goes under the data root, a test that is not isolated writes into the developer's real `~/.bugpilot/repositories`. Today:
+
+- `tests/conftest.py:13-17` isolates only `BUGPILOT_CONFIG_DIR`, per test function;
+- `tests/test_prompt_boundary_golden.py:14` renders at collection time;
+- module-scoped fixtures in `test_batch3_boundaries.py`, `test_context_boundary.py` and `test_prompt_boundary_baseline.py` run before the autouse fixture;
+- `prompt_boundary_sources.Workspace.retry()` and `.similar_fixes()` run outside `configured()`;
+- `prompt_boundary_baseline.measure_performance` runs `run_investigation` without isolation;
+- the extension's integration tests set no `HOME`, apart from one test (`cli.integration.test.ts:708-712`).
+
+The memory of this project also records that a suite run once read the developer's real company Jira configuration.
+
+**Requirements** (the 2026-10-15 review):
+
+1. The default automated run never lists or reads the developer's real BugPilot data.
+2. `HOME`, `USERPROFILE`, `BUGPILOT_HOME`, `BUGPILOT_CONFIG_DIR` and every `JIRA_*` variable are isolated before any import-time or collection-time side effect.
+3. Python tests, the TypeScript integration tests and every subprocess use isolated roots.
+4. An unisolated test fails closed, *before* it writes.
+5. Isolation is proven with synthetic canaries and access instrumentation, not assumed from configuration.
+6. A real-home diagnostic, if any, is read-only and opt-in.
+7. Changes made by unrelated background processes are never attributed to the suite.
+8. It works on Windows, Linux and macOS.
+9. How isolation is *verified* is recorded, not only how it is configured.
+10. Protection against writes is distinguished from protection against reads.
+
+**Why the first design was dropped.** Revision r1 proposed listing the real `~/.bugpilot` (names and mtimes) before and after each run. That design:
+
+- listed real user data on every run (against requirement 1);
+- noticed a write only after it had happened (against requirement 4);
+- could not tell a test's change from one made at the same moment by a VS Code window, an MCP server or a CLI run (against requirement 7).
+
+It is withdrawn.
+
+**Design.**
+
+1. **Isolation before anything else.**
+   - **Where it lives.** The first statements of `tests/conftest.py`, before it imports anything from `bugpilot`, call a test-only module, `tests/_isolation.py`. pytest imports the root `conftest.py` before it collects or imports any test module, so collection-time renders and module-scoped fixtures already see the isolated environment. There is no pytest configuration in `pyproject.toml` today, and none is needed.
+   - **What it sets.**
+     - It creates one session root with `tempfile.mkdtemp(prefix="bugpilot-test-")`.
+     - It points `HOME` and `USERPROFILE` at `<session>/home`.
+     - It points `BUGPILOT_HOME` and `BUGPILOT_CONFIG_DIR` at the `.bugpilot` folder inside that session home. The second is for the 0.1.5 code, until Batch 2 removes it.
+     - It removes every `JIRA_*` variable and `BUGPILOT_MCP_REPO_ROOT`.
+   - **Per test.** The per-test autouse fixture stays, narrowing each test to its own folder under the session root.
+   - **The real home.** It is captured once, before anything is patched, as a **path string only**: `pwd.getpwuid(os.getuid()).pw_dir` on POSIX, and the profile-folder API (`SHGetKnownFolderPath`, through `ctypes`) on Windows. It is never listed or read.
+   - **One thing to check in Batch 0A.** Isolating `HOME` hides the developer's global git identity. CI already runs without one, so tests that commit must set their own; Batch 0A confirms this locally.
+2. **A guard that fails closed** (Python, in-process).
+   - **The mechanism.** `sys.addaudithook` (Python 3.8 and later, so every supported version) installs a hook that sees the interpreter's file events **before** they happen.
+   - **Write events:** `open` with a write, append, create or update mode; `os.mkdir`; `os.rename` (which `os.replace` raises); `os.remove`; `os.rmdir`; `os.symlink`; `os.link`; `os.chmod`; `os.chown`; `os.utime`; `os.truncate`; `shutil.rmtree`; `shutil.copyfile`; `shutil.move`.
+   - **Read events:** `open` for reading; `os.listdir`; `os.scandir`; `glob.glob`.
+   - **The exact event list** is confirmed against the audit-event tables of Python 3.10 and 3.14 in Batch 0A.
+   - **What it refuses.** For any such event whose path falls under a **protected root**, the hook raises `IsolationViolation` before the operation runs: nothing is written, nothing is read, and the test fails with the operation and its stack.
+     - The protected root is the real home's `.bugpilot`: the 0.1.5 files and, later, the 0.1.6 tree.
+     - Other paths may be added by the suite.
+   - **How it judges.** The hook compares normalized path strings (`normcase(abspath(...))`) with the protected roots. It never touches the file system itself.
+   - **Why only `.bugpilot`.** On Windows the system temp folder (where `tmp_path` lives) and Python's own files are under the real home, so a guard over the whole home would break the interpreter. The data BugPilot owns is what the guard protects.
+3. **Child processes.**
+   - **Environment.** Every child inherits the isolated `os.environ`.
+   - **`subprocess.Popen` check.** The hook refuses the event when an explicit `env` lacks `HOME`, `USERPROFILE`, `BUGPILOT_HOME` or `BUGPILOT_CONFIG_DIR`, or points them outside the session root, or when `cwd` is under a protected root. The `os.system`, `os.exec*` and `os.spawn*` events are checked the same way. *As built, the rule is refined (deviation D0A-1, §14.1.A):*
+     - *the platform's home variable must be present;*
+     - *no derived BugPilot data folder may lie in or around a protected root;*
+     - *inherited environments are checked too.*
+   - **Python children** get the same guard: the CLI and MCP subprocess tests.
+     - The isolation module writes a test-only `sitecustomize.py` (the *loader*) into the session root and puts that folder first on the children's `PYTHONPATH`. Nothing is installed.
+     - The child's `sitecustomize` installs the hook.
+     - *As built (pre-commit review M-1, §14.1.A):* the parent refuses a recognizable Python child that would start without the loader — the loader not first on `PYTHONPATH`, or the guard's file, log or protected roots missing from its environment, given or inherited. A test that needs its own import path uses `_isolation.child_pythonpath()`, never a replaced `PYTHONPATH`. Before this fix two tests replaced it, and their children ran with environment isolation only.
+   - **`scripts/check_cli_contract.py`** is not covered by the pytest guard. It is a release check that runs on its own, outside pytest; it builds its own disposable home and removes every `BUGPILOT_*` variable, so it never carries the guard. Its own environment is its isolation.
+   - **Not covered by the guard**, isolated by environment only, a stated limitation (T-S24):
+     - Python started with `-I`, `-E` or `-S`, which ignores `PYTHONPATH` or skips `site` (no test uses them today);
+     - Python started through something the check cannot recognize as Python: a shell (`os.system`, `shell=True`), the `py` launcher, or a console script such as an installed `bugpilot`;
+     - non-Python children (`git`, `rg`, `node`).
+4. **TypeScript integration tests.** `extension/test-integration/cli.integration.test.ts` gets one spawn helper. The suite runs `python -m bugpilot` with `PYTHONPATH`. The helper:
+   - **(a)** builds each child's environment from a per-test temporary home (`HOME`, `USERPROFILE`, `BUGPILOT_HOME`, `BUGPILOT_CONFIG_DIR`, no `JIRA_*`);
+   - **(b)** throws *before spawning* if a call's environment lacks them or points outside the test's temporary root;
+   - **(c)** puts the guard's `sitecustomize` folder first on the child's `PYTHONPATH`, so the CLI it runs fails closed too.
+
+   *As built (§14.1.A):* the helper is `isolation.ts`'s guarded spawn. Every `Runner` the suite builds gets it, and since the pre-commit review (M-2) so does `discoverExecutable`, which builds a `Runner` of its own. The one direct `execFileSync` of Python goes through `checkedEnv`. The suite's `git` calls are a stated exception, isolated by the suite's environment only. `test/integrationIsolation.test.ts` checks all of this from the sources in CI, where the integration suite itself does not run.
+
+   The unit-test suite spawns no CLI, and is unaffected.
+5. **The golden and baseline helpers** (`tests/task_golden.py`, `tests/boundary_golden.py`, `tests/prompt_boundary_baseline.py`, `tests/storage_baseline.py`):
+   - when run as scripts (`--update`, `--write`), they enter the same isolation and guard in `main()`;
+   - under pytest, they rely on the conftest;
+   - `measure_performance` and the `Workspace` methods run inside it.
+6. **CI.**
+   - `ci.yml` sets `HOME` and `USERPROFILE` to `${{ runner.temp }}/home` for the Python jobs, as defence in depth; the conftest isolates again inside.
+   - The nine checks keep their names (US-D33).
+7. **Optional real-home diagnostic** (opt-in, read-only). Isolation does not need one.
+   - If the owner wants one, it is a separate script that pytest and CI never run, started by hand with an explicit flag.
+   - It reports only whether a real `~/.bugpilot` exists, and the *names* of its top-level entries: no content, no mtimes, no recursion.
+   - It writes nothing, and it is part of no acceptance.
+
+**How isolation is verified** (Batch 0A; `tests/test_isolation_guard.py`, required in CI).
+
+Verification is by demonstration against a **decoy**, never the real home, so no real data is involved:
+
+- **The decoy.** A fixture starts a fresh Python child whose protected root is a temporary decoy folder seeded with canaries:
+  - a `config.toml` holding a fake token `canary-token-…`;
+  - an `instructions.md` holding a canary string;
+  - a `repositories/` tree.
+
+  The child's environment deliberately points *at* the decoy, simulating an unisolated test.
+- **Writes fail closed.** In the child, each of these must raise `IsolationViolation`:
+  - the 0.1.5 writers: `save_user_config`, `save_jira_site`, `save_instructions("user", …)` (and the storage writers once Batch 1 and Batch 2 exist);
+  - plain `open(…, "w")`, `mkdir`, `os.replace`, `os.remove` and `shutil.rmtree`.
+
+  Afterwards the **parent**, which has no guard on the decoy, confirms by `lstat` and content hash that every decoy file is byte-identical with an unchanged mtime, and that the decoy gained no entry.
+- **Reads fail closed.** `load_user_config`, `read_instructions("user", …)`, `open(…, "r")`, `os.listdir`, `os.scandir` and `glob.glob` each raise, and no canary string appears in the child's output or exception text.
+- **Children.**
+  - A grandchild started with an explicit environment pointing at the decoy is refused at `subprocess.Popen`.
+  - A grandchild started with the inherited environment carries the `sitecustomize` guard, and fails closed the same way.
+- **The real suite is isolated.** A session-start check asserts that:
+  - `Path.home()`, `os.path.expanduser("~")` and `user_config_dir()` all resolve under the session root (and `storage.data_root()` too, from Batch 1);
+  - no `JIRA_*` variable is set.
+- **The integration helper.** A unit test of the TypeScript spawn helper shows it throws for an environment pointing outside the test root.
+- **The record.** Batch 0A writes these into §18:
+  - the guard's event list;
+  - the platforms where `test_isolation_guard.py` ran (CI: Ubuntu 3.13 and 3.10, macOS, Windows), with counts;
+  - the stated limits.
+
+**Writes versus reads.**
+
+| | Protected by | Limit |
+| --- | --- | --- |
+| **Writes** to the real BugPilot data | environment isolation (every path is computed from isolated variables), plus the guard, which refuses the operation before it happens, in the test process and its Python children | non-Python children, and Python children started with `-I` or `-E`: environment isolation only |
+| **Reads** of the real BugPilot data | the same isolation, plus the guard, which refuses content opens and directory listings | `stat`, `lstat` and `exists` raise no audit event, so a metadata probe of a real path is not caught (no content can be read that way) |
+| **Background processes** | not involved: the guard judges only operations made by the test process and its Python children | a VS Code window, an MCP server or a CLI run writing to the real home at the same time can neither fail the suite nor be mistaken for it |
+
+### 11.2 The path-literal ratchet (Batch 0A, required)
+
+`tests/test_storage_inventory.py` scans `bugpilot/`, `skills/`, `scripts/` and `extension/src/` (plus `media/panel.js`) for the literals `.ai/`, `".ai"`, `.ai_memory`, `.bugpilot` (both forms) and `~/.bugpilot`.
+
+- **How it compares.** It checks the occurrences against `tests/storage_inventory.json`: file, family id and count. It does not pin line numbers, which would churn.
+- **Batch 0A** records today's inventory (§5) as the baseline. The test then fails on *any* new occurrence.
+- **Batch 2 and Batch 3** shrink the inventory, deliberately, in the same commit as the code.
+- **The end state** (Batch 4 acceptance) is only the approved residue:
+  - the F22 guards (US-D15);
+  - the protected rule's text, if US-D14 keeps it;
+  - the data root's default name in `storage.py`;
+  - comments that name the 0.1.5 layout historically.
+
+### 11.3 New suites
+
+**Storage resolver** (`tests/test_storage_identity.py`, Batch 1, required):
+
+- **Data root:**
+  - default root from `Path.home()`;
+  - `BUGPILOT_HOME` absolute;
+  - relative or `~`-leading `BUGPILOT_HOME` refused;
+  - control characters, NUL, U+2028 or U+2029 refused;
+  - a missing home refused.
+- **Determinism and canonicalization:**
+  - a golden vector: a fixed POSIX path and a fixed Windows path each map to a known ID on every OS (determinism and algorithm version);
+  - same spelling variants map to one ID (separators, `.`, `..`, trailing separator; Windows letter case);
+  - a symlinked root maps to the target's ID, with a junction on Windows (the existing junction helpers).
+- **Distinct repositories:**
+  - two repositories with the same basename get different IDs and the same slug;
+  - nested repositories and two worktrees get distinct IDs;
+  - a renamed folder gets a new ID, and the old namespace is untouched.
+- **Hostile basenames:** each gives a valid ID: newline, `..`, `CON`, `nul.txt`, trailing dot or space, emoji, RTL override, 300 characters, all non-ASCII.
+- **Platform-only:**
+  - POSIX: case-distinct folders are distinct;
+  - macOS: `getcwd` gives the canonical case; `/private/var`;
+  - Windows: junctions. `subst` stays NOT VERIFIED: its test is deferred pending separate owner approval, because a drive letter is a session-wide change outside a test's own folder (D0A-5).
+- **Records:** missing, ok, mismatch, corrupt, a link at the record, not a regular file.
+- **Processes:** two processes call `ensure()` on one namespace 50 times and end with identical records and no error.
+- **Resolution creates nothing:** a snapshot of the data root shows no change.
+
+**Storage safety** (`tests/test_storage_safety.py`, Batch 1 primitives, Batch 2 end to end, required):
+
+- **Links:**
+  - a link or junction at each of the nine components (§10, T-S5), before creation and swapped in after `mkdir`: refused, nothing written, nothing followed, one sentence, no absolute path in the message;
+  - the data root behind a link works.
+- **Modes (POSIX):**
+  - folder modes `0700` under five umasks;
+  - file modes `0600` new, rewrite keeps its bits;
+  - the credentials file `600` new and rewritten.
+- **Atomic writes:** W1 and W2 on the new tree.
+- **Isolation:** two repositories prepare `JR-12345` with different content, and each reads back only its own (CLI and MCP).
+- **Traversal:** id cases from `tests/fixtures/work_item_ids.json`.
+- **`clean`:**
+  - deletes only `work/<id>/` and, with `--include-memory`, `memory/<id>.md`;
+  - refuses links;
+  - never touches `settings/`, `config/` or the record.
+
+**Repository pollution** (`tests/test_repository_pollution.py`, Batch 2, required; the 0.1.5 baseline in Batch 0A):
+
+- **Setup:** a real `git init` repository with a commit, and a recorded `git status --porcelain=v2 --ignored --untracked-files=all` plus a directory snapshot.
+- **Commands exercised:**
+  - every CLI command that writes (`bug` with each option set, including hand-written, attachments, `--fresh`, `--retry`, `--feedback-file`; `record-review`, `record-verification`, `manual-result`, `memory add/update`, `jira-comment-draft`, `notify`, `fix-mode create/update/delete --scope project`);
+  - the settings commands (`instructions`, `verification`, `ai-behavior`, `project-settings`, `repository-profile`, `set` and `reset`);
+  - every read-only command;
+  - every MCP tool.
+- **Assertion:** after all of them, the status and snapshot are unchanged.
+  - **Excluded** by construction: files a stub agent writes on purpose (none by default).
+  - Explicitly asserted absent: `.ai`, `.ai_memory`, `.bugpilot`, `fix_report.md`, `task.md`, `context.md`.
+- **Batch 0A baseline:** under 0.1.5 the same scenario *creates* the three folders. That is recorded as a baseline that flips in Batch 2, as 0.1.5's baselines did.
+
+**No legacy reads** (`tests/test_no_legacy_data.py`, Batch 2, required):
+
+- **Canaries:** `<repo>/.ai/JR-12345/task.md`, `.ai_memory/bugs/JR-11111.md`, `.bugpilot/instructions.md`, `.bugpilot/verification.md`, `.bugpilot/fix_modes/x.json`, plus legacy `$HOME/.bugpilot/config.toml` (a fake token), `instructions.md` and `fix_modes/`. Each holds a unique canary string.
+- **Run:** the full workflow, via the CLI and MCP.
+- **Assertions:**
+  - no canary appears in any output, artifact or JSON;
+  - every legacy file is byte-identical, with an unchanged mtime;
+  - no legacy folder gained an entry;
+  - the fake token is never used.
+  - The canary `.ai/` is also never Code Search evidence (F22).
+
+**Contract** (`tests/test_storage_contract.py`, Batch 2, required; the fixture `tests/fixtures/storage_cli_contract.json` is frozen in Batch 1).
+
+- It checks every key §8.10 lists against its kind (`abs`, `ns`, `display`, `id`) and its null rule.
+- It covers `doctor`'s `storage` object and the capability, and `list`'s `work_dir` and `modified`.
+- Its TypeScript twin, `extension/test/storageContract.test.ts` (Batch 3), reads the same fixture. Neither side tests the other's code.
+
+**Extension** (Batch 3):
+
+- **Required TypeScript tests:**
+  - `test/storagePaths.test.ts`: the composition helper against `tests/fixtures/work_item_ids.json`, plus a new shared fixture of `repository_dir` + id → path. No other `.ai`/`.bugpilot` composition remains, enforced by the ratchet.
+  - `test/handoffGate.test.ts`: real homes with spaces pass; `\`, `~`, non-ASCII, `(`, `'`, `&` and `%` are refused → manual fallback.
+- **Updated tests:** `sessionReset.test.ts` (TS writes gone), `controller.test.ts`, `page.test.ts`, `agents.test.ts`, `nextAction.test.ts` (cross-language regexes on the new templates), `progress.test.ts`, `results.test.ts`, `reviewPackage.test.ts`, and the policy and instructions tests.
+- **Removed:** `gitignore.test.ts`, if US-D16.
+
+**Agent handoff:**
+
+- **Unit tests:**
+  - argv composition: no `--add-dir` by default;
+  - the cwd is the repository;
+  - prompts pass the gate for representative homes;
+  - the Python launcher refuses a non-plain prompt.
+- **Live** (each run separately owner-approved; synthetic repositories and disposable data folders only):
+  - probes P1–P11 (§9.7) in Batch 0B;
+  - the §9.10 real interactive end-to-end runs in Batch 5, against the built candidates, for every combination the owner lists as supported.
+
+  Outcomes are PASS, FALLBACK, FAIL or UNKNOWN as observed. A copy-and-paste completion is FALLBACK, never PASS.
+
+### 11.4 Security regression: what must stay green
+
+| Suite | Expected change |
+| --- | --- |
+| N1–N4, N5 (`test_prompt_boundary_baseline.py`, `test_prompt_boundary_oracles.py`, `test_prompt_boundary_corpus.py`) | logically unchanged; paths in 3 tests (`:442`, `:567`, `:675-701`); `golden/prompt_boundary/expected.json` and `evidence_mirror.json` hold no paths and must not move |
+| N10–N12 (`test_jira_parse_fences.py`, `test_intake_linear_patterns.py`) | unchanged |
+| D1 and the protected rules (`test_batch3_boundaries.py:657-750`, `test_protected_rules.py`) | unchanged if US-D14 keeps the rule (the digest stays `VERSION_2_SHA256`); `.bugpilot` write fixtures re-pointed |
+| Retry, MCP and hint-improver containment (`test_batch3_boundaries.py`) | path updates; the frozen-0.1.4 diff transform (`:362-386`) taught the designed path-line change; `RULES_LINE` (`:84`) updated |
+| Independent CommonMark and raw-line oracles | unchanged; they run over the regenerated goldens |
+| 0.1.5 file safety (`test_batch4_file_safety.py`, `test_file_safety_baseline.py`, `test_write_boundaries.py`, `test_cleanup_safety.py`) | the credentials and atomic-writer logic unchanged; link-refusal targets re-pointed to the data-root components; F13's `.ai` cases become the new folders |
+| CLI contract (`test_cli_json.py`, `test_extension_argv_contract.py`, `scripts/check_cli_contract.py`) | fields per §8.8; `extension_cli_argv.json` regenerated for `--feedback-file` and the capability |
+| Publishability (`test_publishable.py`) | unchanged; docs must use generic home names (`you`, `user`) |
+| Context Quality, retrieval baselines, Git History (`test_retrieval_regression.py`, `test_git_history*.py`, `baseline_report.py`) | **unchanged**: Recall@5 9/9, MRR 0.944; no storage path in them |
+| Goldens | §11.6 |
+
+### 11.5 Workflow tests
+
+| Workflow | Where |
+| --- | --- |
+| Build Context (Jira, hand-written) | `test_workflow.py` and `test_cli_*` (paths); pollution suite |
+| Fix with AI | extension `controller.test.ts` (prompt, cwd, no extra flags); probes P1, P3, P5, P6, P10; the §9.10 end-to-end runs (A1–A3, A6, A7) |
+| Retry | `test_cli_phase2.py`, `test_batch3_boundaries.py`; `--feedback-file` contract; extension retry |
+| History | `test_cli_phase2.py` `list` (new fields); extension `results.test.ts` (no TS `stat`) |
+| Review and verification | `test_review_report.py`, `test_verification_report.py`, `test_review_package.py`; probe P2 |
+| Settings Edit / Reset / Preview | `test_instructions.py`, `test_verification_policy.py`, `test_ai_behavior.py`, `test_project_settings.py`, `test_repository_profile.py`, `test_task_preview.py`, `test_context_preview.py`; extension policy tests; probe P7 (editor save outside the workspace) |
+| Similar Fix Memory | `test_context_task_artifacts.py`, `test_similar_fixes_settings.py`, MCP `search_memory` |
+| CLI and MCP parity | `test_prompt_boundary_baseline.py:675-680`, `test_mcp_server.py` |
+| Agent handoff | §11.3 |
+
+### 11.6 Goldens
+
+**What changes intentionally:**
+
+| Goldens | Change |
+| --- | --- |
+| `tests/golden/task/*.txt` (17) | Execution Location, Required Input/Output Files, Developer Attachments, Investigation Handoff; the Source lines of the Verification Policy and AI Behavior; the US-D9 wording if approved |
+| `tests/golden/context/*.txt` (4) | the `retrieval.json` sentence and the memory file names |
+| `tests/golden/retry/*.txt` (3) | the reading list, rules line, required output and How to Run |
+
+**What stays frozen:** `golden/context_0.1.4/` and `golden/retry_0.1.4/` are never regenerated. Their transforms (`test_context_boundary.py:701-751`, `test_batch3_boundaries.py:362-386`) learn exactly the designed path-line change, and nothing else may differ.
+
+**Determinism.** Golden helpers render in temporary repositories, so the work folder and the repository ID vary by run and by OS. The helpers therefore normalize before comparing: the actual `Path(work_dir).as_posix()` is replaced with the fixed representative `/home/you/.bugpilot/repositories/app-0123456789abcdef/work/<id>`. Both `task_golden.py` and `boundary_golden.py` do this. Line endings are already normalized. No other normalization is allowed.
+
+**How changes are checked:**
+
+- the 17 task goldens differ from 0.1.5 **only** in the listed sections, checked by a script over the diff (not by eye), as D1's one-line change was in 0.1.5;
+- the protected-rules digest is as US-D14 decides (§16.4): unchanged under options A and A′; a new pinned v3 digest under B;
+- the size measures per US-D30 (§9.8 (a)): the normalized median gate, the per-golden growth bound, exactly two absolute work-path occurrences per task golden, and the raw size reported.
+
+### 11.7 CI
+
+**Unchanged:**
+
+- the nine required checks (four jobs; names pinned by `scripts/release_preflight.py:51-61` and `tests/test_release_workflow.py:338-342`);
+- the SHA-pinned actions, `contents: read` and `persist-credentials: false`.
+
+**Additions (owner-approved, Batches 0A–3).** These add isolated storage tests to the existing required jobs. No check is added or renamed, and all nine stay blocking (US-D33).
+
+- `safety-and-baselines` gains these files, so they run on Ubuntu 3.13, macOS 3.13, Windows 3.13 and Ubuntu 3.10:
+  - `tests/test_isolation_guard.py` (Batch 0A)
+  - `tests/test_storage_inventory.py`
+  - `tests/test_storage_identity.py`
+  - `tests/test_storage_safety.py`
+  - `tests/test_repository_pollution.py`
+  - `tests/test_no_legacy_data.py`
+  - `tests/test_storage_contract.py`
+- `extension-evidence-boundary` (the required TypeScript job) gains `test/storagePaths.test.ts`, `test/handoffGate.test.ts` and `test/storageContract.test.ts`. The job keeps its name, and its step runs named files as today.
+- Python jobs set `HOME` and `USERPROFILE` to runner temp (§11.1). The conftest's isolation and guard apply inside, on every OS.
+- The file-safety artifact upload gains the storage observations: modes seen, links refused, `realpath` results per OS. This is how §7.3's "unverified" rows become verified.
+
+**No platform-specific code without its platform's CI.**
+
+- The only per-OS branches in `storage.py` are `normcase` on Windows, and the existing reparse-point check.
+- Each has tests that run on its OS in CI.
+- `extension/test-integration` still does not run in CI. It runs locally in Batches 0A, 3 and 5, isolated through its spawn helper (§11.1).
+
+---
+
+## 12. Performance and resource budgets
+
+| Item | Analysis | Budget (measured in Batches 1, 2 and 4) |
+| --- | --- | --- |
+| Repository ID | one `realpath` (a handle open on Windows) and one SHA-256 over less than 1 KB, memoized per process and root | < 1 ms cold, < 10 µs warm |
+| Path resolution per call | pure joins after the memoized identity; the record is read once per process per namespace | no measurable change |
+| `ensure()` | about 6–9 `lstat`/`mkdir` calls on the first write of a process; after that only the work folder's `lstat` chain, as `writable_dir` does today | < 2 ms on the first write |
+| Preparation end to end | no new network, git, search or model call | median of 5 within 2% of 0.1.5 (the §44.12 rule) |
+| `list` / History | `list` now returns `work_dir` and `modified`, so the extension's N `stat` calls are removed; `run.json` reads stay cached by mtime | `list --json` over 1,000 work items < 1 s; History no slower than 0.1.5 |
+| Memory search | still per repository (R3): it globs `memory/*.md` of one namespace, as before; **no cross-repository scan** | unchanged |
+| Large work folders | unchanged sizes (10 attachments of at most 10 MB) | — |
+| Disk growth | the same bytes as 0.1.5, in one place. Namespaces are never deleted automatically, and a moved or deleted repository leaves its namespace behind (US-D38). The cost is visible: `doctor` reports the data root; `clean` per item | documented; retention DEFERRED |
+| Cache lifetime | no cache (US-D36) | — |
+| Several VS Code windows | one identity computation each (one CLI `doctor` per root, as today) | — |
+| Accidental scanning | `repositories/` is never listed except by diagnostics (an `os.scandir` of one level, if US-D21 adds a count); no walk of the data root and no walk of the repository beyond today's | a test asserts that preparation does not list `repositories/` |
+| Windows path length | deepest common path: `<home>\.bugpilot\repositories\<≤41>\work\<≤40>\attachments\<name>`, about 130 characters plus the attachment name (SF-5) | test with a 100-character attachment name; the limit documented |
+
+---
+
+## 13. Breaking-change documentation
+
+These texts go into the changelog, the README files and `docs/safety.md` in Batch 5. External-facing text gets the owner's review before publication.
+
+### 13.1 What changes for a user
+
+> **BugPilot 0.1.6 keeps all of its data outside your repositories.** Work items, similar-fix memory and repository settings now live in your user folder, under `~/.bugpilot/` (on Windows `C:\Users\you\.bugpilot\`), with one folder per repository. BugPilot no longer creates `.ai/`, `.ai_memory/` or `.bugpilot/` in your repository, and no longer reads them.
+>
+> **This version does not import anything from earlier versions.** Your existing files are left exactly where they are, and BugPilot 0.1.6 does not read them:
+>
+> - prepared work items and their reports in `<repository>/.ai/`;
+> - similar-fix memory in `<repository>/.ai_memory/`;
+> - repository settings in `<repository>/.bugpilot/`: Project Instructions, the Verification Policy, AI Behavior, the Repository Profile, branch naming and project Fix Modes;
+> - in `~/.bugpilot/`: `config.toml` (the Jira site, email and token saved by `bugpilot setup`), `instructions.md` (User Instructions) and `fix_modes/` (your own Fix Modes).
+
+### 13.2 What a user has to do
+
+1. **Jira.**
+   - **CLI users:** run `bugpilot setup` again.
+   - **Extension users:** enter the Jira site again in **Jira Setup**. The email and token are kept by VS Code.
+   - **Users with `JIRA_*` environment variables:** nothing to do.
+2. **Re-create the settings you rely on.**
+   - Do it through the panel or `bugpilot instructions | verification | ai-behavior | project-settings | repository-profile | fix-mode`.
+   - Earlier files can be opened and their text copied by hand; BugPilot does not copy them.
+3. **Prepare work items again** where needed. The earlier ones remain readable as files in `.ai/`.
+4. **If you set `BUGPILOT_CONFIG_DIR`:** use `BUGPILOT_HOME` (US-D3). It now names the whole data folder. `BUGPILOT_CONFIG_DIR` is no longer honoured: BugPilot prints one line saying so, and never reads or uses the folder it names.
+5. **Optional clean-up, by hand, when you no longer need them:**
+   - delete `.ai/`, `.ai_memory/` and `.bugpilot/` from your repositories, and their `.gitignore` lines;
+   - delete `~/.bugpilot/config.toml`, which may hold your Jira token in plain text, `~/.bugpilot/instructions.md` and `~/.bugpilot/fix_modes/`.
+   - **Do not delete** `~/.bugpilot/config/` or `~/.bugpilot/repositories/`: those are 0.1.6's.
+
+### 13.3 What changes for teams (US-D9)
+
+> Repository settings were files in `<repository>/.bugpilot/` that a team could commit. In 0.1.6 they are your own settings for that repository, kept in your BugPilot folder, and are no longer shared through the repository. A committed `.bugpilot/` folder stays in your repository, but BugPilot does not read it. Each developer sets their own.
+
+**Sharing settings across a team is DEFERRED** to a later design. Two possibilities to evaluate:
+
+- an explicit "use this file" setting;
+- an export and import pair.
+
+Either must avoid becoming a legacy reader (R4).
+
+### 13.4 Where to find things (Batch 5 UX; US-D21; the US-D20 legacy notice is recommended for deferral)
+
+| The user wants to | How |
+| --- | --- |
+| find the data folder and this repository's namespace | `bugpilot doctor` (`storage`: data root, repository ID, root, namespace folder, state); the panel's Diagnostics |
+| open a work item's files | the panel's **Open Artifacts Folder** (reveals the folder in the OS file manager, US-D17); **Open task.md**; or the absolute path `bugpilot bug` prints |
+| inspect repository identity | `bugpilot doctor --json` → `storage.repository_id` / `repository_root`; `repository.json` in the namespace |
+| understand that old data is not loaded | this note and the changelog. No legacy-presence probing under the review's recommendation (US-D20 deferred). |
+| know why work items differ when running from a subfolder | `bugpilot doctor` (`storage.below_git_toplevel`) and one line in the panel's Diagnostics (§7.1) |
+| reconfigure Jira | §13.2 |
+| diagnose missing storage or permission errors | `doctor` `storage.state` / `problem`; errors are one sentence naming the folder in `~/.bugpilot/…` form, never a raw traceback; the panel's "Run failed" detail shows the same sentence |
+| a home folder whose name the prompt gate refuses (non-ASCII, `(`, `'`, …) | **A documented limitation of 0.1.6** (§9.9). The manual handoff still works (paste). Setting `BUGPILOT_HOME` to a folder whose path has only letters, digits, spaces and `. _ - /` restores one-click launch. |
+
+### 13.5 Version skew
+
+**Extension and CLI versions.**
+
+- The managed runtime installs `bugpilot==<extension version>`, as before, so a matching pair is the default.
+- If the extension meets a CLI without the `unified-storage` capability (a user-configured `bugpilot.executablePath` pointing at an older CLI), it shows the existing "outdated CLI" message and does not run storage-dependent actions.
+- A 0.1.5 extension with a 0.1.6 CLI is unsupported. It would look for `.ai/`, find nothing, and show empty History. That is harmless, and documented.
+
+**0.1.5 and 0.1.6 CLIs on one machine** see different data: 0.1.5 the legacy files, 0.1.6 the new layout. Neither touches the other's.
+
+---
+
+## 14. Six-batch implementation plan
+
+### 14.0 Batch status
+
+| Batch | Title | Status | Commit | CI run | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 0A | Automated isolation, inventory and baselines | **IMPLEMENTED; final local verification complete; review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated; commit and push approved 2026-10-16** | the commit that carries this row (approved 2026-10-16; a commit cannot hold its own SHA, so a later documentation commit records it) | **PENDING**: the push to `main` triggers it | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
+| 0B | Live agent capability probes | **NOT STARTED** | — | — | awaits a separate approval naming the agents and accounts; no commit except plan records |
+| 1 | Storage foundation | **NOT STARTED** | — | — | after 0A, plus its decisions; independent of 0B |
+| 2 | Python CLI, MCP and prompts on the new layout | **NOT STARTED** | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
+| 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
+| 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
+| 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
+
+**Order.** 0A → 1. 0A → 0B. Batch 2 needs 1, 0B and the decisions above. Then 2 → 3 → 4 → 5 (§15).
+
+- 0A and 0B are independent of each other: 0A reaches its own gate without 0B.
+- Batch 1 does not wait for 0B.
+
+**Rules for every batch:**
+
+- **Start and stop.** A batch starts only on the owner's explicit approval, and stops at its gate for the owner.
+- **Review recommendations are not approvals.** A decision counts as APPROVED only when the owner says so, and §16.1 then records the date.
+- **Before the gate:**
+  - the whole of §11.4 stays green;
+  - `git diff --check` is clean;
+  - publishability passes;
+  - the protected local files (`.bugpilot/`, `.vscode/extensions.json` and the 0.1.5 post-release plan records) are unchanged and unstaged.
+- **No test is weakened to pass.**
+  - No regression test is skipped, deleted, loosened or marked expected-to-fail to hide a known failure.
+  - A test changes only when the behaviour it pins changes by design, in the same commit, with the reason in §18.
+- **Commits and pushes.**
+  - No commit, push, tag, fast-forward, release or publish happens without the owner's approval, and nothing is pushed automatically.
+  - Every implementation prompt cites this plan.
+- **Account-using probes** (0B, and Batch 5's end-to-end runs) need their own owner approval.
+  - They use only synthetic repositories and disposable data folders.
+  - Their outcomes are PASS, FAIL or UNKNOWN as observed (§9.7); nothing is reported as passed unless it was observed.
+- **The version** stays 0.1.5 until Batch 5's approved bump.
+- **Records.** After each batch, update §14.0, §16.1, §18 and §19.
+- **Deviations from the brief's outline:**
+  - Batch 0 also hardens test isolation, and is split into 0A and 0B (2026-10-15 review);
+  - the MCP *code* switches in Batch 2, because it shares `workflow` and the path chokepoints;
+  - Batch 3 keeps MCP live verification and any wording found there (US-D31).
+
+### 14.1 Batch 0 — two scopes, authorized separately
+
+#### 14.1.A Batch 0A — Automated isolation, inventory and baselines
+
+**1. Scope.** No product behaviour changes, and no agent account is used. Batch 0A:
+
+- builds the test isolation and its fail-closed guard, verified by demonstration (§11.1);
+- records the inventory as a ratchet (§11.2);
+- captures synthetic baselines of 0.1.5 behaviour that later batches flip;
+- makes the CI changes approved for isolation;
+- collects the CI observations of `realpath` per OS that §7.3's unverified rows need.
+
+**2. Files.**
+
+| Kind | Files |
+| --- | --- |
+| Isolation | `tests/_isolation.py` (new), `tests/conftest.py` (first statements), `tests/task_golden.py`, `tests/boundary_golden.py`, `tests/prompt_boundary_sources.py`, `tests/prompt_boundary_baseline.py`, `extension/test-integration/cli.integration.test.ts` (spawn helper) |
+| New | `tests/test_isolation_guard.py`, `tests/test_storage_inventory.py`, `tests/storage_inventory.json`, `tests/storage_baseline.py`, `tests/baselines/0.1.6-batch0/` |
+| CI | `.github/workflows/ci.yml`: Python jobs' `HOME`/`USERPROFILE`; `test_isolation_guard.py` and `test_storage_inventory.py` in `safety-and-baselines`; the `realpath` observation artifact. The nine check names stay unchanged. |
+| Plan | this plan |
+
+Not touched: `pyproject.toml`, `bugpilot/`, `extension/src/`, goldens and fixtures.
+
+**The baselines** (synthetic, isolated temporary repositories only):
+
+| File | What it records |
+| --- | --- |
+| `pollution.json` | the folders 0.1.5 creates in a repository |
+| `handoff.json` | today's handoff sentences |
+| `cli_paths.json` | today's JSON path fields |
+| `task_size.json` | the task-size measurements, both the raw and the normalized measure of US-D30 |
+| `prepare_timing.json` | preparation timing |
+| `realpath_<os>.json` | CI observations of the §7.3 spellings: junction, `/private`, case. `subst` is not observed (D0A-5) |
+
+**3. Preconditions.**
+
+- The owner approves Batch 0A's implementation, plus US-D32 (as revised) and US-D33.
+- The 0.1.5 post-release records in `docs/bugpilot_prototype_development_plan.md` are committed by the owner, or explicitly carried forward unstaged.
+- The starting commit is recorded in §19.
+
+**4. Explicit exclusions.**
+
+- no change under `bugpilot/` or `extension/src/`; no golden or fixture change; no version change;
+- no agent account; no Jira; no real repository;
+- the real home is never listed or read (§11.1, requirement 1).
+
+**5. Steps.**
+
+1. `tests/_isolation.py` and the conftest's first statements: the session environment, the real-home path captured as a string, the audit-hook guard, the `sitecustomize` for Python children.
+2. `tests/test_isolation_guard.py`: the decoy demonstrations of §11.1 (writes, reads, children, session check).
+3. Isolate the golden and baseline helpers. Add the integration-test spawn helper and its unit test. Confirm git identity handling under an isolated `HOME`.
+4. The inventory scanner. Reconcile its counts with §5; a family it finds that §5 lacks is added to §5 before going on.
+5. The baseline generator; record `tests/baselines/0.1.6-batch0/`.
+6. `ci.yml` changes; an owner-dispatched CI run.
+7. Update §7.3 from the CI `realpath` observations: each "unverified" row becomes verified or failed.
+
+**6. Acceptance.**
+
+- The full Python suite and the extension suite are green, on Windows locally and on the three systems in CI. All nine checks are green; counts are recorded.
+- **Isolation is demonstrated, not configured.** `test_isolation_guard.py` passes on every CI configuration, with:
+  - every write and read event against the decoy refused before it happens;
+  - the decoy byte-identical, with unchanged mtimes;
+  - no canary in any output;
+  - Python grandchildren guarded;
+  - the session check green.
+- A full local run passes with the guard active. Any `IsolationViolation` it raised was fixed by isolating the test, never by narrowing the guard.
+- The inventory equals §5, or §5 is corrected in the same batch.
+- Baselines are recorded and reproducible: a second run yields identical files, timing excluded.
+- §18 records the guard's event list, where it ran, and its stated limits.
+
+**7. Security tests.** The isolation guard (T-S24, T-S25, T-S26); the inventory ratchet.
+
+**8. Regression.** All of §11.4, unchanged (Batch 0A changes no product file).
+
+**9. Cross-platform.** CI on Ubuntu (3.13 and 3.10), macOS and Windows. The guard and the `realpath` observations run on each.
+
+**10. Rollback.** Revert the test-only commit. Nothing in the product depends on it.
+
+**11. Dependencies.** None.
+
+**12. Stop and approval gate.**
+
+- **Stop if:**
+  - the guard cannot cover a write path the suite uses. The gap is reported with its operation, and the owner decides;
+  - isolation cannot be made complete before collection;
+  - the inventory finds a writer this plan missed. §5 and §14 are amended first.
+- **Gate:** the owner reviews the isolation evidence. 0A is complete on its own; 0B is not required.
+
+##### Batch 0A — as built (2026-10-15)
+
+**Status: implemented and verified locally on Windows. The pre-commit review's findings H-1, M-1 and M-2, and the final diff review's N-1, L-1, L-2, L-3 and L-8, are remediated and re-verified locally ("Pre-commit review remediation" and "Final security remediation", below). Final local verification is complete. On 2026-10-16 the owner approved the commit and push to `main` and one CI run; CI verification is PENDING** (§19).
+
+| | |
+| --- | --- |
+| Authorized | 2026-10-15, Batch 0A only, with US-D32 and US-D33 |
+| Starting point | `main` at `ee3fb00`; the 0.1.5 post-release records in `docs/bugpilot_prototype_development_plan.md` uncommitted and unchanged |
+| Version | 0.1.5, unchanged |
+| Product code | none changed. `bugpilot/`, `extension/src/`, `extension/media/`, `skills/`, `scripts/` and `pyproject.toml` are byte-identical to `ee3fb00` (SHA-256 compared) |
+| Goldens and fixtures | none changed (`tests/golden/`, the 0.1.4 frozen goldens, `tests/fixtures/`, existing `tests/baselines/`) |
+| Accounts | no Jira request, no agent account, no live probe |
+
+**Files.**
+
+| File | Change |
+| --- | --- |
+| `tests/_isolation.py` | **new**: session isolation, the audit-hook guard, the child-guard set-up, `require_isolated()`; Windows' native copy and junction events (N-1) and report-once bookkeeping (L-2) from the final security remediation |
+| `tests/isolation_child/sitecustomize.py` | **new**: the child guard's loader, the one copy both suites use (D0A-2); fails closed when the guard is configured but cannot be installed (L-3) |
+| `tests/conftest.py` | isolation as its first statement; the per-test home; the per-test refusal check; a session-wide refusal check and an end-of-session backstop (L-2) |
+| `tests/task_golden.py`, `tests/boundary_golden.py`, `tests/prompt_boundary_sources.py`, `tests/prompt_boundary_baseline.py`, `tests/baseline_report.py` | refuse to touch storage outside isolation; isolate in `main()`; `Workspace.retry()` and `.similar_fixes()` inside `configured()` |
+| `tests/test_isolation_guard.py` | **new**, required in CI: 26 demonstrations against a decoy (14 as first built, 4 from the review remediation, 8 from the final security remediation) |
+| `tests/test_storage_inventory.py`, `tests/storage_inventory.json` | **new**, required in CI: the ratchet and its record |
+| `tests/storage_baseline.py`, `tests/baselines/0.1.6-batch0/` | **new**: the generator and the six records; path arguments recorded with `/` on every platform (H-1) |
+| `tests/test_storage_baseline.py` | **new**, required in CI: the compared records held to today's behaviour; portable path arguments (H-1); the platform path observation (D0A-3) |
+| `tests/test_cli_json.py`, `tests/test_mcp_stdio.py` | their Python children get `_isolation.child_pythonpath(...)`: the loader, then the sources, instead of a replaced `PYTHONPATH` (M-1) |
+| `extension/test-integration/isolation.ts` | **new**: the integration suite's one isolation helper; its comment on which variables are removed corrected (L-1) |
+| `extension/test-integration/cli.integration.test.ts` | isolates first; every CLI child through the guarded spawn, `discoverExecutable` included since the review (M-2); `git` a stated exception; a final no-refusal test |
+| `extension/test/integrationIsolation.test.ts` | **new**: the helper's checks, with a fake spawn, and a check of the integration suite's sources for every way it can start a process (M-2); runs in the required extension job |
+| `.github/workflows/ci.yml` | both Python test steps: an isolated home created first, `HOME` and `USERPROFILE` set; three files added to `safety-and-baselines`; header comments. Job ids, names, pins, permissions and the artifact upload unchanged |
+
+**The design, as built.**
+
+- **Isolation before collection.** `tests/conftest.py` calls `_isolation.isolate_session()` before importing `pytest` or anything from `bugpilot`. pytest imports the root conftest before it collects a test module, so collection-time renders (`test_prompt_boundary_golden.py:14`) and module-scoped fixtures run isolated, and `test_isolation_guard.py` demonstrates both.
+- **The session.**
+  - One folder from `tempfile.mkdtemp(prefix="bugpilot-test-")`, removed at exit (`BUGPILOT_TEST_KEEP_SESSION` keeps it).
+  - `HOME`, `USERPROFILE`, on Windows `HOMEDRIVE`/`HOMEPATH`, `BUGPILOT_HOME` and `BUGPILOT_CONFIG_DIR` point inside it.
+  - Removed: every `JIRA_*`, `SMTP_*`, `GRAPH_*` and `BUGPILOT_EMAIL_*` variable, plus `BUGPILOT_AUTO_JIRA_COMMENT` and `BUGPILOT_MCP_REPO_ROOT` (D0A-4). A test that wants a synthetic value still sets it.
+  - Each test gets its own home and configuration folder inside the session.
+- **The real home is a string.** Candidates are the account database (`pwd`; on Windows `SHGetKnownFolderPath(FOLDERID_Profile)`), plus `HOME`, `USERPROFILE`, `HOMEDRIVE`+`HOMEPATH`, `~`, `BUGPILOT_HOME` and `BUGPILOT_CONFIG_DIR` as they were before isolation. Each gives a protected root (`<home>/.bugpilot`, or the configured folder). Nothing under a protected root is listed, read or probed by the isolation or by any test.
+- **The guard** (`sys.addaudithook`, before the operation):
+  - write events: `open` (any mode), `os.mkdir`, `os.rename`/`replace`, `os.remove`, `os.rmdir`, `os.symlink`, `os.link`, `os.chmod`, `os.chown`, `os.utime`, `os.truncate`, `os.chdir`, `os.startfile`, `shutil.rmtree`, `shutil.copyfile`, `shutil.copymode`, `shutil.copystat`, `shutil.copytree`, `shutil.move`, `tempfile.mkstemp`, `tempfile.mkdtemp`;
+  - on Windows, read and write: `_winapi.CopyFile2` and `_winapi.CreateJunction`, both source and destination (N-1). With Python 3.12 and later, `shutil.copy2`, `Path.copy` and `Path.copy_into` copy through `CopyFile2` and raise no `shutil.copyfile` or `open` event. Measured on 3.14.6: `CopyFile2` carries (source, destination, flags) and `CreateJunction` carries (target, junction);
+  - read events: `open`, `os.listdir`, `os.scandir`, `glob.glob`, `glob.glob/2`;
+  - process events: `subprocess.Popen`, `os.exec`, `os.posix_spawn`, `os.spawn`, `os.system`. A child is refused when its working directory is under a protected root, or when its environment (given, or inherited) has no home variable (`HOME` on POSIX, `USERPROFILE` on Windows) or would put its BugPilot data in, or around, a protected root. A child recognizable as Python (by its program name, from every event form, the Windows command line included) is also refused when it would start without the loader (M-1): the loader not first on `PYTHONPATH`, or the guard's file, log or protected roots missing from its environment. Python started with `-I`, `-E` or `-S` cannot load it and is not required to.
+  - `IsolationViolation` is a `BaseException`, so product code that catches `Exception` or `OSError` cannot swallow it. Every refusal is also recorded, and a per-test check fails a test whose code swallowed one anyway. A refusal swallowed outside any single test is reported too (L-2), whether at collection, in a module- or session-scoped fixture, or in a teardown:
+    - an autouse session fixture's teardown fails the run with one error, attached to the last test's teardown and saying it belongs to no single test;
+    - a `pytest_sessionfinish` backstop fails a run where that fixture never ran (no test ran) with an `ERROR test isolation - …` line and exit status 1;
+    - each refusal is reported once, by the first check that sees it.
+  - Messages name the operation and "protected BugPilot data root #n", never a path.
+- **Python children.** `PYTHONPATH` starts with `<session>/pyguard`, which holds a copy of `tests/isolation_child/sitecustomize.py`. It loads `tests/_isolation.py` from `BUGPILOT_TEST_GUARD_FILE` and protects `BUGPILOT_TEST_GUARD_ROOTS`; refusals go to `BUGPILOT_TEST_GUARD_LOG`, which the per-test check reads. It chains to an interpreter's own `sitecustomize` if one exists. A test that needs its own import path uses `_isolation.child_pythonpath(...)`, which keeps the loader first; replacing `PYTHONPATH` is refused (M-1). The loader tells three cases apart (L-3):
+  - **not configured** (neither the guard's file nor its roots given): it does nothing, so an ordinary Python program that finds it on its path runs unchanged;
+  - **configured:** the child runs guarded;
+  - **configured but broken** (the file missing, failing or not the guard, or no root given): the child fails closed. It writes the reason to stderr and to the guard log, and exits with status 70 before its own code runs. Without this, `site` would report the exception and carry on unguarded.
+- **Helpers run as scripts** enter the same isolation in `main()`. Their storage-touching entry points (`task_golden._resolved_inputs`, `boundary_golden.render_all`, `Workspace`, `measure_performance`, `storage_baseline.Session`) call `require_isolated()` and refuse otherwise.
+- **The TypeScript integration suite** isolates its process once, at module load, the same way, and its children get the same `sitecustomize`. It hands every `Runner`, and `discoverExecutable` (M-2), a spawn that throws before starting a child whose environment has no home, aims its BugPilot data at the real folder, carries a real Jira, mail or Graph value under one of those names, or starts Python without the guard first on `PYTHONPATH`. The one direct `execFileSync` of Python goes through the same check; its `git` calls are a stated exception, isolated by the environment only; and the suite's last test asserts that no Python child was refused. Production `Runner` and `src/` are unchanged: the `SpawnFn` constructor parameter already existed for tests.
+
+**How isolation was verified** (not just configured): `tests/test_isolation_guard.py`, 26 tests (14 as first built, 4 from the review remediation, 8 from the final security remediation), against a decoy whose `.bugpilot` holds canaries (a fake token, instructions, a task file).
+
+- **In-process:** 12 write operations and 9 read operations, the 0.1.5 writers and readers among them (`save_user_config`, `save_jira_site`, `save_instructions("user")`, `load_user_config`, `read_instructions("user")`), are each refused before they happen.
+- **A Python child and its own child:** 11 operations refused, including a grandchild pointed at the decoy (refused at `Popen`), and a grandchild reading the decoy (refused by its own inherited guard).
+- **Decoy integrity:** every decoy file byte-identical, with an unchanged mtime, checked by the unguarded parent. No canary in any output or message; no decoy path in any message.
+- **Refused children:** a child with no home, and a child pointed at a protected root or started inside one, are refused before they start.
+- **Python children without the loader** (M-1): 9 launches refused before they start — `PYTHONPATH` replaced, removed, or with the loader not first; the guard's file removed or replaced; its log removed; its roots removed or replaced; and an inherited environment without the loader. No child ran (each would have created a marker file). A child given `child_pythonpath`, `-I`, `-E` and `-S` children, and `git` start. Every process-event form is read for its program, driven directly so nothing starts.
+- **A swallowed refusal** is still recorded.
+- **Windows-native copies and junctions** (N-1): these are each refused before they happen:
+  - `shutil.copy2`, `shutil.copy`, `Path.copy` and `Path.copy_into`, into and out of the decoy;
+  - a junction pointing into the decoy, and one placed inside it.
+
+  On Windows the refusal names `_winapi.CopyFile2` or `_winapi.CreateJunction`: the new events are what refuse them. The same operations inside the test's own folder work, and the decoy is unchanged. The `Path.copy` test needs Python 3.14 and the junction test needs Windows; elsewhere they skip with that reason.
+- **Refusals outside any test** (L-2): three whole pytest sessions run in Python children with the suite's own conftest, against the decoy.
+  - Refusals swallowed at collection and in a module-scoped fixture fail the session: one error, exit status 1, an `ERROR` line for CI's annotations.
+  - A refusal a test swallows is reported once, by that test.
+  - With every test deselected, the end-of-session backstop fails the run (status 1, not 5).
+  - A refusal collected once is not collected again.
+- **The loader fails closed** (L-3): run from a launcher without a guard, every child whose guard is configured but broken stops with status 70 before its own code runs, with the reason on stderr and in the log. The broken cases are:
+  - the guard's file missing;
+  - the file failing to load;
+  - the file not being the guard;
+  - the file not given;
+  - no root given.
+
+  A child with no guard configured runs unchanged, and a configured child runs guarded.
+- **Each new test bites:** each fix was reverted in a scratch copy of the files, and the tests covering it failed:
+  - N-1: 3 of 3;
+  - L-2: the session-level tests with the session check removed, and the once-only tests with report-marking removed;
+  - L-3: 1 of 1.
+- **Ran isolated:** collection-time code, module-scoped fixtures and each test, all inside the session.
+- **Variables:** no Jira or mail variable survives.
+- **The guard's own wiring:** installed; the session copy of `sitecustomize` equals the template; a helper refuses to run outside isolation.
+- **The TypeScript side:** `test/integrationIsolation.test.ts`, 9 tests: 8 with a fake spawn (refusals happen before spawning, real credentials are refused only under Jira-type names, the guard is required first on `PYTHONPATH`), and one that reads the integration suite's sources (M-2): of the 33 modules it loads at run time only `src/runner.ts` starts a process, none builds the production `trustedRunner`, every `Runner` and every `discoverExecutable` call gets the isolation's spawn, and every `execFileSync` is checked or is `git`. The integration suite (21 tests) passes with the isolation active, and its final test confirms that no Python child was refused.
+
+**Event coverage and cost.**
+
+- **Verified on 3.14.6 here:** the events the demonstrations exercise, `open` (read and write), `os.listdir`, `os.scandir`, `glob.glob`, `os.mkdir`, `os.rename`/`replace`, `os.remove`, `shutil.rmtree`, `shutil.copyfile`, `os.utime` and `subprocess.Popen` fire and are refused, and so do `_winapi.CopyFile2` and `_winapi.CreateJunction` on Windows.
+- **Pending on Python 3.10:** confirmation comes when CI's Ubuntu 3.10 `safety-and-baselines` job runs `test_isolation_guard.py`; there is no 3.10 interpreter here. Until then the 3.10 event coverage is inferred, not verified.
+- **Cost:** a micro-benchmark measured about +18% on 20,000 `open` + `listdir` pairs, and about +12% on 100,000 logging calls (taken during a concurrent suite run, so approximate).
+
+**Limits** (T-S24, T-S25; documented in `tests/_isolation.py`; completed after the pre-commit review and the final diff review, whose L-4 to L-7 are recorded here and not changed):
+
+- **Not an OS sandbox.** These children are isolated by their environment only, never by the guard:
+  - non-Python programs (`git`, `rg`, `node`), the integration suite's `git` calls among them;
+  - Python started with `-I`, `-E` or `-S`, which ignores `PYTHONPATH` or skips `site` (no test uses them today);
+  - Python started through something the check cannot recognize as Python: a shell (`os.system`, `shell=True`), the `py` launcher, or a console script such as an installed `bugpilot`. The integration suite's `discoverExecutable` test runs one when an install is on `PATH`; the guarded spawn checks its environment.
+  - a process started without any of the checked events: `multiprocessing` (`_winapi.CreateProcess` on Windows, fork or forkserver on POSIX). No test or product code uses it. A forked child's refusals would also stay in its own memory, since the test process's guard keeps no log.
+- **Recognizing Python** (L-4). The Python check recognizes the interpreter by file name: `python`, `python3`, `python3.13`, `pythonw`, with or without `.exe`. It does not recognize:
+  - a free-threaded `python3.14t` or a debug `python_d` (these are treated as non-Python);
+  - on a hand-written Windows command line, an unquoted program path with a space in it, which is read up to the space. `subprocess` always quotes such a path.
+
+  The TypeScript check matches `python`, `python3`, `python3.13` and `.exe`, and not `pythonw`.
+- **The TypeScript check** (L-5) requires the home, the data variables, no real credential, and the loader first on `PYTHONPATH`. Unlike the Python check, it does not require the guard's file, roots and log. Every `Runner` child merges `process.env`, which carries them.
+- **The source check** (L-6) in `test/integrationIsolation.test.ts`:
+  - it sees `from "node:child_process"` imports, and `new Runner(`, `discoverExecutable(` and `execFileSync(` in the suite file;
+  - it would not see a `require`, a dynamic import or a bare `"child_process"` specifier.
+- **Run options and the network** (L-7):
+  - `--noconftest` (or the same in `PYTEST_ADDOPTS`) skips the root conftest, and with it the isolation, the guard and `no_real_jira`; CI never passes it;
+  - there is no network guard. No test makes a real Jira request because none has credentials: isolation removes them, and `no_real_jira` clears them for each test.
+- **Native file access without a judged event.** Measured on 3.14.6, these each create a file with no `open` event: `_winapi.CreateFile` and `sqlite3.connect`. Calls through `ctypes` or a compiled extension raise no event either. Product code uses none of them. `_winapi.CopyFile2` and `_winapi.CreateJunction` are judged (N-1).
+- **`scripts/check_cli_contract.py`** runs on its own, outside pytest, as a release check. It builds its own disposable home and removes every `BUGPILOT_*` variable, so the pytest guard never covers it; its own environment is its isolation.
+- **Path aliases.** The guard compares normalized path strings (`normcase(abspath(...))`), so it does not recognize:
+  - a relative path used after the working directory changed through a handle: a `dir_fd=` argument, or `os.fchdir` (the comparison resolves against the working directory, not the handle);
+  - an already-open file handle: reads and writes through it carry no path, so only its `open` was checked;
+  - a Windows 8.3 short name (`RUNNER~1`) for a protected folder;
+  - an extended-length or device prefix (`\\?\C:\…`, `\\.\C:\…`);
+  - a symbolic link or junction a test planted inside its own folder, pointing into real data (creating one that points there is refused);
+  - a different letter case on a case-insensitive macOS volume (`normcase` folds case only on Windows).
+- **Metadata-only operations** (`stat`, `lstat`, `exists`, `access`) raise no audit event, so a metadata probe of a real path is not refused (no content can be read that way).
+- **The loader** does nothing where the guard is not configured at all (neither its file nor its roots given). The parent's check (M-1) refuses such a child, but only a child it recognizes as Python. A configured but broken guard fails closed (L-3).
+- In Python 3.10, `glob.glob(..., root_dir=)` reports no `root_dir` in its event.
+
+**Deviations from the plan, recorded:**
+
+| Id | Deviation | Why |
+| --- | --- | --- |
+| D0A-1 | §11.1 item 3 said a child is refused when an explicit environment "lacks `HOME`, `USERPROFILE`, `BUGPILOT_HOME` or `BUGPILOT_CONFIG_DIR`, or points them outside the session root". As built, a child is refused when its environment, given *or inherited*, lacks its platform's home variable, or puts any derived BugPilot data folder (`<home>/.bugpilot`, `BUGPILOT_HOME`, `BUGPILOT_CONFIG_DIR`) in or around a protected root. | The literal rule refused legitimate tests: `test_cli_json.py:445-450` and `scripts/check_cli_contract.py:41-52` build their own disposable homes outside the session folder, and tests that remove `BUGPILOT_CONFIG_DIR` deliberately exercise the default `~/.bugpilot` under an isolated home. The safety property — no child reaches real BugPilot data through its environment — is kept, and is checked for inherited environments too, which the literal rule did not cover. |
+| D0A-2 | The child loader is a committed template (`tests/isolation_child/sitecustomize.py`) that both suites copy, not text written by `_isolation.py`. | One copy for Python and TypeScript, which cannot drift apart. It lives in a folder no `sys.path` holds, so it never activates itself. |
+| D0A-3 | `tests/test_storage_baseline.py` (new, in `safety-and-baselines`) and `extension/test/integrationIsolation.test.ts` (new, in the required extension job) are not in §14.1.A's file list. `tests/baseline_report.py` also isolates in `main()`. | The baselines needed a regression check, and §14.1.A's per-OS path artifact needed a test to produce it. The TypeScript helper needed a unit test in CI, because the integration suite does not run there. `baseline_report.py` renders the task goldens, so it touches storage too. |
+| D0A-4 | Isolation also removes `SMTP_*`, `GRAPH_*`, `BUGPILOT_EMAIL_*`, `BUGPILOT_AUTO_JIRA_COMMENT` and `BUGPILOT_MCP_REPO_ROOT`. | Each reaches a real service or chooses a real folder. |
+| D0A-5 | The `subst`-drive observation of §7.3 is not made, locally or in CI. | `subst` assigns a drive letter for the whole user session, a machine-level change outside a test's own folder. It needs an owner decision; the observation records "not observed". |
+| D0A-6 | The integration suite's real-credential check matches values only under Jira, mail and Graph names. | Matching a value under any name refused a legitimate child: a developer's email is also the value of unrelated variables. |
+
+**Local verification, as first built** (before the pre-commit review; Windows 11, Python 3.14.6, Node 24.21; `PYTHONPATH` = the repository; no `JIRA_*` in the test processes after isolation). The remediation's own verification follows below.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Isolation demonstrations | `python -m pytest tests/test_isolation_guard.py` | **14 passed** |
+| Path inventory ratchet | `python -m pytest tests/test_storage_inventory.py` | **4 passed**; counts reconciled with §5.1 |
+| Baselines, regenerated twice | `python tests/storage_baseline.py --write`, then `--check` twice | both checks: **baselines match** (byte-identical on Windows; timing and path observation excluded). The records then held Windows path separators, which Linux and macOS would not reproduce: review finding H-1, remediated below |
+| Baseline tests | `python -m pytest tests/test_storage_baseline.py` | **5 passed** |
+| Release workflow and CI report (CI file parsed, pins, permissions) | `python -m pytest tests/test_release_workflow.py tests/test_ci_report.py` | **80 passed** |
+| Publishability, with the new files scanned | `python -m pytest tests/test_publishable.py` | **20 passed**, after two findings in new code were fixed (a dotted `local` read as a host) |
+| Full Python suite, first run | `python -X utf8 -m pytest -q -p no:cacheprovider -rfEs` | 3,242 passed, **1 failed** (publishability, above, fixed), 36 skipped (POSIX- and macOS-only), 23 min 32 s |
+| Full Python suite, after the fix | same | **3,243 passed, 0 failed**, 36 skipped (the same POSIX- and macOS-only skips), 24 min 35 s |
+| Extension typecheck | `npx tsc --noEmit -p .` | clean |
+| Extension unit tests | `npm test` | **2,349 passed**, 0 failed (2,341 before + 8 new) |
+| The required TypeScript job's files | `node --test test/evidence.test.ts test/hintImprovement.test.ts test/scratchFile.test.ts` | **27 passed** |
+| CLI integration suite (synthetic repositories, isolated) | `npm run integration` | **21 passed**, 0 failed (20 existing + the no-refusal check) |
+| Python 3.10 syntax | `ast.parse(..., feature_version=(3, 10))` over the 12 new or changed Python files, plus a scan for 3.12-only f-string quoting | parse as 3.10; no 3.12-only form. No 3.10 interpreter here: CI's 3.10 job runs them first |
+| Goldens and product files | SHA-256 of `bugpilot/`, `extension/src/`, `extension/media/`, `extension/package.json`, `skills/`, `scripts/`, `pyproject.toml`, `tests/golden/` (0.1.4 frozen sets included), `tests/fixtures/` and the existing `tests/baselines/`, before and after | **identical** (239 files) |
+| Protected local files | SHA-256 of `.bugpilot/`, `.ai/`, `.ai_memory/`, `.vscode/` and the historical plan | **identical** |
+| Whitespace | `git diff --check`, plus a scan of the new files | clean; the 16 new files: no trailing whitespace, a final newline, one line-ending convention each |
+
+**Not executed:**
+
+- **CI:** no run dispatched, as instructed.
+- **POSIX and macOS** runs of the new tests, and the Python 3.10 event coverage: these first run in CI.
+- `scripts/check_cli_contract.py`: a release check that needs a freshly built wheel's executable. No product code changed and nothing was built; the CLI contract is exercised by `test_extension_argv_contract.py` and `test_cli_json.py` in the full suite.
+- **Batch 0B probes:** not authorized.
+
+##### Batch 0A — pre-commit review remediation (2026-10-16)
+
+**Authorization.** An independent, read-only pre-commit review recommended FAIL for Batch 0A as it stood: no Critical finding, one High and two Medium. The owner then authorized a narrow remediation of H-1, M-1 and M-2, corrections to this plan, and an explicit regeneration of the affected synthetic baseline. Batch 0B, Batch 1 and all storage work remain unauthorized. Nothing was staged, committed, pushed or dispatched.
+
+| Finding | What was wrong | Fix | Proof |
+| --- | --- | --- | --- |
+| **H-1** (High) | `pollution.json` recorded path arguments as `str(path)`, so Windows wrote `<input>\review.json` where Linux and macOS write `<input>/review.json`. The comparison is byte-for-byte, so 5 of the 9 required checks would have failed: `safety-and-baselines` on Ubuntu 3.13, macOS 3.13 and Ubuntu 3.10, and `full-suite` on Ubuntu and macOS. | Path-valued arguments stay `Path` objects until they are recorded. `storage_baseline.portable_path()` replaces the temporary root with its label and joins the parts below it with `/`. Other text is normalized as before and keeps any backslash it holds. How the command runs is unchanged. | 3 new tests: Windows- and POSIX-style paths give the same text; a non-path argument keeps its backslash; no compared record has a label followed by `\`. Only `pollution.json` was regenerated (below). |
+| **M-1** (Medium) | `test_cli_json.py:135` and `test_mcp_stdio.py:47` replaced `PYTHONPATH` with the repository, so their Python children ran without the loader, isolated by environment only. The parent's check did not require the loader, and this plan said those children were guarded. | `_isolation.child_pythonpath(...)` returns the loader, then the given entries, each once, joined with `os.pathsep`. An entry that holds `os.pathsep` is refused. Both tests and `storage_baseline.Session` use it. The parent's process check now refuses a Python child whose environment, given or inherited, would start it without the guard. Python is recognized by program name from every event form: argument lists, an explicit executable, and the Windows command line. The child is refused when the loader is not first on `PYTHONPATH`, when the guard's file is missing or is not this session's, when its log is missing, or when its protected roots are missing or fewer than this process passes on. Children started with `-I`, `-E` or `-S` are exempt, as are non-Python programs. D0A-1's home rule is unchanged. | 4 new tests: 9 launches refused before they start, with no marker file created; a `child_pythonpath` child, `-I`, `-E` and `-S` children, and `git` all start; 15 event forms read correctly; the helper's ordering and refusal. One existing test changed: its child's protected roots are now the decoy plus the session's roots, because a child may protect more than its parent, never less. |
+| **M-2** (Medium) | `cli.integration.test.ts` called `discoverExecutable` without a spawn, so the `Runner` it builds used Node's own `spawn`, unchecked and isolated by environment only. This plan said every CLI child went through the guarded spawn. | The test passes `spawn` through the existing `DiscoverOptions.spawn`. It is a wrapper that records each start and calls `ISOLATION.spawn`, and the test asserts it was used whenever an install is found. Production `discoverExecutable` is unchanged. A new unit test in the required extension job reads the suite's sources and checks: of the 33 modules the suite loads at run time, only `src/runner.ts` starts a process and none builds `trustedRunner`; every `Runner` and `discoverExecutable` call gets the isolation's spawn; every `execFileSync` is either checked or `git`, a stated exception. | The integration suite: 21 passed. No `bugpilot` is on `PATH` in this environment, so the discovery test took its "not found" branch, and the guarded start of an installed CLI was not exercised end to end here. The source check catches each of 4 deliberate mutations, run on copies outside the repository: the spawn removed from the discovery call; a `Runner` with the default spawn; an unchecked Python `execFileSync`; `spawn` imported from `child_process`. |
+
+**The regenerated baseline.** Only `tests/baselines/0.1.6-batch0/pollution.json` was regenerated.
+
+- The compared records were generated into a scratch folder inside the isolation (`generate(..., timing=False)`).
+- `handoff.json`, `cli_paths.json` and `task_size.json` came out byte-identical to the existing ones; `pollution.json` was copied in.
+- A value-by-value comparison found exactly seven differences, all of them `command` strings, each changed only from `\` to `/`. For example, `bugpilot record-review JR-12345 --from-file <input>\review.json --json` became `… <input>/review.json …`. The same change applies to `checks.json`, `project.md`, `verification.md`, `behavior.md`, `settings.json` and `user.md`.
+- `prepare_timing.json` and `realpath_windows.json` were not regenerated, so their machine-dependent values are unchanged.
+- `--check` then ran twice: **baselines match** both times.
+
+**Plan corrections.**
+
+- **`subst`:** marked NOT VERIFIED wherever it appears: §1, §7.2, the §7.3 table and its observation, §11.3's platform tests, this batch's outputs, Batch 1's cross-platform gate (§14.2), and RK-7 (§16.2). Its test is deferred pending separate owner approval (D0A-5).
+- **§11.1 item 3:**
+  - `scripts/check_cli_contract.py` is no longer listed as guarded: it runs outside pytest;
+  - the loader rule is added;
+  - the full list of children isolated by environment only is given.
+- **§11.1 item 4:** the TypeScript spawn coverage as built.
+- **§10.2 T-S24 and T-S25:** the limitations are completed.
+- **This section:**
+  - the guard's limits are completed, path aliases included;
+  - the files, design and verification statements are corrected;
+  - the first verification table is marked as the first build's.
+- **§18 and §19:** updated.
+
+**Remediation verification** (Windows 11, Python 3.14.6, Node 24.21; `PYTHONPATH` = the repository):
+
+| Check | Command | Result |
+| --- | --- | --- |
+| H-1 and M-1 tests | `python -m pytest tests/test_isolation_guard.py tests/test_storage_baseline.py`, the full-regeneration test excluded | **24 passed** |
+| Baselines | `python tests/storage_baseline.py --check`, twice | **baselines match**, both times |
+| Focused suites | `python -m pytest` over `test_isolation_guard.py` (18), `test_storage_baseline.py` (8), `test_storage_inventory.py` (4), `test_cli_json.py` (46), `test_mcp_stdio.py` (5), `test_publishable.py` (20), `test_release_workflow.py` (73), `test_ci_report.py` (7) | **181 passed** |
+| Full Python suite | `python -X utf8 -m pytest -q -p no:cacheprovider -rfEs` | **3,250 passed, 0 failed**, 36 skipped (the same POSIX- and macOS-only skips), 24 min 9 s. That is 3,243 before, plus the 7 new tests |
+| Extension typecheck | `npx tsc --noEmit -p .` | clean |
+| Extension unit tests | `npm test` | **2,350 passed**, 0 failed (2,349 + the source check) |
+| The required TypeScript job's files | `node --test test/evidence.test.ts test/hintImprovement.test.ts test/scratchFile.test.ts` | **27 passed** |
+| CLI integration suite | `npm run integration` | **21 passed**, 0 failed; the final no-refusal test passed |
+| Publishability, after the plan edits | `python -m pytest tests/test_publishable.py` | **20 passed** |
+| Python 3.10 syntax | `ast.parse(..., feature_version=(3, 10))` over the 7 changed Python files | all parse |
+| Goldens and product files | the 239-file SHA-256 record from the first build | **identical** |
+| Protected local files | `.bugpilot/`, `.ai/`, `.ai_memory/`, `.vscode/`, the historical plan | **identical** |
+| The other baseline records | SHA-256 before and after | only `pollution.json` changed |
+| Version | `bugpilot/__init__.py`, `extension/package.json` | 0.1.5 |
+| Whitespace | `git diff --check`, plus a scan of the new and changed files | clean: no trailing whitespace, a final newline and one line-ending convention in each |
+
+**Not executed:**
+
+- CI;
+- POSIX, macOS and Python 3.10 runs: the H-1 fix is shown by tests with both path styles, but its byte-identical result on Linux and macOS is first observed in CI;
+- `scripts/check_cli_contract.py`;
+- the guarded start of an installed `bugpilot`, since none is on `PATH` here;
+- Batch 0B probes.
+
+##### Batch 0A — final security remediation (2026-10-16)
+
+**Authorization.** The independent final diff review recommended PASS WITH CONDITIONS:
+- H-1, M-1 and M-2 were complete;
+- one new Medium (N-1) was found, along with Low findings L-1 to L-8.
+
+The owner authorized a final, narrow remediation of N-1, L-1, L-2, L-3 and L-8. Only test infrastructure, its tests and this plan could change. L-4 to L-7 stay as documented limitations (§14.1.A "Limits"). Nothing was staged, committed, pushed or dispatched.
+
+| Finding | What was wrong | Fix | Proof |
+| --- | --- | --- | --- |
+| **N-1** (Medium) | On Windows with Python 3.12 and later, `shutil.copy2`, `Path.copy` and `Path.copy_into` copy through `_winapi.CopyFile2`, an event the guard did not judge. A scratch experiment against a guarded decoy copied into and out of it unrefused. `_winapi.CreateJunction` was not judged either. | The event arguments were measured on 3.14.6 before any handler was added: `CopyFile2` carries (source, destination, flags), and `CreateJunction` carries (target, junction). Both events are now judged at positions 0 and 1, so neither end may be protected. Nothing else was blocked: copies and junctions inside a test's own folder work. | 3 new tests: copies (all platforms; on Windows the refusal names `_winapi.CopyFile2`), `Path.copy` and `Path.copy_into` (3.14+), and junctions (Windows). With the two entries removed in a scratch copy, all 3 fail. |
+| **L-1** (Low) | The module comments of `tests/_isolation.py` and `extension/test-integration/isolation.ts` said agent variables were removed; they are not. | The comments now name exactly what is removed, and say agent-command variables are kept. Sanitization is unchanged. | Read against `SANITIZED_PREFIXES` and `SANITIZED_NAMES` in both files. |
+| **L-2** (Low) | A refusal swallowed outside a test function (at collection, in a module- or session-scoped fixture, or in a teardown) reached no check. | `_isolation.collect_since()` and `collect_unreported()` mark each refusal reported once. Three checks share them: the per-test check; an autouse session fixture whose teardown fails the run with one error that says it belongs to no single test; and a `pytest_sessionfinish` backstop for a run where that fixture never ran (exit status 1, plus an `ERROR test isolation - …` line, which CI's annotations read). | 4 new tests: three nested pytest sessions run with the suite's own conftest against the decoy, plus a report-once test. With the session check removed, the two session-level tests fail; with report-marking removed, the two once-only tests fail. |
+| **L-3** (Low) | If the guard could not be loaded, `site` reported the exception and the child ran on unguarded. | The loader tells three cases apart. Not configured (neither the file nor the roots given): it does nothing. Configured: the child runs guarded. Configured but broken: the child writes the reason to stderr and the guard log, then exits with status 70 before its own code runs. | 1 new test of 7 cases, run in disposable children from a launcher without a guard: 5 broken configurations exit 70, run none of their code and log one line each; the unconfigured and configured children run. With the old loader restored in a scratch copy, it fails. |
+| **L-8** (Low) | D0A-1 cited `test_cli_json.py:442-447`; the M-1 edits had moved those lines. | Now cites `445-450`. | — |
+
+**Remediation verification** (Windows 11, Python 3.14.6, Node 24.21):
+
+| Check | Command | Result |
+| --- | --- | --- |
+| The guard's tests | `python -m pytest tests/test_isolation_guard.py` | **26 passed**, 0 skipped here (Windows, 3.14: every conditional case ran) |
+| Focused suites | `python -m pytest` over the guard (26), `test_storage_inventory.py` (4), `test_storage_baseline.py` (8), `test_cli_json.py` (46), `test_mcp_stdio.py` (5), `test_publishable.py` (20), `test_release_workflow.py` (73), `test_ci_report.py` (7) | **189 passed** |
+| Full Python suite | `python -X utf8 -m pytest -q -p no:cacheprovider -rfEs`, writing no bytecode | **3,258 passed, 0 failed**, 36 skipped (the same POSIX- and macOS-only skips), 20 min 48 s: 3,250 before, plus the 8 new tests. The new session-wide check reported nothing: no refusal anywhere in the suite was swallowed outside a test |
+| Extension typecheck | `tsc --noEmit -p .` | clean |
+| Extension unit tests | `npm test` | **2,350 passed**, 0 failed |
+| The required TypeScript job's files | `node --test test/evidence.test.ts test/hintImprovement.test.ts test/scratchFile.test.ts` | **27 passed** |
+| CLI integration suite (the new loader in every Python child) | `npm run integration` | **21 passed**; the final no-refusal test passed |
+| Baselines | `python tests/storage_baseline.py --check`, twice | **baselines match**, both times; the records unchanged |
+| Publishability, after the plan edits | `python -m pytest tests/test_publishable.py` | **20 passed** |
+| Goldens, product files, fixtures, existing baselines, packaging configuration | `git diff HEAD` over them, and the 239-file SHA-256 record | **unchanged** |
+| Protected local files and the historical plan | SHA-256 record | **identical** |
+| Version | `bugpilot/__init__.py`, `extension/package.json` | 0.1.5 |
+
+**Not executed:**
+- CI;
+- POSIX, macOS and Python 3.10 runs (the `Path.copy` and junction tests skip there, with their reasons);
+- `scripts/check_cli_contract.py`;
+- the guarded start of an installed `bugpilot`, since none is on `PATH` here;
+- Batch 0B probes.
+
+#### 14.1.B Batch 0B — Live agent capability probes
+
+**1. Scope.** Probes P1–P11 (§9.7), where each applies and is available.
+
+**2. Files.** None in the repository, apart from this plan's §18 records. Transcripts and screenshots are stored outside the repository, and are never committed if they show personal data.
+
+**3. Preconditions.**
+
+- The owner separately approves Batch 0B, naming the agents, versions and accounts that may be used.
+- Batch 0A is not required.
+
+**4. Explicit exclusions.**
+
+- no real Jira, real work repository, real issue text, developer configuration or real credentials;
+- no change to any agent's sandbox or permission settings;
+- no `--add-dir` or other grant;
+- no product change.
+
+**5. Steps.**
+
+1. Build the probe kit (§9.7): a synthetic repository, a synthetic external work folder and a disposable data folder.
+2. Run each approved probe, recording every §9.7 field.
+3. Record the outcomes in §18 as PASS, FAIL or UNKNOWN. **A probe that was not run, was unavailable or was inconclusive is UNKNOWN, never passed.**
+4. Update §9.2's rows from observation, marking each as observed, with agent and version.
+5. Write each decision's evidence summary into §16.1 (US-D10, US-D12, US-D13, US-D17, US-D27, US-D28). The owner decides; a probe result does not decide on its own.
+
+**6. Acceptance.**
+
+- Every approved probe is recorded with its fields.
+- Every probe that was not run is listed as UNKNOWN, with the reason.
+- No outcome is inferred from documentation.
+
+**7–9.** Not applicable: there is no code, and the platforms are those the probes ran on, as recorded.
+
+**10. Rollback.** None needed: nothing is installed or changed. The disposable folders are deleted after recording.
+
+**11. Dependencies.** None. It may run before, during or after Batch 0A and Batch 1.
+
+**12. Stop and approval gate.**
+
+- **Stop if:** a probe would need a real account, repository or configuration not covered by the approval; a probe shows that Option A cannot work for an agent the owner considers supported (US-D10 returns to the owner with the evidence).
+- **Gate:** the owner decides US-D10 and US-D28 from the evidence, and US-D12's direct-launch question if P11 ran. **A storage-changing Batch 2 does not begin while US-D10, US-D14 or US-D28 is still OPEN** (§14.3).
+
+### 14.2 Batch 1 — Storage foundation
+
+**1. Scope.** `bugpilot/core/storage.py` (§8.2) and the `safe_paths` generalization (§8.5), with their tests. **No caller is switched.**
+
+**2. Files.**
+
+- `bugpilot/core/storage.py` (new)
+- `bugpilot/core/safe_paths.py` (a `boundary` label and a `mode` argument; existing messages byte-identical)
+- `bugpilot/core/errors.py` (only if US-D26 adds a code)
+- `tests/test_storage_identity.py` and `tests/test_storage_safety.py` (primitives)
+- `tests/fixtures/storage_cli_contract.json`: §8.10 frozen as test data; no product code reads it
+- `.github/workflows/ci.yml` (the file list)
+- this plan
+
+**3. Preconditions.**
+
+- Batch 0A is on `main`, with green CI and its isolation evidence accepted by the owner.
+- The owner approves Batch 1's prerequisite decisions: US-D1, D3, D5 (conditionally, on §7.3's verification), D6, D7, D23, D24 and D34.
+- Batch 0B is **not** required.
+
+**4. Explicit exclusions.**
+
+- `config.py`, the settings modules, the CLI, MCP and the extension are untouched;
+- no product module imports `storage`;
+- `doctor` is unchanged;
+- no golden changes.
+
+**5. Steps.**
+
+1. `data_root()` and its validation (US-D34).
+2. `repository_identity()`, plus golden vectors for one POSIX path and one Windows path (US-D5).
+3. The record: read, verify, deterministic write (US-D24).
+4. `ensure()`: creation one component at a time (`0700`), link checks before and after, and the `realpath` containment comparison (US-D23).
+5. Path accessors with `create=` semantics; `SettingsName`; `work_items()`.
+6. `display_path()` (US-D22).
+7. Memoization; timing against §12.
+8. Tests (§11.3, resolver and primitives); CI file list.
+9. Freeze §8.10 as `tests/fixtures/storage_cli_contract.json`. Add a schema check that the fixture is well-formed and lists every key of §8.10. No product test uses it yet.
+
+**6. Acceptance.**
+
+- The new suites are green on the four CI configurations.
+- Every §7.3 row is covered by a test, or recorded as "not testable in CI" with the reason.
+- Every existing suite is unchanged: goldens identical, ratchet unchanged.
+- §12's identity and `ensure()` budgets are met.
+- `python -c "import bugpilot.core.storage"` works on 3.10.
+- The isolation guard is active throughout; the resolver tests show `data_root()` under the session root.
+- The contract fixture matches §8.10 exactly.
+
+**7. Security tests.** T-S1, T-S2, T-S4, T-S5, T-S6, T-S7 (record), T-S14 (resolution creates nothing), T-S18 and T-S23, at the primitive level; T-S24 and T-S25 stay green.
+
+**8. Regression.** All of §11.4 unchanged.
+
+**9. Cross-platform.** POSIX modes, macOS `/private` and Windows junctions, all in CI. `subst` only if the owner separately approves its test (D0A-5).
+
+**10. Rollback.** Revert the commit. Nothing uses the module.
+
+**11. Dependencies.** Batch 0A's isolation and guard: the resolver tests rely on `BUGPILOT_HOME` being set session-wide, before collection. There is no dependency on Batch 0B.
+
+**12. Stop and approval gate.**
+
+- **Stop if:**
+  - a §7.3 case behaves differently on a platform than the plan says (for example `subst` is not resolved, or macOS `getcwd` is not canonical). The table and US-D5 return to the owner;
+  - `realpath(strict=True)` behaves differently on 3.10.
+- **Gate:**
+  - the owner approves the commit to `main` (US-D29);
+  - the owner approves §8.10 and its fixture (US-D26's condition).
+
+  Batch 2 then still waits for its own preconditions (§14.3).
+
+### 14.3 Batch 2 — Python CLI, MCP and prompts on the new layout
+
+This batch moves implementation paths, **not user data**: nothing is copied, imported, renamed or deleted, and no legacy reader is added.
+
+**1. Scope.** Every Python reader and writer of F01–F17 and F21–F25 moves to `storage`, and every agent-facing and human-facing Python string (§5.5 A and B) changes. Specifically:
+
+- the JSON contract, exactly as §8.10 and its fixture state;
+- `doctor`'s `storage` object and the `unified-storage` capability;
+- the `--feedback-file` flag (US-D18);
+- the Python launch gate (T-S12);
+- the removal of the gitignore probe (US-D16);
+- the goldens.
+
+**2. Files.**
+
+| Area | Files |
+| --- | --- |
+| Paths | `config.py`, `user_config.py`, `instructions.py`, `verification.py`, `ai_behavior.py`, `project_settings.py`, `repository_profile.py`, `fix_mode_store.py`, `fix_mode_state.py`, `cleanup.py`, `memory.py`, `attachments.py` (docstring), `identity.py` (docstring) |
+| Pipeline and text | `workflow.py`, `prompts.py`, `handoff.py`, `context.py`, `email_notify.py`, `jira.py`, `issue.py`, `retrieval.py`, `run.py`, `review_report.py`, `verification_report.py`, `fix_report.py`, `task_preview.py`, `context_preview.py`, `agent_runner.py`, `copilot.py` |
+| Diagnostics | `git_ops.py`, `doctor.py` |
+| Entry points | `cli.py`, `cli_json.py`, `mcp_server.py` |
+| Guards (comments only, US-D15) | `search.py`, `review_changes.py`, `verification.py` lint |
+| Non-Python | `skills/bugpilot-investigate/SKILL.md`, `scripts/send-via-outlook.ps1`, `scripts/check_cli_contract.py` |
+| Tests | the modules listed in §11.4 and §11.5, about 50; the goldens (§11.6); `tests/fixtures/repository_profile_contract.json`; the new suites `test_repository_pollution.py`, `test_no_legacy_data.py`, `test_storage_contract.py` |
+| Records | `tests/storage_inventory.json` (shrunk); this plan |
+
+**3. Preconditions.**
+
+- Batch 1 is on `main`, and the owner has approved §8.10 and its fixture (US-D26).
+- Batch 0B is complete for the probes this batch depends on: P1, P2, P3 and P8, each recorded as PASS, FAIL or UNKNOWN (§9.7).
+- **The critical handoff decisions are resolved by the owner.** A storage-changing Batch 2 does not begin while any of these is OPEN:
+  - US-D10 (handoff), decided on the 0B evidence;
+  - US-D28 (captured review), decided on P2;
+  - US-D14 (the protected staging rule), decided among §16.4's options.
+- These decisions are approved: US-D2, D4, D8, D9, D13, D15, D16, D18, D21, D22, D25, D27, D29, D30, D31.
+- The owner has approved creating `verify/0.1.6-storage` from `main` (§15.2).
+
+**4. Explicit exclusions.**
+
+- no extension source change (the extension is knowingly broken on this branch until Batch 3; §15);
+- no retrieval, ranking or Context Quality change;
+- no protected-rule text change beyond what US-D14 decides;
+- no new CLI command other than the `--feedback-file` option, unless US-D21 adds one;
+- no data migration and no legacy reader.
+
+**5. Steps.**
+
+1. Route `config.issue_dir`, `writable_issue_dir`, `memory_dir` and `writable_memory_file` through `storage`, and replace the 12 direct joins (§4.2).
+2. Settings modules: path accessors, `display_path`, link checks with the new base. Fix Mode store: `scope_dir`, plus error text in display form (SF-3).
+3. `user_config`:
+   - the folder becomes `config/` (US-D2);
+   - `BUGPILOT_HOME` replaces `BUGPILOT_CONFIG_DIR` (US-D3), which is no longer honoured. US-D3's safe warning: one stderr line in text mode, plus `doctor`'s `legacy_config_dir_variable`; the variable's value is never read;
+   - the private write is unchanged.
+4. Memory: `memory/<id>.md`; the entry text and the `search_memory` `file` field.
+5. `clean` on the data-root base (§8.4).
+6. `list`: `storage.work_items()`, with `work_dir` and `modified`.
+7. Texts per §9.8:
+   - `task.md`'s protected sections;
+   - the retry prompt, the review prompt and the `context.md` sentence;
+   - MCP INSTRUCTIONS, `next_step` and the tool descriptions;
+   - `handoff.py` and SKILL.md;
+   - the protected staging rule exactly as US-D14 decided (§16.4). Under option B, its wording and tests get their own review and approval *before* any golden is regenerated.
+
+   Then regenerate the goldens and run the scripted diff check (§11.6).
+8. Contract (§8.10; the fixture is the reference):
+   - the JSON fields, the JSON-lines events and MCP;
+   - `doctor`'s `storage` and the capability;
+   - remove `ai_artifacts_ignored*` (US-D16).
+9. `bug --retry --feedback-file <path>`. It copies the file into `user_feedback.md` with the atomic writer, and refuses a link at the source.
+10. `agent_runner`: the plain-prompt rule before launch (T-S12).
+11. Every message in display form (US-D22), and the `--launch-agent` retry sentence fixed (SF-9).
+12. `send-via-outlook.ps1`: takes the draft path (SF-10).
+13. Tests: path updates; the new suites; the ratchet shrunk to the Python residue.
+
+**6. Acceptance.**
+
+- The pollution and no-legacy-data suites are green.
+- The ratchet holds only the Python residue.
+- The goldens differ only as §11.6 lists (scripted).
+- The protected-rules digest is as US-D14 decides.
+- The task-size gate holds as US-D30 decides.
+- Recall@5 9/9, MRR 0.944, Context Quality unchanged; both oracles report 0 escapes.
+- Read-only commands leave the data root byte-identical (snapshot).
+- §12 budgets are met.
+- **Every Python test passes**: the full suite on Windows locally, and on Ubuntu 3.13 and 3.10, macOS and Windows through owner-dispatched CI on `verify/0.1.6-storage`. No Python failure is accepted.
+- **Extension failures are ledgered** (§15.4). Each one that follows *solely* from the unimplemented Batch 3 contract is listed individually in §18: test, contract item, message, commit.
+  - Any failure not on the ledger is a regression.
+  - No test is skipped, deleted, loosened or marked expected-to-fail to hide one.
+  - A red required job is reported as red.
+- The version is still 0.1.5. Nothing is pushed beyond the branch, and nothing is fast-forwarded.
+
+**7. Security tests.** T-S2, T-S5, T-S7, T-S10, T-S11, T-S12 (Python), T-S13, T-S14, T-S15, T-S20, T-S21 (golden text), T-S22, end to end.
+
+**8. Regression.** All of §11.4, with the expected changes listed there.
+
+**9. Cross-platform.** CI on the four Python configurations; the POSIX mode tests on the new tree.
+
+**10. Rollback.** The branch is not merged; reset the branch or revert commits. `main` is unaffected.
+
+**11. Dependencies.** Batch 1 (the API and the contract fixture), Batch 0A (isolation), Batch 0B (the probes behind US-D10 and US-D28).
+
+**12. Stop and approval gate.**
+
+- **Stop if:**
+  - a golden changes outside the designed lines;
+  - an MCP key would have to change;
+  - a protected-rule text change is needed that US-D14 did not approve;
+  - the size gate cannot meet US-D30's choice;
+  - a writer into the repository remains that the plan cannot remove;
+  - a test would have to be skipped, deleted or weakened to pass;
+  - a Python test fails;
+  - an extension failure does not follow solely from the Batch 3 contract.
+- **Gate:** the owner reviews the ledger and approves continuing with Batch 3 on the same branch.
+
+### 14.4 Batch 3 — Extension and Agent Handoff
+
+**1. Scope.**
+
+- The extension stops computing `.ai` and `.bugpilot` paths (US-D17).
+- `user_feedback.md` goes through the CLI (US-D18).
+- Reset Session uses only `bugpilot clean`.
+- History uses `list`'s fields.
+- Open Artifacts Folder uses `revealFileInOS`.
+- The watchers and the policy editor move to the CLI-given paths.
+- The gitignore UI goes (US-D16).
+- The capability check: `unified-storage`.
+- The handoff per §9.5, including the gate fallback (US-D12). The gate is unchanged. A launch without a shell (§9.9) is included only if the owner separately approved it after P11.
+- MCP and handoff live verification (as P6 and P8, with real 0.1.6 artifacts, separately owner-approved), with any text corrections it finds.
+- **Restore the complete CLI–extension contract** (§15.1) and **close the expected-failure ledger** (§15.4).
+
+**2. Files.**
+
+| Area | Files (under `extension/`) |
+| --- | --- |
+| App | `src/app/controller.ts`, `src/app/sessionReset.ts`, `src/app/nextAction.ts`, `src/app/agents.ts`, `src/app/progress.ts`, `src/app/artifacts.ts`, `src/app/form.ts`, `src/app/environment.ts`, `src/app/verificationPolicy.ts`, `src/app/aiBehaviorPolicy.ts`, `src/app/jiraConnection.ts`, `src/app/gitignore.ts` (removed if US-D16) |
+| Host | `src/host/ports.ts`, `src/host/bugpilotFiles.ts` |
+| Views and panel | `src/app/results.ts`, `src/views/trees.ts`, `src/panel/html.ts`, `media/panel.js` |
+| Entry | `src/executable.ts`, `src/extension.ts` |
+| Tests | `test/*.test.ts` per §11.3; `test/cliArgvContract.test.ts`, which regenerates `tests/fixtures/extension_cli_argv.json`; `test-integration/cli.integration.test.ts` |
+| Records | `tests/storage_inventory.json`; this plan |
+
+**3. Preconditions.**
+
+- Batch 2 is on the branch, and its ledger is recorded.
+- These decisions are approved: US-D11 (the review recommends deferring), D12, D17 and D19.
+- Batch 0B records exist for P6, P7, P9 and P10, and for P11 if it ran, each as PASS, FAIL or UNKNOWN.
+
+**4. Explicit exclusions.**
+
+- no default permission flag;
+- no change to the managed runtime's location;
+- no Settings redesign;
+- no Copilot adapter (none exists today).
+
+**5. Steps.**
+
+1. Fetch `repository_dir` and `unified-storage` with `doctor`, per root, and refresh them on a root change.
+2. One composition helper (§8.9), with a shared fixture test. Remove `#itemFile`'s `.ai`, `preparedContextPath`, and the `ports.ts` joins and guard.
+3. Retry through `--feedback-file`; delete `writeWorkItemFile`.
+4. Reset Session through `clean` only.
+5. History from `list` (`work_dir`, `modified`); the probe reads `run.json` under `work_dir`.
+6. Watchers (artifact and policy) on the external folders, per P7; Open Artifacts Folder through `revealFileInOS`.
+7. Policy Edit: open the CLI-given `path`; `bugpilotFiles` with the new base.
+8. Handoff:
+   - the templates, with the CLI path in forward-slash form;
+   - the gate unchanged, with its fallback to manual handoff, a notice, and the fallback recorded as FALLBACK;
+   - the guidance sentence;
+   - `--add-dir` only if US-D11 is approved, which the review recommends against for 0.1.6;
+   - no sandbox or permission change.
+9. Remove the gitignore notice, quick fix and tests (US-D16).
+10. UI strings (§5.5 B; the US-D9 wording).
+11. Tests, the integration suite (isolated), and the ratchet down to the final residue.
+
+**6. Acceptance.**
+
+- Typecheck and unit tests are green; the required TypeScript job includes the new files.
+- The integration suite is green locally and isolated.
+- No TypeScript code writes or deletes under `repository_dir`. This is enforced by a test over the `FilesPort` calls and by the ratchet.
+- A real VS Code pass in a disposable profile with an isolated `BUGPILOT_HOME`:
+  - prepare (Jira mock and hand-written), Fix with AI (Claude and, where authorized, Codex), retry, review (captured and terminal), verification;
+  - History, Reset Session;
+  - settings Edit, Reset and Preview (all six layers);
+  - Open task.md, Open Artifacts Folder;
+  - a home with a space in its path;
+  - after all of it, the repository's `git status` is clean.
+- **The contract is complete:**
+  - the §15.4 ledger is empty: every ledger test passes, asserting what it asserted apart from the designed contract change;
+  - the full extension suite, the cross-language tests and the TypeScript contract test against §8.10's fixture are green.
+- The live MCP verification (A8) and the handoff aspects exercised in the real pass are recorded as PASS, FALLBACK, FAIL or UNKNOWN. Release-grade end-to-end evidence is Batch 5's (§9.10).
+
+**7. Security tests.** T-S7 (the extension composes only under the CLI's base), T-S12 (the TypeScript gate and fallback), T-S16 (only if US-D11), T-S20 (the extension writes nothing in the repository).
+
+**8. Regression.** The extension suite; the cross-language tests; the argv contract; the required TypeScript job's existing files.
+
+**9. Cross-platform.**
+
+- Extension unit tests on Ubuntu in CI.
+- The real VS Code pass on Windows (this machine).
+- macOS and Linux extension behaviour is unit-tested only. That is recorded as a residual risk, unless the owner provides a machine.
+
+**10. Rollback.** The branch, as Batch 2.
+
+**11. Dependencies.** Batch 2's JSON contract and flag.
+
+**12. Stop and approval gate.**
+
+- **Stop if:**
+  - an out-of-workspace watcher does not fire (P7). The owner chooses between polling on focus and a manual refresh;
+  - the gate fallback cannot be made clear;
+  - an agent cannot complete a workflow with A;
+  - a ledger test can pass only by weakening what it asserts.
+- **Gate:** the owner approves Batch 4.
+
+### 14.5 Batch 4 — Security and cross-platform validation
+
+**1. Scope.**
+
+- Prove §10.3 on Linux, macOS, Windows and Python 3.10, and run every T-S test.
+- Reassess the prompts, the CLI and MCP output, and path privacy (US-D22).
+- SF-1 (US-D39) and SF-5.
+- A final security review before commit, in §44's format.
+- Fix gaps without unrelated refactoring.
+- Then, only with the owner's explicit merge approval, fast-forward `verify/0.1.6-storage` to `main` (US-D29, §15.4). Nothing is automatic.
+
+**2. Files.** Only what a finding requires, plus `projectSettings.ts` and `repositoryProfile.ts` (SF-1, if approved), the tests and this plan.
+
+**3. Preconditions.** Batches 2 and 3 are complete on the branch, with an empty §15.4 ledger, and US-D39 is decided.
+
+**4. Explicit exclusions.** No new feature; no refactor beyond a finding's fix.
+
+**5. Steps.**
+
+1. Owner-dispatched CI on the branch: all nine jobs green.
+2. The T-S matrix (§10.2), each threat mapped to a test that has run on the OS it concerns.
+3. A **mutation check** on scratch copies of the package, as §44.22 did. Each control is removed in turn, and a test must catch the removal:
+   - link refusal at each component;
+   - the record check;
+   - id validation;
+   - resolution creating nothing;
+   - the gates (Python and TypeScript);
+   - the pollution guard;
+   - the no-legacy guard.
+4. Privacy review: every CLI command's text and JSON output, and every MCP tool result, with an isolated home whose name is distinctive. Only designated fields hold it.
+5. SF-1 and SF-5.
+6. Review of `docs/safety.md` claims against behaviour (the docs themselves are written in Batch 5).
+7. Owner-dispatched CI on the exact commit to be merged: all nine required checks green.
+8. The owner explicitly approves the merge. Only then, the fast-forward to `main`, done or authorized by the owner, never automatically.
+9. CI on `main` after the fast-forward.
+
+**6. Acceptance.**
+
+- every T-S test green on its OS;
+- no Critical or High finding open;
+- the ratchet at its final residue;
+- every mutation caught;
+- all nine required CI checks green on the branch, at the commit merged;
+- the owner's explicit merge approval recorded in §19;
+- CI green on `main` after the fast-forward;
+- the version still 0.1.5.
+
+**7. Security tests.** All of §10.2.
+
+**8. Regression.** All of §11.4.
+
+**9. Cross-platform.** Required on all four configurations; POSIX modes and macOS paths are verified, not inferred.
+
+**10. Rollback.** Before the fast-forward: the branch. After it: revert commits on `main`. No data is affected, because no migration ran.
+
+**11. Dependencies.** Batches 2 and 3.
+
+**12. Stop and approval gate.**
+
+- **Stop if:**
+  - a guarantee of §10.3 cannot be met on an OS;
+  - a mutation survives;
+  - any of the nine checks is red.
+- **Gate:**
+  - the owner explicitly approves the merge, after seeing all nine checks green;
+  - there is no automatic push or fast-forward;
+  - then the owner approves Batch 5.
+
+### 14.6 Batch 5 — Final UX, packaging and release readiness
+
+**1. Scope.**
+
+- Storage status and diagnostics: `doctor`, and the panel's Diagnostics, including §7.1's subfolder line. No legacy-presence line unless the owner later approves US-D20, which the review recommends deferring.
+- The §9.10 real interactive end-to-end runs, for every combination the owner lists as supported.
+- Documentation (§13): README, `extension/README.md`, `docs/architecture.md` (§6 rewritten), `docs/safety.md`, `docs/development.md`, `docs/mcp_setup.md`, `docs/skill_setup.md`, `docs/notifications.md`, `docs/adapter_design.md` (the storage references only).
+- The changelog entries: "Unreleased — 0.1.6 candidate", then the dated entry at the bump.
+- Clean installs; the real VS Code pass; live handoff probes against the candidates.
+- Packaging and publishability; final CI; the readiness report.
+- The version bump only after the release review (as §44.13).
+
+**2. Files.** Docs; `CHANGELOG`s; any UI text from the real pass; the version files at the bump (`bugpilot/__init__.py`, `extension/package.json`, and their lockstep tests); this plan.
+
+**3. Preconditions.**
+
+- Batch 4 is on `main` with green CI.
+- The owner has listed the supported agent and provider combinations (§9.10).
+- The owner has separately approved the account-using end-to-end runs.
+
+**4. Explicit exclusions.**
+
+- no behaviour change beyond diagnostics text;
+- no publish without the owner (PyPI through the release workflow's protected environment; Marketplace by the owner).
+
+**5. Steps.**
+
+1. Diagnostics UX (US-D21), including the §7.1 subfolder line. The legacy notice only if US-D20 is approved.
+2. Docs and changelog; the owner reviews external-facing text.
+3. Clean installs: pipx, a wheel in a new venv, the managed runtime from local files and offline. A fresh home, plus a home with 0.1.5 files present: they stay untouched, 0.1.6 starts empty, and `doctor` explains it.
+4. The real VS Code pass: four themes, three widths, for the changed UI; the Batch 3 workflow list on the candidates.
+5. The §9.10 end-to-end runs on the candidates.
+   - Every applicable aspect (A1–A9) of every owner-listed combination (H1–H7), using synthetic repositories and disposable data folders.
+   - Each result is recorded in §18 with the §9.7 fields, as PASS, FALLBACK, FAIL or UNKNOWN. Only an observed result counts. FALLBACK and UNKNOWN are not PASS.
+   - P1–P11 are re-run where they add evidence.
+6. Packaging inspection (wheel, sdist and VSIX contents); publishability; `check_cli_contract.py`.
+7. Release review, then the version bump to 0.1.6 in lockstep, the candidates, CI, and the readiness report (§20).
+
+**6. Acceptance.** Every item of §20.
+
+**7. Security tests.** The full suite on the bumped tree; the privacy review re-run on the candidates.
+
+**8. Regression.** Everything; CI on `main`.
+
+**9. Cross-platform.** CI on all three systems; the managed-runtime smoke on Windows. A Linux or macOS smoke is recommended if a machine is available (§44.10's recommendation).
+
+**10. Rollback.**
+
+- Before publication: revert.
+- After publication: a follow-up release. PyPI versions are immutable.
+- No user data needs restoring: 0.1.5 data was never touched.
+
+**11. Dependencies.** Batch 4.
+
+**12. Stop and approval gate.**
+
+- **Stop if:**
+  - any new Critical or High finding;
+  - a doc claim that does not match behaviour;
+  - a required aspect of an owner-listed combination is not PASS, and the owner has not moved that combination to "unsupported or limited" in the release notes.
+- **Gate:** the owner approves the version bump from 0.1.5, then publication.
+
+---
+
+## 15. Batch dependencies and integration strategy
+
+### 15.1 What cannot be split
+
+These change both sides of a shared contract, so a commit that changes only one side breaks `main`:
+
+| Contract | Python side (Batch 2) | Extension side (Batch 3) |
+| --- | --- | --- |
+| Where artifacts are | every writer moves to the data root | the extension reads `<root>/.ai/<id>` itself (§4.2); History, Results, Reset Session and retry all break |
+| The handoff templates | `handoff.py`, `cli.py:1824` | `controller.ts:3349-3351`, `nextAction.ts:206-208`; cross-language tests (`controller.test.ts:1636-1659`, `nextAction.test.ts:254-262`) parse the Python source |
+| JSON field values | `bug`, `list`, `status`, `--retry`, settings `path` | the consumers |
+| `--feedback-file` | the CLI flag | the retry flow; the argv contract fixture |
+| `doctor` | the `storage` object, the capability, the removed `ai_artifacts_ignored*` | environment check, gitignore UI |
+
+A partial migration is therefore **not safe on `main`**. In particular, an extension at Batch 2's state would show an empty History and recreate `.ai/` on retry (SF-2).
+
+### 15.2 Strategy (US-D29, OPEN; review: accept the isolated integration branch)
+
+| | Recommended | Alternative |
+| --- | --- | --- |
+| Batches 0A and 1 | commit to `main` (test-only, and additive) | same |
+| Batch 0B | no commit; records in this plan only | — |
+| Batches 2–4 | on **`verify/0.1.6-storage`**, created from `main` after Batch 1 with the owner's approval. They stay there until integration is complete (§15.4). One commit series per batch, after its gates. CI by owner-dispatched `workflow_dispatch` on the branch: the workflow runs on pushes to `main` only, as found and used for `verify/0.1.5-batch4` (§44.22). The branch moves to `main` only by an owner-approved fast-forward after Batch 4. | Batches 2 and 3 committed on local `main` and pushed together after both pass. This honours the owner's "commit directly on main" preference, but local `main` is broken in between and no CI can run before the push. |
+| Batch 5 | on `main` | same |
+| Feature flag (an environment switch between layouts) | **rejected**: a temporary compatibility path R4 rules out in spirit, and a doubled test matrix | — |
+
+The only accepted failures on the branch are listed in §15.4's ledger. Nothing else that fails on the branch is excused.
+
+### 15.3 Temporary scaffolding versus legacy compatibility
+
+| | Status | Examples |
+| --- | --- | --- |
+| **Allowed: temporary implementation scaffolding within 0.1.6** | **allowed**; removed or settled by Batch 4 | `config.issue_dir` and its siblings keeping their signatures while delegating to `storage`; `safe_paths`'s old messages kept until the last repository-local caller goes; the ratchet's intermediate allowlists |
+| **Not allowed: legacy compatibility with 0.1.5 data** | **not allowed** (R4) | any reader of `.ai/`, `.ai_memory/`, `.bugpilot/`, or `~/.bugpilot/{config.toml, instructions.md, fix_modes}`; any copy or import; any alias making `BUGPILOT_CONFIG_DIR` mean the new root; any fallback "if the new file is absent, try the old one" |
+
+### 15.4 Integration gates on `verify/0.1.6-storage`
+
+**Batch 2 on the branch.**
+
+- **The whole Python suite passes**: locally on Windows, and in owner-dispatched CI on Ubuntu 3.13 and 3.10, macOS and Windows. That includes:
+  - the cross-language tests' Python side;
+  - the contract tests against §8.10's fixture;
+  - every new storage suite.
+- **No Python failure is accepted** on the branch, for any reason.
+
+**Extension failures between Batches 2 and 3: the expected-failure ledger.**
+
+- **What may fail.** Only extension tests whose failure follows *solely* from the Batch 3 contract not yet being implemented. The cross-language handoff tests (`controller.test.ts:1636-1659`, `nextAction.test.ts:254-262`) are examples.
+- **Each such failure is listed individually** in a ledger in §18. Each entry gives:
+  - the test file and test name;
+  - the contract item it depends on (§15.1);
+  - the observed failure message;
+  - the commit at which it was first seen.
+
+  A failure not on the ledger is a regression and stops the batch.
+- **No masking.** Ledger tests are not skipped, deleted, loosened or marked expected-to-fail. They keep failing honestly until Batch 3 makes them pass.
+- **The required jobs are not hidden either.** If a required job (for example the extension job) is red on the branch, CI is red and is reported as red. The ledger explains why; it does not turn red into green.
+
+**Batch 3 closes the ledger.**
+
+- Batch 3 restores the complete CLI–extension contract (§15.1).
+- Its gate requires an **empty ledger**: every ledger test passes, unchanged in what it asserts, apart from the designed contract change in the same commit.
+
+**Batch 4 and the merge.**
+
+- **All nine required CI jobs** are green on the branch, in an owner-dispatched run on the commit to be merged.
+- **The owner explicitly approves the merge.**
+- **Nothing is automatic:** no push or fast-forward without the owner's approval at that moment.
+- **The fast-forward** is followed by CI on `main`, which must also be green.
+
+**Throughout:**
+
+- the version stays 0.1.5 until Batch 5's approved bump;
+- nothing is published from the branch.
+
+---
+
+## 16. Risks, assumptions and open decisions
+
+### 16.1 Decision log
+
+**How to read it.**
+
+- **Owner status** is the decision's state: APPROVED, PROPOSED, OPEN or DEFERRED.
+  - Beyond the requirements R1–R8, only US-D32 and US-D33 are APPROVED, for Batch 0A's scope (2026-10-15). No other decision is approved.
+  - A status changes only on the owner's explicit word, recorded in the last column with its date.
+- **Review recommendation (2026-10-15)** is the architecture review's technical advice. It is advice, not an approval.
+
+| Review recommendation | Meaning |
+| --- | --- |
+| *Accept* | adopt as written |
+| *Accept conditionally* | adopt once the stated condition is met |
+| *Keep open* | do not decide yet; needs evidence or a separate owner choice |
+| *Defer* | out of 0.1.6 |
+
+- **Needed before** names the batch that cannot start without the decision.
+
+**Counts.**
+
+| | Count | Decisions |
+| --- | ---: | --- |
+| APPROVED by the owner | **2** | US-D32, US-D33 (Batch 0A's scope, 2026-10-15) |
+| Await the owner | **33** | 14 OPEN, 19 PROPOSED |
+| DEFERRED | **4** | US-D35 to US-D38 |
+| Review: *Accept* | 28 | |
+| Review: *Accept conditionally* | 2 | US-D5, US-D26 |
+| Review: *Keep open* | 3 | US-D10, US-D14, US-D28 |
+| Review: *Defer* | 2 | US-D11, US-D20 |
+
+| Id | Decision | Owner status | Review recommendation (2026-10-15) | Basis; alternatives | Needed before | Owner approval |
+| --- | --- | --- | --- | --- | --- | --- |
+| US-D1 | Layout: `config/` and `repositories/<id>/{repository.json, settings/, work/, memory/}`; `memory/<id>.md`; no `cache/` | PROPOSED | **Accept** | §6.1; alt: the brief's draft with `memory/bugs/` and `cache/` | 1 | — |
+| US-D2 | Global config moves into `<root>/config/`. Users re-run `setup`; extension users re-enter the site. | OPEN | **Accept** (move) | a clean, uniformly checked tree, which resolves the B4-2 inconsistency; alt: keep the 0.1.5 files at the root (no reconfiguration, but 0.1.5 files are then loaded) | 2 | — |
+| US-D3 | `BUGPILOT_HOME` names the data root; `BUGPILOT_CONFIG_DIR` is no longer honoured | OPEN | **Accept**, with a **safe warning**: when `BUGPILOT_CONFIG_DIR` is set, text mode prints one line on stderr ("BUGPILOT_CONFIG_DIR is no longer used; set BUGPILOT_HOME to choose BugPilot's data folder"), and `doctor --json` sets `storage.legacy_config_dir_variable` (§8.10). The variable's *value* is never read, shown or used, and nothing goes to `--json` stdout except that field. | §8.2, §13.2; alt: `BUGPILOT_DATA_DIR`; no warning | 1 | — |
+| US-D4 | The repository root stays the directory BugPilot runs in, with no git top-level discovery | OPEN | **Accept**, plus the diagnostic of §7.1 (`doctor`'s `below_git_toplevel`; one panel line in Batch 5). No git-root discovery, no relocation. | §7.1; alt: git top-level for identity only | 2 | — |
+| US-D5 | Identity algorithm: `realpath(strict)`, `normcase` on Windows only, a versioned SHA-256 prefix, `<slug≤24>-<16 hex>`; prefer split over merge | PROPOSED | **Accept conditionally**: pending the cross-platform verification of §7.3's unverified rows (CI observations in Batch 0A, tests in Batch 1). A row that behaves otherwise returns US-D5 to the owner. | §7.2, §7.3; alt: git remote; inode; full-length hash | 1 | — |
+| US-D6 | `repository.json` records the canonical root path | PROPOSED | **Accept** | §7.4; alt: digest only | 1 | — |
+| US-D7 | One namespace per git worktree | PROPOSED | **Accept** | §7.3; alt: key by `--git-common-dir` (merges worktrees) | 1 | — |
+| US-D8 | A moved or renamed repository starts a new namespace; no relocation tooling in 0.1.6 | PROPOSED | **Accept** (relocation DEFERRED) | §7.1, §7.3 | 2 | — |
+| US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | OPEN | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | — |
+| US-D10 | Agent handoff: Option D (absolute path, the agent's own permissions, clipboard fallback, no automatic grant) | OPEN | **Keep open** until the Batch 0B probes (§9.7) and the §9.10 acceptance criteria are met; Option D is the provisional recommendation | §9.5, §9.10; alt: B (inline only); C by default (violates R8) | 2 | — |
+| US-D11 | An opt-in `--add-dir <work folder>` grant | OPEN | **Defer** past 0.1.6. Never automatic (R8); reconsider after Batch 5's live measurement. | §9.4 C, §9.5 point 8 | 3 | — |
+| US-D12 | The prompt gate stays unchanged; a refused prompt falls back to manual handoff, with `BUGPILOT_HOME` as the remedy | PROPOSED | **Accept**: retain the gate. Investigate a launch without a shell for native executables (§9.9, P11) without weakening the gate; adopting one needs P11 PASS on three systems and a separate owner approval; shims never | §9.5, §9.9; alt: widen the gate (per-shell quoting; security-sensitive) | 3 | — |
+| US-D13 | `task.md` names the work folder once (Execution Location) and the report path absolutely; other files by name; the §9.6 sentence in Required Output Files | PROPOSED | **Accept** | §9.8; alt: absolute everywhere (token cost); relative only (an ambiguous write target) | 2 | — |
+| US-D14 | Protected rule `stage-intended-files-only` | OPEN | **Keep open**: the owner chooses among §16.4's options before Batch 2. The review does not authorize a protected-rule change; the rule's meaning (no BugPilot or legacy artifact is staged) is preserved under every option. | §16.4 | 2 | — |
+| US-D15 | Keep the F22 guards (Code Search exclusion, review pathspec, lint) | PROPOSED | **Accept** | they exclude, never read; alt: remove (left-behind `.ai/` content becomes evidence) | 2 | — |
+| US-D16 | Remove the repository-local gitignore editing: the notice, the "Add to .gitignore" quick fix and `doctor`'s `ai_artifacts_ignored*` | OPEN | **Accept** (remove) | it is the only repository write left; alt: keep as advice for left-behind folders | 2 | — |
+| US-D17 | The CLI is the only resolver. The extension gets `repository_dir` and `work_dir` from the CLI, composes only validated ids below them, and reads, opens and watches there, but never writes or deletes. | PROPOSED | **Accept** | §8.9; alt: the CLI returns every file path (slow History) | 3 | — |
+| US-D18 | `user_feedback.md` is written by the CLI (`bug <id> --retry --feedback-file`) | PROPOSED | **Accept** | §5.3 F04, §8.10; alt: the extension writes into the CLI-given folder | 2 | — |
+| US-D19 | The extension's VS Code-owned storage (runtime, attachment staging, scratch) stays in `globalStorageUri` | PROPOSED | **Accept** | §6.2; alt: move attachment staging under the data root | 3 | — |
+| US-D20 | `doctor` reports *whether* legacy paths exist (`lstat` only, never read) | OPEN | **Defer**: no legacy-presence probing in 0.1.6. The change is explained by §13's documentation instead. | §6.3; alt: one `doctor` line | 5 | — |
+| US-D21 | Diagnostics surface: `doctor`'s `storage` object (and the panel's Diagnostics); no new command | OPEN | **Accept** | §8.10; alt: a read-only `bugpilot storage` command | 2 | — |
+| US-D22 | Absolute paths only in designated JSON fields, the handoff and `task.md`'s work line; the display form (`~/.bugpilot/…`) everywhere else | PROPOSED | **Accept** | §8.8, §8.10 | 2 | — |
+| US-D23 | New folders `0700`; an existing data root's mode is never changed | PROPOSED | **Accept** | §8.3; alt: `chmod` the root (touches a legacy folder) | 1 | — |
+| US-D24 | An identity record that mismatches or is corrupt is refused, never repaired | PROPOSED | **Accept** | §7.5; alt: overwrite | 1 | — |
+| US-D25 | `run.json` `generated_files` and JSON-lines `path` are relative to the namespace; `schema_version` stays 1 | PROPOSED | **Accept** | §8.10; alt: absolute; a schema bump | 2 | — |
+| US-D26 | The storage JSON contract | PROPOSED (the `STORAGE_UNAVAILABLE` code is OPEN) | **Accept conditionally**: only once the exact, independently testable contract (§8.10, frozen as `tests/fixtures/storage_cli_contract.json` in Batch 1) is approved at the Batch 1 gate | §8.10 | 2 | — |
+| US-D27 | MCP keys unchanged; values absolute (`issue_dir`, `agent_task`, `next_step` paths); `search_memory` relative | PROPOSED | **Accept**: preserve the keys | §8.10; alt: return the task text inline | 2 | — |
+| US-D28 | Captured review reads external files through the bare `Read` allow; otherwise the fix-report excerpt goes inline | OPEN | **Keep open** until probe P2 (Batch 0B) | §9.5 point 5 | 2 | — |
+| US-D29 | Integration: Batches 0A and 1 on `main`; Batches 2–4 on `verify/0.1.6-storage` until integration is complete; owner-dispatched CI; owner-approved fast-forward after Batch 4 | OPEN | **Accept** the isolated integration branch, with §15.4's gates | §15.2, §15.4; alt: push Batches 2 and 3 together from `main` | 2 | — |
+| US-D30 | The task-size gate with an absolute work path | OPEN | **Accept** the normalized measurement (§9.8 (a)), keeping meaningful size-regression coverage: the median gate, a per-golden growth bound, a count of absolute-path occurrences, and the raw size reported | §9.8; alt: (b) re-baseline; (c) trim protected wording | 2 | — |
+| US-D31 | Batch outline deviation: MCP code and text switch in Batch 2; Batch 3 keeps MCP live verification | PROPOSED | **Accept** | §14.0 | 2 | — |
+| US-D32 | Test isolation: session-wide isolation before collection, plus a guard that fails closed (§11.1) | **APPROVED** (Batch 0A scope) | **Accept** the goal and the **revised design**. The r1 real-home listing is withdrawn; no default run lists or reads the real home. | §11.1; as built: §14.1.A; alt: per-test isolation only | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
+| US-D33 | CI keeps the nine blocking checks under their names; the isolated storage and isolation tests are added to the existing required jobs; `HOME` is set in the job environment | **APPROVED** (Batch 0A scope) | **Accept** | §11.7; as built: §14.1.A; alt: a new job (would change the pinned check names) | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
+| US-D34 | `BUGPILOT_HOME` validation: absolute, no control characters, `~` not expanded | PROPOSED | **Accept** (strict) | §8.3; alt: expand `~` | 1 | — |
+| US-D35 | Credentials stay file-based in `config/config.toml` (the `TokenStore` seam) | DEFERRED (an OS credential store) | Defer | — | — | — |
+| US-D36 | A `cache/` directory | DEFERRED (no consumer) | Defer | — | — | — |
+| US-D37 | XDG or platform-native data folders | DEFERRED | Defer | — | — | — |
+| US-D38 | Retention and pruning of orphaned namespaces | DEFERRED | Defer | — | — | — |
+| US-D39 | SF-1: route the project-settings and repository-profile payloads through `scratchFile.ts` | OPEN | **Accept**: include in Batch 4 | the same class 0.1.5 fixed; alt: leave as is | 4 | — |
+
+**Decisions that block Batch 2 on their own:**
+
+| Decision | Waiting for |
+| --- | --- |
+| US-D10 | Batch 0B evidence, then an owner decision |
+| US-D14 | an owner choice (§16.4) |
+| US-D28 | Batch 0B evidence, then an owner decision |
+| US-D26 | approval of §8.10 at the Batch 1 gate |
+
+Every other Batch 2 decision may be approved on the review's advice alone, if the owner chooses.
+
+### 16.2 Risks
+
+| Id | Risk | Likelihood | Impact | Mitigation |
+| --- | --- | --- | --- | --- |
+| RK-1 | Agents' permission prompts make Fix with AI feel worse than 0.1.5 | high | medium | US-D10 guidance text; Batch 0B probes; §9.10 acceptance; US-D11 as a later option |
+| RK-2 | An agent refused an outside write writes `fix_report.md` into the repository | medium | medium (R5) | the §9.6 sentence (T-S21); probe P1; aspect A3's `git status` check (§9.10) |
+| RK-3 | A test run writes into, or reads, a developer's real `~/.bugpilot` | medium before Batch 0A | high | Batch 0A first: isolation before collection, plus the fail-closed guard, demonstrated against a decoy (§11.1; T-S24, T-S25) |
+| RK-4 | Teams relying on a committed `.bugpilot/` lose shared settings without noticing | medium | medium | §13.3; release notes (the legacy-presence notice is deferred, US-D20) |
+| RK-5 | Users with a non-plain home (non-ASCII, `(`, `'`) lose one-click launch | medium (outside ASCII locales) | low (the paste fallback works, recorded as FALLBACK) | US-D12 notice; the `BUGPILOT_HOME` remedy; §9.9's direct launch only after P11 and approval |
+| RK-6 | VS Code watchers outside the workspace are unreliable | low–medium | low (stale views) | probe P7; refresh on focus |
+| RK-7 | Platform `realpath` surprises (`subst`, network drives, macOS case) | medium | medium (split namespaces) | prefer-split rule; Batch 0A CI observations (`subst` NOT VERIFIED, D0A-5); US-D5 conditional; §7.6 |
+| RK-8 | Task-size gate pressure leads to protected-text edits | medium | high | US-D30 normalized measurement, with a per-golden growth bound |
+| RK-9 | Credentials next to evidence (SF-4) | low | high | T-S9; narrow handoff; `config/` separate |
+| RK-10 | Windows `MAX_PATH` with long attachment names | low | low | slug ≤ 24; test; the limit documented |
+| RK-11 | Scripts or tools outside BugPilot that read `.ai/` break | low | low | changelog (§13) |
+| RK-12 | The Codex Windows `elevated` sandbox cannot read the profile folder | unknown | medium (Codex handoff) | probe P4; Option B fallback |
+| RK-13 | Merge pain: Batches 2–3 on a branch while `main` moves | medium | low | short-lived branch; rebase before each batch |
+| RK-14 | Disk growth from orphaned namespaces | high over time | low | documented; US-D38 later |
+| RK-15 | The isolation guard misses an access path: non-Python children, children started with `-I`/`-E`, metadata probes | medium | medium | environment isolation as a second layer; Batch 0A lists every `-I`/`-E` call; the limits are stated (T-S24, T-S25) |
+| RK-16 | Probe evidence is unavailable for an agent (no account, platform or version) | medium | medium | UNKNOWN is recorded, never PASS; the decision stays OPEN or the owner records the gap; release notes name unsupported combinations (§9.10) |
+| RK-17 | A stale legacy `.ai/<id>/task.md` in the repository confuses an agent | low–medium | medium | the Execution Location wording names the work folder; §16.4 option A′; F22 guards keep it out of evidence |
+| RK-18 | Owner decisions that block Batch 2 (US-D10, US-D14, US-D28, US-D26) wait on evidence or review | medium | schedule | Batch 0A and Batch 1 proceed meanwhile; Batch 0B can run in parallel |
+| RK-19 | A red required CI job on the branch is normalized as "expected" | low | high | §15.4: only ledger entries are excused, CI is still reported red, and the ledger must be empty before Batch 3's gate |
+
+### 16.3 Assumptions
+
+| Id | Assumption |
+| --- | --- |
+| AS-1 | Vendor documentation describes the installed agent versions. The Batch 0B probes confirm this for the versions in use, and the plan names versions when it records them. |
+| AS-2 | `os.path.realpath(strict=True)` behaves on Windows, macOS and Linux with Python 3.10–3.14 as §7.3 states. Batch 0A's CI observations confirm it. |
+| AS-3 | Users accept a one-time reconfiguration (R4 is approved). |
+| AS-4 | The managed runtime keeps the extension and the CLI at one version, so mixed versions are an edge case. |
+| AS-5 | The 0.1.5 Marketplace publication and the post-release records are closed by the owner independently of this plan. |
+| AS-6 | No user relies on `BUGPILOT_CONFIG_DIR` in production other than for tests; it was documented as "keeps tests hermetic". |
+| AS-7 | Python's audit hooks report the file events §11.1 lists on every supported version (3.10–3.14). Batch 0A confirms this against each version's audit-event table before relying on the guard. |
+
+### 16.4 US-D14 — the protected staging rule: options for the owner
+
+**The rule today** (protected rules v2, `protected_rules.py:185-191`, SHA-pinned at `tests/test_protected_rules.py:55`):
+
+> Stage only intended source, test, or documentation files: never `.ai/`, `.ai_memory/`, `issue.json`, `jira_field_report.md`, or files containing `JIRA_TOKEN`, `password`, `api_key`, `secret`, `access_token`, `refresh_token`, or `key=...`.
+
+**The goal to keep.** Neither BugPilot-generated nor legacy artifacts are ever unintentionally staged.
+
+**What changes after the storage switch:**
+
+- BugPilot's own files are no longer inside the repository. The agent cannot stage them unless it copies them in, and the Execution Location text forbids that.
+- `.ai/` and `.ai_memory/` exist only as **legacy leftovers** from 0.1.5 or earlier. They may hold a stale `.ai/JR-12345/task.md` for the very work item the agent is fixing.
+- The rule's title, "Never stage BugPilot artifacts or secrets", plus the bare folder names, could suggest to an agent that BugPilot's *current* files live in `.ai/`. An agent might then read a stale legacy task or context, instead of the work folder named in Execution Location (RK-17).
+- The risk is about *reading* stale files, not about staging. The rule itself still achieves its staging goal.
+
+**The options.** The owner chooses before Batch 2. The review **does not** choose Option B, and authorizes no protected-rule change now.
+
+| | **A — keep rules v2 unchanged** | **A′ — v2 unchanged, plus a legacy note outside the rule registry** | **B — legacy-aware wording, rules v3** |
+| --- | --- | --- | --- |
+| Text | as today | the rule stays as today. The Execution Location sentence (rewritten anyway for US-D13, and not part of the SHA-pinned registry) adds: "A `.ai/` or `.ai_memory/` folder in the repository is left from an older BugPilot: it is not this work item's files." | the rule is reworded, for example: "Stage only intended source, test, or documentation files: never BugPilot's files (this work item's are outside the repository; a `.ai/`, `.ai_memory/` or `.bugpilot/` folder left by an older BugPilot is not yours to stage either), `issue.json`, `jira_field_report.md`, or files containing …". Exact wording to be reviewed separately. |
+| Staging goal | kept | kept | kept; adds `.bugpilot/` |
+| Misleading-folder risk (RK-17) | remains | addressed where the agent learns where its files are | addressed inside the rule |
+| `PROTECTED_RULES_VERSION` | 2 | 2 | **3** |
+| Digest | unchanged | unchanged | a new pinned `VERSION_3_SHA256` |
+| Tests | none for the rule | none for the rule; the Execution Location line in goldens (changing anyway) | `test_protected_rules.py` (new digest, v2 kept as history), `task_golden.py` `RULE_PATTERNS` (`stage_ai_artifacts`, `:259`), `test_fix_mode_prompts.py:69`, `:352`, `test_task_preview.py:354` (`rules_version`), and the independent oracles over every golden |
+| Goldens | no rule-line change | the Execution Location line only | one rule line in all 17, checked by script, plus owner approval of the golden diff |
+| Token cost (US-D30) | 0 | about +25 tokens per task | about +20 tokens |
+| Change control | none | ordinary text review | a protected-rule change: separate review, its own approval, and a record like D1's in 0.1.5 |
+
+**The review's assessment.**
+
+- **Option A** is the smallest change, but leaves RK-17.
+- **Option A′** addresses RK-17 without touching the SHA-pinned registry. That is why unchanged rule text is the *safer* change-control path, as long as the misleading-folder concern is handled where the agent learns where its files are.
+- **Option B** is the most accurate wording, at the cost of a protected-rules version bump and its review.
+- **The review leans to A′, but it is the owner's choice.** If the owner picks B, its wording and tests are reviewed and approved as a separate step inside Batch 2, before any golden is regenerated.
+
+**Owner decision required before Batch 2:** A, A′ or B.
+
+---
+
+## 17. Acceptance criteria
+
+0.1.6 is acceptable when every row holds on Linux, macOS and Windows (Python 3.10 and 3.13 in CI):
+
+| Requirement | Verifiable criterion |
+| --- | --- |
+| R1 | Every BugPilot-written file is under `data_root()`, shown by the pollution suite and a full-tree diff of the data root. `Path.home()` (or `BUGPILOT_HOME`) is the only source of the root. |
+| R2 | One root holds config, repositories, settings, work, memory and identity records. Temporary files appear only in the target's folder (atomic writes), OS temp and VS Code storage, and are gone after their command. |
+| R3 | The two-repositories-same-id test passes for the CLI, MCP and the extension. The §7.3 rows are verified on their OS, or recorded with the reason they cannot be. Record mismatches are refused. |
+| R4 | The canary suite proves no legacy read. Legacy files are byte-identical and mtime-unchanged after every workflow. No import or migration code exists (ratchet; review). §13 is published. |
+| R5 | The pollution suite is green for every command and MCP tool. Every live run of §9.10 ends with a `git status` showing only intended source edits. No repository write remains in the extension (US-D16, if approved). |
+| R6 | Every workflow in §11.5 passes, automated or in the real pass. The retrieval and Context Quality baselines are unchanged. |
+| R7 | §11.4 is green. §10.2 is tested per OS. The mutation check catches every control. The `docs/safety.md` claims match behaviour. |
+| R8 | No launch adds a permission flag or directory grant by default (unit test). The agent's cwd is the repository (unit test and live). Every outside access in live runs was the developer's choice in the agent's own UI. |
+| Handoff (R6, R8) | §9.10: every applicable aspect of every owner-listed supported combination is PASS, from real interactive end-to-end runs on the candidates. FALLBACK and UNKNOWN never count as PASS. |
+| Test isolation | `tests/test_isolation_guard.py` demonstrates fail-closed writes and reads against a decoy on every CI configuration. No default run lists or reads the real home (§11.1). |
+| Integration | §15.4: the expected-failure ledger is empty; all nine CI checks are green on the branch and on `main` after the owner-approved fast-forward. |
+
+---
+
+## 18. Implementation progress log
+
+| Date | Batch | Entry |
+| --- | --- | --- |
+| 2026-10-15 | — | **Plan created** by a read-only audit at `ee3fb00`. No product code, test, golden, fixture, workflow, version or user data changed. The only repository changes: this file (new, untracked) and a pointer section (§45) appended to `docs/bugpilot_prototype_development_plan.md`, which leaves its uncommitted 0.1.5 records as they were. Live agent probes P1–P10: **not run**. Platform behaviour in §7.3 marked "unverified": **not tested**. |
+| 2026-10-15 | — | **Architecture review, revision r2 (documentation only).** <ul><li>**Decision log** (§16.1): owner status separated from the review's recommendation. 35 decisions await the owner (14 OPEN, 21 PROPOSED) and 4 are DEFERRED. The review recommends 28 Accept, 2 Accept conditionally (US-D5, US-D26), 3 Keep open (US-D10, US-D14, US-D28) and 2 Defer (US-D11, US-D20). **None is approved.**</li><li>**Test isolation redesigned** (§11.1): r1's listing of the real home is withdrawn. Isolation now comes before collection, an audit-hook guard fails closed for writes and reads, and verification is against a decoy. New threats T-S24 to T-S26.</li><li>**Batch 0** split into 0A (automated, no accounts) and 0B (live probes, separately authorized; PASS, FAIL or UNKNOWN) (§14.1).</li><li>**Repository scope** stated, with the subfolder diagnostic (§7.1).</li><li>**Exact JSON contract** (§8.10).</li><li>**Safer launch:** evaluation, with probe P11 added (§9.9).</li><li>**Handoff acceptance** by aspect and combination; FALLBACK never counts as PASS (§9.10).</li><li>**Integration gates** and the expected-failure ledger (§15.4).</li><li>**US-D14** options A, A′ and B (§16.4).</li><li>**Risks and assumptions:** RK-15 to RK-19 and AS-7 added; §14, §17 and §20 updated to match.</li><li>**Corrections:** §2's R5 reference (it named a section 12.3 that does not exist; now §10.2 and §11.3). Three table rows whose code spans held an unescaped `\|` (§9.2, §9.9, §10.2) are escaped so the tables render, with wording unchanged.</li><li>**Validation:** <ul><li>a structural check (headings, the 39 decision rows and their counts, internal section references, table cell counts, all seven batches NOT STARTED): 0 problems;</li><li>`git diff --check` clean; LF line endings; no trailing whitespace;</li><li>`tests/test_publishable.py`: 20 passed, after one draft line (a home-folder example the scanner flagged) was reworded;</li><li>`.bugpilot/`, `.vscode/extensions.json`, `docs/bugpilot_prototype_development_plan.md` (the 0.1.5 records), `bugpilot/__init__.py` and `extension/package.json` byte-identical to before the review;</li><li>version 0.1.5.</li></ul></li><li>**Not run:** any product test, CI, probe or agent session. No source, test, fixture, golden, workflow, version or user data changed.</li></ul> |
+| 2026-10-15/16 | 0A | **Batch 0A implemented and verified locally (not committed; no CI run).** <ul><li>**Authorization:** the owner authorized Batch 0A only, and approved US-D32 and US-D33 for its scope. No other decision changed, and Batch 0B was not authorized.</li><li>**Built:** test isolation before collection; a fail-closed audit-hook guard (in-process and in Python children); TypeScript integration isolation; the path-literal ratchet (`tests/storage_inventory.json`); synthetic 0.1.5 baselines (`tests/baselines/0.1.6-batch0/`); CI changes keeping the nine checks.</li><li>**Isolation:** demonstrated against a decoy, 14 tests. The real home was never listed, read or probed.</li><li>**Inventory:** reconciled exactly with §5.1.</li><li>**Baselines:** regenerated twice, byte-identical on Windows. The records held Windows path separators (pre-commit review finding H-1, remediated in the next entry).</li><li>**Python:** full suite 3,243 passed, 0 failed, 36 skipped, after one publishability fix in new code.</li><li>**Extension:** 2,349 passed; the required TypeScript job 27 passed; the integration suite 21 passed.</li><li>**Unchanged:** production files, goldens (the frozen 0.1.4 sets included), fixtures, existing baselines, protected local files, the historical plan and the version 0.1.5.</li><li>**Deviations:** D0A-1 to D0A-6.</li><li>**Not run:** CI; POSIX, macOS and Python 3.10 runs; `check_cli_contract.py`; probes.</li><li>**Details:** §14.1.A, "Batch 0A — as built".</li></ul> |
+| 2026-10-16 | 0A | **Pre-commit review, then the owner-authorized remediation (not committed; no CI run).** <ul><li>**Review:** independent and read-only. It recommended FAIL as built: no Critical finding, one High (H-1) and two Medium (M-1, M-2), plus Low findings, and no security exposure.</li><li>**Authorization:** the owner authorized remediating H-1, M-1 and M-2, correcting this plan, and explicitly regenerating the affected baseline. Batch 0B and Batch 1 were not authorized.</li><li>**H-1:** `pollution.json` held Windows path separators in its recorded commands, so 5 of the 9 required checks would have failed on Linux and macOS. Path arguments are now recorded with `/` on every platform (`portable_path`). Only `pollution.json` was regenerated: 7 command strings changed, `\` to `/` and nothing else. `--check` passed twice.</li><li>**M-1:** two tests replaced `PYTHONPATH`, so their Python children ran without the guard. They now use `child_pythonpath`, and the parent refuses any recognizable Python child that would start without the loader. `-I`, `-E` and `-S` children are exempt.</li><li>**M-2:** the integration suite's `discoverExecutable` test now gets the guarded spawn. A source check in the required extension job covers every way that suite can start a process.</li><li>**Plan:** `subst` marked NOT VERIFIED throughout, with its test deferred pending owner approval. The guard's coverage and limits are restated as built.</li><li>**Not changed:** L-2 and L-3 (still governed by diff review); L-5 (in files outside this remediation).</li><li>**Results:** <ul><li>full Python suite: 3,250 passed, 0 failed, 36 skipped;</li><li>extension: 2,350 passed; the required TypeScript job 27 passed; integration 21 passed;</li><li>goldens, product files, protected files and the other baseline records unchanged; version 0.1.5.</li></ul></li><li>**Not run:** CI; POSIX, macOS and Python 3.10 runs; `check_cli_contract.py`; the guarded start of an installed `bugpilot`, since none is on `PATH` here.</li><li>**Details:** §14.1.A, "Batch 0A — pre-commit review remediation".</li></ul> |
+| 2026-10-16 | 0A | **Final diff review, then the owner-authorized final security remediation (not committed; no CI run).** <ul><li>**Review:** independent and read-only, with a separate reviewer agent. It recommended PASS WITH CONDITIONS: H-1, M-1 and M-2 were complete and every reported result reproduced. It found one new Medium (N-1) and Low findings L-1 to L-8.</li><li>**N-1:** on Windows, `shutil.copy2`, `Path.copy` and `Path.copy_into` copy through `_winapi.CopyFile2`, which the guard did not judge, and `_winapi.CreateJunction` was not judged either. Their arguments were measured on 3.14.6, and both events are now judged at source and destination.</li><li>**L-1:** the two module comments no longer claim agent variables are removed.</li><li>**L-2:** a refusal swallowed outside any test now fails the run, through a session-wide check plus an end-of-session backstop; each refusal is reported once.</li><li>**L-3:** the child loader fails closed (exit 70) when the guard is configured but cannot be installed.</li><li>**L-8:** a stale line reference was corrected.</li><li>**Tests:** 8 new tests; each fix was reverted in a scratch copy and its tests failed.</li><li>**Not changed:** L-4 to L-7, which are documented as limitations.</li><li>**Results:** <ul><li>full Python suite: 3,258 passed, 0 failed, 36 skipped;</li><li>extension: 2,350 passed; the required TypeScript job 27 passed; integration 21 passed;</li><li>baselines matched twice;</li><li>goldens, product files, protected files and baseline records unchanged; version 0.1.5.</li></ul></li><li>**Not run:** CI; POSIX, macOS and Python 3.10 runs; `check_cli_contract.py`; the guarded start of an installed `bugpilot`.</li><li>**Details:** §14.1.A, "Batch 0A — final security remediation".</li></ul> |
+| 2026-10-16 | 0A | **Final local verification complete; commit and push approved; CI PENDING.** <ul><li>**Approval:** the owner approved committing and pushing Batch 0A to `main`, limited to its 26-file allowlist, and one CI run of the existing workflow.</li><li>**Excluded:** the historical plan (`docs/bugpilot_prototype_development_plan.md`), `.bugpilot/`, `.ai/`, `.ai_memory/` and `.vscode/extensions.json`.</li><li>**Not authorized:** publishing, tagging and a version bump. The version stays 0.1.5.</li><li>**Batch 0B and Batch 1:** NOT STARTED.</li><li>**CI verification:** PENDING. Its result is reported to the owner, and goes into §19 only through a separately authorized documentation commit.</li></ul> |
+
+---
+
+## 19. Commit and CI verification log
+
+| Date | Batch | Branch | Commit | CI run | Result | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| — | — | — | — | — | — | nothing committed for 0.1.6 yet; the starting point is `main` at `ee3fb00` (0.1.5) |
+| 2026-10-16 | 0A | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | Batch 0A awaits the owner's review. Commit and CI need the owner's separate authorization; the first CI run will also be the first POSIX, macOS and Python 3.10 run of the new tests. |
+| 2026-10-16 | 0A | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | After the pre-commit review's remediation (H-1, M-1, M-2), still uncommitted. The commit set now also includes `tests/test_cli_json.py` and `tests/test_mcp_stdio.py`. Commit, push and CI each still need the owner's separate authorization. |
+| 2026-10-16 | 0A | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | After the final security remediation (N-1, L-1, L-2, L-3, L-8), still uncommitted. The commit allowlist is the same 26 files, to be staged explicitly: `git add -A` would also take `.bugpilot/`, `.vscode/extensions.json` and the historical plan. Commit, push and CI each still need the owner's separate authorization. |
+| 2026-10-16 | 0A | `main` | **the commit that carries this row**: the 26-file Batch 0A allowlist, owner-approved. A commit cannot hold its own SHA, so a later documentation commit records it. | **PENDING**: the push to `main` triggers `ci.yml` (the 9 required checks) | — | The owner approved the commit, the push and one CI run. Nothing published, tagged or bumped. Batch 0B and Batch 1 NOT STARTED. |
+
+---
+
+## 20. Final release-readiness checklist
+
+To be completed in Batch 5. Every box needs evidence: a command and its output, a CI run, or a §18 probe or end-to-end record.
+
+**Product**
+
+- [ ] R1–R8 acceptance (§17), each with its evidence.
+- [ ] Every decision in §16.1 is APPROVED or DEFERRED by the owner, with the date recorded. None is still OPEN or PROPOSED, and none was promoted from a review recommendation without the owner's word.
+- [ ] The ratchet holds only the approved residue.
+- [ ] The pollution and no-legacy-data suites are green on three systems.
+
+**Security**
+
+- [ ] §10.2 is tested per OS.
+- [ ] The mutation check catches every control.
+- [ ] There is no Critical or High finding.
+- [ ] The final pre-commit security review is recorded.
+- [ ] The privacy review of CLI and MCP output is done on the candidates.
+- [ ] The `docs/safety.md` claims match behaviour, including the documented prompt-gate limitation (§9.9).
+
+**Quality gates**
+
+- [ ] The full Python suite is green (Windows locally; Linux, macOS and Windows in CI; Ubuntu 3.10).
+- [ ] The test-isolation guard demonstration (§11.1) is green on every CI configuration.
+- [ ] The extension typecheck and unit tests pass.
+- [ ] The required TypeScript job passes.
+- [ ] The integration suite passes locally, isolated through the spawn helper.
+- [ ] The expected-failure ledger of §15.4 is empty and closed.
+- [ ] All nine required CI checks are green on `main` at the release commit.
+- [ ] The goldens differ only as §11.6 lists (scripted).
+- [ ] The protected rules are as US-D14 decided (§16.4).
+- [ ] Each rule appears once.
+- [ ] Recall@5 9/9, MRR 0.944, Context Quality unchanged; both oracles report 0 escapes.
+- [ ] The task-size measures of US-D30 hold.
+- [ ] The §12 budgets are met.
+- [ ] Publishability passes.
+- [ ] `git diff --check` is clean.
+
+**Real use**
+
+- [ ] The real VS Code pass (four themes, three widths) covers the changed UI and every workflow in §11.5.
+- [ ] The owner has listed the supported agent and provider combinations (§9.10).
+- [ ] Every applicable aspect A1–A9 is **PASS** for each listed combination, from real interactive end-to-end runs on the candidates.
+  - Each result is recorded in §18 with agent, version, OS, sandbox mode, outcome and evidence.
+  - FALLBACK and UNKNOWN are not PASS.
+  - Any combination that is not PASS is fixed, or named in the release notes as unsupported or limited.
+- [ ] Every account-using run had its own owner approval.
+- [ ] Clean installs pass: pipx; a wheel in a new venv; the managed runtime offline and from PyPI.
+- [ ] A machine with 0.1.5 data present: those files are untouched, and 0.1.6 starts empty, as §13 explains.
+
+**Docs and release**
+
+- [ ] §13 is in the changelog, the README files and `docs/safety.md`, and the owner has reviewed it.
+- [ ] Packaging contents have been inspected (wheel, sdist, VSIX).
+- [ ] The version is bumped from 0.1.5 to 0.1.6 in lockstep, only after the release review and with the owner's approval.
+- [ ] Nothing was pushed, fast-forwarded or published without the owner's approval at that moment.
+- [ ] PyPI publishing goes through the protected release workflow; Marketplace publishing is done by the owner.
+- [ ] §14.0, §18 and §19 are complete.
