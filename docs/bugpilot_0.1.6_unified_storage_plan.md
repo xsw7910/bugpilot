@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED only US-D32 and US-D33, for Batch 0A's scope. **Batch 0A's final local verification is complete.** Its review findings (H-1, M-1, M-2, N-1, L-1, L-2, L-3, L-8) are remediated and re-verified locally. On 2026-10-16 the owner approved committing and pushing it to `main`, with one CI run. **CI verification is PENDING** (§14.1.A, §18, §19). Batch 0B, Batch 1 and every later batch have **NOT STARTED**. |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED only US-D32 and US-D33, for Batch 0A's scope. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0B, Batch 1 and every later batch have **NOT STARTED**; Batch 0 as a whole is not complete while 0B has not run. |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -798,8 +798,8 @@ Every rule below chooses the split when it cannot be sure.
 | Windows per-directory case sensitivity (WSL `setcaseinfo`), two folders differing only in case | the two keys are equal, so the record check sees the other root and **refuses** (§7.5) | merge prevented; the user sees a one-sentence error. Extremely rare; documented |
 | Root reached through a symlink or junction | **one ID**: the target's | `realpath` follows the link for identity only. Writes still refuse links *below* the data root (§8.5). The root itself may sit behind a link, as today. |
 | `subst` drive or mapped network drive vs its UNC path | **one ID** (expected) | `realpath` uses the final path. **NOT VERIFIED**, locally or in CI: a `subst` drive letter is a session-wide change outside a test's own folder, so its test is deferred pending separate owner approval (D0A-5). Mapped network drives are not observed either. |
-| macOS case-insensitive APFS: `/Users/you/Repo` vs `/Users/you/repo` | **one ID** when the root comes from the working directory, which every entry point uses: `getcwd()` on macOS returns the stored spelling. **Two IDs** when `BUGPILOT_MCP_REPO_ROOT` is set with a different case. | `realpath` does not fold case on POSIX. The split is the safe failure. **Unverified**: observed on macOS CI in Batch 0A |
-| macOS `/var` → `/private/var`, `/tmp` → `/private/tmp` | one ID (the `/private` path) | `realpath` |
+| macOS case-insensitive APFS: `/Users/you/Repo` vs `/Users/you/repo` | **one ID** when the root comes from the working directory, which every entry point uses: `getcwd()` on macOS returns the stored spelling. **Two IDs** when `BUGPILOT_MCP_REPO_ROOT` is set with a different case. | `realpath` does not fold case on POSIX. The split is the safe failure. **The underlying behaviour was observed on macOS CI** (run 38942462918, Python 3.13): `getcwd()` returned the stored spelling, and `realpath` of a case variant did not. BugPilot's own identity is first tested in Batch 1 |
+| macOS `/var` → `/private/var`, `/tmp` → `/private/tmp` | one ID (the `/private` path) | `realpath`. Observed on macOS CI (run 38942462918): the temporary folder resolves under `/private` |
 | NFC vs NFD spellings of the same folder (macOS) | one ID from `getcwd()`; possibly two from an explicit root | no Unicode normalization on purpose: on Linux two such folders are different folders |
 | Repository moved or renamed | **a new ID**; the old namespace stays where it was, orphaned, not deleted | no relocation in 0.1.6 (US-D8, DEFERRED). §13 tells the user how to find old data. |
 | Repository cloned to a new path | a new ID (correct: a different working tree) | — |
@@ -815,7 +815,20 @@ Every rule below chooses the split when it cannot be sure.
 - `strict=True` raised for a missing folder.
 - `subst` was not observed: **NOT VERIFIED**, its test deferred pending separate owner approval (D0A-5).
 
-Every row above marked "Unverified" stays unverified until an owner-dispatched CI run records the other systems: `tests/test_storage_baseline.py` writes them to the file-safety artifact. No CI has run for 0.1.6. The `subst` row is different: no CI run observes it either, until the owner approves its test (D0A-5).
+**Batch 0A CI observation** (run 38942462918, on `8b6c567`). `tests/test_storage_baseline.py` recorded each system's behaviour in the job's annotations and file-safety artifact. These observe Python's `os.path.realpath` and `os.getcwd`, not BugPilot's repository identity, which Batch 1 builds and tests:
+
+| Spelling | Linux, Python 3.10 and 3.13 | macOS, Python 3.13 | Windows, Python 3.13 |
+| --- | --- | --- | --- |
+| separators and `.`/`..`; a trailing separator; forward slashes | resolve to the stored spelling | resolve to the stored spelling | resolve to the stored spelling |
+| a missing folder with `strict=True` | raises | raises | raises |
+| a symbolic link | resolves to its target | resolves to its target | resolves to its target |
+| a case variant of the folder's name | a different, missing folder (`FileNotFoundError`) | exists, but `realpath` does not return the stored spelling | resolves to the stored spelling |
+| `getcwd()` inside a case variant | not observed | returns the stored spelling | not observed |
+| the temporary folder | not observed | resolves under `/private` | not observed |
+| a junction | not applicable | not applicable | resolves to its target |
+| a `subst` drive | not applicable | not applicable | **not observed: NOT VERIFIED** (D0A-5) |
+
+Before that run, the "Unverified" rows above had no observation from the other systems. `subst` stays NOT VERIFIED until the owner separately approves its test (D0A-5). Mapped network drives and NFC/NFD spellings were not observed anywhere.
 
 ### 7.4 Privacy of `repository.json` (US-D6, PROPOSED)
 
@@ -1941,7 +1954,7 @@ Either must avoid becoming a legacy reader (R4).
 
 | Batch | Title | Status | Commit | CI run | Notes |
 | --- | --- | --- | --- | --- | --- |
-| 0A | Automated isolation, inventory and baselines | **IMPLEMENTED; final local verification complete; review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated; commit and push approved 2026-10-16** | the commit that carries this row (approved 2026-10-16; a commit cannot hold its own SHA, so a later documentation commit records it) | **PENDING**: the push to `main` triggers it | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
+| 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **NOT STARTED** | — | — | awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **NOT STARTED** | — | — | after 0A, plus its decisions; independent of 0B |
 | 2 | Python CLI, MCP and prompts on the new layout | **NOT STARTED** | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
@@ -2069,7 +2082,7 @@ Not touched: `pyproject.toml`, `bugpilot/`, `extension/src/`, goldens and fixtur
 
 ##### Batch 0A — as built (2026-10-15)
 
-**Status: implemented and verified locally on Windows. The pre-commit review's findings H-1, M-1 and M-2, and the final diff review's N-1, L-1, L-2, L-3 and L-8, are remediated and re-verified locally ("Pre-commit review remediation" and "Final security remediation", below). Final local verification is complete. On 2026-10-16 the owner approved the commit and push to `main` and one CI run; CI verification is PENDING** (§19).
+**Status: implemented and verified locally on Windows. The pre-commit review's findings H-1, M-1 and M-2, and the final diff review's N-1, L-1, L-2, L-3 and L-8, are remediated and re-verified locally ("Pre-commit review remediation" and "Final security remediation", below). COMPLETED: committed as `8b6c567` and pushed to `main` on 2026-10-16 (owner-approved), and CI run 38942462918 passed all 9 required checks** ("Acceptance and CI evidence", below; §19).
 
 | | |
 | --- | --- |
@@ -2162,7 +2175,7 @@ Not touched: `pyproject.toml`, `bugpilot/`, `extension/src/`, goldens and fixtur
 **Event coverage and cost.**
 
 - **Verified on 3.14.6 here:** the events the demonstrations exercise, `open` (read and write), `os.listdir`, `os.scandir`, `glob.glob`, `os.mkdir`, `os.rename`/`replace`, `os.remove`, `shutil.rmtree`, `shutil.copyfile`, `os.utime` and `subprocess.Popen` fire and are refused, and so do `_winapi.CopyFile2` and `_winapi.CreateJunction` on Windows.
-- **Pending on Python 3.10:** confirmation comes when CI's Ubuntu 3.10 `safety-and-baselines` job runs `test_isolation_guard.py`; there is no 3.10 interpreter here. Until then the 3.10 event coverage is inferred, not verified.
+- **Verified in CI on Python 3.10 and 3.13, Linux, macOS and Windows** (run 38942462918): `test_isolation_guard.py` passed in every `safety-and-baselines` and `full-suite` job. Its only skips were the two with stated reasons: the `Path.copy` test (needs 3.14) everywhere in CI, and the junction test off Windows. Before that run, the 3.10 coverage was inferred.
 - **Cost:** a micro-benchmark measured about +18% on 20,000 `open` + `listdir` pairs, and about +12% on 100,000 logging calls (taken during a concurrent suite run, so approximate).
 
 **Limits** (T-S24, T-S25; documented in `tests/_isolation.py`; completed after the pre-commit review and the final diff review, whose L-4 to L-7 are recorded here and not changed):
@@ -2232,7 +2245,7 @@ Not touched: `pyproject.toml`, `bugpilot/`, `extension/src/`, goldens and fixtur
 **Not executed:**
 
 - **CI:** no run dispatched, as instructed.
-- **POSIX and macOS** runs of the new tests, and the Python 3.10 event coverage: these first run in CI.
+- **POSIX and macOS** runs of the new tests, and the Python 3.10 event coverage: these first ran in CI run 38942462918, all green ("Acceptance and CI evidence", below).
 - `scripts/check_cli_contract.py`: a release check that needs a freshly built wheel's executable. No product code changed and nothing was built; the CLI contract is exercised by `test_extension_argv_contract.py` and `test_cli_json.py` in the full suite.
 - **Batch 0B probes:** not authorized.
 
@@ -2292,7 +2305,7 @@ Not touched: `pyproject.toml`, `bugpilot/`, `extension/src/`, goldens and fixtur
 **Not executed:**
 
 - CI;
-- POSIX, macOS and Python 3.10 runs: the H-1 fix is shown by tests with both path styles, but its byte-identical result on Linux and macOS is first observed in CI;
+- POSIX, macOS and Python 3.10 runs: the H-1 fix is shown by tests with both path styles, but its byte-identical result on Linux and macOS is first observed in CI. It was, in run 38942462918: the compared baselines matched on every system;
 - `scripts/check_cli_contract.py`;
 - the guarded start of an installed `bugpilot`, since none is on `PATH` here;
 - Batch 0B probes.
@@ -2332,10 +2345,63 @@ The owner authorized a final, narrow remediation of N-1, L-1, L-2, L-3 and L-8. 
 
 **Not executed:**
 - CI;
-- POSIX, macOS and Python 3.10 runs (the `Path.copy` and junction tests skip there, with their reasons);
+- POSIX, macOS and Python 3.10 runs (the `Path.copy` and junction tests skip there, with their reasons). These later ran in CI run 38942462918, all green;
 - `scripts/check_cli_contract.py`;
 - the guarded start of an installed `bugpilot`, since none is on `PATH` here;
 - Batch 0B probes.
+
+##### Batch 0A — acceptance and CI evidence (2026-10-16)
+
+**Status: COMPLETED.** The owner accepted Batch 0A.
+- **Commit:** `8b6c567a074e4ddef6490ccc837e817cf7f48866`, `test: isolate BugPilot storage and record 0.1.5 baselines`. It holds exactly the 26-file allowlist. Author and committer use the noreply identity.
+- **Push:** a fast-forward `ee3fb00..8b6c567` to `main`; nothing forced, tagged or published.
+- **CI:** workflow `CI` (`.github/workflows/ci.yml`), run 38942462918, triggered by that push (no dispatch; the only run for the commit). Conclusion: success.
+
+**The nine required checks** (counts from the jobs' published annotations; each Python job also deselects the one test that needs the private word list):
+
+| Check | Result |
+| --- | --- |
+| Safety and baselines (ubuntu-latest, Python 3.13) | success: 1,319 passed, 23 skipped, 1 deselected |
+| Safety and baselines (ubuntu-latest, Python 3.10) | success: 1,319 passed, 23 skipped, 1 deselected |
+| Safety and baselines (macos-latest, Python 3.13) | success: 1,321 passed, 21 skipped, 1 deselected |
+| Safety and baselines (windows-latest, Python 3.13) | success: 1,304 passed, 38 skipped, 1 deselected |
+| Extension evidence boundary (ubuntu-latest) | success: 27 passed |
+| Full Python suite (ubuntu-latest) | success: 3,264 passed, 29 skipped, 1 deselected (4 min 16 s) |
+| Full Python suite (macos-latest) | success: 3,266 passed, 27 skipped, 1 deselected (6 min 43 s) |
+| Full Python suite (windows-latest) | success: 3,255 passed, 38 skipped, 1 deselected (16 min 49 s) |
+| Extension unit tests (ubuntu-latest) | success: 2,348 passed, 2 skipped |
+
+**Acceptance (§14.1.A, item 6):**
+
+| Criterion | Evidence | Met |
+| --- | --- | --- |
+| The full Python and extension suites green, on Windows locally and on the three systems in CI; all nine checks green; counts recorded | Locally on Windows: 3,258 passed, 36 skipped; extension 2,350. In CI: the table above | yes |
+| Isolation demonstrated, not configured: `test_isolation_guard.py` passes on every CI configuration | It ran in all four `safety-and-baselines` jobs and all three `full-suite` jobs. Its only skips there were stated ones: the `Path.copy` test (needs 3.14) everywhere, and the junction test off Windows. On Windows 3.13 the copy refusals went through `_winapi.CopyFile2`. Its demonstrations check the decoy's integrity, the absence of canaries, Python grandchildren, and the session-wide check | yes |
+| A full local run passes with the guard active; any refusal fixed by isolating the test, never by narrowing the guard | Local full runs green. Tests were fixed (`child_pythonpath`, M-1); the guard only gained coverage (M-1, N-1, L-2, L-3). The one rule refinement, D0A-1, is recorded as a deviation | yes |
+| The inventory equals §5, or §5 is corrected | Reconciled exactly with §5.1; the ratchet passed in every CI job | yes |
+| Baselines recorded and reproducible | `--check` matched twice locally. The byte-for-byte comparison passed in CI on Linux (3.10 and 3.13), macOS and Windows, which confirms H-1 | yes |
+| The record holds the guard's event list, where it ran, and its stated limits | The event list and limits are in "Batch 0A — as built" above; where it ran is recorded here, in §18 and in §19 | yes |
+
+**Findings.** CI produced no new findings:
+- no test failed;
+- every annotation was notice-level: summaries, skips and platform observations;
+- no Critical, High or Medium finding is open.
+
+GitHub posted two notices about the runners themselves: the `ubuntu-latest` label moves to Ubuntu 26 from 2026-10-19, and macOS arm64 jobs may queue longer.
+
+**Platform observations:** §7.3, "Batch 0A CI observation".
+
+**Still not verified:**
+- a `subst` drive (D0A-5);
+- mapped network drives and NFC/NFD spellings;
+- the guarded start of an installed `bugpilot`. None was on `PATH` locally, and the integration suite does not run in CI;
+- the `Path.copy` test outside Windows with Python 3.14, and the junction test off Windows;
+- `scripts/check_cli_contract.py`, which needs a built wheel;
+- every live agent behaviour (Batch 0B, NOT STARTED).
+
+The guard's documented limits ("Limits", above) are unchanged.
+
+**Version:** 0.1.5, unchanged. **Decisions:** US-D32 and US-D33 remain APPROVED, and no other decision changed.
 
 #### 14.1.B Batch 0B — Live agent capability probes
 
@@ -3063,6 +3129,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-16 | 0A | **Pre-commit review, then the owner-authorized remediation (not committed; no CI run).** <ul><li>**Review:** independent and read-only. It recommended FAIL as built: no Critical finding, one High (H-1) and two Medium (M-1, M-2), plus Low findings, and no security exposure.</li><li>**Authorization:** the owner authorized remediating H-1, M-1 and M-2, correcting this plan, and explicitly regenerating the affected baseline. Batch 0B and Batch 1 were not authorized.</li><li>**H-1:** `pollution.json` held Windows path separators in its recorded commands, so 5 of the 9 required checks would have failed on Linux and macOS. Path arguments are now recorded with `/` on every platform (`portable_path`). Only `pollution.json` was regenerated: 7 command strings changed, `\` to `/` and nothing else. `--check` passed twice.</li><li>**M-1:** two tests replaced `PYTHONPATH`, so their Python children ran without the guard. They now use `child_pythonpath`, and the parent refuses any recognizable Python child that would start without the loader. `-I`, `-E` and `-S` children are exempt.</li><li>**M-2:** the integration suite's `discoverExecutable` test now gets the guarded spawn. A source check in the required extension job covers every way that suite can start a process.</li><li>**Plan:** `subst` marked NOT VERIFIED throughout, with its test deferred pending owner approval. The guard's coverage and limits are restated as built.</li><li>**Not changed:** L-2 and L-3 (still governed by diff review); L-5 (in files outside this remediation).</li><li>**Results:** <ul><li>full Python suite: 3,250 passed, 0 failed, 36 skipped;</li><li>extension: 2,350 passed; the required TypeScript job 27 passed; integration 21 passed;</li><li>goldens, product files, protected files and the other baseline records unchanged; version 0.1.5.</li></ul></li><li>**Not run:** CI; POSIX, macOS and Python 3.10 runs; `check_cli_contract.py`; the guarded start of an installed `bugpilot`, since none is on `PATH` here.</li><li>**Details:** §14.1.A, "Batch 0A — pre-commit review remediation".</li></ul> |
 | 2026-10-16 | 0A | **Final diff review, then the owner-authorized final security remediation (not committed; no CI run).** <ul><li>**Review:** independent and read-only, with a separate reviewer agent. It recommended PASS WITH CONDITIONS: H-1, M-1 and M-2 were complete and every reported result reproduced. It found one new Medium (N-1) and Low findings L-1 to L-8.</li><li>**N-1:** on Windows, `shutil.copy2`, `Path.copy` and `Path.copy_into` copy through `_winapi.CopyFile2`, which the guard did not judge, and `_winapi.CreateJunction` was not judged either. Their arguments were measured on 3.14.6, and both events are now judged at source and destination.</li><li>**L-1:** the two module comments no longer claim agent variables are removed.</li><li>**L-2:** a refusal swallowed outside any test now fails the run, through a session-wide check plus an end-of-session backstop; each refusal is reported once.</li><li>**L-3:** the child loader fails closed (exit 70) when the guard is configured but cannot be installed.</li><li>**L-8:** a stale line reference was corrected.</li><li>**Tests:** 8 new tests; each fix was reverted in a scratch copy and its tests failed.</li><li>**Not changed:** L-4 to L-7, which are documented as limitations.</li><li>**Results:** <ul><li>full Python suite: 3,258 passed, 0 failed, 36 skipped;</li><li>extension: 2,350 passed; the required TypeScript job 27 passed; integration 21 passed;</li><li>baselines matched twice;</li><li>goldens, product files, protected files and baseline records unchanged; version 0.1.5.</li></ul></li><li>**Not run:** CI; POSIX, macOS and Python 3.10 runs; `check_cli_contract.py`; the guarded start of an installed `bugpilot`.</li><li>**Details:** §14.1.A, "Batch 0A — final security remediation".</li></ul> |
 | 2026-10-16 | 0A | **Final local verification complete; commit and push approved; CI PENDING.** <ul><li>**Approval:** the owner approved committing and pushing Batch 0A to `main`, limited to its 26-file allowlist, and one CI run of the existing workflow.</li><li>**Excluded:** the historical plan (`docs/bugpilot_prototype_development_plan.md`), `.bugpilot/`, `.ai/`, `.ai_memory/` and `.vscode/extensions.json`.</li><li>**Not authorized:** publishing, tagging and a version bump. The version stays 0.1.5.</li><li>**Batch 0B and Batch 1:** NOT STARTED.</li><li>**CI verification:** PENDING. Its result is reported to the owner, and goes into §19 only through a separately authorized documentation commit.</li></ul> |
+| 2026-10-16 | 0A | **Batch 0A COMPLETED: committed, pushed and CI-verified; accepted by the owner.** <ul><li>**Commit:** `8b6c567a074e4ddef6490ccc837e817cf7f48866` (`test: isolate BugPilot storage and record 0.1.5 baselines`), exactly the 26-file allowlist, noreply identity.</li><li>**Push:** a fast-forward `ee3fb00..8b6c567` to `main`.</li><li>**CI:** run 38942462918 (workflow `CI`, triggered by the push, no dispatch): **all 9 required checks succeeded**.</li><li>**Full Python suite:** Ubuntu 3,264 passed, 29 skipped; macOS 3,266 passed, 27 skipped; Windows 3,255 passed, 38 skipped; each with 1 deselected.</li><li>**Safety and baselines:** Ubuntu 3.13 and 3.10 each 1,319 passed, 23 skipped; macOS 1,321, 21; Windows 1,304, 38.</li><li>**Extension:** unit tests 2,348 passed, 2 skipped; evidence boundary 27 passed.</li><li>**First runs:** this was the first Linux, macOS and Python 3.10 run of the guard demonstrations, the ratchet and the byte-for-byte baselines. All passed, which confirms H-1 on POSIX and the guard's event coverage on 3.10.</li><li>**Platform observations:** recorded in §7.3.</li><li>**`subst`:** NOT VERIFIED.</li><li>**Findings:** no new CI finding. GitHub's notices: `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19; macOS arm64 jobs may queue longer.</li><li>**Unchanged:** version 0.1.5; US-D32 and US-D33 remain APPROVED, and no other decision changed.</li><li>**Batch 0B, Batch 1 and later:** NOT STARTED.</li><li>**Plan:** this record is a documentation change, uncommitted, awaiting the owner's review.</li><li>**Details:** §14.1.A, "Batch 0A — acceptance and CI evidence".</li></ul> |
 
 ---
 
@@ -3075,6 +3142,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-16 | 0A | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | After the pre-commit review's remediation (H-1, M-1, M-2), still uncommitted. The commit set now also includes `tests/test_cli_json.py` and `tests/test_mcp_stdio.py`. Commit, push and CI each still need the owner's separate authorization. |
 | 2026-10-16 | 0A | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | After the final security remediation (N-1, L-1, L-2, L-3, L-8), still uncommitted. The commit allowlist is the same 26 files, to be staged explicitly: `git add -A` would also take `.bugpilot/`, `.vscode/extensions.json` and the historical plan. Commit, push and CI each still need the owner's separate authorization. |
 | 2026-10-16 | 0A | `main` | **the commit that carries this row**: the 26-file Batch 0A allowlist, owner-approved. A commit cannot hold its own SHA, so a later documentation commit records it. | **PENDING**: the push to `main` triggers `ci.yml` (the 9 required checks) | — | The owner approved the commit, the push and one CI run. Nothing published, tagged or bumped. Batch 0B and Batch 1 NOT STARTED. |
+| 2026-10-16 | 0A | `main` | `8b6c567a074e4ddef6490ccc837e817cf7f48866` (fast-forward `ee3fb00..8b6c567`) | 38942462918 (`CI`, push) | **success: 9/9** | Full suite: Ubuntu 3,264, macOS 3,266, Windows 3,255 passed. Safety and baselines green on Ubuntu 3.13 and 3.10, macOS 3.13 and Windows 3.13. Extension 2,348 passed; evidence boundary 27. No new findings. Batch 0A COMPLETED. The previous row's PENDING is resolved here. |
 
 ---
 
