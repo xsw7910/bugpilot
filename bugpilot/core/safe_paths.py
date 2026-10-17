@@ -59,6 +59,20 @@ def is_link_or_junction(path: Path) -> bool:
         info = os.lstat(path)
     except (FileNotFoundError, NotADirectoryError):
         return False
+    if is_link_stat(info):
+        return True
+    # Belt and braces where the interpreter knows about junctions (3.12+).
+    is_junction = getattr(path, "is_junction", None)
+    return bool(is_junction()) if callable(is_junction) else False
+
+
+def is_link_stat(info: os.stat_result) -> bool:
+    """Whether an ``lstat`` result describes a link: the test :func:`is_link_or_junction` applies.
+
+    For a caller that already holds the ``lstat`` (0.1.6 storage reads each
+    component once): a symbolic link, or a Windows reparse point whose tag is
+    a name surrogate or unknown.
+    """
     if stat.S_ISLNK(info.st_mode):
         return True
     if getattr(info, "st_file_attributes", 0) & _FILE_ATTRIBUTE_REPARSE_POINT:
@@ -67,9 +81,7 @@ def is_link_or_junction(path: Path) -> bool:
         # developer one manual step, following one can cost them anything.
         if tag == 0 or tag & _NAME_SURROGATE_BIT:
             return True
-    # Belt and braces where the interpreter knows about junctions (3.12+).
-    is_junction = getattr(path, "is_junction", None)
-    return bool(is_junction()) if callable(is_junction) else False
+    return False
 
 
 def owned_path(repo_root: Path, parts: Sequence[str]) -> Path:
@@ -104,7 +116,18 @@ def owned_path(repo_root: Path, parts: Sequence[str]) -> Path:
     return target
 
 
-def writable_dir(repo_root: Path, parts: Sequence[str], *, create: bool = True) -> Path:
+#: How a write refusal names the folder writes stay inside: the repository by default.
+REPOSITORY_BOUNDARY = "this repository"
+
+
+def writable_dir(
+    repo_root: Path,
+    parts: Sequence[str],
+    *,
+    create: bool = True,
+    mode: int | None = None,
+    boundary: str = REPOSITORY_BOUNDARY,
+) -> Path:
     """``repo_root / parts`` as a real directory BugPilot may write generated files into.
 
     The write-side twin of :func:`owned_path`. Every
@@ -115,6 +138,12 @@ def writable_dir(repo_root: Path, parts: Sequence[str], *, create: bool = True) 
     checked again once they exist; with ``create=False`` a missing directory is
     returned as a path for the caller to report. The repository root itself
     may sit behind a link: that is where the developer chose to work.
+
+    ``repo_root`` may be any base BugPilot writes under (0.1.6, plan §8.5): its
+    data folder too. ``mode`` is given to each ``mkdir`` (the umask still
+    narrows it, never widens it), and ``boundary`` names the base in the
+    refusal (``"this repository"``, or ``"BugPilot's data folder"``). With the
+    defaults every message is as it was.
     """
     _check_parts(parts)
     display = "/".join(parts)
@@ -123,32 +152,37 @@ def writable_dir(repo_root: Path, parts: Sequence[str], *, create: bool = True) 
         current = current / part
         shown = "/".join(parts[: index + 1])
         if is_link_or_junction(current):
-            raise UnsafePathError(_write_refusal(display, f"{shown} is a symbolic link or junction"))
+            raise UnsafePathError(_write_refusal(display, f"{shown} is a symbolic link or junction", boundary))
         if not os.path.lexists(current):
             if not create:
                 return repo_root.joinpath(*parts)
-            current.mkdir(exist_ok=True)
+            if mode is None:
+                current.mkdir(exist_ok=True)
+            else:
+                current.mkdir(mode=mode, exist_ok=True)
             if is_link_or_junction(current):
-                raise UnsafePathError(_write_refusal(display, f"{shown} became a symbolic link or junction"))
+                raise UnsafePathError(
+                    _write_refusal(display, f"{shown} became a symbolic link or junction", boundary)
+                )
         elif not current.is_dir():
-            raise UnsafePathError(_write_refusal(display, f"{shown} is not a directory"))
+            raise UnsafePathError(_write_refusal(display, f"{shown} is not a directory", boundary))
     expected = repo_root.resolve().joinpath(*parts)
     if os.path.normcase(str(current.resolve())) != os.path.normcase(str(expected)):
-        raise UnsafePathError(_write_refusal(display, "it resolves outside this repository"))
+        raise UnsafePathError(_write_refusal(display, f"it resolves outside {boundary}", boundary))
     return current
 
 
-def refuse_link(path: Path) -> Path:
+def refuse_link(path: Path, *, boundary: str = REPOSITORY_BOUNDARY) -> Path:
     """``path`` itself, unless it is a link or junction a write would follow."""
     if is_link_or_junction(path):
-        raise UnsafePathError(_write_refusal(path.name, f"{path.name} is a symbolic link or junction"))
+        raise UnsafePathError(_write_refusal(path.name, f"{path.name} is a symbolic link or junction", boundary))
     return path
 
 
-def _write_refusal(target: str, reason: str) -> str:
+def _write_refusal(target: str, reason: str, boundary: str = REPOSITORY_BOUNDARY) -> str:
     return (
         f"BugPilot cannot write {target}: {reason}. BugPilot writes generated files only into real "
-        "directories inside this repository, and never through a link. Nothing was written."
+        f"directories inside {boundary}, and never through a link. Nothing was written."
     )
 
 

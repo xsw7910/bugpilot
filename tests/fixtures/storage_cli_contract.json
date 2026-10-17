@@ -1,0 +1,1840 @@
+{
+  "_comment": "BugPilot 0.1.6 plan §8.10, the storage JSON contract, frozen as test data in Batch 1 (plan §14.2, step 9). No product code reads it. tests/test_storage_identity.py checks that it matches the plan's tables exactly; Batch 2's tests/test_storage_contract.py and extension/test/storageContract.test.ts will test against it. Machine-readable: `entries` restates each row of `keys` (same order, `row` counts from 1) as typed fields; tests/test_storage_identity.py anchors every field to its prose row, so the two cannot drift apart.",
+  "status": "APPROVED IN PART (US-D26, by the owner, 2026-10-16): plan §8.10's contract semantics and the typed `entries` are frozen. Not approved: the `open_choices` below, and every row that depends on a decision still to be made or carried out: US-D4 (`below_git_toplevel`), US-D16 (removing `ai_artifacts_ignored*`), US-D18 (`--feedback-file`), US-D25 (`run.json`), and US-D3's deprecated-variable handling, which is Batch 2 work (`legacy_config_dir_variable`)",
+  "id_pattern": "^[a-z0-9][a-z0-9._-]{0,23}-[0-9a-f]{16}$",
+  "kinds": [
+    {
+      "kind": "abs",
+      "definition": "an absolute path in the platform's own separators. No trailing separator, never `~`; the canonical form `storage` computed.",
+      "example": "`C:\\Users\\you\\.bugpilot\\repositories\\app-0123456789abcdef\\work\\JR-12345`; `/home/you/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345`"
+    },
+    {
+      "kind": "ns",
+      "definition": "relative to the repository namespace folder. `/` on every OS; no leading `./`; never `..`.",
+      "example": "`work/JR-12345/task.md`, `memory/JR-12345.md`"
+    },
+    {
+      "kind": "display",
+      "definition": "the display form of §8.2: `~/.bugpilot/…` or `BUGPILOT_HOME/…`, with `/`. Never the user's own folder name.",
+      "example": "`~/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/task.md`"
+    },
+    {
+      "kind": "posix-abs",
+      "definition": "`abs` written with `/`. Used only inside prompt and handoff text.",
+      "example": "`C:/Users/you/.bugpilot/repositories/app-0123456789abcdef/work/JR-12345/task.md`"
+    },
+    {
+      "kind": "id",
+      "definition": "a repository ID matching `^[a-z0-9][a-z0-9._-]{0,23}-[0-9a-f]{16}$`",
+      "example": "`app-0123456789abcdef`"
+    }
+  ],
+  "keys": [
+    {
+      "surface": "`bug --json`",
+      "key": "`issue_dir`",
+      "kind": "`abs` (the work folder)",
+      "null_when": "never",
+      "change": "value (was `.ai/<id>`)"
+    },
+    {
+      "surface": "`bug --json`",
+      "key": "`agent_task`",
+      "kind": "`abs`",
+      "null_when": "no `task.md` was written (`--only-issue-details`)",
+      "change": "value"
+    },
+    {
+      "surface": "`bug --json`",
+      "key": "`generated_files[]`",
+      "kind": "`ns`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "`bug --json-lines`, event `started`",
+      "key": "`work_dir`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "**new**"
+    },
+    {
+      "surface": "`bug --json-lines`, event `artifact`",
+      "key": "`path`",
+      "kind": "`ns`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "`bug <id> --retry --json`",
+      "key": "`feedback_file`, `retry_prompt`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "value"
+    },
+    {
+      "surface": "`bug <id> --retry --json`",
+      "key": "input `--feedback-file <file>`",
+      "kind": "a regular UTF-8 file, not a link, copied verbatim into `user_feedback.md` by the atomic writer",
+      "null_when": "—",
+      "change": "**new** option (US-D18)"
+    },
+    {
+      "surface": "`list --json`",
+      "key": "`work_items[].work_dir`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "**new**"
+    },
+    {
+      "surface": "`list --json`",
+      "key": "`work_items[].modified`",
+      "kind": "`YYYY-MM-DDTHH:MM:SSZ` (UTC, the folder's mtime, whole seconds)",
+      "null_when": "the mtime cannot be read",
+      "change": "**new**"
+    },
+    {
+      "surface": "`status --json`",
+      "key": "`generated_files[]`",
+      "kind": "`ns`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "`status --json`",
+      "key": "`work_dir`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "**new**"
+    },
+    {
+      "surface": "`fetch --json`",
+      "key": "`issue_dir`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "value"
+    },
+    {
+      "surface": "step commands with `--json` (`search`, `context`, …)",
+      "key": "`generated_files[]`",
+      "kind": "`ns`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "`check-results --json`",
+      "key": "`missing[]`",
+      "kind": "`abs`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "`summarize-results --json`",
+      "key": "`fix_report`",
+      "kind": "`abs`",
+      "null_when": "the report is absent",
+      "change": "value"
+    },
+    {
+      "surface": "`record-review --json`",
+      "key": "`review_report`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "value"
+    },
+    {
+      "surface": "`record-verification --json`",
+      "key": "`verification_report`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "value"
+    },
+    {
+      "surface": "`instructions show --json`",
+      "key": "each scope's `path`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "value (was a display string)"
+    },
+    {
+      "surface": "`instructions show --json`",
+      "key": "each scope's `display_path`",
+      "kind": "`display`",
+      "null_when": "never",
+      "change": "**new**"
+    },
+    {
+      "surface": "`verification`, `ai-behavior`, `project-settings`, `repository-profile` `show --json`",
+      "key": "`path`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "value"
+    },
+    {
+      "surface": "`verification`, `ai-behavior`, `project-settings`, `repository-profile` `show --json`",
+      "key": "`display_path`",
+      "kind": "`display`",
+      "null_when": "never",
+      "change": "**new**"
+    },
+    {
+      "surface": "`fix-mode list --json`",
+      "key": "`issues[].path`",
+      "kind": "`display`",
+      "null_when": "—",
+      "change": "value (was absolute; SF-3)"
+    },
+    {
+      "surface": "`doctor --json`",
+      "key": "`capabilities[]`",
+      "kind": "gains `\"unified-storage\"`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "`doctor --json`",
+      "key": "`ai_artifacts_ignored`, `ai_artifacts_ignored_paths`",
+      "kind": "—",
+      "null_when": "—",
+      "change": "**removed** only if US-D16 is approved"
+    },
+    {
+      "surface": "`doctor --json`",
+      "key": "`storage`",
+      "kind": "an object, below",
+      "null_when": "never",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`data_root`",
+      "kind": "`abs`",
+      "null_when": "the home cannot be resolved",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`data_root_display`",
+      "kind": "`display`",
+      "null_when": "as above",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`data_root_source`",
+      "kind": "`\"default\"` or `\"BUGPILOT_HOME\"`",
+      "null_when": "never",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`repository_root`",
+      "kind": "`abs`",
+      "null_when": "the root cannot be resolved",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`repository_id`",
+      "kind": "`id`",
+      "null_when": "as above",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`repository_dir`",
+      "kind": "`abs`",
+      "null_when": "as above",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`config_dir`",
+      "kind": "`abs`",
+      "null_when": "the data root cannot be resolved",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`state`",
+      "kind": "`\"ready\"` (record verified), `\"absent\"` (namespace not created yet), `\"error\"`",
+      "null_when": "never",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`problem`",
+      "kind": "one sentence, display paths only",
+      "null_when": "`state` is not `\"error\"`",
+      "change": "**new**"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`below_git_toplevel`",
+      "kind": "boolean (§7.1)",
+      "null_when": "no git, or not a checkout",
+      "change": "**new** (US-D4)"
+    },
+    {
+      "surface": "`doctor --json` → `storage`",
+      "key": "`legacy_config_dir_variable`",
+      "kind": "boolean: `true` when `BUGPILOT_CONFIG_DIR` is set (its value is never read or shown)",
+      "null_when": "never",
+      "change": "**new** (US-D3)"
+    },
+    {
+      "surface": "MCP `prepare_jira_bug`, `prepare_bug_description`, `refine_investigation`",
+      "key": "`issue_dir`",
+      "kind": "`abs`",
+      "null_when": "never",
+      "change": "value"
+    },
+    {
+      "surface": "MCP `prepare_jira_bug`, `prepare_bug_description`, `refine_investigation`",
+      "key": "`agent_task`",
+      "kind": "`abs`",
+      "null_when": "no task",
+      "change": "value"
+    },
+    {
+      "surface": "MCP `prepare_jira_bug`, `prepare_bug_description`, `refine_investigation`",
+      "key": "`generated_files[]`",
+      "kind": "`ns`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "MCP `prepare_jira_bug`, `prepare_bug_description`, `refine_investigation`",
+      "key": "`next_step`",
+      "kind": "text naming the `posix-abs` paths of `task.md` and `context.md`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "MCP `check_results`",
+      "key": "`missing[]`",
+      "kind": "`abs`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "MCP `summarize_results`",
+      "key": "`fix_report`",
+      "kind": "`abs`",
+      "null_when": "absent",
+      "change": "value"
+    },
+    {
+      "surface": "MCP `search_memory`",
+      "key": "`matches[].file`",
+      "kind": "`ns` (`memory/<id>.md`)",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "MCP `get_status`",
+      "key": "`generated_files[]`",
+      "kind": "`ns`",
+      "null_when": "—",
+      "change": "value"
+    },
+    {
+      "surface": "persisted `run.json`",
+      "key": "`generated_files[]`",
+      "kind": "`ns`",
+      "null_when": "—",
+      "change": "value; `schema_version` stays 1 (US-D25)"
+    },
+    {
+      "surface": "persisted `repository.json`",
+      "key": "§7.5",
+      "kind": "—",
+      "null_when": "—",
+      "change": "**new** file"
+    }
+  ],
+  "entries": [
+    {
+      "row": 1,
+      "surface_kind": "cli",
+      "commands": [
+        "bug"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "issue_dir"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": ".ai/<id>",
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 2,
+      "surface_kind": "cli",
+      "commands": [
+        "bug"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "agent_task"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "no `task.md` was written (`--only-issue-details`)"
+    },
+    {
+      "row": 3,
+      "surface_kind": "cli",
+      "commands": [
+        "bug"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "generated_files[]"
+      ],
+      "schema_ref": null,
+      "kind": "ns",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 4,
+      "surface_kind": "cli",
+      "commands": [
+        "bug"
+      ],
+      "commands_complete": true,
+      "output": "json-lines",
+      "event": "started",
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "work_dir"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 5,
+      "surface_kind": "cli",
+      "commands": [
+        "bug"
+      ],
+      "commands_complete": true,
+      "output": "json-lines",
+      "event": "artifact",
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "path"
+      ],
+      "schema_ref": null,
+      "kind": "ns",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 6,
+      "surface_kind": "cli",
+      "commands": [
+        "bug"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [
+        "--retry"
+      ],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "feedback_file",
+        "retry_prompt"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 7,
+      "surface_kind": "cli",
+      "commands": [
+        "bug"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [
+        "--retry"
+      ],
+      "direction": "input",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "--feedback-file"
+      ],
+      "schema_ref": null,
+      "kind": "input-file",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [
+        "US-D18"
+      ],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 8,
+      "surface_kind": "cli",
+      "commands": [
+        "list"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "work_items[].work_dir"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 9,
+      "surface_kind": "cli",
+      "commands": [
+        "list"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "work_items[].modified"
+      ],
+      "schema_ref": null,
+      "kind": "timestamp",
+      "format": "YYYY-MM-DDTHH:MM:SSZ",
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "the mtime cannot be read"
+    },
+    {
+      "row": 10,
+      "surface_kind": "cli",
+      "commands": [
+        "status"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "generated_files[]"
+      ],
+      "schema_ref": null,
+      "kind": "ns",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 11,
+      "surface_kind": "cli",
+      "commands": [
+        "status"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "work_dir"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 12,
+      "surface_kind": "cli",
+      "commands": [
+        "fetch"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "issue_dir"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 13,
+      "surface_kind": "cli",
+      "commands": [
+        "search",
+        "context"
+      ],
+      "commands_complete": false,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "generated_files[]"
+      ],
+      "schema_ref": null,
+      "kind": "ns",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 14,
+      "surface_kind": "cli",
+      "commands": [
+        "check-results"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "missing[]"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 15,
+      "surface_kind": "cli",
+      "commands": [
+        "summarize-results"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "fix_report"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "the report is absent"
+    },
+    {
+      "row": 16,
+      "surface_kind": "cli",
+      "commands": [
+        "record-review"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "review_report"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 17,
+      "surface_kind": "cli",
+      "commands": [
+        "record-verification"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "verification_report"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 18,
+      "surface_kind": "cli",
+      "commands": [
+        "instructions show"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": "scope",
+      "keys": [
+        "path"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": "a display string",
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 19,
+      "surface_kind": "cli",
+      "commands": [
+        "instructions show"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": "scope",
+      "keys": [
+        "display_path"
+      ],
+      "schema_ref": null,
+      "kind": "display",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 20,
+      "surface_kind": "cli",
+      "commands": [
+        "verification show",
+        "ai-behavior show",
+        "project-settings show",
+        "repository-profile show"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "path"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 21,
+      "surface_kind": "cli",
+      "commands": [
+        "verification show",
+        "ai-behavior show",
+        "project-settings show",
+        "repository-profile show"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "display_path"
+      ],
+      "schema_ref": null,
+      "kind": "display",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 22,
+      "surface_kind": "cli",
+      "commands": [
+        "fix-mode list"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "issues[].path"
+      ],
+      "schema_ref": null,
+      "kind": "display",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": "absolute",
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [
+        "SF-3"
+      ],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 23,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "capabilities[]"
+      ],
+      "schema_ref": null,
+      "kind": "string-list",
+      "format": null,
+      "values": null,
+      "adds": [
+        "unified-storage"
+      ],
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 24,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "ai_artifacts_ignored",
+        "ai_artifacts_ignored_paths"
+      ],
+      "schema_ref": null,
+      "kind": null,
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "removed",
+      "was": null,
+      "conditional_on": "US-D16",
+      "decisions": [
+        "US-D16"
+      ],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 25,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "storage"
+      ],
+      "schema_ref": null,
+      "kind": "object",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 26,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "data_root"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "the home cannot be resolved"
+    },
+    {
+      "row": 27,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "data_root_display"
+      ],
+      "schema_ref": null,
+      "kind": "display",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "the home cannot be resolved"
+    },
+    {
+      "row": 28,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "data_root_source"
+      ],
+      "schema_ref": null,
+      "kind": "enum",
+      "format": null,
+      "values": [
+        "default",
+        "BUGPILOT_HOME"
+      ],
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 29,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "repository_root"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "the root cannot be resolved"
+    },
+    {
+      "row": 30,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "repository_id"
+      ],
+      "schema_ref": null,
+      "kind": "id",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "the root cannot be resolved"
+    },
+    {
+      "row": 31,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "repository_dir"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "the root cannot be resolved"
+    },
+    {
+      "row": 32,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "config_dir"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "the data root cannot be resolved"
+    },
+    {
+      "row": 33,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "state"
+      ],
+      "schema_ref": null,
+      "kind": "enum",
+      "format": null,
+      "values": [
+        "ready",
+        "absent",
+        "error"
+      ],
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 34,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "problem"
+      ],
+      "schema_ref": null,
+      "kind": "sentence",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": "display",
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "`state` is not `\"error\"`"
+    },
+    {
+      "row": 35,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "below_git_toplevel"
+      ],
+      "schema_ref": null,
+      "kind": "boolean",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [
+        "US-D4"
+      ],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "no git, or not a checkout"
+    },
+    {
+      "row": 36,
+      "surface_kind": "cli",
+      "commands": [
+        "doctor"
+      ],
+      "commands_complete": true,
+      "output": "json",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": "storage",
+      "each": null,
+      "keys": [
+        "legacy_config_dir_variable"
+      ],
+      "schema_ref": null,
+      "kind": "boolean",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [
+        "US-D3"
+      ],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 37,
+      "surface_kind": "mcp",
+      "commands": [
+        "prepare_jira_bug",
+        "prepare_bug_description",
+        "refine_investigation"
+      ],
+      "commands_complete": true,
+      "output": "mcp",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "issue_dir"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 38,
+      "surface_kind": "mcp",
+      "commands": [
+        "prepare_jira_bug",
+        "prepare_bug_description",
+        "refine_investigation"
+      ],
+      "commands_complete": true,
+      "output": "mcp",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "agent_task"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "no task"
+    },
+    {
+      "row": 39,
+      "surface_kind": "mcp",
+      "commands": [
+        "prepare_jira_bug",
+        "prepare_bug_description",
+        "refine_investigation"
+      ],
+      "commands_complete": true,
+      "output": "mcp",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "generated_files[]"
+      ],
+      "schema_ref": null,
+      "kind": "ns",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 40,
+      "surface_kind": "mcp",
+      "commands": [
+        "prepare_jira_bug",
+        "prepare_bug_description",
+        "refine_investigation"
+      ],
+      "commands_complete": true,
+      "output": "mcp",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "next_step"
+      ],
+      "schema_ref": null,
+      "kind": "text",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": "posix-abs",
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 41,
+      "surface_kind": "mcp",
+      "commands": [
+        "check_results"
+      ],
+      "commands_complete": true,
+      "output": "mcp",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "missing[]"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 42,
+      "surface_kind": "mcp",
+      "commands": [
+        "summarize_results"
+      ],
+      "commands_complete": true,
+      "output": "mcp",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "fix_report"
+      ],
+      "schema_ref": null,
+      "kind": "abs",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": true,
+      "null_when": "absent"
+    },
+    {
+      "row": 43,
+      "surface_kind": "mcp",
+      "commands": [
+        "search_memory"
+      ],
+      "commands_complete": true,
+      "output": "mcp",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "matches[].file"
+      ],
+      "schema_ref": null,
+      "kind": "ns",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 44,
+      "surface_kind": "mcp",
+      "commands": [
+        "get_status"
+      ],
+      "commands_complete": true,
+      "output": "mcp",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "generated_files[]"
+      ],
+      "schema_ref": null,
+      "kind": "ns",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 45,
+      "surface_kind": "persisted",
+      "commands": [
+        "run.json"
+      ],
+      "commands_complete": true,
+      "output": "file",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [
+        "generated_files[]"
+      ],
+      "schema_ref": null,
+      "kind": "ns",
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "value",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [
+        "US-D25"
+      ],
+      "refs": [],
+      "unchanged_fields": {
+        "schema_version": 1
+      },
+      "nullable": false,
+      "null_when": null
+    },
+    {
+      "row": 46,
+      "surface_kind": "persisted",
+      "commands": [
+        "repository.json"
+      ],
+      "commands_complete": true,
+      "output": "file",
+      "event": null,
+      "flags": [],
+      "direction": "output",
+      "parent": null,
+      "each": null,
+      "keys": [],
+      "schema_ref": "§7.5",
+      "kind": null,
+      "format": null,
+      "values": null,
+      "adds": null,
+      "paths": null,
+      "change": "new",
+      "was": null,
+      "conditional_on": null,
+      "decisions": [],
+      "refs": [],
+      "unchanged_fields": null,
+      "nullable": false,
+      "null_when": null
+    }
+  ],
+  "unchanged": {
+    "envelope": [
+      "schema_version",
+      "ok",
+      "command",
+      "error.code",
+      "error.message"
+    ],
+    "storage_errors_report": "INVALID_INPUT"
+  },
+  "open_choices": [
+    "STORAGE_UNAVAILABLE: whether a separate error code reports a data root that cannot be created or written (US-D26, OPEN); until chosen, such failures use the existing generic code",
+    "ai_artifacts_ignored and ai_artifacts_ignored_paths are removed only if US-D16 is approved"
+  ]
+}

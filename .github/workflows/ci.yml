@@ -18,7 +18,9 @@
 #   floor, 3.10. Since 0.1.6 Batch 0A (unified-storage plan §11.1, §11.2):
 #   the test-isolation guard demonstrations, the storage path-literal ratchet
 #   and the synthetic 0.1.5 storage baselines, whose platform path
-#   observations join the file-safety artifact.
+#   observations join the file-safety artifact. Since 0.1.6 Batch 1 (§14.2):
+#   the storage resolver and its safety primitives, whose timing
+#   observations join that artifact too.
 #
 # Test isolation: both Python test steps run with HOME and USERPROFILE in the
 # runner's temporary folder (created first), and tests/conftest.py isolates
@@ -132,6 +134,8 @@ jobs:
           tests/test_isolation_guard.py
           tests/test_storage_inventory.py
           tests/test_storage_baseline.py
+          tests/test_storage_identity.py
+          tests/test_storage_safety.py
           --deselect tests/test_publishable.py::test_the_word_list_is_present_and_private
           2>&1 | tee pytest-safety.log
 

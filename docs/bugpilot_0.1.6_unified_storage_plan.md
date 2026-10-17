@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED only US-D32 and US-D33, for Batch 0A's scope. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0B, Batch 1 and every later batch have **NOT STARTED**; Batch 0 as a whole is not complete while 0B has not run. |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is implemented and verified locally, pending the owner's approval**: not committed, no CI run. Its architecture and security review found it FAIL; the owner-authorized narrow remediation is done locally (§14.2, "Batch 1 — architecture review remediation"). The owner ratified its decisions and the Q1–Q7 policies at its decision gate (§14.2, "Batch 1 — owner decision gate"). Its commit awaits a separate authorization, and its activation is blocked by §14.3's preconditions, none yet satisfied. Batch 0B and Batches 2–5 have **NOT STARTED**. |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -17,7 +17,7 @@ records are superseded or rewritten.
 
 Status labels used throughout:
 
-- **APPROVED**: a fixed requirement or an owner decision.
+- **APPROVED**: a fixed requirement or an owner decision. An approval may be qualified: **APPROVED — with conditions** (the conditions must be met before the gate they name) or **APPROVED — in part** (only the stated part is approved; every other part stays OPEN or PROPOSED and is named). §16.1 defines both.
 - **PROPOSED**: this plan's recommendation; it needs owner approval before the batch that depends on it.
 - **OPEN**: a real choice with alternatives; the owner decides.
 - **DEFERRED**: out of 0.1.6, recorded so that it is not lost.
@@ -100,7 +100,7 @@ The repository-local paths are not configuration that a few modules read:
 
 **Readiness.** The plan is ready for owner decisions.
 
-- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15). 33 still await the owner: 14 OPEN and 19 PROPOSED. 4 items are DEFERRED.
+- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. 24 still await the owner: 13 OPEN and 11 PROPOSED. 4 items are DEFERRED.
 - **The 2026-10-15 architecture review recommends:**
 
   | Recommendation | Count | Decisions |
@@ -115,7 +115,7 @@ The repository-local paths are not configuration that a few modules read:
 - **Batch 2,** the storage-changing batch, cannot begin until:
   - US-D10 and US-D28 are decided, from Batch 0B evidence;
   - US-D14 is decided (§16.4);
-  - the §8.10 contract is approved.
+  - the §8.10 contract is approved (approved in part on 2026-10-16; its open parts are decided before they are built).
 
 The seven with the widest product consequences are:
 
@@ -1060,7 +1060,7 @@ The rule for absolute paths (US-D22):
 **How it is frozen and tested.**
 
 - Batch 1 freezes it as `tests/fixtures/storage_cli_contract.json`. This is test data only; no product code reads it.
-- The owner's approval of this section and the fixture, at the Batch 1 gate, is a precondition of Batch 2 (§14.3).
+- The owner's approval of this section and the fixture, at the Batch 1 gate, is a precondition of Batch 2 (§14.3). **Approved in part on 2026-10-16** (US-D26, §16.1): the semantics below and the fixture's typed entries. The `STORAGE_UNAVAILABLE` choice stays OPEN, and the rows that follow US-D4, US-D16, US-D18, US-D25 and US-D3's deprecated-variable handling are not approved by it.
 - Python (`tests/test_storage_contract.py`) and TypeScript (`extension/test/storageContract.test.ts`) each test against the fixture, never against the other side's code.
 - A change to the contract is a change to the fixture, reviewed as such.
 
@@ -1868,7 +1868,7 @@ Verification is by demonstration against a **decoy**, never the real home, so no
 | --- | --- | --- |
 | Repository ID | one `realpath` (a handle open on Windows) and one SHA-256 over less than 1 KB, memoized per process and root | < 1 ms cold, < 10 µs warm |
 | Path resolution per call | pure joins after the memoized identity; the record is read once per process per namespace | no measurable change |
-| `ensure()` | about 6–9 `lstat`/`mkdir` calls on the first write of a process; after that only the work folder's `lstat` chain, as `writable_dir` does today | < 2 ms on the first write |
+| `ensure()` | about 6–9 `lstat`/`mkdir` calls on the first write of a process; after that only the work folder's `lstat` chain, as `writable_dir` does today | first write: median < 10 ms on Windows local NTFS; 2 ms on Linux and macOS, a provisional reference until measured; atomicity is never reduced for speed (owner, Q6, 2026-10-16; was < 2 ms everywhere) |
 | Preparation end to end | no new network, git, search or model call | median of 5 within 2% of 0.1.5 (the §44.12 rule) |
 | `list` / History | `list` now returns `work_dir` and `modified`, so the extension's N `stat` calls are removed; `run.json` reads stay cached by mtime | `list --json` over 1,000 work items < 1 s; History no slower than 0.1.5 |
 | Memory search | still per repository (R3): it globs `memory/*.md` of one namespace, as before; **no cross-repository scan** | unchanged |
@@ -1956,7 +1956,7 @@ Either must avoid becoming a legacy reader (R4).
 | --- | --- | --- | --- | --- | --- |
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **NOT STARTED** | — | — | awaits a separate approval naming the agents and accounts; no commit except plan records |
-| 1 | Storage foundation | **NOT STARTED** | — | — | after 0A, plus its decisions; independent of 0B |
+| 1 | Storage foundation | **IMPLEMENTED, verified locally; decisions ratified; commit awaits authorization** (not committed). Architecture review FAIL; the narrow remediation (H1, M1–M3, L2, L3, L6–L9; H2 investigated) is done locally. The owner ratified its decisions and Q1–Q7 on 2026-10-16 (§14.2 "owner decision gate"); its activation blockers are in §14.3, none yet satisfied | — (not committed) | — (not run) | after 0A, plus its decisions; independent of 0B |
 | 2 | Python CLI, MCP and prompts on the new layout | **NOT STARTED** | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
@@ -2516,6 +2516,378 @@ The guard's documented limits ("Limits", above) are unchanged.
 
   Batch 2 then still waits for its own preconditions (§14.3).
 
+#### Batch 1 — as built (2026-10-16)
+
+**Status: implemented and verified locally on Windows. Not staged, not committed, not pushed; no CI run** (§19). It awaits the owner's review. No product module uses the new module.
+
+| | |
+| --- | --- |
+| Authorized | 2026-10-16, Batch 1 only, by the owner's Batch 1 brief, on `main` at `64056ca` (Batch 0A completed and CI-verified) |
+| Version | 0.1.5, unchanged |
+| Product behaviour | unchanged: no caller is switched; `config.py`, `user_config.py`, the settings modules, the CLI, MCP and the extension are untouched |
+| Goldens, fixtures, baselines | none changed; one new fixture (below) |
+| Accounts | no Jira request, no agent, no live probe |
+
+**The decision gate.** §14.2's precondition asks the owner to approve US-D1, D3, D5, D6, D7, D23, D24 and D34 first.
+- **Status in §16.1:** US-D3 is OPEN and the others are PROPOSED. Their status is unchanged: nothing is marked approved. *(Ratified on 2026-10-16: see "Batch 1 — owner decision gate" below.)*
+- **Why implementation went ahead:** the owner's Batch 1 brief directs each one's content:
+  - the layout (US-D1);
+  - `BUGPILOT_HOME` naming the whole data root (US-D3's name);
+  - the §7.2 algorithm (US-D5);
+  - the record schema (US-D6);
+  - one namespace per worktree (US-D7);
+  - private folders and the existing-root policy (US-D23);
+  - refusal of a mismatched or corrupt record (US-D24);
+  - data-root validation (US-D34).
+- **What remains:** approving them is the owner's step at this batch's review. Nothing is committed, so a different decision changes the code before any commit (deviation B1-1).
+- **§8.10:** its open choices concern only Batch 2's consumers:
+  - the `STORAGE_UNAVAILABLE` code;
+  - US-D16's removal of the `ai_artifacts_ignored*` fields;
+  - US-D4's `below_git_toplevel`;
+  - US-D3's `legacy_config_dir_variable`.
+
+  None changes a Batch 1 primitive, so the contract is frozen unchanged (below).
+
+**Files.**
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/storage.py` | **new**: the resolver and its primitives (below); standard library only |
+| `bugpilot/core/safe_paths.py` | `writable_dir(..., mode=, boundary=)` and `refuse_link(..., boundary=)`. `is_link_stat()` holds the `lstat` test that `is_link_or_junction` applies, unchanged, for callers that already hold the `lstat`. With the defaults every message is byte-identical (tested) |
+| `tests/test_storage_identity.py` | **new**, required in CI: 102 tests (data root, algorithm and golden vectors, canonicalization, distinct repositories, platform cases, the record, two processes, read-only resolution, isolation, the §8.10 fixture) |
+| `tests/test_storage_safety.py` | **new**, required in CI: 92 tests (a link at each of the nine components, before and swapped in after `mkdir`; the data root behind a link; modes; traversal; closed sets; message hygiene; no legacy reads; timing record) |
+| `tests/fixtures/storage_cli_contract.json` | **new**: §8.10 frozen as test data (step 9), generated from §8.10's two tables; a test checks it equals them exactly. No product code reads it. Status: PROPOSED (US-D26) |
+| `tests/storage_inventory.json` | the ratchet record, updated with `--update` for `storage.py`'s new references (`bugpilot-dir` 1, `home-bugpilot` 3, `home-lookup` 1, `path-helper` 1). No other file's counts changed |
+| `.github/workflows/ci.yml` | the two suites join `safety-and-baselines`; a header comment. Job ids, names, matrix, pins and permissions unchanged |
+
+**The API surface, settled** (§8.2's names were proposals):
+
+- **Constants:** `DATA_ROOT_ENV` (`"BUGPILOT_HOME"`), `DEFAULT_DATA_DIR_NAME`, `STORAGE_LAYOUT_VERSION` (1), `RECORD_NAME`, `DATA_ROOT_BOUNDARY`, `DIRECTORY_MODE` (`0o700`), `REPOSITORY_ID_RE`, `SETTINGS_NAMES` (the closed set of five), `SettingsName`, `RecordState`.
+- **Errors:** `StorageError(UnsafePathError)` and `StorageIdentityError(StorageError)`. Their messages are one sentence, with no absolute path.
+- **The data root:**
+  - `data_root()`: `BUGPILOT_HOME` must be absolute, with no C0 or C1 control, DEL, U+2028 or U+2029, and no `~` expansion; a blank value counts as unset, as `BUGPILOT_CONFIG_DIR` does today. Otherwise `Path.home() / ".bugpilot"`; a home that cannot be found, or is relative, is refused.
+  - `data_root_source()`.
+  - `display_path()`: `~/.bugpilot/…` or `BUGPILOT_HOME/…`; a path outside the data root is a `ValueError`.
+- **Identity:**
+  - `RepositoryIdentity(repository_id, root, key)` and `repository_identity()`: §7.2, memoized per process and spelling.
+  - `repository_id_for(canonical, windows=)`: the pure algorithm, for the golden vectors.
+- **Global storage:** `GlobalStorage` (`config_dir`, `config_file`, `user_instructions_file`, `user_fix_modes_dir`, `ensure_config_dir()`) and `global_storage()`.
+- **Repository storage:** `RepositoryStorage` (`directory`, `settings_dir`, `work_root`, `memory_dir`, `record_file`) and `repository_storage()`. Its methods:
+  - `ensure()` and `record_state()`;
+  - `work_item_dir()`, `attachments_dir()`, `memory_file()`, `settings_file()` and `fix_modes_dir()`, each with `create=`;
+  - `work_items()`, returning `WorkItemEntry(work_item_id, path, mtime)`.
+- **Additions** to §8.2: `repository_id_for`, `data_root_source`, `attachments_dir` (the ninth component, §10's T-S5) and `record_file`.
+
+**Deviations and clarifications, recorded:**
+
+| Id | What | Why |
+| --- | --- | --- |
+| B1-1 | Implemented with its prerequisite decisions still PROPOSED or OPEN in §16.1 (the gate above) | The owner's brief directs their content and forbids marking them approved; the formal approval stays with the owner, before any commit |
+| B1-2 | The slug strips `_` from its ends, as well as `.` and `-` | §7.2's own ID pattern requires a letter or digit first; a basename such as `_x` would otherwise give an invalid ID. Display only: uniqueness is the hash |
+| B1-3 | The record matches only when its `root` equals the canonical root **exactly**, not only its folded key. *Revised by B1-13 (finding M2): a Windows case-only rename of the same folder is accepted* | §7.5's table compared `normcase(root)` with the key, which cannot refuse two folders whose keys collide. §7.3's case-sensitive-folder row says they are refused. Exact equality refuses them, preferring a split to a merge (tested; a key-only comparison fails that test) |
+| B1-4 | A new record is published by **hard link** from a private temp file, falling back to an atomic rename only where the file system has no hard links and the name is still free. *Superseded by B1-14 (finding M1): that fallback checked and then replaced; there is no replacing step now* | `os.link` fails if the name exists and never follows it. An existing record, identical or the evidence of a collision, is never replaced, and a reader sees no record or a whole one. A rename, which §8.7 assumed, can fail on Windows while a reader has the file open, and the writer's in-place fallback could then show a half record |
+| B1-5 | Reads check each existing component with one `lstat` (link or junction refused, a non-folder refused) and do not repeat the final `realpath` comparison that writes make | §8.3's read contract is "refuses links on existing components". Nothing a read does can land elsewhere, and on Windows each `realpath` costs about 0.4 ms. Writes keep `writable_dir`'s full check, comparison included |
+| B1-6 | `owned_path` keeps its messages: its `boundary` label waits for Batch 2 | Its only caller is `clean`, which moves in Batch 2; Batch 1 deletes nothing |
+| B1-7 | A system `OSError` while creating (permissions, a full disk) is not translated; a missing parent of the data root, and a data root that is a file, are `StorageError`s | §8.10: until the owner chooses `STORAGE_UNAVAILABLE`, such failures keep the existing generic code. The two configuration cases are bad input |
+| B1-8 | `tests/fixtures/storage_cli_contract.json` was added, though the brief's file list did not name it | §14.2 step 9 and the gate need it; it is test data only, generated from §8.10 and checked equal to it |
+| B1-9 | `bugpilot/core/errors.py` is unchanged | No code is added while `STORAGE_UNAVAILABLE` is OPEN |
+| B1-10 | A record-only timing test writes `storage_timing_<platform>_py<version>.json` to CI's file-safety artifact | §12's numbers on Linux and macOS come from the next CI run, without a timing gate that would be flaky |
+
+**§7.3, row by row.**
+
+| Row | Covered by |
+| --- | --- |
+| Same basename | a test: different IDs, the same slug |
+| Spellings (separators, `.`, `..`, trailing separator, relative) | a test |
+| Windows letter case and drive-letter case | a test (Windows) |
+| Windows case-sensitive folders | the refusal is tested at the record (B1-3). A real case-sensitive folder needs `fsutil` and the Windows Subsystem for Linux feature: **not testable in CI** |
+| A symbolic link or junction as the root | tests (a symbolic link everywhere, a junction on Windows) |
+| `subst` and mapped drives | **NOT VERIFIED**; a skipped test states why (D0A-5) |
+| macOS letter case (`getcwd`) and `/private/var` | a test (macOS; it first runs in CI) |
+| NFC and NFD | a test: two folders where they can coexist; the same folder on a normalization-insensitive volume |
+| Moved or renamed | a test: a new ID; the old namespace is untouched |
+| Cloned elsewhere; several windows; multi-root | the same-basename, spelling and memoization tests |
+| Worktrees | a test with a real `git worktree add`: distinct IDs |
+| Nested | a test |
+| Missing or unresolvable root | a test: refused before anything is written |
+
+**Golden vectors** (pinned in the tests, and recomputed independently from §7.2):
+- `/home/you/src/checkout` → `checkout-16f9432d5af86ec5`;
+- `C:\Users\you\src\Checkout` → `checkout-9162ffe8034ca234`.
+
+Other Windows spellings of the same path give the same ID.
+
+**Each test bites.** Six mutations of the final `storage.py`, run on copies outside the repository, were each caught:
+
+| Mutation | Tests that failed |
+| --- | --- |
+| The record compared by folded key only | 1 |
+| Reads skipping the record check | 14 |
+| Reads following links (the `lstat` refusal off) | 4 |
+| `~` expanded | 2 |
+| The slug keeping `_` | 2 |
+| Work-item IDs not validated | 33 |
+
+**Performance (§12).** Measured on Windows 11 with Python 3.14.6, outside the test guard, on synthetic repositories in a scratch data root. All values are medians.
+
+| Measure | Result | Budget |
+| --- | --- | --- |
+| Repository identity, cold | 227 µs | < 1 ms: **met** |
+| Repository identity, warm | 1.7 µs | < 10 µs: **met** |
+| `ensure()`, first write of a namespace | **4.96 ms**: the folder 1.26 ms, the record's publish 2.72 ms, its first verification 0.55 ms | < 2 ms: **not met on Windows** |
+| A read lookup (`repository_storage().work_item_dir(create=False)`) | 0.37 ms | "no measurable change". 0.1.5's own read was a bare join (1.8 µs) with no link check; its checked read (`writable_issue_dir(create=False)`) is 0.72 ms |
+| `ensure()` on a ready namespace | 0.26 ms | — |
+| `work_items()` over 1,001 work items | 103 ms | `list --json` over 1,000 < 1 s (Batch 2) |
+| For comparison: 0.1.5's first `.ai/<id>` creation | 1.55 ms | — |
+
+**The two budgets not met are an owner decision; nothing was weakened to meet them.**
+- **First write.** The first write is dominated by creating files on Windows. The record's hard-link publish (B1-4) is what keeps it safe for a concurrent reader. Writing it in place would save about 1.5 ms, and could show that reader half a record.
+- **Read lookups.** These now refuse links (§8.3), which 0.1.5's bare join never did.
+- **Options:**
+  - accept a Windows budget for the first write (for example, below 10 ms);
+  - keep < 2 ms for Linux and macOS until CI's timing record (B1-10) gives their numbers;
+  - judge reads by §12's end-to-end rule instead: preparation within 2% of 0.1.5, measured in Batch 2.
+
+**Security.**
+- **New findings:** none.
+- **Guarantees, tested here:**
+  - nothing is created inside the repository;
+  - no link or junction below the data root is followed, at any of the nine components, before or after `mkdir`;
+  - no work-item ID leaves its namespace;
+  - a record naming another root, or not a readable record, is refused for reads and writes alike, and never repaired;
+  - read-only resolution creates nothing;
+  - new folders are `0700` and the record `0600` under four umasks;
+  - a restrictive umask narrows and never widens;
+  - an existing data root's mode is never changed;
+  - no message holds an absolute path;
+  - no legacy location is read. The test guard protects them, and any access would have failed the test.
+- **Limitations, stated:**
+  - **The identity key on Windows.** Since Python 3.12, `normcase` folds case through the system rather than `str.lower`. A non-ASCII path could therefore get a different ID under a different Python version: a split, the safe direction.
+  - **Same-user races.** A same-user process can still race a write between the checks and the use, as §10.3 states.
+
+**Local verification** (Windows 11, Python 3.14.6, Node 24.21; `PYTHONPATH` = the repository; the test isolation active):
+
+| Check | Command | Result |
+| --- | --- | --- |
+| The new suites | `python -m pytest tests/test_storage_identity.py tests/test_storage_safety.py` | **185 passed, 9 skipped**. Skips: POSIX modes ×6, POSIX letter case, macOS, and `subst` (NOT VERIFIED) |
+| `safe_paths`, file safety, prompt boundary, goldens, publishability, isolation, baselines | `python -m pytest` over those suites | **594 passed**, 35 skipped (POSIX-only) |
+| Release workflow, CI report, ratchet | `python -m pytest tests/test_release_workflow.py tests/test_ci_report.py tests/test_storage_inventory.py` | **84 passed** |
+| Baselines | `python tests/storage_baseline.py --check`, twice | **baselines match**, both times |
+| Python 3.10 syntax | `ast.parse(..., feature_version=(3, 10))` over the four changed Python files | all parse. No 3.10 interpreter here: CI's 3.10 job runs them first |
+| Extension | `tsc --noEmit`; `npm test`; the required TypeScript job's files | clean; **2,350 passed**; **27 passed** (the extension is unchanged) |
+| Goldens, fixtures, baselines, product files | `git diff HEAD` over them | unchanged; no product module imports `storage` |
+| Full Python suite | `python -X utf8 -m pytest -q -p no:cacheprovider -rfEs` | **3,443 passed, 0 failed**, 45 skipped (the 36 POSIX- and macOS-only skips plus the 9 new platform skips), 19 min 22 s |
+| CLI integration suite (through the changed `safe_paths`) | `npm run integration` | **21 passed**; the final no-refusal test passed |
+| Publishability, after the plan edits | `python -m pytest tests/test_publishable.py` | **20 passed** |
+| Whitespace | `git diff --check`, plus a scan of the new and changed files | clean; each file keeps its line-ending convention |
+
+**Not executed:**
+- CI;
+- Linux, macOS and Python 3.10 runs (the POSIX modes, macOS cases and junction-free platforms first run in CI);
+- `subst`;
+- a real Windows case-sensitive folder;
+- `scripts/check_cli_contract.py`;
+- Batch 0B probes.
+
+#### Batch 1 — architecture review remediation (2026-10-16)
+
+**Status: remediated and verified locally on Windows. Not staged, not committed, not pushed; no CI run** (§19). Batch 1 stays implemented locally, pending the owner's approval. Its prerequisite decisions (US-D1, D3, D5, D6, D7, D23, D24, D26, D34) keep their §16.1 status, PROPOSED or OPEN: nothing was marked approved. The review's recommendations, and this section's, are not owner decisions.
+
+| | |
+| --- | --- |
+| Review | the Batch 1 architecture and security review, read-only: **FAIL**. High: H1, H2. Medium: M1, M2, M3. Low: L1–L9 |
+| Authorized | 2026-10-16, the owner's narrow remediation brief: fix H1 and M1–M3; investigate H2 without weakening any protection; fix L2, L3, L6, L7, L8 and L9; assess L1, L4 and L5 |
+| Files changed | `bugpilot/core/storage.py`, `tests/test_storage_identity.py`, `tests/test_storage_safety.py`, `tests/fixtures/storage_cli_contract.json` and this plan. `safe_paths.py`, `ci.yml` and the ratchet record are as Batch 1 left them |
+| Unchanged | every product caller (none uses `storage`), the CLI, MCP and the extension, goldens, baselines, the historical plan, the version 0.1.5, and every user configuration |
+
+**Findings and fixes.**
+
+| Finding | What is done now | Id | Tests |
+| --- | --- | --- | --- |
+| **H1**: a data root inside the repository was not prevented, so BugPilot's files could land in the checkout | A namespace whose data root and repository are not kept apart (R5) is refused for reads and writes alike, before anything is looked at or created. *Inside*: the canonical data root is the repository or below it (`BUGPILOT_HOME` in a checkout; a repository that is the home folder, which holds the default data root; a repository above it). *Contains*: the repository is inside the data root. Two comparisons, never a text prefix: the canonical paths component by component (folded with `normcase`), and file identity (device and file index) along the ancestors, which catches an alias the canonical path misses. Checked in `record_state()` and in every read lookup, so in `ensure()` and every write too. A pair found apart is remembered for the process. The refusal is one sentence, with display paths only | B1-11 | 9 tests, 13 cases on Windows: inside, equal, home folder, above, contains, a Windows case variant, a symbolic link or junction smuggling the root in, file identity alone (with `realpath` disabled), and siblings (`checkout-data`, `checkout.bugpilot`) accepted. Every access is tried: nothing is created in the repository or the data root |
+| **M1**: the no-hard-link fallback checked `lexists` and then called `os.replace`, so a concurrent record could be overwritten | `os.link`, which fails on an existing name and never follows it. Where the file system has no hard links: on Windows `os.rename`, which raises instead of replacing (`MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`); on POSIX a one-sentence refusal with nothing written, because POSIX has no portable rename that refuses to replace. No `os.replace` and no check-then-replace step anywhere. Any other link error propagates unchanged. Whatever is at the name afterwards is verified, so a concurrent publisher's record, identical or a collision's evidence, is kept | B1-14 | 7 tests, with `os.replace` made to fail the test: the hard-link publish; the Windows rename; the review's race injected (a conflicting record appears just before the rename and survives); the POSIX refusal (no record, no temp); an existing record untouched; another link error not disguised; a refused temp name publishing nothing. Also the two-process race over 50 namespaces |
+| **M2**: the exact-root comparison refused a namespace after a Windows case-only rename of the same folder | On Windows only, a record whose `root` differs from the canonical root is accepted when the folded keys are equal **and** the recorded spelling still resolves to this very folder (same device and file index; an index of 0 proves nothing). The record is never rewritten. Two different folders whose keys collide, a recorded spelling that no longer resolves, and every difference on POSIX are still refused | B1-13 | 3 tests replace the letter-case test, which pinned the old refusal (behaviour changed by design): a case-only rename keeps the namespace and the record's bytes; a genuine folded-key collision is refused; a spelling that no longer resolves is refused |
+| **M3**: a Windows sharing violation, on reading the record or removing the temp name, was reported as a corrupt record | `PermissionError` on the record's `lstat` and read is retried a bounded number of times (5 attempts, 20 ms apart). A record still unreadable raises `StorageError` "cannot read … right now": never "not a readable repository record", never "delete it", never a `StorageIdentityError`, and the record is not touched. The temp name is removed with the same bounded retries; its removal never raises and never replaces the publish's own outcome. If it stays, a stray `.repository.json.<random>.tmp` remains: never read, never published, safe to delete by hand | B1-15 | 6 tests: a temp name that cannot be removed; one removed on retry; a transient read retried; a permanently unreadable record reported as such by `ensure()`, `record_state()` and a read; a failed clean-up not masking the error on its way out; a component that is a file. Plus a reader polling 50 namespaces while two processes publish them: it sees `absent`, `missing-record` and `ok`, never `corrupt` (5 of 5 runs, no "in use"). The 12 genuinely corrupt records are still refused |
+| **L2**: `display_path` cut the path by string length | Components compared one by one, folded, and shown as written | B1-17 | a fold that changes a component's length |
+| **L3**: a repository that is a profile folder carried the account name in its ID | The slug is `home` for `C:\Users\<name>`, `/home/<name>`, `/Users/<name>` and `/root`, decided from the path alone; deeper folders keep their own slug | B1-16 | 5 profile spellings; 3 folders below or beside a profile |
+| **L6**: the contract fixture was prose, not machine-readable | `entries` restates each of the 46 rows, in order, as typed fields: surface kind, commands, form, event, flags, direction, parent, keys, value kind, format, values, nullability, change, previous value, decisions and references. The prose arrays are kept byte for byte, and no semantics changed | B1-20 | a test ties every typed field to its prose row; 7 single-field corruptions were each caught |
+| **L7**: `BUGPILOT_HOME` was returned as configured, not canonical | `data_root()` is canonical (`realpath`, non-strict); `display_path` accepts either form | B1-12 | the canonical root |
+| **L8**: test gaps | the tests in this table | — | — |
+| **L9**: reads did not check each component the way writes do | `_existing` checks every component (no separator, `.`, `..` or empty part) first | B1-18 | 4 invalid parts, with nothing created |
+| *Found during the remediation* | Literal U+2028 and U+2029 characters in `storage.py`'s pattern source are now escapes; the pattern is unchanged | B1-19 | the existing control-character tests |
+
+**H2, investigated; no permission behaviour changed.**
+- **What was found.** Every folder is created with `mode=0o700`. On Windows, CPython applies that mode as an access list only from 3.10.15, 3.11.10, 3.12.4 and 3.13. The list is protected from inheritance and grants only SYSTEM (`S-1-5-18`), Administrators (`S-1-5-32-544`) and OWNER RIGHTS (`S-1-3-4`). Earlier patch releases ignore the mode, and the folder inherits its parent's list.
+- **Who gets which.** The python.org Windows installers for 3.10 and 3.11 end at 3.10.11 and 3.11.9, so a typical 3.10 or 3.11 install on Windows inherits. Under the default data root, the parent is the user's profile, which is normally private already. A `BUGPILOT_HOME` elsewhere inherits whatever that folder grants.
+- **Measured.** On 3.14.6, a new read-only test reads each created folder's list through Win32: the data root, `repositories`, the namespace, `work` and a work item. Each is protected and holds exactly those three entries, and the record inherits them. On a Python that ignores the mode, the test is skipped with that reason; none was run here. CI's Windows job (3.13) runs it.
+- **What the POSIX tests prove.** The POSIX permission-bit tests (`0700`, `0600`, umask) prove nothing about Windows access lists, and are skipped there.
+- **Handoff.** An owner-only list also excludes other local accounts. That includes sandbox principals an agent may run as. This matters to Batch 3's handoff and to 0B's probes.
+- **Owner decision (Q1 below).** Options:
+  - (a) apply an owner-only list through Win32 calls on Pythons that ignore the mode;
+  - (b) refuse, or warn on, such Pythons on Windows;
+  - (c) accept and document the inherited list on them;
+  - (d) report the effective protection, read only, in Batch 2's `doctor`.
+
+  No option was implemented. A uniform secure implementation needs new Win32 security code, which is a change of permission behaviour reserved for the owner.
+
+**L1, L4 and L5, assessed (not changed).**
+- **L1: no `fsync`.**
+  - A crash or power loss after the record's publish can leave the name with no or partial content. The next run reads it as corrupt and refuses: it fails closed, and only the identity record is lost.
+  - Measured on Windows: a small write with `fsync` 9.1 ms, without 1.1 ms. That is about 8 ms more on every first `ensure()`.
+  - Real durability would also need a POSIX directory `fsync`, and `F_FULLFSYNC` on macOS.
+  - Recommendation: leave it, and revisit in Batch 4 (Q5).
+- **L4: the verification cache's signature has no `ctime`.**
+  - The in-process cache is keyed by device, file index, size, modification time and root. A same-user process that rewrites the record in place, keeps its size and restores its modification time, would not be noticed within one process lifetime.
+  - `ctime` would catch that on POSIX. On Windows `st_ctime` is the creation time, so it adds nothing there.
+  - This is §10.3's same-user race; the record protects integrity, not secrecy.
+  - Recommendation: add `st_ctime_ns` on POSIX in Batch 4, or accept (Q5).
+- **L5: the identity cache can go stale.**
+  - Identities (`lru_cache(128)`, keyed by spelling) and remembered containment pairs last as long as the process. A long-lived process, such as the MCP server, keeps a repository's namespace after the folder is moved, renamed or replaced.
+  - The record check still refuses a foreign record.
+  - Recommendation: Batch 2 decides whether the MCP server resolves per request (about 0.24 ms cold) or clears the caches per call (Q5).
+
+**Each control bites.** 20 mutations of `storage.py`, run on copies outside the repository, were each caught. The six from "as built" were re-anchored, and fourteen are new:
+
+| Mutation | Tests that failed |
+| --- | --- |
+| The record compared by folded key only | 2 |
+| Reads skipping the record check | 16 |
+| Reads following links | 4 |
+| `~` expanded | 2 |
+| The slug keeping `_` | 2 |
+| Work-item IDs not validated | 33 |
+| H1: containment never checked | 8 |
+| H1: reads skipping the containment check | 8 |
+| H1: canonical paths only, no file identity | 2 |
+| H1: a text prefix instead of components | 4 |
+| H1: a repository inside the data root allowed | 1 |
+| M1: the rename fallback replacing (`os.replace`) | 2 |
+| M1: a POSIX check-then-replace fallback | 1 |
+| M2: a case-only rename accepted on folded strings alone | 3 |
+| M3: an unreadable record called corrupt | 1 |
+| M3: no retry | 2 |
+| M3: a clean-up failure raising | 2 |
+| L3: a profile folder keeping the account name | 5 |
+| L7: the data root not canonical | 1 |
+| L9: reads skipping the part check | 4 |
+
+**Performance (§12).** Measured on Windows 11 with Python 3.14.6, in two runs on a quiet machine, outside the test guard, in a scratch data root. Values are medians.
+
+| Measure | Before | Now | Why |
+| --- | --- | --- | --- |
+| Repository identity, cold / warm | 227 / 1.7 µs | 237 / 2.0 µs | unchanged |
+| `ensure()`, first write of a namespace | 4.96 ms | **6.2–6.6 ms** | the first containment check for the pair (1.6–1.7 ms; later checks 2 µs) |
+| A read lookup | 0.37 ms | **0.53 ms** | the canonical data root (L7): `data_root()`'s `realpath` costs 0.16 ms |
+| `ensure()` on a ready namespace | 0.26 ms | 0.22 ms | — |
+| `work_items()` over 1,001 work items | 103 ms | 94–96 ms | — |
+| 0.1.5's first `.ai/<id>` creation, for comparison | 1.55 ms | 1.19–1.31 ms | — |
+
+- **The cost of correctness.** The added time pays for refusing a data root in a repository and for a canonical root. The atomic publish is kept: nothing was made faster by making it unsafe.
+- **Proposed targets.** These are PROPOSED for the owner, not approved:
+  - the first `ensure()` below 10 ms on Windows;
+  - < 2 ms on Linux and macOS, until CI's timing record gives their numbers;
+  - read lookups judged end to end in Batch 2 (preparation within 2% of 0.1.5), since a command resolves its namespace once.
+
+**Owner questions raised (none decided here; decided on 2026-10-16, see "Batch 1 — owner decision gate" below).**
+- **Q1, H2:** Windows access lists on Pythons that ignore the mode. Options (a)–(d) above. Recommendation: (c) now, (d) in Batch 2, with (a) reconsidered in Batch 4 if uniformity is wanted.
+- **Q2, global storage and H1:** `GlobalStorage` (the configuration folder, where the CLI keeps the Jira token) has no repository, so it cannot apply H1's check. A `BUGPILOT_HOME` inside a checkout would put the configuration there. Options:
+  - Batch 2's callers apply the check with the current repository;
+  - refuse a data root that has a `.git` ancestor;
+  - document only.
+
+  Recommendation: the first, in Batch 2.
+- **Q3, H1 policy:** a repository that is the home folder is refused unless `BUGPILOT_HOME` is outside it, and a repository inside the data root is refused. Implemented as the brief proposed; the owner confirms or changes it.
+- **Q4, M1 on POSIX without hard links:** refuse (implemented). The alternative is Linux `renameat2(RENAME_NOREPLACE)` through `ctypes`, which is Linux-only.
+- **Q5:** L1, L4 and L5 as assessed above.
+- **Q6:** the proposed performance targets above.
+- **Q7, stray temp names:** whether Batch 2's `clean` removes `.repository.json.*.tmp` files older than a day.
+
+**Local verification** (Windows 11, Python 3.14.6, Node 24.21; `PYTHONPATH` = the repository; `PYTHONDONTWRITEBYTECODE=1`; the test isolation active):
+
+| Check | Result |
+| --- | --- |
+| The storage suites (`test_storage_identity.py`, `test_storage_safety.py`) | **230 passed, 9 skipped** (239 tests: 116 + 123). Skips: POSIX modes ×6, POSIX letter case, macOS, and `subst` (NOT VERIFIED). The Windows access-list test ran and passed |
+| `safe_paths`, file safety, prompt boundary, goldens, publishability, isolation guard, ratchet, baselines (CI's safety-and-baselines file list) | **1,537 passed, 0 failed**, 45 skipped. The six suites that import `safe_paths`, apart from the two storage suites: **126 passed**, 35 skipped (POSIX-only) |
+| Baselines | `python tests/storage_baseline.py --check`, twice: **baselines match**, both times |
+| Inventory ratchet | `python tests/test_storage_inventory.py`: no change; the record is as Batch 1 left it |
+| Python 3.10 syntax | the four Python files parse with `feature_version=(3, 10)`. No 3.10 interpreter here |
+| Full Python suite | `python -X utf8 -m pytest -q -p no:cacheprovider -rfEs`: **3,488 passed, 0 failed**, 45 skipped, 19 min 27 s (45 more tests than "as built": the remediation's) |
+| Extension: typecheck; unit tests; the required TypeScript job; integration | clean; **2,350 passed**; **27 passed**; **21 passed** |
+| Goldens, fixtures, baselines, product files, protected local files | `git diff HEAD` over goldens, baselines, fixtures, `bugpilot/` and `extension/`: only Batch 1's `safe_paths.py`; no product module imports `storage`. The protected local files, the historical plan included, match their recorded SHA-256s. Version 0.1.5 |
+| Publishability | passed (within the file list above, after this plan's edits) |
+| Whitespace | `git diff --check` clean; the new files are LF with no trailing whitespace; `safe_paths.py` keeps its CRLF working copy |
+
+**Not executed:**
+- CI;
+- Linux, macOS and Python 3.10 runs (the POSIX permission bits, the POSIX branch of M1 on a real file system without hard links, and macOS cases first run in CI);
+- a Python that ignores `mode` on Windows;
+- `subst`;
+- a real Windows case-sensitive folder;
+- a real file system without hard links (exercised by fault injection only);
+- Batch 0B probes.
+
+#### Batch 1 — owner decision gate (2026-10-16)
+
+**Status.** The owner ratified Batch 1's architecture decisions and the Q1–Q7 policies, and authorized recording them, two focused test and fixture adjustments, and local verification **only**. Batch 1 stays implemented and verified locally: **not staged, not committed, not pushed; no CI run** (§19). Its commit, push and CI run each need a separate authorization. Batch 0B and Batches 2–5 have not started.
+
+**Decisions ratified** (recorded in §16.1):
+
+| Decision | Owner status | Approved | Remaining condition or open part |
+| --- | --- | --- | --- |
+| US-D1 | APPROVED | the unified layout, version 1; no `cache/` | — |
+| US-D3 | APPROVED | `BUGPILOT_HOME` defines the entire data root | the handling of the deprecated `BUGPILOT_CONFIG_DIR` (the review's warning and `doctor`'s `legacy_config_dir_variable`) remains Batch 2 work |
+| US-D5 | APPROVED — with conditions | the §7.2 identity algorithm, with Batch 1's accepted refinements B1-2 (slug edges), B1-13 (a Windows case-only rename of the same folder) and B1-16 (a profile folder's slug is `home`) | Batch 1's cross-platform CI passes before activation |
+| US-D6 | APPROVED | the deterministic identity record, published without replacement (B1-14) | — |
+| US-D7 | APPROVED | distinct git worktrees use distinct namespaces | — |
+| US-D23 | APPROVED — with conditions | private folder creation (`0o700`); existing permissions unchanged; Windows privacy claimed only after verification | Q1's verified access-list check before any credential-bearing write (G-3) |
+| US-D24 | APPROVED | a mismatched or corrupt record is refused, never repaired; temporary unreadability is distinguished (B1-15) | — |
+| US-D26 | APPROVED — in part | §8.10's defined contract semantics and the fixture's typed `entries` | still OPEN: the `STORAGE_UNAVAILABLE` code. Not approved by this: the rows that follow US-D4 (OPEN), US-D16 (OPEN), US-D18 (PROPOSED), US-D25 (PROPOSED) and US-D3's Batch 2 handling |
+| US-D34 | APPROVED — with conditions | canonical root validation, and containment in both directions | the G-1/G-2 activation gate (§14.3) |
+
+No other decision changed.
+
+**Owner policies Q1–Q7.** Approved policy, set apart from what exists today and from what is still to be built:
+
+| | Approved policy | In Batch 1 today | Not yet implemented |
+| --- | --- | --- | --- |
+| **Q1** Windows privacy | Before any credential-bearing configuration is written, its folder's effective access list is verified; unknown or insufficient protection fails closed. Access lists are never broadened for agents. | Every folder is created `0o700`. Where Python applies that mode (3.10.15+, 3.11.10+, 3.12.4+, 3.13+), the owner-only list is measured, `config/` included. Nothing claims privacy. | the verified access-list check and its refusal (G-3); `doctor`'s report of the effective protection |
+| **Q2** global storage | Before global storage is activated, `storage.py` itself, not its consumers alone, keeps BugPilot's data out of git working trees. G-1 and G-2 are resolved, and the detection's limits documented. | Global path resolution is repository-independent. `GlobalStorage.ensure_config_dir()` has **no** containment check (G-2), and H1's check is relative to the folder BugPilot runs in (G-1). | the check at `storage.py`'s own creation and lookup points, for reads and writes; its tests (a checkout subdirectory, global config writes, a home folder that is a git repository); the documented limits (for example dotfiles kept as a bare repository whose git folder is elsewhere, or another version-control system) |
+| **Q3** containment | A data root and a repository may not overlap in either direction. | implemented and tested (B1-11) | its extension to git working trees is Q2's |
+| **Q4** publication | Hard-link publication that never replaces; on Windows, a rename that cannot replace; on POSIX without hard links, a refusal. | implemented and tested (B1-14) | — |
+| **Q5** durability and caches | `fsync` is deferred. Before activation, a long-running consumer re-resolves, or invalidates, every storage and containment cache. | three process-lifetime caches: identities, verified records, containment pairs | the re-resolution or invalidation, in Batch 2 |
+| **Q6** performance | First `ensure()`: median < 10 ms on Windows local NTFS; 2 ms on Linux and macOS, a provisional reference; preparation end to end within 2% of 0.1.5 in Batch 2; atomicity never reduced for speed (§12). | Windows: 6.2–6.6 ms | Linux and macOS measurements (CI's timing record); Batch 2's end-to-end measurement |
+| **Q7** temporary records | No automatic clean-up of stale temporary records in Batch 2. A later clean-up needs explicit age, ownership and concurrency safeguards. | none exists; a stray `.repository.json.<random>.tmp` may remain | — |
+
+**Findings of the decision-gate review** (read-only, 2026-10-16; no Critical or High finding makes committing the unused foundation unsafe):
+
+| Id | Severity | Finding | Status |
+| --- | --- | --- | --- |
+| G-1 | Medium | H1's check is relative to the folder BugPilot runs in (US-D4), not to the git working tree around it. A scratch probe (with the test isolation active) accepted: a namespace inside a checkout when run from its `src` subfolder, with `BUGPILOT_HOME` elsewhere in that checkout; global `config/` inside that checkout; and the default data root inside a home folder that is itself a git repository, when run from a project below it. Run at the checkout's root, the namespace is refused as tested. | open: activation blocker 1 |
+| G-2 | Medium | `GlobalStorage.ensure_config_dir()` has no containment check (Q2) | open: activation blocker 1 |
+| G-3 | Medium | On Windows, folders made by a Python that ignores the mode, and existing folders, keep inherited access lists | open: activation blocker 2 |
+| G-4 | Low | The storage objects' public folder fields would let a caller skip the checked methods | open: activation blocker 7 |
+| G-5 | Low | The access-list test did not cover `config/`; no dedicated test of "a repository inside the data root" through an alias | the `config/` part is resolved at this gate (below); the alias test is still missing |
+| G-6 | Low (process) | The first Linux, macOS and Python 3.10 run of the storage suites, including POSIX permission tests that have never run | open: activation blocker 4 |
+
+**Changes made at the gate:**
+- **Fixture:** only the `status` value of `tests/fixtures/storage_cli_contract.json`. It changed from "PROPOSED (US-D26) …" to "APPROVED IN PART (US-D26, by the owner, 2026-10-16) …", which names what stays unapproved. The 46 prose rows, the 46 typed entries and the open choices are unchanged byte for byte.
+- **Contract test:** `test_the_contract_fixture_is_well_formed` asserts the new status. It also checks that the status names every decision a row depends on (US-D3, D4, D16, D18 and D25), and that `STORAGE_UNAVAILABLE` stays an open choice.
+- **Access-list test:** it now also checks `config/`, which will hold credentials. It is skipped on a volume that keeps no access lists (FAT, exFAT), and its docstring names what it does not cover: a Python that ignores the mode, a network share, and a folder that already existed. A scratch probe confirmed that it bites: a folder made without the mode inside an owner-only parent inherits the same three entries but is not protected, so the test's `protected` assertion fails on it.
+
+**Local verification at the gate** (Windows 11, Python 3.14.6; `PYTHONPATH` = the repository; `PYTHONDONTWRITEBYTECODE=1`; the test isolation active):
+
+| Check | Result |
+| --- | --- |
+| The storage suites | **230 passed, 9 skipped** (239 tests: 116 + 123; the skips are platform-only, plus `subst`, NOT VERIFIED) |
+| Contract fixture tests | **3 passed** |
+| The Windows access-list test | **passed**, `config/` included. It ran: Python 3.14.6 applies the mode, and the temporary folder's volume keeps access lists |
+| CI's safety-and-baselines file list (publishability, isolation guard, goldens, file safety, prompt boundary) | **1,537 passed, 0 failed**, 45 skipped |
+| Inventory ratchet | no change |
+| Baselines | `python tests/storage_baseline.py --check`: **baselines match** |
+| Plan structure | 0 problems. 39 decisions: 11 APPROVED, 13 OPEN, 11 PROPOSED, 4 DEFERRED; only the nine ratified rows' status and approval columns changed |
+| Whitespace | `git diff --check` clean; the changed files are LF with no trailing whitespace |
+| Goldens, 0.1.5 baselines, product files, protected local files | unchanged against `HEAD` (in `bugpilot/`, only Batch 1's `safe_paths.py`; `storage.py` is new and unused). The protected local files, the historical plan included, match their recorded SHA-256s. Version 0.1.5 |
+
 ### 14.3 Batch 2 — Python CLI, MCP and prompts on the new layout
 
 This batch moves implementation paths, **not user data**: nothing is copied, imported, renamed or deleted, and no legacy reader is added.
@@ -2544,7 +2916,16 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
 
 **3. Preconditions.**
 
-- Batch 1 is on `main`, and the owner has approved §8.10 and its fixture (US-D26).
+- Batch 1 is on `main`. The owner approved §8.10 and its fixture **in part** on 2026-10-16 (US-D26); their open parts are decided before they are built (blocker 5 below).
+- **Batch 1 activation blockers** (owner, 2026-10-16). They are mandatory before any caller switches to `storage`, and **none is satisfied yet**:
+  1. **G-1 and G-2** are resolved in `storage.py`: no BugPilot data inside a git working tree, for reads and writes, global and repository alike. Tests cover a checkout subdirectory, global config writes and a home folder that is a git repository, and the detection's limits are documented (Q2).
+  2. **G-3** is resolved: a verified Windows access-list check before any credential-bearing write, failing closed (Q1).
+  3. **Cache freshness:** long-running consumers (the MCP server) re-resolve, or invalidate, the identity, verified-record and containment caches (Q5).
+  4. **Batch 1's cross-platform CI** passes: Linux, macOS and Windows, and Python 3.10. This is also US-D5's condition.
+  5. **The outstanding Batch 2 consumer contract decisions** are approved: the open parts of US-D26 (§8.10).
+  6. **Batch 0B's live-agent evidence** stays the gate for every function that needs it.
+  7. **Source and behavioural tests** fail on any unguarded write under the data root (G-4).
+  8. **0.1.5 behaviour is preserved** until the authorized integration batch.
 - Batch 0B is complete for the probes this batch depends on: P1, P2, P3 and P8, each recorded as PASS, FAIL or UNKNOWN (§9.7).
 - **The critical handoff decisions are resolved by the owner.** A storage-changing Batch 2 does not begin while any of these is OPEN:
   - US-D10 (handoff), decided on the 0B evidence;
@@ -2945,7 +3326,10 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 **How to read it.**
 
 - **Owner status** is the decision's state: APPROVED, PROPOSED, OPEN or DEFERRED.
-  - Beyond the requirements R1–R8, only US-D32 and US-D33 are APPROVED, for Batch 0A's scope (2026-10-15). No other decision is approved.
+  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. No other decision is approved.
+  - An approval may be qualified, in the status column:
+    - **APPROVED — with conditions**: the decision stands; the named conditions must be met before the gate the row names (for Batch 1's decisions: activation in Batch 2, §14.3). Code may exist before then; it is not activated.
+    - **APPROVED — in part**: only the stated part is approved. Every other part stays OPEN or PROPOSED, is named in the row, and is listed in "Open parts of approved decisions" below. It is decided on its own, before it is built.
   - A status changes only on the owner's explicit word, recorded in the last column with its date.
 - **Review recommendation (2026-10-15)** is the architecture review's technical advice. It is advice, not an approval.
 
@@ -2962,8 +3346,8 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 
 | | Count | Decisions |
 | --- | ---: | --- |
-| APPROVED by the owner | **2** | US-D32, US-D33 (Batch 0A's scope, 2026-10-15) |
-| Await the owner | **33** | 14 OPEN, 19 PROPOSED |
+| APPROVED by the owner | **11** | US-D32, US-D33 (Batch 0A's scope, 2026-10-15); US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16) |
+| Await the owner | **24** | 13 OPEN, 11 PROPOSED |
 | DEFERRED | **4** | US-D35 to US-D38 |
 | Review: *Accept* | 28 | |
 | Review: *Accept conditionally* | 2 | US-D5, US-D26 |
@@ -2972,13 +3356,13 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 
 | Id | Decision | Owner status | Review recommendation (2026-10-15) | Basis; alternatives | Needed before | Owner approval |
 | --- | --- | --- | --- | --- | --- | --- |
-| US-D1 | Layout: `config/` and `repositories/<id>/{repository.json, settings/, work/, memory/}`; `memory/<id>.md`; no `cache/` | PROPOSED | **Accept** | §6.1; alt: the brief's draft with `memory/bugs/` and `cache/` | 1 | — |
+| US-D1 | Layout: `config/` and `repositories/<id>/{repository.json, settings/, work/, memory/}`; `memory/<id>.md`; no `cache/` | **APPROVED** | **Accept** | §6.1; alt: the brief's draft with `memory/bugs/` and `cache/` | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: the unified layout, version 1; no `cache/` |
 | US-D2 | Global config moves into `<root>/config/`. Users re-run `setup`; extension users re-enter the site. | OPEN | **Accept** (move) | a clean, uniformly checked tree, which resolves the B4-2 inconsistency; alt: keep the 0.1.5 files at the root (no reconfiguration, but 0.1.5 files are then loaded) | 2 | — |
-| US-D3 | `BUGPILOT_HOME` names the data root; `BUGPILOT_CONFIG_DIR` is no longer honoured | OPEN | **Accept**, with a **safe warning**: when `BUGPILOT_CONFIG_DIR` is set, text mode prints one line on stderr ("BUGPILOT_CONFIG_DIR is no longer used; set BUGPILOT_HOME to choose BugPilot's data folder"), and `doctor --json` sets `storage.legacy_config_dir_variable` (§8.10). The variable's *value* is never read, shown or used, and nothing goes to `--json` stdout except that field. | §8.2, §13.2; alt: `BUGPILOT_DATA_DIR`; no warning | 1 | — |
+| US-D3 | `BUGPILOT_HOME` names the data root; `BUGPILOT_CONFIG_DIR` is no longer honoured | **APPROVED** | **Accept**, with a **safe warning**: when `BUGPILOT_CONFIG_DIR` is set, text mode prints one line on stderr ("BUGPILOT_CONFIG_DIR is no longer used; set BUGPILOT_HOME to choose BugPilot's data folder"), and `doctor --json` sets `storage.legacy_config_dir_variable` (§8.10). The variable's *value* is never read, shown or used, and nothing goes to `--json` stdout except that field. | §8.2, §13.2; alt: `BUGPILOT_DATA_DIR`; no warning | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: `BUGPILOT_HOME` defines the entire data root. The handling of the deprecated `BUGPILOT_CONFIG_DIR` remains Batch 2 work |
 | US-D4 | The repository root stays the directory BugPilot runs in, with no git top-level discovery | OPEN | **Accept**, plus the diagnostic of §7.1 (`doctor`'s `below_git_toplevel`; one panel line in Batch 5). No git-root discovery, no relocation. | §7.1; alt: git top-level for identity only | 2 | — |
-| US-D5 | Identity algorithm: `realpath(strict)`, `normcase` on Windows only, a versioned SHA-256 prefix, `<slug≤24>-<16 hex>`; prefer split over merge | PROPOSED | **Accept conditionally**: pending the cross-platform verification of §7.3's unverified rows (CI observations in Batch 0A, tests in Batch 1). A row that behaves otherwise returns US-D5 to the owner. | §7.2, §7.3; alt: git remote; inode; full-length hash | 1 | — |
-| US-D6 | `repository.json` records the canonical root path | PROPOSED | **Accept** | §7.4; alt: digest only | 1 | — |
-| US-D7 | One namespace per git worktree | PROPOSED | **Accept** | §7.3; alt: key by `--git-common-dir` (merges worktrees) | 1 | — |
+| US-D5 | Identity algorithm: `realpath(strict)`, `normcase` on Windows only, a versioned SHA-256 prefix, `<slug≤24>-<16 hex>`; prefer split over merge | **APPROVED** — with conditions | **Accept conditionally**: pending the cross-platform verification of §7.3's unverified rows (CI observations in Batch 0A, tests in Batch 1). A row that behaves otherwise returns US-D5 to the owner. | §7.2, §7.3; alt: git remote; inode; full-length hash | 1 | 2026-10-16: approved with conditions by the owner at the Batch 1 decision gate: the canonical identity algorithm, with Batch 1's accepted refinements (B1-2, B1-13, B1-16). Condition: Batch 1's cross-platform CI passes before activation |
+| US-D6 | `repository.json` records the canonical root path | **APPROVED** | **Accept** | §7.4; alt: digest only | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: the deterministic identity record, published without replacement (B1-14) |
+| US-D7 | One namespace per git worktree | **APPROVED** | **Accept** | §7.3; alt: key by `--git-common-dir` (merges worktrees) | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: distinct git worktrees use distinct namespaces |
 | US-D8 | A moved or renamed repository starts a new namespace; no relocation tooling in 0.1.6 | PROPOSED | **Accept** (relocation DEFERRED) | §7.1, §7.3 | 2 | — |
 | US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | OPEN | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | — |
 | US-D10 | Agent handoff: Option D (absolute path, the agent's own permissions, clipboard fallback, no automatic grant) | OPEN | **Keep open** until the Batch 0B probes (§9.7) and the §9.10 acceptance criteria are met; Option D is the provisional recommendation | §9.5, §9.10; alt: B (inline only); C by default (violates R8) | 2 | — |
@@ -2994,10 +3378,10 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D20 | `doctor` reports *whether* legacy paths exist (`lstat` only, never read) | OPEN | **Defer**: no legacy-presence probing in 0.1.6. The change is explained by §13's documentation instead. | §6.3; alt: one `doctor` line | 5 | — |
 | US-D21 | Diagnostics surface: `doctor`'s `storage` object (and the panel's Diagnostics); no new command | OPEN | **Accept** | §8.10; alt: a read-only `bugpilot storage` command | 2 | — |
 | US-D22 | Absolute paths only in designated JSON fields, the handoff and `task.md`'s work line; the display form (`~/.bugpilot/…`) everywhere else | PROPOSED | **Accept** | §8.8, §8.10 | 2 | — |
-| US-D23 | New folders `0700`; an existing data root's mode is never changed | PROPOSED | **Accept** | §8.3; alt: `chmod` the root (touches a legacy folder) | 1 | — |
-| US-D24 | An identity record that mismatches or is corrupt is refused, never repaired | PROPOSED | **Accept** | §7.5; alt: overwrite | 1 | — |
+| US-D23 | New folders `0700`; an existing data root's mode is never changed | **APPROVED** — with conditions | **Accept** | §8.3; alt: `chmod` the root (touches a legacy folder) | 1 | 2026-10-16: approved with conditions by the owner at the Batch 1 decision gate: private folder creation, existing permissions unchanged. Condition: Windows privacy is claimed only after verification, and credential-bearing writes need Q1's verified access-list check (G-3, §14.3) |
+| US-D24 | An identity record that mismatches or is corrupt is refused, never repaired | **APPROVED** | **Accept** | §7.5; alt: overwrite | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: mismatched or corrupt records refused without repair; temporary unreadability distinguished (B1-15) |
 | US-D25 | `run.json` `generated_files` and JSON-lines `path` are relative to the namespace; `schema_version` stays 1 | PROPOSED | **Accept** | §8.10; alt: absolute; a schema bump | 2 | — |
-| US-D26 | The storage JSON contract | PROPOSED (the `STORAGE_UNAVAILABLE` code is OPEN) | **Accept conditionally**: only once the exact, independently testable contract (§8.10, frozen as `tests/fixtures/storage_cli_contract.json` in Batch 1) is approved at the Batch 1 gate | §8.10 | 2 | — |
+| US-D26 | The storage JSON contract | **APPROVED** — in part (the `STORAGE_UNAVAILABLE` code is OPEN) | **Accept conditionally**: only once the exact, independently testable contract (§8.10, frozen as `tests/fixtures/storage_cli_contract.json` in Batch 1) is approved at the Batch 1 gate | §8.10 | 2 | 2026-10-16: approved in part by the owner at the Batch 1 decision gate: §8.10's defined contract semantics and the fixture's typed entries. Still OPEN: `STORAGE_UNAVAILABLE`. Not approved by this: the rows that follow US-D4, US-D16, US-D18, US-D25 and US-D3's Batch 2 handling |
 | US-D27 | MCP keys unchanged; values absolute (`issue_dir`, `agent_task`, `next_step` paths); `search_memory` relative | PROPOSED | **Accept**: preserve the keys | §8.10; alt: return the task text inline | 2 | — |
 | US-D28 | Captured review reads external files through the bare `Read` allow; otherwise the fix-report excerpt goes inline | OPEN | **Keep open** until probe P2 (Batch 0B) | §9.5 point 5 | 2 | — |
 | US-D29 | Integration: Batches 0A and 1 on `main`; Batches 2–4 on `verify/0.1.6-storage` until integration is complete; owner-dispatched CI; owner-approved fast-forward after Batch 4 | OPEN | **Accept** the isolated integration branch, with §15.4's gates | §15.2, §15.4; alt: push Batches 2 and 3 together from `main` | 2 | — |
@@ -3005,12 +3389,24 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D31 | Batch outline deviation: MCP code and text switch in Batch 2; Batch 3 keeps MCP live verification | PROPOSED | **Accept** | §14.0 | 2 | — |
 | US-D32 | Test isolation: session-wide isolation before collection, plus a guard that fails closed (§11.1) | **APPROVED** (Batch 0A scope) | **Accept** the goal and the **revised design**. The r1 real-home listing is withdrawn; no default run lists or reads the real home. | §11.1; as built: §14.1.A; alt: per-test isolation only | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
 | US-D33 | CI keeps the nine blocking checks under their names; the isolated storage and isolation tests are added to the existing required jobs; `HOME` is set in the job environment | **APPROVED** (Batch 0A scope) | **Accept** | §11.7; as built: §14.1.A; alt: a new job (would change the pinned check names) | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
-| US-D34 | `BUGPILOT_HOME` validation: absolute, no control characters, `~` not expanded | PROPOSED | **Accept** (strict) | §8.3; alt: expand `~` | 1 | — |
+| US-D34 | `BUGPILOT_HOME` validation: absolute, no control characters, `~` not expanded | **APPROVED** — with conditions | **Accept** (strict) | §8.3; alt: expand `~` | 1 | 2026-10-16: approved with conditions by the owner at the Batch 1 decision gate: canonical root validation and two-way containment. Condition: the G-1/G-2 activation gate (§14.3) |
 | US-D35 | Credentials stay file-based in `config/config.toml` (the `TokenStore` seam) | DEFERRED (an OS credential store) | Defer | — | — | — |
 | US-D36 | A `cache/` directory | DEFERRED (no consumer) | Defer | — | — | — |
 | US-D37 | XDG or platform-native data folders | DEFERRED | Defer | — | — | — |
 | US-D38 | Retention and pruning of orphaned namespaces | DEFERRED | Defer | — | — | — |
 | US-D39 | SF-1: route the project-settings and repository-profile payloads through `scratchFile.ts` | OPEN | **Accept**: include in Batch 4 | the same class 0.1.5 fixed; alt: leave as is | 4 | — |
+
+**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16):
+
+| Approved decision | Part not approved | Its own status | Needed before |
+| --- | --- | --- | --- |
+| US-D3 | the handling of the deprecated `BUGPILOT_CONFIG_DIR`: the warning, and `doctor`'s `legacy_config_dir_variable` (§8.10) | Batch 2 work | 2 |
+| US-D26 | a separate `STORAGE_UNAVAILABLE` error code | OPEN | 2 |
+| US-D26 | removing `ai_artifacts_ignored*` | follows US-D16 (OPEN) | 2 |
+| US-D26 | `below_git_toplevel` | follows US-D4 (OPEN) | 2 |
+| US-D26 | `--feedback-file` | follows US-D18 (PROPOSED) | 2 |
+| US-D26 | `run.json`'s relative `generated_files`, `schema_version` 1 | follows US-D25 (PROPOSED) | 2 |
+| US-D5, US-D23, US-D34 | their conditions: cross-platform CI; Q1's access-list check; the G-1/G-2 gate | conditions, §14.3 | activation |
 
 **Decisions that block Batch 2 on their own:**
 
@@ -3019,7 +3415,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D10 | Batch 0B evidence, then an owner decision |
 | US-D14 | an owner choice (§16.4) |
 | US-D28 | Batch 0B evidence, then an owner decision |
-| US-D26 | approval of §8.10 at the Batch 1 gate |
+| US-D26 | approved in part on 2026-10-16; still: the `STORAGE_UNAVAILABLE` code, and the rows that follow other decisions (below) |
 
 Every other Batch 2 decision may be approved on the review's advice alone, if the owner chooses.
 
@@ -3130,6 +3526,9 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-16 | 0A | **Final diff review, then the owner-authorized final security remediation (not committed; no CI run).** <ul><li>**Review:** independent and read-only, with a separate reviewer agent. It recommended PASS WITH CONDITIONS: H-1, M-1 and M-2 were complete and every reported result reproduced. It found one new Medium (N-1) and Low findings L-1 to L-8.</li><li>**N-1:** on Windows, `shutil.copy2`, `Path.copy` and `Path.copy_into` copy through `_winapi.CopyFile2`, which the guard did not judge, and `_winapi.CreateJunction` was not judged either. Their arguments were measured on 3.14.6, and both events are now judged at source and destination.</li><li>**L-1:** the two module comments no longer claim agent variables are removed.</li><li>**L-2:** a refusal swallowed outside any test now fails the run, through a session-wide check plus an end-of-session backstop; each refusal is reported once.</li><li>**L-3:** the child loader fails closed (exit 70) when the guard is configured but cannot be installed.</li><li>**L-8:** a stale line reference was corrected.</li><li>**Tests:** 8 new tests; each fix was reverted in a scratch copy and its tests failed.</li><li>**Not changed:** L-4 to L-7, which are documented as limitations.</li><li>**Results:** <ul><li>full Python suite: 3,258 passed, 0 failed, 36 skipped;</li><li>extension: 2,350 passed; the required TypeScript job 27 passed; integration 21 passed;</li><li>baselines matched twice;</li><li>goldens, product files, protected files and baseline records unchanged; version 0.1.5.</li></ul></li><li>**Not run:** CI; POSIX, macOS and Python 3.10 runs; `check_cli_contract.py`; the guarded start of an installed `bugpilot`.</li><li>**Details:** §14.1.A, "Batch 0A — final security remediation".</li></ul> |
 | 2026-10-16 | 0A | **Final local verification complete; commit and push approved; CI PENDING.** <ul><li>**Approval:** the owner approved committing and pushing Batch 0A to `main`, limited to its 26-file allowlist, and one CI run of the existing workflow.</li><li>**Excluded:** the historical plan (`docs/bugpilot_prototype_development_plan.md`), `.bugpilot/`, `.ai/`, `.ai_memory/` and `.vscode/extensions.json`.</li><li>**Not authorized:** publishing, tagging and a version bump. The version stays 0.1.5.</li><li>**Batch 0B and Batch 1:** NOT STARTED.</li><li>**CI verification:** PENDING. Its result is reported to the owner, and goes into §19 only through a separately authorized documentation commit.</li></ul> |
 | 2026-10-16 | 0A | **Batch 0A COMPLETED: committed, pushed and CI-verified; accepted by the owner.** <ul><li>**Commit:** `8b6c567a074e4ddef6490ccc837e817cf7f48866` (`test: isolate BugPilot storage and record 0.1.5 baselines`), exactly the 26-file allowlist, noreply identity.</li><li>**Push:** a fast-forward `ee3fb00..8b6c567` to `main`.</li><li>**CI:** run 38942462918 (workflow `CI`, triggered by the push, no dispatch): **all 9 required checks succeeded**.</li><li>**Full Python suite:** Ubuntu 3,264 passed, 29 skipped; macOS 3,266 passed, 27 skipped; Windows 3,255 passed, 38 skipped; each with 1 deselected.</li><li>**Safety and baselines:** Ubuntu 3.13 and 3.10 each 1,319 passed, 23 skipped; macOS 1,321, 21; Windows 1,304, 38.</li><li>**Extension:** unit tests 2,348 passed, 2 skipped; evidence boundary 27 passed.</li><li>**First runs:** this was the first Linux, macOS and Python 3.10 run of the guard demonstrations, the ratchet and the byte-for-byte baselines. All passed, which confirms H-1 on POSIX and the guard's event coverage on 3.10.</li><li>**Platform observations:** recorded in §7.3.</li><li>**`subst`:** NOT VERIFIED.</li><li>**Findings:** no new CI finding. GitHub's notices: `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19; macOS arm64 jobs may queue longer.</li><li>**Unchanged:** version 0.1.5; US-D32 and US-D33 remain APPROVED, and no other decision changed.</li><li>**Batch 0B, Batch 1 and later:** NOT STARTED.</li><li>**Plan:** this record is a documentation change, uncommitted, awaiting the owner's review.</li><li>**Details:** §14.1.A, "Batch 0A — acceptance and CI evidence".</li></ul> |
+| 2026-10-16 | 1 | **Batch 1 (storage foundation) implemented and verified locally (not committed; no CI run).** <ul><li>**Authorization:** the owner's Batch 1 brief, on `64056ca`.</li><li>**Decisions:** Batch 1's prerequisites (US-D1, D3, D5, D6, D7, D23, D24, D34) remain PROPOSED or OPEN in §16.1. The brief directs their content, and their approval stays with the owner's review (B1-1). §8.10's open choices concern only Batch 2's consumers.</li><li>**Built:** `bugpilot/core/storage.py`, used by no product module; `safe_paths` `mode`/`boundary` and `is_link_stat`; two required suites (102 and 92 tests); the §8.10 contract fixture; the ratchet record for the new module; CI's file list.</li><li>**During the full run:** `test_no_unwired_symbols` flagged a test-only helper in `storage.py`. It was removed, and the tests clear the caches themselves.</li><li>**Deviations:** B1-1 to B1-10, among them an exact-root record check (B1-3), a hard-link record publish (B1-4) and `lstat`-only reads (B1-5).</li><li>**Results:** <ul><li>the new suites: 185 passed, 9 skipped (platform cases, `subst` NOT VERIFIED);</li><li>six mutations each caught;</li><li>full Python suite: 3,443 passed, 0 failed, 45 skipped;</li><li>extension: 2,350 passed; the required TypeScript job 27; integration 21;</li><li>baselines matched twice; the ratchet passed;</li><li>goldens, fixtures, baselines and product callers unchanged; version 0.1.5.</li></ul></li><li>**Performance (Windows):** <ul><li>met: identity 227 µs cold and 1.7 µs warm;</li><li>**not met:** the first `ensure()` takes 4.96 ms against a < 2 ms budget;</li><li>reads take 0.37 ms, against 0.1.5's bare join of 1.8 µs (an owner decision, §14.2 "as built").</li></ul></li><li>**Not run:** CI; Linux, macOS and Python 3.10; `subst`; a real Windows case-sensitive folder; probes.</li><li>**Batch 0B and Batches 2–5:** NOT STARTED.</li><li>**Details:** §14.2, "Batch 1 — as built".</li></ul> |
+| 2026-10-16 | 1 | **Architecture and security review (FAIL), then the owner-authorized narrow remediation (not committed; no CI run).** <ul><li>**Review:** read-only. High: H1 (a data root inside the repository not prevented) and H2 (Windows access lists depend on the Python version). Medium: M1 (the no-hard-link fallback could overwrite a record), M2 (a Windows case-only rename refused) and M3 (sharing violations reported as corruption). Low: L1–L9.</li><li>**Fixed:** <ul><li>H1: the data root and repository are kept apart, checked by components and by file identity, for reads and writes alike (B1-11);</li><li>M1: a publish never replaces: hard link, else a Windows rename that cannot replace, else a POSIX refusal (B1-14, superseding B1-4);</li><li>M2: a case-only rename of the same folder is accepted on Windows, and the record is never rewritten (B1-13, revising B1-3);</li><li>M3: bounded retries; an unreadable record reported as such, never as corrupt; best-effort temp clean-up (B1-15);</li><li>L2, L3, L6, L7, L9, and literal line separators in the source (B1-12, B1-16 to B1-20).</li></ul></li><li>**Investigated:** H2, with a read-only Windows access-list test. No permission behaviour changed; options for the owner (Q1).</li><li>**Assessed, not changed:** L1, L4 and L5.</li><li>**A test changed by design:** the test that a letter-case difference is refused now holds only for different folders. On case-insensitive NTFS the case variant is the same folder, which M2 accepts. Three tests replace it.</li><li>**During verification:** the publishability guard flagged personal-looking account names in the new L3 test data; they are now the guard's generic names. Two new docstrings would have raised the ratchet's `home-bugpilot` count for `storage.py`; they were reworded, so the record is unchanged.</li><li>**Results:** <ul><li>the storage suites: 230 passed, 9 skipped;</li><li>20 mutations each caught; 7 fixture corruptions each caught;</li><li>full Python suite: 3,488 passed, 0 failed, 45 skipped;</li><li>safety and baselines: 1,537 passed;</li><li>extension: 2,350 passed; the required TypeScript job 27; integration 21;</li><li>baselines matched twice; the ratchet unchanged;</li><li>goldens, baselines, product callers and protected files unchanged; version 0.1.5.</li></ul></li><li>**Performance (Windows):** first `ensure()` 6.2–6.6 ms, from 4.96 ms; read lookups 0.53 ms, from 0.37 ms. Revised targets are PROPOSED, not approved.</li><li>**Owner questions:** Q1–Q7.</li><li>**Decisions:** none changed; Batch 1's prerequisites remain PROPOSED or OPEN.</li><li>**Batch 0B and Batches 2–5:** NOT STARTED.</li><li>**Details:** §14.2, "Batch 1 — architecture review remediation".</li></ul> |
+| 2026-10-16 | 1 | **Decision-gate review (read-only), then the owner's ratification of Batch 1's decisions (not committed; no CI run).** <ul><li>**Review:** PASS WITH CONDITIONS for committing an unused foundation. New findings G-1 to G-6. G-1 (Medium): H1's check is relative to the folder BugPilot runs in, so a scratch probe accepted a data root inside the git working tree around it.</li><li>**Ratified:** US-D1, D3, D6, D7 and D24 APPROVED; US-D5, D23 and D34 APPROVED with conditions; US-D26 APPROVED in part. The register now holds 11 APPROVED, 13 OPEN, 11 PROPOSED and 4 DEFERRED. §16.1 defines the qualified statuses and lists the open parts of approved decisions. No other decision changed.</li><li>**Policies:** Q1–Q7, each set apart from the work still unimplemented (§14.2, "owner decision gate"); §12's first-write budget revised (Q6).</li><li>**Batch 2 activation blockers:** eight, in §14.3. None is satisfied.</li><li>**Changed:** the fixture's `status` value only; the contract test's status assertion; the access-list test now covers `config/` and skips a volume without access lists.</li><li>**Results:** <ul><li>the storage suites: 230 passed, 9 skipped;</li><li>safety and baselines: 1,537 passed, 0 failed;</li><li>the access-list test passed with `config/`;</li><li>the ratchet unchanged; baselines matched; the plan check 0 problems; `git diff --check` clean;</li><li>goldens, 0.1.5 baselines, product files and protected files unchanged; version 0.1.5.</li></ul></li><li>**Not run:** CI; Linux, macOS and Python 3.10; the full Python suite (the changes are confined to the storage suites, which ran, with the safety list).</li><li>**Batch 0B and Batches 2–5:** NOT STARTED.</li><li>**Details:** §14.2, "Batch 1 — owner decision gate".</li></ul> |
 
 ---
 
@@ -3143,6 +3542,9 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-16 | 0A | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | After the final security remediation (N-1, L-1, L-2, L-3, L-8), still uncommitted. The commit allowlist is the same 26 files, to be staged explicitly: `git add -A` would also take `.bugpilot/`, `.vscode/extensions.json` and the historical plan. Commit, push and CI each still need the owner's separate authorization. |
 | 2026-10-16 | 0A | `main` | **the commit that carries this row**: the 26-file Batch 0A allowlist, owner-approved. A commit cannot hold its own SHA, so a later documentation commit records it. | **PENDING**: the push to `main` triggers `ci.yml` (the 9 required checks) | — | The owner approved the commit, the push and one CI run. Nothing published, tagged or bumped. Batch 0B and Batch 1 NOT STARTED. |
 | 2026-10-16 | 0A | `main` | `8b6c567a074e4ddef6490ccc837e817cf7f48866` (fast-forward `ee3fb00..8b6c567`) | 38942462918 (`CI`, push) | **success: 9/9** | Full suite: Ubuntu 3,264, macOS 3,266, Windows 3,255 passed. Safety and baselines green on Ubuntu 3.13 and 3.10, macOS 3.13 and Windows 3.13. Extension 2,348 passed; evidence boundary 27. No new findings. Batch 0A COMPLETED. The previous row's PENDING is resolved here. |
+| 2026-10-16 | 1 | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | Batch 1 is implemented and awaits the owner's review, which includes its prerequisite decisions and the §8.10 fixture. Commit, push and CI each need the owner's separate authorization. The first CI run will be the first Linux, macOS and Python 3.10 run of the storage suites, and will record their timing. |
+| 2026-10-16 | 1 | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | After the architecture review (FAIL) and its narrow remediation, still uncommitted and pending the owner's approval. Commit, push and CI each still need the owner's separate authorization. The first CI run will also be the first run of the Windows access-list test on 3.13. |
+| 2026-10-16 | 1 | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | After the owner's decision gate, still uncommitted. The commit allowlist is eight files: `bugpilot/core/storage.py`, `bugpilot/core/safe_paths.py`, `tests/test_storage_identity.py`, `tests/test_storage_safety.py`, `tests/fixtures/storage_cli_contract.json`, `tests/storage_inventory.json`, `.github/workflows/ci.yml` and this plan. The historical plan, `.bugpilot/`, `.ai/`, `.ai_memory/` and `.vscode/extensions.json` are excluded. The commit, push and CI run each need a separate authorization. |
 
 ---
 
