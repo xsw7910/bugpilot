@@ -44,13 +44,13 @@ WINDOWS = os.name == "nt"
 
 
 def _forget() -> None:
-    """Forget memoized identities and verified records, as a fresh process would."""
-    storage._identity.cache_clear()
-    storage._verified.clear()
+    """Forget memoized identities, as a fresh process would (verdicts live only within a request scope)."""
+    storage._identities.clear()
 
 
 @pytest.fixture(autouse=True)
-def fresh_caches():
+def fresh_caches(monkeypatch):
+    monkeypatch.delenv(storage.GIT_WORK_TREE_ENV, raising=False)  # a developer's own setting must not decide these
     _forget()
     yield
     _forget()
@@ -113,7 +113,7 @@ def test_bugpilot_home_names_the_whole_data_root(monkeypatch, tmp_path):
     monkeypatch.setenv("BUGPILOT_HOME", f"  {chosen}  ")
     assert data_root() == _canonical(chosen)
     assert data_root_source() == "BUGPILOT_HOME"
-    assert global_storage().config_file == _canonical(chosen) / "config" / "config.toml"
+    assert Path(global_storage().diagnostics()["config_dir"]) == _canonical(chosen) / "config"
 
 
 def test_the_data_root_is_canonical(monkeypatch, tmp_path):
@@ -382,14 +382,14 @@ def test_a_renamed_repository_gets_a_new_namespace_and_the_old_one_is_untouched(
     old = repository_storage(before_rename)
     old.ensure()
     old.work_item_dir("JR-12345", create=True)
-    snapshot = _snapshot(old.directory)
+    snapshot = _snapshot(old._directory)
     renamed = tmp_path / "project-renamed"
     before_rename.rename(renamed)
     _forget()
     new = repository_storage(renamed)
     assert new.identity.repository_id != old.identity.repository_id
     assert new.record_state() == "absent"
-    assert _snapshot(old.directory) == snapshot
+    assert _snapshot(old._directory) == snapshot
 
 
 # --- platform-only cases (§7.3) ----------------------------------------------------------------
@@ -468,28 +468,28 @@ def test_ensure_writes_a_deterministic_record_and_the_namespace(tmp_path):
         f"  \"root\": {json.dumps(str(namespace.identity.root))}\n"
         "}\n"
     )
-    assert namespace.record_file.read_bytes() == expected.encode("ascii")
-    assert namespace.directory == data_root() / "repositories" / namespace.identity.repository_id
-    first = namespace.record_file.read_bytes()
+    assert namespace._record_file.read_bytes() == expected.encode("ascii")
+    assert namespace._directory == data_root() / "repositories" / namespace.identity.repository_id
+    first = namespace._record_file.read_bytes()
     namespace.ensure()  # idempotent: nothing rewritten
-    assert namespace.record_file.read_bytes() == first
-    assert sorted(os.listdir(namespace.directory)) == ["repository.json"]
+    assert namespace._record_file.read_bytes() == first
+    assert sorted(os.listdir(namespace._directory)) == ["repository.json"]
 
 
 def test_a_namespace_without_its_record_gets_one_on_the_write_path_and_reads_proceed(tmp_path):
     repo = _repo(tmp_path, "checkout")
     namespace = repository_storage(repo)
-    namespace.directory.mkdir(parents=True)  # an interrupted ensure()
+    namespace._directory.mkdir(parents=True)  # an interrupted ensure()
     assert namespace.record_state() == "missing-record"
-    assert namespace.work_item_dir("JR-12345", create=False) == namespace.work_root / "JR-12345"
-    assert not namespace.record_file.exists()
+    assert namespace.work_item_dir("JR-12345", create=False) == (namespace._directory / "work") / "JR-12345"
+    assert not namespace._record_file.exists()
     namespace.ensure()
     assert namespace.record_state() == "ok"
 
 
 def _write_record(namespace, content: bytes) -> None:
-    namespace.directory.mkdir(parents=True, exist_ok=True)
-    namespace.record_file.write_bytes(content)
+    namespace._directory.mkdir(parents=True, exist_ok=True)
+    namespace._record_file.write_bytes(content)
 
 
 def _record(namespace, **changes) -> bytes:
@@ -538,7 +538,7 @@ def test_a_corrupt_record_is_refused_for_reads_and_writes_and_never_repaired(tmp
         with pytest.raises(StorageIdentityError, match="not a readable repository record") as refused:
             access()
         assert str(data_root()) not in str(refused.value), label
-    assert namespace.record_file.read_bytes() == content
+    assert namespace._record_file.read_bytes() == content
     assert _snapshot(data_root()) == before
 
 
@@ -555,7 +555,7 @@ def test_a_record_naming_another_repository_is_refused_for_reads_and_writes(tmp_
         message = str(refused.value)
         assert str(tmp_path) not in message and str(data_root()) not in message, label
         assert "~/.bugpilot/" in message or "BUGPILOT_HOME/" in message
-    assert namespace.record_file.read_bytes() == content
+    assert namespace._record_file.read_bytes() == content
     assert _snapshot(data_root()) == before
 
 
@@ -570,7 +570,7 @@ def test_a_case_only_rename_keeps_the_namespace_and_never_rewrites_the_record(tm
     repo = _repo(parent, "repo")
     namespace = repository_storage(repo)
     namespace.work_item_dir("JR-12345", create=True)
-    record_before = namespace.record_file.read_bytes()
+    record_before = namespace._record_file.read_bytes()
     parent.rename(tmp_path / "source")  # a case-only rename of a folder above the repository
     _forget()
     renamed = repository_storage(tmp_path / "source" / "repo")
@@ -578,7 +578,7 @@ def test_a_case_only_rename_keeps_the_namespace_and_never_rewrites_the_record(tm
     assert renamed.identity.repository_id == namespace.identity.repository_id  # the folded key did not
     assert renamed.record_state() == "ok"
     assert renamed.work_item_dir("JR-12345", create=False).is_dir()
-    assert renamed.record_file.read_bytes() == record_before  # never rewritten
+    assert renamed._record_file.read_bytes() == record_before  # never rewritten
 
 
 def test_a_genuine_folded_key_collision_is_refused(tmp_path, monkeypatch):
@@ -619,30 +619,125 @@ def test_a_recorded_spelling_that_no_longer_resolves_is_refused(tmp_path, monkey
 
 def test_a_link_at_the_record_or_a_folder_in_its_place_is_refused(tmp_path):
     namespace = repository_storage(_repo(tmp_path, "checkout"))
-    namespace.directory.mkdir(parents=True)
-    namespace.record_file.mkdir()
+    namespace._directory.mkdir(parents=True)
+    namespace._record_file.mkdir()
     assert namespace.record_state() == "corrupt"
     with pytest.raises(StorageIdentityError):
         namespace.ensure()
-    namespace.record_file.rmdir()
+    namespace._record_file.rmdir()
     elsewhere = tmp_path / "a-valid-record.json"
     elsewhere.write_bytes(_record(namespace))
     try:
-        os.symlink(elsewhere, namespace.record_file)
+        os.symlink(elsewhere, namespace._record_file)
     except (OSError, NotImplementedError) as error:
         pytest.skip(f"file symbolic links are not available here: {type(error).__name__}")
     assert namespace.record_state() == "corrupt"
     with pytest.raises(StorageIdentityError):
         namespace.work_item_dir("JR-12345", create=False)
-    assert os.path.islink(namespace.record_file)
+    assert os.path.islink(namespace._record_file)
 
 
 def test_a_record_rewritten_after_it_was_verified_is_verified_again(tmp_path):
     namespace = repository_storage(_repo(tmp_path, "checkout"))
     namespace.ensure()
     assert namespace.record_state() == "ok"
-    namespace.record_file.write_bytes(_record(namespace, root=str(tmp_path / "other")) + b" ")
+    namespace._record_file.write_bytes(_record(namespace, root=str(tmp_path / "other")) + b" ")
     assert namespace.record_state() == "mismatch"
+
+
+# --- fresh caches (Batch 2A) -------------------------------------------------------------------
+
+
+def _count_reads(monkeypatch) -> dict[str, int]:
+    reads = {"record": 0}
+    real = storage._read_regular
+
+    def counting(path, info):
+        reads["record"] += 1
+        return real(path, info)
+
+    monkeypatch.setattr(storage, "_read_regular", counting)
+    return reads
+
+
+def test_a_verified_record_is_read_once_per_request_scope_and_every_time_outside_one(tmp_path, monkeypatch):
+    namespace = repository_storage(_repo(tmp_path, "checkout"))
+    namespace.ensure()
+    reads = _count_reads(monkeypatch)
+    namespace.record_state()
+    namespace.record_state()
+    assert reads["record"] == 2  # outside a scope nothing is remembered
+    with storage.request_scope():
+        namespace.record_state()
+        namespace.work_item_dir("JR-12345", create=False)
+        namespace.record_state()
+    assert reads["record"] == 3
+    with storage.request_scope():
+        namespace.record_state()
+    assert reads["record"] == 4
+
+
+@pytest.mark.parametrize("kind", ["symlink"] + (["junction"] if WINDOWS else []))
+def test_a_retargeted_link_never_reuses_a_cached_identity(tmp_path, kind):
+    first, second = _repo(tmp_path, "first"), _repo(tmp_path, "second")
+    link = tmp_path / "bound"
+    plant = _symlink_dir if kind == "symlink" else _junction
+    plant(link, first)
+    assert repository_identity(link) == repository_identity(first)
+    try:
+        os.unlink(link)
+    except OSError:
+        os.rmdir(link)
+    plant(link, second)
+    assert repository_identity(link) == repository_identity(second)
+
+
+def test_a_folder_replaced_at_the_same_path_keeps_its_path_based_id(tmp_path):
+    folder = _repo(tmp_path, "checkout")
+    before = repository_identity(folder)
+    shutil.rmtree(folder)
+    folder.mkdir()
+    assert repository_identity(folder) == before  # §7.2: the ID is the path's, re-resolved, never another's
+
+
+def test_a_cached_identity_of_a_folder_that_is_gone_is_refused_and_forgotten(tmp_path):
+    folder = _repo(tmp_path, "checkout")
+    repository_identity(folder)
+    shutil.rmtree(folder)
+    with pytest.raises(StorageError, match="does not exist"):
+        repository_identity(folder)
+    assert os.path.abspath(folder) not in storage._identities
+
+
+def test_an_identity_without_a_stable_file_index_is_resolved_every_time_and_never_cached(tmp_path, monkeypatch):
+    folder = _repo(tmp_path, "checkout")
+    real_stat = os.stat
+    canonical = os.path.realpath(folder)
+
+    def no_index(path, *args, **kwargs):
+        info = real_stat(path, *args, **kwargs)
+        if os.path.realpath(path) == canonical:
+            return os.stat_result((info.st_mode, 0, *tuple(info)[2:]))  # a file system without file indexes
+        return info
+
+    monkeypatch.setattr(storage.os, "stat", no_index)
+    calls = {"resolved": 0}
+    real_identity = storage._identity
+
+    def resolving(absolute):
+        calls["resolved"] += 1
+        return real_identity(absolute)
+
+    monkeypatch.setattr(storage, "_identity", resolving)
+    first, second = repository_identity(folder), repository_identity(folder)
+    assert first == second and calls["resolved"] == 2
+    assert os.path.abspath(folder) not in storage._identities
+
+
+def test_the_identity_cache_is_bounded(tmp_path):
+    for index in range(storage._IDENTITY_CACHE_LIMIT + 5):
+        repository_identity(_repo(tmp_path, f"r{index:03d}"))
+    assert len(storage._identities) == storage._IDENTITY_CACHE_LIMIT
 
 
 # --- two processes, one namespace (§8.7) -------------------------------------------------------
@@ -689,8 +784,8 @@ def test_two_processes_ensuring_the_same_namespaces_end_with_identical_records_a
     for root in roots:
         namespace = repository_storage(root)
         assert namespace.record_state() == "ok"
-        assert namespace.record_file.read_bytes() == storage._record_text(namespace.identity).encode("ascii")
-        leftovers = [name for name in os.listdir(namespace.directory) if name not in ("repository.json", "work")]
+        assert namespace._record_file.read_bytes() == storage._record_text(namespace.identity).encode("ascii")
+        leftovers = [name for name in os.listdir(namespace._directory) if name not in ("repository.json", "work")]
         assert leftovers == [], leftovers  # no temporary record left behind
 
 
@@ -762,8 +857,13 @@ def _read_only_calls(repo: Path) -> None:
         namespace.settings_file(name, create=False)  # type: ignore[arg-type]
     namespace.fix_modes_dir(create=False)
     namespace.work_items()
-    global_storage()
-    display_path(namespace.work_root)
+    namespace.diagnostics()
+    shared = global_storage()
+    shared.config_file(create=False)
+    shared.user_instructions_file(create=False)
+    shared.user_fix_modes_dir(create=False)
+    shared.diagnostics()
+    display_path((namespace._directory / "work"))
     data_root()
     data_root_source()
 
@@ -816,12 +916,12 @@ def test_no_api_takes_a_repository_id_as_input():
 
 def test_display_paths_never_name_the_users_folder(tmp_path, monkeypatch):
     namespace = repository_storage(_repo(tmp_path, "checkout"))
-    task = namespace.work_root / "JR-12345" / "task.md"
+    task = (namespace._directory / "work") / "JR-12345" / "task.md"
     shown = display_path(task)
     assert shown == f"BUGPILOT_HOME/repositories/{namespace.identity.repository_id}/work/JR-12345/task.md"
     monkeypatch.delenv("BUGPILOT_HOME")
     default = repository_storage(tmp_path / "checkout")
-    shown = display_path(default.work_root / "JR-12345" / "task.md")
+    shown = display_path((default._directory / "work") / "JR-12345" / "task.md")
     assert shown.startswith("~/.bugpilot/repositories/") and str(Path.home()) not in shown
     assert display_path(data_root()) == "~/.bugpilot"
     with pytest.raises(ValueError):

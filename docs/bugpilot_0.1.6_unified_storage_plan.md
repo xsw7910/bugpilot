@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. Batch 0B and Batches 2–5 have **NOT STARTED**. |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is implemented and verified locally, not committed and not CI-verified (§14.3, "Batch 2A — as built"). Batch 0B, Batch 2B and Batches 3–5 have **NOT STARTED**. |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -974,7 +974,7 @@ def display_path(path: Path) -> str
 | **Per-repository settings** | `settings_file(name, create=False)` for reads. Writers call `create=True`, which runs `ensure()` and then creates `settings/` with `0700`. `link_problem` semantics are kept: a link at `settings/` or at the file is refused, for reads too. |
 | **Work-item folders** | `work_item_dir(id, create=)`. The id is validated by `identity.validate_work_item_id` *before* any path is built, and an invalid id raises `StorageError`. `create=False` returns the path without checking existence (the caller reports "not prepared"), but still refuses links on existing components. |
 | **Memory** | `memory_file(id, create=)`. `memory/` is created only by a memory writer. Readers glob `memory/*.md` only when `memory/` is a real folder. |
-| **Cache** | none (US-D36). |
+| **Cache** | No cache on disk (US-D36). In memory (Batch 2A): repository identities per spelling, each re-checked against its folder's file identity on every use; containment, Git working-tree and verified-record verdicts only within one `request_scope()` (Batch 2B: one CLI command, one MCP tool call), never longer. |
 | **Safe creation** | Each missing component below the data root (`config`, `repositories`, `<id>`, `settings`, `work`, `<work item>`, `memory`, `fix_modes`, `attachments`) is created one at a time with `mkdir(mode=0o700)`, which is subject to the umask, so never wider. It is re-checked with `is_link_or_junction` after creation. An existing component must be a real directory, not a link or junction. The result is compared with `realpath(data root) / parts`, as `safe_paths.writable_dir` does today. |
 | **Owned files** | Unchanged: `artifact_io.atomic_write_text` (new files `0600`, rewrites keep their bits, `_check_temp`, cleanup on failure). `private=True` stays for `config.toml` only. |
 | **Id validation** | `WORK_ITEM_ID_RE` (unchanged; shared fixture `tests/fixtures/work_item_ids.json`). The repository ID has its own regex (§7.2) and is never accepted from input: always computed. |
@@ -1515,6 +1515,9 @@ A combination with FAIL, FALLBACK or UNKNOWN on a required aspect is either fixe
 | T-S24 | **The test suite writes into the developer's real BugPilot data**: an unisolated test, a collection-time render, a module-scoped fixture, a child process | isolation set before any import or collection (§11.1); the audit-hook guard refuses the operation before it happens, in the test process and in Python children (through the test-only `sitecustomize` loader); a child process with an unisolated environment is refused, and so is a recognizable Python child that would start without the loader | prevention (in-process and recognizable Python children); **limitation**, environment isolation only, for non-Python children, Python started with `-I`, `-E` or `-S`, Python started through a shell, the `py` launcher or a console script, and `scripts/check_cli_contract.py`, which runs outside pytest (§14.1.A) | `tests/test_isolation_guard.py`, against a decoy |
 | T-S25 | **The test suite reads the developer's real BugPilot data** (credentials, settings) | the same isolation; the guard refuses opens for reading and directory listings under the real data root | prevention for content reads and listings; **limitation** for metadata probes (`stat`, `exists`), which raise no audit event, and for path aliases the string comparison does not see: `dir_fd`/`fchdir`-relative paths, open file handles, Windows 8.3 short names, extended-length prefixes (§14.1.A) | same |
 | T-S26 | **An isolation check that itself reads user data** (r1's real-home listing) | withdrawn: no default run lists or reads the real home; the only real-home diagnostic is opt-in, read-only, names only (§11.1) | prevention | review of `tests/_isolation.py` and `tests/conftest.py` |
+| T-S27 | **BugPilot's data inside a Git working tree** (a `BUGPILOT_HOME` in a checkout while BugPilot runs from a subfolder; a home folder that is a Git repository; global configuration) | the data root, and every folder above it, may hold no `.git` entry, and `GIT_WORK_TREE` may not hold it; refused for reads and writes, failing closed. Unmarked work trees and other version-control systems are a stated gap | prevention + detection | `test_storage_safety.py`, G-1/G-2 cases (Batch 2A) |
+| T-S28 | **A stale verdict in a long-running process** (a retargeted link reusing an old namespace; a `.git` made later) | identities re-checked by file identity on every use; verdicts live one request scope | prevention | the retarget regressions (symbolic link, junction); the scope tests |
+| T-S29 | **Credentials written where other accounts can read them** (an inherited or widened access list, a shared `BUGPILOT_HOME`, Python 3.10/3.11 on Windows) | `config.toml` is written only after the data root, `config/` and the file are proven private (owner and access list on Windows, owner and bits on POSIX); an unverifiable place is refused; no permission is ever changed | prevention | `test_private_folder.py`; the gate cases in `test_storage_safety.py` |
 
 ### 10.3 Guarantees and limits, stated
 
@@ -1874,7 +1877,7 @@ Verification is by demonstration against a **decoy**, never the real home, so no
 | Memory search | still per repository (R3): it globs `memory/*.md` of one namespace, as before; **no cross-repository scan** | unchanged |
 | Large work folders | unchanged sizes (10 attachments of at most 10 MB) | — |
 | Disk growth | the same bytes as 0.1.5, in one place. Namespaces are never deleted automatically, and a moved or deleted repository leaves its namespace behind (US-D38). The cost is visible: `doctor` reports the data root; `clean` per item | documented; retention DEFERRED |
-| Cache lifetime | no cache (US-D36) | — |
+| Cache lifetime | no cache on disk (US-D36); in memory only as §8.3 states (Batch 2A) | — |
 | Several VS Code windows | one identity computation each (one CLI `doctor` per root, as today) | — |
 | Accidental scanning | `repositories/` is never listed except by diagnostics (an `os.scandir` of one level, if US-D21 adds a count); no walk of the data root and no walk of the repository beyond today's | a test asserts that preparation does not list `repositories/` |
 | Windows path length | deepest common path: `<home>\.bugpilot\repositories\<≤41>\work\<≤40>\attachments\<name>`, about 130 characters plus the attachment name (SF-5) | test with a 100-character attachment name; the limit documented |
@@ -1957,7 +1960,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **NOT STARTED** | — | — | awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **NOT STARTED** | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A IMPLEMENTED, verified locally** (the storage security foundation; not committed, no CI run; §14.3 "Batch 2A — as built"). **2B NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -2972,6 +2975,8 @@ GitHub's runner notices were repeated: the `ubuntu-latest` label moves to Ubuntu
 
 **Version:** 0.1.5, unchanged. **Decisions:** as ratified at the decision gate; none changed here. US-D5's CI condition is met, and its status is left for the owner. **Batch 0B and Batch 2:** NOT STARTED.
 
+**The documentation commit's own run** (observed after it was pushed; recorded with Batch 2A, 2026-10-17): run 39005917365, push to `main` on `6f8e0b2`: **success, 9/9**. §19 records it.
+
 ### 14.3 Batch 2 — Python CLI, MCP and prompts on the new layout
 
 This batch moves implementation paths, **not user data**: nothing is copied, imported, renamed or deleted, and no legacy reader is added.
@@ -3002,13 +3007,13 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
 
 - Batch 1 is on `main`. The owner approved §8.10 and its fixture **in part** on 2026-10-16 (US-D26); their open parts are decided before they are built (blocker 5 below).
 - **Batch 1 activation blockers** (owner, 2026-10-16). They are mandatory before any caller switches to `storage`. **Only blocker 4 is met** (2026-10-16, run 39003264436; §14.2 "Batch 1 — acceptance and CI evidence"). The others are not:
-  1. **G-1 and G-2** are resolved in `storage.py`: no BugPilot data inside a git working tree, for reads and writes, global and repository alike. Tests cover a checkout subdirectory, global config writes and a home folder that is a git repository, and the detection's limits are documented (Q2).
-  2. **G-3** is resolved: a verified Windows access-list check before any credential-bearing write, failing closed (Q1).
-  3. **Cache freshness:** long-running consumers (the MCP server) re-resolve, or invalidate, the identity, verified-record and containment caches (Q5).
+  1. **G-1 and G-2** are resolved in `storage.py`: no BugPilot data inside a git working tree, for reads and writes, global and repository alike. Tests cover a checkout subdirectory, global config writes and a home folder that is a git repository, and the detection's limits are documented (Q2). *(Batch 2A: the storage side is implemented locally, §14.3 "Batch 2A — as built"; not yet committed or CI-verified, and satisfied only once it is.)*
+  2. **G-3** is resolved: a verified Windows access-list check before any credential-bearing write, failing closed (Q1). *(Batch 2A: the storage side is implemented locally, §14.3 "Batch 2A — as built"; not yet committed or CI-verified, and satisfied only once it is; the consumer that writes credentials switches in 2B.)*
+  3. **Cache freshness:** long-running consumers (the MCP server) re-resolve, or invalidate, the identity, verified-record and containment caches (Q5). *(Batch 2A: the storage side is implemented locally, §14.3 "Batch 2A — as built"; not yet committed or CI-verified, and the consumer side, one request scope per CLI command and per MCP tool call, lands with 2B.)*
   4. **Batch 1's cross-platform CI** passes: Linux, macOS and Windows, and Python 3.10. This is also US-D5's condition. **Met:** run 39003264436 on `5222da7`, all 9 required checks green.
   5. **The outstanding Batch 2 consumer contract decisions** are approved: the open parts of US-D26 (§8.10).
   6. **Batch 0B's live-agent evidence** stays the gate for every function that needs it.
-  7. **Source and behavioural tests** fail on any unguarded write under the data root (G-4).
+  7. **Source and behavioural tests** fail on any unguarded write under the data root (G-4). *(Batch 2A: the storage side is implemented locally, §14.3 "Batch 2A — as built"; not yet committed or CI-verified, and only the static half: the end-to-end write witness is 2B's.)*
   8. **0.1.5 behaviour is preserved** until the authorized integration batch.
 - Batch 0B is complete for the probes this batch depends on: P1, P2, P3 and P8, each recorded as PASS, FAIL or UNKNOWN (§9.7).
 - **The critical handoff decisions are resolved by the owner.** A storage-changing Batch 2 does not begin while any of these is OPEN:
@@ -3094,6 +3099,174 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
   - a Python test fails;
   - an extension failure does not follow solely from the Batch 3 contract.
 - **Gate:** the owner reviews the ledger and approves continuing with Batch 3 on the same branch.
+
+#### Batch 2A — storage security foundation (as built, 2026-10-17)
+
+**Status: implemented and verified locally on Windows. Not staged, not committed, not pushed; no CI run** (§19). The foundation is still **not activated**: no product module imports `storage`. Batch 2B (the switch of callers) and Batch 0B have NOT STARTED, and Batch 2 as a whole is not complete.
+
+| | |
+| --- | --- |
+| Authorized | 2026-10-17, the owner's Batch 2A brief, on `main` at `6f8e0b2`: G-1/G-2, G-3, cache freshness, checked global accessors, the API boundary tests and local verification only |
+| Version | 0.1.5, unchanged |
+| Product behaviour | unchanged: no CLI, MCP or extension caller is switched, the 0.1.5 storage is untouched, and no user data was read |
+| Goldens, fixtures, baselines | unchanged, the frozen 46-entry contract fixture included; the ratchet record is unchanged |
+| Accounts | none: no Jira, no agent, no live probe |
+
+**Files.**
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/storage.py` | the Git working-tree rule, the credentials gate, request scopes, the re-checked identity cache, checked global accessors, private folder fields, `diagnostics()` |
+| `bugpilot/core/private_folder.py` | **new**: `verify_private(path, role) -> PrivacyVerdict`, read only. Windows through `ctypes`, every call with declared types; POSIX through the owner and the permission bits |
+| `tests/test_storage_identity.py` | cache-freshness tests; the folder fields are private now |
+| `tests/test_storage_safety.py` | the G-1/G-2 scenarios (markers and real git), scope and retarget regressions, diagnostics, the credentials gate; the CI timing record extended |
+| `tests/test_private_folder.py` | **new**: the Windows and POSIX rules as tables on every system; real folders; descriptors built from SDDL |
+| `tests/test_storage_api_boundary.py` | **new**: the static boundary |
+| `.github/workflows/ci.yml` | the two new modules join `safety-and-baselines`, with a header comment. Job names, pins and permissions unchanged; nine checks |
+| this plan | this section; §8.3, §10.2 (T-S27 to T-S29), §12, §14.0, §14.2, the §14.3 blockers, §18, §19 |
+
+**G-1 and G-2: never inside a Git working tree.** `_git_tree_problem` judges the **data root** only. It runs in `RepositoryStorage._check_containment`, so before every repository read and write, and in every `GlobalStorage` method, reads included. Only `diagnostics()` skips it.
+- **Rule 1.** A `.git` entry, folder or file, in the canonical data root or any folder above it, up to the top of the volume. One `lstat` per component, never a text prefix. `realpath` has already resolved links and junctions, so an alias is judged where it lands. An empty or broken `.git` folder counts.
+- **Rule 2.** `GIT_WORK_TREE`, when not blank (it is stripped): a relative value is resolved against the working directory, as Git resolves it, then `realpath`; the data root may not lie inside it (a component comparison). A control character, a value that cannot be resolved, or a relative value whose working directory is gone, refuses.
+- **Fail closed.** An `lstat` error other than "not there" refuses: "cannot tell".
+- **Order.** H1's repository containment is checked first, so a data root inside the repository itself keeps its more specific message.
+- **US-D4 unchanged.** The repository's identity and scope stay the folder BugPilot runs in, and no `git` command runs.
+- **Known gaps, stated in the code:** a work tree that no `.git` marks and no `GIT_WORK_TREE` names (a bare repository used with `--work-tree` or `core.worktree`); `GIT_DIR` alone; other version-control systems.
+- **Tests:** a subfolder run (markers and real git), global configuration, a home folder that is a Git repository, a linked worktree and `--separate-git-dir` (real git), a `.git` file or empty folder, symbolic-link and junction aliases, `GIT_WORK_TREE` absolute, relative, through a link, blank, malformed and unresolvable, a folder that cannot be examined, data roots beside checkouts and repositories that are checkouts (accepted), and a `.git` made later. Every refused access creates nothing, and no message holds a path.
+
+**G-3: credentials only where they are private.**
+- **The check** (`private_folder.verify_private`): three answers, `private`, `not-private` or `unverifiable`. The reasons name kinds of account, never a name or a SID. It only reads.
+- **Roles.** The data root: a trusted owner, and no one else may write to it. `config/`: owned by this user (or, on Windows, SYSTEM or Administrators), and no one else has any access to it or to what is created in it. The credentials file: a regular file, not a link, with no one else having any access.
+- **Windows.** The volume must keep access lists (`FILE_PERSISTENT_ACLS`), otherwise unverifiable. The owner and DACL come from `GetNamedSecurityInfoW`. Trusted: this user, SYSTEM, Administrators and OWNER RIGHTS. The CREATOR OWNER placeholder, deny entries and grants of nothing but SYNCHRONIZE, READ_CONTROL and FILE_READ_ATTRIBUTES are passed over. Inherited entries, and entries that reach only new files, count. A NULL DACL is not private. Any other entry type, an unreadable SID, a missing owner or an API failure is unverifiable. Handles and buffers are freed in `finally`. The answer comes from the disk, so it is version-independent: on Python 3.10 and 3.11, which ignore `mode`, a folder under the user's profile inherits a private list and passes, and a shared drive's list fails.
+- **POSIX.** The owner (the effective user; root too for the data root) and the bits: the data root may not be writable by group or others, with no sticky-bit exception; `config/` and the file may have no group or other bits at all.
+- **The gate.** `GlobalStorage.config_file(create=True)` checks the data root, `config/` and an existing `config.toml`. `write_config_file(text)` writes with `atomic_write_text(private=True)` and checks the file again afterwards. Not private or unverifiable: refused, and nothing written. Nothing is ever loosened or tightened, and the text never appears in a message. Reads (`create=False`) are not gated. `instructions.md` and `fix_modes/` are not credentials and are not gated, but keep every other check.
+- **Stated gaps:** macOS extended ACLs; the folders above the data root; a network share, which answers with what its server reports, or is unverifiable. FAT and exFAT are always unverifiable, so credentials cannot be written there.
+
+**Cache freshness.**
+- **Identities.** At most 128 spellings, each with its canonical folder's device and file index. Every hit `stat`s the spelling again (following links) and compares. A different folder, a missing one or an index of 0 is resolved afresh, and an unstable one is never cached. A folder replaced at the same path keeps its path-based ID, by design (§7.2).
+- **Verdicts.** Containment, Git working-tree and verified-record verdicts are kept only within `request_scope()`. Outside one, every check looks at the disk. An inner scope joins the outermost; every public storage operation opens one; Batch 2B opens one per CLI command and one per MCP tool call. Batch 1's process-lifetime pair cache and its verified-record dictionary are gone.
+- **The record's signature** adds `st_ctime_ns` on POSIX. On Windows that field is the creation time and would add nothing.
+- **Regressions:**
+  - the bypass the preflight reproduced (a retargeted symbolic-link or junction root, writing into a folder that holds the data root) is refused, and nothing is created;
+  - a retarget to another repository gets that repository's namespace;
+  - a `.git` made later is seen at once outside a scope, and by the next scope;
+  - a record rewritten in place, same size and modification time, is refused by the next scope, and on POSIX within the same scope.
+
+**Checked accessors and private fields.** These supersede the public folder fields of §8.2's sketch:
+- `GlobalStorage` keeps only `_data_root` and `_config_dir`.
+- `RepositoryStorage` keeps `identity` public and `_data_root` and `_directory` private. Its `settings_dir`, `work_root` and `memory_dir` fields are gone; the accessors derive them.
+- New: `GlobalStorage.config_file(create=)`, `write_config_file(text)`, `user_instructions_file(create=)`, `user_fix_modes_dir(create=)` and `diagnostics()`; `RepositoryStorage.diagnostics()`; `request_scope()`. `diagnostics()` returns §8.10's `doctor` key names as text, and checks or creates nothing.
+
+**The storage API boundary** (`tests/test_storage_api_boundary.py`):
+- no production module imports `storage`; `APPROVED_IMPORTERS` is empty, and Batch 2B fills it by name;
+- `private_folder` is used by `storage` alone;
+- no production module touches storage's private fields or helpers, or spells the layout's strings;
+- the dataclasses expose no folder, and diagnostics create nothing;
+- the scanners are shown to bite.
+
+The module states its limits: computed names, and what a caller does with a path it was given, are left to Batch 2B's write witness.
+
+**Deviations from the preflight design, recorded:**
+
+| Id | What | Why |
+| --- | --- | --- |
+| D2A-1 | Verified-record verdicts are scope-bound, not only re-signed | "never trusted because an earlier version was cached" then holds on Windows too, where `st_ctime_ns` adds nothing |
+| D2A-2 | The data root is judged on write access only; `config/` and the file on any access | others may list the data root; for the credentials, only swapping its folders matters |
+| D2A-3 | POSIX data root: no sticky-bit exception, and no folder above it checked | the stricter reading of "not writable by untrusted users"; no parent-folder policy was approved |
+| D2A-4 | `write_config_file()` is the one writer of credentials, and checks after the write too | a checked path written with weaker protection would otherwise pass |
+| D2A-5 | `diagnostics()` gives paths only; `state` and `problem` stay `doctor`'s (Batch 2B) | paths need no check; states do |
+| D2A-6 | `RepositoryStorage` loses its `settings_dir`, `work_root` and `memory_dir` fields | private fields where practical: fewer handles that bypass the accessors |
+| D2A-7 | Reads of the credentials file are not gated | refusing to read a file already exposed protects nothing; `doctor` reports privacy in Batch 2B |
+| D2A-8 | Every refusal stays a `StorageError` (`INVALID_INPUT`) | `STORAGE_UNAVAILABLE` is still OPEN (US-D26) |
+
+**Each control bites.** 24 mutations of `storage.py` and `private_folder.py` were each run on a copy outside the repository, against the four storage test files. 23 were caught on Windows. The `st_ctime_ns` mutation matters only on POSIX, and its test first runs in CI. Two mutations of the first attempt were replaced as equivalent, because nothing reachable could tell them apart: resolving a relative `GIT_WORK_TREE` without the explicit join (`realpath` joins the working directory anyway), and caching verdicts outside a scope (every public operation opens one). Their replacements are in the table. An early run's failures of two Git tests, caused by long scratch paths on Windows, were removed by shorter scratch names.
+
+| Mutation | Tests that failed (Windows) |
+| --- | --- |
+| G-1: a .git marker found is ignored | 12 |
+| G-1: only the data root itself is looked at, not the folders above | 12 |
+| G-1: a folder that cannot be examined is passed over (fail open) | 1 |
+| G-1: GIT_WORK_TREE ignored | 5 |
+| G-1: a relative GIT_WORK_TREE is ignored | 2 |
+| G-1: a malformed GIT_WORK_TREE is accepted | 1 |
+| G-2: global configuration skips the Git check when created | 17 |
+| G-2: global reads skip the Git check | 18 |
+| G-1: repository namespaces skip the Git check | 3 |
+| G-3: the credentials gate removed | 4 |
+| G-3: an existing credentials file is not checked | 1 |
+| G-3: unverifiable is accepted (fail open) | 1 |
+| G-3: no check after the write | 1 |
+| rule: grants that only reach new files are ignored | 3 |
+| rule: an unknown access entry is passed over | 3 |
+| rule: no access list (NULL DACL) is accepted | 2 |
+| rule: a foreign owner is accepted (Windows) | 3 |
+| rule: POSIX group access to config/ ignored | 2 |
+| rule: a link at the credentials file accepted (POSIX) | 1 |
+| cache: an identity hit is trusted without re-checking the folder | 6 |
+| cache: every scope shares one dictionary (verdicts outlive their scope) | 6 |
+| cache: a cached record is trusted whatever changed | 1 |
+| cache: an inner scope starts afresh instead of joining | 3 |
+| cache: st_ctime_ns left out of the record signature (POSIX only) | **0 on Windows**: POSIX-only, its test runs in CI |
+
+**Performance** (Windows 11, Python 3.14.6, local NTFS; two runs, shown as run 1 / run 2; the scratch data root is 13 components deep, where the default `~/.bugpilot` is about 4; medians; outside the test guard, in a scratch data root):
+
+| Measure | Median |
+| --- | --- |
+| identity, uncached (realpath + SHA-256 + stat) | 344 µs / 350 µs |
+| identity, cached hit (re-checked with one stat) | 41 µs / 41 µs |
+| Git working-tree check, outside a scope (13 components) | 908 µs / 911 µs |
+| the same, per component looked at | 70 µs / 70 µs |
+| Git working-tree check, remembered in a scope | 1.5 µs / 1.7 µs |
+| data_root() (realpath), for comparison | 195 µs / 185 µs |
+| ensure(), first write of a namespace | 8.43 ms / 8.87 ms |
+| ensure() repeated, outside a scope | 3.46 ms / 3.53 ms |
+| ensure() repeated, in one scope | 534 µs / 520 µs |
+| record verification (read + parse), outside a scope | 456 µs / 477 µs |
+| read lookup work_item_dir(create=False), outside a scope | 3.61 ms / 3.55 ms |
+| read lookup, in one scope | 636 µs / 640 µs |
+| containment check, outside a scope | 1.56 ms / 1.53 ms |
+| privacy check, data root | 2.46 ms / 2.41 ms |
+| privacy check, config/ | 2.68 ms / 2.33 ms |
+| config_file(create=True): Git check + 2 privacy checks | 6.97 ms / 6.64 ms |
+| write_config_file(): + atomic private write + file check | 15.55 ms / 16.32 ms |
+
+- **Against the targets (Q6).** The first `ensure()` stays below the 10 ms Windows target, but rose from Batch 1's 6.2–6.6 ms. The Git working-tree walk costs about 70 µs per folder on the way up: about 0.9 ms here, about 0.3 ms at the default depth (an estimate from the per-folder figure). Linux and macOS numbers come from CI's timing record, which now includes the Git check and the privacy check.
+- **Outside a scope every operation looks at the disk again:** a repeated `ensure()` or read lookup costs about 3.5 ms, against about 0.5–0.65 ms within one scope (Batch 1's read lookup: 0.53 ms). Batch 2B must therefore open one scope per CLI command and per MCP tool call: for freshness, and for these numbers.
+- **A privacy check costs about 2.4 ms on Windows** (the access-list, volume and account queries). Only a credentials write pays it, three times: about 7 ms to make the path ready and about 16 ms for the whole write. That is rare (setting up Jira), so nothing is cached.
+- **Atomicity unchanged:** the record is still published by hard link, and the credentials file by the private atomic writer.
+
+**Local verification** (Windows 11, Python 3.14.6, Node 24.21; `PYTHONPATH` = the repository; `PYTHONDONTWRITEBYTECODE=1`; the test isolation active):
+
+| Check | Result |
+| --- | --- |
+| The four storage suites | **339 passed, 17 skipped**: `test_storage_identity.py` 120 passed, 3 skipped; `test_storage_safety.py` 157 passed, 10 skipped; `test_private_folder.py` 53 passed, 4 skipped; `test_storage_api_boundary.py` 9 passed. Every skip is a POSIX-only case, a macOS or POSIX letter-case case, or `subst` (NOT VERIFIED). The real-git worktree and `--separate-git-dir` cases ran |
+| CI's safety-and-baselines file list (28 files, run exactly as `ci.yml` lists them) | **1,645 passed, 0 failed**, 53 skipped, 1 deselected (the private word list) |
+| `safe_paths` regressions (the five suites that import it, apart from storage's) | **126 passed**, 35 skipped (POSIX-only) |
+| Isolation guard, ratchet, release workflow, CI report, publishability, unwired symbols | **132 passed**; all also in the safety list above |
+| Inventory ratchet | no change: `tests/storage_inventory.json` was not updated |
+| Baselines | `python tests/storage_baseline.py --check`, twice: **baselines match** both times |
+| Full Python suite | `python -X utf8 -m pytest -q -p no:cacheprovider -rfEs`: **3,597 passed, 0 failed**, 53 skipped, 22 min 3 s (117 more tests than Batch 1's 3,533) |
+| Extension | typecheck clean; unit tests **2,350 passed**; the required TypeScript job **27 passed**; the isolated integration suite **21 passed** |
+| Goldens, fixtures, baselines, product files | unchanged against `HEAD`, the 46-entry contract fixture included; in `bugpilot/` only `storage.py` changed, and `private_folder.py` is new; no product module imports either; version 0.1.5 |
+| Python 3.10 syntax | the six Python files parse with `feature_version=(3, 10)`; no 3.10 interpreter here |
+| Whitespace | `git diff --check` clean; the new and changed files are LF with no trailing whitespace |
+
+**Still open before Batch 2B can activate** (§14.3's blockers):
+- **1–3:** the storage side is implemented here, but is satisfied only once it is committed and CI-verified, and the consumers open their scopes (2B).
+- **4:** met.
+- **5:** open. The consumer contract decisions: `STORAGE_UNAVAILABLE` (OPEN), US-D4's `below_git_toplevel` (OPEN), US-D16's `ai_artifacts_ignored*` removal (OPEN), US-D3's deprecated-variable handling (Batch 2 work), US-D18's `--feedback-file`, which must refuse a source inside `config/` (PROPOSED), and US-D25's `run.json` (PROPOSED).
+- **6:** open.
+- **7:** the static half is here; the write witness is 2B's.
+- **8:** holds.
+
+**Not executed:**
+- CI;
+- Linux, macOS and Python 3.10 (the POSIX privacy cases, the POSIX `ctime` test and the POSIX mode tests first run in CI);
+- a FAT or exFAT volume;
+- a network share;
+- a Windows Python that ignores `mode` (the rule tables cover it);
+- macOS ACLs;
+- Batch 0B.
 
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
@@ -3614,6 +3787,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-16 | 1 | **Architecture and security review (FAIL), then the owner-authorized narrow remediation (not committed; no CI run).** <ul><li>**Review:** read-only. High: H1 (a data root inside the repository not prevented) and H2 (Windows access lists depend on the Python version). Medium: M1 (the no-hard-link fallback could overwrite a record), M2 (a Windows case-only rename refused) and M3 (sharing violations reported as corruption). Low: L1–L9.</li><li>**Fixed:** <ul><li>H1: the data root and repository are kept apart, checked by components and by file identity, for reads and writes alike (B1-11);</li><li>M1: a publish never replaces: hard link, else a Windows rename that cannot replace, else a POSIX refusal (B1-14, superseding B1-4);</li><li>M2: a case-only rename of the same folder is accepted on Windows, and the record is never rewritten (B1-13, revising B1-3);</li><li>M3: bounded retries; an unreadable record reported as such, never as corrupt; best-effort temp clean-up (B1-15);</li><li>L2, L3, L6, L7, L9, and literal line separators in the source (B1-12, B1-16 to B1-20).</li></ul></li><li>**Investigated:** H2, with a read-only Windows access-list test. No permission behaviour changed; options for the owner (Q1).</li><li>**Assessed, not changed:** L1, L4 and L5.</li><li>**A test changed by design:** the test that a letter-case difference is refused now holds only for different folders. On case-insensitive NTFS the case variant is the same folder, which M2 accepts. Three tests replace it.</li><li>**During verification:** the publishability guard flagged personal-looking account names in the new L3 test data; they are now the guard's generic names. Two new docstrings would have raised the ratchet's `home-bugpilot` count for `storage.py`; they were reworded, so the record is unchanged.</li><li>**Results:** <ul><li>the storage suites: 230 passed, 9 skipped;</li><li>20 mutations each caught; 7 fixture corruptions each caught;</li><li>full Python suite: 3,488 passed, 0 failed, 45 skipped;</li><li>safety and baselines: 1,537 passed;</li><li>extension: 2,350 passed; the required TypeScript job 27; integration 21;</li><li>baselines matched twice; the ratchet unchanged;</li><li>goldens, baselines, product callers and protected files unchanged; version 0.1.5.</li></ul></li><li>**Performance (Windows):** first `ensure()` 6.2–6.6 ms, from 4.96 ms; read lookups 0.53 ms, from 0.37 ms. Revised targets are PROPOSED, not approved.</li><li>**Owner questions:** Q1–Q7.</li><li>**Decisions:** none changed; Batch 1's prerequisites remain PROPOSED or OPEN.</li><li>**Batch 0B and Batches 2–5:** NOT STARTED.</li><li>**Details:** §14.2, "Batch 1 — architecture review remediation".</li></ul> |
 | 2026-10-16 | 1 | **Decision-gate review (read-only), then the owner's ratification of Batch 1's decisions (not committed; no CI run).** <ul><li>**Review:** PASS WITH CONDITIONS for committing an unused foundation. New findings G-1 to G-6. G-1 (Medium): H1's check is relative to the folder BugPilot runs in, so a scratch probe accepted a data root inside the git working tree around it.</li><li>**Ratified:** US-D1, D3, D6, D7 and D24 APPROVED; US-D5, D23 and D34 APPROVED with conditions; US-D26 APPROVED in part. The register now holds 11 APPROVED, 13 OPEN, 11 PROPOSED and 4 DEFERRED. §16.1 defines the qualified statuses and lists the open parts of approved decisions. No other decision changed.</li><li>**Policies:** Q1–Q7, each set apart from the work still unimplemented (§14.2, "owner decision gate"); §12's first-write budget revised (Q6).</li><li>**Batch 2 activation blockers:** eight, in §14.3. None is satisfied.</li><li>**Changed:** the fixture's `status` value only; the contract test's status assertion; the access-list test now covers `config/` and skips a volume without access lists.</li><li>**Results:** <ul><li>the storage suites: 230 passed, 9 skipped;</li><li>safety and baselines: 1,537 passed, 0 failed;</li><li>the access-list test passed with `config/`;</li><li>the ratchet unchanged; baselines matched; the plan check 0 problems; `git diff --check` clean;</li><li>goldens, 0.1.5 baselines, product files and protected files unchanged; version 0.1.5.</li></ul></li><li>**Not run:** CI; Linux, macOS and Python 3.10; the full Python suite (the changes are confined to the storage suites, which ran, with the safety list).</li><li>**Batch 0B and Batches 2–5:** NOT STARTED.</li><li>**Details:** §14.2, "Batch 1 — owner decision gate".</li></ul> |
 | 2026-10-16 | 1 | **Batch 1 COMPLETED: committed on a verification branch, CI-verified, fast-forwarded into `main`; NOT activated.** <ul><li>**Commit:** `5222da79de4dc72335b4e17be15038cf5cf08163` (`feat(storage): add the unused 0.1.6 storage foundation`), exactly the eight-file allowlist, noreply identity, on `verify/0.1.6-batch1` (owner-approved; the branch is kept).</li><li>**Verification CI:** run 39003264436, started by the owner (`workflow_dispatch`): **all 9 required checks succeeded**.</li><li>**Full Python suite:** Ubuntu 3,480 passed, 39 skipped; macOS 3,482 passed, 37 skipped; Windows 3,485 passed, 47 skipped; each with 1 deselected.</li><li>**Safety and baselines:** Ubuntu 3.13 and 3.10 each 1,535 passed, 33 skipped; macOS 1,537, 31; Windows 1,534, 47.</li><li>**Extension:** unit tests 2,348 passed, 2 skipped; evidence boundary 27 passed.</li><li>**First runs:** the POSIX permission tests, Python 3.10, and the storage suites on Linux and macOS all passed; the Windows access-list test, `config/` included, passed on 3.13.16.</li><li>**Integration:** `main` fast-forwarded `64056ca..5222da7` (owner-approved; no merge commit) and pushed. The push's CI run 39004684594: **9/9 success**.</li><li>**Timing (CI):** first `ensure()` 0.36 ms (Linux 3.13), 0.55 ms (Linux 3.10), 0.72 ms (macOS), 2.83 ms (Windows).</li><li>**Findings:** none new. G-1, G-2, G-3 and cache freshness stay open; of §14.3's blockers only the CI one is met.</li><li>**Unchanged:** version 0.1.5; no product caller switched; decisions as ratified.</li><li>**Batch 0B and Batch 2:** NOT STARTED.</li><li>**Details:** §14.2, "Batch 1 — acceptance and CI evidence".</li></ul> |
+| 2026-10-17 | 2A | **Batch 2A (the storage security foundation) implemented and verified locally (not committed; no CI run).** <ul><li>**Authorization:** the owner's Batch 2A brief, on `6f8e0b2`, implementation and local verification only.</li><li>**Built:** the Git working-tree rule (G-1/G-2); the read-only privacy check and the credentials gate (G-3, the new `private_folder.py`); identities re-checked on every use and verdicts bound to request scopes (cache freshness); checked global accessors and private folder fields; the static API boundary.</li><li>**Not changed:** every product caller (none imports `storage`), the 0.1.5 storage, goldens, baselines, the contract fixture, the ratchet record and the version.</li><li>**Results:** full Python suite 3,597 passed, 0 failed, 53 skipped; the four storage suites 339 passed, 17 skipped; CI's safety list 1,645 passed; extension 2,350, the required TypeScript job 27, integration 21; baselines matched twice; the ratchet unchanged; 23 of 24 mutations caught on Windows, the remaining one (`st_ctime_ns`) being POSIX-only.</li><li>**Deviations:** D2A-1 to D2A-8.</li><li>**Batch 1's last run recorded:** 39005917365 on `6f8e0b2`, 9/9 success.</li><li>**Not run:** CI; Linux, macOS and Python 3.10; FAT, exFAT and network volumes; probes.</li><li>**Batch 0B and Batch 2B:** NOT STARTED.</li><li>**Details:** §14.3, "Batch 2A — as built".</li></ul> |
 
 ---
 
@@ -3633,6 +3807,8 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-16 | 1 | `verify/0.1.6-batch1` | `5222da79de4dc72335b4e17be15038cf5cf08163` (the eight-file allowlist; parent `64056ca`) | 39003264436 (`CI`, `workflow_dispatch` by the owner) | **success: 9/9** | Full suite: Ubuntu 3,480, macOS 3,482, Windows 3,485 passed. Safety and baselines green on Ubuntu 3.13 and 3.10, macOS 3.13 and Windows 3.13. Extension 2,348 passed; evidence boundary 27. The previous row's "none" is resolved here. |
 | 2026-10-16 | 1 | `main` | `5222da79de4dc72335b4e17be15038cf5cf08163` (fast-forward `64056ca..5222da7`, no merge commit) | 39004684594 (`CI`, push) | **success: 9/9** | Batch 1 COMPLETED and integrated, NOT activated. Version 0.1.5. |
 | 2026-10-16 | 1 | `main` | **the commit that carries this row**: this plan only (`docs: record BugPilot 0.1.6 Batch 1 CI acceptance`). A commit cannot hold its own SHA. | **PENDING**: its push to `main` starts `ci.yml` | — | Documentation only. Its run is recorded by a later documentation change. |
+| 2026-10-17 | 1 | `main` | `6f8e0b2` (the documentation closure) | 39005917365 (`CI`, push) | **success: 9/9** | Observed after the push; the previous row's PENDING is resolved here. |
+| 2026-10-17 | 2A | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | Batch 2A is implemented and verified locally, awaiting the owner's review. Its commit, push and CI run each need a separate authorization; a verification branch is recommended. |
 
 ---
 

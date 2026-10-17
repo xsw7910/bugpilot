@@ -38,11 +38,27 @@ Its contracts (plan §8.1, §8.3):
   BugPilot 0.1.5 kept inside a repository, or the 0.1.5 files at the top of
   the data root.
 
+Batch 2A added three guarantees, still before any caller uses this module:
+
+- **Never inside a Git working tree** (findings G-1, G-2). A data root that is,
+  or is below, a folder holding a ``.git`` entry (a folder, or the file of a
+  linked worktree, a submodule or ``--separate-git-dir``), or that lies inside
+  the working tree ``GIT_WORK_TREE`` names, is refused for reads and writes,
+  global and repository alike. The repository's own scope stays the folder
+  BugPilot runs in (US-D4); only the data root is judged.
+- **Credentials only where they are private** (G-3). ``config/config.toml`` is
+  written only after the data root, ``config/`` and any existing file are
+  proven private (:mod:`private_folder`); nothing ever changes a permission.
+- **No stale verdict** (cache freshness). A cached repository identity is
+  re-checked against the folder on every use; containment, Git working-tree
+  and record verdicts live only as long as one :func:`request_scope`.
+
 Standard library only; Python 3.10 and later.
 """
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -54,12 +70,14 @@ import stat
 import tempfile
 import time
 import unicodedata
+from collections import OrderedDict
+from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Literal
+from typing import Any, Callable, Iterator, Literal, TypeVar
 
-from .artifact_io import _check_temp
+from . import private_folder
+from .artifact_io import _check_temp, atomic_write_text
 from .identity import is_work_item_id, validate_work_item_id
 from .safe_paths import (
     UnsafePathError,
@@ -71,9 +89,11 @@ from .safe_paths import (
 )
 
 __all__ = [
+    "CREDENTIALS_NAME",
     "DATA_ROOT_ENV",
     "DATA_ROOT_BOUNDARY",
     "DIRECTORY_MODE",
+    "GIT_WORK_TREE_ENV",
     "GlobalStorage",
     "RECORD_NAME",
     "REPOSITORY_ID_RE",
@@ -93,6 +113,7 @@ __all__ = [
     "repository_id_for",
     "repository_identity",
     "repository_storage",
+    "request_scope",
 ]
 
 #: Names the whole data root when set (US-D3). Blank counts as unset.
@@ -108,6 +129,12 @@ DATA_ROOT_BOUNDARY = "BugPilot's data folder"
 DIRECTORY_MODE = 0o700
 #: A repository ID (§7.2): a display slug, then 64 bits of SHA-256.
 REPOSITORY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,23}-[0-9a-f]{16}$")
+#: The one file under ``config/`` that holds a credential (the CLI's Jira token, plan §6.1). Only it is privacy-gated.
+CREDENTIALS_NAME = "config.toml"
+#: Names a Git working tree explicitly; a data root inside it is refused like one inside a checkout (G-1).
+GIT_WORK_TREE_ENV = "GIT_WORK_TREE"
+#: What marks a Git working tree's top: a folder, or a file (a linked worktree, a submodule, ``--separate-git-dir``).
+GIT_MARKER = ".git"
 #: The closed set of files under ``settings/``; nothing else can be addressed there.
 SETTINGS_NAMES = frozenset(
     {"instructions.md", "verification.md", "ai_behavior.md", "project_settings.json", "repository_profile.json"}
@@ -138,6 +165,12 @@ _NO_HARD_LINKS = frozenset(
     for code in (getattr(errno, name, None) for name in ("EPERM", "EOPNOTSUPP", "ENOTSUP", "ENOSYS", "EXDEV", "EMLINK"))
     if code is not None
 )
+#: Repository identities remembered per process, each with the file identity it was computed for.
+_IDENTITY_CACHE_LIMIT = 128
+#: The user Instructions file under ``config/``.
+_USER_INSTRUCTIONS_NAME = "instructions.md"
+
+_T = TypeVar("_T")
 
 
 class StorageError(UnsafePathError):
@@ -319,7 +352,16 @@ def repository_identity(repo_root: str | os.PathLike[str]) -> RepositoryIdentity
 
     ``realpath(strict=True)`` resolves links, junctions, ``.``/``..`` and
     separators, and refuses a folder that does not exist. No git discovery,
-    no remote URL, no inode. Memoized per process and spelling.
+    no remote URL, no inode in the ID.
+
+    Remembered per process and spelling, but never trusted blindly (Batch 2A):
+    every use first looks at the spelling again (one ``stat``, following links)
+    and compares the folder's device and file index with the canonical folder's
+    at the time. A link or junction retargeted since, or a spelling that now
+    names another folder, is resolved afresh, so a long-running process (the
+    MCP server binds its root once) never keeps writing to the namespace of a
+    folder it no longer runs in. A file index of 0 proves nothing: such an
+    identity is resolved every time and never cached.
     """
     try:
         given = os.fspath(repo_root)
@@ -328,10 +370,35 @@ def repository_identity(repo_root: str | os.PathLike[str]) -> RepositoryIdentity
         absolute = os.path.abspath(given)
     except (TypeError, ValueError):
         raise StorageError("BugPilot cannot use that repository folder: its path is not valid.") from None
-    return _identity(absolute)
+    try:
+        now = os.stat(absolute)
+    except (OSError, ValueError):
+        _identities.pop(absolute, None)
+        return _identity(absolute)  # raises the one-sentence refusal for a missing or unresolvable folder
+    remembered = _identities.get(absolute)
+    if remembered is not None and now.st_ino != 0 and (now.st_dev, now.st_ino) == remembered[1]:
+        _identities.move_to_end(absolute)
+        return remembered[0]
+    identity = _identity(absolute)
+    try:
+        resolved = os.stat(identity.root)
+    except OSError:
+        _identities.pop(absolute, None)
+        return identity
+    if resolved.st_ino == 0 or (resolved.st_dev, resolved.st_ino) != (now.st_dev, now.st_ino):
+        _identities.pop(absolute, None)  # no stable file identity, or it changed meanwhile: do not remember
+        return identity
+    _identities[absolute] = (identity, (resolved.st_dev, resolved.st_ino))
+    _identities.move_to_end(absolute)
+    while len(_identities) > _IDENTITY_CACHE_LIMIT:
+        _identities.popitem(last=False)
+    return identity
 
 
-@lru_cache(maxsize=128)
+#: spelling (absolute) -> (identity, (st_dev, st_ino) of its canonical folder when it was computed)
+_identities: OrderedDict[str, tuple[RepositoryIdentity, tuple[int, int]]] = OrderedDict()
+
+
 def _identity(absolute: str) -> RepositoryIdentity:
     try:
         canonical = os.path.realpath(absolute, strict=True)
@@ -442,10 +509,58 @@ def _validated(work_item_id: str) -> str:
     return work_item_id
 
 
+# --- request scopes: how long a verdict may be trusted -------------------------------------------
+
+#: The verdicts of the current request scope, or None outside one.
+_scope: ContextVar[dict[tuple[Any, ...], Any] | None] = ContextVar("bugpilot_storage_scope", default=None)
+
+
+@contextlib.contextmanager
+def request_scope() -> Iterator[None]:
+    """One bounded operation: within it, each containment, Git working-tree and record verdict is computed once.
+
+    Outside any scope nothing is remembered, so every check looks at the disk
+    again. A scope opened inside another joins it; the outermost one decides
+    how long verdicts live, and drops them all when it ends. Each public
+    operation of this module opens one, so one operation never checks the same
+    thing twice. A command that makes several calls opens one around them
+    (Batch 2B: one per CLI command), and the MCP server opens a new one for
+    every tool call, so a ``.git`` created, or a link changed, between two
+    calls is seen by the next one. A long-running loop must never be wrapped
+    in a single scope.
+    """
+    if _scope.get() is not None:
+        yield
+        return
+    token = _scope.set({})
+    try:
+        yield
+    finally:
+        _scope.reset(token)
+
+
+def _scoped(key: tuple[Any, ...], compute: Callable[[], _T]) -> _T:
+    """``compute()``, remembered for the current request scope only; computed every time outside one."""
+    verdicts = _scope.get()
+    if verdicts is None:
+        return compute()
+    if key not in verdicts:
+        verdicts[key] = compute()
+    return verdicts[key]
+
+
 # --- the identity record -----------------------------------------------------------------------
 
-#: Records verified in this process, by path, with the lstat signature they had (§12: read once).
-_verified: dict[str, tuple[int, int, int, int, str]] = {}
+
+def _record_signature(info: os.stat_result, identity: RepositoryIdentity) -> tuple[Any, ...]:
+    """What must be unchanged for a record verified earlier in this scope to count as verified now.
+
+    ``st_ctime_ns`` is the last change of the file's metadata on POSIX, which a
+    rewrite cannot set back; on Windows it is the creation time, which adds
+    nothing, so it is left out there.
+    """
+    changed = info.st_ctime_ns if os.name != "nt" else 0
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, changed, str(identity.root))
 
 
 def _record_text(identity: RepositoryIdentity) -> str:
@@ -537,6 +652,9 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
     A record that cannot be read at the moment (a sharing violation that
     outlasts the retries, or no permission) is not reported as corrupt: it
     raises :class:`StorageError` saying so, and nothing is written.
+
+    A record verified earlier in the same request scope, and unchanged since
+    (:func:`_record_signature`), is not read again; outside a scope it always is.
     """
     try:
         info = _transient(lambda: os.lstat(path))
@@ -546,8 +664,10 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
         raise _unreadable(path) from None
     except OSError:
         return "corrupt"
-    signature = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, str(identity.root))
-    if _verified.get(str(path)) == signature:
+    signature = _record_signature(info, identity)
+    verdicts = _scope.get()
+    key = ("record", str(path))
+    if verdicts is not None and verdicts.get(key) == signature:
         return "ok"
     if not stat.S_ISREG(info.st_mode) or is_link_or_junction(path) or info.st_size > _RECORD_LIMIT:
         return "corrupt"
@@ -575,7 +695,8 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
     # same folder after a case-only rename, proven by its file identity, not by its folded spelling.
     if recorded_root != str(identity.root) and not _renamed_by_case_only(recorded_root, identity):
         return "mismatch"
-    _verified[str(path)] = signature
+    if verdicts is not None:
+        verdicts[key] = signature
     return "ok"
 
 
@@ -668,9 +789,6 @@ def _remove_temp(temp: Path) -> None:
 
 # --- keeping the data root and the repository apart (R5; review finding H1) --------------------
 
-#: (canonical data root, canonical repository root) pairs found apart in this process.
-_apart: set[tuple[str, str]] = set()
-
 
 def _components(path: str) -> tuple[str, ...]:
     """A path's components, each folded (``normcase``), for comparison component by component."""
@@ -710,20 +828,110 @@ def _containment_problem(root: Path, identity: RepositoryIdentity) -> Literal["i
     on Windows), and by file identity along each one's existing ancestors,
     which also catches spellings ``realpath`` leaves apart (a case variant on a
     case-insensitive volume, another drive letter or mount for the same
-    folder). A pair found apart is remembered for the process.
+    folder). The verdict lives as long as the current request scope.
     """
     repo = str(identity.root)
-    remembered = (str(root), repo)
-    if remembered in _apart:
+
+    def judge() -> Literal["inside", "contains"] | None:
+        data = os.path.realpath(root)
+        data_parts, repo_parts = _components(data), _components(repo)
+        if data_parts[: len(repo_parts)] == repo_parts or _physically_within(data, repo):
+            return "inside"
+        if repo_parts[: len(data_parts)] == data_parts or _physically_within(repo, data):
+            return "contains"
         return None
-    data = os.path.realpath(root)
-    data_parts, repo_parts = _components(data), _components(repo)
-    if data_parts[: len(repo_parts)] == repo_parts or _physically_within(data, repo):
-        return "inside"
-    if repo_parts[: len(data_parts)] == data_parts or _physically_within(repo, data):
-        return "contains"
-    _apart.add(remembered)
+
+    return _scoped(("containment", str(root), repo), judge)
+
+
+# --- never inside a Git working tree (findings G-1, G-2) ---------------------------------------
+
+
+def _git_tree_problem(root: Path) -> str | None:
+    """Why the data root may not be used because of Git, as one sentence; ``None`` when it may.
+
+    Two rules, both about the **data root** only (the repository's scope stays
+    the folder BugPilot runs in, US-D4; no git command is run):
+
+    1. **A ``.git`` entry** — a folder, or the file of a linked worktree, a
+       submodule or ``--separate-git-dir`` — in the canonical data root or in any
+       folder above it, up to the top of the volume. Checked component by
+       component with one ``lstat`` each, never by text prefix. ``realpath`` has
+       already resolved links and junctions, so an alias into a checkout is
+       judged where it lands. An empty or broken ``.git`` folder counts: Git
+       would ignore it, this check does not.
+    2. **``GIT_WORK_TREE``**, when set and not blank: the working tree it names
+       must not hold the data root. A relative value is resolved against the
+       working directory, as Git resolves it.
+
+    Fail closed: a folder above the data root that cannot be examined, or a
+    ``GIT_WORK_TREE`` that cannot be resolved or holds a control character,
+    refuses the data root too.
+
+    Known gaps, stated: a working tree that no ``.git`` entry marks and no
+    ``GIT_WORK_TREE`` names (dotfiles kept in a bare repository used with
+    ``--work-tree``, a ``core.worktree`` setting) is not recognized; neither are
+    other version-control systems.
+    """
+    configured = os.environ.get(GIT_WORK_TREE_ENV)
+    configured = configured.strip() if configured else ""
+    here = _working_directory() if configured and not os.path.isabs(configured) else ""
+    return _scoped(("git-tree", str(root), configured, here), lambda: _judge_git_tree(root, configured, here))
+
+
+def _working_directory() -> str | None:
+    """Where a relative ``GIT_WORK_TREE`` is resolved from; ``None`` when the working directory is gone."""
+    try:
+        return os.getcwd()
+    except OSError:
+        return None
+
+
+def _judge_git_tree(root: Path, configured: str, here: str | None) -> str | None:
+    shown = display_path(root)
+    refusal = (
+        f"BugPilot will not keep its data inside a Git working tree: its data folder ({shown}) is inside "
+        f"{{where}}, so BugPilot's files could be committed with it. Set {DATA_ROOT_ENV} to a folder outside "
+        "every Git working tree. Nothing was read or written."
+    )
+    canonical = Path(os.path.realpath(root))
+    for folder in (canonical, *canonical.parents):
+        try:
+            os.lstat(folder / GIT_MARKER)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except (OSError, ValueError):
+            return (
+                f"BugPilot cannot tell whether its data folder ({shown}) is inside a Git working tree: a folder "
+                f"above it cannot be examined. Nothing was read or written; check that folder's permissions, or "
+                f"set {DATA_ROOT_ENV} to another folder."
+            )
+        return refusal.format(where=f"a folder that holds a {GIT_MARKER} entry")
+    if not configured:
+        return None
+    unresolvable = (
+        f"BugPilot cannot tell whether its data folder ({shown}) is inside the Git working tree that "
+        f"{GIT_WORK_TREE_ENV} names: {{why}}. Nothing was read or written."
+    )
+    if _FORBIDDEN_IN_ROOT.search(configured):
+        return unresolvable.format(why=f"{GIT_WORK_TREE_ENV} holds a control or line-separator character")
+    if here is None:
+        return unresolvable.format(why="it is relative and the working directory is gone")
+    try:
+        tree = os.path.realpath(configured if os.path.isabs(configured) else os.path.join(here, configured))
+    except (OSError, ValueError):
+        return unresolvable.format(why="it cannot be resolved")
+    tree_parts = _components(tree)
+    if _components(str(canonical))[: len(tree_parts)] == tree_parts:
+        return refusal.format(where=f"the working tree {GIT_WORK_TREE_ENV} names")
     return None
+
+
+def _check_data_root(root: Path) -> None:
+    """Refuse a data root inside a Git working tree, before anything there is read or created."""
+    problem = _git_tree_problem(root)
+    if problem is not None:
+        raise StorageError(problem)
 
 
 # --- the two storages --------------------------------------------------------------------------
@@ -731,25 +939,113 @@ def _containment_problem(root: Path, identity: RepositoryIdentity) -> Literal["i
 
 @dataclass(frozen=True)
 class GlobalStorage:
-    """The data root's global part: ``config/`` (plan §6.1)."""
+    """The data root's global part: ``config/`` (plan §6.1).
 
-    root: Path
-    config_dir: Path
-    config_file: Path
-    user_instructions_file: Path
-    user_fix_modes_dir: Path
+    Its folders are private fields: every path to read or write comes from a
+    checked method, which refuses a data root inside a Git working tree and a
+    link on the way, and, for ``config.toml``, a place that is not private.
+    :meth:`diagnostics` gives the paths as text for ``doctor``, checking and
+    creating nothing.
+    """
+
+    _data_root: Path
+    _config_dir: Path
 
     def ensure_config_dir(self) -> Path:
         """Create ``config/`` (``0700``, link-checked) and the data root if missing; never touch the root's mode."""
-        _ensure_root(self.root)
-        return _directory(self.root, ("config",), create=True)
+        with request_scope():
+            _check_data_root(self._data_root)
+            _ensure_root(self._data_root)
+            return _directory(self._data_root, ("config",), create=True)
+
+    def _config_location(self, rest: tuple[str, ...], *, create: bool) -> Path:
+        with request_scope():
+            if create:
+                self.ensure_config_dir()
+                return _directory(self._data_root, ("config", *rest), create=True)
+            _check_data_root(self._data_root)
+            return _existing(self._data_root, ("config", *rest))
+
+    def config_file(self, *, create: bool) -> Path:
+        """``config/config.toml``, the credentials file. A link there is refused, for reads too.
+
+        With ``create=True`` it is the path to *write*: ``config/`` is made
+        ready, and then the data root, ``config/`` and the file, if it exists,
+        must each be proven private (:func:`private_folder.verify_private`);
+        otherwise :class:`StorageError`, and nothing is written. A read
+        (``create=False``) checks no privacy: refusing to read a file that is
+        already exposed would protect nothing.
+        """
+        with request_scope():
+            path = _file(self._config_location((), create=create) / CREDENTIALS_NAME)
+            if create:
+                self._check_private_for_credentials(path)
+            return path
+
+    def write_config_file(self, text: str) -> Path:
+        """Write ``config.toml`` privately (``atomic_write_text(private=True)``) where it is proven private.
+
+        The checks of :meth:`config_file` come first; after the write the file
+        itself is checked again. If it then cannot be shown to be private, a
+        :class:`StorageError` says so; the file is left as written, never
+        loosened or tightened. ``text`` is never part of any message.
+        """
+        with request_scope():
+            path = self.config_file(create=True)
+            atomic_write_text(path, text, private=True)
+            verdict = private_folder.verify_private(path, "credential-file")
+            if not verdict.private:
+                raise StorageError(
+                    f"BugPilot wrote {display_path(path)} but cannot confirm that only your account can read it "
+                    f"({'; '.join(verdict.reasons)}). Check its permissions."
+                )
+            return path
+
+    def user_instructions_file(self, *, create: bool) -> Path:
+        """``config/instructions.md``. Not a credential: no privacy gate, every other check."""
+        with request_scope():
+            return _file(self._config_location((), create=create) / _USER_INSTRUCTIONS_NAME)
+
+    def user_fix_modes_dir(self, *, create: bool) -> Path:
+        """``config/fix_modes``: the user-scope Fix Modes. Not a credential: no privacy gate."""
+        return self._config_location(("fix_modes",), create=create)
+
+    def diagnostics(self) -> dict[str, str]:
+        """The global paths ``doctor`` reports (§8.10), as text. Pure: no check, nothing read or created."""
+        return {
+            "data_root": str(self._data_root),
+            "data_root_display": display_path(self._data_root),
+            "data_root_source": data_root_source(),
+            "config_dir": str(self._config_dir),
+        }
+
+    def _check_private_for_credentials(self, path: Path) -> None:
+        places: list[tuple[Path, private_folder.Role]] = [
+            (self._data_root, "data-root"),
+            (self._config_dir, "config-folder"),
+        ]
+        if os.path.lexists(path):
+            places.append((path, "credential-file"))
+        for place, role in places:
+            verdict = private_folder.verify_private(place, role)
+            if verdict.private:
+                continue
+            shown, why = display_path(place), "; ".join(verdict.reasons)
+            if verdict.state == "unverifiable":
+                raise StorageError(
+                    f"BugPilot cannot confirm that {shown} is private ({why}), so it does not write credentials "
+                    "there. Nothing was written."
+                )
+            raise StorageError(
+                f"BugPilot will not write credentials: {shown} is not private ({why}). Nothing was written; "
+                f"restrict it to your account, or set {DATA_ROOT_ENV} to a private folder."
+            )
 
 
 def global_storage() -> GlobalStorage:
     """The global locations, resolved. Creates nothing."""
     root = data_root()
-    config = root / "config"
-    return GlobalStorage(root, config, config / "config.toml", config / "instructions.md", config / "fix_modes")
+    return GlobalStorage(root, root / "config")
 
 
 @dataclass(frozen=True)
@@ -766,21 +1062,21 @@ class RepositoryStorage:
     """One repository's namespace: ``<data root>/repositories/<repository id>/`` (plan §6.1, §8.2).
 
     It exists only for the root it was computed from (:func:`repository_storage`).
-    Every accessor checks the identity record first: a namespace whose record
-    names another repository, or is not a readable record, is refused for
-    reads and writes alike (§7.5).
+    Every accessor checks, in one request scope, that the data root and the
+    repository are kept apart, that the data root is outside every Git working
+    tree, and then the identity record: a namespace whose record names another
+    repository, or is not a readable record, is refused for reads and writes
+    alike (§7.5). The folders are private fields; :meth:`diagnostics` gives the
+    paths as text, checking and creating nothing.
     """
 
-    root: Path
+    _data_root: Path
     identity: RepositoryIdentity
-    directory: Path
-    settings_dir: Path
-    work_root: Path
-    memory_dir: Path
+    _directory: Path
 
     @property
-    def record_file(self) -> Path:
-        return self.directory / RECORD_NAME
+    def _record_file(self) -> Path:
+        return self._directory / RECORD_NAME
 
     def _parts(self, *rest: str) -> tuple[str, ...]:
         return ("repositories", self.identity.repository_id, *rest)
@@ -788,33 +1084,37 @@ class RepositoryStorage:
     def record_state(self) -> RecordState:
         """The namespace's state, read only. A link on the way to it is refused (``StorageError``).
 
-        A data root and repository that are not kept apart are refused first
-        (:meth:`_check_containment`): such a namespace is neither read nor written.
+        A data root and repository that are not kept apart, and a data root
+        inside a Git working tree, are refused first (:meth:`_check_containment`):
+        such a namespace is neither read nor written.
         """
-        self._check_containment()
-        namespace = _existing(self.root, self._parts())
-        if not os.path.lexists(namespace):
-            return "absent"
-        return _record_state(self.record_file, self.identity)
+        with request_scope():
+            self._check_containment()
+            namespace = _existing(self._data_root, self._parts())
+            if not os.path.lexists(namespace):
+                return "absent"
+            return _record_state(self._record_file, self.identity)
 
     def _check_containment(self) -> None:
-        """Refuse a data root inside this repository, and a repository inside the data root (R5; finding H1)."""
-        problem = _containment_problem(self.root, self.identity)
+        """Refuse a data root inside this repository, a repository inside the data root (R5; H1), and a data root
+        inside a Git working tree (G-1)."""
+        problem = _containment_problem(self._data_root, self.identity)
         if problem == "inside":
             raise StorageError(
                 f"BugPilot will not keep its data inside this repository: its data folder "
-                f"({display_path(self.root)}) is this repository's folder or inside it, so BugPilot's files "
+                f"({display_path(self._data_root)}) is this repository's folder or inside it, so BugPilot's files "
                 f"would land in the repository. Set {DATA_ROOT_ENV} to a folder outside every repository. "
                 "Nothing was read or written."
             )
         if problem == "contains":
             raise StorageError(
-                f"BugPilot will not use a repository inside its own data folder ({display_path(self.root)}). "
+                f"BugPilot will not use a repository inside its own data folder ({display_path(self._data_root)}). "
                 "Run BugPilot in the repository's own folder. Nothing was read or written."
             )
+        _check_data_root(self._data_root)
 
     def _refusal(self, state: RecordState) -> StorageIdentityError:
-        shown = display_path(self.record_file)
+        shown = display_path(self._record_file)
         if state == "mismatch":
             return StorageIdentityError(
                 f"BugPilot will not use {shown}: it belongs to a different repository folder. "
@@ -831,8 +1131,8 @@ class RepositoryStorage:
         ``location`` came from :func:`_existing`: when it exists, so does the
         namespace, and no further look is needed to know it.
         """
-        if os.path.lexists(location) or os.path.lexists(self.directory):
-            state = _record_state(self.record_file, self.identity)
+        if os.path.lexists(location) or os.path.lexists(self._directory):
+            state = _record_state(self._record_file, self.identity)
             if state in ("mismatch", "corrupt"):
                 raise self._refusal(state)
 
@@ -842,26 +1142,28 @@ class RepositoryStorage:
         A record that names another repository, or cannot be read as one, is
         refused before anything is written, and is never repaired.
         """
-        state = self.record_state()
-        if state == "ok":
-            return
-        if state in ("mismatch", "corrupt"):
-            raise self._refusal(state)
-        _ensure_root(self.root)
-        _directory(self.root, self._parts(), create=True)
-        _publish_record(self.record_file, _record_text(self.identity))
-        final = _record_state(self.record_file, self.identity)
-        if final != "ok":
-            raise self._refusal("mismatch" if final == "mismatch" else "corrupt")
+        with request_scope():
+            state = self.record_state()
+            if state == "ok":
+                return
+            if state in ("mismatch", "corrupt"):
+                raise self._refusal(state)
+            _ensure_root(self._data_root)
+            _directory(self._data_root, self._parts(), create=True)
+            _publish_record(self._record_file, _record_text(self.identity))
+            final = _record_state(self._record_file, self.identity)
+            if final != "ok":
+                raise self._refusal("mismatch" if final == "mismatch" else "corrupt")
 
     def _location(self, rest: tuple[str, ...], *, create: bool) -> Path:
-        if create:
-            self.ensure()  # the containment check comes first (record_state)
-            return _directory(self.root, self._parts(*rest), create=True)
-        self._check_containment()
-        location = _existing(self.root, self._parts(*rest))  # refuses a link on the way, the namespace's included
-        self._check_record(location)
-        return location
+        with request_scope():
+            if create:
+                self.ensure()  # the containment and Git checks come first (record_state)
+                return _directory(self._data_root, self._parts(*rest), create=True)
+            self._check_containment()
+            location = _existing(self._data_root, self._parts(*rest))  # refuses a link on the way
+            self._check_record(location)
+            return location
 
     def work_item_dir(self, work_item_id: str, *, create: bool) -> Path:
         """``work/<id>``. The id is validated before any path is built; ``create=False`` creates nothing."""
@@ -874,15 +1176,17 @@ class RepositoryStorage:
     def memory_file(self, work_item_id: str, *, create: bool) -> Path:
         """``memory/<id>.md``. ``memory/`` is created only by a memory writer (``create=True``)."""
         name = f"{_validated(work_item_id)}.md"
-        folder = self._location(("memory",), create=create)
-        return _file(folder / name)
+        with request_scope():
+            folder = self._location(("memory",), create=create)
+            return _file(folder / name)
 
     def settings_file(self, name: SettingsName, *, create: bool) -> Path:
         """``settings/<name>`` for one of :data:`SETTINGS_NAMES`; a link there is refused, for reads too."""
         if name not in SETTINGS_NAMES:
             raise StorageError(f"{name!r} is not one of BugPilot's repository settings files.")
-        folder = self._location(("settings",), create=create)
-        return _file(folder / name)
+        with request_scope():
+            folder = self._location(("settings",), create=create)
+            return _file(folder / name)
 
     def fix_modes_dir(self, *, create: bool) -> Path:
         """``settings/fix_modes``: the repository's project-scope Fix Modes."""
@@ -908,17 +1212,25 @@ class RepositoryStorage:
                 entries.append(WorkItemEntry(entry.name, path, mtime))
         return sorted(entries, key=lambda item: item.work_item_id)
 
+    def diagnostics(self) -> dict[str, str]:
+        """The paths ``doctor`` reports in its ``storage`` object (§8.10), as text.
+
+        Pure: no check, nothing read or created, so it answers even for a
+        namespace every accessor refuses (``doctor`` reports why separately).
+        """
+        return {
+            "data_root": str(self._data_root),
+            "data_root_display": display_path(self._data_root),
+            "data_root_source": data_root_source(),
+            "repository_root": str(self.identity.root),
+            "repository_id": self.identity.repository_id,
+            "repository_dir": str(self._directory),
+            "config_dir": str(self._data_root / "config"),
+        }
+
 
 def repository_storage(repo_root: str | os.PathLike[str]) -> RepositoryStorage:
     """The namespace of the repository at ``repo_root``. Resolves; creates nothing."""
     root = data_root()
     identity = repository_identity(repo_root)
-    directory = root / "repositories" / identity.repository_id
-    return RepositoryStorage(
-        root=root,
-        identity=identity,
-        directory=directory,
-        settings_dir=directory / "settings",
-        work_root=directory / "work",
-        memory_dir=directory / "memory",
-    )
+    return RepositoryStorage(root, identity, root / "repositories" / identity.repository_id)

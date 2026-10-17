@@ -1,10 +1,12 @@
-"""Storage safety primitives: links, modes, containment and traversal (0.1.6 Batch 1, plan §8.3, §8.5, §10.2, §11.3).
+"""Storage safety: links, modes, containment, traversal, Git working trees, private credentials, fresh verdicts.
 
-The primitives only: no product module uses ``bugpilot.core.storage`` yet, so
-the end-to-end cases (atomic writes on the new tree, CLI and MCP isolation,
-``clean``) come with Batch 2. Every test runs in Batch 0A's isolation, with a
-fresh ``BUGPILOT_HOME`` inside the session; links point at a decoy folder in
-``tmp_path`` that the assertions show was never written.
+0.1.6 Batch 1 (plan §8.3, §8.5, §10.2, §11.3) and Batch 2A (findings G-1, G-2,
+G-3 and cache freshness). The primitives only: no product module uses
+``bugpilot.core.storage`` yet, so the end-to-end cases (atomic writes on the new
+tree, CLI and MCP isolation, ``clean``) come with Batch 2B. Every test runs in
+Batch 0A's isolation, with a fresh ``BUGPILOT_HOME`` inside the session; links
+point at a decoy folder in ``tmp_path`` that the assertions show was never
+written. Git repositories are made in ``tmp_path`` only.
 """
 
 from __future__ import annotations
@@ -12,16 +14,25 @@ from __future__ import annotations
 import errno
 import json
 import os
+import shutil
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
 import _isolation
-from bugpilot.core import safe_paths, storage
+from bugpilot.core import private_folder, safe_paths, storage
 from bugpilot.core.safe_paths import UnsafePathError, refuse_link, writable_dir
-from bugpilot.core.storage import StorageError, data_root, global_storage, repository_storage
+from bugpilot.core.storage import (
+    GIT_WORK_TREE_ENV,
+    StorageError,
+    data_root,
+    global_storage,
+    repository_storage,
+    request_scope,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 WINDOWS = os.name == "nt"
@@ -29,13 +40,13 @@ POSIX = os.name == "posix"
 
 
 def _forget() -> None:
-    """Forget memoized identities and verified records, as a fresh process would."""
-    storage._identity.cache_clear()
-    storage._verified.clear()
+    """Forget memoized identities, as a fresh process would (verdicts live only within a request scope)."""
+    storage._identities.clear()
 
 
 @pytest.fixture(autouse=True)
-def fresh_caches():
+def fresh_caches(monkeypatch):
+    monkeypatch.delenv(GIT_WORK_TREE_ENV, raising=False)  # a developer's own setting must not decide these tests
     _forget()
     yield
     _forget()
@@ -167,7 +178,7 @@ def test_a_link_swapped_in_right_after_mkdir_is_refused(repo, decoy, component, 
 def test_reads_refuse_a_link_at_the_settings_folder_or_file(repo, decoy, kind):
     namespace = repository_storage(repo)
     namespace.ensure()
-    _plant(kind, namespace.settings_dir, decoy)
+    _plant(kind, (namespace._directory / "settings"), decoy)
     with pytest.raises(StorageError, match="symbolic link or junction"):
         namespace.settings_file("verification.md", create=False)
 
@@ -188,7 +199,7 @@ def test_reads_refuse_a_link_at_a_settings_file(repo, tmp_path):
 def test_a_linked_work_item_is_skipped_by_the_listing(repo, decoy):
     namespace = repository_storage(repo)
     namespace.work_item_dir("JR-1", create=True)
-    _plant(LINK_KINDS[-1], namespace.work_root / "JR-2", decoy)
+    _plant(LINK_KINDS[-1], (namespace._directory / "work") / "JR-2", decoy)
     assert [item.work_item_id for item in namespace.work_items()] == ["JR-1"]
 
 
@@ -322,8 +333,8 @@ def test_an_invalid_work_item_id_is_refused_before_any_path_is_built(repo, work_
 def test_a_valid_work_item_id_stays_inside_its_namespace(repo, work_item_id):
     namespace = repository_storage(repo)
     folder = namespace.work_item_dir(work_item_id, create=True)
-    assert folder.parent == namespace.work_root
-    assert os.path.realpath(folder).startswith(os.path.realpath(namespace.directory))
+    assert folder.parent == (namespace._directory / "work")
+    assert os.path.realpath(folder).startswith(os.path.realpath(namespace._directory))
 
 
 @pytest.mark.parametrize("name", ["config.toml", "../instructions.md", "fix_modes", "repository.json", "", "settings"])
@@ -518,7 +529,7 @@ def test_file_identity_catches_an_alias_the_canonical_path_would_miss(repo, tmp_
     monkeypatch.setenv("BUGPILOT_HOME", str(alias / ".bugpilot-data"))
     monkeypatch.setattr(storage.os.path, "realpath", lambda path, *args, **kwargs: os.path.abspath(path))
     namespace = repository_storage(repo)
-    assert storage._containment_problem(namespace.root, namespace.identity) == "inside"
+    assert storage._containment_problem(namespace._data_root, namespace.identity) == "inside"
 
 
 @pytest.mark.parametrize("name", ["beside", "checkout-data", "checkout.bugpilot"])
@@ -557,7 +568,7 @@ def _no_hard_links(monkeypatch) -> None:
 
 
 def _leftover_temps(namespace) -> list[str]:
-    return [name for name in os.listdir(namespace.directory) if name.endswith(".tmp")]
+    return [name for name in os.listdir(namespace._directory) if name.endswith(".tmp")]
 
 
 def test_publication_by_hard_link_leaves_one_record_and_no_temp(repo, no_replace):
@@ -593,7 +604,7 @@ def test_without_hard_links_a_record_published_meanwhile_is_kept(repo, monkeypat
     monkeypatch.setattr(storage.os, "rename", rename_after_another_publish)
     with pytest.raises(storage.StorageIdentityError, match="belongs to a different repository folder"):
         namespace.ensure()
-    assert namespace.record_file.read_text(encoding="utf-8") == conflicting
+    assert namespace._record_file.read_text(encoding="utf-8") == conflicting
     assert _leftover_temps(namespace) == []
 
 
@@ -605,20 +616,19 @@ def test_without_hard_links_posix_refuses_rather_than_risk_a_replacement(repo, m
     with pytest.raises(StorageError, match="has no hard links") as refused:
         namespace.ensure()
     assert str(data_root()) not in str(refused.value)
-    assert not namespace.record_file.exists()
+    assert not namespace._record_file.exists()
     assert _leftover_temps(namespace) == []
 
 
 def test_without_hard_links_an_existing_record_is_untouched(repo, monkeypatch, no_replace):
     namespace = repository_storage(repo)
     namespace.ensure()
-    before = namespace.record_file.read_bytes()
+    before = namespace._record_file.read_bytes()
     _no_hard_links(monkeypatch)
     monkeypatch.setattr(storage, "_RENAME_NEVER_REPLACES", False)
     namespace.ensure()  # an existing valid record: nothing to publish
-    storage._verified.clear()
     namespace.ensure()  # verified again from disk: still nothing written
-    assert namespace.record_file.read_bytes() == before
+    assert namespace._record_file.read_bytes() == before
 
 
 def test_another_link_failure_is_not_disguised_as_missing_hard_links(repo, monkeypatch, no_replace):
@@ -631,7 +641,7 @@ def test_another_link_failure_is_not_disguised_as_missing_hard_links(repo, monke
     with pytest.raises(OSError) as failed:
         namespace.ensure()
     assert not isinstance(failed.value, StorageError) and failed.value.errno == errno.EACCES
-    assert not namespace.record_file.exists()
+    assert not namespace._record_file.exists()
 
 
 def test_a_refused_temp_file_name_publishes_nothing(repo, monkeypatch, no_replace):
@@ -642,7 +652,7 @@ def test_a_refused_temp_file_name_publishes_nothing(repo, monkeypatch, no_replac
     namespace = repository_storage(repo)
     with pytest.raises(StorageError, match="temporary file"):
         namespace.ensure()
-    assert not namespace.record_file.exists()
+    assert not namespace._record_file.exists()
     assert _leftover_temps(namespace) == []
 
 
@@ -683,12 +693,11 @@ def test_a_temp_name_held_for_a_moment_is_removed_on_retry(repo, monkeypatch):
 def test_a_transient_sharing_violation_on_read_is_retried_not_called_corrupt(repo, monkeypatch):
     namespace = repository_storage(repo)
     namespace.ensure()
-    storage._verified.clear()
     real_open = os.open
     attempts = {"count": 0}
 
     def busy_twice(path, *args, **kwargs):
-        if os.fspath(path) == os.fspath(namespace.record_file):
+        if os.fspath(path) == os.fspath(namespace._record_file):
             attempts["count"] += 1
             if attempts["count"] <= 2:
                 raise PermissionError(13, "sharing violation")
@@ -702,12 +711,11 @@ def test_a_transient_sharing_violation_on_read_is_retried_not_called_corrupt(rep
 def test_a_record_that_stays_unreadable_is_reported_as_such_never_as_corrupt(repo, monkeypatch):
     namespace = repository_storage(repo)
     namespace.ensure()
-    before = namespace.record_file.read_bytes()
-    storage._verified.clear()
+    before = namespace._record_file.read_bytes()
     real_open = os.open
 
     def always_locked(path, *args, **kwargs):
-        if os.fspath(path) == os.fspath(namespace.record_file):
+        if os.fspath(path) == os.fspath(namespace._record_file):
             raise PermissionError(13, "sharing violation")
         return real_open(path, *args, **kwargs)
 
@@ -718,7 +726,7 @@ def test_a_record_that_stays_unreadable_is_reported_as_such_never_as_corrupt(rep
             access()
         assert not isinstance(refused.value, storage.StorageIdentityError)
         assert "delete" not in str(refused.value) and str(data_root()) not in str(refused.value)
-    assert namespace.record_file.read_bytes() == before
+    assert namespace._record_file.read_bytes() == before
 
 
 def test_a_failed_clean_up_never_masks_the_error_on_its_way_out(repo, monkeypatch):
@@ -738,7 +746,7 @@ def test_a_failed_clean_up_never_masks_the_error_on_its_way_out(repo, monkeypatc
 def test_read_paths_refuse_a_component_that_is_a_file(repo):
     namespace = repository_storage(repo)
     namespace.ensure()
-    (namespace.directory / "work").write_text("not a folder", encoding="utf-8")
+    (namespace._directory / "work").write_text("not a folder", encoding="utf-8")
     with pytest.raises(StorageError, match="work is not a directory"):
         namespace.work_item_dir("JR-1", create=False)
 
@@ -823,17 +831,483 @@ def test_windows_folders_get_an_owner_only_access_list_that_is_not_inherited(rep
     created = [
         data_root(),
         data_root() / "repositories",
-        namespace.directory,
-        namespace.work_root,
-        namespace.work_root / "JR-12345",
-        global_storage().config_dir,
+        namespace._directory,
+        (namespace._directory / "work"),
+        (namespace._directory / "work") / "JR-12345",
+        global_storage()._config_dir,
     ]
     for folder in created:
         protected, entries = _dacl(folder)
         assert protected, folder.name
         assert entries == OWNER_ONLY, (folder.name, entries)
     # The record inherits the same three entries from its folder.
-    assert _dacl(namespace.record_file)[1] == OWNER_ONLY
+    assert _dacl(namespace._record_file)[1] == OWNER_ONLY
+
+
+# --- G-1 and G-2: never inside a Git working tree (Batch 2A) ------------------------------------
+
+GIT = shutil.which("git")
+needs_git = pytest.mark.skipif(GIT is None, reason="needs git for a real worktree or --separate-git-dir")
+
+
+def _git(*args: str, cwd: Path) -> None:
+    subprocess.run(
+        [GIT, "-c", "user.name=Dev", "-c", "user.email=dev@example.com", "-c", "commit.gpgsign=false",
+         "-c", "init.defaultBranch=main", *args],
+        cwd=cwd, check=True, capture_output=True,
+    )
+
+
+def _checkout(path: Path, *, commit: bool = False) -> Path:
+    """A real Git checkout in ``tmp_path``."""
+    path.mkdir(parents=True, exist_ok=True)
+    _git("init", "-q", cwd=path)
+    if commit:
+        (path / "README.md").write_text("synthetic\n", encoding="utf-8")
+        _git("add", "-A", cwd=path)
+        _git("commit", "-qm", "initial", cwd=path)
+    return path
+
+
+def _marked(path: Path, kind: str = "folder") -> Path:
+    """A folder carrying a ``.git`` marker, without git: an empty folder, or the file of a linked worktree."""
+    path.mkdir(parents=True, exist_ok=True)
+    if kind == "folder":
+        (path / ".git").mkdir()
+    else:
+        (path / ".git").write_text("gitdir: ../elsewhere.git\n", encoding="utf-8")
+    return path
+
+
+def _global_accesses() -> dict[str, object]:
+    g = global_storage()
+    return {
+        "ensure_config_dir": g.ensure_config_dir,
+        "config_file(write)": lambda: g.config_file(create=True),
+        "config_file(read)": lambda: g.config_file(create=False),
+        "write_config_file": lambda: g.write_config_file("jira_token = 'never-shown'\n"),
+        "user_instructions_file(write)": lambda: g.user_instructions_file(create=True),
+        "user_instructions_file(read)": lambda: g.user_instructions_file(create=False),
+        "user_fix_modes_dir(write)": lambda: g.user_fix_modes_dir(create=True),
+        "user_fix_modes_dir(read)": lambda: g.user_fix_modes_dir(create=False),
+    }
+
+
+def _assert_refused(accesses: dict[str, object], watched: Path, match: str = "inside a Git working tree") -> None:
+    """Every access refused with one sentence and no path; nothing created under ``watched``."""
+    before = _tree(watched)
+    root_existed = os.path.lexists(data_root())
+    for label, access in accesses.items():
+        with pytest.raises(StorageError, match=match) as refused:
+            access()
+        message = str(refused.value)
+        assert str(watched) not in message and str(Path.home()) not in message, label
+        assert "Nothing was read or written" in message, label
+        assert "never-shown" not in message, label
+    assert _tree(watched) == before
+    assert os.path.lexists(data_root()) == root_existed
+
+
+def test_the_test_folders_are_outside_every_git_working_tree():
+    """These tests mean nothing if the test session itself sits in a Git working tree: say so plainly."""
+    assert storage._git_tree_problem(data_root()) is None, (
+        "the test session's temporary folder is inside a Git working tree (a .git above it, or GIT_WORK_TREE); "
+        "run the tests with a temporary folder outside every checkout"
+    )
+
+
+@pytest.mark.parametrize("kind", ["marker", pytest.param("git", marks=needs_git)])
+def test_a_run_from_a_subfolder_with_the_data_root_elsewhere_in_the_checkout_is_refused(tmp_path, monkeypatch, kind):
+    """G-1, case A of the gate review: the folder BugPilot runs in is a subfolder; the data root is in the checkout."""
+    checkout = _checkout(tmp_path / "checkout") if kind == "git" else _marked(tmp_path / "checkout")
+    subfolder = checkout / "src"
+    subfolder.mkdir()
+    monkeypatch.setenv("BUGPILOT_HOME", str(checkout / ".bugpilot-data"))
+    namespace = repository_storage(subfolder)
+    _assert_refused({**_every_access(namespace), **_global_accesses()}, checkout)
+    # US-D4 unchanged: the repository is still the folder BugPilot runs in, not the checkout's top.
+    assert namespace.identity.root == Path(os.path.realpath(subfolder))
+
+
+def test_global_configuration_is_never_created_inside_a_checkout(tmp_path, monkeypatch):
+    """G-2, case B: no repository is involved, and the data root's place alone decides."""
+    checkout = _marked(tmp_path / "checkout")
+    monkeypatch.setenv("BUGPILOT_HOME", str(checkout / "data"))
+    _assert_refused(_global_accesses(), checkout)
+
+
+def test_a_home_folder_that_is_a_git_repository_keeps_the_default_data_root_out(tmp_path, monkeypatch):
+    """G-1, case C: dotfiles kept with a .git in the home folder; BugPilot runs in a project below it."""
+    home = _marked(tmp_path / "home")
+    project = home / "src" / "project"
+    project.mkdir(parents=True)
+    for name, value in _isolation._home_environment(str(home)).items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("BUGPILOT_HOME", raising=False)
+    _assert_refused({**_every_access(repository_storage(project)), **_global_accesses()}, home)
+    assert not os.path.lexists(home / storage.DEFAULT_DATA_DIR_NAME)
+
+
+@needs_git
+def test_a_linked_worktree_is_a_working_tree(tmp_path, monkeypatch):
+    main = _checkout(tmp_path / "main", commit=True)
+    worktree = tmp_path / "linked"
+    _git("worktree", "add", "-q", str(worktree), cwd=main)
+    assert (worktree / ".git").is_file()
+    monkeypatch.setenv("BUGPILOT_HOME", str(worktree / "data"))
+    _assert_refused(_global_accesses(), worktree)
+
+
+@needs_git
+def test_a_repository_with_a_separate_git_dir_is_a_working_tree(tmp_path, monkeypatch):
+    checkout = tmp_path / "separate"
+    _git("init", "-q", "--separate-git-dir", str(tmp_path / "elsewhere.git"), str(checkout), cwd=tmp_path)
+    assert (checkout / ".git").is_file()
+    monkeypatch.setenv("BUGPILOT_HOME", str(checkout / "data"))
+    _assert_refused(_global_accesses(), checkout)
+
+
+@pytest.mark.parametrize("marker", ["folder", "file"])
+def test_a_git_marker_alone_decides_and_an_empty_git_folder_still_counts(tmp_path, monkeypatch, marker):
+    """No git needed: a ``.git`` file (worktree, submodule) or folder, even an empty one Git itself would ignore."""
+    checkout = _marked(tmp_path / "checkout", marker)
+    monkeypatch.setenv("BUGPILOT_HOME", str(checkout / "deep" / "data"))
+    _assert_refused(_global_accesses(), checkout)
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_an_alias_into_a_checkout_is_judged_where_it_lands(tmp_path, monkeypatch, kind):
+    checkout = _marked(tmp_path / "checkout")
+    inside = checkout / "inner"
+    inside.mkdir()
+    alias = tmp_path / "innocent-looking-root"
+    _plant(kind, alias, inside)
+    monkeypatch.setenv("BUGPILOT_HOME", str(alias / "data"))
+    _assert_refused(_global_accesses(), checkout)
+
+
+def test_a_data_root_inside_the_working_tree_git_work_tree_names_is_refused(tmp_path, monkeypatch):
+    tree = tmp_path / "work-tree"
+    tree.mkdir()
+    monkeypatch.setenv("BUGPILOT_HOME", str(tree / "data"))
+    monkeypatch.setenv(GIT_WORK_TREE_ENV, str(tree))
+    _assert_refused(_global_accesses(), tree, match="the working tree GIT_WORK_TREE names")
+
+
+def test_a_relative_git_work_tree_is_resolved_against_the_working_directory(tmp_path, monkeypatch):
+    """As Git resolves it: ``GIT_WORK_TREE=work-tree`` means ``<working directory>/work-tree``."""
+    (tmp_path / "work-tree").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BUGPILOT_HOME", str(tmp_path / "work-tree" / "data"))
+    monkeypatch.setenv(GIT_WORK_TREE_ENV, "work-tree")
+    _assert_refused(_global_accesses(), tmp_path / "work-tree", match="the working tree GIT_WORK_TREE names")
+    monkeypatch.chdir(tmp_path / "work-tree")  # now it names work-tree/work-tree, which does not hold the data root
+    assert global_storage().user_fix_modes_dir(create=True).is_dir()
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_git_work_tree_given_through_a_link_is_resolved(tmp_path, monkeypatch, kind):
+    tree = tmp_path / "work-tree"
+    tree.mkdir()
+    link = tmp_path / "tree-alias"
+    _plant(kind, link, tree)
+    monkeypatch.setenv("BUGPILOT_HOME", str(tree / "data"))
+    monkeypatch.setenv(GIT_WORK_TREE_ENV, str(link))
+    _assert_refused(_global_accesses(), tree, match="the working tree GIT_WORK_TREE names")
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_a_blank_git_work_tree_counts_as_unset(tmp_path, monkeypatch, value):
+    monkeypatch.setenv(GIT_WORK_TREE_ENV, value)
+    assert global_storage().user_fix_modes_dir(create=True).is_dir()
+
+
+def test_a_malformed_or_unresolvable_git_work_tree_refuses(tmp_path, monkeypatch):
+    monkeypatch.setenv(GIT_WORK_TREE_ENV, str(tmp_path / "tree") + "\x01")
+    _assert_refused(_global_accesses(), tmp_path, match="control or line-separator character")
+    monkeypatch.setenv(GIT_WORK_TREE_ENV, "relative-tree")
+    monkeypatch.setattr(storage, "_working_directory", lambda: None)  # os.getcwd() raised: the directory is gone
+    _assert_refused(_global_accesses(), tmp_path, match="the working directory is gone")
+
+
+def test_a_folder_above_the_data_root_that_cannot_be_examined_refuses_it(tmp_path, monkeypatch):
+    """Fail closed: when a ``.git`` look fails for any reason but "not there", the data root is not used."""
+    real_lstat = os.lstat
+
+    def locked(path, *args, **kwargs):
+        if Path(path).name == ".git":
+            raise PermissionError(errno.EACCES, "permission denied")
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(storage.os, "lstat", locked)
+    _assert_refused(_global_accesses(), tmp_path, match="cannot tell whether its data folder")
+
+
+@pytest.mark.parametrize("name", ["data", "checkout-data", "checkout.git-data"])
+def test_a_data_root_beside_a_checkout_and_a_repository_that_is_a_checkout_are_accepted(tmp_path, monkeypatch, name):
+    """Only the data root is judged: BugPilot runs inside Git repositories all the time (US-D4)."""
+    checkout = _marked(tmp_path / "checkout")
+    monkeypatch.setenv("BUGPILOT_HOME", str(tmp_path / name))
+    assert repository_storage(checkout).work_item_dir("JR-12345", create=True).is_dir()
+    assert global_storage().user_instructions_file(create=True).parent.is_dir()
+
+
+# --- fresh verdicts: request scopes and the stale-identity bypass (Batch 2A) ---------------------
+
+
+def test_a_git_marker_made_later_is_seen_by_the_next_check_outside_a_scope(tmp_path, monkeypatch):
+    holder = tmp_path / "holder"
+    monkeypatch.setenv("BUGPILOT_HOME", str(holder / "data"))
+    holder.mkdir()
+    g = global_storage()
+    g.user_fix_modes_dir(create=True)
+    (holder / ".git").mkdir()
+    with pytest.raises(StorageError, match="inside a Git working tree"):
+        g.user_fix_modes_dir(create=False)
+
+
+def test_within_one_request_scope_a_verdict_holds_and_the_next_scope_looks_again(tmp_path, monkeypatch):
+    """The staleness a scope allows is bounded by the scope: the next one sees the new ``.git``."""
+    holder = tmp_path / "holder"
+    monkeypatch.setenv("BUGPILOT_HOME", str(holder / "data"))
+    holder.mkdir()
+    g = global_storage()
+    with request_scope():
+        g.user_fix_modes_dir(create=True)
+        (holder / ".git").mkdir()
+        assert g.user_fix_modes_dir(create=False).is_dir()  # judged once in this scope
+    with request_scope():
+        with pytest.raises(StorageError, match="inside a Git working tree"):
+            g.user_fix_modes_dir(create=False)
+
+
+def test_scopes_nest_and_end(tmp_path):
+    assert storage._scope.get() is None
+    with request_scope():
+        outer = storage._scope.get()
+        with request_scope():
+            assert storage._scope.get() is outer  # an inner scope joins the outer one
+        assert storage._scope.get() is outer
+    assert storage._scope.get() is None
+
+
+def _retarget(kind: str, link: Path, target: Path) -> None:
+    try:
+        os.unlink(link)
+    except OSError:
+        os.rmdir(link)  # a junction, or a directory symbolic link on Windows
+    _plant(kind, link, target)
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_retargeted_root_never_reuses_the_old_namespace_to_bypass_containment(tmp_path, monkeypatch, kind):
+    """The bypass the 2A preflight reproduced: a process keeps the spelling of its root (as MCP binds it once);
+    the link is pointed at a folder that holds the data root; the next write must be refused, and nothing created."""
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    monkeypatch.setenv("BUGPILOT_HOME", str(outer / "data"))
+    first_repo = tmp_path / "first"
+    first_repo.mkdir()
+    bound = tmp_path / "bound-root"
+    _plant(kind, bound, first_repo)
+    repository_storage(bound).work_item_dir("JR-12345", create=True)
+    _retarget(kind, bound, outer)
+    before = _tree(outer)
+    with pytest.raises(StorageError, match="will not keep its data inside this repository"):
+        repository_storage(bound).work_item_dir("JR-12345", create=True)
+    assert _tree(outer) == before
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_retargeted_root_gets_the_namespace_of_the_folder_it_now_names(tmp_path, kind):
+    first_repo, second_repo = tmp_path / "first", tmp_path / "second"
+    first_repo.mkdir()
+    second_repo.mkdir()
+    bound = tmp_path / "bound-root"
+    _plant(kind, bound, first_repo)
+    first = repository_storage(bound)
+    first.work_item_dir("JR-12345", create=True)
+    snapshot = _tree(first._directory)
+    _retarget(kind, bound, second_repo)
+    second = repository_storage(bound)
+    assert second.identity == storage.repository_identity(second_repo)
+    assert second.identity.repository_id != first.identity.repository_id
+    second.work_item_dir("JR-12345", create=True)
+    assert _tree(first._directory) == snapshot
+
+
+def _same_size_foreign_record(namespace) -> bytes:
+    """The record's own bytes with one character of its root changed: same size, another repository."""
+    text = storage._record_text(namespace.identity)
+    root = json.dumps(str(namespace.identity.root))[1:-1]
+    swapped = root[:-1] + ("x" if root[-1] != "x" else "y")
+    return text.replace(root, swapped).encode("ascii")
+
+
+def test_a_record_rewritten_in_place_is_never_trusted_in_a_later_scope(repo):
+    """Same size, same modification time, another root: the next scope reads it again and refuses."""
+    namespace = repository_storage(repo)
+    with request_scope():
+        namespace.ensure()
+        assert namespace.record_state() == "ok"
+    record = namespace._record_file
+    info = os.stat(record)
+    record.write_bytes(_same_size_foreign_record(namespace))
+    os.utime(record, ns=(info.st_atime_ns, info.st_mtime_ns))
+    assert os.stat(record).st_size == info.st_size
+    with request_scope():
+        assert namespace.record_state() == "mismatch"
+        with pytest.raises(storage.StorageIdentityError):
+            namespace.work_item_dir("JR-12345", create=True)
+
+
+def test_within_one_scope_a_record_that_changed_is_read_again(repo):
+    """The scope remembers a record only together with its signature: a rewrite of another size is read and refused."""
+    namespace = repository_storage(repo)
+    with request_scope():
+        namespace.ensure()
+        assert namespace.record_state() == "ok"
+        namespace._record_file.write_bytes(_same_size_foreign_record(namespace) + b"\n")
+        assert namespace.record_state() == "mismatch"
+
+
+@pytest.mark.skipif(not POSIX, reason="st_ctime is the metadata-change time on POSIX only; Windows reports creation")
+def test_on_posix_an_in_place_rewrite_is_seen_even_within_one_scope(repo):
+    namespace = repository_storage(repo)
+    with request_scope():
+        namespace.ensure()
+        record = namespace._record_file
+        info = os.stat(record)
+        record.write_bytes(_same_size_foreign_record(namespace))
+        os.utime(record, ns=(info.st_atime_ns, info.st_mtime_ns))
+        assert namespace.record_state() == "mismatch"
+
+
+# --- diagnostics: paths as text, nothing checked or created (Batch 2A) ----------------------------
+
+
+def test_diagnostics_give_the_doctor_paths_and_create_nothing(tmp_path, monkeypatch):
+    checkout = _marked(tmp_path / "checkout")  # a data root every accessor refuses: diagnostics still answer
+    monkeypatch.setenv("BUGPILOT_HOME", str(checkout / "data"))
+    namespace = repository_storage(tmp_path)
+    before = _tree(tmp_path)
+    found = namespace.diagnostics()
+    assert found == {
+        "data_root": str(data_root()),
+        "data_root_display": "BUGPILOT_HOME",
+        "data_root_source": "BUGPILOT_HOME",
+        "repository_root": str(Path(os.path.realpath(tmp_path))),
+        "repository_id": namespace.identity.repository_id,
+        "repository_dir": str(data_root() / "repositories" / namespace.identity.repository_id),
+        "config_dir": str(data_root() / "config"),
+    }
+    assert global_storage().diagnostics() == {key: found[key] for key in ("data_root", "data_root_display",
+                                                                          "data_root_source", "config_dir")}
+    assert _tree(tmp_path) == before
+    # The names are §8.10's doctor keys, from the frozen contract fixture.
+    contract = json.loads((REPO / "tests" / "fixtures" / "storage_cli_contract.json").read_text(encoding="utf-8"))
+    doctor_keys = {key for entry in contract["entries"] if entry["parent"] == "storage" for key in entry["keys"]}
+    assert set(found) <= doctor_keys
+
+
+# --- G-3: credentials only where they are private (Batch 2A) ---------------------------------------
+
+
+def test_credentials_are_written_privately_where_the_folders_are_private():
+    g = global_storage()
+    path = g.write_config_file("jira_token = 'synthetic'\n")
+    assert path == data_root() / "config" / storage.CREDENTIALS_NAME
+    assert path.read_text(encoding="utf-8") == "jira_token = 'synthetic'\n"
+    assert private_folder.verify_private(path, "credential-file").private
+    if POSIX:
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(data_root() / "config").st_mode) & 0o077 == 0
+    assert g.config_file(create=True) == path  # an existing private file passes too
+
+
+@pytest.mark.skipif(not POSIX, reason="permission bits are POSIX's; the Windows access-list cases follow")
+@pytest.mark.parametrize(
+    "where, mode, reason",
+    [("config", 0o750, "its group has access to it"), ("root", 0o770, "its group may write to it"),
+     ("file", 0o644, "every other account has access to it")],
+)
+def test_a_place_that_is_not_private_refuses_credentials_and_its_bits_are_left_alone(where, mode, reason):
+    g = global_storage()
+    g.write_config_file("jira_token = 'first'\n")
+    target = {"config": data_root() / "config", "root": data_root(), "file": data_root() / "config" / "config.toml"}[where]
+    os.chmod(target, mode)
+    try:
+        with pytest.raises(StorageError, match="will not write credentials") as refused:
+            g.write_config_file("jira_token = 'second'\n")
+        assert reason in str(refused.value) and "second" not in str(refused.value)
+        assert stat.S_IMODE(os.stat(target).st_mode) == mode  # never silently changed
+        assert (data_root() / "config" / "config.toml").read_text(encoding="utf-8") == "jira_token = 'first'\n"
+    finally:
+        os.chmod(target, 0o700 if where != "file" else 0o600)
+
+
+@pytest.mark.skipif(not WINDOWS, reason="Windows access lists")
+@pytest.mark.parametrize("where", ["config", "file"])
+def test_an_access_list_that_lets_others_in_refuses_credentials_and_is_left_alone(where):
+    """Synthetic folders only: icacls adds a grant to ``tmp_path``'s own copies, never to anything else."""
+    g = global_storage()
+    g.write_config_file("jira_token = 'first'\n")
+    target = data_root() / "config" if where == "config" else data_root() / "config" / "config.toml"
+    grant = "*S-1-5-32-545:(OI)(CI)(RX)" if where == "config" else "*S-1-5-32-545:(R)"
+    subprocess.run(["icacls", str(target), "/grant", grant], check=True, capture_output=True)
+    before = private_folder._read_security(str(target))
+    with pytest.raises(StorageError, match="will not write credentials") as refused:
+        g.write_config_file("jira_token = 'second'\n")
+    assert "Users has access to it" in str(refused.value) and "second" not in str(refused.value)
+    assert private_folder._read_security(str(target)) == before  # never changed
+    assert (data_root() / "config" / "config.toml").read_text(encoding="utf-8") == "jira_token = 'first'\n"
+
+
+def _verdicts(monkeypatch, **by_role) -> None:
+    """Make privacy answers per role, to test the gate's decisions independently of the platform."""
+
+    def verify(path, role):
+        return by_role.get(role.replace("-", "_"), private_folder.PrivacyVerdict("private"))
+
+    monkeypatch.setattr(storage.private_folder, "verify_private", verify)
+
+
+def test_an_unverifiable_place_refuses_credentials(monkeypatch):
+    _verdicts(monkeypatch, config_folder=private_folder.PrivacyVerdict("unverifiable", ("its volume keeps no access lists",)))
+    with pytest.raises(StorageError, match="cannot confirm that .* is private") as refused:
+        global_storage().write_config_file("jira_token = 'never-shown'\n")
+    assert "never-shown" not in str(refused.value)
+    assert not (data_root() / "config" / "config.toml").exists()
+
+
+def test_a_file_that_is_not_private_after_the_write_is_reported_and_never_echoed(monkeypatch):
+    _verdicts(monkeypatch, credential_file=private_folder.PrivacyVerdict("not-private", ("Users has access to it",)))
+    with pytest.raises(StorageError, match="cannot confirm that only your account can read it") as refused:
+        global_storage().write_config_file("jira_token = 'never-shown'\n")
+    assert "never-shown" not in str(refused.value) and "Users has access to it" in str(refused.value)
+
+
+def test_only_the_credentials_file_is_privacy_gated(monkeypatch):
+    """Instructions and Fix Modes are not credentials: written wherever the containment and link checks allow."""
+    not_private = private_folder.PrivacyVerdict("not-private", ("Users has access to it",))
+    _verdicts(monkeypatch, data_root=not_private, config_folder=not_private)
+    g = global_storage()
+    assert g.user_instructions_file(create=True).parent.is_dir()
+    assert g.user_fix_modes_dir(create=True).is_dir()
+    assert g.config_file(create=False).name == storage.CREDENTIALS_NAME  # a read checks no privacy
+    with pytest.raises(StorageError, match="will not write credentials"):
+        g.config_file(create=True)
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_link_at_the_credentials_file_is_refused_for_reads_and_writes(decoy, kind):
+    g = global_storage()
+    g.ensure_config_dir()
+    _plant("symlink" if kind == "symlink" else "junction", data_root() / "config" / "config.toml", decoy)
+    for access in (lambda: g.config_file(create=False), lambda: g.write_config_file("jira_token = 'x'\n")):
+        with pytest.raises(StorageError, match="symbolic link or junction"):
+            access()
+    assert sorted(os.listdir(decoy)) == ["keep.txt"]
 
 
 def test_the_resolver_timing_is_recorded_for_ci(tmp_path):
@@ -862,9 +1336,15 @@ def test_the_resolver_timing_is_recorded_for_ci(tmp_path):
         root.mkdir()
         roots.append(root)
     cold = median_us(lambda i: storage.repository_identity(roots[i]), 30, before=lambda i: _forget())
-    warm = median_us(lambda i: storage.repository_identity(roots[0]), 2000)
+    warm = median_us(lambda i: storage.repository_identity(roots[0]), 2000)  # a cached hit, re-checked (Batch 2A)
     first_ensure = median_us(lambda i: repository_storage(roots[i]).ensure(), 30)
+    repeat_ensure = median_us(lambda i: repository_storage(roots[0]).ensure(), 300)
     read_lookup = median_us(lambda i: repository_storage(roots[0]).work_item_dir("JR-12345", create=False), 500)
+    with request_scope():
+        scoped_lookup = median_us(lambda i: repository_storage(roots[0]).work_item_dir("JR-12345", create=False), 500)
+    git_tree = median_us(lambda i: storage._git_tree_problem(data_root()), 500)
+    global_storage().ensure_config_dir()
+    privacy = median_us(lambda i: private_folder.verify_private(data_root() / "config", "config-folder"), 300)
     record = {
         "platform": sys.platform,
         "python": platform.python_version(),
@@ -872,8 +1352,13 @@ def test_the_resolver_timing_is_recorded_for_ci(tmp_path):
         "identity_cold_us": cold,
         "identity_warm_us": warm,
         "ensure_first_write_us": first_ensure,
+        "ensure_repeat_us": repeat_ensure,
         "read_lookup_us": read_lookup,
-        "budgets": "identity < 1 ms cold, < 10 us warm; ensure() < 2 ms on the first write (plan §12)",
+        "read_lookup_in_scope_us": scoped_lookup,
+        "git_tree_check_us": git_tree,
+        "privacy_check_us": privacy,
+        "budgets": "identity < 1 ms cold, < 10 us warm; first ensure() < 10 ms on Windows NTFS and 2 ms on "
+        "Linux and macOS, a provisional reference (plan §12, Q6); read lookups judged end to end in Batch 2B",
     }
     out = os.environ.get("BUGPILOT_BASELINE_OUT")
     if out:

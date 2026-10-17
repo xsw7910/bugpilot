@@ -20,7 +20,9 @@
 #   and the synthetic 0.1.5 storage baselines, whose platform path
 #   observations join the file-safety artifact. Since 0.1.6 Batch 1 (§14.2):
 #   the storage resolver and its safety primitives, whose timing
-#   observations join that artifact too.
+#   observations join that artifact too. Since 0.1.6 Batch 2A (§14.3): the
+#   private-folder check behind the credentials gate and the storage API
+#   boundary.
 #
 # Test isolation: both Python test steps run with HOME and USERPROFILE in the
 # runner's temporary folder (created first), and tests/conftest.py isolates
@@ -136,6 +138,8 @@ jobs:
           tests/test_storage_baseline.py
           tests/test_storage_identity.py
           tests/test_storage_safety.py
+          tests/test_private_folder.py
+          tests/test_storage_api_boundary.py
           --deselect tests/test_publishable.py::test_the_word_list_is_present_and_private
           2>&1 | tee pytest-safety.log
 
