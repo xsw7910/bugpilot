@@ -9,6 +9,7 @@ switched in Batch 1).
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -17,7 +18,9 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 import pytest
@@ -738,6 +741,210 @@ def test_the_identity_cache_is_bounded(tmp_path):
     for index in range(storage._IDENTITY_CACHE_LIMIT + 5):
         repository_identity(_repo(tmp_path, f"r{index:03d}"))
     assert len(storage._identities) == storage._IDENTITY_CACHE_LIMIT
+
+
+# --- C-1: the identity cache under concurrency (Batch 2B-1) --------------------------------------
+# The MCP server runs tools in worker threads, and its read-only tools take no lock of their own.
+
+
+def _threads(count: int, work, *, timeout: float = 120) -> list[BaseException]:
+    """Run ``work(index)`` in ``count`` threads; return their errors. A thread still running fails: a deadlock."""
+    errors: list[BaseException] = []
+
+    def guarded(index: int) -> None:
+        try:
+            work(index)
+        except BaseException as error:  # noqa: BLE001 - every failure is reported
+            errors.append(error)
+
+    started = [threading.Thread(target=guarded, args=(index,), name=f"c1-{index}") for index in range(count)]
+    for thread in started:
+        thread.start()
+    for thread in started:
+        thread.join(timeout)
+    stuck = [thread.name for thread in started if thread.is_alive()]
+    assert stuck == [], f"still running after {timeout} s (a deadlock?): {stuck}"
+    return errors
+
+
+def test_parallel_cached_reads_agree(tmp_path):
+    folder = _repo(tmp_path, "checkout")
+    expected = repository_identity(folder)
+    barrier = threading.Barrier(8)
+    found: list[object] = []
+
+    def read(index: int) -> None:
+        barrier.wait()
+        for _ in range(200):
+            found.append(repository_identity(folder))
+
+    assert _threads(8, read) == []
+    assert len(found) == 1600 and set(found) == {expected}
+
+
+def test_eviction_and_lookups_running_together_stay_consistent_and_bounded(tmp_path):
+    hot = _repo(tmp_path, "hot")
+    expected = repository_identity(hot)
+    cold = [_repo(tmp_path, "cold", f"r{index:03d}") for index in range(storage._IDENTITY_CACHE_LIMIT * 2)]
+    barrier = threading.Barrier(6)
+
+    def work(index: int) -> None:
+        barrier.wait()
+        if index < 3:
+            for folder in cold[index::3]:
+                repository_identity(folder)  # each insert may evict
+        else:
+            for _ in range(300):
+                assert repository_identity(hot) == expected
+
+    assert _threads(6, work) == []
+    assert len(storage._identities) <= storage._IDENTITY_CACHE_LIMIT
+
+
+@pytest.mark.parametrize("kind", ["symlink"] + (["junction"] if WINDOWS else []))
+def test_lookups_while_a_link_is_retargeted_never_mix_namespaces_and_end_on_its_last_target(tmp_path, kind):
+    first, second = _repo(tmp_path, "first"), _repo(tmp_path, "second")
+    allowed = {repository_identity(first), repository_identity(second)}
+    link = tmp_path / "bound"
+    plant = _symlink_dir if kind == "symlink" else _junction
+    plant(link, first)
+    done = threading.Event()
+    seen: list[object] = []
+
+    def retarget() -> None:
+        for round_ in range(60):
+            try:
+                os.unlink(link)
+            except OSError:
+                os.rmdir(link)  # a junction, or a directory symbolic link on Windows
+            plant(link, second if round_ % 2 == 0 else first)
+        done.set()
+
+    def look() -> None:
+        while not done.is_set():
+            try:
+                seen.append(repository_identity(link))
+            except StorageError:
+                pass  # the link was being replaced: refused, never another folder's identity
+
+    assert _threads(4, lambda index: retarget() if index == 0 else look()) == []
+    assert seen
+    if WINDOWS:
+        # Windows makes a link in two steps: an empty folder, then its reparse point. A lookup in between
+        # sees that empty folder, under the link's own name (with ``\\?\`` kept when realpath raced too).
+        # That is what the spelling named at that instant, not another folder's namespace.
+        def named(identity) -> str:
+            return os.path.normcase(str(identity.root).removeprefix("\\\\?\\"))
+
+        transient = {os.path.normcase(os.path.abspath(link))}
+        assert {named(identity) for identity in set(seen) - allowed} <= transient
+    else:
+        assert set(seen) <= allowed  # symlink() is atomic
+    assert repository_identity(link) == repository_identity(first)  # round 59 pointed it at the first folder
+    assert storage._identities[os.path.abspath(link)][0] == repository_identity(first)  # nothing stale kept
+
+
+def test_a_removal_can_never_fall_between_a_lookup_and_its_reordering(tmp_path, monkeypatch):
+    """C-1, deterministic: thread A holds a cache hit; thread B forgets that entry before A reorders it.
+
+    Without the lock, B's removal lands while A waits, and A's ``move_to_end`` raises ``KeyError``.
+    With it, B waits for A: A's pause (0.5 s) times out, A finishes, and only then does B remove the entry.
+    """
+    folder = _repo(tmp_path, "checkout")
+    absolute = os.path.abspath(folder)
+    expected = repository_identity(folder)
+    a_has_hit, b_done = threading.Event(), threading.Event()
+
+    class PausingCache(OrderedDict):
+        def get(self, key, default=None):
+            found = super().get(key, default)
+            if threading.current_thread().name == "A" and key == absolute:
+                a_has_hit.set()
+                b_done.wait(timeout=0.5)
+            return found
+
+    monkeypatch.setattr(storage, "_identities", PausingCache(storage._identities))
+    real_stat = os.stat
+
+    def gone_for_b(path, *args, **kwargs):
+        if threading.current_thread().name == "B" and os.fspath(path) == absolute:
+            raise FileNotFoundError(errno.ENOENT, "removed meanwhile")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(storage.os, "stat", gone_for_b)
+    outcome: dict[str, object] = {}
+
+    def thread_a() -> None:
+        try:
+            outcome["a"] = repository_identity(folder)
+        except BaseException as error:  # noqa: BLE001
+            outcome["a"] = error
+
+    def thread_b() -> None:
+        a_has_hit.wait(timeout=30)
+        try:
+            repository_identity(folder)
+        except StorageError:
+            pass  # B saw the folder as gone: refused
+        except BaseException as error:  # noqa: BLE001
+            outcome["b"] = error
+        finally:
+            b_done.set()
+
+    a = threading.Thread(target=thread_a, name="A")
+    b = threading.Thread(target=thread_b, name="B")
+    started = time.monotonic()
+    a.start()
+    b.start()
+    a.join(60)
+    b.join(60)
+    assert not a.is_alive() and not b.is_alive()
+    assert outcome.get("a") == expected, outcome.get("a")  # no KeyError, and the right identity
+    assert "b" not in outcome
+    assert time.monotonic() - started >= 0.5  # B was held off until A was done
+    assert absolute not in storage._identities  # B's removal came after A's reordering
+
+
+def test_an_identity_resolved_before_a_retarget_is_never_published(tmp_path, monkeypatch):
+    """The publication re-checks, under the lock, that the spelling still names the folder it was resolved for."""
+    first, second = _repo(tmp_path, "first"), _repo(tmp_path, "second")
+    link = tmp_path / "bound"
+    _symlink_dir(link, first)
+    real_identity = storage._identity
+
+    def resolve_then_retarget(absolute):
+        resolved = real_identity(absolute)
+        try:
+            os.unlink(link)
+        except OSError:
+            os.rmdir(link)
+        _symlink_dir(link, second)  # retargeted after resolution, before publication
+        return resolved
+
+    monkeypatch.setattr(storage, "_identity", resolve_then_retarget)
+    repository_identity(link)
+    monkeypatch.setattr(storage, "_identity", real_identity)
+    assert os.path.abspath(link) not in storage._identities
+    assert repository_identity(link) == repository_identity(second)
+
+
+def test_repeated_concurrent_access_finishes(tmp_path):
+    """No deadlock: many threads mixing hits, misses, evictions and removals all complete."""
+    folders = [_repo(tmp_path, f"r{index:02d}") for index in range(12)]
+    gone = _repo(tmp_path, "gone")
+
+    def work(index: int) -> None:
+        for round_ in range(150):
+            target = folders[(index + round_) % len(folders)]
+            assert repository_identity(target).root == Path(os.path.realpath(target))
+            if round_ % 25 == 0:
+                try:
+                    repository_identity(tmp_path / "missing-folder")
+                except StorageError:
+                    pass
+
+    shutil.rmtree(gone)
+    assert _threads(10, work) == []
 
 
 # --- two processes, one namespace (§8.7) -------------------------------------------------------

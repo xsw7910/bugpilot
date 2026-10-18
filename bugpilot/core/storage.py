@@ -32,8 +32,10 @@ Its contracts (plan §8.1, §8.3):
   link, so a reader never sees half of one and an existing one is never
   replaced.
 - **Messages never hold an absolute path:** they use :func:`display_path`.
-  A failure of the system itself (an ``OSError``) is not translated; until the
-  owner chooses an error code for it (US-D26) it surfaces as it does today.
+  A failure of the system itself (an ``OSError``) is mostly not translated;
+  where it is (an unreadable record, a deletion that cannot finish) it is a
+  :class:`StorageUnavailable`, never a policy refusal. Which error code either
+  maps to is the owner's choice (US-D26, ``STORAGE_UNAVAILABLE``).
 - **No legacy reads.** Nothing here reads, copies or migrates the folders
   BugPilot 0.1.5 kept inside a repository, or the 0.1.5 files at the top of
   the data root.
@@ -53,6 +55,17 @@ Batch 2A added three guarantees, still before any caller uses this module:
   re-checked against the folder on every use; containment, Git working-tree
   and record verdicts live only as long as one :func:`request_scope`.
 
+Batch 2B-1 prepared the switch of callers, still before any caller uses it:
+
+- **Thread-safe identities** (finding C-1): the identity cache is used under
+  one lock, so the MCP server's worker threads can share it.
+- **Scopes that are never shared** (C-2): a request scope belongs to the
+  thread that opened it, so requests that copy one context never share one.
+- **Checked deletion:** :meth:`RepositoryStorage.remove_work_item` and
+  :meth:`RepositoryStorage.remove_memory_file`, for ``clean``.
+- **Checks that never raise:** ``check()`` on both storages, for ``doctor``
+  (:class:`StorageCheck`).
+
 Standard library only; Python 3.10 and later.
 """
 
@@ -68,6 +81,7 @@ import posixpath
 import re
 import stat
 import tempfile
+import threading
 import time
 import unicodedata
 from collections import OrderedDict
@@ -85,6 +99,7 @@ from .safe_paths import (
     is_link_or_junction,
     is_link_stat,
     refuse_link,
+    remove_owned_path,
     writable_dir,
 )
 
@@ -103,8 +118,10 @@ __all__ = [
     "SETTINGS_NAMES",
     "STORAGE_LAYOUT_VERSION",
     "SettingsName",
+    "StorageCheck",
     "StorageError",
     "StorageIdentityError",
+    "StorageUnavailable",
     "WorkItemEntry",
     "data_root",
     "data_root_source",
@@ -184,6 +201,15 @@ class StorageError(UnsafePathError):
 
 class StorageIdentityError(StorageError):
     """A repository's identity record names another repository, or is not a readable record (§7.5)."""
+
+
+class StorageUnavailable(StorageError):
+    """The data folder cannot be read or written right now: a file in use, no permission, a failed deletion.
+
+    Not a policy refusal: the same request may succeed later. Still a
+    :class:`StorageError`, so every entry point reports it as one sentence;
+    which error code it maps to is still open (``STORAGE_UNAVAILABLE``, US-D26).
+    """
 
 
 # --- the data root ----------------------------------------------------------------------------
@@ -362,6 +388,14 @@ def repository_identity(repo_root: str | os.PathLike[str]) -> RepositoryIdentity
     MCP server binds its root once) never keeps writing to the namespace of a
     folder it no longer runs in. A file index of 0 proves nothing: such an
     identity is resolved every time and never cached.
+
+    Thread-safe (Batch 2B-1, finding C-1): the MCP server runs tools in worker
+    threads, and its read-only tools take no lock of their own. Every look at,
+    or change of, the remembered identities happens under ``_identities_lock``:
+    a lookup and its reordering are one step, so another thread's removal can
+    never fall between them. ``realpath`` runs outside the lock; an identity is
+    published only if, at that moment and under the lock, the spelling still
+    names the folder it was computed for.
     """
     try:
         given = os.fspath(repo_root)
@@ -373,30 +407,47 @@ def repository_identity(repo_root: str | os.PathLike[str]) -> RepositoryIdentity
     try:
         now = os.stat(absolute)
     except (OSError, ValueError):
-        _identities.pop(absolute, None)
+        _forget_identity(absolute)
         return _identity(absolute)  # raises the one-sentence refusal for a missing or unresolvable folder
-    remembered = _identities.get(absolute)
-    if remembered is not None and now.st_ino != 0 and (now.st_dev, now.st_ino) == remembered[1]:
-        _identities.move_to_end(absolute)
-        return remembered[0]
-    identity = _identity(absolute)
+    file_id = (now.st_dev, now.st_ino)
+    with _identities_lock:
+        remembered = _identities.get(absolute)
+        if remembered is not None and now.st_ino != 0 and file_id == remembered[1]:
+            _identities.move_to_end(absolute)
+            return remembered[0]
+    identity = _identity(absolute)  # the slow part, outside the lock
     try:
         resolved = os.stat(identity.root)
     except OSError:
-        _identities.pop(absolute, None)
+        _forget_identity(absolute)
         return identity
-    if resolved.st_ino == 0 or (resolved.st_dev, resolved.st_ino) != (now.st_dev, now.st_ino):
-        _identities.pop(absolute, None)  # no stable file identity, or it changed meanwhile: do not remember
+    if resolved.st_ino == 0 or (resolved.st_dev, resolved.st_ino) != file_id:
+        _forget_identity(absolute)  # no stable file identity, or it changed meanwhile: do not remember
         return identity
-    _identities[absolute] = (identity, (resolved.st_dev, resolved.st_ino))
-    _identities.move_to_end(absolute)
-    while len(_identities) > _IDENTITY_CACHE_LIMIT:
-        _identities.popitem(last=False)
+    with _identities_lock:
+        try:
+            current = os.stat(absolute)
+        except (OSError, ValueError):
+            current = None
+        if current is None or current.st_ino == 0 or (current.st_dev, current.st_ino) != file_id:
+            _identities.pop(absolute, None)  # retargeted while it was resolved: publish nothing stale
+            return identity
+        _identities[absolute] = (identity, file_id)
+        _identities.move_to_end(absolute)
+        while len(_identities) > _IDENTITY_CACHE_LIMIT:
+            _identities.popitem(last=False)
     return identity
+
+
+def _forget_identity(absolute: str) -> None:
+    with _identities_lock:
+        _identities.pop(absolute, None)
 
 
 #: spelling (absolute) -> (identity, (st_dev, st_ino) of its canonical folder when it was computed)
 _identities: OrderedDict[str, tuple[RepositoryIdentity, tuple[int, int]]] = OrderedDict()
+#: Guards every access to ``_identities``; never held across ``realpath`` or another lock.
+_identities_lock = threading.Lock()
 
 
 def _identity(absolute: str) -> RepositoryIdentity:
@@ -455,7 +506,9 @@ def _directory(root: Path, parts: tuple[str, ...], *, create: bool) -> Path:
         raise StorageError(str(error)) from None
 
 
-def _existing(root: Path, parts: tuple[str, ...]) -> Path:
+def _existing(
+    root: Path, parts: tuple[str, ...], *, refusal: Callable[[tuple[str, ...], str], str] | None = None
+) -> Path:
     """``root / parts`` for a read: every component that exists is a real directory, never a link. Creates nothing.
 
     The read contract of §8.3: the path is returned whether or not it exists
@@ -465,8 +518,10 @@ def _existing(root: Path, parts: tuple[str, ...]) -> Path:
     canonical comparison a write makes (``_directory``) is not repeated here.
     Every component is first checked to be a plain name (no separator, ``.``,
     ``..`` or empty part), as a write's are: defence in depth, since every
-    caller builds them from validated ids and fixed names.
+    caller builds them from validated ids and fixed names. ``refusal`` words
+    the refusal (a deletion says what it did not delete); a read's by default.
     """
+    refuse = refusal or _read_refusal
     try:
         _check_parts(parts)
     except UnsafePathError as error:
@@ -480,9 +535,9 @@ def _existing(root: Path, parts: tuple[str, ...]) -> Path:
             return root.joinpath(*parts)
         shown = "/".join(parts[: index + 1])
         if is_link_stat(info):
-            raise StorageError(_read_refusal(parts, f"{shown} is a symbolic link or junction"))
+            raise StorageError(refuse(parts, f"{shown} is a symbolic link or junction"))
         if not stat.S_ISDIR(info.st_mode):
-            raise StorageError(_read_refusal(parts, f"{shown} is not a directory"))
+            raise StorageError(refuse(parts, f"{shown} is not a directory"))
     return current
 
 
@@ -511,8 +566,33 @@ def _validated(work_item_id: str) -> str:
 
 # --- request scopes: how long a verdict may be trusted -------------------------------------------
 
-#: The verdicts of the current request scope, or None outside one.
-_scope: ContextVar[dict[tuple[Any, ...], Any] | None] = ContextVar("bugpilot_storage_scope", default=None)
+class _Scope(dict):
+    """The verdicts of one request scope, and the thread that opened it."""
+
+    __slots__ = ("owner",)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.owner = threading.current_thread()  # held, so it cannot be reused by a later thread
+
+
+#: The current request scope, or None outside one. Read it through :func:`_active_scope`.
+_scope: ContextVar[_Scope | None] = ContextVar("bugpilot_storage_scope", default=None)
+
+
+def _active_scope() -> _Scope | None:
+    """The request scope this thread opened, or None.
+
+    A context copied into another thread (``contextvars.copy_context().run``,
+    as ``anyio.to_thread.run_sync`` does for every MCP tool call) carries the
+    same scope object with it. That scope belongs to the thread that opened it:
+    anywhere else it counts as no scope at all, so two requests can never share
+    verdicts through a context they both copied (Batch 2B-1, finding C-2).
+    """
+    scope = _scope.get()
+    if scope is None or scope.owner is not threading.current_thread():
+        return None
+    return scope
 
 
 @contextlib.contextmanager
@@ -520,19 +600,33 @@ def request_scope() -> Iterator[None]:
     """One bounded operation: within it, each containment, Git working-tree and record verdict is computed once.
 
     Outside any scope nothing is remembered, so every check looks at the disk
-    again. A scope opened inside another joins it; the outermost one decides
-    how long verdicts live, and drops them all when it ends. Each public
-    operation of this module opens one, so one operation never checks the same
-    thing twice. A command that makes several calls opens one around them
-    (Batch 2B: one per CLI command), and the MCP server opens a new one for
-    every tool call, so a ``.git`` created, or a link changed, between two
-    calls is seen by the next one. A long-running loop must never be wrapped
-    in a single scope.
+    again. Each public operation of this module opens one, so one operation
+    never checks the same thing twice; a caller that makes several calls opens
+    one around them, so that a ``.git`` created, or a link changed, between two
+    operations is seen by the next one.
+
+    The invariants (Batch 2B-1, C-2):
+
+    - every outermost scope gets a new, empty set of verdicts, never reused,
+      and drops it when it ends, by an exception or a cancellation too;
+    - a scope opened inside another one, in the same thread, joins it: the
+      outermost scope decides how long verdicts live;
+    - a scope belongs to the thread that opened it (:func:`_active_scope`).
+      A worker thread, even one that inherited or copied the context, starts
+      without one, and its own scope is separate. Two asyncio tasks in one
+      thread are separate only if neither inherits a context in which a scope
+      is already open, so a server must never open one in a context its
+      requests are copied from;
+    - a long-running loop must never be wrapped in a single scope.
+
+    Not wired yet: the CLI opening one per command is Batch 2B consumer work,
+    and the MCP server opening one per tool call, inside the worker thread, is
+    a mandatory Batch 2B-5 gate.
     """
-    if _scope.get() is not None:
+    if _active_scope() is not None:
         yield
         return
-    token = _scope.set({})
+    token = _scope.set(_Scope())
     try:
         yield
     finally:
@@ -541,7 +635,7 @@ def request_scope() -> Iterator[None]:
 
 def _scoped(key: tuple[Any, ...], compute: Callable[[], _T]) -> _T:
     """``compute()``, remembered for the current request scope only; computed every time outside one."""
-    verdicts = _scope.get()
+    verdicts = _active_scope()
     if verdicts is None:
         return compute()
     if key not in verdicts:
@@ -611,9 +705,9 @@ def _transient(action):
     raise AssertionError("not reached")  # pragma: no cover
 
 
-def _unreadable(path: Path) -> StorageError:
+def _unreadable(path: Path) -> StorageUnavailable:
     """A record that cannot be read now (in use, or no permission): not a corrupt one, and never "delete it"."""
-    return StorageError(
+    return StorageUnavailable(
         f"BugPilot cannot read {display_path(path)} right now: it is in use or not readable. "
         "Nothing was read or written; try again, and check the folder's permissions if it persists."
     )
@@ -665,7 +759,7 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
     except OSError:
         return "corrupt"
     signature = _record_signature(info, identity)
-    verdicts = _scope.get()
+    verdicts = _active_scope()
     key = ("record", str(path))
     if verdicts is not None and verdicts.get(key) == signature:
         return "ok"
@@ -934,6 +1028,46 @@ def _check_data_root(root: Path) -> None:
         raise StorageError(problem)
 
 
+# --- diagnostics that never raise (Batch 2B-1) --------------------------------------------------
+
+CheckState = Literal["usable", "uninitialized", "refused", "unavailable", "unverifiable"]
+
+
+@dataclass(frozen=True)
+class StorageCheck:
+    """What a read-only check found, for a future ``doctor``. Never raises; creates, writes and changes nothing.
+
+    - ``usable``: it exists and passed every check;
+    - ``uninitialized``: nothing is wrong, but it was never created (the first write would create it);
+    - ``refused``: a policy refusal (the data root in the repository or in a Git working tree, a link on
+      the way, a record naming another repository or unreadable as one, a place that is not private);
+    - ``unavailable``: the file system did not answer (a file in use, no permission, an I/O error);
+    - ``unverifiable``: privacy could not be proven, so credentials would not be written.
+
+    ``problem`` is one sentence in display form, ``None`` when usable or uninitialized. Mapping these
+    states onto ``doctor``'s JSON (``state``, ``problem``) is still to be decided (Batch 2B-5).
+    """
+
+    state: CheckState
+    problem: str | None = None
+
+
+def _checked(examine: Callable[[], StorageCheck]) -> StorageCheck:
+    """``examine()`` in one request scope, with every refusal or failure turned into a :class:`StorageCheck`."""
+    try:
+        with request_scope():
+            return examine()
+    except StorageUnavailable as error:
+        return StorageCheck("unavailable", str(error))
+    except StorageError as error:
+        return StorageCheck("refused", str(error))
+    except OSError as error:
+        return StorageCheck(
+            "unavailable",
+            f"BugPilot cannot examine its data folder right now ({type(error).__name__}). Nothing was read or written.",
+        )
+
+
 # --- the two storages --------------------------------------------------------------------------
 
 
@@ -1018,6 +1152,47 @@ class GlobalStorage:
             "data_root_source": data_root_source(),
             "config_dir": str(self._config_dir),
         }
+
+    def check(self) -> StorageCheck:
+        """Whether ``config/`` could be used and credentials written, without raising or creating anything.
+
+        The data root is judged as every accessor judges it (Git working tree,
+        a link at ``config/`` or at ``config.toml``); then the data root,
+        ``config/`` and ``config.toml``, as far as they exist, as the
+        credentials gate judges them (:func:`private_folder.verify_private`).
+        """
+
+        def examine() -> StorageCheck:
+            _check_data_root(self._data_root)
+            config = _existing(self._data_root, ("config",))
+            places: list[tuple[Path, private_folder.Role]] = []
+            if os.path.lexists(self._data_root):
+                places.append((self._data_root, "data-root"))
+            if os.path.lexists(config):
+                places.append((config, "config-folder"))
+                credentials = _file(config / CREDENTIALS_NAME)
+                if os.path.lexists(credentials):
+                    places.append((credentials, "credential-file"))
+            unproven = []
+            for place, role in places:
+                verdict = private_folder.verify_private(place, role)
+                if verdict.state == "not-private":
+                    return StorageCheck(
+                        "refused",
+                        f"Credentials would not be written: {display_path(place)} is not private "
+                        f"({'; '.join(verdict.reasons)}).",
+                    )
+                if verdict.state == "unverifiable":
+                    unproven.append(f"{display_path(place)} ({'; '.join(verdict.reasons)})")
+            if unproven:
+                return StorageCheck(
+                    "unverifiable",
+                    "Credentials would not be written: BugPilot cannot confirm that these are private: "
+                    + ", ".join(unproven) + ".",
+                )
+            return StorageCheck("usable" if os.path.lexists(config) else "uninitialized")
+
+        return _checked(examine)
 
     def _check_private_for_credentials(self, path: Path) -> None:
         places: list[tuple[Path, private_folder.Role]] = [
@@ -1227,6 +1402,101 @@ class RepositoryStorage:
             "repository_dir": str(self._directory),
             "config_dir": str(self._data_root / "config"),
         }
+
+    def check(self) -> StorageCheck:
+        """The namespace's state, without raising or creating anything: usable, uninitialized, refused, unavailable."""
+
+        def examine() -> StorageCheck:
+            state = self.record_state()
+            if state == "ok":
+                return StorageCheck("usable")
+            if state in ("absent", "missing-record"):
+                return StorageCheck("uninitialized")
+            return StorageCheck("refused", str(self._refusal(state)))
+
+        return _checked(examine)
+
+    def remove_work_item(self, work_item_id: str) -> bool:
+        """Delete ``work/<id>`` and everything in it. ``False`` when it was not there (Batch 2B-1, for ``clean``)."""
+        return self._remove(("work", _validated(work_item_id)), folder=True)
+
+    def remove_memory_file(self, work_item_id: str) -> bool:
+        """Delete ``memory/<id>.md``. ``False`` when it was not there (``clean --include-memory``)."""
+        return self._remove(("memory", f"{_validated(work_item_id)}.md"), folder=False)
+
+    def _remove(self, rest: tuple[str, ...], *, folder: bool) -> bool:
+        """Delete one work item's folder or memory file of this namespace, and nothing else.
+
+        Fails closed. Before anything is deleted, in one request scope:
+
+        - the data root and the repository are kept apart, and the data root
+          is outside every Git working tree (:meth:`_check_containment`);
+        - every component down to the target's folder exists as a real folder,
+          never a link or junction (:func:`_existing`);
+        - the namespace's identity record is this repository's: a record that
+          is missing, names another repository or is unreadable refuses the
+          deletion, so one repository can never delete another's files;
+        - the target itself is not a link, has the expected kind, and resolves
+          exactly to ``<canonical data root>/repositories/<id>/<rest>``.
+
+        Then :func:`safe_paths.remove_owned_path` removes it; links inside a
+        work folder are removed as links, never followed. Only ``work/<id>``
+        and ``memory/<id>.md`` can be addressed: never the data root,
+        ``repositories``, the namespace, ``settings``, ``work``, ``memory`` or
+        ``config``, and never anything in a repository, its 0.1.5 work, memory
+        and settings folders included. A same-user process racing the deletion
+        is the limit §10.3 states.
+        """
+        parts = self._parts(*rest)
+        shown = "/".join(rest)
+        try:
+            _check_parts(parts)
+        except UnsafePathError as error:
+            raise StorageError(str(error)) from None
+        with request_scope():
+            self._check_containment()
+            parent = _existing(
+                self._data_root, parts[:-1],
+                refusal=lambda _, why: f"BugPilot will not delete {shown}: {why}. Nothing was deleted.",
+            )
+            if not os.path.lexists(self._directory):
+                return False
+            state = _record_state(self._record_file, self.identity)
+            if state != "ok":
+                why = "its identity record is missing" if state == "missing-record" else (
+                    "it belongs to a different repository folder" if state == "mismatch"
+                    else "its identity record is not readable as one")
+                raise StorageError(
+                    f"BugPilot will not delete {shown}: the namespace it is in cannot be shown to be this "
+                    f"repository's ({why}). Nothing was deleted."
+                )
+            target = parent / parts[-1]
+            try:
+                info = os.lstat(target)
+            except (FileNotFoundError, NotADirectoryError):
+                return False
+            except OSError as error:
+                raise StorageUnavailable(
+                    f"BugPilot cannot examine {display_path(target)} right now ({type(error).__name__}). Nothing was deleted."
+                ) from None
+            expected_kind = stat.S_ISDIR(info.st_mode) if folder else stat.S_ISREG(info.st_mode)
+            if is_link_stat(info) or not expected_kind:
+                what = "a symbolic link or junction" if is_link_stat(info) else (
+                    "not a folder" if folder else "not a regular file")
+                raise StorageError(f"BugPilot will not delete {shown}: it is {what}. Nothing was deleted.")
+            expected = os.path.join(os.path.realpath(self._data_root), *parts)
+            if os.path.normcase(os.path.realpath(target)) != os.path.normcase(expected):
+                raise StorageError(
+                    f"BugPilot will not delete {shown}: it does not resolve to its own place in {DATA_ROOT_BOUNDARY}. "
+                    "Nothing was deleted."
+                )
+            try:
+                return remove_owned_path(target)
+            except OSError as error:
+                raise StorageUnavailable(
+                    f"BugPilot could not finish deleting {display_path(target)} ({type(error).__name__}); part of it "
+                    "may remain. Nothing outside it was touched; try again once no program holds its files."
+                ) from None
 
 
 def repository_storage(repo_root: str | os.PathLike[str]) -> RepositoryStorage:

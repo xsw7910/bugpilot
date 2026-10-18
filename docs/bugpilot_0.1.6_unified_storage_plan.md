@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. Batch 0B, Batch 2B and Batches 3–5 have **NOT STARTED**. |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **implemented and verified locally on Windows; not committed, no CI run** (§14.3, "Batch 2B-1 — inactive consumer-switch preparation"). Batch 0B, Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -1960,7 +1960,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **NOT STARTED** | — | — | awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 implemented and verified locally** (inactive preparation, Windows only; not committed, no CI run; §14.3 "Batch 2B-1 — inactive consumer-switch preparation"). **2B-2 to 2B-6 NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -3353,6 +3353,256 @@ The module states its limits: computed names, and what a caller does with a path
 
 **Version:** 0.1.5, unchanged. **Decisions:** none changed. **Batch 0B and Batch 2B:** NOT STARTED.
 
+#### Batch 2B-1 — inactive consumer-switch preparation (as built, 2026-10-17)
+
+**Status: implemented and verified locally on Windows. Not staged, not committed, not pushed; no CI run** (§19). Nothing is activated: no product module imports `storage`, and the CLI, MCP and the extension keep 0.1.5's behaviour. Batch 2B-2 to 2B-6 (the switch of callers) and Batch 0B have **NOT STARTED**, and Batch 2 as a whole is not complete.
+
+| | |
+| --- | --- |
+| Authorized | 2026-10-17, the owner's Batch 2B-1 brief, on `main` at `3f8be69`. In scope: C-1, C-2's storage-side invariants, storage-owned deletion, non-raising diagnostics, the test-only write witness, and local verification only. Out of scope: the MCP dispatcher, `errors.py` (no `STORAGE_UNAVAILABLE`), and every CLI, MCP, workflow, doctor, `user_config` and extension module |
+| Version | 0.1.5, unchanged |
+| Product behaviour | unchanged: no caller is switched, the 0.1.5 storage is untouched, and no user data was read |
+| Goldens, fixtures, baselines | unchanged, the frozen 46-entry contract fixture included; the ratchet record (`tests/storage_inventory.json`) is unchanged |
+| Batch 0A's child loader | `tests/isolation_child/sitecustomize.py` is **not modified**. Python children are witnessed through the witness's own runner instead (below) |
+| Accounts | none: no Jira, no agent, no live probe |
+
+**Files.**
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/storage.py` | C-1: the identity cache under one lock. C-2: request scopes owned by the thread that opened them. `StorageUnavailable`. `StorageCheck` and `check()` on both storages. `remove_work_item()` and `remove_memory_file()`. `_existing()` takes the refusal's wording. The module docstring |
+| `tests/test_storage_identity.py` | the C-1 tests: 6 functions, 7 cases (a junction case on Windows) |
+| `tests/test_storage_scope.py` | **new**: C-2's invariants, 14 tests |
+| `tests/test_storage_safety.py` | checked deletion (40 cases) and the checks (11 cases) |
+| `tests/_storage_witness.py` | **new**: the write witness and its child runner (test-only) |
+| `tests/test_storage_witness.py` | **new**: the witness, proven on itself, 17 tests |
+| `.github/workflows/ci.yml` | `test_storage_scope.py` and `test_storage_witness.py` join `safety-and-baselines`. Job names, pins and permissions unchanged; nine checks |
+| this plan | this section; the header, §14.0, §18 and §19 (including the result of run 39064298339) |
+
+**C-1: the identity cache under concurrency.**
+- **The finding.** The MCP server runs every tool in a worker thread, and its read-only tools take no lock of their own. `repository_identity()`'s cache hit read an entry with `get()` and then reordered it with `move_to_end()`. Another thread's removal (a spelling that stopped resolving) or eviction between the two raised `KeyError`. An unlocked publication could also store an identity resolved before a retarget.
+- **The fix.** One `threading.Lock` guards every access to the cache: lookup, validation and reordering as one step, removal, insertion, eviction, and the re-check before publication.
+  - The lock is never held across `realpath`, the SHA-256 or another lock, so it cannot deadlock against anything.
+  - An identity is published only if, at that moment and under the lock, a fresh `stat` of the spelling still names the folder it was computed for. Otherwise the entry is dropped and the identity is returned uncached.
+  - The cache stays bounded (`_IDENTITY_CACHE_LIMIT`).
+- **Tests** (`test_storage_identity.py`; every thread is joined with a timeout, and a thread still running fails the test as a deadlock):
+
+| Test | What it shows |
+| --- | --- |
+| `test_a_removal_can_never_fall_between_a_lookup_and_its_reordering` | **the deterministic race regression.** An `OrderedDict` subclass pauses thread A inside its cache lookup, until thread B has finished or 0.5 s pass. B finds the spelling gone and removes the entry. Without the lock, B's removal lands while A waits, and A's `move_to_end` raises `KeyError` (mutations 1 and 2 below). With it, B waits for A: A returns the right identity, and B's removal comes after A's reordering |
+| `test_parallel_cached_reads_agree` | 8 threads × 200 cached reads: one identity, no error |
+| `test_eviction_and_lookups_running_together_stay_consistent_and_bounded` | 3 threads insert twice the limit while 3 threads look up a hot spelling: always the right identity; the size stays within the limit |
+| `test_lookups_while_a_link_is_retargeted_never_mix_namespaces_and_end_on_its_last_target` (symbolic link; junction on Windows) | 60 retargets under 3 looking threads. Every result is one of the two folders (Windows: or the transient folder below); the final lookup, and the cache entry, are the last target |
+| `test_an_identity_resolved_before_a_retarget_is_never_published` | a retarget between resolution and publication: nothing stale is stored, and the next lookup gives the new target |
+| `test_repeated_concurrent_access_finishes` | no deadlock: 10 threads × 150 mixed hits, misses, evictions and refusals finish |
+
+- **Observed while testing, a Windows limit (not a defect of this slice).** Windows makes a directory link in two steps: an empty folder, then its reparse point (`CreateSymbolicLinkW` and `_winapi.CreateJunction` alike).
+  - A lookup in that instant resolves the link's spelling to that empty folder: the namespace of the link's own name, not of either target.
+  - Under the same race, `ntpath.realpath` can also keep the `\\?\` prefix, which gives a different ID.
+  - Neither identity is cached past the link's completion: its file ID changes, so the next lookup resolves afresh. It is what the spelling named at that instant, not another folder's namespace. Retargeting the repository folder under a running server is not a supported setup.
+
+**C-2: request scopes are never shared.**
+- **The finding.** A request scope lived in a `ContextVar` as a dictionary. A context copied into a worker thread carries the very same dictionary: `contextvars.copy_context().run`, which `anyio.to_thread.run_sync` uses for every MCP tool call. Had a scope been open where requests are copied from, every request would have read and filled one shared set of verdicts.
+- **The fix.** A scope is now a `_Scope`: its verdicts, plus the thread that opened it. `_active_scope()` returns it only in that thread. Anywhere else it counts as no scope at all: the checks look at the disk again, and a `request_scope()` opened there starts its own. Every reader of the scope goes through `_active_scope()`: `_scoped`, the record verdict and the witness.
+- **The invariants,** each tested in `test_storage_scope.py` (14 tests):
+
+| Invariant | Tests |
+| --- | --- |
+| Every outermost scope is new and empty, and none is reused | `test_every_request_gets_a_new_empty_scope_and_none_is_reused`, `test_a_verdict_is_computed_once_per_scope_and_every_time_outside_one` |
+| A nested scope in the same thread joins the outer one; the outer one decides its lifetime; public operations join the caller's | `test_a_nested_scope_joins_the_outer_one_and_the_outer_one_decides_its_lifetime`, `test_public_operations_share_the_callers_scope` |
+| An exception or a cancellation releases the scope | `test_an_exception_releases_the_scope`, `test_an_exception_in_a_nested_scope_leaves_the_outer_one_intact`, `test_a_cancelled_request_releases_its_scope` (asyncio) |
+| Concurrent requests never share | `test_requests_in_copied_contexts_on_worker_threads_get_separate_scopes` (6 at once), `test_asyncio_tasks_started_without_a_scope_get_separate_ones` |
+| A scope in a base context is not shared by requests copied from it | `test_a_scope_open_in_a_base_context_is_not_shared_by_requests_copied_from_it` (the copy holds the same object, and it counts as no scope there), `test_anyio_worker_threads_copy_the_context_and_still_start_without_a_scope` |
+| A worker thread starts without a scope, whether or not threads inherit the context (`sys.flags.thread_inherit_context`) | `test_a_thread_started_inside_a_request_starts_without_a_scope` |
+| Building the MCP server leaves no scope in the calling context | `test_building_the_mcp_server_leaves_no_scope_behind` |
+| The documented limit: asyncio tasks in one thread that copy a context with an open scope join it | `test_asyncio_tasks_started_inside_an_open_scope_join_it_which_is_why_a_server_must_not_open_one` |
+
+- **What this does not show.** `mcp_server.py` does not use `storage` and opens no scope, so "one scope per MCP tool call" is **not integrated**. These unit tests prove the storage side only.
+- **Mandatory gate for Batch 2B-5** (the MCP switch). It is not met by this slice:
+  1. Every tool body opens `storage.request_scope()` itself, inside the worker thread that runs it, never around `call_tool` in the event loop.
+  2. No scope is opened in `build_server`, `main`, a lifespan or any other context that requests are copied from.
+  3. A test drives concurrent tool calls through the real dispatcher and shows a separate scope per call. A second test shows that a `.git` created, or a link changed, between two calls is seen by the second.
+  4. Each `bugpilot` CLI command opens one scope and closes it before `bug --launch-agent` starts the agent: no scope may span the agent's run.
+
+  If isolation then needs a change to the MCP dispatcher, that change is reviewed as part of 2B-5.
+- **Limit.** Two asyncio tasks in one thread that inherit a context in which a scope is open share it: that is nesting, by design. BugPilot's MCP tools are all synchronous, so they run in worker threads, where the thread check separates them.
+
+**Checked deletion: the storage side of `clean`.**
+- **The API.** `RepositoryStorage.remove_work_item(id)` deletes `work/<id>` and everything in it, and `remove_memory_file(id)` deletes `memory/<id>.md`.
+  - Each returns `True` when it deleted something, and `False` when nothing was there, a namespace that was never made included. Nothing is created either way.
+  - The id is validated before any path is built, so only `work/<id>` and `memory/<id>.md` can be addressed. Never the data root, `config`, `repositories`, the namespace, its record, `settings`, `work` or `memory`, and never anything in a repository.
+- **Checks, in order, in one request scope,** each failing closed:
+  1. The repository and the data root are kept apart, and the data root is outside every Git working tree (`_check_containment`).
+  2. Every component down to the target's folder is a real folder, never a link or junction (`_existing`, with the deletion's own wording).
+  3. The namespace's identity record is this repository's. A record that is missing, names another repository or is unreadable refuses, so one repository can never delete another's files.
+  4. The target, looked at with `lstat`, is not a link and has the expected kind.
+  5. The target resolves exactly to `<canonical data root>/repositories/<id>/<rest>`.
+
+  Only then does `safe_paths.remove_owned_path` delete it. Links inside a work folder are removed as links, never followed.
+- **Errors.**
+  - A refusal is a `StorageError`, one sentence ending "Nothing was deleted.", naming the target relative to the namespace (`work/JR-12345`), never a full path.
+  - A target that cannot be examined, or a deletion the file system stops part way, is a `StorageUnavailable` (new, a `StorageError`), not a refusal. A partial deletion says "part of it may remain"; a retry finishes it.
+- **Tests:** 40 cases in `test_storage_safety.py`. They cover:
+  - the target and nothing else (a full before-and-after tree of the data root), the second call `False`, and a never-made namespace creating nothing;
+  - 15 invalid ids (`..`, `settings`, `config`, `work`, `memory`, separators, a drive, NUL and others) deleting nothing;
+  - a symbolic link or junction at `work/<id>`, `work`, `memory` or the namespace, with the decoy untouched even when it holds a valid record;
+  - a file link at the memory file;
+  - a link inside a work folder removed as a link;
+  - a missing, foreign or unreadable record;
+  - a data root inside the repository, or inside a Git working tree made since;
+  - a target of the wrong kind, and a target that does not resolve to its own place;
+  - legacy 0.1.5 folders in the repository untouched;
+  - a target that cannot be examined;
+  - a file held open on Windows (the deletion stops, then the retry completes);
+  - a failure part way, with no path shown.
+- **Limits:**
+  - A same-user process racing the deletion between the checks and the removal is §10.3's stated limit.
+  - A hard link at the memory file is removed as a name only; the other name keeps the content.
+  - §8.4 planned `clean` to remove paths it builds itself, which the Batch 2A boundary forbids: the 2B slice that switches `clean` calls these methods instead.
+
+**Diagnostics that never raise.** `GlobalStorage.check()` and `RepositoryStorage.check()` return a `StorageCheck(state, problem)`:
+
+| State | Meaning |
+| --- | --- |
+| `usable` | it exists and passed every check |
+| `uninitialized` | nothing is wrong, but it was never made (no `config/`; no namespace, or no record yet). The first write makes it |
+| `refused` | a policy refusal: the data root in the repository or in a Git working tree, a link on the way, a record naming another repository or unreadable as one, or (global) a place that is not private |
+| `unavailable` | the file system did not answer: a file in use, no permission, an I/O error (`StorageUnavailable` or `OSError`) |
+| `unverifiable` | (global) privacy could not be proven, so credentials would not be written |
+
+- **Behaviour.** A check never raises for a refusal or a file-system failure. It creates, writes and changes nothing: each test runs it under the write witness, which records no event at all, and compares the data root before and after. `problem` is one sentence in display form, `None` when usable or uninitialized.
+- **The global check** judges the data root as every accessor does. It then puts the data root, `config/` and `config.toml`, as far as each exists, to the credentials gate's privacy check.
+- **Tests:** 11 cases, one or more for each state.
+- **Still open: mapping these states onto `doctor`'s JSON** (`state`, `problem`, and an error code for `unavailable`). It is a Batch 2B-5 decision, with US-D26's open `STORAGE_UNAVAILABLE`. §8.10 and the contract fixture are unchanged.
+
+**The write witness** (`tests/_storage_witness.py`, test-only). It closes blocker 7's end-to-end half for the 2B consumer slices. It observes and judges, and never blocks.
+- **Mechanism.** A Python audit hook, added after Batch 0A's guard's, that never raises: a failure inside it is recorded, and `assert_clean()` then fails.
+- **How a write-like event under the data root is judged:**
+
+| Verdict | When |
+| --- | --- |
+| `storage` | the outermost `storage.py` frame on the stack is one of storage's public methods (`ensure`, `write_config_file`, `remove_work_item`, an accessor with `create=True`, …). Storage's atomic publishing (the record's hard link, the private credentials write, `mkstemp` temporaries) is covered this way, method by method, not by a blanket exemption. A private helper called from elsewhere is not storage's |
+| `granted` | a checked accessor called with `create=True` in a request scope granted it to that scope. A folder accessor grants what is strictly inside the folder, never the folder itself. A file accessor grants the file and the atomic writer's `.<name>.<random>.tmp` siblings. `config.toml` is never granted: credentials are written by `write_config_file()` only. Only the outermost accessor call grants. A lookup without `create` grants nothing |
+| `violation` | anything else: an unchecked path built by hand, another repository's folder, a grant used after its scope or in a later scope, a write through a private field or helper, an `rmtree` of a granted folder itself |
+| `unresolved` | a path relative to a directory descriptor (POSIX `dir_fd`), which cannot be placed |
+
+- **Events observed:** opens for writing, `mkdir`, `rename` and `replace`, `remove`, `rmdir`, `link`, `symlink`, `rmtree`, `copyfile`, `copytree`, `move`, `truncate`, `chmod`, `utime`, and on Windows `CopyFile2` and `CreateJunction`.
+- **Python children** are observed when started through the witness's runner (`python tests/_storage_witness.py <report.json> -m <module> …` or `-c <code>`), which writes a JSON report.
+- **Tests:** 17 (16 passed and 1 skipped here, the POSIX `dir_fd` case): the allowed cases, each kind of violation, a nested call that grants nothing, the guard still refusing while the witness watches, a witness failure recorded rather than raised, one witness at a time with the accessors restored, and a Python child through the runner.
+- **Limits, stated in its docstring:**
+  - Only operations that raise an audit event are seen: not native code, a write through an open descriptor or `mmap`, or a non-Python process (git, an agent, Node).
+  - Paths are compared as written (absolute and case-folded), not through `realpath`.
+  - A `dir_fd`-relative path is unresolved.
+  - Children are covered only through the runner.
+  - Audit hooks cannot be removed: the hook does nothing while no witness is active.
+  - One witness at a time.
+- **Batch 0A's loader was not modified.** The runner observes Python children without touching `tests/isolation_child/sitecustomize.py`, which still loads first in every child and is byte-identical (hash checked). Changing the loader would have widened the guard's trusted base for no gain the runner does not give. Batch 2B's consumer slices run their CLI children through the runner.
+
+**Batch 0A guard integrity.**
+- The witness runs alongside the guard: `test_the_isolation_guard_still_refuses_while_the_witness_watches` shows a protected write still refused, and nothing written.
+- `test_isolation_guard.py` (child isolation and the guard's mutation checks) passed: see the local verification table.
+- The loader and `tests/_isolation.py` are unchanged.
+
+**Mutation check** (scratch copies of the package and the tests, one mutation each; the repository is never touched; Windows only, so a POSIX-only control is not exercised here):
+
+| Mutation | Caught by |
+| --- | --- |
+| C-1: a cache hit is looked up and reordered without the lock | `test_a_removal_can_never_fall_between_a_lookup_and_its_reordering` (A gets `KeyError`) |
+| C-1: a removal is made without the lock | the same test (`KeyError`) |
+| C-1: an identity is published without re-checking the spelling | `test_an_identity_resolved_before_a_retarget_is_never_published` |
+| C-1: the cache is never trimmed | `test_the_identity_cache_is_bounded`, `test_eviction_and_lookups_running_together_stay_consistent_and_bounded` |
+| C-2: a scope copied into another thread counts as that thread's | `test_a_scope_open_in_a_base_context_is_not_shared_by_requests_copied_from_it`, `test_anyio_worker_threads_copy_the_context_and_still_start_without_a_scope` |
+| C-2: an exception leaves the scope open | 9 tests, among them `test_scopes_nest_and_end` and `test_a_grant_expires_with_its_scope` |
+| C-2: a nested scope starts afresh instead of joining | 5 tests, among them `test_a_nested_scope_joins_the_outer_one_and_the_outer_one_decides_its_lifetime` and `test_public_operations_share_the_callers_scope` |
+| delete: the containment and Git checks are skipped | `test_a_data_root_kept_with_the_repository_deletes_nothing`, `test_a_data_root_that_is_now_inside_a_git_working_tree_deletes_nothing` |
+| delete: the components on the way are not link-checked | `test_a_link_on_the_way_to_what_is_deleted_refuses_and_the_target_is_untouched` |
+| delete: the identity record is not required | `test_a_namespace_not_shown_to_be_this_repositorys_deletes_nothing` (all three records) |
+| delete: a link at the target is not refused | `test_a_link_at_the_memory_file_itself_is_refused`, `test_a_link_on_the_way_to_what_is_deleted_refuses_and_the_target_is_untouched` |
+| delete: the target's kind is not checked | `test_a_target_of_the_wrong_kind_deletes_nothing` |
+| delete: the canonical place is not compared | `test_a_target_that_does_not_resolve_to_its_own_place_deletes_nothing` |
+| delete: the id is not validated | `test_an_id_that_is_not_a_work_item_id_deletes_nothing` |
+| check: a file-system error escapes | `test_checks_report_a_file_system_that_does_not_answer_as_unavailable` |
+| check: unavailable reported as a refusal | the same test |
+| check: a place that is not private passes | `test_global_check_reports_a_place_that_is_not_private_as_refused` |
+| check: unverifiable privacy passes | `test_global_check_reports_privacy_it_cannot_prove_as_unverifiable` |
+| check: a missing record counts as usable | `test_repository_check_reports_uninitialized_then_usable` |
+| witness: a grant is valid in any scope | `test_a_grant_expires_with_its_scope` |
+| witness: credentials may be written under a folder grant | `test_credentials_are_written_only_by_write_config_file` |
+| witness: a folder grant covers the folder itself | `test_a_granted_folder_itself_is_not_granted` |
+| witness: any `storage.py` frame counts as storage's own write | `test_writes_through_private_fields_or_private_helpers_are_violations` |
+| witness: a lookup without `create` grants | `test_a_lookup_without_create_grants_nothing` |
+
+**All 24 mutations are caught**, each by the test written for it. The race regression is deterministic: with the lock it passed 10 runs of 10; with the lock replaced by one that locks nothing, all 10 runs reproduced the original `KeyError`.
+
+**Performance** (Windows 11, Python 3.14.6, local NTFS; a scratch data root 13 components deep; medians in µs unless stated; outside the test guard; synthetic folders only):
+
+| Measure | Median, run 1 / run 2 |
+| --- | --- |
+| identity, uncached (realpath + SHA-256 + stat) | 452 / 374 µs |
+| identity, cached hit, one thread (the lock + one `stat`) | 41.1 / 42.9 µs (Batch 2A, without the lock: 41 / 41 µs) |
+| identity, cached hits from 8 threads at once: per call; all calls per second | 176 / 176 µs; 40,300 / 40,600 per s (one thread: 20,700 / 22,300 per s) |
+| a verdict remembered in a scope (with the thread check) | 0.6 / 0.5 µs |
+| `request_scope()` opened and closed | 1.6 / 1.8 µs |
+| `RepositoryStorage.check()`, usable, outside a scope | 3.29 / 3.23 ms |
+| `GlobalStorage.check()`, usable (three privacy checks) | 8.88 / 9.13 ms |
+| `remove_work_item()`, 3 files and 2 folders, outside a scope | 6.68 / 6.72 ms |
+| the same inside a caller's scope (`clean`'s loop) | 3.97 / 3.80 ms |
+| `shutil.rmtree` of the same folder, no checks, for comparison | 2.29 / 2.31 ms |
+| `remove_memory_file()`, outside a scope | 4.95 / 4.68 ms |
+| `remove_work_item()` of an id that is not there | 3.39 / 3.24 ms |
+
+- **The lock costs nothing measurable** on one thread (41–43 µs, as in Batch 2A). Eight threads together make about twice the calls per second of one: the `stat` dominates and runs outside the lock; only the dictionary step is serialized.
+- **Checked deletion** adds about 4.4 ms per item outside a scope: containment, the Git walk (13 components here, about 4 at the default depth), the record, the per-component `lstat`s and two `realpath`s. Inside one scope, as `clean` will run, it adds about 1.5–1.7 ms over a bare `rmtree`. That is the price of failing closed; `clean` deletes a handful of items at a time.
+- **A check costs what the accessors' checks cost** (3.2 ms for a repository, about 9 ms for the global one, which runs three Windows access-list checks). `doctor` runs each once.
+
+**Local verification** (Windows 11, Python 3.14.6, Node 24.21; `PYTHONPATH` = the repository; `PYTHONDONTWRITEBYTECODE=1`; the test isolation active):
+
+| Check | Result |
+| --- | --- |
+| The focused suites (storage identity, safety, scope, witness, privacy, API boundary, isolation guard) | **453 passed, 0 failed, 18 skipped**: `test_storage_identity.py` 127 passed, 3 skipped; `test_storage_safety.py` 208 passed, 10 skipped; `test_storage_scope.py` 14 passed; `test_storage_witness.py` 16 passed, 1 skipped; `test_private_folder.py` 53 passed, 4 skipped; `test_storage_api_boundary.py` 9 passed; `test_isolation_guard.py` (Batch 0A's child isolation and guard checks) 26 passed. Every skip is a POSIX-only, macOS, letter-case or `subst` case, as in Batch 2A, plus the POSIX `dir_fd` witness case |
+| New tests | 89 (7 identity, 51 safety, 14 scope, 17 witness), of which 88 run here |
+| C-1 race regression, repeated | with the lock: 10 passed of 10; with a lock that locks nothing: `KeyError` in 10 of 10 |
+| Mutation check | 24 of 24 caught (above) |
+| CI's safety-and-baselines file list (30 files, run exactly as `ci.yml` lists them) | **1,733 passed, 0 failed**, 54 skipped, 1 deselected (the private word list); Batch 2A: 1,645 and 53 |
+| Full Python suite | `python -X utf8 -m pytest -q -p no:cacheprovider -rfEs`: **3,685 passed, 0 failed**, 54 skipped, 22 min 44 s (89 more tests than Batch 2A's 3,597 + 53) |
+| Extension | typecheck clean; unit tests **2,350 passed**; the required TypeScript job **27 passed**; the isolated integration suite **21 passed** |
+| Baselines | `python tests/storage_baseline.py --check`, twice: **baselines match** both times |
+| Inventory ratchet | 4 passed; `tests/storage_inventory.json` not updated (a docstring naming the 0.1.5 folders was reworded instead) |
+| Unwired symbols, API boundary | passed (`StorageCheck`, `StorageUnavailable` and the new methods live in `storage.py`; no product module imports it) |
+| Publishability | 20 passed. The check read the module-qualified name of the standard library's thread-local class as an internal host name (it ends in a dot and `local`); the witness imports that class under another name instead, with no exemption added |
+| Goldens, fixtures, baselines, protected files | unchanged against `HEAD`, the 46-entry contract fixture included; `tests/isolation_child/sitecustomize.py` and `tests/_isolation.py` unchanged; the protected local files (the historical plan, `.vscode/extensions.json`, `.bugpilot/`, `.ai/`, `.ai_memory/`) hash-identical to the start; in `bugpilot/` only `storage.py` changed; version 0.1.5 |
+| Python 3.10 syntax | the six Python files parse with `feature_version=(3, 10)`; no 3.10 interpreter here |
+| Whitespace | `git diff --check` clean; the new and changed files are LF with no trailing whitespace |
+
+**Open decisions and blockers.** No decision changed, and none was approved here: US-D29 and every OPEN or PROPOSED entry stay as they were.
+- **§14.3 activation blockers:**
+  - 1–3: the storage sides are committed and CI-verified (Batch 2A). C-1 and C-2 are fixed here, uncommitted. The consumer sides (one scope per CLI command and per MCP tool call, the credential writer through `write_config_file()`) are 2B-2 to 2B-6 work.
+  - 4: met.
+  - 5: open. `STORAGE_UNAVAILABLE` and the `doctor` mapping of `StorageCheck`, US-D4's `below_git_toplevel`, US-D16, US-D3's handling, US-D18 and US-D25.
+  - 6: open (Batch 0B).
+  - 7: the end-to-end witness exists. Running the consumers under it is 2B's.
+  - 8: holds.
+- **Before 2B-2 to 2B-6:**
+  - Batch 0B (P1, P2, P3, P8), and US-D10, US-D28 and US-D14;
+  - US-D29 (the integration branch);
+  - the 2B-5 MCP gate above;
+  - the CLI scope rule for `--launch-agent`;
+  - `clean` through the delete methods;
+  - `user_config` through `write_config_file()` (§14.3 step 3 as written would bypass G-3).
+
+**Git status at the end of the batch:**
+- `main` at `3f8be69`, equal to `origin/main`; nothing staged.
+- **Modified:** `.github/workflows/ci.yml`, `bugpilot/core/storage.py`, this plan, `tests/test_storage_identity.py`, `tests/test_storage_safety.py`.
+- **New, untracked:** `tests/_storage_witness.py`, `tests/test_storage_scope.py`, `tests/test_storage_witness.py`.
+- **Untouched local changes:** the historical plan (`docs/bugpilot_prototype_development_plan.md`, modified), `.bugpilot/` and `.vscode/extensions.json` (untracked). They are not part of this batch and must not be staged.
+
+**Not executed:**
+- CI, so Linux, macOS and Python 3.10 have not run any of this. The six Python files parse with `feature_version=(3, 10)`; no 3.10 interpreter is here.
+- The POSIX `dir_fd` witness case.
+- The mutation check on POSIX.
+- The real MCP dispatcher under concurrent tool calls (2B-5).
+- Batch 0B.
+
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
 **1. Scope.**
@@ -3874,6 +4124,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-16 | 1 | **Batch 1 COMPLETED: committed on a verification branch, CI-verified, fast-forwarded into `main`; NOT activated.** <ul><li>**Commit:** `5222da79de4dc72335b4e17be15038cf5cf08163` (`feat(storage): add the unused 0.1.6 storage foundation`), exactly the eight-file allowlist, noreply identity, on `verify/0.1.6-batch1` (owner-approved; the branch is kept).</li><li>**Verification CI:** run 39003264436, started by the owner (`workflow_dispatch`): **all 9 required checks succeeded**.</li><li>**Full Python suite:** Ubuntu 3,480 passed, 39 skipped; macOS 3,482 passed, 37 skipped; Windows 3,485 passed, 47 skipped; each with 1 deselected.</li><li>**Safety and baselines:** Ubuntu 3.13 and 3.10 each 1,535 passed, 33 skipped; macOS 1,537, 31; Windows 1,534, 47.</li><li>**Extension:** unit tests 2,348 passed, 2 skipped; evidence boundary 27 passed.</li><li>**First runs:** the POSIX permission tests, Python 3.10, and the storage suites on Linux and macOS all passed; the Windows access-list test, `config/` included, passed on 3.13.16.</li><li>**Integration:** `main` fast-forwarded `64056ca..5222da7` (owner-approved; no merge commit) and pushed. The push's CI run 39004684594: **9/9 success**.</li><li>**Timing (CI):** first `ensure()` 0.36 ms (Linux 3.13), 0.55 ms (Linux 3.10), 0.72 ms (macOS), 2.83 ms (Windows).</li><li>**Findings:** none new. G-1, G-2, G-3 and cache freshness stay open; of §14.3's blockers only the CI one is met.</li><li>**Unchanged:** version 0.1.5; no product caller switched; decisions as ratified.</li><li>**Batch 0B and Batch 2:** NOT STARTED.</li><li>**Details:** §14.2, "Batch 1 — acceptance and CI evidence".</li></ul> |
 | 2026-10-17 | 2A | **Batch 2A (the storage security foundation) implemented and verified locally (not committed; no CI run).** <ul><li>**Authorization:** the owner's Batch 2A brief, on `6f8e0b2`, implementation and local verification only.</li><li>**Built:** the Git working-tree rule (G-1/G-2); the read-only privacy check and the credentials gate (G-3, the new `private_folder.py`); identities re-checked on every use and verdicts bound to request scopes (cache freshness); checked global accessors and private folder fields; the static API boundary.</li><li>**Not changed:** every product caller (none imports `storage`), the 0.1.5 storage, goldens, baselines, the contract fixture, the ratchet record and the version.</li><li>**Results:** full Python suite 3,597 passed, 0 failed, 53 skipped; the four storage suites 339 passed, 17 skipped; CI's safety list 1,645 passed; extension 2,350, the required TypeScript job 27, integration 21; baselines matched twice; the ratchet unchanged; 23 of 24 mutations caught on Windows, the remaining one (`st_ctime_ns`) being POSIX-only.</li><li>**Deviations:** D2A-1 to D2A-8.</li><li>**Batch 1's last run recorded:** 39005917365 on `6f8e0b2`, 9/9 success.</li><li>**Not run:** CI; Linux, macOS and Python 3.10; FAT, exFAT and network volumes; probes.</li><li>**Batch 0B and Batch 2B:** NOT STARTED.</li><li>**Details:** §14.3, "Batch 2A — as built".</li></ul> |
 | 2026-10-17 | 2A | **Batch 2A COMPLETED: committed on a verification branch, CI-verified, fast-forwarded into `main`; NOT activated.** <ul><li>**Commit:** `e78a6789fe5dcc4144bc6e21b5427e552bc0bb5b` (`fix(storage): harden unified storage safety and cache freshness`), exactly the eight-file allowlist, noreply identity, on `verify/0.1.6-batch2a` (owner-approved; the branch is kept).</li><li>**Verification CI:** run 39057483843, started by the owner (`workflow_dispatch`): **all 9 required checks succeeded**. Full suite: Ubuntu 3,577, macOS 3,579, Windows 3,594 passed. Safety and baselines: Ubuntu 3.13 and 3.10 1,632 each, macOS 1,634, Windows 1,643. Extension 2,348 passed; evidence boundary 27.</li><li>**First observations:** the POSIX privacy tests and the POSIX `st_ctime_ns` test passed on Linux (3.13 and 3.10) and macOS; the Windows access-list, SDDL and junction-retarget tests passed on Windows 3.13.16.</li><li>**Integration:** `main` fast-forwarded `6f8e0b2..e78a678` (owner-approved; no merge commit) and pushed; the push's CI run 39062906366: **9/9 success**.</li><li>**Timing (CI):** first `ensure()` 0.68–0.93 ms on Linux and macOS, 2.15 ms on Windows; reads outside a scope cost several times more than in one, so Batch 2B opens a scope per CLI command and MCP tool call.</li><li>**Findings:** none new. The mutation coverage of `st_ctime_ns` on POSIX is inferred, not run; per-test logs were not accessible.</li><li>**Unchanged:** version 0.1.5; no product caller switched; decisions as before.</li><li>**Batch 0B and Batch 2B:** NOT STARTED.</li><li>**Details:** §14.3, "Batch 2A — acceptance and CI evidence".</li></ul> |
+| 2026-10-17 | 2B-1 | **Batch 2B-1 (inactive consumer-switch preparation) implemented and verified locally on Windows (not committed; no CI run).** <ul><li>**Authorization:** the owner's Batch 2B-1 brief, on `3f8be69`: implementation and local verification only.</li><li>**Built:** C-1, the identity cache under one lock, with a deterministic race regression. C-2, request scopes owned by the thread that opened them; the MCP per-tool-call scope is recorded as a **mandatory 2B-5 gate, not integrated**. `remove_work_item()` and `remove_memory_file()`, checked and failing closed. `check()` on both storages (`StorageCheck`), with `StorageUnavailable`. The test-only write witness and its child runner.</li><li>**Unchanged:** Batch 0A's child loader, `errors.py`, every CLI, MCP, workflow, doctor, `user_config` and extension module, the goldens, baselines, contract fixture and ratchet record, and the version (0.1.5).</li><li>**Verification:** focused storage, scope, witness, privacy, boundary and isolation-guard suites 453 passed, 18 skipped; CI's safety list (30 files) 1,733 passed, 0 failed; full suite 3,685 passed, 0 failed, 54 skipped; extension typecheck clean, 2,350 unit, 27 evidence-boundary and 21 integration tests passed; baselines match twice; ratchet unchanged; publishability passes; 24 of 24 mutations caught; the C-1 race test deterministic (10 of 10 each way).</li><li>**Not run:** CI, so Linux, macOS and Python 3.10; the mutation check on POSIX; the real MCP dispatcher under concurrent calls; Batch 0B.</li><li>**Records:** the header, §14.0, §14.3 "Batch 2B-1 — inactive consumer-switch preparation" and §19, where the stale PENDING of run 39064298339 is resolved: success, 9/9.</li></ul> Batch 2B-2 to 2B-6 and Batch 0B: NOT STARTED. No decision changed; US-D29 not approved. |
 
 ---
 
@@ -3898,6 +4149,8 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-17 | 2A | `verify/0.1.6-batch2a` | `e78a6789fe5dcc4144bc6e21b5427e552bc0bb5b` (the eight-file allowlist; parent `6f8e0b2`) | 39057483843 (`CI`, `workflow_dispatch` by the owner) | **success: 9/9** | Full suite: Ubuntu 3,577, macOS 3,579, Windows 3,594 passed. Safety and baselines green on Ubuntu 3.13 and 3.10, macOS 3.13 and Windows 3.13. Extension 2,348; evidence boundary 27. The previous row's "none" is resolved here. |
 | 2026-10-17 | 2A | `main` | `e78a6789fe5dcc4144bc6e21b5427e552bc0bb5b` (fast-forward `6f8e0b2..e78a678`, no merge commit) | 39062906366 (`CI`, push) | **success: 9/9** | Batch 2A COMPLETED and integrated, NOT activated. Version 0.1.5. |
 | 2026-10-17 | 2A | `main` | **the commit that carries this row**: this plan only (`docs: record BugPilot 0.1.6 Batch 2A CI acceptance`). A commit cannot hold its own SHA. | **PENDING**: its push to `main` starts `ci.yml` | — | Documentation only. Its run is reported to the owner, not recorded by another documentation commit. |
+| 2026-10-17 | 2A | `main` | `3f8be69d671c8ff5192120cd6989685477aa182a` (the documentation closure) | 39064298339 (`CI`, push) | **success: 9/9** | Observed after the push; the previous row's PENDING is resolved here. Recorded by the Batch 2B-1 plan update (uncommitted). |
+| 2026-10-17 | 2B-1 | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | Batch 2B-1 is implemented and verified locally on Windows, awaiting the owner's review. Commit, push and CI each need a separate authorization; a verification branch with an owner-dispatched run is recommended, as for Batches 1 and 2A. |
 
 ---
 

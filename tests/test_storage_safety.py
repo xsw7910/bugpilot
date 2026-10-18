@@ -1385,3 +1385,382 @@ def test_the_module_imports_on_its_own():
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "[]"
+
+
+# --- checked deletion: the storage side of ``clean`` (Batch 2B-1) --------------------------------------
+# Only ``work/<id>`` and ``memory/<id>.md`` can be addressed, through validated ids. Everything is made
+# in this test's own BUGPILOT_HOME and ``tmp_path``; links point at the decoy, which must stay as it was.
+
+
+def _one_sentence(error: BaseException) -> None:
+    """A deletion refusal names its target relative to the namespace (``work/<id>``), never a full path."""
+    message = str(error)
+    assert "\n" not in message
+    assert "Nothing was deleted" in message or "may remain" in message
+    assert str(data_root()) not in message and str(Path.home()) not in message
+
+
+def _work_item(namespace, work_item_id: str = "JR-12345") -> Path:
+    work = namespace.work_item_dir(work_item_id, create=True)
+    (work / "task.md").write_text("synthetic\n", encoding="utf-8")
+    (work / "attachments").mkdir()
+    (work / "attachments" / "a.txt").write_text("synthetic\n", encoding="utf-8")
+    return work
+
+
+def _memory(namespace, work_item_id: str = "JR-12345") -> Path:
+    path = namespace.memory_file(work_item_id, create=True)
+    path.write_text("synthetic\n", encoding="utf-8")
+    return path
+
+
+def _populated(namespace) -> None:
+    """A namespace holding one of everything, and the global configuration."""
+    _work_item(namespace)
+    _work_item(namespace, "JR-2")
+    _memory(namespace)
+    _memory(namespace, "JR-2")
+    namespace.settings_file("verification.md", create=True).write_text("synthetic\n", encoding="utf-8")
+    namespace.fix_modes_dir(create=True)
+    global_storage().write_config_file("jira_base_url = 'https://jira.example.invalid'\n")
+
+
+def test_removing_a_work_item_deletes_that_folder_and_nothing_else(repo):
+    namespace = repository_storage(repo)
+    _populated(namespace)
+    before = _tree(data_root())
+    assert namespace.remove_work_item("JR-12345") is True
+    prefix = f"repositories/{namespace.identity.repository_id}/work/JR-12345"
+    assert sorted(set(before) - set(_tree(data_root()))) == sorted(
+        path for path in before if path == prefix or path.startswith(prefix + "/"))
+    after = _tree(data_root())
+    assert set(after) <= set(before)
+    assert namespace.remove_work_item("JR-12345") is False  # already gone: nothing to do
+    assert _tree(data_root()) == after
+
+
+def test_removing_a_memory_file_deletes_that_file_and_nothing_else(repo):
+    namespace = repository_storage(repo)
+    _populated(namespace)
+    before = _tree(data_root())
+    assert namespace.remove_memory_file("JR-12345") is True
+    after = _tree(data_root())
+    assert set(after) <= set(before)
+    assert sorted(set(before) - set(after)) == [
+        f"repositories/{namespace.identity.repository_id}/memory/JR-12345.md"]
+    assert namespace.remove_memory_file("JR-12345") is False
+
+
+def test_removing_from_a_namespace_that_was_never_made_creates_nothing(repo):
+    root_existed = os.path.lexists(data_root())
+    before = _tree(data_root())
+    namespace = repository_storage(repo)
+    assert namespace.remove_work_item("JR-12345") is False
+    assert namespace.remove_memory_file("JR-12345") is False
+    assert os.path.lexists(data_root()) == root_existed and _tree(data_root()) == before
+
+
+@pytest.mark.parametrize(
+    "work_item_id",
+    ["", ".", "..", "../settings", "settings", "config", "work", "memory", "repository.json",
+     "JR-1/../../settings", "JR-1\\..\\..", "C:", "/JR-1", "JR-1 ", "JR-1\0"],
+)
+def test_an_id_that_is_not_a_work_item_id_deletes_nothing(repo, work_item_id):
+    """Never the data root, ``config``, the namespace, ``settings``, ``work`` or ``memory``: no id reaches them."""
+    namespace = repository_storage(repo)
+    _populated(namespace)
+    before = _tree(data_root())
+    for remove in (namespace.remove_work_item, namespace.remove_memory_file):
+        with pytest.raises(StorageError):
+            remove(work_item_id)
+    assert _tree(data_root()) == before
+
+
+#: where a link is planted, below the namespace (``()``: the namespace itself); the removal that must refuse
+DELETION_LINKS = {
+    "work/<id>": (("work", "JR-12345"), "work"),
+    "work": (("work",), "work"),
+    "memory": (("memory",), "memory"),
+    "<id>": ((), "work"),
+}
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+@pytest.mark.parametrize("where", list(DELETION_LINKS))
+def test_a_link_on_the_way_to_what_is_deleted_refuses_and_the_target_is_untouched(repo, decoy, kind, where):
+    namespace = repository_storage(repo)
+    namespace.ensure()
+    rest, which = DELETION_LINKS[where]
+    (decoy / "JR-12345").mkdir()  # what a followed link would delete
+    (decoy / "JR-12345" / "task.md").write_text("decoy\n", encoding="utf-8")
+    (decoy / "JR-12345.md").write_text("decoy\n", encoding="utf-8")
+    shutil.copyfile(namespace._record_file, decoy / storage.RECORD_NAME)  # even a valid record behind the link
+    link = namespace._directory.joinpath(*rest)
+    if not rest:
+        shutil.rmtree(link)
+    _plant(kind, link, decoy)
+    before = _tree(decoy)
+    remove = namespace.remove_work_item if which == "work" else namespace.remove_memory_file
+    with pytest.raises(StorageError, match="symbolic link or junction") as refused:
+        remove("JR-12345")
+    _one_sentence(refused.value)
+    assert _tree(decoy) == before and os.path.lexists(link)
+
+
+def test_a_link_at_the_memory_file_itself_is_refused(repo, decoy):
+    namespace = repository_storage(repo)
+    folder = namespace.memory_file("JR-12345", create=True).parent
+    try:
+        os.symlink(decoy / "keep.txt", folder / "JR-12345.md")
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"file symbolic links are not available here: {type(error).__name__}")
+    with pytest.raises(StorageError, match="symbolic link or junction"):
+        namespace.remove_memory_file("JR-12345")
+    assert (decoy / "keep.txt").read_text(encoding="utf-8") == "decoy\n"
+    assert os.path.lexists(folder / "JR-12345.md")
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_link_inside_a_work_folder_is_removed_as_a_link_never_followed(repo, decoy, kind):
+    namespace = repository_storage(repo)
+    work = _work_item(namespace)
+    _plant(kind, work / "escape", decoy)
+    before = _tree(decoy)
+    assert namespace.remove_work_item("JR-12345") is True
+    assert not os.path.lexists(work) and _tree(decoy) == before
+
+
+@pytest.mark.parametrize("record", ["missing", "another repository", "unreadable"])
+def test_a_namespace_not_shown_to_be_this_repositorys_deletes_nothing(repo, record):
+    """One repository can never delete another's files: the record must be this repository's."""
+    namespace = repository_storage(repo)
+    _populated(namespace)
+    if record == "missing":
+        namespace._record_file.unlink()
+    elif record == "another repository":
+        namespace._record_file.write_bytes(_same_size_foreign_record(namespace))
+    else:
+        namespace._record_file.write_text("not a record\n", encoding="utf-8")
+    before = _tree(data_root())
+    for remove in (namespace.remove_work_item, namespace.remove_memory_file):
+        with pytest.raises(StorageError, match="Nothing was deleted") as refused:
+            remove("JR-12345")
+        _one_sentence(refused.value)
+    assert _tree(data_root()) == before
+
+
+def test_a_data_root_kept_with_the_repository_deletes_nothing(repo, monkeypatch):
+    monkeypatch.setenv("BUGPILOT_HOME", str(repo / ".bugpilot-data"))
+    before = _tree(repo)
+    namespace = repository_storage(repo)
+    for remove in (namespace.remove_work_item, namespace.remove_memory_file):
+        with pytest.raises(StorageError, match="inside this repository"):
+            remove("JR-12345")
+    assert _tree(repo) == before
+
+
+def test_a_data_root_that_is_now_inside_a_git_working_tree_deletes_nothing(repo, tmp_path, monkeypatch):
+    (tmp_path / "outer").mkdir()
+    monkeypatch.setenv("BUGPILOT_HOME", str(tmp_path / "outer" / "data"))
+    namespace = repository_storage(repo)
+    _work_item(namespace)
+    (tmp_path / "outer" / ".git").mkdir()  # the data root's parent became a checkout since
+    before = _tree(data_root())
+    with pytest.raises(StorageError, match="inside a Git working tree"):
+        namespace.remove_work_item("JR-12345")
+    assert _tree(data_root()) == before
+
+
+def test_a_target_of_the_wrong_kind_deletes_nothing(repo):
+    namespace = repository_storage(repo)
+    memory = namespace.memory_file("JR-12345", create=True)
+    work = namespace._directory / "work" / "JR-12345"
+    work.parent.mkdir()
+    work.write_text("a file where a work folder belongs\n", encoding="utf-8")
+    memory.mkdir()
+    with pytest.raises(StorageError, match="not a folder"):
+        namespace.remove_work_item("JR-12345")
+    with pytest.raises(StorageError, match="not a regular file"):
+        namespace.remove_memory_file("JR-12345")
+    assert work.is_file() and memory.is_dir()
+
+
+def test_a_target_that_does_not_resolve_to_its_own_place_deletes_nothing(repo, monkeypatch):
+    namespace = repository_storage(repo)
+    work = _work_item(namespace)
+    real = os.path.realpath
+    resolved_work = os.path.normcase(real(work))
+
+    def elsewhere(path, *args, **kwargs):
+        resolved = real(path, *args, **kwargs)
+        return resolved + "-elsewhere" if os.path.normcase(resolved) == resolved_work else resolved
+
+    monkeypatch.setattr(storage.os.path, "realpath", elsewhere)
+    with pytest.raises(StorageError, match="does not resolve to its own place"):
+        namespace.remove_work_item("JR-12345")
+    monkeypatch.undo()
+    assert (work / "task.md").exists()
+
+
+def test_legacy_data_in_the_repository_is_never_touched(repo):
+    for relative in (".ai/work/JR-12345/task.md", ".ai_memory/JR-12345.md", ".bugpilot/project_settings.json"):
+        (repo / relative).parent.mkdir(parents=True, exist_ok=True)
+        (repo / relative).write_text("legacy\n", encoding="utf-8")
+    before = _tree(repo)
+    namespace = repository_storage(repo)
+    assert namespace.remove_work_item("JR-12345") is False
+    assert namespace.remove_memory_file("JR-12345") is False
+    _work_item(namespace)
+    _memory(namespace)
+    assert namespace.remove_work_item("JR-12345") is True
+    assert namespace.remove_memory_file("JR-12345") is True
+    assert _tree(repo) == before
+
+
+def test_a_target_that_cannot_be_examined_is_unavailable_not_refused(repo, monkeypatch):
+    namespace = repository_storage(repo)
+    work = _work_item(namespace)
+    real = os.lstat
+
+    def denied(path, *args, **kwargs):
+        if os.fspath(path) == os.fspath(work):
+            raise PermissionError(errno.EACCES, "denied")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(storage.os, "lstat", denied)
+    with pytest.raises(storage.StorageUnavailable, match="cannot examine") as unavailable:
+        namespace.remove_work_item("JR-12345")
+    _one_sentence(unavailable.value)
+    monkeypatch.undo()
+    assert (work / "task.md").exists()
+
+
+@pytest.mark.skipif(not WINDOWS, reason="a file held open blocks its deletion on Windows only")
+def test_a_deletion_stopped_by_a_file_in_use_reports_it_and_can_be_retried(repo):
+    namespace = repository_storage(repo)
+    work = _work_item(namespace)
+    with open(work / "task.md", "rb"):
+        with pytest.raises(storage.StorageUnavailable, match="could not finish deleting") as unavailable:
+            namespace.remove_work_item("JR-12345")
+    _one_sentence(unavailable.value)
+    assert "may remain" in str(unavailable.value)
+    assert namespace.remove_work_item("JR-12345") is True
+    assert not os.path.lexists(work)
+
+
+def test_a_deletion_that_fails_part_way_is_unavailable_with_no_path_shown(repo, monkeypatch):
+    namespace = repository_storage(repo)
+    _work_item(namespace)
+
+    def interrupted(path):
+        raise PermissionError(errno.EACCES, "denied", str(path))
+
+    monkeypatch.setattr(storage, "remove_owned_path", interrupted)
+    with pytest.raises(storage.StorageUnavailable) as unavailable:
+        namespace.remove_work_item("JR-12345")
+    _one_sentence(unavailable.value)
+
+
+# --- diagnostics that never raise (Batch 2B-1) -----------------------------------------------------------
+
+
+def _quietly(check):
+    """``check()``, which must neither raise nor create, write or change anything under the data root."""
+    from _storage_witness import witness
+
+    root_existed, before = os.path.lexists(data_root()), _tree(data_root())
+    with witness() as observed:
+        found = check()
+    assert observed.observations == [] and observed.errors == []
+    assert os.path.lexists(data_root()) == root_existed and _tree(data_root()) == before
+    assert isinstance(found, storage.StorageCheck)
+    if found.problem is not None:
+        assert "\n" not in found.problem
+        assert str(data_root()) not in found.problem and str(Path.home()) not in found.problem
+    return found
+
+
+def test_global_check_reports_uninitialized_then_usable():
+    assert _quietly(global_storage().check) == storage.StorageCheck("uninitialized")
+    global_storage().write_config_file("jira_base_url = 'https://jira.example.invalid'\n")
+    assert _quietly(global_storage().check) == storage.StorageCheck("usable")
+
+
+def test_repository_check_reports_uninitialized_then_usable(repo):
+    namespace = repository_storage(repo)
+    assert _quietly(namespace.check) == storage.StorageCheck("uninitialized")
+    namespace.ensure()
+    assert _quietly(namespace.check) == storage.StorageCheck("usable")
+    namespace._record_file.unlink()
+    assert _quietly(namespace.check).state == "uninitialized"  # the next write publishes it again
+
+
+@pytest.mark.parametrize("record", ["another repository", "unreadable"])
+def test_repository_check_reports_a_foreign_or_unreadable_record_as_refused(repo, record):
+    namespace = repository_storage(repo)
+    namespace.ensure()
+    namespace._record_file.write_bytes(
+        _same_size_foreign_record(namespace) if record == "another repository" else b"not a record\n")
+    found = _quietly(namespace.check)
+    assert found.state == "refused"
+    assert ("different repository folder" if record == "another repository" else "not a readable") in found.problem
+
+
+def test_checks_report_a_data_root_in_a_git_working_tree_as_refused(repo, tmp_path, monkeypatch):
+    checkout = _marked(tmp_path / "git-checkout")
+    monkeypatch.setenv("BUGPILOT_HOME", str(checkout / "data"))
+    for check in (global_storage().check, repository_storage(repo).check):
+        found = _quietly(check)
+        assert found.state == "refused" and "inside a Git working tree" in found.problem
+    assert _tree(checkout) == [".git"]
+
+
+def test_repository_check_reports_a_data_root_in_the_repository_as_refused(repo, monkeypatch):
+    monkeypatch.setenv("BUGPILOT_HOME", str(repo / ".bugpilot-data"))
+    found = _quietly(repository_storage(repo).check)
+    assert found.state == "refused" and "inside this repository" in found.problem
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_checks_report_a_link_on_the_way_as_refused(repo, decoy, kind):
+    namespace = repository_storage(repo)
+    storage._ensure_root(data_root())
+    _plant(kind, data_root() / "config", decoy)
+    _plant(kind, data_root() / "repositories", decoy)
+    for check in (global_storage().check, namespace.check):
+        found = _quietly(check)
+        assert found.state == "refused" and "symbolic link or junction" in found.problem
+    assert _tree(decoy) == ["keep.txt"]
+
+
+def test_global_check_reports_a_place_that_is_not_private_as_refused(monkeypatch):
+    global_storage().write_config_file("jira_token = 'never-shown'\n")
+    _verdicts(monkeypatch, config_folder=private_folder.PrivacyVerdict("not-private", ("Users has access to it",)))
+    found = _quietly(global_storage().check)
+    assert found.state == "refused" and "Users has access to it" in found.problem
+    assert "never-shown" not in found.problem
+
+
+def test_global_check_reports_privacy_it_cannot_prove_as_unverifiable(monkeypatch):
+    storage._ensure_root(data_root())
+    _verdicts(monkeypatch, data_root=private_folder.PrivacyVerdict("unverifiable", ("its volume keeps no access lists",)))
+    found = _quietly(global_storage().check)
+    assert found.state == "unverifiable" and "its volume keeps no access lists" in found.problem
+
+
+def test_checks_report_a_file_system_that_does_not_answer_as_unavailable(repo, monkeypatch):
+    namespace = repository_storage(repo)
+    namespace.ensure()
+    global_storage().ensure_config_dir()
+    real = os.lstat
+
+    def denied(path, *args, **kwargs):
+        if Path(path).name in ("config", storage.RECORD_NAME):
+            raise PermissionError(errno.EACCES, "denied")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
+    monkeypatch.setattr(storage.os, "lstat", denied)
+    for check in (global_storage().check, namespace.check):
+        found = _quietly(check)
+        assert found.state == "unavailable", found

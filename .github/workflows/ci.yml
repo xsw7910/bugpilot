@@ -140,6 +140,8 @@ jobs:
           tests/test_storage_safety.py
           tests/test_private_folder.py
           tests/test_storage_api_boundary.py
+          tests/test_storage_scope.py
+          tests/test_storage_witness.py
           --deselect tests/test_publishable.py::test_the_word_list_is_present_and_private
           2>&1 | tee pytest-safety.log
 
