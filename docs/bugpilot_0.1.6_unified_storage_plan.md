@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **implemented and verified locally on Windows; not committed, no CI run** (§14.3, "Batch 2B-1 — inactive consumer-switch preparation"). Batch 0B, Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) was **committed on `verify/0.1.6-batch2b1` as `7b8914d`, and its CI run 39085417171 FAILED (3/9)**. A remediation of its two failures is implemented and verified locally on Windows, uncommitted (§14.3, "Batch 2B-1 — CI run 39085417171 and its remediation"). Batch 2B-1 is not CI-verified and not integrated. Batch 0B, Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -1960,7 +1960,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **NOT STARTED** | — | — | awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 implemented and verified locally** (inactive preparation, Windows only; not committed, no CI run; §14.3 "Batch 2B-1 — inactive consumer-switch preparation"). **2B-2 to 2B-6 NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 committed on `verify/0.1.6-batch2b1` (`7b8914d`); CI run 39085417171 FAILED (3/9)**. Its remediation is implemented and verified locally, uncommitted; not CI-verified, not integrated (§14.3 "Batch 2B-1 — CI run 39085417171 and its remediation"). **2B-2 to 2B-6 NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -3603,6 +3603,123 @@ The module states its limits: computed names, and what a caller does with a path
 - The real MCP dispatcher under concurrent tool calls (2B-5).
 - Batch 0B.
 
+#### Batch 2B-1 — CI run 39085417171 and its remediation (2026-10-17)
+
+**Status: the verification commit's first CI run FAILED, 3 of 9 checks green. A remediation is implemented and verified locally on Windows. It is not staged, committed or pushed, and no new CI run has been dispatched.** Batch 2B-1 is not CI-verified and not integrated. `main` is unchanged at `3f8be69`. Batch 0B and Batch 2B-2 to 2B-6 have NOT STARTED.
+
+- **Commit:** `7b8914d20decff215c9aa4160dfc4b4f01ccddf3` on `verify/0.1.6-batch2b1`. It holds the eight-file allowlist, its parent is `3f8be69`, and it uses the noreply identity. Pushed on 2026-10-17, branch only.
+- **CI:** run 39085417171 (`CI`, `workflow_dispatch` by the owner), head `7b8914d`, attempt 1: **failure, 3/9**.
+
+| Check | Result |
+| --- | --- |
+| Safety and baselines (ubuntu-latest, Python 3.13) | failure: 1 failed, 1,712 passed, 48 skipped, 1 deselected |
+| Safety and baselines (ubuntu-latest, Python 3.10) | failure: 1 failed, 1,712 passed, 48 skipped, 1 deselected |
+| Safety and baselines (macos-latest, Python 3.13) | failure: 1 failed, 1,714 passed, 46 skipped, 1 deselected |
+| Safety and baselines (windows-latest, Python 3.13) | failure: 1 failed, 1,730 passed, 56 skipped, 1 deselected |
+| Extension evidence boundary (ubuntu-latest) | success: 27 passed |
+| Full Python suite (ubuntu-latest) | failure: 1 failed, 3,657 passed, 54 skipped, 1 deselected |
+| Full Python suite (macos-latest) | failure: 1 failed, 3,659 passed, 52 skipped, 1 deselected |
+| Full Python suite (windows-latest) | success: 3,682 passed, 56 skipped, 1 deselected |
+| Extension unit tests (ubuntu-latest) | success: 2,348 passed, 2 skipped |
+
+Each failing job failed exactly one test, according to the jobs' published annotations. There were two distinct signatures. Per-test logs need administrator rights.
+
+**F-1, the five POSIX jobs:** `tests/test_storage_witness.py::test_storage_writes_its_own_files_through_public_methods` failed with `AssertionError: ['os.chmod: TypeError: expected str, bytes or os.PathLike object, not int']`.
+- **Root cause** (in the test-only witness, not in storage):
+  - On POSIX the atomic writer sets its temp file's mode with `os.fchmod(descriptor, 0o600)` (`artifact_io._owner_only`, `_keep_permissions`).
+  - The audit event is `os.chmod` with the arguments `(descriptor, mode, -1)`. Its "path" is an integer, and `-1` means "no `dir_fd`".
+  - The hook took any integer `dir_fd` for a directory descriptor and called `os.fsdecode()` on the integer path. The witness recorded its own error, so `assert_clean()` failed.
+  - Windows' writer skips that step, which is why the local Windows run never raised the event.
+- **Related gaps found on the way:**
+  - An operation on a descriptor (`os.fdopen` for writing, `os.ftruncate`) was silently passed over, because `_observe` returned on an integer.
+  - A name relative to the working directory, with `dir_fd` -1, was recorded as unresolved instead of judged.
+- **Reproduced locally.** Python 3.14 on Windows has `os.fchmod`. Forcing the writer's POSIX branch (`artifact_io._POSIX = True`) gave exactly CI's message.
+- **The fix is in `tests/_storage_witness.py` only.** What an event names is told apart explicitly:
+  - **A path:** judged as before. A `dir_fd` of `-1` means none, so a relative name is judged against the working directory.
+  - **An open descriptor:** placed through the descriptor itself: `/proc/self/fd` on Linux, `F_GETPATH` on macOS, `GetFinalPathNameByHandleW` on Windows. The name must still be that very file (`fstat` against `lstat`). It is then judged at that path by the same rules: storage's own write, a grant, or a violation.
+  - **A pipe, socket or device:** not a file in any folder, so it is passed over.
+  - **Anything that cannot be placed:** recorded as `unresolved`, reported and never authorized. That covers a deleted file, a system with no way to ask, a name relative to a real directory descriptor, and an argument that is neither a path nor a descriptor. `WriteWitness.unresolved()` lists these events.
+
+  No exception is suppressed beyond the hook's existing rule (record, never raise). `chmod` stays observed, and storage gets no exemption. The docstring now also states two more limits: writing through a descriptor raises no audit event (only the open or `fdopen` for writing is judged), and the event for `os.open` with `dir_fd` does not carry the descriptor.
+- **Regression tests,** in `tests/test_storage_witness.py`: 8 new functions, 14 cases on Windows here, 16 on POSIX. They cover:
+  - the exact CI path (`write_config_file`, then `os.fchmod` on the temp file), judged as storage's own write;
+  - a descriptor `chmod` in a granted folder, judged as granted;
+  - each descriptor operation the system has, on an unchecked file opened before the witness started, judged as a violation;
+  - a pipe, passed over;
+  - an unplaceable descriptor, unresolved and never granted;
+  - a deleted file's descriptor, unresolved (POSIX only);
+  - a working-directory-relative `mkdir`, judged as a violation;
+  - an argument that is neither a path nor a descriptor, unresolved.
+
+  The descriptor operations covered: `fdopen` and `ftruncate` everywhere, `fchmod` and `chmod` on a descriptor where Python has them (POSIX, and Windows from 3.13), and `utime` on a descriptor on POSIX.
+- **Before and after.** On the committed witness, the 12 new cases that run on Windows fail, and so does the forced-POSIX reproduction. On the fixed witness, the suite gives 29 passed and 2 skipped here; the skips are the POSIX-only `dir_fd` and deleted-file cases.
+
+**F-2, the Windows safety job:** `tests/test_storage_identity.py::test_a_removal_can_never_fall_between_a_lookup_and_its_reordering` failed with `assert (408.4142181 - 407.9143177) >= 0.5`, an elapsed time of 0.4999 s.
+- **Root cause: a fragile assertion at the timeout boundary, not a lock defect.**
+  - With the lock in place, B cannot finish while A holds the lock, so A's `b_done.wait(timeout=0.5)` always ran to its timeout.
+  - The test then asserted that at least 0.5 s had passed: the timeout itself. On Windows a timed wait can return a fraction of a millisecond early as measured by `time.monotonic`; here it was 0.1 ms early.
+  - The assertions before it all passed in that run: no `KeyError`, the right identity, and B without error. The same test passed in the Windows full-suite job.
+  - The test proved "B was held off" with the clock instead of observing it. That was an incorrect synchronization assumption in the test.
+- **The fix is in `tests/test_storage_identity.py` only; `storage.py` is unchanged.** The happens-before is now observed, not timed:
+  - The cache's own lock is wrapped (`ReportingLock`) so that it reports a thread that finds it held and has to wait. The cache (`RecordingCache`) records A's reordering and B's removal.
+  - A pauses inside its lookup until B has made its move. With the lock, B finds it held; without the lock, B has already removed the entry.
+  - The assertions: A gets the right identity (no `KeyError`); B is the thread that was held off; and the order is A's reordering, then B's removal.
+  - Every wait is bounded at 30 s, a limit reached only by a deadlock. Both threads are released and joined in `finally`. There is no sleep and no elapsed-time assertion.
+  - Also, the barriers in two other C-1 tests now have a 30 s timeout, and the retarget test sets its stop event in `finally`, so no thread can be left waiting.
+- **Evidence:**
+  - With the lock: 30 of 30 runs pass, across thread switch intervals of 1 µs, 5 ms and 200 ms.
+  - With the lock replaced by one that locks nothing (a disposable test plugin): 30 of 30 runs raise the original `KeyError`.
+  - The test now takes milliseconds instead of 0.5 s.
+  - Both lock-removal mutations are caught (below).
+
+**Mutation check** (scratch copies, one mutation each, Windows):
+
+| Mutation | Result |
+| --- | --- |
+| C-1: a cache hit is looked up and reordered without the lock | caught: the reworked race test (A gets the original `KeyError`) |
+| C-1: a removal is made without the lock | caught: the same test (`KeyError`) |
+| the other 22 controls of the Batch 2B-1 table above (C-1 publication and trimming, C-2, deletion, checks, the witness's grant rules) | all caught again, each by the test written for it |
+| witness: an operation on a descriptor is passed over (the old behaviour) | caught by 10 cases: the exact CI path, the granted descriptor `chmod`, the violation and the unplaceable-descriptor cases |
+| witness: a `dir_fd` of `-1` counts as a directory descriptor | caught by `test_a_path_relative_to_the_working_directory_is_judged` |
+| witness: a descriptor that cannot be placed is passed over silently | caught by `test_a_descriptor_whose_file_cannot_be_placed_is_unresolved_never_granted` (4 cases) |
+
+**All 27 mutations are caught**: Batch 2B-1's 24 and 3 new ones for the descriptor handling.
+
+**One unexplained intermittent failure, recorded rather than hidden.** During the harness run, the copy mutating the folder-grant rule also failed `test_a_reader_during_publication_never_sees_a_partial_or_foreign_record`.
+- That is Batch 1's multi-process record-publication test (review finding M3). Its child processes never load the witness, and nothing in Batch 2B-1 or this remediation touches the code it exercises.
+- The harness kept only the summary, so the message was lost.
+- It was not reproduced in 69 targeted reruns: 25 alone, 8 within the storage test set, 6 more runs of that mutation's copy, and 30 under three-way concurrent load.
+- Its cause is unknown. It has passed in every CI run so far.
+- The harness now keeps pytest's output, so a recurrence can be diagnosed. It stays an open item to watch in CI. It is not attributed to the remediation, and not dismissed.
+
+**Local verification** (Windows 11, Python 3.14.6; `PYTHONPATH` = the repository; the test isolation active):
+
+| Check | Result |
+| --- | --- |
+| The two tests that failed in CI | 2 passed. The witness test also passed with the writer's POSIX branch forced, the path that failed in CI |
+| Focused suites | **466 passed, 0 failed, 19 skipped**: `test_storage_witness.py` 29 passed, 2 skipped; `test_storage_identity.py` 127 passed, 3 skipped; `test_storage_scope.py` 14 passed; `test_storage_safety.py` 208 passed, 10 skipped; `test_private_folder.py` 53 passed, 4 skipped; `test_storage_api_boundary.py` 9 passed; `test_isolation_guard.py` 26 passed. Every skip is a POSIX-only, macOS, letter-case or `subst` case |
+| The race test, repeated | with the lock: 30 of 30 runs passed, across switch intervals of 1 µs, 5 ms and 200 ms; with the lock disabled: the original `KeyError` in 30 of 30 |
+| Mutation check | 27 of 27 caught (above) |
+| CI's safety-and-baselines file list (30 files, run exactly as `ci.yml` lists them) | **1,746 passed, 0 failed**, 55 skipped, 1 deselected; at `7b8914d`: 1,733 and 54 |
+| Full Python suite | **3,698 passed, 0 failed**, 55 skipped, 22 min 2 s; at `7b8914d`: 3,685 and 54. The difference is the 14 new witness cases (13 run here, 1 POSIX-only) |
+| Baselines | `python tests/storage_baseline.py --check`, twice: **baselines match** both times |
+| Inventory ratchet | 4 passed; `tests/storage_inventory.json` unchanged |
+| Goldens, fixtures, baselines, the Batch 0A loader and guard | unchanged against `7b8914d`; so are `bugpilot/`, `extension/` and `.github/` |
+| Extension | not rerun: no extension, CLI or MCP file changed. At `7b8914d`: typecheck clean; 2,350 unit, 27 evidence-boundary and 21 integration tests passed |
+| Publishability, plan check, whitespace | publishability passes; the plan check finds 0 problems; `git diff --check` is clean; the changed files are LF |
+| Protected local files | the historical plan, `.vscode/extensions.json`, `.bugpilot/`, `.ai/` and `.ai_memory/` are hash-identical to the start |
+
+**Platform coverage.**
+- Everything above ran on Windows only. No POSIX runtime is available here: WSL has no distribution installed, and there is no Docker.
+- **Pending cross-platform CI:**
+  - the Linux (`/proc/self/fd`) and macOS (`F_GETPATH`) descriptor resolvers;
+  - the POSIX deleted-file, `dir_fd` and descriptor-`utime` cases;
+  - the original failing test on Linux and macOS;
+  - Python 3.10, which has no `os.fchmod` on Windows before 3.13 (those cases skip there; on Linux 3.10 they run);
+  - the reworked race test on the Windows runner.
+- `storage.py`, the CLI, MCP, the extension, CI and the Batch 0A loader are unchanged.
+- The remediation needs its own commit on `verify/0.1.6-batch2b1` and a new owner-dispatched run. Both need the owner's authorization.
+
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
 **1. Scope.**
@@ -4125,6 +4242,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-17 | 2A | **Batch 2A (the storage security foundation) implemented and verified locally (not committed; no CI run).** <ul><li>**Authorization:** the owner's Batch 2A brief, on `6f8e0b2`, implementation and local verification only.</li><li>**Built:** the Git working-tree rule (G-1/G-2); the read-only privacy check and the credentials gate (G-3, the new `private_folder.py`); identities re-checked on every use and verdicts bound to request scopes (cache freshness); checked global accessors and private folder fields; the static API boundary.</li><li>**Not changed:** every product caller (none imports `storage`), the 0.1.5 storage, goldens, baselines, the contract fixture, the ratchet record and the version.</li><li>**Results:** full Python suite 3,597 passed, 0 failed, 53 skipped; the four storage suites 339 passed, 17 skipped; CI's safety list 1,645 passed; extension 2,350, the required TypeScript job 27, integration 21; baselines matched twice; the ratchet unchanged; 23 of 24 mutations caught on Windows, the remaining one (`st_ctime_ns`) being POSIX-only.</li><li>**Deviations:** D2A-1 to D2A-8.</li><li>**Batch 1's last run recorded:** 39005917365 on `6f8e0b2`, 9/9 success.</li><li>**Not run:** CI; Linux, macOS and Python 3.10; FAT, exFAT and network volumes; probes.</li><li>**Batch 0B and Batch 2B:** NOT STARTED.</li><li>**Details:** §14.3, "Batch 2A — as built".</li></ul> |
 | 2026-10-17 | 2A | **Batch 2A COMPLETED: committed on a verification branch, CI-verified, fast-forwarded into `main`; NOT activated.** <ul><li>**Commit:** `e78a6789fe5dcc4144bc6e21b5427e552bc0bb5b` (`fix(storage): harden unified storage safety and cache freshness`), exactly the eight-file allowlist, noreply identity, on `verify/0.1.6-batch2a` (owner-approved; the branch is kept).</li><li>**Verification CI:** run 39057483843, started by the owner (`workflow_dispatch`): **all 9 required checks succeeded**. Full suite: Ubuntu 3,577, macOS 3,579, Windows 3,594 passed. Safety and baselines: Ubuntu 3.13 and 3.10 1,632 each, macOS 1,634, Windows 1,643. Extension 2,348 passed; evidence boundary 27.</li><li>**First observations:** the POSIX privacy tests and the POSIX `st_ctime_ns` test passed on Linux (3.13 and 3.10) and macOS; the Windows access-list, SDDL and junction-retarget tests passed on Windows 3.13.16.</li><li>**Integration:** `main` fast-forwarded `6f8e0b2..e78a678` (owner-approved; no merge commit) and pushed; the push's CI run 39062906366: **9/9 success**.</li><li>**Timing (CI):** first `ensure()` 0.68–0.93 ms on Linux and macOS, 2.15 ms on Windows; reads outside a scope cost several times more than in one, so Batch 2B opens a scope per CLI command and MCP tool call.</li><li>**Findings:** none new. The mutation coverage of `st_ctime_ns` on POSIX is inferred, not run; per-test logs were not accessible.</li><li>**Unchanged:** version 0.1.5; no product caller switched; decisions as before.</li><li>**Batch 0B and Batch 2B:** NOT STARTED.</li><li>**Details:** §14.3, "Batch 2A — acceptance and CI evidence".</li></ul> |
 | 2026-10-17 | 2B-1 | **Batch 2B-1 (inactive consumer-switch preparation) implemented and verified locally on Windows (not committed; no CI run).** <ul><li>**Authorization:** the owner's Batch 2B-1 brief, on `3f8be69`: implementation and local verification only.</li><li>**Built:** C-1, the identity cache under one lock, with a deterministic race regression. C-2, request scopes owned by the thread that opened them; the MCP per-tool-call scope is recorded as a **mandatory 2B-5 gate, not integrated**. `remove_work_item()` and `remove_memory_file()`, checked and failing closed. `check()` on both storages (`StorageCheck`), with `StorageUnavailable`. The test-only write witness and its child runner.</li><li>**Unchanged:** Batch 0A's child loader, `errors.py`, every CLI, MCP, workflow, doctor, `user_config` and extension module, the goldens, baselines, contract fixture and ratchet record, and the version (0.1.5).</li><li>**Verification:** focused storage, scope, witness, privacy, boundary and isolation-guard suites 453 passed, 18 skipped; CI's safety list (30 files) 1,733 passed, 0 failed; full suite 3,685 passed, 0 failed, 54 skipped; extension typecheck clean, 2,350 unit, 27 evidence-boundary and 21 integration tests passed; baselines match twice; ratchet unchanged; publishability passes; 24 of 24 mutations caught; the C-1 race test deterministic (10 of 10 each way).</li><li>**Not run:** CI, so Linux, macOS and Python 3.10; the mutation check on POSIX; the real MCP dispatcher under concurrent calls; Batch 0B.</li><li>**Records:** the header, §14.0, §14.3 "Batch 2B-1 — inactive consumer-switch preparation" and §19, where the stale PENDING of run 39064298339 is resolved: success, 9/9.</li></ul> Batch 2B-2 to 2B-6 and Batch 0B: NOT STARTED. No decision changed; US-D29 not approved. |
+| 2026-10-17 | 2B-1 | **Batch 2B-1's first CI run FAILED (3/9); remediation implemented and verified locally (not committed; no new CI run).** <ul><li>**Commit and run:** `7b8914d` on `verify/0.1.6-batch2b1` (owner-approved), CI run 39085417171 (owner-dispatched): 3 of 9 checks green.</li><li>**F-1, the five POSIX jobs:** the write witness crashed on `os.fchmod`'s audit event, whose path is a descriptor and whose `dir_fd` is `-1`. Fixed in `tests/_storage_witness.py`: descriptors are placed through the descriptor and judged; pipes are passed over; whatever cannot be placed is unresolved, never authorized; `-1` means no `dir_fd`.</li><li>**F-2, the Windows safety job:** the race test asserted an elapsed time equal to its own wait timeout (0.4999 s against 0.5). Not a lock defect. Fixed in `tests/test_storage_identity.py`: the happens-before is observed through a reporting lock and a recording cache, with no clock.</li><li>**Verification:** focused suites 466 passed, 19 skipped; CI's safety list 1,746 passed, 0 failed; full suite 3,698 passed, 0 failed, 55 skipped; 27 of 27 mutations caught; the race test passes 30 of 30 and, with the lock disabled, raises `KeyError` 30 of 30; baselines match twice; ratchet unchanged.</li><li>**Unchanged:** `storage.py`, the CLI, MCP, the extension, CI, the Batch 0A loader, goldens, fixtures, baselines, the version (0.1.5).</li><li>**Open:** POSIX and Python 3.10 verification of the fix (CI); one unexplained intermittent failure of Batch 1's multi-process publication test, seen once and not reproduced in 69 reruns.</li></ul> Batch 2B-1 is not CI-verified and not integrated; Batch 0B and Batch 2B-2 to 2B-6 NOT STARTED; no decision changed. |
 
 ---
 
@@ -4151,6 +4269,8 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-17 | 2A | `main` | **the commit that carries this row**: this plan only (`docs: record BugPilot 0.1.6 Batch 2A CI acceptance`). A commit cannot hold its own SHA. | **PENDING**: its push to `main` starts `ci.yml` | — | Documentation only. Its run is reported to the owner, not recorded by another documentation commit. |
 | 2026-10-17 | 2A | `main` | `3f8be69d671c8ff5192120cd6989685477aa182a` (the documentation closure) | 39064298339 (`CI`, push) | **success: 9/9** | Observed after the push; the previous row's PENDING is resolved here. Recorded by the Batch 2B-1 plan update (uncommitted). |
 | 2026-10-17 | 2B-1 | `main` (working tree) | **none**: nothing staged or committed | **none**: no CI run dispatched | — | Batch 2B-1 is implemented and verified locally on Windows, awaiting the owner's review. Commit, push and CI each need a separate authorization; a verification branch with an owner-dispatched run is recommended, as for Batches 1 and 2A. |
+| 2026-10-17 | 2B-1 | `verify/0.1.6-batch2b1` | `7b8914d20decff215c9aa4160dfc4b4f01ccddf3` (the eight-file allowlist; parent `3f8be69`) | 39085417171 (`CI`, `workflow_dispatch` by the owner) | **failure: 3/9** | Green: extension evidence boundary (27), extension unit tests (2,348), full suite on Windows (3,682). Red: the four safety jobs and the Linux and macOS full suites, one test each. F-1, POSIX: `test_storage_writes_its_own_files_through_public_methods` (the witness on `os.fchmod`). F-2, Windows safety: `test_a_removal_can_never_fall_between_a_lookup_and_its_reordering` (an elapsed-time assertion). `origin/main` unchanged. |
+| 2026-10-17 | 2B-1 | `verify/0.1.6-batch2b1` (working tree) | **none**: the remediation is uncommitted | **none**: no new run dispatched | — | The remediation changes `tests/_storage_witness.py`, `tests/test_storage_witness.py`, `tests/test_storage_identity.py` and this plan, and is verified locally on Windows. Its commit, push and CI run each need the owner's authorization. |
 
 ---
 

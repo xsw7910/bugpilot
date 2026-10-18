@@ -770,7 +770,7 @@ def _threads(count: int, work, *, timeout: float = 120) -> list[BaseException]:
 def test_parallel_cached_reads_agree(tmp_path):
     folder = _repo(tmp_path, "checkout")
     expected = repository_identity(folder)
-    barrier = threading.Barrier(8)
+    barrier = threading.Barrier(8, timeout=30)  # a thread that never arrives breaks it: no thread waits forever
     found: list[object] = []
 
     def read(index: int) -> None:
@@ -786,7 +786,7 @@ def test_eviction_and_lookups_running_together_stay_consistent_and_bounded(tmp_p
     hot = _repo(tmp_path, "hot")
     expected = repository_identity(hot)
     cold = [_repo(tmp_path, "cold", f"r{index:03d}") for index in range(storage._IDENTITY_CACHE_LIMIT * 2)]
-    barrier = threading.Barrier(6)
+    barrier = threading.Barrier(6, timeout=30)
 
     def work(index: int) -> None:
         barrier.wait()
@@ -812,13 +812,15 @@ def test_lookups_while_a_link_is_retargeted_never_mix_namespaces_and_end_on_its_
     seen: list[object] = []
 
     def retarget() -> None:
-        for round_ in range(60):
-            try:
-                os.unlink(link)
-            except OSError:
-                os.rmdir(link)  # a junction, or a directory symbolic link on Windows
-            plant(link, second if round_ % 2 == 0 else first)
-        done.set()
+        try:
+            for round_ in range(60):
+                try:
+                    os.unlink(link)
+                except OSError:
+                    os.rmdir(link)  # a junction, or a directory symbolic link on Windows
+                plant(link, second if round_ % 2 == 0 else first)
+        finally:
+            done.set()  # the lookers stop even if retargeting failed
 
     def look() -> None:
         while not done.is_set():
@@ -845,25 +847,66 @@ def test_lookups_while_a_link_is_retargeted_never_mix_namespaces_and_end_on_its_
 
 
 def test_a_removal_can_never_fall_between_a_lookup_and_its_reordering(tmp_path, monkeypatch):
-    """C-1, deterministic: thread A holds a cache hit; thread B forgets that entry before A reorders it.
+    """C-1, deterministic: thread B removes the entry while thread A is between its cache lookup and its reordering.
 
-    Without the lock, B's removal lands while A waits, and A's ``move_to_end`` raises ``KeyError``.
-    With it, B waits for A: A's pause (0.5 s) times out, A finishes, and only then does B remove the entry.
+    No clock decides the outcome. A pauses inside its lookup until B has made its move, and B's move is observed,
+    not timed:
+
+    - with the lock, B finds it held by A and has to wait (the lock reports that). A then reorders, releases the
+      lock, and only then does B remove the entry. The recorded order proves it: A's reordering, then B's removal;
+    - without the lock, B removes the entry at once (the cache reports that), and A's ``move_to_end`` raises the
+      original ``KeyError``.
+
+    Every wait is bounded (``GUARD`` is reached only by a deadlock or a broken test), and both threads are joined.
     """
     folder = _repo(tmp_path, "checkout")
     absolute = os.path.abspath(folder)
     expected = repository_identity(folder)
-    a_has_hit, b_done = threading.Event(), threading.Event()
+    a_has_hit, b_moved = threading.Event(), threading.Event()
+    order: list[str] = []  # what happened to the entry, in order
+    held_off: list[str] = []  # threads that found the lock held and had to wait
+    guard = 30  # seconds
 
-    class PausingCache(OrderedDict):
+    class RecordingCache(OrderedDict):
         def get(self, key, default=None):
             found = super().get(key, default)
             if threading.current_thread().name == "A" and key == absolute:
                 a_has_hit.set()
-                b_done.wait(timeout=0.5)
+                if not b_moved.wait(guard):
+                    raise AssertionError("thread B never reached the cache")
             return found
 
-    monkeypatch.setattr(storage, "_identities", PausingCache(storage._identities))
+        def move_to_end(self, key, last=True):
+            super().move_to_end(key, last)
+            order.append(f"{threading.current_thread().name}:reorder")
+
+        def pop(self, key, *default):
+            found = super().pop(key, *default)
+            if threading.current_thread().name == "B":
+                order.append("B:remove")
+                b_moved.set()
+            return found
+
+    real_lock = storage._identities_lock
+
+    class ReportingLock:
+        """The cache's own lock, saying when a thread finds it held and has to wait."""
+
+        def __enter__(self):
+            if not real_lock.acquire(blocking=False):
+                held_off.append(threading.current_thread().name)
+                if threading.current_thread().name == "B":
+                    b_moved.set()
+                if not real_lock.acquire(timeout=guard):
+                    raise AssertionError("the cache's lock was never released")
+            return self
+
+        def __exit__(self, *exc_info):
+            real_lock.release()
+            return False
+
+    monkeypatch.setattr(storage, "_identities", RecordingCache(storage._identities))
+    monkeypatch.setattr(storage, "_identities_lock", ReportingLock())
     real_stat = os.stat
 
     def gone_for_b(path, *args, **kwargs):
@@ -877,32 +920,37 @@ def test_a_removal_can_never_fall_between_a_lookup_and_its_reordering(tmp_path, 
     def thread_a() -> None:
         try:
             outcome["a"] = repository_identity(folder)
-        except BaseException as error:  # noqa: BLE001
+        except BaseException as error:  # noqa: BLE001 - reported below
             outcome["a"] = error
 
     def thread_b() -> None:
-        a_has_hit.wait(timeout=30)
         try:
+            if not a_has_hit.wait(guard):
+                raise AssertionError("thread A never reached the cache")
             repository_identity(folder)
         except StorageError:
             pass  # B saw the folder as gone: refused
-        except BaseException as error:  # noqa: BLE001
+        except BaseException as error:  # noqa: BLE001 - reported below
             outcome["b"] = error
-        finally:
-            b_done.set()
 
     a = threading.Thread(target=thread_a, name="A")
     b = threading.Thread(target=thread_b, name="B")
-    started = time.monotonic()
-    a.start()
-    b.start()
-    a.join(60)
-    b.join(60)
+    try:
+        a.start()
+        b.start()
+        a.join(2 * guard)
+        b.join(2 * guard)
+    finally:
+        a_has_hit.set()  # whatever went wrong, no thread is left waiting
+        b_moved.set()
+        a.join(guard)
+        b.join(guard)
     assert not a.is_alive() and not b.is_alive()
     assert outcome.get("a") == expected, outcome.get("a")  # no KeyError, and the right identity
-    assert "b" not in outcome
-    assert time.monotonic() - started >= 0.5  # B was held off until A was done
-    assert absolute not in storage._identities  # B's removal came after A's reordering
+    assert "b" not in outcome, outcome.get("b")
+    assert held_off == ["B"]  # B tried while A held the lock, and had to wait
+    assert order[:2] == ["A:reorder", "B:remove"], order  # A's reordering happened before B's removal
+    assert absolute not in storage._identities
 
 
 def test_an_identity_resolved_before_a_retarget_is_never_published(tmp_path, monkeypatch):

@@ -21,7 +21,7 @@ import pytest
 import _isolation
 import _storage_witness
 from _storage_witness import witness
-from bugpilot.core import storage
+from bugpilot.core import artifact_io, storage
 from bugpilot.core.artifact_io import atomic_write_text
 from bugpilot.core.storage import data_root, global_storage, repository_storage, request_scope
 
@@ -217,6 +217,150 @@ def test_a_path_relative_to_a_directory_descriptor_is_recorded_as_unresolved(rep
         finally:
             os.close(handle)
     assert [item.verdict for item in observed.observations if item.path == "inside"] == ["unresolved"]
+
+
+# --- open descriptors: os.fchmod and the like (CI run 39085417171) -----------------------------------------
+# On POSIX the atomic writer sets a temp file's mode with os.fchmod on its descriptor; the audit event then
+# names a descriptor, not a path. The witness places it through the descriptor and judges that path.
+
+HAS_FCHMOD = hasattr(os, "fchmod")  # POSIX, and Windows from Python 3.13
+needs_fchmod = pytest.mark.skipif(not HAS_FCHMOD, reason="os.fchmod: POSIX, and Windows from Python 3.13")
+
+
+def _events(observed, event: str) -> list[tuple[str, str]]:
+    return [(Path(item.path).name, item.verdict) for item in observed.observations if item.event == event]
+
+
+def _descriptor_operations() -> list[tuple[str, str]]:
+    """(operation, the audit event it raises) for every descriptor operation this system has."""
+    operations = [("fdopen", "open"), ("ftruncate", "os.truncate")]
+    if HAS_FCHMOD:
+        operations.append(("fchmod", "os.chmod"))
+    if os.chmod in os.supports_fd:
+        operations.append(("chmod", "os.chmod"))
+    if os.utime in os.supports_fd:
+        operations.append(("utime", "os.utime"))
+    return operations
+
+
+def _apply(operation: str, descriptor: int) -> None:
+    if operation == "fdopen":
+        with os.fdopen(os.dup(descriptor), "w", encoding="utf-8") as stream:
+            stream.write("synthetic")
+    elif operation == "ftruncate":
+        os.ftruncate(descriptor, 0)
+    elif operation == "fchmod":
+        os.fchmod(descriptor, 0o600)
+    elif operation == "chmod":
+        os.chmod(descriptor, 0o600)
+    else:
+        os.utime(descriptor)
+
+
+@needs_fchmod
+def test_storages_own_atomic_write_through_a_descriptor_is_storages(monkeypatch):
+    """The CI failure, exactly: ``write_config_file`` → the private atomic writer → ``os.fchmod(temp, 0o600)``.
+
+    Windows' writer skips that step, so it is taken on purpose there (``artifact_io._POSIX``).
+    """
+    if os.name == "nt":
+        monkeypatch.setattr(artifact_io, "_POSIX", True)
+    with witness() as observed, request_scope():
+        global_storage().write_config_file("jira_base_url = 'https://jira.example.invalid'\n")
+    observed.assert_clean()
+    chmods = _events(observed, "os.chmod")
+    assert chmods and {verdict for _, verdict in chmods} == {"storage"}
+    assert all(name.startswith(".config.toml.") and name.endswith(".tmp") for name, _ in chmods)
+
+
+@needs_fchmod
+def test_a_descriptor_chmod_inside_a_granted_folder_is_granted(repo):
+    namespace = repository_storage(repo)
+    with witness() as observed, request_scope():
+        work = namespace.work_item_dir("JR-12345", create=True)
+        descriptor = os.open(work / "task.md", os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
+    observed.assert_clean()
+    assert _events(observed, "os.chmod") == [("task.md", "granted")]
+
+
+@pytest.mark.parametrize("operation, event", _descriptor_operations())
+def test_a_descriptor_operation_on_an_unchecked_file_is_a_violation(operation, event):
+    """The file is opened before the witness starts, so only the descriptor operation itself is judged."""
+    global_storage().ensure_config_dir()
+    stray = data_root() / "stray.txt"
+    stray.write_text("synthetic\n", encoding="utf-8")
+    descriptor = os.open(stray, os.O_RDWR)
+    try:
+        with witness() as observed, request_scope():
+            _apply(operation, descriptor)
+    finally:
+        os.close(descriptor)
+    assert observed.errors == []
+    assert _events(observed, event) == [("stray.txt", "violation")]
+
+
+def test_a_descriptor_that_is_no_file_is_passed_over():
+    reader, writer = os.pipe()
+    try:
+        with witness() as observed:
+            with os.fdopen(writer, "w", encoding="utf-8") as stream:  # closes the writer
+                stream.write("synthetic")
+    finally:
+        os.close(reader)
+    assert observed.observations == [] and observed.errors == []
+
+
+@pytest.mark.parametrize("operation, event", _descriptor_operations())
+def test_a_descriptor_whose_file_cannot_be_placed_is_unresolved_never_granted(repo, monkeypatch, operation, event):
+    namespace = repository_storage(repo)
+    with witness() as observed, request_scope():
+        work = namespace.work_item_dir("JR-12345", create=True)
+        descriptor = os.open(work / "task.md", os.O_CREAT | os.O_RDWR, 0o600)
+        monkeypatch.setattr(_storage_witness, "_platform_place", lambda descriptor: None)
+        try:
+            _apply(operation, descriptor)
+        finally:
+            os.close(descriptor)
+    observed.assert_clean()  # unresolved is reported, not a violation; but never granted
+    unplaced = [item for item in observed.observations if item.path.startswith("<descriptor ")]
+    assert [(item.event, item.verdict) for item in unplaced] == [(event, "unresolved")]
+    assert unplaced == [item for item in observed.unresolved() if item.path.startswith("<descriptor ")]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a file held open cannot be deleted on Windows")
+def test_a_descriptor_of_a_deleted_file_is_unresolved(repo):
+    namespace = repository_storage(repo)
+    work = namespace.work_item_dir("JR-12345", create=True)
+    descriptor = os.open(work / "gone.md", os.O_CREAT | os.O_RDWR, 0o600)
+    os.remove(work / "gone.md")
+    try:
+        with witness() as observed, request_scope():
+            os.ftruncate(descriptor, 0)
+    finally:
+        os.close(descriptor)
+    assert [(item.event, item.verdict) for item in observed.observations] == [("os.truncate", "unresolved")]
+
+
+def test_a_path_relative_to_the_working_directory_is_judged(monkeypatch):
+    """``dir_fd`` -1 means none: the name is relative to the working directory, and is judged there."""
+    global_storage().ensure_config_dir()
+    monkeypatch.chdir(data_root())
+    with witness() as observed, request_scope():
+        os.mkdir("made-by-hand")
+    assert [(item.event, Path(item.path).name, item.verdict) for item in observed.observations] == [
+        ("os.mkdir", "made-by-hand", "violation")]
+
+
+def test_an_argument_that_is_neither_a_path_nor_a_descriptor_is_unresolved():
+    with witness() as observed:
+        _storage_witness._hook("os.chmod", (None, 0o600, -1))
+    assert [(item.verdict, item.detail) for item in observed.observations] == [
+        ("unresolved", "neither a path nor a descriptor")]
+    assert observed.errors == []
 
 
 # --- Python children, through the witness runner ----------------------------------------------------------
