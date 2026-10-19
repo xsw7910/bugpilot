@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Batch 0B, Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -100,7 +100,7 @@ The repository-local paths are not configuration that a few modules read:
 
 **Readiness.** The plan is ready for owner decisions.
 
-- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. 24 still await the owner: 13 OPEN and 11 PROPOSED. 4 items are DEFERRED.
+- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11). 23 still await the owner: 12 OPEN and 11 PROPOSED. 4 items are DEFERRED.
 - **The 2026-10-15 architecture review recommends:**
 
   | Recommendation | Count | Decisions |
@@ -113,7 +113,7 @@ The repository-local paths are not configuration that a few modules read:
   None of these is an approval.
 - **Batch 0A** can be authorized on its own; it needs US-D32 and US-D33.
 - **Batch 2,** the storage-changing batch, cannot begin until:
-  - US-D10 and US-D28 are decided, from Batch 0B evidence;
+  - US-D10 is decided, from Batch 0B evidence (US-D28 was decided on 2026-10-18: §16.5.11);
   - US-D14 is decided (§16.4);
   - the §8.10 contract is approved (approved in part on 2026-10-16; its open parts are decided before they are built).
 
@@ -1243,12 +1243,12 @@ From the vendors' documentation as of 2026-10. **V** = documented (source given)
 
 **Option D — the safe hybrid** (A by default, B as fallback, C opt-in later). This is the recommendation in §9.5.
 
-### 9.5 Provisional recommendation (US-D10 and US-D28 stay OPEN until Batch 0B evidence; US-D11: review recommends deferring)
+### 9.5 Provisional recommendation (US-D10 stays OPEN until Batch 0B evidence; US-D28 APPROVED with conditions, §16.5.11; US-D11: review recommends deferring)
 
 **Option D, provisionally.** It is the review's recommendation, not a decision.
 
 - US-D10 stays OPEN until the Batch 0B probes (§9.7) show that Option D works for the combinations the owner supports, against §9.10's acceptance.
-- US-D28 stays OPEN until probe P2.
+- US-D28 was approved with conditions on 2026-10-18, after probe P2, as an amended design contract (§16.5.11).
 - Nothing here grants an agent another directory or changes a sandbox mode.
 
 Concretely:
@@ -1270,8 +1270,12 @@ Concretely:
    - **The fallback is not a success.** A handoff completed through this fallback is recorded as **FALLBACK**, not as a successful one-click Fix with AI (§9.10).
 4. **Python launcher (`--launch-agent`).** The same plain-prompt rule applies before `subprocess.run`. A refused prompt prints the manual instruction, which today's not-found path already does (`cli.py:1601-1605`).
 5. **Captured review.** The prompt keeps naming the files, now by absolute path. It relies on the bare `Read` allow (V).
-   - Batch 0B probe P2 informs US-D28, which stays OPEN until then.
-   - If the read is denied, the review prompt carries the bounded `fix_report.md` excerpt inline instead. It is already earlier-AI-output-quoted by 0.1.5's machinery, and stdin has no size problem.
+   - Probe P2 observed the external reads working on Windows (§14.1.B). US-D28 is APPROVED with conditions, as a design contract (§16.5.11).
+   - `Read` is not a filesystem sandbox: the reviewer can open other files too.
+   - **There is no automatic inline fallback.** This was amended on 2026-10-18; this point first proposed putting the excerpt inline on a denied read.
+     - A denial that the run reliably reports is shown as a failure.
+     - A separately identified, developer-initiated **Partial Review** may carry at most 2,400 characters of `fix_report.md`. The excerpt is quoted as earlier AI output and marked as incomplete source material.
+     - A Partial Review is never automatic, and never presented as a full review (§16.5.11).
 6. **MCP and the skill.**
    - `agent_task`, `issue_dir` and `next_step` carry absolute paths. The client model reads with its own tools, under its own permissions, as in A.
    - The skill reads the `agent_task` path the CLI prints instead of composing `.ai/<ISSUE>/…`.
@@ -1293,7 +1297,7 @@ Concretely:
 | The read of `task.md` | The agent cannot start the workflow, and says so. | **Copy effective task** in the panel (or `bugpilot task-preview <id>`, read-only, in a terminal), pasted into the agent's input. **Copy context** likewise for `context.md`. |
 | Reads of `context.md`, `retrieval.json` or an attachment | The agent works from what it has. `task.md` already asks it to say plainly when it cannot read an attachment (`prompts.py:511-515`). | As above, for context. Attachments cannot be pasted: the agent reports it. |
 | The write of `fix_report.md` | **Required Output Files (protected) adds one sentence:** "If you cannot write it there, say so and give the report in your reply under the same headings; never write it inside the repository." The second clause matters most: a refused agent must not "helpfully" write the report into the repository root (R5). | `bugpilot manual-result <id>` creates the template, or the panel opens `fix_report.md`; the developer pastes the reply. `check-results` and History then work as usual. |
-| The captured review's read | The review answers with "could not read" (a `-p` deny). | US-D28's inline fallback. |
+| The captured review's read | The review answers with "could not read" (a `-p` deny). A clean exit does not prove that every input was read. | <ul><li>No automatic fallback.</li><li>A denial that the run reliably reports is shown.</li><li>The developer may choose a Partial Review (§16.5.11): reduced input, never equivalent to a full review.</li></ul> |
 | The agent runs under `-p` / `exec -a never` | Writes are refused by design. | As the write row. Unattended agent runs are not a BugPilot entry point in 0.1.6. |
 
 **How these recoveries are scored.** Every recovery in this table keeps the developer's work moving, and none adds a grant or changes a sandbox. A workflow completed through one of them counts as **FALLBACK** for the aspect concerned, never as PASS (§9.10).
@@ -1338,7 +1342,7 @@ Concretely:
 - Only an observed result is PASS or FAIL. **A failed or unavailable probe is reported as FAIL or UNKNOWN, never as passed.**
 - A decision that depends on an UNKNOWN probe stays OPEN, unless the owner explicitly accepts the gap and §16.1 records it.
 
-**Status:** nothing below has been run.
+**Status:** P10 has been run (2026-10-18). A narrowed run covered direct shells and the Python launcher (§14.1.B, "Batch 0B — probe P10, narrowed"), and a completion run covered the VS Code `sendText` path (§14.1.B, "Batch 0B — probe P10, VS Code sendText completion"). All parts PASS: **P10 is PASS for the tested Windows configuration**, with the limitations recorded there. P7 was attempted the same day and was **UNKNOWN**: the disposable VS Code would not start while a VS Code update was being installed, so none of its tests ran (§14.1.B, "Batch 0B — probe P7, attempted"). After the update, the P7 retry ran on Windows with VS Code 1.142.0: **P7-A to P7-H PASS**, and `revealFileInOS` is UNKNOWN, inconclusive on the selection (§14.1.B, "Batch 0B — probe P7, retry"). P2 ran once with Claude Code 2.1.214 and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked with no prompt; the model declined to reproduce the marker and requested Bash once, which Claude Code refused (§14.1.B, "Batch 0B — probe P2, captured review"). Nothing else below has been run: P1, P3–P6, P8, P9 and P11 are NOT EXECUTED. A read-only readiness audit (2026-10-18) found no operating-system isolation on the probe machine: no administrator rights, no Windows Sandbox and no WSL distribution. So P1, P3, P5 and P9 stay blocked until the owner either provides isolation (a VM or a separate account) or, as for P2, separately approves running them with the residual read risk accepted.
 
 | Id | Probe | Informs | Handoff aspect (§9.10) |
 | --- | --- | --- | --- |
@@ -1958,9 +1962,9 @@ Either must avoid becoming a legacy reader (R4).
 | Batch | Title | Status | Commit | CI run | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
-| 0B | Live agent capability probes | **NOT STARTED** | — | — | awaits a separate approval naming the agents and accounts; no commit except plan records |
+| 0B | Live agent capability probes | **IN PROGRESS** (2026-10-18). P10: direct shells and the Python launcher PASS (narrowed run), then VS Code `sendText` PASS (completion run): **PASS for the tested Windows configuration**, with limitations. P7 attempted the same day: UNKNOWN, blocked before its tests by an in-progress VS Code update. P7 retry after the update (VS Code 1.142.0, Windows): P7-A to P7-H PASS, `revealFileInOS` UNKNOWN. P2 (one run, Claude Code 2.1.214): FAIL against the owner's criteria; external reads under `dontAsk` worked, the marker was declined, and a Bash request was refused. P1, P3–P6, P8, P9 and P11 NOT EXECUTED (§14.1.B) | — | — | each further probe awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-2 to 2B-6 NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10, US-D14 and US-D28 are decided and §8.10 is approved |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-2 to 2B-6 NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10 and US-D14 are decided and §8.10 is approved (US-D28: APPROVED with conditions on 2026-10-18, §16.5.11) |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -2447,7 +2451,336 @@ The guard's documented limits ("Limits", above) are unchanged.
 **12. Stop and approval gate.**
 
 - **Stop if:** a probe would need a real account, repository or configuration not covered by the approval; a probe shows that Option A cannot work for an agent the owner considers supported (US-D10 returns to the owner with the evidence).
-- **Gate:** the owner decides US-D10 and US-D28 from the evidence, and US-D12's direct-launch question if P11 ran. **A storage-changing Batch 2 does not begin while US-D10, US-D14 or US-D28 is still OPEN** (§14.3).
+- **Gate:** the owner decides US-D10 and US-D28 from the evidence, and US-D12's direct-launch question if P11 ran. **A storage-changing Batch 2 does not begin while US-D10, US-D14 or US-D28 is still OPEN** (§14.3). *(US-D28 was approved with conditions on 2026-10-18: §16.5.11.)*
+
+##### Batch 0B — probe P10, narrowed (as run, 2026-10-18)
+
+**Outcome: UNKNOWN overall.** The VS Code `sendText` path, which is P10's essential one, was not exercised. *(It was completed later the same day, and P10 is now PASS for the tested Windows configuration: see "Batch 0B — probe P10, VS Code sendText completion" below.)*
+- Direct shells: **20 of 20 PASS**.
+- The Python launcher through a `.cmd` shim: **5 of 5 PASS**.
+
+No real agent, account, credential or real repository was used. No decision changed.
+
+**Authorization and scope.** The owner's narrowed P10 brief of 2026-10-18 limited the probe to:
+- prompts BugPilot's own filter accepts, sent through BugPilot's own command construction to inert argument recorders;
+- two refused strings, checked against the filter only and never sent to a shell.
+
+An earlier, broader P10 attempt that day was stopped before anything was created or run.
+
+**The code exercised, and what differs from the readiness assumptions:**
+- **Where the code is:** the filter and command line live in `extension/src/app/agents.ts` (the brief said `extension/src/agents.ts`). The Python launcher is `bugpilot/core/agent_runner.py`.
+- **The filter** is `PLAIN_PROMPT = /^\s*[A-Za-z0-9#][A-Za-z0-9\s.,:#/_-]*$/`. Because `\s` admits newlines and tabs, a multi-line prompt is accepted. The terminal command line is then `` `${command} ${JSON.stringify(flatten(prompt))}` ``, where `flatten` collapses every whitespace run to one space and trims. So the transmitted argument is the flattened prompt, by design, and every comparison was made against that.
+- **The Python launcher has no prompt filter** in 0.1.5. It sends the fixed `handoff_prompt(<id>)` sentence, with the default `--permission-mode acceptEdits` arguments, and runs a `.cmd` shim as `[cmd.exe, /c, <shim>, …]`. This matches the plan: T-S12 adds the filter in 0.1.6.
+
+**Environment** (Windows 11 10.0.26300, run by Claude Code at the owner's instruction):
+
+| Shell | Version | Started as | Shim it resolved |
+| --- | --- | --- | --- |
+| PowerShell 7 | 7.6.6 | `pwsh -NoProfile -NoLogo -NonInteractive -Command -` | `agentstub.ps1` |
+| Windows PowerShell | 5.1.26100.9711 | `powershell -NoProfile -NoLogo -NonInteractive -Command -` | `agentstub.ps1` |
+| cmd | 10.0.26300.9711 | `cmd /d` (AutoRun off) | `agentstub.cmd` |
+| Git Bash | 5.3.15(2) | `bash --noprofile --norc -s` | the sh `agentstub` |
+
+- **How the shells were fed:** each received BugPilot's command line as one input line on stdin, as a typed line would be. The execution policy is RemoteSigned, so local `.ps1` shims run.
+- **Environment:** stripped down. Home, app-data and temp folders all pointed into the kit, Git's global configuration was an empty kit file, and no tokens were inherited.
+- **Safety check before running:** `claude`, `codex` and `copilot` did not resolve on the probe's PATH; `agentstub` resolved only inside the kit.
+
+**The stand-ins.** `agentstub.cmd`, `agentstub.ps1` and the sh `agentstub` are modelled line for line on npm's generated `claude` shims, calling `standins/recorder.py` instead of an agent. The recorder writes its argv and its raw command line into the kit, and nothing else.
+- **The command lines** came from BugPilot's own code: the real `claude-cli` definition, `cliAgent(...).run()`, with only the command name changed to `agentstub` (Node 24, `standins/construct.mjs`).
+- **The Python runs** used the real `run_agent()`, with an explicit `AppConfig` naming the stand-in, so no user configuration was read.
+
+**Cases** (synthetic; the kit root is `C:/bp-0b/run-p10/`):
+
+| Case | Prompt | Filter | Through the 4 shells | Through the Python launcher |
+| --- | --- | --- | --- | --- |
+| A1 | `Read .ai/JR-12345/task.md and complete the workflow.` | accepted | PASS ×4 | PASS |
+| A2 | the same with extra leading, inner and trailing spaces | accepted, flattened | PASS ×4 | PASS (sent unflattened, received exactly) |
+| A3 | `Read C:/bp-0b/run-p10/you two/work/JR-12345/task.md and complete the workflow.` (absolute path with a space) | accepted | PASS ×4 | PASS |
+| A4 | A3 split by a newline and a tab | accepted, flattened to A3 | PASS ×4 | not applicable: the Python path has no flattening, and never receives multi-line text today |
+| A5 | `#Review: C:/bp-0b/run-p10/you two/work/JR-12345/fix_report.md, context.md - done_now.` (`# : , - _`) | accepted | PASS ×4 | PASS |
+| H0 | `handoff_prompt("JR-12345")`, the Python launcher's own prompt | — | — | PASS |
+| R1 | a backslash Windows path | **refused** (`failed`, nothing launched) | not sent | not sent |
+| R2 | a prompt starting with `-p` | **refused** | not sent | not sent |
+
+**What PASS means here:**
+- The recorder ran exactly once, and its argv equalled the intended argument sequence: `[flatten(prompt)]` for the shells, and `[--permission-mode, acceptEdits, prompt]` for the Python launcher.
+- The shell exited 0.
+- No unexpected record was written, and no new path appeared outside the kit's `evidence`, `home` and `tmp` folders.
+
+The only error output was `run_agent`'s expected deprecation note. Git Bash's path conversion left every argument untouched, and so did PowerShell's native argument passing.
+
+**Evidence** (outside the repository, kept for review, never committed): `C:/bp-0b/run-p10/evidence/`, holding `command_lines.json`, `results.json` and 25 records in `received/`. Raw command lines have the Python install folder replaced by `<python-dir>`.
+
+**Isolation, verified after the run:**
+- the repository is unchanged, and the 11 protected local files are hash-identical;
+- no `__pycache__` appeared in it;
+- the PowerShell and Bash history files are untouched;
+- PowerShell's startup cache was written into the kit's home, which shows the redirection held.
+
+The real `~/.codex` folder changed during the day, but not because of the probe. It is written continuously by Codex processes that the developer's VS Code and the ChatGPT desktop app had started long before the kit existed. Two of its writes predate the kit, the last came after the probe had finished, and Codex never resolved on the probe's PATH. This is one more reason a Codex probe must use its own `CODEX_HOME`. A Codex Windows sandbox service is installed and running, which is relevant to P4.
+
+**Limits and missing evidence:**
+- **VS Code `sendText`: UNKNOWN.** No harness was built, by instruction. The terminal layer, shell integration and PSReadLine were not exercised. The direct-shell results do not prove the VS Code integration.
+- **Not an interactive console:** the shells read stdin. It is the same parser as a typed line, but with no line editor and no developer profile; a profile that redefines commands was not tested.
+- **Windows only.** macOS and Linux were not run.
+- **No real agent executable:** only shims, so native-executable argument handling remains P11's question.
+- **Only filter-accepted characters,** by design. Nothing outside the gate was sent.
+- **Not exercised:** the `--session-id <uuid>` command shape (no flag probe was offered) and the Codex command (`cliAgent` builds it the same way).
+
+**What it means for the decisions** (evidence only; nothing approved):
+- **US-D12:** for the four Windows shells and the Python launcher, the filter-accepted class, including an absolute forward-slash path with a space and a leading `#`, reaches the program intact. That supports keeping the gate as it is for these paths. It says nothing about characters outside the gate, VS Code's terminal layer, other systems or direct launch (P11).
+- **US-D10:** the 0.1.6 handoff prompt shape (an absolute work-folder path, here with a space) survives every shell and the Python launcher, which removes one transport concern for Option A's terminal launch (A6). A6 stays UNKNOWN until the VS Code `sendText` path is observed, and Option A still depends on the agents' own behaviour (P1, P3).
+- **T-S12:** the Python launcher passes these prompts intact through `cmd /c` and a `.cmd` shim today. The 0.1.6 filter is still to be added.
+
+**Kit and cleanup.** The kit `C:/bp-0b/run-p10/` is left in place for review: the evidence, the stand-ins and the synthetic files, plus `home/` and `tmp/`, which hold only PowerShell's startup cache and an empty Git configuration. It was created by this probe; deleting `C:/bp-0b/` removes all of it.
+
+##### Batch 0B — probe P7, attempted (2026-10-18)
+
+**Outcome: UNKNOWN. No P7 test ran.** The disposable VS Code instance would not start, because an update of the developer's own VS Code was being installed at the time. Every case, P7-A to P7-H, is UNKNOWN.
+
+**Authorization and design.** The owner's P7 brief of 2026-10-18 covers VS Code extension APIs on synthetic files outside the workspace:
+
+| Case | API | What it checks |
+| --- | --- | --- |
+| P7-A | `workspace.fs.readFile` | reading an external file |
+| P7-B | `workspace.fs.writeFile` | writing it |
+| P7-C | `workspace.openTextDocument` | opening it as a document |
+| P7-D | `window.showTextDocument` | showing it in an editor |
+| P7-E | `createFileSystemWatcher(new RelativePattern(Uri.file(<outside>), "*"))` | create, modify and delete events, plus an atomic temp-and-rename replace like the CLI's |
+| P7-F | `TextEditor.edit`, `TextDocument.save`, `onDidSaveTextDocument` | saving through the editor |
+| P7-G | the same | a folder and file names with spaces |
+| P7-H | `workspaceFolders`, `getWorkspaceFolder`, `asRelativePath` | the workspace boundary |
+
+- **The harness:** a minimal plain-JavaScript probe extension loaded with `--extensionDevelopmentPath`, so no tool was installed and nothing was downloaded. Readiness waits and event waits are bounded at 10 s, and a missing event is never PASS.
+- **Launched as:** the installed `Code.exe` with its own `--user-data-dir` and an empty `--extensions-dir`, inside the kit. Telemetry, updates, experiments, Git, AI features and workspace trust were off, and Settings Sync was never enabled (a fresh profile with no account). The environment was stripped down, with its home, app-data and temp folders inside the kit.
+- §9.7's `revealFileInOS` on a folder was not part of the brief; it would open the operating system's file explorer.
+
+**What happened.**
+- VS Code 1.140.0 started at 13:49:03, created its profile in the kit, and exited with code 1 at 13:49:36, before its log files or the extension host were written. The probe extension never ran, and no results file was written.
+- **Cause, confirmed read-only:**
+  - the installer for VS Code 1.142.0 (`CodeSetup-stable-6d62b1d5…`) was running and holding the `vscodesetup` and `vscode-updating` mutexes;
+  - the installed build uses versioned updates (`win32VersionedUpdate`) and refuses to start a new instance while that setup mutex is held.
+- A "being updated" message may have been shown on screen.
+- Per the stop rule set before the launch, there was no retry, and the staged 1.142.0 build was not launched, since that could disturb the update.
+
+**Isolation, verified.**
+- **This repository:** unchanged apart from this plan; the 11 protected local files are hash-identical.
+- **The P10 kit:** digest unchanged.
+- **The external synthetic files:** untouched, with their original content and timestamps.
+- **The developer's VS Code:** the real `~/.vscode/argv.json` is unchanged since 2026-10-07; the disposable instance wrote its own inside the kit. The real extensions folder's listing is unchanged.
+- **Leftovers:** no process of the disposable instance remained; none had to be stopped.
+
+**Kit.** `C:/bp-0b/run-p7/` holds `repo/`, `external work/JR-12345/{task.md,context.md}` and `external work/spaced dir/notes file.md`, plus `user-data/` (the disposable profile), the empty `extensions/`, `harness/` (`package.json`, `extension.js`, `run_p7.py`) and `evidence/p7-run.json`. It is kept, so P7 can be rerun as it is once no VS Code update is in progress, for example after the developer's VS Code has restarted into 1.142.0.
+
+**Decisions.** US-D17 and Batch 3 gain no evidence; nothing is approved. *(Retried after the update the same day: see "Batch 0B — probe P7, retry" below.)*
+
+##### Batch 0B — probe P7, retry after the VS Code update (2026-10-18)
+
+**Outcome, Windows only:**
+- **P7-A to P7-H: PASS, 17 of 17 checks.** The VS Code APIs read, wrote, opened, showed, watched and saved synthetic files outside the workspace, including paths with spaces.
+- **`revealFileInOS`: UNKNOWN.** It opened the file manager at the right place, but whether the folder was selected is unconfirmed.
+
+No real agent, account, network service or real data was used. Nothing is approved.
+
+**Run.**
+- **Authorization:** the owner's P7 retry brief, issued once the update had completed.
+- **Update state, checked first, read-only:**
+  - the 1.142.0 installer had exited, and the `vscodesetup` and `vscode-updating` locks were released;
+  - the installed `Code.exe` was 1.142.0, `new_Code.exe` and `updating_version` were gone, and the developer's VS Code had restarted.
+- **Reused** as they were: the first attempt's kit, isolated profile, synthetic repository, external files and probe extension.
+- **Two harness corrections,** with the originals kept in `evidence/attempt1-harness/`:
+  - the evidence files are named `-retry1` and refuse to overwrite, so the first attempt's `p7-run.json` is preserved;
+  - a P7-I step for `revealFileInOS` was added, with its operating-system side checked outside VS Code.
+- **Environment:** VS Code 1.142.0 (Electron 43.7.7), Windows 11 Enterprise 10.0.26300; the `bp-p7-probe` extension 0.0.1, loaded with `--extensionDevelopmentPath`; profile `C:/bp-0b/run-p7/user-data`, extensions `C:/bp-0b/run-p7/extensions` (empty); the only workspace folder is `C:/bp-0b/run-p7/repo`.
+- **Timing:** the window wrote its results 31 s after launch and closed itself; nothing had to be stopped.
+
+**Results** (`evidence/p7-results-retry1.json`; every check is VS Code API evidence, with Node `fs` used only as a second reading of the bytes):
+
+| Case | API | Observed | Result |
+| --- | --- | --- | --- |
+| P7-A | `workspace.fs.readFile` on `external work/JR-12345/task.md` | the bytes on disk (SHA-256 equal) | PASS |
+| P7-B | `workspace.fs.writeFile` on `context.md` | the written bytes, read back by the API and by Node | PASS |
+| P7-C | `workspace.openTextDocument` | not untitled, `markdown`, text equal to the file | PASS |
+| P7-D | `window.showTextDocument` | an editor showing it, and the active one | PASS |
+| P7-E | `createFileSystemWatcher(new RelativePattern(Uri.file(<external folder>), "*"))` | create, modify, delete and a temp-and-rename replace, each reported (below) | PASS ×4 |
+| P7-F | `TextEditor.edit`, `TextDocument.save`, `onDidSaveTextDocument` | the edit applied; dirty, then `save()` true; the save event 46 ms after; clean; the bytes on disk equal the edited text (LF) | PASS |
+| P7-G | read, open, write and watcher in `external work/spaced dir/` (`notes file.md`, `written file.md`, `watched file.txt`) | as P7-A, C, B and E | PASS ×6 |
+| P7-H | `workspaceFolders`, `getWorkspaceFolder`, `asRelativePath` | the only workspace folder is the synthetic repo; external files belong to no workspace folder, and `asRelativePath` returns them as absolute paths | PASS |
+| P7-I | `commands.executeCommand('revealFileInOS', Uri.file(<external folder>))` | the command returned without an error; a new Explorer window opened at the folder's parent, `external work`, which is how Windows reveals an item; its selection read back empty when it was read, right after the window appeared | **UNKNOWN** |
+
+On P7-I, the harness's automatic rule wrote FAIL in `p7-run-retry1.json`, because no selection was read. It is recorded here as UNKNOWN: the location is right, and the selection was read once, possibly before Explorer applied it. It is not equated with `showTextDocument`. The Explorer window was closed by its handle, and no other window was read beyond its handle.
+
+**The file watcher, observed** (Node `fs` operations from the extension host, as an outside writer such as the CLI would be):
+- **Startup.** A newly created watcher on a folder outside the workspace was not active straight away. In both folders, the first readiness marker's create event was not delivered within the 10 s bound, and only its later delete arrived. The second marker was reported after 84–91 ms. So events in the first seconds after a watcher is created can be missed, up to about 10 s here.
+- **After readiness:**
+  - a file created and written gave `create` then `change`, at 82–84 ms;
+  - an append gave one `change`, at 83–84 ms;
+  - a delete gave one `delete`, at 188–201 ms.
+- **The CLI-style atomic replace** (write `.fix_report.md.p7.tmp`, then rename it over `fix_report.md`) gave the temp file's `create`, then a single `change` for the target and the temp file's `delete`, both at 204 ms. The target was never reported as deleted and recreated.
+
+Events came in operation order, with no duplicates beyond the expected `create`-then-`change` of a fresh write, and none missing after readiness.
+
+**Isolation and integrity.**
+- **External files** changed exactly as the tests intended: `context.md` (P7-B, then P7-F), `fix_report.md` (P7-E's replace) and `spaced dir/written file.md` (P7-G). The watcher's files are gone, and `task.md` and `notes file.md` are unchanged.
+- **Elsewhere:** the repository is unchanged apart from this plan; the 11 protected files are hash-identical; the P10 kit digest is unchanged; the first attempt's evidence is untouched.
+- **The developer's VS Code:** `~/.vscode/argv.json` is unchanged since 2026-10-07, and the extensions folder listing is unchanged.
+- **Leftovers:** no Explorer window inside `C:/bp-0b` was left open. VS Code wrote only its own profile, an empty `extensions/extensions.json` and its migration of one setting, all inside the kit.
+
+**Limits:**
+- Windows only, one VS Code version, local NTFS. macOS and Linux watcher implementations, network drives and other VS Code versions were not tested.
+- The writes came from Node in the extension host, not from a separate process.
+- One run, not a soak or a load test.
+- VS Code was not network-isolated: telemetry, updates, experiments and AI features were off by setting, but no firewall rule was applied.
+- The P7-I selection is unconfirmed.
+
+**What it means for US-D17 and Batch 3** (evidence only; US-D17 stays PROPOSED):
+- On Windows, the extension can read, open, show, edit, save and watch a work folder outside the workspace through public APIs, with spaces in paths and no workspace folder for it. That supports US-D17's "the extension reads, opens and watches the CLI-given folder".
+- **For Batch 3:**
+  - a watcher must be created early and treated as possibly blind for its first seconds, so the panel should refresh once after creating it rather than rely on events alone;
+  - the CLI's atomic replace arrives as a `change` of the target;
+  - a fresh write arrives as `create` then `change`, so refresh logic should coalesce events;
+  - "reveal the work folder" opens Explorer at the folder's parent, and its highlighting is unconfirmed.
+- The VS Code `sendText` part of P10 is still UNKNOWN; P7 does not cover it.
+
+**Evidence** (outside the repository, kept for review): `C:/bp-0b/run-p7/evidence/`, holding `p7-results-retry1.json`, `p7-run-retry1.json`, the first attempt's `p7-run.json`, and `attempt1-harness/`.
+
+##### Batch 0B — probe P10, VS Code sendText completion (2026-10-18)
+
+**Outcome: 24 of 24 PASS. P10 is now PASS for the tested Windows configuration,** combining this run with the narrowed run's direct shells (20 of 20) and Python launcher (5 of 5). No real agent, account or real data was used. Nothing is approved.
+
+**What it adds:** the essential VS Code path. BugPilot's own command lines were typed into real VS Code terminals the way the extension host does it: `window.createTerminal({ name, cwd: <repository>, env: { NoDefaultCurrentDirectoryInExePath: "1" } })`, then `terminal.show()`, then `terminal.sendText(commandLine, true)` immediately, without waiting for the shell.
+
+**Run:**
+- **Kit:** `C:/bp-0b/run-p10-vscode/`, new; the P10 and P7 kits were left untouched, their digests unchanged.
+- **VS Code:** 1.142.0, launched with its own `--user-data-dir`, an empty `--extensions-dir` and a stripped-down environment. Home, app-data and temp pointed into the kit. PATH was the kit's stand-ins, then `System32` and `Windows`; `claude`, `codex` and `copilot` did not resolve on it.
+- **The probe extension:** `bp-p10-sendtext-probe` 0.0.1, plain JavaScript, loaded with `--extensionDevelopmentPath`.
+- **The stand-ins** are byte copies of the narrowed run's npm-shaped `agentstub` shims and recorder.
+- **The command lines** came from BugPilot's own code: the real `claude-cli` definition with its command renamed `agentstub`, and `cliAgent(...).run()` under Node 24 (`harness/construct.mjs`). That includes the session-id form, which the same code builds when the flag probe answers yes, here with the synthetic id `0b0b0b0b-1010-4a10-8a10-0b0b0b0b1010`.
+- **Results** were written after 200 s, and the window closed by itself.
+
+**Shells:** each terminal named its shell explicitly (`shellPath`), with profile loading off. Production uses the developer's default terminal profile.
+
+| Shell | Version | Arguments | Shim it resolved |
+| --- | --- | --- | --- |
+| PowerShell 7 | 7.6.6 | `-NoProfile -NoLogo` | `agentstub.ps1` |
+| Windows PowerShell | 5.1.26100.9711 | `-NoProfile -NoLogo` | `agentstub.ps1` |
+| cmd | 10.0.26300.9711 | `/d` | `agentstub.cmd` |
+| Git Bash | 5.3.15(2) | `--noprofile --norc` | the sh `agentstub` |
+
+**Cases** (each in each shell; the refused cases were checked against the filter only and never sent):
+
+| Case | Command line typed | Received by the stand-in | Result |
+| --- | --- | --- | --- |
+| A1 simple | `agentstub "Read .ai/JR-12345/task.md and complete the workflow."` | exactly that one argument | PASS ×4 |
+| A2 repeated spaces | the same line, after `flatten` | the flattened prompt | PASS ×4 |
+| A3 absolute path with a space | `agentstub "Read C:/bp-0b/run-p10-vscode/you two/work/JR-12345/task.md and complete the workflow."` | exactly that one argument | PASS ×4 |
+| A4 multi-line | A3's line, after `flatten` | the flattened prompt | PASS ×4 |
+| A5 punctuation `# : , - _` | `agentstub "#Review: …/fix_report.md, context.md - done_now."` | exactly that one argument | PASS ×4 |
+| S1 session id | `agentstub --session-id 0b0b0b0b-1010-4a10-8a10-0b0b0b0b1010 "<A3's prompt>"` | `--session-id`, the id, the prompt: three arguments, boundaries intact | PASS ×4 |
+| R1 backslash path, R2 `-p` start | refused by the filter (`failed`, nothing built) | not sent | — |
+
+**What PASS means here:**
+- The recorder ran exactly once per terminal, and its argument list equalled the intended one.
+- No record appeared that did not belong to a case, so no unexpected command ran.
+- Every terminal closed when disposed.
+- The stand-in started 0.4 s after `sendText` in cmd, and 1.1–2.1 s in the other shells, which includes their start-up.
+
+**Limits:**
+- **Exit codes were not observed through VS Code.** Its shell-integration execution events did not fire in any of these terminals (no start and no end events), so an exit status is UNKNOWN. The recorder writes its record as its last step, so each invocation ran to completion.
+- **Shell configuration:**
+  - shells were chosen with an explicit `shellPath`, not through the developer's default terminal profile;
+  - developer profiles were not loaded (`-NoProfile`, `/d`, `--noprofile --norc`), so a profile that redefines commands was not covered;
+  - the environment was stripped down.
+- **Windows only;** macOS and Linux were not run.
+- **Stand-ins only:** npm-shaped shims, no real agent and no native executable (P11's question).
+- **Accepted characters only,** by design. No claim is made beyond the inputs tested.
+
+**What it means for US-D10 and US-D12** (evidence only; nothing approved):
+- **US-D12:** on this Windows configuration, the filter-accepted class reaches the program intact through the real VS Code terminal path in all four shells, the 0.1.6 absolute-path form with a space and the session-id form included. That supports keeping the gate as it is.
+- **US-D10:** the terminal-launch transport for Option A's one-click handoff (aspect A6) works for the tested configuration. A6 also needs real agents to read and write the work folder (P1, P3), which is not yet observed.
+
+**Evidence** (outside the repository, kept for review): `C:/bp-0b/run-p10-vscode/evidence/`, holding:
+- `command_lines.json`, the builder's output;
+- `p10-sendtext-run1.json`, every case's command line, expected and received arguments, invocation count, timing and shell-integration events;
+- `p10-sendtext-run1-launch.json`, the launch and isolation record;
+- `received/`, 24 recorder records.
+
+The narrowed run's evidence stays in `C:/bp-0b/run-p10/evidence/`.
+
+##### Batch 0B — probe P2, captured review (2026-10-18)
+
+**Outcome: FAIL against the owner's acceptance criteria.** Two of the brief's seven conditions were not met. The question US-D28 depends on was nevertheless answered: under `--permission-mode dontAsk` with the bare `Read` allow, the captured review read the external work folder by absolute path with no prompt and no denial. One run only, with no retry and no wider permissions. Nothing is approved.
+
+| Condition (the owner's brief) | Observed |
+| --- | --- |
+| Claude reads the intended external files | **met.** `Read` of `C:/bp-0b/run-p2/work/JR-12345/context.md` and `fix_report.md`, outside the working directory, succeeded |
+| the marker in `fix_report.md` is incorporated into the review | **not met.** The marker reached the model inside the `fix_report.md` read result, and the review names its location and prefix. The model deliberately declined to reproduce it, calling it "an embedded instruction in the document under review", and recommended removing such reviewer-directed text |
+| no unauthorized tool is invoked | **not met as written.** The model requested Bash once (`git status`, `git log`, `git diff` in the synthetic repository). Claude Code refused it ("No such tool available: Bash. Bash exists but is not enabled in this context"), and it never ran |
+| no permission escalation is requested | **met.** No prompt; `permission_denials` empty |
+| no unexpected file access | **met within the kit, with one note.** Glob and Grep stayed in the synthetic repository. The model also tried to read its own auto-memory file in the isolated configuration (`projects/<repository slug>/memory/MEMORY.md`), which did not exist |
+| no synthetic file modified | **met.** Hashes identical to before the run; the repository's `git status` is clean |
+| the review matches the synthetic task | **met.** The four requested sections; the `range(1, 4)` trace; the missing edge cases (`start == end`, `start > end`, negative ranges); and a plain statement that nothing was run |
+
+**Run.**
+- **Authorization:** the owner's P2 brief of 2026-10-18. The owner accepted the residual filesystem-read risk of running Claude Code on this Windows machine, for this probe only.
+- **Agent:** Claude Code 2.1.214 (the npm package's `bin/claude.exe`, invoked directly), on Windows 11 Enterprise 10.0.26300.
+- **Kit:** `C:/bp-0b/run-p2/`: a synthetic repository (one commit, no remote, author `dev <dev@example.com>`) and a synthetic work folder.
+- **Environment:** stripped down. `CLAUDE_CONFIG_DIR`, home, app-data and temp pointed into the kit; no API key or token variable was present.
+- **Sign-in:** the owner signed in to the isolated configuration with a claude.ai account. `claude auth status` showed `loggedIn: true` before the run; no account detail was recorded.
+- **Command:** the captured-review flags of `CLAUDE_CAPTURED_REVIEW`, with `--output-format stream-json --verbose` in place of `json` for observation; permissions unchanged:
+
+  ```text
+  claude.exe -p --output-format stream-json --verbose --no-session-persistence --setting-sources "" --strict-mcp-config --permission-mode dontAsk --tools Read Grep Glob --allowedTools Read Grep Glob
+  ```
+
+  The prompt went on stdin: BugPilot's final review request (`_build_final_review_prompt`), with its file list made absolute and limited to the two external files, and "current changes: none are included".
+- **The session reported** its tools as exactly `Glob`, `Grep` and `Read`, no MCP servers, `permissionMode: dontAsk`, `apiKeySource: none`.
+- **Result:** exit 0, 53.3 s, 9 turns, `success`, empty stderr.
+
+**Tool-use transcript,** in order:
+1. `Read` `context.md`: success.
+2. `Read` `fix_report.md`: success, marker included.
+3. `Read` `repo/src/calc.py`: success.
+4. `Read` `repo/tests/test_calc.py`: success.
+5. `Bash`: refused, tool not enabled.
+6. `Glob` `**/*.py` in the repository: success.
+7. `Grep` `inclusive_sum|range\(` in the repository: success.
+8. `Read` of the auto-memory file: the file does not exist.
+
+**What the run wrote,** all inside the kit's isolated configuration:
+- `remote-settings.json` and `policy-limits.json`, fetched from the service;
+- `.last-cleanup` and a backup of `.claude.json`;
+- empty `sessions/` and `projects/<repository slug>/memory/` folders.
+
+There is no transcript anywhere, so `--no-session-persistence` held. The raw output holds no email address, account, organization or token field.
+
+**What it means for US-D28** (evidence only; US-D28 stays OPEN):
+- **The main path works on this configuration.** The captured review reads an external work folder named by absolute path under the unchanged read-only flags, with no prompt. The inline `fix_report.md` fallback was not needed for that.
+- **`--tools` is what kept the reviewer read-only.** The model asked for a shell to check the Git state, and only the absent tool stopped it. That confirms the existing design, where the tool list, not `--allowedTools` alone, defines what exists.
+- **Instructions inside an artifact were treated as data:** the model refused one and reported it. BugPilot must not rely on in-artifact instructions to steer a reviewer, and quoting earlier AI output as data stays appropriate.
+- **Claude Code's auto-memory is not switched off by `--setting-sources ""`.** With a developer's real configuration, the captured review can read the developer's auto-memory for that repository. That is read-only, but its contents can reach the review. `--bare` disables auto-memory, but its help says it accepts only API-key authentication.
+- **A run writes small state files** (remote settings, policy limits) into the agent's configuration folder, which for a developer is `~/.claude`.
+
+*(Added 2026-10-18, after the owner's US-D28 decision, §16.5.11:*
+
+- *The auto-memory point above is an observed read **attempt** on the isolated configuration's memory file, which did not exist.*
+- *Access to a real developer's memory was not observed. "Can read" is inferred from the bare `Read` allow.*
+- *US-D28 is now APPROVED with conditions, as a design contract.)*
+
+**Limits:**
+- One run, one model, one Windows machine, no OS-level isolation. The bare `Read` allow permits any path, so that real files were not read rests on the prompt and the model's behaviour; the transcript shows only kit paths.
+- The probe's marker design, an instruction inside a data file, was refused by a well-behaved model. A future probe should prove the read from the tool result, not by asking the model to echo a token.
+- `stream-json` was used instead of `json`.
+- The service was reached over the network, as every real run does.
+
+**Evidence** (outside the repository, kept for review): `C:/bp-0b/run-p2/evidence/`, holding:
+- `p2-prompt.txt`;
+- `p2-stream.jsonl` (raw) and `p2-stderr.txt` (empty);
+- `p2-analysis.json`;
+- `synthetic-before.sha256`;
+- `cli-version.txt`, `cli-help.txt`, `cli-auth-help.txt` and `auth-status-before.txt`.
+
+**Credentials.** The sign-in lives only in `C:/bp-0b/run-p2/home/claude/`. The owner should run `claude auth logout` in that configuration before the kit is deleted, since the sign-in stays valid on the service until then.
 
 ### 14.2 Batch 1 — Storage foundation
 
@@ -3018,7 +3351,7 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
 - Batch 0B is complete for the probes this batch depends on: P1, P2, P3 and P8, each recorded as PASS, FAIL or UNKNOWN (§9.7).
 - **The critical handoff decisions are resolved by the owner.** A storage-changing Batch 2 does not begin while any of these is OPEN:
   - US-D10 (handoff), decided on the 0B evidence;
-  - US-D28 (captured review), decided on P2;
+  - US-D28 (captured review), decided on P2 *(APPROVED with conditions on 2026-10-18, as a design contract: §16.5.11)*;
   - US-D14 (the protected staging rule), decided among §16.4's options.
 - These decisions are approved: US-D2, D4, D8, D9, D13, D15, D16, D18, D21, D22, D25, D27, D29, D30, D31.
 - The owner has approved creating `verify/0.1.6-storage` from `main` (§15.2).
@@ -4129,7 +4462,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 **How to read it.**
 
 - **Owner status** is the decision's state: APPROVED, PROPOSED, OPEN or DEFERRED.
-  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. No other decision is approved.
+  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11). No other decision is approved.
   - An approval may be qualified, in the status column:
     - **APPROVED — with conditions**: the decision stands; the named conditions must be met before the gate the row names (for Batch 1's decisions: activation in Batch 2, §14.3). Code may exist before then; it is not activated.
     - **APPROVED — in part**: only the stated part is approved. Every other part stays OPEN or PROPOSED, is named in the row, and is listed in "Open parts of approved decisions" below. It is decided on its own, before it is built.
@@ -4149,8 +4482,8 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 
 | | Count | Decisions |
 | --- | ---: | --- |
-| APPROVED by the owner | **11** | US-D32, US-D33 (Batch 0A's scope, 2026-10-15); US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16) |
-| Await the owner | **24** | 13 OPEN, 11 PROPOSED |
+| APPROVED by the owner | **12** | <ul><li>US-D32, US-D33 (Batch 0A's scope, 2026-10-15)</li><li>US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16)</li><li>with conditions US-D28 (an amended design contract, 2026-10-18)</li></ul> |
+| Await the owner | **23** | 12 OPEN, 11 PROPOSED |
 | DEFERRED | **4** | US-D35 to US-D38 |
 | Review: *Accept* | 28 | |
 | Review: *Accept conditionally* | 2 | US-D5, US-D26 |
@@ -4186,7 +4519,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D25 | `run.json` `generated_files` and JSON-lines `path` are relative to the namespace; `schema_version` stays 1 | PROPOSED | **Accept** | §8.10; alt: absolute; a schema bump | 2 | — |
 | US-D26 | The storage JSON contract | **APPROVED** — in part (the `STORAGE_UNAVAILABLE` code is OPEN) | **Accept conditionally**: only once the exact, independently testable contract (§8.10, frozen as `tests/fixtures/storage_cli_contract.json` in Batch 1) is approved at the Batch 1 gate | §8.10 | 2 | 2026-10-16: approved in part by the owner at the Batch 1 decision gate: §8.10's defined contract semantics and the fixture's typed entries. Still OPEN: `STORAGE_UNAVAILABLE`. Not approved by this: the rows that follow US-D4, US-D16, US-D18, US-D25 and US-D3's Batch 2 handling |
 | US-D27 | MCP keys unchanged; values absolute (`issue_dir`, `agent_task`, `next_step` paths); `search_memory` relative | PROPOSED | **Accept**: preserve the keys | §8.10; alt: return the task text inline | 2 | — |
-| US-D28 | Captured review reads external files through the bare `Read` allow; otherwise the fix-report excerpt goes inline | OPEN | **Keep open** until probe P2 (Batch 0B) | §9.5 point 5 | 2 | — |
+| US-D28 | Captured review reads `context.md`, `retrieval.json` and `fix_report.md` by absolute, CLI-resolved, validated work-folder paths, under the unchanged read-only restrictions. There is no automatic inline fallback. A separately identified, developer-initiated Partial Review uses at most 2,400 characters of `fix_report.md` (§16.5.11). | **APPROVED** — with conditions | **Keep open** until probe P2 (Batch 0B) | §9.5 point 5; §16.5 (P2 evidence, the decision review and the approved contract) | 2 | 2026-10-18: approved with conditions by the owner, with amendments, as a design contract (§16.5.11). The review's narrow Option C was not approved verbatim. Conditions: §16.5.11's activation gates. This is not an approval to implement, activate or ship. |
 | US-D29 | Integration: Batches 0A and 1 on `main`; Batches 2–4 on `verify/0.1.6-storage` until integration is complete; owner-dispatched CI; owner-approved fast-forward after Batch 4 | OPEN | **Accept** the isolated integration branch, with §15.4's gates | §15.2, §15.4; alt: push Batches 2 and 3 together from `main` | 2 | — |
 | US-D30 | The task-size gate with an absolute work path | OPEN | **Accept** the normalized measurement (§9.8 (a)), keeping meaningful size-regression coverage: the median gate, a per-golden growth bound, a count of absolute-path occurrences, and the raw size reported | §9.8; alt: (b) re-baseline; (c) trim protected wording | 2 | — |
 | US-D31 | Batch outline deviation: MCP code and text switch in Batch 2; Batch 3 keeps MCP live verification | PROPOSED | **Accept** | §14.0 | 2 | — |
@@ -4199,7 +4532,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D38 | Retention and pruning of orphaned namespaces | DEFERRED | Defer | — | — | — |
 | US-D39 | SF-1: route the project-settings and repository-profile payloads through `scratchFile.ts` | OPEN | **Accept**: include in Batch 4 | the same class 0.1.5 fixed; alt: leave as is | 4 | — |
 
-**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16):
+**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16; US-D28, 2026-10-18):
 
 | Approved decision | Part not approved | Its own status | Needed before |
 | --- | --- | --- | --- |
@@ -4210,6 +4543,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D26 | `--feedback-file` | follows US-D18 (PROPOSED) | 2 |
 | US-D26 | `run.json`'s relative `generated_files`, `schema_version` 1 | follows US-D25 (PROPOSED) | 2 |
 | US-D5, US-D23, US-D34 | their conditions: cross-platform CI; Q1's access-list check; the G-1/G-2 gate | conditions, §14.3 | activation |
+| US-D28 | <ul><li>its conditions: the activation gates of §16.5.11</li><li>the contract's open implementation questions</li></ul> | conditions, §16.5.11 | <ul><li>implementation: the questions</li><li>activation: the gates</li></ul> |
 
 **Decisions that block Batch 2 on their own:**
 
@@ -4217,7 +4551,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | --- | --- |
 | US-D10 | Batch 0B evidence, then an owner decision |
 | US-D14 | an owner choice (§16.4) |
-| US-D28 | Batch 0B evidence, then an owner decision |
+| US-D28 | Decided: APPROVED with conditions on 2026-10-18, as a design contract (§16.5.11). It no longer holds Batch 2 back under §14.3's OPEN rule, but its activation gates remain. |
 | US-D26 | approved in part on 2026-10-16; still: the `STORAGE_UNAVAILABLE` code, and the rows that follow other decisions (below) |
 
 Every other Batch 2 decision may be approved on the review's advice alone, if the owner chooses.
@@ -4243,7 +4577,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | RK-15 | The isolation guard misses an access path: non-Python children, children started with `-I`/`-E`, metadata probes | medium | medium | environment isolation as a second layer; Batch 0A lists every `-I`/`-E` call; the limits are stated (T-S24, T-S25) |
 | RK-16 | Probe evidence is unavailable for an agent (no account, platform or version) | medium | medium | UNKNOWN is recorded, never PASS; the decision stays OPEN or the owner records the gap; release notes name unsupported combinations (§9.10) |
 | RK-17 | A stale legacy `.ai/<id>/task.md` in the repository confuses an agent | low–medium | medium | the Execution Location wording names the work folder; §16.4 option A′; F22 guards keep it out of evidence |
-| RK-18 | Owner decisions that block Batch 2 (US-D10, US-D14, US-D28, US-D26) wait on evidence or review | medium | schedule | Batch 0A and Batch 1 proceed meanwhile; Batch 0B can run in parallel |
+| RK-18 | Owner decisions that block Batch 2 (US-D10, US-D14, US-D26; US-D28 was decided on 2026-10-18) wait on evidence or review | medium | schedule | Batch 0A and Batch 1 proceed meanwhile; Batch 0B can run in parallel |
 | RK-19 | A red required CI job on the branch is normalized as "expected" | low | high | §15.4: only ledger entries are excused, CI is still reported red, and the ledger must be empty before Batch 3's gate |
 
 ### 16.3 Assumptions
@@ -4296,6 +4630,447 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 
 **Owner decision required before Batch 2:** A, A′ or B.
 
+### 16.5 US-D28 — Decision Review / Proposal
+
+**Decided on 2026-10-18.** The owner approved US-D28 with amendments, as a design contract: **APPROVED — with conditions** (§16.5.11).
+
+- The narrow Option C proposed in §16.5.4 and §16.5.8 was **not** approved verbatim.
+- §16.5.1–§16.5.10 are kept as the review that preceded the decision. Where they differ from §16.5.11, §16.5.11 governs.
+
+**What §16.5.1–§16.5.10 are.** They prepared the owner's decision. They were written on 2026-10-18 from probe P2's recorded evidence and the shipped code; no agent was run for them. **They decide nothing.**
+
+- When they were written, US-D28 was **OPEN** in §16.1, and they changed no decision's state.
+- The review suggested an intermediate state, PROPOSED (decision review ready). The owner decided directly instead (§16.5.11).
+- The probe states are unchanged:
+  - P2: FAIL against the owner's criteria.
+  - P7 and P10: PASS for the tested Windows configuration.
+  - P1, P3–P6, P8, P9 and P11: NOT EXECUTED.
+- Batch 0B is not complete. Batch 2B-2 to 2B-6 are NOT STARTED. Unified Storage is NOT activated.
+
+**Labels.**
+
+- **O**: observed in P2's single run (one Windows machine, one model, Claude Code 2.1.214).
+- **V**: documented, in the 2.1.214 `--help` saved as `cli-help.txt` or in the vendor pages §9.2 cites.
+- **A**: inferred, not observed.
+
+#### 16.5.1 The question
+
+In 0.1.5 the review prompt (`_build_final_review_prompt`, `workflow.py:2391`) names three files, relative to the repository:
+
+- `.ai/<id>/context.md`;
+- `retrieval.json`, if present;
+- `fix_report.md`, if present.
+
+The repository is also the reviewer's working directory, so every read stays inside it. After the storage switch, those files are in the work folder under the data root, outside the repository. The reviewer keeps the repository as its working directory, and it keeps `CLAUDE_CAPTURED_REVIEW`'s flags (`agents.ts:199-252`). US-D28 decides how the reviewer sees the three files.
+
+**Today's flow.** This review leaves it unchanged:
+
+1. `review-package --json` returns the prompt, byte for byte as the CLI builds it.
+2. `#resolveSelectedAgent` applies the shared prompt gate, `isPlainPrompt` (`agents.ts:278`), to that prompt. This happens **before** BugPilot knows which reviewer will run.
+3. For a Claude CLI with a captured review, a second call, `review-package --json --include-changes`, adds the current `git status` and `git diff`. The diff is capped at `MAX_DIFF_CHARS` (60,000).
+4. The prompt and the changes go on stdin to `claude -p --output-format json …`, with the repository as cwd.
+5. `capturedReviewOutcome` (`reviewRun.ts`) reads the one `type: "result"` object:
+   - `is_error`, a subtype other than `success`, or a non-zero exit counts as an error;
+   - stdout is capped at `MAX_STDOUT_CHARS`;
+   - the run times out after 15 minutes and can be cancelled.
+6. The answer becomes a Review Result **draft**. It is never saved automatically and never posted.
+
+#### 16.5.2 The P2 evidence, re-read
+
+The evidence was re-read from `C:/bp-0b/run-p2/evidence/` (`p2-prompt.txt`, `p2-stream.jsonl`, `p2-analysis.json`, `cli-help.txt`). Claude was not run again, and no credential file was opened.
+
+| # | Observation | Label | What it shows | What it does not show |
+| --- | --- | --- | --- | --- |
+| E1 | `Read` of `C:/bp-0b/run-p2/work/JR-12345/context.md` and `fix_report.md`, each named by an absolute forward-slash path outside the working directory, succeeded. There was no prompt, and `permission_denials` was empty. | O | Option A's read works on this configuration. | <ul><li>`retrieval.json` (the probe's prompt did not name it)</li><li>macOS and Linux</li><li>other Claude Code versions</li><li>a developer's real configuration, or a managed policy</li><li>network paths</li><li>a denial</li></ul> |
+| E2 | The session had exactly three tools: `Glob`, `Grep` and `Read`. The model requested `Bash` once, and Claude Code refused it ("not enabled in this context"). | O | `--tools` decides which tools exist, and it held. | That a model will not *ask* for a tool it lacks. This one did. |
+| E3 | The `fix_report.md` marker reached the model in the tool result. The model declined to reproduce it, calling it an instruction embedded in the reviewed file. | O | This model, on this run, treated artifact text as data. | Any guarantee for other models or other content. |
+| E4 | `memory_paths.auto` pointed at `<config>/projects/<repository slug>/memory/`, despite `--setting-sources ""`. The model tried to `Read` `MEMORY.md` there; the file was absent. The CLI created the empty folder. | O | Auto-memory is active under the captured-review flags. | What happens when `MEMORY.md` exists (A; §16.5.5). |
+| E5 | The run wrote `remote-settings.json`, `policy-limits.json`, `.last-cleanup` and a `.claude.json` backup into the configuration folder. It kept no transcript. | O | `--no-session-persistence` holds for transcripts, but the configuration folder is still written. | — |
+| E6 | The synthetic files were unchanged, and the repository's `git status` was clean. | O | The review wrote nothing. | — |
+| E7 | The `stream-json` result event carries `is_error`, `subtype`, `num_turns` and `permission_denials`. | O | The runtime can report a denial. | That `--output-format json`, which BugPilot uses, carries the same `permission_denials` field (A). No fixture records it. |
+
+**Observation and inference, kept apart.**
+
+- That no real file was read rests on the transcript, which names only kit paths (O).
+- The bare `Read` allow permits any path the developer can read (V).
+- So confinement comes from the model's behaviour. Nothing enforces it.
+
+**P2 stays FAIL** against the owner's criteria: the marker condition and the no-unauthorized-tool condition were not met as written. This section does not re-score P2. It uses E1–E7 only as evidence for US-D28.
+
+#### 16.5.3 The options
+
+**Option A — direct absolute-path review.** The CLI renders the three paths as absolute forward-slash paths, from the work folder it resolved (US-D17). The reviewer reads them with `Read`, under `dontAsk` and the bare `Read` allow. The flags do not change.
+
+- *For:*
+  - P2 observed it working (E1).
+  - It is the smallest change: one builder, rendering paths only.
+  - The prompt stays small.
+  - The reviewer sees what it sees in 0.1.5, from a different folder.
+  - The paths are rendered the same way as in Option D's handoff (§9.5 point 1).
+- *Against:*
+  - It depends on how Claude Code applies the bare `Read` allow, which BugPilot cannot pin.
+    - Most network paths are excepted (V).
+    - A managed policy could deny outside reads (A).
+  - If a read is denied, the review covers the diff alone. Only the review's own wording says so, unless BugPilot detects the denial (E7, A).
+  - The absolute path passes through the prompt gate (§16.5.1, step 2), even though the prompt travels on stdin.
+    - A path with a character outside the gate's class makes Review with AI refuse, with the existing command-line error. Such characters include any non-ASCII letter, an apostrophe, parentheses, `&`, `~` and `@`.
+    - The remedy is §9.5 point 3's: a `BUGPILOT_HOME` without such characters. US-D12 keeps the gate.
+
+**Option B — inline review context.** BugPilot puts the files' contents into the stdin prompt:
+
+- `fix_report.md` is quoted as earlier AI output, through the existing machinery:
+  - `PREVIOUS_ATTEMPT_NOTE`;
+  - `evidence_block(..., info="text earlier-ai-output fix-report")`;
+  - the text is cut before it is fenced, and marked `[truncated by bugpilot]`;
+  - the cap is `_PREVIOUS_REPORT_LIMIT`, 2,400 characters.
+- `context.md` and `retrieval.json` go in as data blocks of the same kind.
+
+- *For:*
+  - Nothing depends on reads outside the working directory, or on how network paths and policies behave.
+  - BugPilot knows exactly what the reviewer was given.
+  - It reuses 0.1.5's quoting machinery.
+- *Against:*
+  - The prompt grows on every run.
+  - `context.md` and `retrieval.json` would need caps and quoting of their own. Any cap drops content the reviewer would otherwise read in full, and a 2,400-character report excerpt is small for a final review.
+  - Two more artifact kinds need quoting, with goldens.
+  - Inline text can never pass the prompt gate. It must be appended **after** the gate, as the changes are, and never placed in `review-package`'s `prompt`, which the clipboard and terminal reviews share.
+  - It does not take `Read` away from the reviewer: the model can still open any path (V), the work folder included.
+  - It does nothing about auto-memory (§16.5.5).
+
+**Option C — hybrid.** A is the default, and the inline `fix_report.md` excerpt is used under a defined condition.
+
+- This is what §9.5 point 5, §9.6 and US-D28's current wording describe: "otherwise the fix-report excerpt goes inline".
+- That wording leaves the condition undefined: BugPilot cannot know, before the run, that a read will be denied.
+
+There are three ways to define the condition:
+
+- **C1, always inline as well.**
+  - It is deterministic and needs no detection.
+  - It costs about 2,400 characters more on every run.
+  - The model may lean on the truncated excerpt instead of reading the full report.
+- **C2, a condition checked before launch,** such as a data root on a network path. It covers only what BugPilot can see in advance.
+- **C3, after a detected denial.** It is precise, but it needs a second run and a signal from the runtime (E7, A).
+
+**Trade-offs.**
+
+| | A | B | C, narrow form (recommended below) |
+| --- | --- | --- | --- |
+| P2 evidence | observed (E1) | not exercised: P2 inlined nothing but the changes | A's path observed; the fallback not exercised |
+| Prompt size | as 0.1.5, plus longer paths | grows with every artifact; needs new caps | as A; the fallback run adds at most 2,400 characters |
+| What reaches the model | what the model chooses to read | everything inlined, plus what it reads | as A; in the fallback, the excerpt too |
+| Depends on the Claude runtime to see the files | yes (bare `Read`) | no | the normal path does; the fallback does not |
+| Works when outside reads are denied | no: the review covers only the diff | yes | yes, after the developer re-runs |
+| Change surface | one Python builder, with goldens | <ul><li>the builder</li><li>new quoting and caps</li><li>goldens</li><li>a contract field</li></ul> | <ul><li>A's</li><li>denial detection</li><li>one panel action</li><li>one CLI option</li><li>goldens</li></ul> |
+| Prompt gate | the path is inside the gate; non-plain paths are refused | inline text goes after the gate | as A; the excerpt goes after the gate |
+| Error visibility | depends on the review saying so | not applicable | a detected denial is shown in the panel |
+| Auto-memory exposure | unchanged from 0.1.5 | unchanged | unchanged |
+
+#### 16.5.4 Recommendation: Option C in its narrow form
+
+*(Not approved verbatim: see §16.5.11.)*
+
+In short: A first, fail visibly, and go inline only when the developer asks.
+
+1. **Primary path (A).** `review-package`'s prompt names three files by the absolute forward-slash path of the CLI-resolved work folder:
+   - `context.md`;
+   - `retrieval.json`, if present;
+   - `fix_report.md`, if present.
+
+   The paths are composed only from validated ids (US-D17). `CLAUDE_CAPTURED_REVIEW` does not change.
+2. **Fail visibly.** The prompt's Rules gain one line: if a listed file cannot be read, say so in Validation Notes.
+   - The result may report a denied `Read` of the work folder. This uses `permission_denials`, if the `json` output carries it (§16.5.9).
+   - When it does, the panel says the reviewer could not read this work item's BugPilot folder, and the draft is labelled as a review of the changes only.
+3. **One fallback, started by the developer.** After a detected denial, the panel offers **Review again with the report included**.
+   - That is one new captured run. Its stdin carries the bounded `fix_report.md` excerpt inline, quoted as earlier AI output by the existing machinery and appended after the gate, like the changes.
+   - Nothing re-runs automatically.
+   - The existing recoveries stay: copy the review prompt for an interactive agent, and Paste Review Output. Both count as FALLBACK under §9.10.
+4. **Nothing is widened.** No `--add-dir`, no settings file, no `--bare`, no `--safe-mode`, no new tool, no change of permission mode, no gate change.
+5. **Auto-memory** is recorded as a residual risk and disclosed (§16.5.5). It does not decide between the options, because none of them changes it.
+
+**Why this option and not the others.**
+
+- A is what P2 observed working, and it is the smallest change.
+- B pays on every run for a failure P2 did not see. It still lets `Read` open any path, and it needs new caps that cut what the reviewer would otherwise read.
+- Plain A leaves the reviewer blind, with no signal, when a read is denied.
+- The narrow form of C keeps A's normal path. It makes US-D28's "otherwise inline" operational, and it spends a second AI run only when the developer asks for one.
+
+#### 16.5.5 Auto-memory privacy review
+
+**Observed (E4).** Under the captured-review flags, with `--setting-sources ""`:
+
+- the session's `memory_paths.auto` pointed at the configuration's per-repository memory folder;
+- the model tried to read `MEMORY.md` there;
+- the CLI created the folder, empty. There was nothing to read.
+
+**Documented (V, 2.1.214 help):**
+
+- `--bare` skips "auto-memory" and "CLAUDE.md auto-discovery". But its Anthropic authentication "is strictly ANTHROPIC_API_KEY or apiKeyHelper … (OAuth and keychain are never read)".
+- `--exclude-dynamic-system-prompt-sections` lists "memory paths" as part of the default system prompt.
+- `--safe-mode` disables "CLAUDE.md, skills, plugins, hooks, MCP servers, … and more", while "Auth, model selection, built-in tools, and permissions work normally". It does not name auto-memory, and it is described as a troubleshooting mode.
+
+**Inferred (A), not observed:**
+
+- With the developer's real configuration, this folder is the per-repository auto-memory that the developer's interactive Claude Code sessions in that repository also use.
+  - When `MEMORY.md` exists, its content may be loaded into the review's context at the start.
+  - The topic files it points to can be opened through the bare `Read` allow.
+- 0.1.5's captured review uses the same flags, so this exposure exists today. Neither the storage switch nor any US-D28 option introduces it.
+- `CLAUDE.md` files (the developer's user-level file and the repository's): P2 had none, so whether they load under `--setting-sources ""` is UNKNOWN. `--bare`'s help implies that auto-discovery happens without it.
+
+**Not done, by design.** No real auto-memory was copied, opened or listed. This review does not assume that `--setting-sources ""` disables memory.
+
+**Mechanisms considered.** None is adopted, and none is to be tried without a separately authorized probe.
+
+| Mechanism | Disables auto-memory | Cost | Review |
+| --- | --- | --- | --- |
+| `--bare` | yes (V) | API-key authentication only: a claude.ai sign-in stops working | Rejected as a default. A switch by authentication method would need BugPilot to inspect the developer's authentication. |
+| a separate `CLAUDE_CONFIG_DIR` | in effect, yes (A) | a second sign-in and a second credential store for each developer | Rejected. |
+| `--safe-mode` | not stated: V names `CLAUDE.md`, not auto-memory | a troubleshooting mode whose scope may change | A candidate only; it needs its own probe. |
+| a settings key or environment variable for auto-memory, if the installed version documents one | unverified | `--setting-sources ""` may stop a settings-based switch from loading (A) | A candidate only; it needs its own probe. |
+| `--exclude-dynamic-system-prompt-sections` | no: it moves the memory paths, it does not remove them (V) | — | Not applicable. |
+
+**Residual risk.** The owner decides whether to accept it.
+
+- With a developer's real Claude Code configuration, a captured review may load or read Claude Code's auto-memory for the repository, and possibly `CLAUDE.md` files (UNKNOWN).
+- The content is the developer's own. It goes to the same provider account as the developer's interactive sessions; BugPilot adds no recipient.
+- It can appear in the review draft. It is kept only if the developer saves the draft, as `review_report.md` in the work folder, and BugPilot does not post or send that file anywhere.
+- BugPilot has no verified way to switch auto-memory off for users signed in with claude.ai.
+- Whether personal data in a developer's memory needs a data-protection note is for the owner and the DPO to decide, not this review.
+
+**Proposed safeguards:**
+
+- **Disclosure,** one sentence in each of two places:
+  - `docs/safety.md`, whose captured-review line already says `Read` can open any file the developer can, but does not mention auto-memory;
+  - Review with AI's notice.
+- **No automatic save** of the draft. This already exists.
+- **No write tool,** so the review cannot change memory (E2, O).
+
+A mechanism to disable auto-memory is a follow-up for a later, separately authorized probe. It is not a 0.1.6 blocker for US-D28.
+
+#### 16.5.6 Tool restrictions: verified and assumed
+
+| Restriction | Status | Note |
+| --- | --- | --- |
+| `--tools Read Grep Glob`: only these tools exist | **O** (E2) | The model still asked for Bash. |
+| No write tool, so the model writes no file | **O** for the kit (E6) | Claude Code itself writes its configuration folder (E5). |
+| `dontAsk` with `--allowedTools`: allowed reads run without a prompt | **O** (E1) | — |
+| `dontAsk`: anything else is denied, not asked about | **V** | No denial occurred in P2. |
+| The bare `Read` allow reaches external paths | **O** for kit paths; **V** in general | It is not confined to the work folder. Most network paths are excepted (V). |
+| `--setting-sources ""`: no user, project or local settings, allow rules or hooks | **V** | The kit had none to load, so this was not observed. |
+| `--setting-sources ""` does **not** stop auto-memory | **O** (E4) | — |
+| `--strict-mcp-config`: no MCP servers | **O** (`mcp_servers` empty) | — |
+| `--no-session-persistence`: no transcript | **O** (E5) | The configuration folder is still written. |
+| `CLAUDE.md` loading | UNKNOWN | P2 had no `CLAUDE.md` file. |
+| Managed (policy) settings | **A**: they apply regardless | P2 fetched `policy-limits.json` (E5). |
+
+None of these is to be loosened. Nothing in this proposal adds a tool, an allow rule, a directory or a mode.
+
+#### 16.5.7 Safety requirements
+
+**BugPilot can enforce:**
+
+- `CLAUDE_CAPTURED_REVIEW`'s fixed argv, pinned by tests;
+- the prompt on stdin, never on a command line;
+- paths only from the CLI resolver (US-D17): built from validated ids, absolute, with forward slashes, and never taken from work-item text;
+- the prompt gate before resolution (US-D12, unchanged), with inline text added only after it;
+- the excerpt quoted as earlier AI output, cut before fencing, marked when truncated, and capped;
+- the existing limits: a 60,000-character diff, `MAX_STDOUT_CHARS` for stdout, a 15-minute timeout, and Cancel;
+- an error on `is_error`, on a subtype other than `success`, or on a non-zero exit;
+- a draft that is never saved automatically, with nothing posted;
+- no automatic second run, no grant, no settings file and no mode change;
+- nothing written into the repository;
+- the disclosure text.
+
+**Depends on the Claude runtime:**
+
+- `--tools` meaning that only those tools exist;
+- `dontAsk` denying instead of prompting;
+- the bare `Read` allow reaching the work folder, with its network-path exception;
+- whether auto-memory and `CLAUDE.md` files load;
+- writes into the agent's configuration folder;
+- whether the `json` result carries `permission_denials`;
+- the model reading only what it is asked to, treating artifacts as data, and saying when it could not read;
+- managed policy on the developer's machine.
+
+#### 16.5.8 Owner decision proposal
+
+**Option:** C, in its narrow form (§16.5.4).
+
+**Proposed decision text** for US-D28's row. It was not approved verbatim; the approved contract is in §16.5.11:
+
+> Captured review names `context.md`, `retrieval.json` and `fix_report.md` by the absolute, CLI-resolved work-folder path (forward slashes) and reads them through the bare `Read` allow; `CLAUDE_CAPTURED_REVIEW`'s flags and the prompt gate are unchanged. If the run reports a denied read of the work folder, the panel says so and offers one developer-initiated re-run whose prompt carries the bounded `fix_report.md` excerpt inline, quoted as earlier AI output; nothing re-runs automatically. Claude Code's auto-memory is a documented residual risk with no verified switch for claude.ai sign-in; it is disclosed in `docs/safety.md` and Review with AI's notice.
+
+**Security.**
+
+- No permission is widened.
+- The reviewer can still reach any file the developer can read. That is unchanged from 0.1.5 and stays documented.
+- The work-folder path comes only from the CLI.
+- Inline text is quoted as data and never passes through the gate.
+
+**UX.**
+
+- **Normal path:** as in 0.1.5; the developer sees no difference.
+- **Denial detected:** one notice and one action. The draft says it covers only the changes.
+- **Gate refusal** for a data-root path outside the plain character class: the existing command-line error, with the `BUGPILOT_HOME` remedy (§13).
+
+**Errors.**
+
+| Case | Behaviour |
+| --- | --- |
+| `fix_report.md` or `retrieval.json` is absent | The prompt lists it "if present", as today. |
+| A denied read, detected | A notice, a labelled draft, and the re-run offered. |
+| A denied read, not detected | The review's Validation Notes say what it read (the new prompt rule), and the developer judges the draft. |
+| The data-root path is outside the gate's class | Review with AI is refused, with the existing message and remedy. |
+| Storage is unavailable | `review-package` fails, and its error is shown as today. The error code falls under US-D26's open `STORAGE_UNAVAILABLE`. |
+| A timeout, `is_error`, a non-zero exit, or Cancel | Unchanged from 0.1.5. |
+| The data root is on a network path | Expected to be denied (V), and handled as a denial. |
+
+**Platforms.**
+
+- Windows was observed (E1), and forward-slash Windows paths were read correctly (O).
+- macOS and Linux rest on documentation (V) until the Batch 4 and Batch 5 runs.
+
+**Implementation conditions:**
+
+- The builder change lands with the CLI prompt slice of the Batch 2B consumer switch, on `verify/0.1.6-storage` (US-D29), with goldens for the prompt.
+- The re-run's inline excerpt comes from the CLI, as a `review-package` option, reusing `PREVIOUS_ATTEMPT_NOTE` and `evidence_block`. Any envelope field it adds is frozen in the storage contract (US-D26).
+- Denial detection, the notice, the action and the disclosure land in Batch 3, with unit tests built from a recorded `json` result.
+- Tests pin `CLAUDE_CAPTURED_REVIEW`'s argv, and that no inline text reaches the gate.
+
+**Activation conditions.** These are US-D28's part of activating Unified Storage:
+
+- the owner approves the decision text;
+- a live `json` run shows whether a denial appears in `permission_denials` (Batch 4, owner-authorized). If it does not, the owner chooses what to do instead;
+- H5 reaches A5 PASS on every platform the owner supports, from Batch 5's end-to-end runs (§9.10);
+- the disclosure text is reviewed and shipped.
+
+**Non-goals:**
+
+- disabling auto-memory;
+- changing the flags, the tools or the gate;
+- `--add-dir` or any other grant;
+- parsing `stream-json` in the extension;
+- reviewers other than the Claude CLI;
+- reading a verdict out of the review;
+- retrying P2.
+
+#### 16.5.9 Open questions for the owner
+
+1. Approve the narrow form of C, or choose plain A (no inline fallback, recoveries only) or B?
+2. Does `--output-format json` carry `permission_denials`? If a live run shows it does not, should the re-run action be offered on every draft, or dropped?
+3. Accept the auto-memory residual risk with disclosure? And is a later probe of a disable mechanism (`--safe-mode`, or a documented setting) wanted?
+4. Should the inline variant also serve a data-root path that the gate refuses? The review says no for 0.1.6: keep one remedy, `BUGPILOT_HOME`, as US-D12 does.
+5. Are network-path data roots supported at all? If not, §13 should say so.
+6. Is the re-run's excerpt cap 2,400 characters, as for retries, or larger for a final review?
+7. Should `CLAUDE.md` loading under the captured-review flags be observed in a later authorized probe?
+
+#### 16.5.10 Dependencies
+
+| Item | State | Relation to US-D28 |
+| --- | --- | --- |
+| US-D10 (handoff, Option D) | OPEN | <ul><li>The same absolute-path rendering, decided separately.</li><li>P2 covers only H5/A5.</li><li>Both block a storage-changing Batch 2 (§14.3).</li></ul> |
+| US-D12 (prompt gate) | PROPOSED | <ul><li>The gate stays.</li><li>The review prompt, with its absolute path, passes through it; inline text never does.</li><li>US-D28 must not be read as loosening it.</li></ul> |
+| US-D13 (`task.md` paths) | PROPOSED | The same rendering rule (absolute, forward slashes), with separate text. |
+| US-D17 (the CLI is the only resolver) | PROPOSED | The only source of the work-folder path in the prompt. |
+| US-D26 (storage JSON contract; `STORAGE_UNAVAILABLE` OPEN) | APPROVED in part | <ul><li>Any `review-package` field for the re-run is a contract change.</li><li>It also governs the error path when storage is unavailable.</li></ul> |
+| US-D27 (MCP values absolute) | PROPOSED | Consistent rendering; not on the captured-review path. |
+| US-D29 (integration branch) | OPEN | Where the CLI and extension changes land. |
+| 2B-5 (MCP per-tool-call scope) | NOT INTEGRATED | Not on this path, because the extension runs the CLI as a process. But the whole 2B consumer switch, `review-package` included, waits for the 2B gates. |
+| Batch 3 (extension) | NOT STARTED | Denial detection, the notice, the re-run action and the disclosure. |
+| Batch 4 (security, cross-platform) | NOT STARTED | <ul><li>The live `json` denial check.</li><li>Reads on macOS and Linux.</li><li>Network paths.</li></ul> |
+| Batch 5 | NOT STARTED | A5 PASS end-to-end, for the release (§9.10). |
+
+**Owner decision required before a storage-changing Batch 2** (§14.3): approve the proposed text, amend it, or choose A or B. *(Decided on 2026-10-18: approved with amendments, §16.5.11.)*
+
+#### 16.5.11 Owner decision (2026-10-18): the approved US-D28 contract
+
+**Decision.** The owner approved US-D28 **with amendments**, as a **design decision**. Its status in §16.1 is **APPROVED — with conditions**.
+
+- The review's narrow Option C (§16.5.4, and the text proposed in §16.5.8) was **not** approved verbatim. The contract below replaces it.
+- This approves the design only. It does not approve implementing it, activating any storage consumer, or shipping it. It does not start Batch 2B-2 or any later batch.
+
+**The approved contract** (the owner's text):
+
+1. The normal Captured Review path uses absolute, CLI-resolved, validated work-folder paths for `context.md`, `retrieval.json` and `fix_report.md`.
+2. Preserve the existing Claude Captured Review permission restrictions, including Read/Grep/Glob only, `dontAsk`, strict MCP configuration and disabled session persistence.
+3. The agent may read these files directly. This is not an operating-system filesystem sandbox. Do not claim the agent can read only these three files.
+4. Do not automatically fall back to inline review after a denied, missing, unsuccessful or ambiguous read.
+5. If a work-folder read is reliably reported as denied, display that failure clearly. A successful process exit alone is not proof that all review inputs were read.
+6. Support a separately identified, developer-initiated Partial Review retry using at most 2,400 characters from `fix_report.md`, explicitly marked as earlier AI output and incomplete source material.
+7. Do not silently truncate larger reports and present the excerpt as a full review. Explain the limit and require an explicit user choice.
+8. The Partial Review retry is never automatic. It must not be described as equivalent to a full Captured Review.
+9. If JSON output does not reliably expose read denials, do not invent or infer them. The manual Partial Review action may be available independently, clearly identified as a reduced-input operation.
+10. Retain the existing prompt gate. Do not use the inline retry as a way to bypass rejected data-root paths.
+11. Retain the existing Claude tool restrictions even if the model attempts to invoke Bash. Do not broaden permissions to improve success rates.
+12. Claude auto-memory is a documented residual privacy risk. The P2 probe demonstrated an auto-memory read attempt, not successful access to a real user's memory. Add an appropriate disclosure requirement for `docs/safety.md` and the Review with AI UI.
+13. Do not claim `--setting-sources ""` disables auto-memory or that `--no-session-persistence` prevents every configuration-state write.
+14. Network storage roots are not guaranteed supported without later validation.
+15. Prompt content, tool output and agent-generated review text are untrusted data. Their embedded instructions must not override BugPilot's tool or security policy.
+
+**Evidence basis.** It is unchanged; see §14.1.B, "Batch 0B — probe P2", and §16.5.2.
+
+- P2 remains **FAIL** overall against the owner's acceptance criteria.
+- The external reads of `context.md` and `fix_report.md` succeeded:
+  - by absolute path;
+  - under the unchanged flags;
+  - on Windows, with Claude Code 2.1.214.
+- These remain unverified:
+  - `retrieval.json`;
+  - actual read denials, and how the `json` output reports them;
+  - behaviour on macOS and Linux.
+- The auto-memory observation is an *attempt* to read the isolated configuration's memory file, which did not exist. Access to a real developer's memory was not observed.
+
+**Rationale.**
+
+- The normal path is the one P2 observed working. It keeps the restrictions that held in P2: the Bash request was refused because no Bash tool existed. Widening nothing keeps 0.1.5's read-only posture.
+- The contract differs from the review's proposal in four ways:
+  - **No automatic fallback.** Nothing is offered automatically as a consequence of a failed or ambiguous run (item 4). The proposal tied the reduced-input run to detection. The contract makes it a separately identified operation that the developer chooses, with the limit explained (items 6–9).
+  - **No inferred denials.** A denial is shown only when the runtime reliably reports one. BugPilot does not infer a denial from the review's text or from a clean exit (items 5 and 9).
+  - **No overclaiming.** What the reviewer can read, auto-memory and the session-persistence flag are all described without overclaiming (items 3, 12 and 13).
+  - **Untrusted data and unvalidated roots.** Network roots stay unvalidated (item 14). All text given to the model or produced by it is data (item 15).
+
+**Activation gates.** All of these are required before the captured review's storage path is activated in production. Approval of the design is not approval to ship it.
+
+- a separately authorized check of how the JSON output reports denials;
+- full captured-review integration tests on every supported platform;
+- validation of the review's inputs, and error handling that fails closed;
+- explicit Partial Review labelling, and the user's confirmation;
+- the auto-memory privacy disclosure, in `docs/safety.md` and the Review with AI UI;
+- regression tests that pin the tool restrictions;
+- verification of how absolute paths are handled and how the prompt gate behaves.
+
+These add to the gates that already apply; they do not replace them:
+
+- §14.3's activation preconditions;
+- §9.10's release rule: A5 PASS for H5 on every supported combination.
+
+**Open implementation questions.** The implementing batch decides each one before it is built.
+
+1. **The denial signal.** Which runtime field, if any, reliably reports a denied read in `--output-format json`? The candidate is `permission_denials` (E7). Until the authorized check answers this, no denial is shown (item 9).
+2. **The Partial Review's input.**
+   - Does its prompt keep the current changes?
+   - Does it name the work-folder files at all? If it does, the reviewer may read them. If it does not, `Read` can still reach them (item 3).
+   - Its label must stay accurate either way.
+3. **When the Partial Review is offered.** Only after a reported denial, or always, as a separate action? Item 9 allows either.
+4. **The explicit choice.**
+   - How the developer confirms, and the wording that explains the 2,400-character limit.
+   - What is said when `fix_report.md` is shorter than the limit. The review is still partial, because `context.md` and `retrieval.json` are absent.
+5. **Labelling after the run.** How a Partial Review is marked in the Review Result draft, in a saved `review_report.md` and in History, so that it is never shown as a full captured review.
+6. **Input validation, failing closed.**
+   - What is checked before launch: the CLI-resolved work folder, whether the files are present, and the prompt gate.
+   - Which failures stop the review.
+   - The error code, which depends on US-D26's open `STORAGE_UNAVAILABLE`.
+7. **The disclosure wording** for `docs/safety.md` and the Review with AI UI (item 12). It is reviewed before it ships.
+8. **Network storage roots.** Validate them later, or document them as unsupported (§13; item 14)?
+9. **Later probes.** Should a separately authorized probe examine a way to disable auto-memory, or how `CLAUDE.md` files load (§16.5.5)?
+
+**Not authorized by this decision:**
+
+- implementing the captured-review changes;
+- switching any Unified Storage consumer;
+- starting Batch 2B-2 or any later batch;
+- any agent probe;
+- staging, committing, pushing, or dispatching CI.
+
 ---
 
 ## 17. Acceptance criteria
@@ -4338,6 +5113,13 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | 2026-10-17 | 2B-1 | **Batch 2B-1 (inactive consumer-switch preparation) implemented and verified locally on Windows (not committed; no CI run).** <ul><li>**Authorization:** the owner's Batch 2B-1 brief, on `3f8be69`: implementation and local verification only.</li><li>**Built:** C-1, the identity cache under one lock, with a deterministic race regression. C-2, request scopes owned by the thread that opened them; the MCP per-tool-call scope is recorded as a **mandatory 2B-5 gate, not integrated**. `remove_work_item()` and `remove_memory_file()`, checked and failing closed. `check()` on both storages (`StorageCheck`), with `StorageUnavailable`. The test-only write witness and its child runner.</li><li>**Unchanged:** Batch 0A's child loader, `errors.py`, every CLI, MCP, workflow, doctor, `user_config` and extension module, the goldens, baselines, contract fixture and ratchet record, and the version (0.1.5).</li><li>**Verification:** focused storage, scope, witness, privacy, boundary and isolation-guard suites 453 passed, 18 skipped; CI's safety list (30 files) 1,733 passed, 0 failed; full suite 3,685 passed, 0 failed, 54 skipped; extension typecheck clean, 2,350 unit, 27 evidence-boundary and 21 integration tests passed; baselines match twice; ratchet unchanged; publishability passes; 24 of 24 mutations caught; the C-1 race test deterministic (10 of 10 each way).</li><li>**Not run:** CI, so Linux, macOS and Python 3.10; the mutation check on POSIX; the real MCP dispatcher under concurrent calls; Batch 0B.</li><li>**Records:** the header, §14.0, §14.3 "Batch 2B-1 — inactive consumer-switch preparation" and §19, where the stale PENDING of run 39064298339 is resolved: success, 9/9.</li></ul> Batch 2B-2 to 2B-6 and Batch 0B: NOT STARTED. No decision changed; US-D29 not approved. |
 | 2026-10-17 | 2B-1 | **Batch 2B-1's first CI run FAILED (3/9); remediation implemented and verified locally (not committed; no new CI run).** <ul><li>**Commit and run:** `7b8914d` on `verify/0.1.6-batch2b1` (owner-approved), CI run 39085417171 (owner-dispatched): 3 of 9 checks green.</li><li>**F-1, the five POSIX jobs:** the write witness crashed on `os.fchmod`'s audit event, whose path is a descriptor and whose `dir_fd` is `-1`. Fixed in `tests/_storage_witness.py`: descriptors are placed through the descriptor and judged; pipes are passed over; whatever cannot be placed is unresolved, never authorized; `-1` means no `dir_fd`.</li><li>**F-2, the Windows safety job:** the race test asserted an elapsed time equal to its own wait timeout (0.4999 s against 0.5). Not a lock defect. Fixed in `tests/test_storage_identity.py`: the happens-before is observed through a reporting lock and a recording cache, with no clock.</li><li>**Verification:** focused suites 466 passed, 19 skipped; CI's safety list 1,746 passed, 0 failed; full suite 3,698 passed, 0 failed, 55 skipped; 27 of 27 mutations caught; the race test passes 30 of 30 and, with the lock disabled, raises `KeyError` 30 of 30; baselines match twice; ratchet unchanged.</li><li>**Unchanged:** `storage.py`, the CLI, MCP, the extension, CI, the Batch 0A loader, goldens, fixtures, baselines, the version (0.1.5).</li><li>**Open:** POSIX and Python 3.10 verification of the fix (CI); one unexplained intermittent failure of Batch 1's multi-process publication test, seen once and not reproduced in 69 reruns.</li></ul> Batch 2B-1 is not CI-verified and not integrated; Batch 0B and Batch 2B-2 to 2B-6 NOT STARTED; no decision changed. |
 | 2026-10-17 | 2B-1 | **Batch 2B-1 COMPLETED: CI-verified, fast-forwarded into `main`; NOT activated.** <ul><li>**Commits:** `7b8914d` (implementation) and `40865cf` (the fix for the two test defects that failed run 39085417171, 3/9), on `verify/0.1.6-batch2b1` (owner-approved; the branch is kept).</li><li>**Verification:** run 39096347226 on `40865cf` (owner-dispatched): 9/9.</li><li>**Integration:** `git merge --ff-only` on `main`, both commits in order, no merge commit; pushed `3f8be69..40865cf`. Run 39097757625 on `main`: 9/9, with the same counts.</li><li>**Evidence:** the original POSIX witness failure, the POSIX descriptor and `dir_fd` cases, Python 3.10, the reworked race test on Windows, the scope suite and the publication test all ran and passed (from skip lists and 0-failure summaries). The descriptor resolvers' success is inferred from the tests' design. Mutation testing ran on Windows only.</li><li>**Still open:** the MCP per-tool-call scope (2B-5, NOT INTEGRATED) and every consumer gate; the unexplained one-time local failure of Batch 1's publication test; the witness's visibility limits; activation blockers 5 and 6.</li></ul> Version 0.1.5. No decision changed; US-D29 unresolved. Batch 0B and Batch 2B-2 to 2B-6: NOT STARTED. |
+| 2026-10-18 | 0B | **Batch 0B probe P10, narrowed: run on Windows; UNKNOWN overall (VS Code `sendText` not exercised).** <ul><li>**Authorization:** the owner's narrowed P10 brief: filter-accepted prompts only, inert recorders, no real agent, no account, no hostile-character matrix. An earlier, broader attempt that day was stopped before anything was created or run.</li><li>**Run:** BugPilot's own filter and command construction (`extension/src/app/agents.ts`, real `claude-cli` definition with the command renamed) and its own `run_agent()`, against npm-shaped stand-in shims, in kit `C:/bp-0b/run-p10/` with a stripped-down environment.</li><li>**Results:** 5 accepted prompts × PowerShell 7.6.6, Windows PowerShell 5.1, cmd and Git Bash 5.3.15: **20 of 20 PASS** (intact argument, one invocation, exit 0). Python launcher through a `.cmd` shim: **5 of 5 PASS**. The filter refused both refused-case strings. Multi-line prompts are accepted and flattened to one line by design; the Python launcher has no filter yet (T-S12).</li><li>**Not exercised:** VS Code `sendText`, an interactive console, developer profiles, macOS and Linux, native agent executables (P11), the `--session-id` shape.</li><li>**Isolation:** repository and protected files unchanged; the real `~/.codex` changed only through the developer's own running Codex processes, not the probe.</li><li>**Evidence:** `C:/bp-0b/run-p10/evidence/`, kept for review, outside the repository.</li></ul> No decision changed: US-D10 and US-D12 get evidence only. P1–P9 and P11 NOT EXECUTED; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | 0B | **Batch 0B probe P7 attempted: UNKNOWN, no test ran.** <ul><li>**Authorization:** the owner's P7 brief: VS Code extension APIs on synthetic files outside the workspace, in a disposable VS Code with a minimal probe extension.</li><li>**What happened:** the disposable VS Code 1.140.0 exited with code 1 within 33 s, before its extension host started. The installer for VS Code 1.142.0 was running and held the `vscodesetup` mutex, which the installed build checks at start-up. No retry; the staged build was not launched.</li><li>**Isolation:** repository, protected files, the P10 kit, the external synthetic files and the developer's VS Code configuration unchanged.</li><li>**Kit:** `C:/bp-0b/run-p7/` kept for a rerun once no update is in progress.</li></ul> P7-A to P7-H UNKNOWN; US-D17 unchanged. P10 stays UNKNOWN overall; P1–P6, P8, P9 and P11 NOT EXECUTED; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | 0B | **Batch 0B probe P7 retry after the VS Code update: P7-A to P7-H PASS on Windows; `revealFileInOS` UNKNOWN.** <ul><li>**Preflight:** the 1.142.0 installer had exited, its locks were released, and the installed `Code.exe` was 1.142.0.</li><li>**Run:** the first attempt's kit and probe extension, with two corrections (retry-specific evidence files that never overwrite; a P7-I `revealFileInOS` step with an OS-side check). Disposable VS Code 1.142.0, isolated profile and extensions folder, synthetic workspace; results after 31 s; closed by itself.</li><li>**Results:** read, write, open, show, watcher (create, modify, delete, atomic replace), save with its event, spaces in paths and the workspace boundary: 17 of 17 checks PASS. A new watcher missed events for up to about 10 s before becoming active; after that, events arrived in order within 82–204 ms; an atomic replace arrives as one `change` of the target. P7-I: Explorer opened at the folder's parent; the selection is unconfirmed.</li><li>**Isolation:** the repository (apart from this plan), protected files, the P10 kit, the first attempt's evidence and the developer's VS Code configuration unchanged; no window left open.</li><li>**Evidence:** `C:/bp-0b/run-p7/evidence/` (`p7-results-retry1.json`, `p7-run-retry1.json`).</li></ul> US-D17 gets evidence only and stays PROPOSED. P10 stays UNKNOWN overall; P1–P6, P8, P9 and P11 NOT EXECUTED; Batch 0B not complete; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | 0B | **Batch 0B probe P10 completed: VS Code `sendText` 24 of 24 PASS; P10 PASS for the tested Windows configuration.** <ul><li>**Run:** a new kit `C:/bp-0b/run-p10-vscode/` and a disposable VS Code 1.142.0 (own profile, empty extensions folder, stripped-down environment). A minimal probe extension did what the extension host does: `createTerminal({name, cwd, env})`, `show()`, then `sendText(commandLine, true)` at once. The command lines came from BugPilot's own builder, the session-id form included. The stand-ins are the narrowed run's shims.</li><li>**Results:** 6 command lines × PowerShell 7.6.6, Windows PowerShell 5.1, cmd and Git Bash 5.3.15: every stand-in ran once with exactly the intended arguments; no extra record; every terminal closed on dispose. The refused strings were refused by the filter and never sent.</li><li>**Limits:** exit codes not observed (VS Code's shell-integration events did not fire); explicit `shellPath` instead of the default profile; profiles not loaded; Windows only; stand-ins, not real agents.</li><li>**Isolation:** repository (apart from this plan), protected files, the P10 and P7 kits and the developer's VS Code configuration unchanged.</li></ul> US-D10 and US-D12 get evidence only. P7 stays PASS on Windows with `revealFileInOS` UNKNOWN; P1–P6, P8, P9 and P11 NOT EXECUTED; Batch 0B not complete; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | 0B | **Batch 0B probe P2 (captured review), one run: FAIL against the owner's acceptance criteria; the external read US-D28 needs worked.** <ul><li>**Authorization:** the owner accepted the residual read risk for this probe only, and signed in to an isolated `CLAUDE_CONFIG_DIR` in the kit `C:/bp-0b/run-p2/`.</li><li>**Run:** Claude Code 2.1.214; stripped environment; the captured-review flags with `stream-json --verbose`; BugPilot's final review prompt pointing at the synthetic external `context.md` and `fix_report.md`. Exit 0, 53 s, 9 turns; session tools exactly Read, Grep and Glob; no MCP; `dontAsk`.</li><li>**Observed:** both external files read with no prompt or denial. The marker reached the model, but it declined to reproduce it as an instruction embedded in the reviewed file. The model requested Bash once; Claude Code refused it (not enabled) and it never ran. An auto-memory read attempt inside the isolated configuration. No synthetic file changed; no transcript kept; no account detail in the output.</li><li>**Evidence:** `C:/bp-0b/run-p2/evidence/`.</li></ul> US-D28 gets evidence only and stays OPEN. P1, P3–P6, P8, P9 and P11 NOT EXECUTED; Batch 0B not complete; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | 0B | **US-D28 decision review prepared (§16.5); no decision changed.** <ul><li>**Scope:** decision preparation only, from P2's recorded evidence and the shipped captured-review code. No agent run, no production change.</li><li>**Recommendation:** Option C in its narrow form. The primary path is absolute CLI-resolved paths read through the bare `Read` allow, as observed in P2. A detected denial is shown in the panel, and the developer may start one re-run with the bounded `fix_report.md` excerpt inline. The flags and the gate are unchanged.</li><li>**Auto-memory:** a documented residual risk. It is active under `--setting-sources ""` (P2), already present in 0.1.5, and has no verified switch for claude.ai sign-in. Disclosure is proposed.</li></ul> US-D28 stays OPEN; the suggested intermediate state is PROPOSED (decision review ready), set only by the owner. P2 FAIL, P7 PASS and P10 PASS are unchanged; Batch 0B is not complete; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | — | **US-D28 APPROVED with conditions, as an amended design contract (owner decision).** <ul><li>**Decision:** the owner approved US-D28 with amendments (§16.5.11). The review's narrow Option C was not approved verbatim.</li><li>**The contract, in brief:**<ul><li>absolute, CLI-resolved, validated work-folder paths, under the unchanged restrictions;</li><li>no automatic inline fallback;</li><li>a reliably reported denial is shown, and a clean exit is not proof that the inputs were read;</li><li>a separately identified, developer-initiated Partial Review of at most 2,400 characters of `fix_report.md`, never automatic and never presented as a full review;</li><li>no inferred denials;</li><li>the prompt gate is retained;</li><li>auto-memory is disclosed as a residual risk;</li><li>network roots are not guaranteed;</li><li>prompt, tool and review text is untrusted data.</li></ul></li><li>**Register:** US-D28 moved from OPEN to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "Captured review reads external files through the bare `Read` allow; otherwise the fix-report excerpt goes inline". No other decision changed.</li><li>**Also updated:** the counts, §9.5 point 5 and §9.6 (the automatic inline fallback is withdrawn), §14.0, §14.3, RK-18, and a dated note under the P2 record.</li><li>**Gates:** §16.5.11's seven activation gates, plus §14.3 and §9.10.</li></ul> This is a design approval only: nothing was implemented or activated. P2 stays FAIL; P7 PASS and P10 PASS are unchanged. Batch 0B is not complete, and Batch 2B-2 onward has NOT STARTED. |
 
 ---
 
