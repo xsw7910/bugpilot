@@ -476,8 +476,9 @@ def _ensure_root(root: Path) -> None:
     """
     if os.path.isdir(root):
         return
-    if os.path.lexists(root):
-        raise StorageError(f"BugPilot cannot use {display_path(root)} as its data folder: it is not a folder.")
+    # What is at the name is judged only after the attempt: another process may create the folder between two
+    # looks, and a missing root must not be reported as "not a folder" (CI run 39194849242). A file or a link
+    # there makes mkdir fail with FileExistsError, and the look after it refuses anything that is not a folder.
     try:
         root.mkdir(mode=DIRECTORY_MODE)
     except FileExistsError:

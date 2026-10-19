@@ -4937,6 +4937,7 @@ Each failing job failed exactly one test, according to the jobs' published annot
 
 **Still open:**
 - **The unexplained intermittent failure:** Batch 1's multi-process publication test failed once during the remediation's mutation check. Its message was lost, and it did not reproduce in at least 96 later local runs or in any CI job. The cause is unknown. The mutation harness now keeps every run's output, so a recurrence can be diagnosed.
+  - *(2026-10-18: CI run 39194849242 found a race in creating the data root, `_ensure_root`, that this test's two racers also exercise against a fresh, absent data root. That race is a likely explanation, but it stays unproven because the message was lost. See "Batch 2B-1 follow-up — concurrent data-root creation".)*
 - **The witness's visibility limits:**
   - only audit events are seen: no native code, writes through an open descriptor, `mmap` or non-Python process;
   - `os.open` with `dir_fd` is judged against the working directory;
@@ -4957,6 +4958,122 @@ Each failing job failed exactly one test, according to the jobs' published annot
 - **Not run:** the mutation check on POSIX; FAT, exFAT and network data roots; `subst` (D0A-5); every live agent behaviour.
 
 **Version:** 0.1.5, unchanged. **Decisions:** none changed; US-D29 is unresolved. **Batch 0B and Batch 2B-2 to 2B-6:** NOT STARTED.
+
+#### Batch 2B-1 follow-up — concurrent data-root creation (2026-10-18/19)
+
+**Status.**
+
+- **Done:** implemented and verified locally on Windows, then committed on the verification branch `verify/0.1.6-batch2b1-root-race` (the commit that carries this section; parent `7a2a1f4`).
+- **Not done:**
+  - It is not on `main`.
+  - It is **not CI-verified**: the CI workflow runs only on a push or a pull request to `main`, or a manual dispatch, and none of those is authorized yet.
+  - Nothing is activated.
+
+**The failure.**
+
+- **The run:** main CI run 39194849242, on `7a2a1f4` (the six-decision documentation checkpoint).
+- **The result: FAILED, 8 of 9 jobs passed.** The run stays failed; this record does not change that.
+- **The failed job:** `Full Python suite (ubuntu-latest)`, with 1 failed, 3,673 passed and 54 skipped.
+- **The failed test:** `tests/test_storage_identity.py::test_two_processes_ensuring_the_same_namespaces_end_with_identical_records_and_no_error`.
+- **The same test passed** in the run's other 8 jobs, including both Ubuntu "Safety and baselines" jobs, and on the two earlier main runs of the same storage code.
+
+**The recovered exception.** The owner recovered it from the job log; it is not in the CI annotations, which keep only pytest's one-line summary.
+
+```text
+bugpilot.core.storage.StorageError: BugPilot cannot use BUGPILOT_HOME as its data folder: it is not a folder.
+```
+
+It was raised in `_ensure_root` (`storage.py:480`), called from `RepositoryStorage.ensure()` (`storage.py:1326`), in one of the test's two child processes.
+
+**The root cause: a check-then-check race (TOCTOU) in `_ensure_root`.** It was confirmed from the traceback, the code and the test's preconditions, and then reproduced deterministically (below).
+
+- **Two looks before the attempt.** `_ensure_root` looked twice before trying to create the root:
+  - `os.path.isdir(root)` at line 477;
+  - `os.path.lexists(root)` at line 479, refusing at line 480 if that second look found anything.
+- **The root starts absent.** Each test gets a fresh home whose `BUGPILOT_HOME` (`<home>/.bugpilot`) starts absent (`tests/conftest.py`). So both child processes create it on their first `ensure()`.
+- **The interleaving:**
+  1. Process A's `isdir` finds no root.
+  2. Process B creates the root with `mkdir`.
+  3. Process A's `lexists` finds B's new folder, and A refuses a real folder as "not a folder".
+- **Only the pre-check was wrong.** The `FileExistsError` branch already judged what was there after the attempt.
+- **Both callers were exposed:** `RepositoryStorage.ensure()` and `GlobalStorage.ensure_config_dir()`.
+- **The effect:** a false, fail-closed refusal when two processes first use an absent data root at the same moment. Nothing is written, deleted or corrupted, and a retry succeeds. No user was affected, because storage is inactive.
+
+**The change** (`bugpilot/core/storage.py`, `_ensure_root` only).
+
+- The pre-check (`if os.path.lexists(root): raise …`) is removed.
+- A three-line comment says why what is at the name is judged only after the attempt.
+- Unchanged:
+  - the fast path for an existing folder;
+  - the `mkdir`;
+  - the `FileExistsError` handler and its re-check;
+  - the `FileNotFoundError` handling.
+- Not added: no sleep, no retry, no broad exception handling, no permission change. Record publication and every other storage operation are untouched.
+
+| What is at the root's name | Before | After |
+| --- | --- | --- |
+| a real folder | used (line 477) | unchanged |
+| nothing | created (`mkdir`) | unchanged |
+| nothing, then another process's new folder | **refused as "not a folder"** | `mkdir` raises `FileExistsError`, the re-check finds a folder: **used** |
+| a regular file | refused | `mkdir` raises `FileExistsError`, the re-check: **refused**, the file untouched |
+| a dangling link or junction, or a link to a file | refused | `mkdir` raises `FileExistsError` and never follows the name; the re-check: **refused**, nothing created through it |
+| a link or junction to a folder (B4-2) | used | unchanged |
+| a missing parent | refused, never created | unchanged |
+| an existing root's mode | never changed | unchanged |
+
+`data_root()` stays canonical, so a configured link reaches `_ensure_root` already resolved (B4-2). The link policy is not changed.
+
+**Regression evidence.**
+
+- **Three deterministic race tests** (`tests/test_storage_identity.py`).
+  - **How they work:** they wrap `os.path.isdir` for one path only, the data root, and for its first call only. That call finds no root, and then "another process" creates it with the real `mkdir`. Every other call goes to the real function, and `monkeypatch` restores it.
+  - **What they cover:** `_ensure_root` itself, `RepositoryStorage.ensure()` and `GlobalStorage.ensure_config_dir()`.
+  - **Before the change:** all three failed with the exact CI exception at `storage.py:480`.
+  - **After the change:** all three pass.
+    - Each confirms the simulated interleaving really happened.
+    - The root is a real folder.
+    - The namespace record reads `ok`, and the config folder exists.
+- **Five tests on the root's name itself** (`tests/test_storage_safety.py`):
+
+  | Test | Windows result |
+  | --- | --- |
+  | An existing folder is used as it is, its contents untouched | passed |
+  | A missing root is created as a real folder | passed |
+  | A dangling link (symlink, and junction on Windows) is refused, nothing is created through it, and the link is left as it was | passed (symlink and junction) |
+  | A link to a file is refused and the file kept | skipped (POSIX; Windows needs the file-symlink privilege) |
+  | A root that cannot be created raises `PermissionError` and creates nothing | skipped (POSIX, not root) |
+
+  The two skipped tests run only on the Linux and macOS jobs, and are not yet observed there.
+- **The existing data-root tests still pass:**
+  - a file at the root is refused;
+  - a root behind a link works (B4-2);
+  - a missing parent is refused, never created;
+  - an existing root's mode is never changed (POSIX).
+
+**Local verification (Windows 11, Python 3.14.6).**
+
+- **Targeted storage suites: 459 passed, 21 skipped.** They are `test_storage_identity`, `test_storage_safety`, `test_storage_witness`, `test_storage_scope`, `test_storage_api_boundary`, `test_private_folder`, `test_storage_inventory` and `test_storage_baseline`. This includes the original two-process test and the reader-during-publication test. The skips are documented platform cases, plus `subst` (D0A-5).
+- **First full-suite run: 1 failed, 3,704 passed, 57 skipped.**
+  - The failure was `tests/test_cli_json.py::test_the_cli_writes_utf8_json_through_a_pipe_whatever_the_code_page`, with `No module named bugpilot`.
+  - That run used a *relative* `PYTHONPATH=.`, while the test's child process runs `python -m bugpilot` with its working directory set to `tmp_path`.
+  - The run was not repeated to hide the failure. It was stopped and reported to the owner.
+- **Corrected full-suite run** (authorized by the owner; run once): an absolute `PYTHONPATH`, naming the checkout's own folder, with the import of `bugpilot` from this checkout checked first. **Result: 3,705 passed, 57 skipped, 0 failed (29 min 5 s), the code-page test included.**
+  - The corrected run supports the invocation explanation for the first run's failure: the same test passes once the path is absolute.
+
+**Not yet verified:**
+
+- Linux and macOS: the POSIX-only tests above, and the multi-process tests on those systems.
+- CI on all nine checks for this commit.
+
+**Still open:**
+
+- **CI coverage:** the verification branch has no CI run. Dispatching the workflow, or opening a pull request, needs the owner's authorization.
+- **Integration into `main`:** needs the owner's approval.
+- **Batch 2B-1's earlier unexplained failure:** `test_a_reader_during_publication_never_sees_a_partial_or_foreign_record` failed once in Batch 2B-1's remediation, and its message was lost. That test also runs two racers against a fresh, absent data root, so this race is a likely explanation, but it stays unproven.
+- **A raw `PermissionError`:** `_ensure_root` still raises one, not a `StorageError`. This is unchanged and belongs with US-D26's `STORAGE_UNAVAILABLE`.
+- **Activation:** the gates of §14.3, the six design decisions' conditions, the 2B-5 gate, and Batch 0B.
+
+**Version:** 0.1.5, unchanged. **Decisions:** none changed. **Batch 0B:** not complete. **Batch 2B-2 to 2B-6:** NOT STARTED.
 
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
@@ -6073,6 +6190,7 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-18 | — | **US-D10 APPROVED with conditions, as Option D with amendments; probe gap accepted for design only (owner decision).** <ul><li>**Contract:** the agent starts in the repository root and is told `Read <WORK>/task.md and complete the workflow.`; the retry is `Read <WORK>/agent_retry_prompt.md and continue the workflow.`. `<WORK>` is CLI-resolved (US-D13, US-D17) with forward slashes, and the wording is the same across the CLI, the extension and the retry prompt. MCP follows US-D27 (§9.5.1).</li><li>**Kept:** no new permission mode, grant, sandbox bypass, shell-free launch or automatic Git. US-D12's gate is kept, and US-D12 stays PROPOSED.</li><li>**Fallback and guidance:** a refused, unlaunchable or bridge handoff uses the clipboard, with an accurate notice. The approved permission guidance is "Your AI agent may need permission …". No denial is inferred without a reliable signal.</li><li>**Evidence:** the owner accepts the Batch 0B real-agent gap (P1, P3–P6, P8, P9) for design only, recorded in §16.1 "Accepted evidence gaps". The historical results are unchanged: P7 and P10 PASS, P2 FAIL overall, P11 NOT EXECUTED.</li><li>**Register:** US-D10 moved from OPEN to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "Agent handoff: Option D (absolute path, the agent's own permissions, clipboard fallback, no automatic grant)". No other decision changed.</li></ul> This is a design approval only: no agent combination is supported, and nothing is implemented. Batch 0B is not complete; Batch 2B-2 onward NOT STARTED. |
 | 2026-10-18 | — | **US-D12 APPROVED with conditions, as Option C with two amendments (owner decision).** <ul><li>**Contract:** the gate's character set is kept and never broadened. Its treatment of Unicode whitespace, leading and trailing whitespace and normalization is tightened before activation, and the complete prompt is validated (§9.9.1).</li><li>**Amendments:**<ul><li>exact prompt preservation: the generated prompt and the final argument are both validated, a path is never rewritten, and the handoff is refused if preservation can't be guaranteed;</li><li>TypeScript–Python parity: Python's `--launch-agent` gets an equivalent gate, with one shared, reviewed corpus.</li></ul></li><li>**Scope:** the gate stays on the terminal paths, the bridges and the captured review (US-D28); there is none on MCP JSON, Copy Handoff Prompt or the body of `task.md`. A bridge refusal copies and notifies only.</li><li>**Documentation:** §13.4's character list is corrected (colon, comma, hash), and the compatibility limitation is recorded.</li><li>**Register:** US-D12 moved from PROPOSED to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "The prompt gate stays unchanged; a refused prompt falls back to manual handoff, with `BUGPILOT_HOME` as the remedy". No other decision changed.</li></ul> This is a design approval only: no relaxation, and nothing implemented. P10 stays PASS for the tested Windows configuration only, and P11 stays NOT EXECUTED. Batch 2B-2 onward NOT STARTED. |
 | 2026-10-18 | — | **US-D17 APPROVED with conditions, as Option B with five clarifications and two security amendments (owner decision).** <ul><li>**Contract:** `storage.py` is the authoritative Python resolver. The extension takes base paths only from the frozen CLI fields (`doctor` `storage.repository_dir`; item `work_dir`, `issue_dir` and `agent_task`; `list` `work_items[].work_dir` and `.modified`; settings `show --json` `path`). It composes only fixed artifact names under a validated `work_dir`, and `<repository_dir>/work/<id>` for a validated id, through one helper with a shared fixture (§8.9.1).</li><li>**Amendments:**<ul><li>A: CLI paths are validated before use (field and type, `abs` syntax and kind, component-wise containment, links refused). An inconsistent path fails closed, the cache is invalidated and the path re-resolved.</li><li>B: the extension only reads storage. It never creates, overwrites, deletes, moves or re-permissions storage. Feedback goes through the CLI (US-D18), and Reset Session through `bugpilot clean`.</li></ul></li><li>**Kept:** History from `list --json` with no scan, settings from `show --json` `path`, watchers as hints only, and `state: error` composing, reading and watching nothing. No legacy fallback, no new JSON field, and the frozen contract unchanged.</li><li>**Register:** US-D17 moved from PROPOSED to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "The CLI is the only resolver. The extension gets `repository_dir` and `work_dir` from the CLI, composes only validated ids below them, and reads, opens and watches there, but never writes or deletes.". No other decision changed.</li></ul> This is a design approval only: nothing implemented. P7 stays PASS for the tested Windows operations only, and `revealFileInOS` stays UNKNOWN. Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18/19 | 2B-1 | **Batch 2B-1 follow-up: the race in creating the data root fixed on a verification branch (not on `main`; no CI run).** <ul><li>**Trigger:** main CI run 39194849242 on `7a2a1f4` FAILED, with 8/9 jobs passing. `Full Python suite (ubuntu-latest)` failed the two-process namespace test with `StorageError: BugPilot cannot use BUGPILOT_HOME as its data folder: it is not a folder.` (`storage.py:480`, from `ensure()`), recovered by the owner from the job log.</li><li>**Cause:** a check-then-check race (TOCTOU) in `_ensure_root`. The `isdir` look found no root, another process created it, then the `lexists` look refused that real folder.</li><li>**Change:** the `lexists` pre-check is removed and a comment added. What is at the name is judged only after the `mkdir` attempt, by the existing `FileExistsError` re-check.</li><li>**Evidence:** three deterministic race tests failed before and pass after. Five tests on the root's name were added. Targeted storage suites: 459 passed, 21 skipped. The first full-suite run failed one CLI test because of a relative `PYTHONPATH`; the corrected run is recorded in the follow-up section.</li><li>**Commit:** on `verify/0.1.6-batch2b1-root-race`.</li></ul> CI run 39194849242 stays FAILED. No decision changed. Batch 2B-2 onward NOT STARTED. |
 
 ---
 
@@ -6104,6 +6222,9 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-17 | 2B-1 | `verify/0.1.6-batch2b1` | `40865cffbf7cc1fc44bd4ad220d82108ffafabf7` (the four-file remediation; parent `7b8914d`) | 39096347226 (`CI`, `workflow_dispatch` by the owner) | **success: 9/9** | Full suite: Ubuntu 3,674, macOS 3,676, Windows 3,695 passed. Safety and baselines green on Ubuntu 3.13 and 3.10, macOS 3.13 and Windows 3.13. Extension 2,348; evidence boundary 27. The previous row's remediation is committed here. |
 | 2026-10-17 | 2B-1 | `main` | `40865cffbf7cc1fc44bd4ad220d82108ffafabf7` (fast-forward `3f8be69..40865cf`: `7b8914d` and `40865cf`, no merge commit) | 39097757625 (`CI`, push) | **success: 9/9** | The same counts as run 39096347226. Batch 2B-1 COMPLETED and integrated, NOT activated. Version 0.1.5. |
 | 2026-10-17 | 2B-1 | `main` | **the commit that carries this row**: this plan only (`docs: record BugPilot 0.1.6 Batch 2B-1 CI acceptance`). A commit cannot hold its own SHA. | **PENDING**: its push to `main` starts `ci.yml` | — | Documentation only. Its run is reported to the owner, not recorded by another documentation commit. |
+| 2026-10-18 | 0B, US-D28 | `main` | `1bbf7795a1977378ff0ca52e9a215ebde85507f9` (`docs: record Batch 0B probes and US-D28 decision`; parent `1b1a310`) | 39178885275 (`CI`, push) | **success: 9/9** | documentation only |
+| 2026-10-18 | US-D10/12/13/14/17/30 | `main` | `7a2a1f4863119e2dace915b4ced104fe9d2466d0` (`docs: record six Unified Storage design decisions`; parent `1bbf779`) | 39194849242 (`CI`, push) | **failure: 8/9** | `Full Python suite (ubuntu-latest)` failed the two-process namespace test: a race in creating the data root in `_ensure_root` (Batch 2B-1 follow-up). The commit itself was documentation only. |
+| 2026-10-19 | 2B-1 follow-up | `verify/0.1.6-batch2b1-root-race` | **the commit that carries this row** (`fix(storage): handle concurrent data-root creation`; parent `7a2a1f4`) | **none**: the workflow runs only for `main` (push or pull request) or a manual dispatch | — | Branch CI, a pull request and integration each need the owner's authorization. |
 
 ---
 

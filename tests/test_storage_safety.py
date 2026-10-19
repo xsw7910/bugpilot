@@ -238,6 +238,74 @@ def test_a_missing_parent_of_the_data_root_is_refused_never_created(repo, monkey
     assert not (tmp_path / "missing-parent").exists()
 
 
+# The root itself, as ``_ensure_root`` sees it (Batch 2B-1 follow-up: what is at the name is judged only after the
+# attempt to create it). ``data_root()`` is canonical, so a configured link reaches it resolved (B4-2); these tests
+# hand it the configured name itself, to show what it does when that name is occupied.
+
+
+def test_an_existing_data_root_folder_is_used_as_it_is():
+    root = data_root()
+    root.mkdir()
+    (root / "keep.txt").write_text("kept\n", encoding="utf-8")
+    storage._ensure_root(root)
+    assert _tree(root) == ["keep.txt"]
+    assert (root / "keep.txt").read_text(encoding="utf-8") == "kept\n"
+
+
+def test_a_missing_data_root_is_created_as_a_real_folder():
+    root = data_root()
+    assert not os.path.lexists(root)
+    storage._ensure_root(root)
+    assert root.is_dir() and not safe_paths.is_link_or_junction(root)
+    assert _tree(root) == []
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_dangling_link_at_the_data_root_is_refused_and_nothing_is_created_through_it(tmp_path, monkeypatch, kind):
+    target = tmp_path / "gone"
+    target.mkdir()
+    link = tmp_path / "dangling-data-root"
+    _plant(kind, link, target)
+    target.rmdir()
+    monkeypatch.setenv("BUGPILOT_HOME", str(link))
+    with pytest.raises(StorageError, match="not a folder") as refused:
+        storage._ensure_root(link)
+    assert str(tmp_path) not in str(refused.value)
+    assert not os.path.lexists(target)  # nothing created through the link
+    assert safe_paths.is_link_or_junction(link)  # and the link itself left as it was
+
+
+@pytest.mark.skipif(WINDOWS, reason="a link to a file needs the file-symlink privilege on Windows")
+def test_a_link_to_a_file_at_the_data_root_is_refused_and_the_file_kept(tmp_path, monkeypatch):
+    target = tmp_path / "a-file"
+    target.write_text("not a folder", encoding="utf-8")
+    link = tmp_path / "file-link-data-root"
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"symbolic links are not available here: {type(error).__name__}")
+    monkeypatch.setenv("BUGPILOT_HOME", str(link))
+    with pytest.raises(StorageError, match="not a folder"):
+        storage._ensure_root(link)
+    assert target.read_text(encoding="utf-8") == "not a folder"
+    assert os.path.islink(link)
+
+
+@pytest.mark.skipif(not POSIX, reason="permission bits are POSIX's; on Windows chmod sets only the read-only flag")
+@pytest.mark.skipif(POSIX and os.geteuid() == 0, reason="root ignores directory permissions")
+def test_a_data_root_that_cannot_be_created_raises_and_creates_nothing(tmp_path, monkeypatch):
+    parent = tmp_path / "locked"
+    parent.mkdir()
+    monkeypatch.setenv("BUGPILOT_HOME", str(parent / "root"))
+    os.chmod(parent, 0o500)
+    try:
+        with pytest.raises(PermissionError):
+            storage._ensure_root(data_root())
+    finally:
+        os.chmod(parent, 0o700)
+    assert not os.path.lexists(parent / "root")
+
+
 def test_nothing_is_created_inside_the_repository(repo):
     before = _tree(repo)
     namespace = repository_storage(repo)

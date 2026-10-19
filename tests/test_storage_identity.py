@@ -1044,6 +1044,58 @@ def test_two_processes_ensuring_the_same_namespaces_end_with_identical_records_a
         assert leftovers == [], leftovers  # no temporary record left behind
 
 
+# --- a data root that another process creates meanwhile (Batch 2B-1 follow-up; CI run 39194849242) ---------
+
+
+def _another_process_creates_the_data_root_after_the_first_look(monkeypatch) -> list[str]:
+    """The interleaving of CI run 39194849242, made deterministic: nothing depends on scheduling.
+
+    ``os.path.isdir`` is wrapped for one path only, the data root, and for one
+    call only: that first look finds no root, and "another process" then
+    creates it with the real ``mkdir`` before this process takes its next step.
+    Every other call goes to the real function, and ``monkeypatch`` restores it
+    after the test. Returns the looks the hook answered, so a test can show the
+    interleaving really happened.
+    """
+    root = data_root()
+    assert not os.path.lexists(root)  # each test's own home: no data root yet
+    real_isdir = os.path.isdir
+    looks: list[str] = []
+
+    def isdir(path) -> bool:
+        if not looks and os.path.normcase(os.fspath(path)) == os.path.normcase(os.fspath(root)):
+            looks.append(os.fspath(path))
+            os.mkdir(root, 0o700)  # the other process wins the race
+            return False
+        return real_isdir(path)
+
+    monkeypatch.setattr(os.path, "isdir", isdir)
+    return looks
+
+
+def test_a_data_root_created_by_another_process_between_two_looks_is_used_not_refused(monkeypatch):
+    looks = _another_process_creates_the_data_root_after_the_first_look(monkeypatch)
+    storage._ensure_root(data_root())
+    assert len(looks) == 1
+    assert os.path.isdir(data_root()) and not os.path.islink(data_root())
+
+
+def test_a_namespace_is_ensured_while_another_process_creates_the_data_root(monkeypatch, tmp_path):
+    repo = _repo(tmp_path, "checkout")
+    looks = _another_process_creates_the_data_root_after_the_first_look(monkeypatch)
+    namespace = repository_storage(repo)
+    namespace.ensure()
+    assert len(looks) == 1
+    assert namespace.record_state() == "ok"
+
+
+def test_the_config_folder_is_ensured_while_another_process_creates_the_data_root(monkeypatch):
+    looks = _another_process_creates_the_data_root_after_the_first_look(monkeypatch)
+    config = global_storage().ensure_config_dir()
+    assert len(looks) == 1
+    assert config == data_root() / "config" and config.is_dir()
+
+
 _READER = textwrap.dedent(
     """
     import sys, time
