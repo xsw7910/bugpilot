@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -75,7 +75,7 @@ The repository-local paths are not configuration that a few modules read:
      - Copilot CLI asks too.
      - Codex reads freely but needs approval to write.
      - The extension's shell-safety gate refuses absolute paths that contain a backslash, `~` or non-ASCII letters.
-   - **Provisional recommendation** (US-D10 stays OPEN until the Batch 0B probes and §9.10's acceptance):
+   - **Provisional recommendation** (US-D10 stays OPEN until the Batch 0B probes and §9.10's acceptance). *(Decided on 2026-10-18: Option D, approved with conditions as a design, with the probe gap accepted for design only: §9.5.1.)*
      - the absolute work-folder path in the prompt and in `task.md`, with each agent's own permission prompts left as they are;
      - the existing copy-to-clipboard paths as the fallback;
      - a narrow `--add-dir` grant only as an explicit opt-in, deferred for now.
@@ -100,7 +100,7 @@ The repository-local paths are not configuration that a few modules read:
 
 **Readiness.** The plan is ready for owner decisions.
 
-- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11). 23 still await the owner: 12 OPEN and 11 PROPOSED. 4 items are DEFERRED.
+- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. On 2026-10-18 the owner approved, with conditions, US-D28 as an amended design contract (§16.5.11), US-D14 as Refined Option A′ (§16.4.1), US-D13 as the hybrid task-document contract (§9.8.1), US-D30 as Option D, a fixed prompt-budget allowance (§9.8.2), US-D10 as Option D, the agent handoff, with the probe gap accepted for design only (§9.5.1), US-D12 as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 as Option B, the CLI as the only path resolver (§8.9.1). 17 still await the owner: 9 OPEN and 8 PROPOSED. 4 items are DEFERRED.
 - **The 2026-10-15 architecture review recommends:**
 
   | Recommendation | Count | Decisions |
@@ -113,8 +113,8 @@ The repository-local paths are not configuration that a few modules read:
   None of these is an approval.
 - **Batch 0A** can be authorized on its own; it needs US-D32 and US-D33.
 - **Batch 2,** the storage-changing batch, cannot begin until:
-  - US-D10 is decided, from Batch 0B evidence (US-D28 was decided on 2026-10-18: §16.5.11);
-  - US-D14 is decided (§16.4);
+  - US-D10 is decided, from Batch 0B evidence (US-D28 was decided on 2026-10-18: §16.5.11) *(US-D10 decided on 2026-10-18 as a design, with the probe gap accepted for design only: §9.5.1)*;
+  - US-D14 is decided (§16.4) *(decided on 2026-10-18: §16.4.1)*;
   - the §8.10 contract is approved (approved in part on 2026-10-16; its open parts are decided before they are built).
 
 The seven with the widest product consequences are:
@@ -1014,6 +1014,8 @@ The callers on the repository-local base keep their exact messages until Batch 2
 
 ### 8.8 Interfaces: CLI, MCP and extension (PROPOSED, US-D17, US-D26, US-D27)
 
+*(US-D17 was approved with conditions on 2026-10-18 (§8.9.1). US-D26 is approved in part, and US-D27 stays PROPOSED.)*
+
 This table is the overview. The exact, testable contract is §8.10.
 
 | Surface | 0.1.5 | 0.1.6 |
@@ -1034,9 +1036,14 @@ The rule for absolute paths (US-D22):
 
 - Absolute paths appear only in fields whose job is a path, and in the agent handoff (§9).
 - Messages and warnings use the display form.
-- Stored artifacts hold no absolute path, except `repository.json` and the `task.md` work-folder line (§9.4).
+- Stored artifacts hold no absolute path, except `repository.json` and the generated agent-facing documents (§9.8.1):
+  - `task.md`: its work-folder line and its report path;
+  - the retry prompt: its work-folder line, its report path and its How to Run handoff line.
+- Persisted display and log fields (messages, warnings, the run log) use the display form, never an absolute path.
+- *(Reconciled 2026-10-18 with US-D13's approved contract. This rule first allowed only "the `task.md` work-folder line".*
+  - *US-D22 stays PROPOSED. Until the owner decides it, its register wording "`task.md`'s work line" is read as the list above.)*
 
-### 8.9 The extension's share of the resolver (PROPOSED, US-D17)
+### 8.9 The extension's share of the resolver (US-D17, APPROVED with conditions, §8.9.1)
 
 - **The CLI resolves; the extension asks.** The CLI is the only resolver of the data root and the repository ID. The extension never computes either, never reads `HOME` for them, and never parses `repository.json`.
 - **Per root, the extension holds `repository_dir`** from `doctor --json` (it already runs `doctor` at environment check, `executable.ts:169`). It refreshes the value when the root changes. Item-scoped CLI responses (`bug`, `list`, `--retry`) also return `work_dir`.
@@ -1052,6 +1059,227 @@ The rule for absolute paths (US-D22):
   - `user_feedback.md` goes through the CLI (US-D18).
   - Reset Session's deletion goes through `bugpilot clean` only; the TypeScript pre-check (`sessionReset.ts:190-265`) is retargeted or removed.
 - **Why not have the CLI return every file path?** History reads `run.json` for up to every work item in a repository. Spawning the CLI per item, at about 300 ms each, would make History slow. Composing a validated id under a CLI-given base keeps the CLI the authority on the parts that can go wrong (root, identity, links), without a process per file.
+- *(Decided 2026-10-18, §8.9.1, with five clarifications and two security amendments. Where this section differs, §8.9.1 governs:*
+  - *settings paths come only from `show --json` `path`;*
+  - *History uses only `list --json`;*
+  - *CLI-returned paths are validated before use;*
+  - *a cache mismatch triggers re-resolution, never just a string update;*
+  - *the extension never mutates storage.)*
+
+#### 8.9.1 Owner decision (2026-10-18): the approved US-D17 contract
+
+**Decision.** US-D17 is **APPROVED — with conditions**, as §8.9's design (**Option B** of the US-D17 review), with the review's five clarifications and two security amendments.
+
+- It is a design approval only. Nothing is implemented or activated.
+- The frozen US-D26 CLI JSON contract (§8.10, `tests/fixtures/storage_cli_contract.json`) is not expanded. No `storage.work_root` and no other new field is added.
+
+**1. Who resolves paths.** `bugpilot/core/storage.py` is the authoritative Python resolver for:
+
+- the data root;
+- the canonical repository identity and namespace;
+- each work item's identity and location;
+- the storage layout.
+
+The CLI, workflow, MCP and `task-preview` get their paths through the approved Python storage APIs. The VS Code extension gets its authoritative base paths from CLI JSON responses.
+
+The extension never:
+
+- resolves `HOME` or `BUGPILOT_HOME` itself;
+- computes the repository ID;
+- parses `repository.json` to rebuild storage paths;
+- accepts a repository ID from an untrusted caller;
+- builds a repository-local `.ai/`, `.ai_memory/` or `.bugpilot/` path as a fallback.
+
+**2. The approved CLI fields.** These are the existing frozen fields:
+
+| Need | Field |
+| --- | --- |
+| The repository namespace | `doctor --json` → `storage.repository_dir` |
+| One work item | item responses' `work_dir`, `issue_dir` and `agent_task` |
+| History | `list --json` → `work_items[].work_dir` and `.modified` |
+| A settings file | each settings command's `show --json` `path` |
+| Messages | the relevant display-path fields |
+
+The frozen path kinds are kept as they are:
+
+| Kind | Meaning |
+| --- | --- |
+| `abs` | the canonical path in the platform's native form |
+| `posix-abs` | an absolute path with forward slashes, for prompt rendering |
+| `display` | the privacy-conscious form |
+| `ns` | relative to the repository namespace, for persisted records |
+| `id` | a validated repository identity |
+
+**3. The five clarifications.**
+
+1. **Authority.**
+   - Inside Python, every consumer asks `storage.py`.
+   - The extension takes base paths only from the CLI's frozen fields.
+2. **Prefer the paths the CLI returns.**
+   - An item uses its own response's paths.
+   - History uses `list --json` as the authoritative list of work items. It never scans the filesystem to find them. It reads `run.json` only from a validated work folder, by its fixed name, with the existing safe-read checks.
+   - Settings always use `show --json` `path`. The extension never rebuilds `.bugpilot/<setting-name>` inside the source repository.
+3. **Limited composition.** The extension may compose only two kinds of path:
+   - **A.** A file from the closed set of fixed artifact names, under an already validated `work_dir`.
+   - **B.** `<repository_dir>/work/<validated-work-item-id>`, when only a work-item id is available. Case B requires all of:
+     - `WORK_ITEM_ID_RE` validation;
+     - one central composition helper;
+     - a shared Python and TypeScript fixture;
+     - containment checks;
+     - the existing per-read file-safety checks.
+
+   Unchecked, user-provided path components are never joined.
+4. **Freshness:** see point 6 below.
+5. **Failure:** see point 8 below.
+
+**4. Security amendment A: CLI paths are validated before use.** The extension never trusts a path just because it came from CLI JSON. It checks:
+
+- that the required JSON field is present and has the right type;
+- native absolute-path syntax, and the meaning expected of the path's kind;
+- the work-item id's format, where one is used;
+- agreement with the current repository namespace;
+- containment under the authoritative repository directory;
+- safe file types, and the existing lstat and link restrictions.
+
+The rules for that checking:
+
+- **Containment is checked component by component, never by string prefix.** It allows for each platform's documented canonicalization, case sensitivity and separators.
+- **No link or junction is followed below the data-root boundary.** The Python storage guarantees, including the identity and component checks, are unchanged.
+- **A syntactically valid path is not assumed to be safe.**
+
+If a path is inconsistent, stale, corrupt or outside the expected namespace:
+
+- it fails closed, and the relevant cached information is invalidated;
+- the path is re-resolved through the CLI where appropriate;
+- a questionable path is never read, opened or watched;
+- nothing falls back to legacy storage.
+
+**5. Security amendment B: the extension only reads storage.**
+
+Allowed:
+
+- reading validated files;
+- opening validated files for viewing;
+- watching validated locations;
+- refreshing from CLI results;
+- asking for CLI-owned operations through their approved interfaces.
+
+Forbidden as a direct extension storage change:
+
+- creating or overwriting BugPilot artifact files;
+- deleting storage files or folders;
+- moving or renaming storage objects;
+- changing the repository identity records;
+- cleaning up legacy storage;
+- changing storage permissions to gain access;
+- treating a file watcher as the authoritative state.
+
+`user_feedback.md` is written through the approved CLI path (US-D18). Reset Session uses the approved `bugpilot clean` workflow, never deletion by the extension. These rules govern BugPilot's own programmatic storage changes; they do not redefine a developer's ordinary VS Code editing.
+
+**6. Freshness and cache invalidation.**
+
+- `repository_dir` is refreshed:
+  - during each relevant environment check;
+  - after a known storage-root change;
+  - when an item response's `work_dir` disagrees with the cached `repository_dir`;
+  - when the current repository context changes.
+- A mismatch triggers canonical re-resolution and identity validation. The cached string is never just updated with reading carried on.
+- If the mismatch stays unresolved, it fails closed.
+- An item's CLI-returned `work_dir` is used only after it is validated against the refreshed repository context.
+- The request-scoped identity guarantees of the storage foundation are respected.
+- Caching in the extension does not remove TOCTOU risk, and is not claimed to.
+
+**7. Repository identity.** The storage foundation's established behaviour is kept for:
+
+- repository moves and renames;
+- Windows case-only renames;
+- a repository recreated at the same canonical location;
+- an identity-record mismatch;
+- root changes;
+- concurrent readers and writers.
+
+No migration, reconciliation, copying or deletion of old namespaces is authorized. The extension uses the existing storage APIs and error contracts, never an identity scheme of its own.
+
+**8. Storage failure.** When `doctor --json` reports `state: error`:
+
+- the problem is shown in the display-path form;
+- no new storage path is composed;
+- questionable storage is not read, opened or watched;
+- no agent handoff starts;
+- no legacy repository storage is used;
+- existing files are preserved.
+
+The public `STORAGE_UNAVAILABLE` error contract depends on US-D26, which this decision does not decide.
+
+**9. Watchers and real VS Code behaviour.** File watchers are refresh hints only. After a relevant CLI operation, the extension:
+
+- refreshes the authoritative item state;
+- re-reads the final artifact content when needed;
+- does not rely on receiving an initial create event;
+- handles atomic replacement and a watcher that becomes ready late. P7 saw new watchers miss events for about 10 seconds.
+
+Batch 3 tests each of these separately, on Windows, macOS and Linux where required:
+
+- reading and watching outside the workspace;
+- the initial readiness of a watcher;
+- atomic replacement;
+- Open Artifacts Folder;
+- `revealFileInOS`.
+
+P7 stays PASS only for the Windows API operations it tested. `revealFileInOS` stays UNKNOWN until verified.
+
+**10. Related decisions.** No other decision's status changes:
+
+- US-D10, US-D12, US-D13, US-D14, US-D28 and US-D30: stay APPROVED — with conditions.
+- US-D18, US-D22 and US-D27: stay PROPOSED.
+- US-D26: stays approved in part.
+- US-D16 and US-D29: stay OPEN.
+
+Only US-D16 governs the existing "Add to .gitignore" behaviour. US-D17 does not approve removing it.
+
+**Required tests:**
+
+- The shared Python and TypeScript composition fixture: ids, the two allowed compositions, and refusals.
+- **CLI path validation:**
+  - field presence and type, `abs` syntax and the kind's meaning;
+  - component-wise containment, including Windows case folding and separators;
+  - refusal of links and junctions.
+- **Freshness:**
+  - a mismatch leads to re-resolution;
+  - an unresolved mismatch fails closed;
+  - a root change invalidates the cache.
+- **History and settings:** History only from `list --json`, with no scan; settings only from `show --json` `path`.
+- **The extension never writes:**
+  - a write witness or fake filesystem shows no creation, overwrite, deletion, rename or permission change;
+  - feedback goes through the CLI;
+  - Reset Session goes through `bugpilot clean`.
+- **`state: error`:** no composition, read, watch or handoff.
+- **Paths in output:**
+  - messages and logs use only the display form;
+  - the CLI's and MCP's `abs` values agree;
+  - `abs` and `posix-abs` are rendered correctly on Linux, macOS and Windows.
+- **Regression:**
+  - the existing storage safety suites;
+  - ratchet reductions in each batch;
+  - frozen baselines untouched.
+- **Batch 3 real-window checks:** listed in point 9.
+
+**Implementation conditions** (all open):
+
+- US-D18 decided (feedback through the CLI);
+- US-D22 decided (display form);
+- US-D27 decided (MCP values);
+- US-D26's error code decided;
+- US-D29 decides where the change lands.
+
+The US-D17 review also noted US-D4 (OPEN, what the repository root is), which decides which root the CLI resolves.
+
+**Activation conditions:**
+
+- Batch 3's real-window checks;
+- Batch 4's cross-platform validation;
+- the 2B-5 per-tool-call scope, for MCP;
+- §14.3's gates.
 
 ### 8.10 The storage JSON contract (US-D26; review: accept conditionally)
 
@@ -1191,6 +1419,7 @@ From the vendors' documentation as of 2026-10. **V** = documented (source given)
    - Why it exists: the prompt is typed into the user's shell with `terminal.sendText`, and is quoted with JSON's escaping, which no shell honours fully (§37.27, §37.70).
    - What it refuses: a backslash (any native Windows path), `~`, parentheses, apostrophes, `@`, `+`, `&`, `%`, and every non-ASCII letter.
    - Spaces are allowed: the prompt is a single quoted argument.
+   - *(US-D12, approved 2026-10-18, §9.9.1: the character set stays exactly this. But the regular expression's `\s` also admits Unicode whitespace, and `flatten` collapses whitespace after the gate. Both are tightened before activation, so no prompt passes through `\s` alone and no path is rewritten. Python gets an equivalent gate.)*
    - Example: `C:/Users/you/.bugpilot/…` passes; `C:\Users\you\…` does not, and neither does a forward-slash home whose user name holds a letter outside ASCII.
 2. **`cmd.exe` in the Python launcher.**
    - `agent_runner._resolve_launch_command` runs a `.cmd` shim as `cmd /c <shim> <prompt>` (`agent_runner.py:133-137`).
@@ -1243,11 +1472,12 @@ From the vendors' documentation as of 2026-10. **V** = documented (source given)
 
 **Option D — the safe hybrid** (A by default, B as fallback, C opt-in later). This is the recommendation in §9.5.
 
-### 9.5 Provisional recommendation (US-D10 stays OPEN until Batch 0B evidence; US-D28 APPROVED with conditions, §16.5.11; US-D11: review recommends deferring)
+### 9.5 Provisional recommendation (US-D10 APPROVED with conditions, §9.5.1; US-D28 APPROVED with conditions, §16.5.11; US-D11: review recommends deferring)
 
 **Option D, provisionally.** It is the review's recommendation, not a decision.
 
 - US-D10 stays OPEN until the Batch 0B probes (§9.7) show that Option D works for the combinations the owner supports, against §9.10's acceptance.
+  - *(Decided on 2026-10-18, §9.5.1: approved with conditions as a design. The owner accepted the probe gap for design only, so no combination is supported until §9.10's evidence passes.)*
 - US-D28 was approved with conditions on 2026-10-18, after probe P2, as an amended design contract (§16.5.11).
 - Nothing here grants an agent another directory or changes a sandbox mode.
 
@@ -1263,8 +1493,11 @@ Concretely:
    The extension's copy of each template stays and is cross-language tested as today. The path comes from the CLI (US-D17).
 2. **Permissions.** No permission flag is added and the cwd stays the repository (R8). The agent's own permission prompts appear, and the developer answers them.
    - The panel's handoff guidance (the 0.1.2 inline step, §40) gains one sentence: "The agent will ask to read and write this work item's BugPilot folder, which is outside the repository. Allow that folder only."
+     - *(Superseded 2026-10-18, §9.5.1: the approved guidance is "Your AI agent may need permission to access the BugPilot work folder outside your repository. Review any permission requests carefully and grant access only when necessary." It does not say an agent will always ask.)*
    - `docs/safety.md` says the same.
 3. **The gate is unchanged.** When a prompt fails it, the extension does not launch a terminal. It falls back to the existing manual handoff: the prompt goes on the clipboard, with a notice saying why. A shell never sees the text; it is pasted into the agent's own input. The notice names the remedy: a `BUGPILOT_HOME` without such characters (§13). Widening the gate is **not recommended** (US-D12).
+   - *(Noted 2026-10-18, §9.5.1: today a refused prompt marks the fix "skipped" with a warning, so routing a refusal to the clipboard mechanism is new 0.1.6 behaviour. How bridges and the captured review are handled on a refusal stays with US-D12.)*
+   - *(Decided 2026-10-18, US-D12, §9.9.1: both stay gated in 0.1.6. A bridge refusal copies and notifies only, and Review with AI keeps its own error and manual recovery.)*
 
    - **Safer launch mechanisms.** A launch without a shell could let more paths through; §9.9 evaluates it. Until its conditions are met (P11 PASS on three systems, plus a separate owner approval), the gate and this fallback stand, and the limitation is documented (§13.4).
    - **The fallback is not a success.** A handoff completed through this fallback is recorded as **FALLBACK**, not as a successful one-click Fix with AI (§9.10).
@@ -1289,6 +1522,167 @@ Concretely:
      - `--add-dir <work folder>` for Claude and Codex only, after a flag probe;
      - never for Copilot until its `--add-dir` trust loading is probed;
      - Batch 3 then gains T-S16's tests.
+
+#### 9.5.1 Owner decision (2026-10-18): the approved US-D10 contract
+
+**Decision.** US-D10 is **APPROVED — with conditions**, as **Option D** with the owner's amendments.
+
+- It is a design approval only.
+- **The owner explicitly accepts the missing real-agent probe evidence for this design approval only.** That acceptance does not extend to:
+  - implementation verification;
+  - claims that any agent is supported;
+  - production activation.
+- §9.7 requires this acceptance to be recorded; it is, in §16.1, "Accepted evidence gaps".
+- US-D12 remains a separate decision and is not approved by this one.
+
+**1. The handoff contract.**
+
+- The AI agent starts in the target source repository root.
+- BugPilot passes it a short handoff instruction that names the canonical external work folder:
+
+  ```text
+  Read <WORK>/task.md and complete the workflow.
+  Read <WORK>/agent_retry_prompt.md and continue the workflow.
+  ```
+
+  The first line is the initial handoff; the second is the retry handoff.
+- `<WORK>` is resolved and validated by the BugPilot CLI, under US-D13 and US-D17. It is rendered with forward slashes on every supported operating system.
+- The same canonical wording is used across the CLI, extension and retry-prompt paths.
+- MCP tool outputs follow the separately decided US-D27 contract.
+- The extension and the MCP layer never construct storage paths themselves.
+
+**2. Existing agent behaviour is preserved.** This decision introduces none of the following:
+
+- a new agent permission mode;
+- an automatic `--add-dir` grant;
+- a sandbox bypass flag;
+- unrestricted filesystem permission;
+- an automatic directory approval;
+- a new shell-free launch mechanism;
+- automatic staging, commits or pushes.
+
+US-D11 remains deferred: no grant is part of this contract, and its register status is unchanged (OPEN, with the review recommending deferral past 0.1.6). Agent permissions stay under the developer's control, and BugPilot does not claim to enforce an operating-system filesystem sandbox.
+
+**3. The prompt gate.**
+
+- US-D12's existing prompt gate is preserved until US-D12 receives its own owner approval. No rejected prompt reaches a shell. *(US-D12 approved with conditions on 2026-10-18, §9.9.1.)*
+- When an automatic handoff is unsafe or unsupported:
+  - the agent is not opened or launched automatically;
+  - a manually usable handoff instruction is provided through the existing clipboard mechanism;
+  - an accurate notice explains why automatic launch was not available;
+  - the canonical storage path is never altered or sanitized into a different path;
+  - storage-path validation is never bypassed.
+- How the non-shell extension-bridge and captured-review paths are handled stays subject to US-D12. This decision approves no exception to the gate. *(Decided by US-D12 on 2026-10-18, §9.9.1: both stay gated; no relaxation.)*
+- *Implementation note (US-D10 review):*
+  - Today a refused prompt marks the fix "skipped" with a warning (`controller.ts:2970-2979`). The clipboard mechanism is used today only when no agent is available.
+  - Routing a refusal to the clipboard is therefore new 0.1.6 behaviour.
+  - `#handOver`'s comment that a refusal is "Not reachable with a valid id" stops being true once the prompt carries a home-folder path.
+
+**4. Manual fallback.** A controlled manual handoff is supported when:
+
+- the gate refuses the automatic handoff;
+- the selected agent cannot be launched;
+- the selected integration is a clipboard-based extension bridge.
+
+It follows these rules:
+
+- The canonical handoff sentence is kept.
+- A whole `task.md` never goes into an automatically built shell command.
+- A different agent is never started silently.
+- A clipboard operation does not claim success until it has actually completed.
+- A storage-unavailable error never turns into a manual launch.
+
+**5. Permission guidance.** The approved text:
+
+> "Your AI agent may need permission to access the BugPilot work folder outside your repository. Review any permission requests carefully and grant access only when necessary."
+
+- It does not say that Claude, Codex or Copilot will always ask before reading. Access to the work folder is never granted automatically.
+- If an agent reliably reports a denied read or write, the actual error and the available recovery actions are shown.
+- If there is no reliable denial signal, a denial is not inferred from an exit code or a missing report.
+- Manual recovery stays available through the approved paths: `task-preview`, Copy effective task and `manual-result` (§9.6).
+
+**6. Session and retry.**
+
+- The established attempt and session-id contract is preserved.
+- Session-id arguments are used only with agent versions confirmed to support the required flags.
+- The agent's working directory remains the repository.
+- Retry prompts use the exact retry sentence above.
+- No new agent is started automatically after a failed retry.
+- US-D30's A_retry stays preliminary until the final owner-approved golden diff exists.
+
+**7. Logging and privacy.**
+
+- Absolute work-folder paths may appear in the actual handoff prompt and in the terminal command.
+- Persisted UI messages and run-log fields use the display form under US-D22, which is decided separately.
+  - *Implementation note:* today `workflow.py:616` writes the handoff sentence into the run log.
+- BugPilot discloses that absolute paths sent to AI agents may include user names or local folder names.
+- No unnecessary absolute path is added to a stored diagnostic field.
+
+**8. Storage failures.** If storage is unavailable, invalid or stale:
+
+- the command fails closed, and no task is handed off;
+- there is no fallback to `.ai/`, `.ai_memory/` or a repository-local `.bugpilot/`;
+- legacy storage is never read or modified;
+- existing data is preserved;
+- the eventual US-D26 error contract is used once it is approved.
+
+US-D26's open `STORAGE_UNAVAILABLE` decision is unchanged.
+
+**9. The evidence gap and release gates.** Historical probe results are kept as recorded (§9.7, §14.1.B):
+
+- P7: PASS on Windows.
+- P10: PASS for the tested Windows configuration.
+- P2: FAIL overall, despite successful external reads.
+- P11: NOT EXECUTED.
+- P1, P3, P5 and P9: blocked or unverified, because no operating-system isolation is available.
+- P4, P6 and P8: not executed.
+
+No real-agent combination is declared supported by this decision. Before production activation, all of these are required:
+
+- the real-agent compatibility tests, for every intended supported combination;
+- confirmation that the external `task.md` is read and `fix_report.md` is written in the work folder;
+- verification of the relevant permission and denial behaviour;
+- verification of retry and session handling;
+- verification of the extension-bridge and MCP handoff paths, where those are supported;
+- the applicable §9.10 end-to-end requirements;
+- every §14.3 activation gate.
+
+These tests should run in an isolated VM, under a separate user, or with other suitable operating-system containment. A redirected home or configuration folder is not sufficient filesystem containment.
+
+**10. Dependencies.** No other decision's status changes:
+
+- US-D12: stays PROPOSED. *(Approved with conditions later on 2026-10-18, §9.9.1.)*
+- US-D13, US-D14, US-D28 and US-D30: stay APPROVED — with conditions.
+- US-D17, US-D22 and US-D27: stay PROPOSED. *(US-D17 was approved with conditions later on 2026-10-18 (§8.9.1); US-D22 and US-D27 stay PROPOSED.)*
+- US-D26: stays approved in part.
+- US-D29: stays OPEN.
+- US-D11: unchanged; OPEN in the register, with the review recommending deferral.
+
+**Implementation conditions** (all open):
+
+- US-D12 decided, including how bridges and the captured review are handled on a refusal *(decided 2026-10-18, §9.9.1)*;
+- US-D17, US-D22 and US-D27 decided *(US-D17: approved 2026-10-18, §8.9.1)*;
+- US-D26's error code decided;
+- US-D29's branch decided;
+- US-D13's and US-D30's conditions met (goldens; A_retry from the approved golden diff).
+
+The US-D10 review recorded these places where today's code builds `.ai/` handoff paths or runs launches without the gate:
+
+- the extension's `#handoffText` and `preparedContextPath` (`controller.ts:3349`, `:2996`);
+- `retryHandoffText` (`nextAction.ts:206-208`);
+- the Copy Handoff Prompt command (`controller.ts:2808`);
+- MCP's `agent_task` and `next_step` (`mcp_server.py:246`, `:261-276`);
+- the skill;
+- Python's `run_agent`, which has no gate yet (`agent_runner.py:71-98`; §9.3 point 2, T-S12).
+
+Tests must show that:
+
+- the sentence is identical across the CLI, the extension and the retry prompt;
+- a refused prompt goes to the clipboard and never to a terminal;
+- clipboard success is reported only after the copy completes;
+- no other agent is ever started silently.
+
+**Activation conditions:** the release gates in point 9, §14.3, and §9.10's release rule.
 
 ### 9.6 When access is denied
 
@@ -1358,7 +1752,7 @@ Concretely:
 | P10 | `sendText` of a gated prompt with spaces in the path (`C:/Users/you two/…`) in PowerShell, `cmd` and Git Bash; the Python launcher through a `.cmd` shim | T-S12 | A6 (H1, H2, H7) |
 | P11 | **Launching without a shell** (§9.9): `createTerminal({shellPath: <agent executable>, shellArgs: [prompt]})`, and `child_process.spawn(<exe>, [prompt], {shell: false})`. Prompts hold a space, `&`, `%`, `^`, `'`, `(`, `\` and a non-ASCII letter. Each is tried with a native executable and with an npm `.cmd` shim, on Windows, macOS and Linux. Records whether the program receives the prompt intact, and whether anything is interpreted. | US-D12 | A6 |
 
-### 9.8 What `task.md` says (US-D13, PROPOSED; token budget US-D30, OPEN)
+### 9.8 What `task.md` says (US-D13, APPROVED with conditions, §9.8.1; token budget US-D30, APPROVED with conditions, §9.8.2)
 
 **Execution Location** (protected section) becomes:
 
@@ -1370,11 +1764,19 @@ Concretely:
 ```
 
 - **Path form.** `<WORK>` is the absolute work folder in forward-slash form. It is the only absolute path in `task.md`, apart from the Required Output line.
+  - *(Amended 2026-10-18, §9.8.1: `<WORK>` is the canonical, CLI-resolved folder. A path that cannot be represented safely is rejected and never altered, whatever the storage root's source.)*
 - **Required Input Files:** "Read `context.md`: …" and "Read and inspect `retrieval.json` if present: …".
 - **Required Output Files:** "Write one report: `<WORK>/fix_report.md` …", plus the §9.6 sentence. The write target is the one place where an ambiguous name costs most (a report written into the repository), so it stays absolute.
 - **Developer Attachments:** "File: `attachments/<name>`".
 - **Investigation Handoff:** "Write `fix_report.md` (in the work folder), every section investigation-phrased."
-- **The retry prompt** follows the same pattern: the work folder once, the required output absolute, the rest by name. So does the review prompt.
+- **The retry prompt** follows the same pattern:
+  - the work folder once, in Required Reading, with US-D14's note;
+  - the required output absolute;
+  - the rest by name;
+  - How to Run carrying the retry handoff sentence, which is absolute too.
+
+  That makes three absolute work paths (§9.8.1).
+  - *(Amended 2026-10-18: this line first said the review prompt follows the same pattern. The review prompt follows US-D28's contract (§16.5.11), which names its three files absolutely.)*
 
 **Token budget.** The gate `tests/test_task_golden.py:272-278` requires the median golden to stay at least 20% below 0.1.3's 3,870 tokens, a ceiling of 3,096. The median today is 3,090.
 
@@ -1384,21 +1786,292 @@ Concretely:
 | Two absolute mentions, minus about six `.ai/<id>/` prefixes removed | net about +90 characters |
 | Plus the Execution Location sentence and the §9.6 sentence | about +60 tokens on the median, over the ceiling |
 
-US-D30 asks the owner to choose:
+US-D30 asks the owner to choose. *(Decided on 2026-10-18: Option D from the US-D30 review, a fixed, reviewed allowance with per-golden bounds (§9.8.2). The options below are the plan's original ones, kept as written.)*
 
 - **(a)** Measure the gate with the work-folder path collapsed to a fixed `<work>` token. The gate's purpose, a wording reduction, is kept, and machine-specific path length is excluded. *Recommended by the review.*
 
   The normalized measure alone would be too lenient, so (a) also keeps meaningful size-regression coverage:
   - **The median gate** stays: the median normalized golden is at most 3,096 tokens. If the designed sentences of §9.6 and §9.8 push it over, the owner re-baselines it once, on a recorded number, in Batch 2.
+    - *(Superseded 2026-10-18, §9.8.2: there is no re-baseline. The ceiling becomes 3,096 + A, a fixed, reviewed allowance.)*
   - **A per-golden growth bound.** Each task golden's normalized size may grow over its 0.1.5 size by at most the measured cost of the designed sentences. That cost is fixed as a number in Batch 2 and recorded. Any growth beyond it stops the batch.
-  - **A count of absolute paths.** Each `task.md` golden holds the absolute work path exactly twice (Execution Location and Required Output Files). The retry golden holds it exactly twice as well.
+    - *(Amended 2026-10-18, §9.8.2: an approved delta is recorded for every golden, and the retry goldens get their own bounds.)*
+  - **A count of absolute paths.** Each `task.md` golden holds the absolute work path exactly twice (Execution Location and Required Output Files). The retry golden holds it exactly three times (Required Reading, Required Output Files and How to Run).
+    - *(Amended 2026-10-18: this first said twice for the retry golden. These counts are template and golden-test observations, not a permanent interface; §9.8.1.)*
   - **The raw size is reported.** It is computed with a representative real path, and reported next to the gate (not gated), so that path-length growth stays visible.
 - **(b)** Re-baseline the ceiling by the measured cost.
 - **(c)** Trim other protected wording. Not recommended: the protected text is SHA-pinned and its wording was settled in 0.1.4–0.1.5.
 
+*(Preliminary token estimates from the US-D13 review are recorded in §9.8.1. They are estimates, not measured golden results.)*
+
 **Privacy.** `<WORK>` contains the OS account name. It is sent to the model provider with the task, as the agent's working directory usually already is. `docs/safety.md` states this in Batch 5.
 
-### 9.9 Safer launch mechanisms (evaluation for US-D12)
+#### 9.8.1 Owner decision (2026-10-18): the approved US-D13 contract
+
+**Decision.** US-D13 is **APPROVED — with conditions**, as the **hybrid task-document contract** from the US-D13 review, with the owner's amendments.
+
+- It is a design approval only.
+- It does not implement, activate or ship anything.
+
+**The hybrid contract.** The AI agent's working directory stays the source repository root.
+
+`task.md`:
+
+- Execution Location states the canonical, CLI-resolved work folder as an absolute path.
+- It explains that the file names in the task document refer to that work folder.
+- Names such as `context.md`, `retrieval.json`, `fix_report.md` and `attachments/` are used where they are unambiguous.
+- The `fix_report.md` output destination is given as an absolute work-folder path.
+- The requirement stays to report an inability to write there, rather than writing the report into the source repository (§9.6).
+- Protected Rules v2 stay unchanged.
+
+The retry prompt:
+
+- Required Reading states the canonical work folder.
+- Local file names are relative to that declared folder.
+- The report's output destination is absolute.
+- How to Run uses the final approved US-D10 retry handoff wording, once that exists. US-D10 stays OPEN. *(US-D10 approved with conditions on 2026-10-18, §9.5.1: `Read <WORK>/agent_retry_prompt.md and continue the workflow.`)*
+- It includes US-D14's informational note about legacy folders.
+
+There are no repository-relative `.ai/` storage paths. Legacy storage is never read, migrated, copied, repaired or deleted.
+
+**The three amendments to the review's proposal.**
+
+1. **The absolute-path counts are observations, not an invariant.**
+   - The reviewed templates hold two absolute work-folder references in `task.md` and three in the retry prompt. These are accepted as expected template and golden-test observations. They are not a permanent public interface or an architectural invariant.
+   - The enforceable requirements are:
+     - the correct canonical location;
+     - unambiguous file references;
+     - an absolute report target;
+     - no accidental writes inside the source repository;
+     - no unnecessary repetition of absolute paths.
+   - Any future change remains subject to golden and prompt-budget review.
+2. **Rendering validation is uniform and non-destructive.**
+   - The final prompt-path validation is the same whatever the storage root's source: `BUGPILOT_HOME`, the default home location, or any other approved root resolution.
+   - A valid filesystem location is distinguished from a location unsuitable for rendering in an agent instruction.
+   - A rendering rejection does not delete, modify or corrupt existing storage.
+   - Its error is actionable and names a remedy, without leaking unnecessary private path information.
+3. **Implementation waits for US-D30 and for separate golden and ratchet approvals.**
+   - The design is approved before US-D30, but the new task-document wording is not implemented until US-D30 is resolved.
+   - The threshold is not raised silently, and the performance gate is not re-baselined silently.
+   - Golden regeneration and path-literal residue are approved separately in the implementing batch (below).
+
+**Path rendering and validation.**
+
+- The rendered path is the canonical, CLI-resolved work directory (US-D17), with forward slashes on every supported operating system.
+- Ordinary spaces and non-ASCII characters are allowed in a valid work path.
+- A path that cannot be represented safely in the task documents is rejected. The reviewed cases are:
+  - a backtick;
+  - a C0 control character, DEL or a C1 control character;
+  - the Unicode line separator or paragraph separator.
+- A rejected path is never altered, sanitized, relocated or silently escaped to another location.
+- None of this validation is implemented by this decision.
+
+**US-D14's note.** The exact approved text is unchanged by this decision:
+
+> "A `.ai/`, `.ai_memory/` or `.bugpilot/` folder inside the source repository is legacy BugPilot data. It is not the current work item's storage location, and BugPilot 0.1.6 does not use it."
+
+- It appears once in `task.md`'s Execution Location section, and once near the retry prompt's Required Reading section.
+- It is not a staging rule and not a security enforcement mechanism.
+- Protected Rules v2, its digest and the protected-rule registry are unchanged.
+
+**Prompt gate and handoff.**
+
+- US-D12's prompt gate is preserved.
+- A work-folder path may be representable in `task.md` while still being rejected for an automatic shell-based handoff. In that case:
+  - the valid generated task document is kept;
+  - the gate is not bypassed or relaxed;
+  - the handoff fallback is recorded under the approved contract;
+  - no agent is launched silently.
+- US-D10 remains OPEN and is approved separately. *(Approved with conditions on 2026-10-18, §9.5.1.)*
+
+**Storage failures.**
+
+- An unavailable, invalid or stale storage location fails closed.
+- There is no fallback to `.ai/`, `.ai_memory/` or a repository-local `.bugpilot/`.
+- No partial task document is written to an unintended destination, and existing data is preserved.
+- The public `STORAGE_UNAVAILABLE` error contract depends on US-D26, which this decision does not decide.
+
+**Prompt budget** (US-D30 stays OPEN). *(US-D30 was approved with conditions later on 2026-10-18: §9.8.2.)* These are the review's preliminary estimates. They were made over the 17 task goldens in memory, with the gate's own measure of characters ÷ 4, and are not measured final golden results:
+
+| | Median, approximate tokens |
+| --- | --- |
+| 0.1.5 today | 3,090 (threshold 3,096) |
+| the hybrid wording, path normalized | 3,152 |
+| plus US-D14's note (about 48 tokens on its own) | 3,200 |
+| with a representative Linux path | 3,230 |
+| with a representative Windows path | 3,242 |
+
+The hybrid design with the note is therefore expected to exceed the threshold.
+
+**Goldens and the path-literal ratchet.**
+
+- These are preserved:
+  - the frozen 0.1.4 goldens;
+  - the frozen Batch 0A baselines;
+  - the existing 0.1.3 baselines;
+  - the Protected Rules v2 digest.
+- The implementing batch needs separate owner approval for each of these:
+  - the exact `task.md` golden changes;
+  - the retry-prompt golden changes;
+  - any associated context golden changes;
+  - new allowed path-literal residue;
+  - the required inventory and ratchet adjustments.
+- No broad golden regeneration is pre-approved. The ratchet is not weakened, and no unrestricted path-literal exception is added.
+- The review found that the note adds one `.ai/`, one `.ai_memory` and one `.bugpilot` literal to the file that holds it. `tests/test_storage_inventory.py` fails on any per-file increase, and `approved_residue` is empty today.
+
+**Implementation conditions** (all open):
+
+- US-D30 is resolved *(design approved with conditions on 2026-10-18, §9.8.2; its allowances are fixed only from the approved golden diff)*;
+- the owner approves the exact task, retry and context golden changes, and the path-literal residue and ratchet adjustments;
+- US-D10's retry handoff wording is approved, before How to Run is implemented *(approved 2026-10-18, §9.5.1)*;
+- US-D26's error contract is decided, for the storage-failure code;
+- the plan text of US-D22 is reconciled (§8.8); US-D22 itself stays PROPOSED;
+- US-D29 says where the change lands.
+
+**Activation conditions:**
+
+- §14.3's activation preconditions;
+- §9.10's release rule: A1–A4 PASS from real interactive agent runs on every supported combination.
+
+Until real agent runs exist, these remain unverified:
+
+- whether agents resolve bare names against the stated folder;
+- whether they write the report at the absolute path, and follow §9.6's fallback;
+- how Codex and Copilot handle forward-slash Windows paths and paths with spaces or non-ASCII characters;
+- network storage roots.
+
+#### 9.8.2 Owner decision (2026-10-18): the approved US-D30 contract
+
+**Decision.** US-D30 is **APPROVED — with conditions**, as **Option D** from the US-D30 review, with the owner's amendments.
+
+- Option D is a reviewed, fixed allowance for the approved US-D13 and US-D14 wording, plus per-golden regression bounds.
+- It is a design approval only. Nothing is implemented or activated by it.
+- It approves no golden change and no ratchet residue.
+
+**1. The measurement basis is kept.**
+
+- These stay:
+  - the 17-case task golden matrix (`tests/task_golden.py`);
+  - the `round(chars / 4)` approximation;
+  - the historical 0.1.3 median reference of 3,870;
+  - the historical 3,096-token ceiling;
+  - every existing frozen baseline file;
+  - the existing safety and publishability requirements.
+- **The storage allowance changes the future acceptance ceiling.** It does not mean the new prompts still pass the original, unadjusted 20 % reduction test.
+- `round(chars / 4)` is an approximation. It claims no tokenizer-level precision.
+
+**2. The task budget.**
+
+- The future task-size gate is:
+
+  ```text
+  median(normalized task sizes) <= 3096 + A
+  ```
+
+- **A** is a fixed, reviewed allowance, derived only from the approved US-D13 and US-D14 task wording.
+  - The review's preliminary estimate is about 116. That is **not** the final value.
+  - The final A is determined only from the exact owner-approved golden diff. How it was derived is recorded with it.
+  - Once approved and recorded, A is fixed. It is never recomputed automatically from later prompt output.
+- **Every task golden** must satisfy:
+
+  ```text
+  normalized_new_size <= frozen_baseline_size + approved_allowance_for_that_golden
+  ```
+
+  - `frozen_baseline_size` is the golden's 0.1.5 size in the frozen `tests/baselines/0.1.6-batch0/task_size.json`.
+  - The approved delta is recorded separately for every golden.
+  - The overall A may act as an additional ceiling, but it never replaces a golden's own approved delta.
+
+**3. The retry budget.**
+
+- A separately reviewed retry allowance, **A_retry**. The preliminary estimate is about 108; it is finalized only after US-D10's retry handoff wording is approved. *(That wording was approved on 2026-10-18 (§9.5.1). A_retry still stays preliminary until the owner-approved golden diff exists.)*
+- Each retry golden gets its own reviewed delta and upper bound.
+  - No frozen record holds the retry goldens' 0.1.5 sizes today.
+  - So the new budget record captures them from the pre-change committed retry goldens, and names the commit. The review measured 956, 956 and 1,180.
+- There is no median gate for the three retry goldens.
+- Task and retry allowances are not shared.
+- No allowance grows automatically when a template changes.
+
+**4. Normalized and actual path reporting.**
+
+- Static enforcement uses only the approved fixed `<work>` normalization.
+- These are reported separately and do not take part in the gate:
+  - the normalized size;
+  - the size with the canonical fixed golden path (§11.6);
+  - the size with representative Windows paths;
+  - the size with representative Linux and macOS paths, where available;
+  - the effect of unusually long paths.
+- Normalization does not bound real-world absolute-path size. In the review's estimates:
+  - each path mention adds about its length ÷ 4 tokens;
+  - a 268-character work folder added about +233 to +247 tokens per task, against +96 to +116 normalized.
+- This decision introduces no runtime path-length limit.
+- Runtime correctness, path validation (US-D13) and prompt-size safety stay separate concerns.
+
+**5. Frozen baselines are protected.** These stay byte-identical and are never regenerated or overwritten:
+
+- the historical 0.1.3 baselines;
+- `tests/baselines/0.1.6-batch0/task_size.json` and the other frozen Batch 0A records;
+- the frozen 0.1.4 task, context and retry goldens;
+- the Protected Rules v2 digest.
+
+A **new, explicitly reviewed 0.1.6 budget record** holds:
+
+- A and A_retry;
+- the per-golden approved sizes and deltas;
+- the measurement method;
+- the normalization rules;
+- the reference to the golden-diff approval it came from.
+
+The implementation must also reconcile `test_storage_baseline.py`'s compared-record test.
+
+- That test regenerates `task_size.json` and requires it to match the current goldens, which the designed change will make untrue.
+- The reconciliation must not weaken frozen-baseline integrity. Historical baselines stay independently verifiable.
+
+**6. Golden-diff approval is mandatory.** A and A_retry are calculated only after all of these:
+
+1. the final US-D13 task text is determined;
+2. US-D14's note is inserted exactly as approved;
+3. US-D10's retry wording is resolved *(approved 2026-10-18, §9.5.1)*;
+4. any US-D22 wording in the same implementation is separately approved;
+5. the owner reviews and approves the exact allowed golden diff.
+
+- A and A_retry never legitimize unrelated text growth.
+- The allowed changed sections and lines are enforced independently of the size checks.
+- There is no broad golden regeneration, and the path-literal ratchet is not relaxed.
+- Growth beyond a golden's approved delta needs a separate owner decision.
+
+**7. Security and quality.**
+
+- Approved safety rules are never removed or shortened to meet the budget.
+- Protected Rules v2 are unchanged.
+- The US-D14 note is not altered without separate approval.
+- Prompt-gate behaviour and agent permissions are unchanged.
+- **Real-agent impact is unmeasured.** Small estimated-token growth is not assumed to have negligible runtime, monetary or quality impact. It stays unmeasured until tested.
+- Real-path growth, and user-supplied context outside the fixed golden matrix, are reported, not ignored.
+
+**Implementation conditions** (all open):
+
+- the five golden-diff prerequisites above;
+- the new budget record, reviewed and approved;
+- the compared-record test reconciled, with every frozen file byte-identical and independently verifiable;
+- the path-literal residue approved separately (US-D13, US-D14).
+
+**Activation conditions:** the plan's existing ones.
+
+- §14.3's preconditions;
+- §17's "The task-size measures of US-D30 hold";
+- §9.10's real-agent release rule.
+
+**Review estimates** (§9.8.1, and the US-D30 review; in memory, not measured goldens):
+
+| | Value |
+| --- | --- |
+| 0.1.5, measured | min 2,914; median 3,090; mean 3,066.2; p90 3,188; p95 3,205; max 3,239 |
+| modeled normalized median | about 3,200 |
+| modeled max | about 3,354 |
+| per-golden growth | +96 to +116 |
+| retry growth | +106 to +108 |
+
+### 9.9 Safer launch mechanisms (evaluation for US-D12; US-D12 APPROVED with conditions, §9.9.1)
 
 **The question.** Could a process-argument API replace typing the prompt into a shell, so that the gate could admit more paths (a backslash, a non-ASCII user name) without opening a shell-injection hole?
 
@@ -1421,6 +2094,143 @@ US-D30 asks the owner to choose:
   - The limitation is documented (§13.4, `docs/safety.md`): when the home or `BUGPILOT_HOME` path has a character outside `[A-Za-z0-9 .,:#/_-]`, the developer gets the copy-and-paste handoff, not one-click launch.
   - A direct launch for native executables becomes a candidate only after P11 passes on all three systems and the owner approves it as a separate change. It would never relax the gate for a shim.
   - No batch changes the gate without that approval.
+  - *(US-D12, approved 2026-10-18, §9.9.1: the gate is tightened and never broadened. It gains exact prompt preservation and a Python equivalent; the character set itself is unchanged.)*
+
+#### 9.9.1 Owner decision (2026-10-18): the approved US-D12 contract
+
+**Decision.** US-D12 is **APPROVED — with conditions**, as **Option C** from the US-D12 review, with two amendments:
+
+- exact prompt preservation;
+- TypeScript and Python parity.
+
+The restrictive prompt gate is kept for automatic agent handoff, the Python validation gap is closed, and silent prompt or path rewriting is prohibited. It is a design approval only: no per-transport relaxation is approved, and nothing is implemented.
+
+**1. The security boundary is kept.** The allowed shell-safe character set is unchanged and is never broadened:
+
+- ASCII letters A–Z and a–z;
+- ASCII digits 0–9;
+- the ASCII space;
+- period, comma, colon, hash, slash, underscore and hyphen.
+
+How the existing validator gets tightened:
+
+- The existing TypeScript validator (`PLAIN_PROMPT`, `agents.ts:266`) stays the historical reference.
+- Its handling of Unicode whitespace, leading and trailing whitespace, and normalization is tightened before Unified Storage handoff is activated.
+- No string passes merely because JavaScript's `\s` accepts one of its characters.
+
+What is validated:
+
+- The initial handoff sentence must begin with its expected literal text, never with arbitrary whitespace or an option-like prefix.
+- Validation applies to the complete generated handoff prompt, not to the data-root path alone.
+
+**2. Amendment: exact prompt preservation.** For any automatic command-line handoff:
+
+- Both the original generated prompt and the exact final text passed as the argument are validated.
+- None of these may happen:
+  - an absolute path rewritten silently;
+  - several spaces inside a path collapsed into one;
+  - Unicode whitespace normalized into ASCII spaces;
+  - trimming, escaping or character replacement that changes the resolved destination.
+- If exact preservation cannot be guaranteed, the automatic handoff is refused.
+- The permitted line-joining behaviour for existing multi-line prompts must be defined explicitly. A permitted line join never changes the characters inside a file path.
+- Unsafe cases are rejected before any agent is probed, any terminal is created or any process is started.
+- A path is never changed to make it pass validation.
+
+*Background (US-D12 review):* today `flatten` (`agents.ts:974`) collapses every run of `\s` into one space after the gate. With an absolute path in the prompt, that could silently point the agent at a different folder.
+
+**3. Amendment: TypeScript and Python parity.**
+
+- Python's `--launch-agent` applies an equivalent validation policy before any subprocess runs. Today `run_agent` (`agent_runner.py:71-98`) has none (T-S12).
+- The JavaScript regular expression is not simply copied into Python, because its Unicode semantics differ.
+- One reviewed, shared corpus fixes the expected accept or refuse result for each case, and both the TypeScript and the Python tests use it. The cases:
+  - valid ordinary paths;
+  - a path with one ordinary space;
+  - a path with consecutive spaces;
+  - tabs and line separators;
+  - non-breaking spaces and other Unicode whitespace;
+  - non-ASCII letters;
+  - quotes, backticks and shell metacharacters;
+  - leading and trailing whitespace;
+  - option-like input.
+- Refused corpus strings are only ever evaluated by the validators. They are never sent to a shell.
+- A refused Python prompt never reaches `cmd.exe`, a `.cmd` shim or any other launched process.
+- No new shell-free launch mechanism is approved by this decision.
+
+**4. Which paths the gate applies to.**
+
+| Invocation path | Prompt gate |
+| --- | --- |
+| Automatic terminal handoff (CLI agents, custom command, terminal Review with AI) | **kept**, strict |
+| Python `--launch-agent` | **added**, an equivalent strict gate |
+| Claude and Codex extension bridges | **kept for 0.1.6**, even though today's clipboard-based bridges put no prompt into a shell |
+| Captured review | **kept**, as approved US-D28 item 10 requires |
+| MCP structured outputs | no shell gate on the returned JSON. Canonical storage-path validation and the MCP contract (US-D27) apply. |
+| Manual Copy Handoff Prompt | no shell gate: it is the documented recovery for a refused automatic handoff. The path must already be valid under US-D13 and US-D17. |
+| Generated `task.md` and its content | no shell gate on the body. US-D13's separate path-rendering safety requirements apply. |
+
+No transport-specific relaxation for the bridges or the captured review is approved.
+
+**5. What happens after a refusal.**
+
+- **Fix and Retry:**
+  - no agent is launched and no terminal is created;
+  - the canonical handoff sentence is copied only after the storage path has been validated;
+  - an accurate notice says the automatic launch was refused;
+  - clipboard success is not claimed before the copy succeeds.
+- **Extension bridge:** copy and notify only. The agent's view is not revealed or started automatically after a gate refusal.
+- **Review with AI:**
+  - the approved review-specific error and manual recovery stay (Copy review prompt, Paste Review Output);
+  - a captured review is never silently turned into a Partial Review;
+  - the US-D28 gate is not bypassed.
+- **Python:** the refusal is reported, no subprocess starts, and a safe, explicit manual handoff instruction is given where it is valid.
+- **Invalid or unavailable storage:** fails closed before either an automatic or a manual handoff. Nothing is copied or launched, and no legacy storage is used.
+- **Never:** a silent switch to a different agent.
+
+**6. Compatibility and documentation.**
+
+- **Known 0.1.6 limitation:** a developer whose home or work-folder path contains a character the gate refuses may lose one-click launch, even though the filesystem path is valid.
+  - For valid storage paths, the manual handoff stays available.
+  - The same developer also loses the bridges' automatic copy and reveal, and the captured review. Both stay gated, and Review with AI then uses its manual recovery.
+- §13.4 states the actual approved character set, including colon, comma and hash.
+- The `BUGPILOT_HOME` remedy is stated clearly, without showing unnecessary private path detail.
+- There is no promise that every non-ASCII path can be launched automatically.
+- Any later relaxation for integrations without a shell is a separate owner decision, needing supporting evidence and compatibility tests (for the bridges, P6; for the captured review, an amendment to US-D28).
+
+**7. Tests and release conditions.** All of these are required before implementation is activated:
+
+- TypeScript gate and normalization tests;
+- Python gate tests;
+- cross-language parity tests on the shared corpus;
+- exact-path preservation tests;
+- rejection-before-launch tests;
+- clipboard fallback tests;
+- extension-bridge refusal tests;
+- captured-review regression tests;
+- validation on Windows, Linux and macOS;
+- approved transport evidence for the supported configurations.
+
+Probe results stay as recorded:
+
+- P10 is PASS only for the previously tested Windows configuration.
+- P11 stays NOT EXECUTED.
+- No other Batch 0B result is reinterpreted.
+
+Every §9.10 and §14.3 activation gate is kept.
+
+**Implementation conditions** (all open):
+
+- the shared corpus is reviewed and approved;
+- the tightened TypeScript validator and the Python validator are implemented with parity;
+- the exact-preservation rule and the explicit line-joining definition are implemented;
+- the refusal paths of point 5 are implemented, including clipboard-after-validation;
+- US-D10's and US-D13's conditions are met for the handoff wording and path rendering;
+- US-D29 says where the change lands.
+
+**Activation conditions:**
+
+- the tests and platform validation of point 7;
+- §9.10;
+- §14.3.
 
 ### 9.10 Handoff acceptance: what counts as working
 
@@ -1828,17 +2638,18 @@ Verification is by demonstration against a **decoy**, never the real home, so no
 | --- | --- |
 | `tests/golden/task/*.txt` (17) | Execution Location, Required Input/Output Files, Developer Attachments, Investigation Handoff; the Source lines of the Verification Policy and AI Behavior; the US-D9 wording if approved |
 | `tests/golden/context/*.txt` (4) | the `retrieval.json` sentence and the memory file names |
-| `tests/golden/retry/*.txt` (3) | the reading list, rules line, required output and How to Run |
+| `tests/golden/retry/*.txt` (3) | <ul><li>the Fix Mode line ("the same Fix Mode as … `task.md`")</li><li>the Required Reading work-folder line, US-D14's note and the reading list</li><li>the rules line</li><li>the Investigation Handoff line (investigation retry only)</li><li>the required output</li><li>How to Run</li></ul>*(Amended 2026-10-18, §9.8.1: the Fix Mode line, the note and the Investigation Handoff line were omitted before.)* |
 
 **What stays frozen:** `golden/context_0.1.4/` and `golden/retry_0.1.4/` are never regenerated. Their transforms (`test_context_boundary.py:701-751`, `test_batch3_boundaries.py:362-386`) learn exactly the designed path-line change, and nothing else may differ.
 
-**Determinism.** Golden helpers render in temporary repositories, so the work folder and the repository ID vary by run and by OS. The helpers therefore normalize before comparing: the actual `Path(work_dir).as_posix()` is replaced with the fixed representative `/home/you/.bugpilot/repositories/app-0123456789abcdef/work/<id>`. Both `task_golden.py` and `boundary_golden.py` do this. Line endings are already normalized. No other normalization is allowed.
+**Determinism.** Golden helpers render in temporary repositories, so the work folder and the repository ID vary by run and by OS. The helpers therefore normalize before comparing: the actual `Path(work_dir).as_posix()` is replaced with the fixed representative `/home/you/.bugpilot/repositories/app-0123456789abcdef/work/<id>`. Both `task_golden.py` and `boundary_golden.py` do this. *(Amended 2026-10-18, §9.8.1: the value replaced is the canonical (`realpath`) work folder the renderer itself uses. So, for example, a temporary folder under macOS `/var`, which is really `/private/var`, normalizes as well.)* Line endings are already normalized. No other normalization is allowed.
 
 **How changes are checked:**
 
 - the 17 task goldens differ from 0.1.5 **only** in the listed sections, checked by a script over the diff (not by eye), as D1's one-line change was in 0.1.5;
 - the protected-rules digest is as US-D14 decides (§16.4): unchanged under options A and A′; a new pinned v3 digest under B;
-- the size measures per US-D30 (§9.8 (a)): the normalized median gate, the per-golden growth bound, exactly two absolute work-path occurrences per task golden, and the raw size reported.
+- the size measures per US-D30 (§9.8 (a); as decided, §9.8.2: median ≤ 3,096 + A, per-golden approved deltas, retry bounds): the normalized median gate, the per-golden growth bound, exactly two absolute work-path occurrences per task golden and three per retry golden (template observations, §9.8.1), and the raw size reported;
+- the exact task, retry and context golden changes, and any new path-literal residue or ratchet adjustment, are approved by the owner in the implementing batch. No broad regeneration is pre-approved (US-D13, §9.8.1).
 
 ### 11.7 CI
 
@@ -1941,7 +2752,7 @@ Either must avoid becoming a legacy reader (R4).
 | know why work items differ when running from a subfolder | `bugpilot doctor` (`storage.below_git_toplevel`) and one line in the panel's Diagnostics (§7.1) |
 | reconfigure Jira | §13.2 |
 | diagnose missing storage or permission errors | `doctor` `storage.state` / `problem`; errors are one sentence naming the folder in `~/.bugpilot/…` form, never a raw traceback; the panel's "Run failed" detail shows the same sentence |
-| a home folder whose name the prompt gate refuses (non-ASCII, `(`, `'`, …) | **A documented limitation of 0.1.6** (§9.9). The manual handoff still works (paste). Setting `BUGPILOT_HOME` to a folder whose path has only letters, digits, spaces and `. _ - /` restores one-click launch. |
+| a home folder whose name the prompt gate refuses (non-ASCII, `(`, `'`, …) | **A documented limitation of 0.1.6** (§9.9). The manual handoff still works (paste). Setting `BUGPILOT_HOME` to a folder whose path has only ASCII letters, ASCII digits, ordinary spaces and `. , : # / _ -` restores one-click launch. *(Corrected 2026-10-18, US-D12, §9.9.1: this first listed only `. _ - /`, leaving out the colon every Windows drive path needs, and the comma and hash.)* |
 
 ### 13.5 Version skew
 
@@ -1964,7 +2775,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **IN PROGRESS** (2026-10-18). P10: direct shells and the Python launcher PASS (narrowed run), then VS Code `sendText` PASS (completion run): **PASS for the tested Windows configuration**, with limitations. P7 attempted the same day: UNKNOWN, blocked before its tests by an in-progress VS Code update. P7 retry after the update (VS Code 1.142.0, Windows): P7-A to P7-H PASS, `revealFileInOS` UNKNOWN. P2 (one run, Claude Code 2.1.214): FAIL against the owner's criteria; external reads under `dontAsk` worked, the marker was declined, and a Bash request was refused. P1, P3–P6, P8, P9 and P11 NOT EXECUTED (§14.1.B) | — | — | each further probe awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-2 to 2B-6 NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until US-D10 and US-D14 are decided and §8.10 is approved (US-D28: APPROVED with conditions on 2026-10-18, §16.5.11) |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-2 to 2B-6 NOT STARTED** (the switch of callers) | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -2451,7 +3262,7 @@ The guard's documented limits ("Limits", above) are unchanged.
 **12. Stop and approval gate.**
 
 - **Stop if:** a probe would need a real account, repository or configuration not covered by the approval; a probe shows that Option A cannot work for an agent the owner considers supported (US-D10 returns to the owner with the evidence).
-- **Gate:** the owner decides US-D10 and US-D28 from the evidence, and US-D12's direct-launch question if P11 ran. **A storage-changing Batch 2 does not begin while US-D10, US-D14 or US-D28 is still OPEN** (§14.3). *(US-D28 was approved with conditions on 2026-10-18: §16.5.11.)*
+- **Gate:** the owner decides US-D10 and US-D28 from the evidence, and US-D12's direct-launch question if P11 ran. **A storage-changing Batch 2 does not begin while US-D10, US-D14 or US-D28 is still OPEN** (§14.3). *(US-D28, US-D14 and US-D10 were approved with conditions on 2026-10-18: §16.5.11, §16.4.1 and §9.5.1. US-D10's approval is a design approval with the probe gap accepted for design only.)*
 
 ##### Batch 0B — probe P10, narrowed (as run, 2026-10-18)
 
@@ -2633,7 +3444,7 @@ Events came in operation order, with no duplicates beyond the expected `create`-
 - VS Code was not network-isolated: telemetry, updates, experiments and AI features were off by setting, but no firewall rule was applied.
 - The P7-I selection is unconfirmed.
 
-**What it means for US-D17 and Batch 3** (evidence only; US-D17 stays PROPOSED):
+**What it means for US-D17 and Batch 3** (evidence only; US-D17 stays PROPOSED). *(US-D17 was approved with conditions on 2026-10-18 (§8.9.1). P7 stays PASS only for the Windows API operations it tested, and `revealFileInOS` stays UNKNOWN.)*
 - On Windows, the extension can read, open, show, edit, save and watch a work folder outside the workspace through public APIs, with spaces in paths and no workspace folder for it. That supports US-D17's "the extension reads, opens and watches the CLI-given folder".
 - **For Batch 3:**
   - a watcher must be created early and treated as possibly blind for its first seconds, so the panel should refresh once after creating it rather than rely on events alone;
@@ -3350,9 +4161,9 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
   8. **0.1.5 behaviour is preserved** until the authorized integration batch.
 - Batch 0B is complete for the probes this batch depends on: P1, P2, P3 and P8, each recorded as PASS, FAIL or UNKNOWN (§9.7).
 - **The critical handoff decisions are resolved by the owner.** A storage-changing Batch 2 does not begin while any of these is OPEN:
-  - US-D10 (handoff), decided on the 0B evidence;
+  - US-D10 (handoff), decided on the 0B evidence *(APPROVED with conditions on 2026-10-18 as a design, with the probe gap accepted for design only: §9.5.1)*;
   - US-D28 (captured review), decided on P2 *(APPROVED with conditions on 2026-10-18, as a design contract: §16.5.11)*;
-  - US-D14 (the protected staging rule), decided among §16.4's options.
+  - US-D14 (the protected staging rule), decided among §16.4's options *(APPROVED with conditions on 2026-10-18, as Refined Option A′: §16.4.1)*.
 - These decisions are approved: US-D2, D4, D8, D9, D13, D15, D16, D18, D21, D22, D25, D27, D29, D30, D31.
 - The owner has approved creating `verify/0.1.6-storage` from `main` (§15.2).
 
@@ -4159,7 +4970,7 @@ Each failing job failed exactly one test, according to the jobs' published annot
 - The watchers and the policy editor move to the CLI-given paths.
 - The gitignore UI goes (US-D16).
 - The capability check: `unified-storage`.
-- The handoff per §9.5, including the gate fallback (US-D12). The gate is unchanged. A launch without a shell (§9.9) is included only if the owner separately approved it after P11.
+- The handoff per §9.5, including the gate fallback (US-D12). The gate is unchanged. *(As approved on 2026-10-18, §9.9.1: the character set is unchanged, while Unicode whitespace handling and exact prompt preservation are tightened.)* A launch without a shell (§9.9) is included only if the owner separately approved it after P11.
 - MCP and handoff live verification (as P6 and P8, with real 0.1.6 artifacts, separately owner-approved), with any text corrections it finds.
 - **Restore the complete CLI–extension contract** (§15.1) and **close the expected-failure ledger** (§15.4).
 
@@ -4462,7 +5273,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 **How to read it.**
 
 - **Owner status** is the decision's state: APPROVED, PROPOSED, OPEN or DEFERRED.
-  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11). No other decision is approved.
+  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11), US-D14 with conditions, as Refined Option A′ (§16.4.1), US-D13 with conditions, as the hybrid task-document contract (§9.8.1), US-D30 with conditions, as Option D (§9.8.2), US-D10 with conditions, as Option D for the agent handoff, with the probe gap accepted for design only (§9.5.1; "Accepted evidence gaps" below), US-D12 with conditions, as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 with conditions, as Option B, the CLI as the only path resolver (§8.9.1). No other decision is approved.
   - An approval may be qualified, in the status column:
     - **APPROVED — with conditions**: the decision stands; the named conditions must be met before the gate the row names (for Batch 1's decisions: activation in Batch 2, §14.3). Code may exist before then; it is not activated.
     - **APPROVED — in part**: only the stated part is approved. Every other part stays OPEN or PROPOSED, is named in the row, and is listed in "Open parts of approved decisions" below. It is decided on its own, before it is built.
@@ -4482,8 +5293,8 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 
 | | Count | Decisions |
 | --- | ---: | --- |
-| APPROVED by the owner | **12** | <ul><li>US-D32, US-D33 (Batch 0A's scope, 2026-10-15)</li><li>US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16)</li><li>with conditions US-D28 (an amended design contract, 2026-10-18)</li></ul> |
-| Await the owner | **23** | 12 OPEN, 11 PROPOSED |
+| APPROVED by the owner | **18** | <ul><li>US-D32, US-D33 (Batch 0A's scope, 2026-10-15)</li><li>US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16)</li><li>with conditions US-D28 (an amended design contract), US-D14 (Refined Option A′), US-D13 (the hybrid task-document contract), US-D30 (Option D), US-D10 (Option D, design only), US-D12 (Option C) and US-D17 (Option B), 2026-10-18</li></ul> |
+| Await the owner | **17** | 9 OPEN, 8 PROPOSED |
 | DEFERRED | **4** | US-D35 to US-D38 |
 | Review: *Accept* | 28 | |
 | Review: *Accept conditionally* | 2 | US-D5, US-D26 |
@@ -4501,14 +5312,14 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D7 | One namespace per git worktree | **APPROVED** | **Accept** | §7.3; alt: key by `--git-common-dir` (merges worktrees) | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: distinct git worktrees use distinct namespaces |
 | US-D8 | A moved or renamed repository starts a new namespace; no relocation tooling in 0.1.6 | PROPOSED | **Accept** (relocation DEFERRED) | §7.1, §7.3 | 2 | — |
 | US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | OPEN | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | — |
-| US-D10 | Agent handoff: Option D (absolute path, the agent's own permissions, clipboard fallback, no automatic grant) | OPEN | **Keep open** until the Batch 0B probes (§9.7) and the §9.10 acceptance criteria are met; Option D is the provisional recommendation | §9.5, §9.10; alt: B (inline only); C by default (violates R8) | 2 | — |
+| US-D10 | Agent handoff: Option D. <ul><li>The agent starts in the repository root and is told `Read <WORK>/task.md and complete the workflow.`; the retry is `Read <WORK>/agent_retry_prompt.md and continue the workflow.`.</li><li>`<WORK>` is resolved and validated by the CLI (US-D13, US-D17), with forward slashes.</li><li>The CLI, the extension and the retry prompt use the same wording; MCP follows US-D27.</li><li>No new permission mode, grant, sandbox bypass or shell-free launch (no US-D11 grant).</li><li>US-D12's gate is kept until US-D12 is decided. No rejected prompt reaches a shell. A refused, unlaunchable or bridge handoff uses the clipboard with an accurate notice.</li><li>Storage failures fail closed, with no legacy fallback.</li></ul>(§9.5.1) | **APPROVED** — with conditions | **Keep open** until the Batch 0B probes (§9.7) and the §9.10 acceptance criteria are met; Option D is the provisional recommendation | §9.5, §9.10; alt: B (inline only); C by default (violates R8) | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.5.1). <ul><li>The owner accepts the Batch 0B real-agent evidence gap for design approval only (§9.7; "Accepted evidence gaps" below).</li><li>No agent combination is declared supported.</li><li>Conditions: §9.5.1's implementation conditions and release gates.</li></ul>This is not an approval to implement, verify or activate. |
 | US-D11 | An opt-in `--add-dir <work folder>` grant | OPEN | **Defer** past 0.1.6. Never automatic (R8); reconsider after Batch 5's live measurement. | §9.4 C, §9.5 point 8 | 3 | — |
-| US-D12 | The prompt gate stays unchanged; a refused prompt falls back to manual handoff, with `BUGPILOT_HOME` as the remedy | PROPOSED | **Accept**: retain the gate. Investigate a launch without a shell for native executables (§9.9, P11) without weakening the gate; adopting one needs P11 PASS on three systems and a separate owner approval; shims never | §9.5, §9.9; alt: widen the gate (per-shell quoting; security-sensitive) | 3 | — |
-| US-D13 | `task.md` names the work folder once (Execution Location) and the report path absolutely; other files by name; the §9.6 sentence in Required Output Files | PROPOSED | **Accept** | §9.8; alt: absolute everywhere (token cost); relative only (an ambiguous write target) | 2 | — |
-| US-D14 | Protected rule `stage-intended-files-only` | OPEN | **Keep open**: the owner chooses among §16.4's options before Batch 2. The review does not authorize a protected-rule change; the rule's meaning (no BugPilot or legacy artifact is staged) is preserved under every option. | §16.4 | 2 | — |
+| US-D12 | The prompt gate keeps its character set (ASCII letters and digits, the ASCII space, `. , : # / _ -`), never broadened, and is tightened. <ul><li>No string passes through JavaScript's `\s` alone, and the handoff starts with its expected literal text.</li><li>The complete prompt is validated.</li><li>**Exact prompt preservation:** both the generated prompt and the final argument are validated, nothing is collapsed, trimmed, normalized or escaped into a different path, and the handoff is refused if preservation can't be guaranteed.</li><li>**Parity:** Python's `--launch-agent` gets an equivalent gate, checked against one shared corpus.</li><li>The gate stays on the terminal paths, the bridges and the captured review (US-D28). There is none on MCP JSON, Copy Handoff Prompt or the body of `task.md`, which rely on path validation (US-D13, US-D17) instead.</li><li>A refused handoff starts nothing and falls back to US-D10's manual handoff. A bridge copies and notifies without revealing its view.</li><li>No relaxation for any transport.</li></ul>(§9.9.1) | **APPROVED** — with conditions | **Accept**: retain the gate. Investigate a launch without a shell for native executables (§9.9, P11) without weakening the gate; adopting one needs P11 PASS on three systems and a separate owner approval; shims never | §9.5, §9.9; alt: widen the gate (per-shell quoting; security-sensitive) | 3 | 2026-10-18: approved with conditions by the owner, as Option C with the exact-prompt-preservation and cross-language-parity amendments, as a design decision (§9.9.1). <ul><li>No per-transport relaxation; P10 stays PASS only for the tested Windows configuration, and P11 stays NOT EXECUTED.</li><li>Conditions: §9.9.1's tests and release conditions.</li></ul>This is not an approval to implement or activate. |
+| US-D13 | `task.md` and the retry prompt use a hybrid path contract: <ul><li>the canonical, CLI-resolved work folder stated absolutely (Execution Location; the retry prompt's Required Reading);</li><li>other files by name relative to that folder;</li><li>the report's output destination absolute, with §9.6's cannot-write sentence;</li><li>US-D14's note in both;</li><li>the agent's cwd stays the repository;</li><li>forward-slash rendering on every OS;</li><li>a path unsafe to render is rejected, never altered;</li><li>fail closed, with no `.ai/` fallback;</li><li>Protected Rules v2 unchanged.</li></ul>(§9.8.1) | **APPROVED** — with conditions | **Accept** | §9.8; alt: absolute everywhere (token cost); relative only (an ambiguous write target) | 2 | 2026-10-18: approved with conditions by the owner, with amendments, as a design decision (§9.8.1). <ul><li>Amendments: the path counts are template observations; rendering validation is uniform and non-destructive; implementation waits for US-D30 and for separate golden and ratchet approvals.</li><li>Conditions: §9.8.1's implementation and activation conditions.</li></ul>This is not an approval to implement, activate or ship. |
+| US-D14 | Protected rule `stage-intended-files-only` stays unchanged (rules v2: id, title, text, `PROTECTED_RULES_VERSION` 2, `VERSION_2_SHA256`). A separate informational note, near `task.md`'s Execution Location and the retry prompt's Required Reading, says that a `.ai/`, `.ai_memory/` or `.bugpilot/` folder inside the source repository is legacy BugPilot data that 0.1.6 does not use. The note is not a staging rule and not an enforcement mechanism. Neither adds a repository write. BugPilot introduces no Git staging, commit, hook, cleanup or automatic `.gitignore` edit; the existing "Add to .gitignore" feature is US-D16's (OPEN) (§16.4.1). | **APPROVED** — with conditions | **Keep open**: the owner chooses among §16.4's options before Batch 2. The review does not authorize a protected-rule change; the rule's meaning (no BugPilot or legacy artifact is staged) is preserved under every option. | §16.4 | 2 | 2026-10-18: approved with conditions by the owner, as Refined Option A′ with two amendments (US-D16 independence; staging safety), as a design decision (§16.4.1). Conditions: §16.4.1's implementation conditions. This is not an approval to implement, to activate, or for BugPilot to stage anything. |
 | US-D15 | Keep the F22 guards (Code Search exclusion, review pathspec, lint) | PROPOSED | **Accept** | they exclude, never read; alt: remove (left-behind `.ai/` content becomes evidence) | 2 | — |
 | US-D16 | Remove the repository-local gitignore editing: the notice, the "Add to .gitignore" quick fix and `doctor`'s `ai_artifacts_ignored*` | OPEN | **Accept** (remove) | it is the only repository write left; alt: keep as advice for left-behind folders | 2 | — |
-| US-D17 | The CLI is the only resolver. The extension gets `repository_dir` and `work_dir` from the CLI, composes only validated ids below them, and reads, opens and watches there, but never writes or deletes. | PROPOSED | **Accept** | §8.9; alt: the CLI returns every file path (slow History) | 3 | — |
+| US-D17 | The CLI is the only resolver (Option B, §8.9). <ul><li>`storage.py` is the authoritative Python resolver (data root, repository identity and namespace, work-item location, layout); the CLI, workflow, MCP and `task-preview` use it.</li><li>The extension takes base paths only from frozen CLI fields:<ul><li>`doctor` `storage.repository_dir`;</li><li>item `work_dir`, `issue_dir` and `agent_task`;</li><li>`list` `work_items[].work_dir` and `.modified`;</li><li>settings `show --json` `path`.</li></ul></li><li>It validates them before use (amendment A).</li><li>It composes only fixed artifact names under a validated `work_dir`, and `<repository_dir>/work/<id>` for a validated id, through one helper with a shared fixture.</li><li>History comes from `list --json`, with no scan; settings come from `show --json` `path`.</li><li>The extension reads, opens and watches only. It never creates, overwrites, deletes, moves or re-permissions storage (amendment B).</li><li>A cache mismatch triggers re-resolution, otherwise it fails closed. `state: error` composes, reads and watches nothing. No legacy fallback.</li></ul>(§8.9.1) | **APPROVED** — with conditions | **Accept** | §8.9; alt: the CLI returns every file path (slow History) | 3 | 2026-10-18: approved with conditions by the owner, as Option B with the five clarifications and two security amendments (validated CLI path consumption; a read-only extension boundary), as a design decision (§8.9.1). <ul><li>The frozen CLI contract is unchanged.</li><li>Conditions: §8.9.1's implementation conditions and release gates.</li></ul>This is not an approval to implement or activate. |
 | US-D18 | `user_feedback.md` is written by the CLI (`bug <id> --retry --feedback-file`) | PROPOSED | **Accept** | §5.3 F04, §8.10; alt: the extension writes into the CLI-given folder | 2 | — |
 | US-D19 | The extension's VS Code-owned storage (runtime, attachment staging, scratch) stays in `globalStorageUri` | PROPOSED | **Accept** | §6.2; alt: move attachment staging under the data root | 3 | — |
 | US-D20 | `doctor` reports *whether* legacy paths exist (`lstat` only, never read) | OPEN | **Defer**: no legacy-presence probing in 0.1.6. The change is explained by §13's documentation instead. | §6.3; alt: one `doctor` line | 5 | — |
@@ -4521,7 +5332,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D27 | MCP keys unchanged; values absolute (`issue_dir`, `agent_task`, `next_step` paths); `search_memory` relative | PROPOSED | **Accept**: preserve the keys | §8.10; alt: return the task text inline | 2 | — |
 | US-D28 | Captured review reads `context.md`, `retrieval.json` and `fix_report.md` by absolute, CLI-resolved, validated work-folder paths, under the unchanged read-only restrictions. There is no automatic inline fallback. A separately identified, developer-initiated Partial Review uses at most 2,400 characters of `fix_report.md` (§16.5.11). | **APPROVED** — with conditions | **Keep open** until probe P2 (Batch 0B) | §9.5 point 5; §16.5 (P2 evidence, the decision review and the approved contract) | 2 | 2026-10-18: approved with conditions by the owner, with amendments, as a design contract (§16.5.11). The review's narrow Option C was not approved verbatim. Conditions: §16.5.11's activation gates. This is not an approval to implement, activate or ship. |
 | US-D29 | Integration: Batches 0A and 1 on `main`; Batches 2–4 on `verify/0.1.6-storage` until integration is complete; owner-dispatched CI; owner-approved fast-forward after Batch 4 | OPEN | **Accept** the isolated integration branch, with §15.4's gates | §15.2, §15.4; alt: push Batches 2 and 3 together from `main` | 2 | — |
-| US-D30 | The task-size gate with an absolute work path | OPEN | **Accept** the normalized measurement (§9.8 (a)), keeping meaningful size-regression coverage: the median gate, a per-golden growth bound, a count of absolute-path occurrences, and the raw size reported | §9.8; alt: (b) re-baseline; (c) trim protected wording | 2 | — |
+| US-D30 | The task-size gate with an absolute work path. <ul><li>Measure: the 17-case matrix, `round(chars / 4)` and the fixed `<work>` normalization.</li><li>Task gate: `median ≤ 3,096 + A`, plus `normalized size ≤ frozen 0.1.5 size + that golden's approved delta` for every golden.</li><li>Retry: per-golden deltas under a separate A_retry, with no median gate and no shared allowance.</li><li>A and A_retry are fixed only from the owner-approved golden diff, and never recomputed (estimates about 116 and 108, not final).</li><li>Sizes with real paths are reported, not gated.</li><li>Frozen baselines stay byte-identical; a new reviewed budget record holds the numbers.</li></ul>(§9.8.2) | **APPROVED** — with conditions | **Accept** the normalized measurement (§9.8 (a)), keeping meaningful size-regression coverage: the median gate, a per-golden growth bound, a count of absolute-path occurrences, and the raw size reported | §9.8; alt: (b) re-baseline; (c) trim protected wording | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.8.2). <ul><li>The allowance changes the future ceiling; it does not mean the original 20 % reduction still holds.</li><li>Conditions: §9.8.2's golden-diff prerequisites, the reviewed budget record, the reconciled compared-record test, and separately approved ratchet residue.</li></ul>It approves no golden change and no residue, and is not an approval to implement or activate. |
 | US-D31 | Batch outline deviation: MCP code and text switch in Batch 2; Batch 3 keeps MCP live verification | PROPOSED | **Accept** | §14.0 | 2 | — |
 | US-D32 | Test isolation: session-wide isolation before collection, plus a guard that fails closed (§11.1) | **APPROVED** (Batch 0A scope) | **Accept** the goal and the **revised design**. The r1 real-home listing is withdrawn; no default run lists or reads the real home. | §11.1; as built: §14.1.A; alt: per-test isolation only | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
 | US-D33 | CI keeps the nine blocking checks under their names; the isolated storage and isolation tests are added to the existing required jobs; `HOME` is set in the job environment | **APPROVED** (Batch 0A scope) | **Accept** | §11.7; as built: §14.1.A; alt: a new job (would change the pinned check names) | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
@@ -4532,7 +5343,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D38 | Retention and pruning of orphaned namespaces | DEFERRED | Defer | — | — | — |
 | US-D39 | SF-1: route the project-settings and repository-profile payloads through `scratchFile.ts` | OPEN | **Accept**: include in Batch 4 | the same class 0.1.5 fixed; alt: leave as is | 4 | — |
 
-**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16; US-D28, 2026-10-18):
+**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16; US-D28, US-D14, US-D13, US-D30, US-D10, US-D12 and US-D17, 2026-10-18):
 
 | Approved decision | Part not approved | Its own status | Needed before |
 | --- | --- | --- | --- |
@@ -4544,17 +5355,29 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D26 | `run.json`'s relative `generated_files`, `schema_version` 1 | follows US-D25 (PROPOSED) | 2 |
 | US-D5, US-D23, US-D34 | their conditions: cross-platform CI; Q1's access-list check; the G-1/G-2 gate | conditions, §14.3 | activation |
 | US-D28 | <ul><li>its conditions: the activation gates of §16.5.11</li><li>the contract's open implementation questions</li></ul> | conditions, §16.5.11 | <ul><li>implementation: the questions</li><li>activation: the gates</li></ul> |
+| US-D14 | <ul><li>its conditions: §16.4.1's implementation conditions (US-D13's wording, US-D30, the approved golden diff, frozen goldens and baselines unchanged, the v2 tests and digest unchanged, the note in both prompts, file safety and the path inventory)</li><li>the note as approved path-inventory residue</li></ul> | conditions, §16.4.1 | implementation |
+| US-D13 | <ul><li>its conditions: §9.8.1's implementation conditions (US-D30; the separately approved task, retry and context golden changes and the path-literal residue; US-D10's retry wording; US-D26's error contract; US-D29)</li><li>its activation conditions</li></ul> | conditions, §9.8.1 | implementation; activation |
+| US-D30 | <ul><li>its conditions: §9.8.2's golden-diff prerequisites (final US-D13 text, US-D14's note, US-D10's retry wording, any US-D22 wording, the approved golden diff)</li><li>the reviewed budget record (A, A_retry, per-golden deltas)</li><li>the reconciled compared-record test</li></ul> | conditions, §9.8.2 | implementation |
+| US-D10 | <ul><li>its conditions: §9.5.1's implementation conditions (US-D12, US-D17, US-D22, US-D27 and US-D26's error code decided; US-D29; US-D13's and US-D30's conditions)</li><li>its release gates: real-agent evidence per supported combination, §9.10, §14.3</li></ul> | conditions, §9.5.1 | implementation; activation |
+| US-D12 | <ul><li>its conditions: §9.9.1's implementation conditions (the reviewed shared corpus, the tightened TypeScript and the equivalent Python validators, exact preservation and explicit line joins, the refusal paths)</li><li>its tests, and Windows, Linux and macOS validation</li></ul> | conditions, §9.9.1 | implementation; activation |
+| US-D17 | <ul><li>its conditions: §8.9.1's implementation conditions (US-D18, US-D22, US-D27 and US-D26's error code decided; US-D29)</li><li>its required tests</li><li>Batch 3's real-window checks and Batch 4's cross-platform validation</li></ul> | conditions, §8.9.1 | implementation; activation |
 
 **Decisions that block Batch 2 on their own:**
 
 | Decision | Waiting for |
 | --- | --- |
-| US-D10 | Batch 0B evidence, then an owner decision |
-| US-D14 | an owner choice (§16.4) |
+| US-D10 | Decided: APPROVED with conditions on 2026-10-18 as a design, with the probe gap accepted for design only (§9.5.1). It no longer holds Batch 2 back under §14.3's OPEN rule, but its implementation conditions and release gates remain. |
+| US-D14 | Decided: APPROVED with conditions on 2026-10-18, as Refined Option A′ (§16.4.1). It no longer holds Batch 2 back under §14.3's OPEN rule, but its implementation conditions remain. |
 | US-D28 | Decided: APPROVED with conditions on 2026-10-18, as a design contract (§16.5.11). It no longer holds Batch 2 back under §14.3's OPEN rule, but its activation gates remain. |
 | US-D26 | approved in part on 2026-10-16; still: the `STORAGE_UNAVAILABLE` code, and the rows that follow other decisions (below) |
 
 Every other Batch 2 decision may be approved on the review's advice alone, if the owner chooses.
+
+**Accepted evidence gaps.** §9.7 says a decision that depends on an UNKNOWN probe stays OPEN, unless the owner explicitly accepts the gap and this log records it.
+
+| Decision | Probes not observed | Accepted for | Not accepted for | Date |
+| --- | --- | --- | --- | --- |
+| US-D10 | <ul><li>P1, P3, P5 and P9: blocked or unverified, because no operating-system isolation is available</li><li>P4, P6 and P8: not executed</li></ul>P11 (not executed) informs US-D12, not US-D10. | design approval only (§9.5.1) | <ul><li>implementation verification</li><li>claims that an agent is supported</li><li>production activation</li></ul> | 2026-10-18 |
 
 ### 16.2 Risks
 
@@ -4577,7 +5400,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | RK-15 | The isolation guard misses an access path: non-Python children, children started with `-I`/`-E`, metadata probes | medium | medium | environment isolation as a second layer; Batch 0A lists every `-I`/`-E` call; the limits are stated (T-S24, T-S25) |
 | RK-16 | Probe evidence is unavailable for an agent (no account, platform or version) | medium | medium | UNKNOWN is recorded, never PASS; the decision stays OPEN or the owner records the gap; release notes name unsupported combinations (§9.10) |
 | RK-17 | A stale legacy `.ai/<id>/task.md` in the repository confuses an agent | low–medium | medium | the Execution Location wording names the work folder; §16.4 option A′; F22 guards keep it out of evidence |
-| RK-18 | Owner decisions that block Batch 2 (US-D10, US-D14, US-D26; US-D28 was decided on 2026-10-18) wait on evidence or review | medium | schedule | Batch 0A and Batch 1 proceed meanwhile; Batch 0B can run in parallel |
+| RK-18 | Owner decisions that block Batch 2 (US-D26; US-D28, US-D14 and US-D10 were decided on 2026-10-18) wait on evidence or review | medium | schedule | Batch 0A and Batch 1 proceed meanwhile; Batch 0B can run in parallel |
 | RK-19 | A red required CI job on the branch is normalized as "expected" | low | high | §15.4: only ledger entries are excused, CI is still reported red, and the ledger must be empty before Batch 3's gate |
 
 ### 16.3 Assumptions
@@ -4594,6 +5417,11 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 
 ### 16.4 US-D14 — the protected staging rule: options for the owner
 
+**Decided on 2026-10-18.** The owner approved US-D14 as **Refined Option A′** with two amendments: **APPROVED — with conditions** (§16.4.1).
+
+- The text from "The rule today" to "Owner decision required before Batch 2" is the review that preceded the decision, kept as written.
+- Its inaccuracies are marked *(Corrected 2026-10-18)* where they occur and explained in §16.4.2.
+
 **The rule today** (protected rules v2, `protected_rules.py:185-191`, SHA-pinned at `tests/test_protected_rules.py:55`):
 
 > Stage only intended source, test, or documentation files: never `.ai/`, `.ai_memory/`, `issue.json`, `jira_field_report.md`, or files containing `JIRA_TOKEN`, `password`, `api_key`, `secret`, `access_token`, `refresh_token`, or `key=...`.
@@ -4604,7 +5432,9 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 
 - BugPilot's own files are no longer inside the repository. The agent cannot stage them unless it copies them in, and the Execution Location text forbids that.
 - `.ai/` and `.ai_memory/` exist only as **legacy leftovers** from 0.1.5 or earlier. They may hold a stale `.ai/JR-12345/task.md` for the very work item the agent is fixing.
+  - *(Corrected 2026-10-18: the repository-local `.bugpilot/` is legacy data too under R4, and unlike `.ai/` it may be tracked; §16.4.2, item 4.)*
 - The rule's title, "Never stage BugPilot artifacts or secrets", plus the bare folder names, could suggest to an agent that BugPilot's *current* files live in `.ai/`. An agent might then read a stale legacy task or context, instead of the work folder named in Execution Location (RK-17).
+  - *(Corrected 2026-10-18: rule titles do not appear in agent task text, so in the task only the bare folder names could suggest this; §16.4.2, item 1.)*
 - The risk is about *reading* stale files, not about staging. The rule itself still achieves its staging goal.
 
 **The options.** The owner chooses before Batch 2. The review **does not** choose Option B, and authorizes no protected-rule change now.
@@ -4621,6 +5451,11 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | Token cost (US-D30) | 0 | about +25 tokens per task | about +20 tokens |
 | Change control | none | ordinary text review | a protected-rule change: separate review, its own approval, and a record like D1's in 0.1.5 |
 
+*(Corrected 2026-10-18:*
+
+- *B's Tests and Goldens rows understate its reach (§16.4.2, item 2).*
+- *A′'s Text row places the note in Execution Location only, but the retry prompt needs it too (§16.4.2, item 3).)*
+
 **The review's assessment.**
 
 - **Option A** is the smallest change, but leaves RK-17.
@@ -4628,7 +5463,119 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 - **Option B** is the most accurate wording, at the cost of a protected-rules version bump and its review.
 - **The review leans to A′, but it is the owner's choice.** If the owner picks B, its wording and tests are reviewed and approved as a separate step inside Batch 2, before any golden is regenerated.
 
-**Owner decision required before Batch 2:** A, A′ or B.
+**Owner decision required before Batch 2:** A, A′ or B. *(Decided on 2026-10-18: Refined Option A′ with two amendments, §16.4.1.)*
+
+#### 16.4.1 Owner decision (2026-10-18): the approved US-D14 contract
+
+**Decision.** US-D14 is **APPROVED — with conditions**, as **Refined Option A′** with two amendments.
+
+- It is a design approval only.
+- It does not authorize:
+  - implementation;
+  - production activation;
+  - Git staging by BugPilot;
+  - any change to another decision.
+
+**1. The protected rule is unchanged.** `stage-intended-files-only` stays exactly as it is. These are preserved:
+
+- the rule's id, title and text;
+- `PROTECTED_RULES_VERSION = 2` and `VERSION_2_SHA256`;
+- the existing Delivery Safety semantics;
+- the existing explicit-approval and branch-check requirements.
+
+There is no protected-rules v3, and `protected_rules.py` is not changed.
+
+**2. An informational note about legacy folders.** A separate note goes in two places:
+
+- near `task.md`'s Execution Location section;
+- near the retry prompt's Required Reading section.
+
+The proposed text (the owner's):
+
+> "A `.ai/`, `.ai_memory/` or `.bugpilot/` folder inside the source repository is legacy BugPilot data. It is not the current work item's storage location, and BugPilot 0.1.6 does not use it."
+
+The note:
+
+- is informational, not a protected staging rule;
+- does not repeat or replace `stage-intended-files-only`;
+- does not instruct an agent to delete, move, read or migrate legacy folders;
+- does not imply that those folders are necessarily untracked;
+- is not treated as an enforcement mechanism;
+- stays consistent with R4 (§2) and the breaking storage-switch contract.
+
+Its final wording is reviewed alongside US-D13 before implementation.
+
+**Amendment 1: US-D16 stays independent.**
+
+- US-D14 does not decide the `.gitignore` editing behaviour.
+- The existing 0.1.5 "Add to .gitignore" feature has not been removed. US-D16 remains OPEN, and any change to that feature requires a separate owner approval.
+- Neither the rule nor the note introduces a new repository write.
+
+**Amendment 2: staging safety.** The note alone does not stop an agent from staging legacy `.bugpilot/` files. The existing safety requirements stay:
+
+- The agent stages only intended changes.
+- Explicit owner approval is required.
+- Branch checks remain required.
+- Staged changes and file contents are reviewed for unintended artifacts or secrets.
+- `git add -A` is not treated as automatically safe.
+- BugPilot itself does not introduce Git staging or commit operations.
+
+The decision adds no Git hooks, no cleanup behaviour, no automatic staging and no automatic `.gitignore` edits.
+
+**Implementation conditions.** All of these must hold before the note is implemented:
+
+- US-D13's wording is approved.
+- The US-D30 token-budget decision is resolved. *(Design approved with conditions on 2026-10-18, §9.8.2.)*
+- The owner approves the exact allowed golden diff.
+- The frozen 0.1.4 retry goldens and the Batch 0A baselines remain unchanged.
+- The Protected Rules v2 tests and digest remain unchanged.
+- The note is verified in both the normal `task.md` and the retry prompt.
+- The existing file-safety and path-inventory requirements remain enforced.
+
+**Activation conditions.** The plan's existing conditions apply unchanged; this decision adds none:
+
+- §17's checks "The protected rules are as US-D14 decided (§16.4)" and "Each rule appears once";
+- the Batch 4 end state of the path-literal ratchet (§11.2);
+- §14.3's activation preconditions.
+
+**Consequence for implementation (open).** The note puts new `.ai/`, `.ai_memory/` and `.bugpilot` literals into the prompt code.
+
+- `tests/test_storage_inventory.py` fails on any new occurrence.
+- The approved residue in the end state lists "the protected rule's text", not this note.
+- So the implementing batch needs the owner to approve the note as residue, together with the golden diff.
+
+**Dependencies.**
+
+| Item | Relation |
+| --- | --- |
+| US-D13 (PROPOSED) | The note's final wording is reviewed with its Execution Location text. Blocks implementation. *(US-D13 was approved with conditions on 2026-10-18 (§9.8.1). The note's wording is unchanged.)* |
+| US-D30 (OPEN) | The note's token cost in both prompts. Blocks implementation. *(US-D30 was approved with conditions on 2026-10-18 (§9.8.2). The note's cost falls inside the approved allowances once the golden diff is approved.)* |
+| US-D16 (OPEN) | Independent (Amendment 1). |
+| R4 (approved) | Makes `.ai/`, `.ai_memory/` and `.bugpilot/` legacy data; the note must stay consistent with it. |
+| US-D9 (OPEN) | User-facing wording about repository settings only; does not affect the note. |
+| US-D29 (OPEN) | Where the golden change lands. |
+| §14.3 | US-D14 no longer holds a storage-changing Batch 2 back under the OPEN rule. Every other §14.3 precondition still applies. |
+
+#### 16.4.2 Corrections to the review above (2026-10-18)
+
+The review's text above is kept as written. Four statements in it were inaccurate or incomplete.
+
+1. **Rule titles do not appear in agent task text.**
+   - `rule_bullet` (`protected_rules.py:206-208`) renders only a rule's text. `task.md` (`prompts.py:400`) and the retry prompt (`workflow.py:2030`) carry only that text.
+   - Titles appear only in `bugpilot protected-rules` (text and JSON, `prompts.py:545`) and in the extension's rules page.
+   - So the title "Never stage BugPilot artifacts or secrets" cannot mislead an agent through the task. RK-17's trigger there is the bare folder names alone.
+2. **Option B affects more than the 17 task goldens.** The rule's text is also in:
+   - the 3 retry goldens (`tests/golden/retry/`);
+   - the 3 frozen 0.1.4 retry goldens (`tests/golden/retry_0.1.4/`);
+   - the frozen Batch 0A baseline `tests/baselines/0.1.6-batch0/handoff.json`;
+   - `tests/test_fix_mode_prompts.py`.
+
+   Frozen files are never regenerated, so under B they would need designed diff transforms.
+3. **Under A′, the retry prompt needs the note too.** The retry prompt has no Execution Location section, but it carries the rule through Delivery Safety. A note placed only in `task.md`'s Execution Location would not reach a retry session. The approved contract therefore places the note near the retry prompt's Required Reading as well.
+4. **The repository-local `.bugpilot/` is legacy data too.**
+   - Under R4, 0.1.6 never reads or writes `<repo>/.bugpilot/`; its contents' new home is `settings/` (§6.1).
+   - Unlike `.ai/`, it may be tracked, because 0.1.5 designed its files to be committed.
+   - The original A′ text named only `.ai/` and `.ai_memory/`.
 
 ### 16.5 US-D28 — Decision Review / Proposal
 
@@ -5120,6 +6067,12 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-18 | 0B | **Batch 0B probe P2 (captured review), one run: FAIL against the owner's acceptance criteria; the external read US-D28 needs worked.** <ul><li>**Authorization:** the owner accepted the residual read risk for this probe only, and signed in to an isolated `CLAUDE_CONFIG_DIR` in the kit `C:/bp-0b/run-p2/`.</li><li>**Run:** Claude Code 2.1.214; stripped environment; the captured-review flags with `stream-json --verbose`; BugPilot's final review prompt pointing at the synthetic external `context.md` and `fix_report.md`. Exit 0, 53 s, 9 turns; session tools exactly Read, Grep and Glob; no MCP; `dontAsk`.</li><li>**Observed:** both external files read with no prompt or denial. The marker reached the model, but it declined to reproduce it as an instruction embedded in the reviewed file. The model requested Bash once; Claude Code refused it (not enabled) and it never ran. An auto-memory read attempt inside the isolated configuration. No synthetic file changed; no transcript kept; no account detail in the output.</li><li>**Evidence:** `C:/bp-0b/run-p2/evidence/`.</li></ul> US-D28 gets evidence only and stays OPEN. P1, P3–P6, P8, P9 and P11 NOT EXECUTED; Batch 0B not complete; Batch 2B-2 onward NOT STARTED. |
 | 2026-10-18 | 0B | **US-D28 decision review prepared (§16.5); no decision changed.** <ul><li>**Scope:** decision preparation only, from P2's recorded evidence and the shipped captured-review code. No agent run, no production change.</li><li>**Recommendation:** Option C in its narrow form. The primary path is absolute CLI-resolved paths read through the bare `Read` allow, as observed in P2. A detected denial is shown in the panel, and the developer may start one re-run with the bounded `fix_report.md` excerpt inline. The flags and the gate are unchanged.</li><li>**Auto-memory:** a documented residual risk. It is active under `--setting-sources ""` (P2), already present in 0.1.5, and has no verified switch for claude.ai sign-in. Disclosure is proposed.</li></ul> US-D28 stays OPEN; the suggested intermediate state is PROPOSED (decision review ready), set only by the owner. P2 FAIL, P7 PASS and P10 PASS are unchanged; Batch 0B is not complete; Batch 2B-2 onward NOT STARTED. |
 | 2026-10-18 | — | **US-D28 APPROVED with conditions, as an amended design contract (owner decision).** <ul><li>**Decision:** the owner approved US-D28 with amendments (§16.5.11). The review's narrow Option C was not approved verbatim.</li><li>**The contract, in brief:**<ul><li>absolute, CLI-resolved, validated work-folder paths, under the unchanged restrictions;</li><li>no automatic inline fallback;</li><li>a reliably reported denial is shown, and a clean exit is not proof that the inputs were read;</li><li>a separately identified, developer-initiated Partial Review of at most 2,400 characters of `fix_report.md`, never automatic and never presented as a full review;</li><li>no inferred denials;</li><li>the prompt gate is retained;</li><li>auto-memory is disclosed as a residual risk;</li><li>network roots are not guaranteed;</li><li>prompt, tool and review text is untrusted data.</li></ul></li><li>**Register:** US-D28 moved from OPEN to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "Captured review reads external files through the bare `Read` allow; otherwise the fix-report excerpt goes inline". No other decision changed.</li><li>**Also updated:** the counts, §9.5 point 5 and §9.6 (the automatic inline fallback is withdrawn), §14.0, §14.3, RK-18, and a dated note under the P2 record.</li><li>**Gates:** §16.5.11's seven activation gates, plus §14.3 and §9.10.</li></ul> This is a design approval only: nothing was implemented or activated. P2 stays FAIL; P7 PASS and P10 PASS are unchanged. Batch 0B is not complete, and Batch 2B-2 onward has NOT STARTED. |
+| 2026-10-18 | — | **US-D14 APPROVED with conditions, as Refined Option A′ with two amendments (owner decision).** <ul><li>**Decision:** the protected rule `stage-intended-files-only` stays unchanged: rules v2, `VERSION_2_SHA256`, no v3, `protected_rules.py` untouched. A separate informational note about the legacy `.ai/`, `.ai_memory/` and `.bugpilot/` folders goes near `task.md`'s Execution Location and the retry prompt's Required Reading. It is not a staging rule and not enforcement (§16.4.1).</li><li>**Amendments:** US-D16 stays OPEN and independent, and the 0.1.5 "Add to .gitignore" feature is not removed by this. The staging-safety requirements are kept, and BugPilot adds no staging, commit, hook, cleanup or automatic `.gitignore` edit.</li><li>**Register:** US-D14 moved from OPEN to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "Protected rule `stage-intended-files-only`". No other decision changed.</li><li>**Corrections** to §16.4's review, marked in place (§16.4.2):<ul><li>titles are not in agent task text;</li><li>B reaches beyond the 17 task goldens;</li><li>the retry prompt needs the note;</li><li>`.bugpilot/` is legacy too under R4.</li></ul></li><li>**Also updated:** the counts (13 APPROVED, 11 OPEN), §14.0, §14.1.B's gate note, §14.3, and RK-18.</li></ul> This is a design approval only: nothing was implemented. Batch 0B is not complete; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | — | **US-D13 APPROVED with conditions, as the hybrid task-document contract with three amendments (owner decision).** <ul><li>**Contract:** the canonical, CLI-resolved work folder is stated absolutely in `task.md`'s Execution Location and the retry prompt's Required Reading. Other files are named relative to it, and the report destination is absolute, with §9.6's sentence. US-D14's note appears in both documents, unchanged. The cwd stays the repository, and nothing falls back to `.ai/` (§9.8.1).</li><li>**Amendments:**<ul><li>the absolute-path counts (two and three) are template observations;</li><li>rendering validation is uniform across root sources and non-destructive, with errors that don't leak private paths;</li><li>implementation waits for US-D30 and for separate golden and ratchet approvals.</li></ul></li><li>**Register:** US-D13 moved from PROPOSED to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "`task.md` names the work folder once (Execution Location) and the report path absolutely; other files by name; the §9.6 sentence in Required Output Files". No other decision changed.</li><li>**Reconciled:**<ul><li>§8.8's stored-artifact rule (generated agent-facing documents vs persisted display and log fields; US-D22 stays PROPOSED);</li><li>§9.8's retry path count and rendering;</li><li>§11.6's omitted retry lines and canonical normalization.</li></ul></li><li>**Recorded:** the review's preliminary token estimates (median about 3,200 with the note, threshold 3,096; estimates only).</li></ul> This is a design approval only: nothing was implemented. US-D10, US-D26, US-D29 and US-D30 are unchanged. Batch 0B is not complete, and Batch 2B-2 onward has NOT STARTED. |
+| 2026-10-18 | — | **US-D30 APPROVED with conditions, as Option D with amendments (owner decision).** <ul><li>**Contract:** the 17-case matrix, `round(chars / 4)` and the 0.1.3 reference (3,870, ceiling 3,096) stay. The task gate becomes `median(normalized) ≤ 3,096 + A`, with an approved delta recorded for every golden against the frozen 0.1.5 size. Retry prompts get per-golden deltas under a separate A_retry, with no median gate and no shared allowance (§9.8.2).</li><li>**Allowances:** A (estimate about 116) and A_retry (estimate about 108) are not final. They are fixed only from the owner-approved golden diff, after US-D13's final text, US-D14's exact note, US-D10's retry wording and any US-D22 wording, and are never recomputed.</li><li>**Baselines:** the 0.1.3 and Batch 0A records (including `task_size.json`) and the frozen 0.1.4 goldens stay byte-identical. A new reviewed budget record holds the numbers, and the compared-record test is reconciled without weakening integrity.</li><li>**Reporting:** sizes with the golden, Windows, Linux/macOS and long paths are reported, not gated. No runtime path limit.</li><li>**Register:** US-D30 moved from OPEN to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "The task-size gate with an absolute work path". No other decision changed.</li></ul> This is a design approval only: no golden change or ratchet residue is approved, and nothing is implemented. Batch 0B is not complete; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | — | **US-D10 APPROVED with conditions, as Option D with amendments; probe gap accepted for design only (owner decision).** <ul><li>**Contract:** the agent starts in the repository root and is told `Read <WORK>/task.md and complete the workflow.`; the retry is `Read <WORK>/agent_retry_prompt.md and continue the workflow.`. `<WORK>` is CLI-resolved (US-D13, US-D17) with forward slashes, and the wording is the same across the CLI, the extension and the retry prompt. MCP follows US-D27 (§9.5.1).</li><li>**Kept:** no new permission mode, grant, sandbox bypass, shell-free launch or automatic Git. US-D12's gate is kept, and US-D12 stays PROPOSED.</li><li>**Fallback and guidance:** a refused, unlaunchable or bridge handoff uses the clipboard, with an accurate notice. The approved permission guidance is "Your AI agent may need permission …". No denial is inferred without a reliable signal.</li><li>**Evidence:** the owner accepts the Batch 0B real-agent gap (P1, P3–P6, P8, P9) for design only, recorded in §16.1 "Accepted evidence gaps". The historical results are unchanged: P7 and P10 PASS, P2 FAIL overall, P11 NOT EXECUTED.</li><li>**Register:** US-D10 moved from OPEN to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "Agent handoff: Option D (absolute path, the agent's own permissions, clipboard fallback, no automatic grant)". No other decision changed.</li></ul> This is a design approval only: no agent combination is supported, and nothing is implemented. Batch 0B is not complete; Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | — | **US-D12 APPROVED with conditions, as Option C with two amendments (owner decision).** <ul><li>**Contract:** the gate's character set is kept and never broadened. Its treatment of Unicode whitespace, leading and trailing whitespace and normalization is tightened before activation, and the complete prompt is validated (§9.9.1).</li><li>**Amendments:**<ul><li>exact prompt preservation: the generated prompt and the final argument are both validated, a path is never rewritten, and the handoff is refused if preservation can't be guaranteed;</li><li>TypeScript–Python parity: Python's `--launch-agent` gets an equivalent gate, with one shared, reviewed corpus.</li></ul></li><li>**Scope:** the gate stays on the terminal paths, the bridges and the captured review (US-D28); there is none on MCP JSON, Copy Handoff Prompt or the body of `task.md`. A bridge refusal copies and notifies only.</li><li>**Documentation:** §13.4's character list is corrected (colon, comma, hash), and the compatibility limitation is recorded.</li><li>**Register:** US-D12 moved from PROPOSED to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "The prompt gate stays unchanged; a refused prompt falls back to manual handoff, with `BUGPILOT_HOME` as the remedy". No other decision changed.</li></ul> This is a design approval only: no relaxation, and nothing implemented. P10 stays PASS for the tested Windows configuration only, and P11 stays NOT EXECUTED. Batch 2B-2 onward NOT STARTED. |
+| 2026-10-18 | — | **US-D17 APPROVED with conditions, as Option B with five clarifications and two security amendments (owner decision).** <ul><li>**Contract:** `storage.py` is the authoritative Python resolver. The extension takes base paths only from the frozen CLI fields (`doctor` `storage.repository_dir`; item `work_dir`, `issue_dir` and `agent_task`; `list` `work_items[].work_dir` and `.modified`; settings `show --json` `path`). It composes only fixed artifact names under a validated `work_dir`, and `<repository_dir>/work/<id>` for a validated id, through one helper with a shared fixture (§8.9.1).</li><li>**Amendments:**<ul><li>A: CLI paths are validated before use (field and type, `abs` syntax and kind, component-wise containment, links refused). An inconsistent path fails closed, the cache is invalidated and the path re-resolved.</li><li>B: the extension only reads storage. It never creates, overwrites, deletes, moves or re-permissions storage. Feedback goes through the CLI (US-D18), and Reset Session through `bugpilot clean`.</li></ul></li><li>**Kept:** History from `list --json` with no scan, settings from `show --json` `path`, watchers as hints only, and `state: error` composing, reading and watching nothing. No legacy fallback, no new JSON field, and the frozen contract unchanged.</li><li>**Register:** US-D17 moved from PROPOSED to **APPROVED** — with conditions. Its Decision cell now states the contract; it previously read "The CLI is the only resolver. The extension gets `repository_dir` and `work_dir` from the CLI, composes only validated ids below them, and reads, opens and watches there, but never writes or deletes.". No other decision changed.</li></ul> This is a design approval only: nothing implemented. P7 stays PASS for the tested Windows operations only, and `revealFileInOS` stays UNKNOWN. Batch 2B-2 onward NOT STARTED. |
 
 ---
 
