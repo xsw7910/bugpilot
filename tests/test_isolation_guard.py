@@ -111,6 +111,13 @@ def decoy(tmp_path: Path) -> Decoy:
     for path, text in files.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+    if os.name == "posix":
+        # Private, as BugPilot itself leaves them (G-3). Left with the umask's bits, the privacy check would refuse
+        # the decoy's credentials before any write is attempted, and the guard would never be reached.
+        os.chmod(data / "config", 0o700)
+        os.chmod(data / "config" / "config.toml", 0o600)
+        assert os.stat(data / "config").st_mode & 0o777 == 0o700
+        assert os.stat(data / "config" / "config.toml").st_mode & 0o777 == 0o600
     canaries = (token, instructions, task, config_token, config_instructions)
     return Decoy(home=home, data=data, token=token, canaries=canaries, before=_snapshot(home))
 
