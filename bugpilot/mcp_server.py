@@ -30,11 +30,13 @@ start over on its own.
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, TypeVar
 
 try:
     from mcp.server.mcpserver import MCPServer
@@ -63,7 +65,7 @@ MCP_MISSING_MESSAGE = (
 )
 
 from bugpilot import __version__
-from bugpilot.core import errors, handoff, workflow
+from bugpilot.core import errors, handoff, storage, workflow
 from bugpilot.core.artifacts import CONTEXT_ARTIFACT, FIX_REPORT_ARTIFACT, TASK_ARTIFACT
 from bugpilot.core.branch_policy import check_branch_policy
 from bugpilot.core.run import RunArtifactError, load_run, run_to_dict
@@ -81,6 +83,11 @@ from bugpilot.core.memory import search_memory as search_memory_impl
 from bugpilot.core.models import InvestigationOptions, InvestigationRequest
 
 REPO_ROOT_ENV = "BUGPILOT_MCP_REPO_ROOT"
+
+#: Set on every tool function :func:`_request_scoped` wraps, so a test can show that none was missed.
+REQUEST_SCOPED = "__bugpilot_request_scoped__"
+
+_T = TypeVar("_T")
 
 INSTRUCTIONS = """\
 BugPilot turns a bug report into focused code context before you search the repository.
@@ -113,6 +120,27 @@ class _Bound:
 
     repo_root: Path
     lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+def _request_scoped(tool: Callable[..., _T]) -> Callable[..., _T]:
+    """One storage request scope per tool call (0.1.6, plan §14.3, Batch 2B-2; the 2B-5 gate's items 1-3).
+
+    The SDK runs a synchronous tool in a worker thread (``anyio.to_thread.run_sync``).
+    The scope is opened there, as the body's first act, and closed when the body
+    returns or raises. A scope belongs to the thread that opened it, so two
+    overlapping calls never share one, and none outlives its call: the next call
+    looks at the disk again. Never opened in ``build_server``, ``main`` or a
+    lifespan, whose context every request would copy. The signature and the
+    docstring stay the tool's own: the SDK builds the tool's schema from them.
+    """
+
+    @functools.wraps(tool)
+    def scoped(*args: object, **kwargs: object) -> _T:
+        with storage.request_scope():
+            return tool(*args, **kwargs)
+
+    setattr(scoped, REQUEST_SCOPED, True)
+    return scoped
 
 
 def resolve_repo_root(explicit: str | None = None) -> Path:
@@ -342,6 +370,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
     )
 
     @server.tool()
+    @_request_scoped
     def prepare_jira_bug(
         issue_key: str,
         hint: str | None = None,
@@ -391,6 +420,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         return _package(bound.repo_root, key, result)
 
     @server.tool()
+    @_request_scoped
     def prepare_bug_description(
         description: str,
         title: str | None = None,
@@ -446,6 +476,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         return _package(bound.repo_root, spec.work_item_id, result)
 
     @server.tool()
+    @_request_scoped
     def refine_investigation(
         work_item_id: str,
         hint: str | None = None,
@@ -484,6 +515,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         return _package(bound.repo_root, item, result)
 
     @server.tool()
+    @_request_scoped
     def check_results(work_item_id: str) -> dict[str, object]:
         """Say whether the fix attempt has written its report yet.
 
@@ -505,6 +537,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def summarize_results(work_item_id: str) -> dict[str, object]:
         """The fix report's status and the validation checklist, rendered in memory.
 
@@ -530,6 +563,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def search_memory(query: str) -> dict[str, object]:
         """Search past bug investigations for similar problems.
 
@@ -571,6 +605,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def get_status(work_item_id: str) -> dict[str, object]:
         """Report which preparation steps ran for a work item, and what exists.
 
@@ -607,6 +642,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def list_fix_modes() -> dict[str, object]:
         """List the AI Fix Modes available for this repository.
 
@@ -641,6 +677,7 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         }
 
     @server.tool()
+    @_request_scoped
     def show_fix_mode(mode_id: str) -> dict[str, object]:
         """Show one AI Fix Mode in full: its metadata and its instructions.
 

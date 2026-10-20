@@ -141,7 +141,7 @@ def test_the_json_carries_the_context_once_and_no_paths(repo, monkeypatch, capsy
     ],
 )
 def test_a_changed_task_input_makes_the_context_stale_and_it_is_still_shown(
-    repo, monkeypatch, capsys, isolate_bugpilot_config, layer, code, label
+    repo, monkeypatch, capsys, user_config_folder, layer, code, label
 ):
     work_item = _prepare(monkeypatch, capsys, repo)
     stored = _context_md(repo, work_item)
@@ -155,7 +155,7 @@ def test_a_changed_task_input_makes_the_context_stale_and_it_is_still_shown(
         payload.unlink()
     else:
         path, text = {
-            "user": (isolate_bugpilot_config / "instructions.md", "Explain every decision.\n"),
+            "user": (user_config_folder / "instructions.md", "Explain every decision.\n"),
             "project": (repo / ".bugpilot" / "instructions.md", "Name the module owner.\n"),
             "verification": (repo / ".bugpilot" / "verification.md", render_verification("- Run the full suite.")),
             "ai_behavior": (repo / ".bugpilot" / "ai_behavior.md", render_ai_behavior("- Quote the failing line.")),

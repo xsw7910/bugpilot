@@ -6,9 +6,10 @@ repository or a Git working tree, a foreign identity record and, for
 credentials, a place that is not private. These tests keep production code on
 that path, as far as a source scan can:
 
-1. The foundation is not activated: no production module imports ``storage``
-   yet. Batch 2B adds each consumer to ``APPROVED_IMPORTERS`` as it switches,
-   in the same commit, with the reason.
+1. Only approved consumers import ``storage``. Batch 2B adds each consumer to
+   ``APPROVED_IMPORTERS`` as it switches, in the same commit, with the reason;
+   Batch 2B-2 (global configuration) added the first five. Request scopes are
+   opened only by the entry points, the CLI and the MCP server (D-8).
 2. ``private_folder`` is used by ``storage`` alone.
 3. Outside ``storage.py`` no production module touches storage's private
    fields or helpers.
@@ -44,8 +45,16 @@ PRODUCT = REPO / "bugpilot"
 STORAGE = PRODUCT / "core" / "storage.py"
 PRIVATE_FOLDER = PRODUCT / "core" / "private_folder.py"
 
-#: Production modules allowed to import ``bugpilot.core.storage``, each with its reason. Empty until Batch 2B.
-APPROVED_IMPORTERS: dict[str, str] = {}
+#: Production modules allowed to import ``bugpilot.core.storage``, each with its reason (plan §14.3, D-8).
+APPROVED_IMPORTERS: dict[str, str] = {
+    "bugpilot/core/user_config.py": "Batch 2B-2: config.toml through config_file() and write_config_file()",
+    "bugpilot/core/instructions.py": "Batch 2B-2: user instructions through user_instructions_file()",
+    "bugpilot/core/fix_mode_store.py": "Batch 2B-2: user Fix Modes through user_fix_modes_dir()",
+    "bugpilot/cli.py": "Batch 2B-2: one request scope per command",
+    "bugpilot/mcp_server.py": "Batch 2B-2: one request scope per tool call",
+}
+#: The only production modules that may open a request scope: the entry points (D-8).
+SCOPE_OPENERS = frozenset({"bugpilot/cli.py", "bugpilot/mcp_server.py"})
 #: Storage's private fields and the private helpers no other module may reach for.
 PRIVATE_NAMES = frozenset({"_data_root", "_directory", "_config_dir", "_record_file"})
 #: Strings that spell the unified layout or its controls; only ``storage.py`` may hold them.
@@ -93,8 +102,8 @@ def _strings_outside_docstrings(tree: ast.Module) -> set[str]:
     }
 
 
-def test_no_production_module_imports_the_foundation_yet():
-    """Batch 2A: the foundation is hardened, not activated. Each Batch 2B consumer is approved here by name."""
+def test_only_the_batch_2b2_consumers_import_the_foundation():
+    """Each Batch 2B consumer is approved here by name; any other import of storage is a path built around it."""
     importers = sorted(
         path
         for path, tree in _modules().items()
@@ -103,6 +112,34 @@ def test_no_production_module_imports_the_foundation_yet():
                 for name in _imports_of(tree, path))
     )
     assert importers == sorted(APPROVED_IMPORTERS), importers
+
+
+def _scope_references(tree: ast.Module) -> list[int]:
+    """Lines that name ``request_scope``: an attribute, a bare name, or an import of it."""
+    lines = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "request_scope":
+            lines.append(node.lineno)
+        elif isinstance(node, ast.Name) and node.id == "request_scope":
+            lines.append(node.lineno)
+        elif isinstance(node, ast.ImportFrom) and any(alias.name == "request_scope" for alias in node.names):
+            lines.append(node.lineno)
+    return lines
+
+
+def test_request_scopes_are_opened_only_by_the_entry_points():
+    """A scope bounds one request (C-2); a consumer that opened its own could outlive or split one."""
+    openers = sorted(
+        path for path, tree in _modules().items()
+        if path != "bugpilot/core/storage.py" and _scope_references(tree)
+    )
+    assert openers == sorted(SCOPE_OPENERS), openers
+
+
+def test_the_error_vocabulary_stays_a_leaf():
+    """``errors`` holds the storage-unavailable carrier, but knows nothing of storage itself (C-1, M-1)."""
+    tree = _modules()["bugpilot/core/errors.py"]
+    assert not any(name.startswith("bugpilot.core.storage") for name in _imports_of(tree, "bugpilot/core/errors.py"))
 
 
 def test_private_folder_is_used_by_storage_alone():
@@ -185,3 +222,9 @@ def test_this_scan_bites():
     attributes = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
     assert {"_existing", "_data_root"} <= attributes
     assert storage.__name__ == "bugpilot.core.storage"
+    scoped = ast.parse(
+        "from bugpilot.core.storage import request_scope\n"
+        "with storage.request_scope():\n    pass\n"
+        "with request_scope():\n    pass\n"
+    )
+    assert sorted(_scope_references(scoped)) == [1, 2, 4]

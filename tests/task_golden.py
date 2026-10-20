@@ -175,15 +175,17 @@ def _resolved_inputs(
 ) -> Iterator[dict[str, object]]:
     """The Repository Profile, instructions and settings, read from a fresh synthetic repository.
 
-    The user configuration directory is a fresh empty one for the duration, so
-    the developer's own `~/.bugpilot` never reaches a golden file. Since 0.1.6
+    BugPilot's data folder is a fresh one for the duration (``BUGPILOT_HOME``;
+    the user configuration is its ``config/`` since 0.1.6 Batch 2B-2), so the
+    developer's own `~/.bugpilot` never reaches a golden file. Since 0.1.6
     Batch 0A it also refuses to run outside the test isolation (plan §11.1).
     """
     _isolation.require_isolated()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory) / "repo"
-        config = Path(directory) / "config"
-        config.mkdir()
+        data = Path(directory) / "data"
+        config = data / "config"
+        config.mkdir(parents=True)
         for relative, text in _REPOSITORY_FILES.items():
             path = root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -201,8 +203,8 @@ def _resolved_inputs(
         if ai_behavior:
             (root / ".bugpilot").mkdir(exist_ok=True)
             (root / ".bugpilot" / "ai_behavior.md").write_text(_AI_BEHAVIOR_FILE, encoding="utf-8", newline="\n")
-        previous = os.environ.get(CONFIG_DIR_ENV)
-        os.environ[CONFIG_DIR_ENV] = str(config)
+        previous = os.environ.get("BUGPILOT_HOME")
+        os.environ["BUGPILOT_HOME"] = str(data)
         try:
             yield {
                 "repository": resolve_repository_context(root),
@@ -212,9 +214,9 @@ def _resolved_inputs(
             }
         finally:
             if previous is None:
-                os.environ.pop(CONFIG_DIR_ENV, None)
+                os.environ.pop("BUGPILOT_HOME", None)
             else:
-                os.environ[CONFIG_DIR_ENV] = previous
+                os.environ["BUGPILOT_HOME"] = previous
 
 
 def render(case: TaskCase) -> str:

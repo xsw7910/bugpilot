@@ -9,11 +9,12 @@ import sys
 from pathlib import Path
 
 from bugpilot import __version__, cli_json
-from bugpilot.core import agent_runner, copilot, doctor, errors, setup, workflow
+from bugpilot.core import agent_runner, copilot, doctor, errors, setup, storage, workflow
 from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.cleanup import clean_issue_artifacts
 from bugpilot.core.safe_paths import UnsafePathError
 from bugpilot.core.terminal import terminal_safe_output
+from bugpilot.core.user_config import CONFIG_DIR_WARNING, config_dir_variable_is_set
 from bugpilot.core.context import build_context
 from bugpilot.core.email_notify import EmailSendError
 from bugpilot.core.git_history import render_git_context
@@ -518,7 +519,8 @@ def build_parser() -> argparse.ArgumentParser:
         "jira-site",
         help="Show or set the Jira site BugPilot fetches issues from.",
         description=(
-            "The Jira site is read from the JIRA_BASE_URL environment variable, else from ~/.bugpilot/config.toml "
+            "The Jira site is read from the JIRA_BASE_URL environment variable, else from "
+            "~/.bugpilot/config/config.toml, or BUGPILOT_HOME/config/config.toml "
             "(written by `bugpilot setup`, `bugpilot jira-site set` or the VS Code extension's Jira Setup). It must be "
             "an https:// address with no user name, password, query or fragment."
         ),
@@ -565,7 +567,8 @@ def build_parser() -> argparse.ArgumentParser:
         "instructions",
         help="Show or set the User and Project / Team Instructions task.md carries.",
         description=(
-            "User Instructions live in ~/.bugpilot/instructions.md and apply to every repository; "
+            "User Instructions live in ~/.bugpilot/config/instructions.md (BUGPILOT_HOME/config/instructions.md "
+            "when BUGPILOT_HOME is set) and apply to every repository; "
             "Project / Team Instructions live in .bugpilot/instructions.md in the repository and can be "
             "committed with it. The CLI, the MCP server and the VS Code extension all read these two files. "
             "They refine how the AI agent works; BugPilot's safety rules come first in the task and win any conflict."
@@ -581,7 +584,7 @@ def build_parser() -> argparse.ArgumentParser:
     instructions_parser.add_argument(
         "--scope",
         choices=INSTRUCTION_SCOPES,
-        help="user (~/.bugpilot/instructions.md) or project (.bugpilot/instructions.md). Required for set.",
+        help="user (~/.bugpilot/config/instructions.md) or project (.bugpilot/instructions.md). Required for set.",
     )
     instructions_source = instructions_parser.add_mutually_exclusive_group()
     instructions_source.add_argument(
@@ -750,8 +753,11 @@ def main(argv: list[str] | None = None) -> int:
         # Text for a person's terminal: an issue's, a hint's or a policy's own
         # control characters are shown escaped, never obeyed (`core.terminal`).
         with terminal_safe_output():
+            if config_dir_variable_is_set():
+                # Once per command, text mode only; the variable's value is never read (US-D3, Q-4).
+                print(CONFIG_DIR_WARNING, file=sys.stderr)
             try:
-                return _dispatch(args, repo_root)
+                return _finish(_dispatch_in_scope(args, repo_root))
             except UnsafePathError as exc:
                 # A generated path that is a link or junction, or a work item id that
                 # is not one: one sentence, never a traceback.
@@ -764,12 +770,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"ERROR: {exc}", file=sys.stderr)
                 print("Preparing the work item again replaces it: bugpilot bug <work-item-id>", file=sys.stderr)
                 return 1
+            except errors.StorageAccessError as exc:
+                # BugPilot's data folder could not be read or written just now: one
+                # sentence that names no absolute path, never a traceback (C-1).
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
     # Machine-readable modes promise exactly one object (or one closed stream) on
     # stdout for every outcome. An unhandled exception would otherwise print a
     # traceback to stderr and nothing at all to stdout, which a consumer reads as
     # a hang rather than a failure.
     try:
-        return _dispatch(args, repo_root)
+        return _finish(_dispatch_in_scope(args, repo_root))
     except Exception as exc:  # noqa: BLE001 - deliberately the last resort
         code = errors.error_code_for(exc)
         if getattr(args, "json_lines", False):
@@ -778,7 +789,25 @@ def main(argv: list[str] | None = None) -> int:
             cli_json.emit_failure(args.command, code, str(exc))
         return 1
 
-def _dispatch(args, repo_root: Path) -> int:
+
+def _dispatch_in_scope(args, repo_root: Path) -> int | _AgentLaunch:
+    """One command inside one storage request scope (0.1.6, plan §14.3, Batch 2B-2).
+
+    Within it each check of BugPilot's data folder is made once; the next
+    command looks again, so a ``.git`` or a link created in between is seen.
+    The scope closes before any agent starts (:class:`_AgentLaunch`): an agent
+    may run for an hour, and a scope must never span it.
+    """
+    with storage.request_scope():
+        return _dispatch(args, repo_root)
+
+
+def _finish(outcome: int | _AgentLaunch) -> int:
+    """The command's exit code, starting the agent it prepared, now that its request scope has closed."""
+    return outcome.run() if isinstance(outcome, _AgentLaunch) else outcome
+
+
+def _dispatch(args, repo_root: Path) -> int | _AgentLaunch:
     if args.command == "setup":
         return setup.run_setup(hide_token=args.hide_token)
 
@@ -1588,7 +1617,7 @@ def _run_agent_after_prepare(
     agent: str,
     prompt_file: str | None = None,
     fix_mode: FixMode | None = None,
-) -> int:
+) -> _AgentLaunch:
     handoff = (
         agent_runner.RETRY_HANDOFF_PROMPT.format(prompt_file=prompt_file) if prompt_file else None
     )
@@ -1597,16 +1626,36 @@ def _run_agent_after_prepare(
     print(f"Launching {agent} to complete the workflow for {issue_key}.")
     for line in _launch_expectation_lines(fix_mode, retry=prompt_file is not None):
         print(line)
-    result = agent_runner.run_agent(repo_root, issue_key, agent, prompt=handoff)
-    if not result.ran:
-        print(f"WARN: could not launch {agent}: {result.skipped_reason}", file=sys.stderr)
-        print(f"Open {agent} manually from the target repo root and run:", file=sys.stderr)
-        print(f"  Read {instruction} and complete the workflow.", file=sys.stderr)
-        return 1
-    if result.returncode not in (0, None):
-        print(f"WARN: {agent} exited with code {result.returncode}.", file=sys.stderr)
-        return result.returncode
-    return 0
+    return _AgentLaunch(repo_root, issue_key, agent, handoff, instruction)
+
+
+class _AgentLaunch:
+    """An agent to start once the command's request scope has closed (plan §14.3, the 2B-5 gate's item 4).
+
+    The preparation runs in the command's one scope; the agent, which may run
+    for an hour, never does. ``_dispatch`` hands this back and ``main`` starts
+    it after the scope has ended. The launch itself is unchanged.
+    """
+
+    def __init__(self, repo_root: Path, issue_key: str, agent: str, handoff: str | None, instruction: str) -> None:
+        self.repo_root = repo_root
+        self.issue_key = issue_key
+        self.agent = agent
+        self.handoff = handoff
+        self.instruction = instruction
+
+    def run(self) -> int:
+        agent = self.agent
+        result = agent_runner.run_agent(self.repo_root, self.issue_key, agent, prompt=self.handoff)
+        if not result.ran:
+            print(f"WARN: could not launch {agent}: {result.skipped_reason}", file=sys.stderr)
+            print(f"Open {agent} manually from the target repo root and run:", file=sys.stderr)
+            print(f"  Read {self.instruction} and complete the workflow.", file=sys.stderr)
+            return 1
+        if result.returncode not in (0, None):
+            print(f"WARN: {agent} exited with code {result.returncode}.", file=sys.stderr)
+            return result.returncode
+        return 0
 
 
 def _report_bug_preflight_failure(args, code: str, message: str) -> None:
@@ -1796,7 +1845,7 @@ def _checks_from_file(path: Path) -> list[VerificationCheck]:
     return checks
 
 
-def _run_retry(repo_root: Path, args) -> int:
+def _run_retry(repo_root: Path, args) -> int | _AgentLaunch:
     """`bugpilot bug <ID> --retry`: the three manual steps of a second attempt, as one.
 
     Previously this meant running retry-prompt, editing user_feedback.md, then
@@ -2054,11 +2103,11 @@ def _run_jira_site_command(args) -> int:
     """`bugpilot jira-site [show|set]`: the one Jira site the CLI and the extension share.
 
     `set` validates with the same function every Jira request uses and writes
-    only the site into `~/.bugpilot/config.toml`, keeping the email and token
+    only the site into `~/.bugpilot/config/config.toml`, keeping the email and token
     there. The extension's Jira Setup sends the site on standard input, so a
     mistyped one with a password in it never reaches a command line.
     """
-    from bugpilot.core.user_config import save_jira_site
+    from bugpilot.core.user_config import save_jira_site, shown_config_path
 
     def fail(message: str) -> int:
         if args.json_output:
@@ -2086,7 +2135,7 @@ def _run_jira_site_command(args) -> int:
         cli_json.emit(cli_json.success("jira-site", **state, warnings=warnings))
         return 0
     if args.action == "set":
-        print("Saved the Jira site in ~/.bugpilot/config.toml.")
+        print(f"Saved the Jira site in {shown_config_path()}.")
     for warning in warnings:
         print(f"WARN: {warning}")
     if state.get("site"):

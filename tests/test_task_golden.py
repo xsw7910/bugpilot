@@ -55,10 +55,13 @@ def test_the_matrix_covers_every_input_that_changes_the_task():
     assert len({case.name for case in MATRIX}) == len(MATRIX)
 
 
-def test_the_matrix_is_rendered_from_inputs_resolved_like_a_run(monkeypatch, tmp_path):
+def test_the_matrix_is_rendered_from_inputs_resolved_like_a_run(user_config_folder, tmp_path):
     """Never the machine's own configuration: a developer's instructions must not reach a golden file."""
-    monkeypatch.setenv("BUGPILOT_CONFIG_DIR", str(tmp_path))
-    (tmp_path / "instructions.md").write_text("A private preference that must not leak.\n", encoding="utf-8")
+    from bugpilot.core.instructions import load_instructions
+
+    (user_config_folder / "instructions.md").write_text("A private preference that must not leak.\n", encoding="utf-8")
+    # Where a run on this machine reads them (0.1.6: BUGPILOT_HOME/config/), so the check below means something.
+    assert "must not leak" in load_instructions(tmp_path).user.text
     case = next(case for case in MATRIX if case.name == "jira-fix-current")
 
     assert "must not leak" not in render(case)

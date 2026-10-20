@@ -284,17 +284,16 @@ def test_supplied_keywords_are_capped_and_the_rest_recorded(tmp_path, monkeypatc
 # --- files a human edits -----------------------------------------------------
 
 
-def test_a_hand_edited_config_does_not_break_every_command(tmp_path, monkeypatch):
-    """~/.bugpilot/config.toml is read by every command through load_config.
+def test_a_hand_edited_config_does_not_break_every_command(user_config_folder):
+    """config/config.toml in the data folder is read by every command through load_config.
 
     A decode error there would take down `bugpilot doctor` — the one command
     whose job is to explain what is wrong.
     """
     from bugpilot.core import user_config
 
-    path = tmp_path / "config.toml"
+    path = user_config_folder / "config.toml"
     path.write_bytes('jira_email = "m\xfcller@example.com"\n'.encode("cp1252"))
-    monkeypatch.setattr(user_config, "user_config_path", lambda: path)
 
     loaded = user_config.load_user_config()
     assert loaded.jira_email and "ller@example.com" in loaded.jira_email

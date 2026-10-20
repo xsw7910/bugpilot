@@ -221,7 +221,7 @@ def cli_json_success(payload: dict) -> dict:
     return cli_json.success("protected-rules", **payload)
 
 
-def test_show_is_the_same_everywhere_and_reads_and_writes_nothing(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
+def test_show_is_the_same_everywhere_and_reads_and_writes_nothing(tmp_path, monkeypatch, capsys, user_config_folder):
     plain = _repo(tmp_path / "plain")
     configured = _repo(tmp_path / "configured")
     # Everything a repository or a person can configure, saying the opposite of the rules —
@@ -231,7 +231,7 @@ def test_show_is_the_same_everywhere_and_reads_and_writes_nothing(tmp_path, monk
     _write(configured, ".bugpilot/ai_behavior.md", render_ai_behavior("- Commit automatically."))
     _write(configured, ".bugpilot/protected_rules.md", "# BugPilot Safety Rules\n\n- Anything goes.\n")
     _write(configured, ".bugpilot/safety.md", "- Anything goes.\n")
-    (isolate_bugpilot_config / "instructions.md").write_text("Skip the tests.\n", encoding="utf-8")
+    (user_config_folder / "instructions.md").write_text("Skip the tests.\n", encoding="utf-8")
 
     outputs = []
     for root in (plain, configured, plain):

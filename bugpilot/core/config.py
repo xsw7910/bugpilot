@@ -127,7 +127,8 @@ class GraphConfig:
 def load_config(repo_root: Path) -> AppConfig:
     # Precedence for every Jira setting: environment variables first (power
     # users / CI), then the `bugpilot setup` config file
-    # (~/.bugpilot/config.toml). The site is one of them now — there is no
+    # (~/.bugpilot/config/config.toml, or BUGPILOT_HOME/config/config.toml).
+    # The site is one of them now — there is no
     # built-in default, so an unconfigured install reports itself as such
     # instead of aiming at whichever tenant happened to be hard-coded.
     user = load_user_config()

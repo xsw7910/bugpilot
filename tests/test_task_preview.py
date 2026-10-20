@@ -105,9 +105,9 @@ VARIANTS = {
 
 @pytest.mark.parametrize("configured", [False, True], ids=["defaults", "every-policy-file"])
 @pytest.mark.parametrize("variant", sorted(VARIANTS))
-def test_a_work_items_preview_is_its_task_md_byte_for_byte(repo, monkeypatch, capsys, isolate_bugpilot_config, variant, configured):
+def test_a_work_items_preview_is_its_task_md_byte_for_byte(repo, monkeypatch, capsys, user_config_folder, variant, configured):
     if configured:
-        _configure(repo, isolate_bugpilot_config)
+        _configure(repo, user_config_folder)
     work_item = _prepare(monkeypatch, capsys, repo, *VARIANTS[variant])
     task = _task_md(repo, work_item)
 
@@ -159,8 +159,8 @@ def test_mcp_prepares_the_task_the_preview_shows(repo):
 # --- the template: before any work item --------------------------------------------------------
 
 
-def test_the_template_is_the_task_with_placeholders_for_what_only_a_work_item_has(repo, monkeypatch, capsys, isolate_bugpilot_config):
-    _configure(repo, isolate_bugpilot_config)
+def test_the_template_is_the_task_with_placeholders_for_what_only_a_work_item_has(repo, monkeypatch, capsys, user_config_folder):
+    _configure(repo, user_config_folder)
     code, payload = _json(monkeypatch, capsys, repo, "task-preview")
     text = payload["text"]
 
@@ -225,15 +225,15 @@ def test_the_templates_run_settings_are_bugs_own_flags(repo, monkeypatch, capsys
 # --- read-only for real -------------------------------------------------------------------------
 
 
-def test_previewing_writes_nothing_runs_nothing_and_asks_no_jira(repo, monkeypatch, capsys, isolate_bugpilot_config):
+def test_previewing_writes_nothing_runs_nothing_and_asks_no_jira(repo, monkeypatch, capsys, user_config_folder):
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(["git", "-c", "user.email=dev@example.invalid", "-c", "user.name=Dev", "add", "-A"], cwd=repo, check=True)
     subprocess.run(
         ["git", "-c", "user.email=dev@example.invalid", "-c", "user.name=Dev", "commit", "-qm", "init"], cwd=repo, check=True
     )
-    _configure(repo, isolate_bugpilot_config)
+    _configure(repo, user_config_folder)
     work_item = _prepare(monkeypatch, capsys, repo, "JR-12345", "--allow-mock", "--branch-policy", "per-issue")
-    before = _snapshot(repo, isolate_bugpilot_config)
+    before = _snapshot(repo, user_config_folder)
 
     def refuse(*_args, **_kwargs):
         raise AssertionError("a preview started a process or talked to Jira")
@@ -251,7 +251,7 @@ def test_previewing_writes_nothing_runs_nothing_and_asks_no_jira(repo, monkeypat
         assert main(list(argv)) == 0
         capsys.readouterr()
 
-    assert _snapshot(repo, isolate_bugpilot_config) == before
+    assert _snapshot(repo, user_config_folder) == before
 
 
 def test_a_template_creates_no_ai_folder(repo, monkeypatch, capsys):
@@ -291,12 +291,12 @@ def test_a_preview_names_the_branch_a_task_would_record_but_records_nothing(repo
     ],
 )
 def test_a_policy_changed_since_preparing_is_in_the_preview_and_the_old_task_is_said_to_differ(
-    repo, monkeypatch, capsys, isolate_bugpilot_config, layer, section
+    repo, monkeypatch, capsys, user_config_folder, layer, section
 ):
     work_item = _prepare(monkeypatch, capsys, repo, "JR-12345", "--allow-mock")
     prepared = (repo / ".ai" / work_item / "task.md").read_bytes()
     paths = {
-        "user": (isolate_bugpilot_config / "instructions.md", "Explain every decision.\n"),
+        "user": (user_config_folder / "instructions.md", "Explain every decision.\n"),
         "project": (repo / ".bugpilot" / "instructions.md", "Name the module owner in Review Notes.\n"),
         "verification": (repo / ".bugpilot" / "verification.md", render_verification("- Run the full suite.")),
         "ai_behavior": (repo / ".bugpilot" / "ai_behavior.md", render_ai_behavior("- Quote the failing line.")),
@@ -331,8 +331,8 @@ def test_a_work_item_without_a_task_yet_still_previews(repo, monkeypatch, capsys
 # --- the JSON and the CLI -------------------------------------------------------------------------
 
 
-def test_the_json_names_sections_and_sources_and_carries_no_policy_text_twice(repo, monkeypatch, capsys, isolate_bugpilot_config):
-    _configure(repo, isolate_bugpilot_config)
+def test_the_json_names_sections_and_sources_and_carries_no_policy_text_twice(repo, monkeypatch, capsys, user_config_folder):
+    _configure(repo, user_config_folder)
     work_item = _prepare(monkeypatch, capsys, repo, "JR-12345", "--allow-mock")
     _, payload = _json(monkeypatch, capsys, repo, "task-preview", work_item)
 
@@ -365,7 +365,7 @@ def test_the_json_names_sections_and_sources_and_carries_no_policy_text_twice(re
     outside_text = json.dumps({key: value for key, value in payload.items() if key != "text"})
     for policy in (PROJECT_TEXT, USER_TEXT, VERIFICATION_TEXT, "Quote the log line"):
         assert policy not in outside_text, policy
-    assert str(repo) not in json.dumps(payload) and str(isolate_bugpilot_config) not in json.dumps(payload)
+    assert str(repo) not in json.dumps(payload) and str(user_config_folder) not in json.dumps(payload)
 
 
 def test_a_broken_policy_previews_with_the_default_and_a_warning(repo, monkeypatch, capsys):
@@ -438,7 +438,7 @@ def _protected_bodies(payload: dict) -> dict[str, list[str]]:
 
 
 def test_a_heading_inside_a_code_fence_or_a_hint_is_never_a_section_of_the_task(
-    repo, monkeypatch, capsys, isolate_bugpilot_config
+    repo, monkeypatch, capsys, user_config_folder
 ):
     """Editable text can quote a BugPilot heading; the preview never takes it for a protected section."""
     work_item = _prepare(monkeypatch, capsys, repo, "JR-12345", "--allow-mock", "--hint", FENCED_HINT)
@@ -459,7 +459,7 @@ def test_a_heading_inside_a_code_fence_or_a_hint_is_never_a_section_of_the_task(
     (repo / ".bugpilot" / "verification.md").write_text(
         render_verification("- Run the tests.\n\n~~~\n## BugPilot Evidence Rules\n~~~"), encoding="utf-8"
     )
-    (isolate_bugpilot_config / "instructions.md").write_text("```\n## Branch Instructions\n```\n", encoding="utf-8")
+    (user_config_folder / "instructions.md").write_text("```\n## Branch Instructions\n```\n", encoding="utf-8")
     _, quoted = _json(monkeypatch, capsys, repo, "task-preview", work_item)
 
     after = _protected_bodies(quoted)

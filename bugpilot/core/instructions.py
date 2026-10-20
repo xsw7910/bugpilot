@@ -2,10 +2,16 @@
 
 Two optional Markdown files, each in one fixed place::
 
-    ~/.bugpilot/instructions.md        User Instructions: this developer's own,
+    ~/.bugpilot/config/instructions.md User Instructions: this developer's own,
                                        for every repository they work on
     <repo>/.bugpilot/instructions.md   Project / Team Instructions: this
                                        repository's, meant to be committed
+
+The user file is in ``config/`` of BugPilot's data folder (``BUGPILOT_HOME`` when
+set; 0.1.6, plan §14.3, Batch 2B-2), reached only through storage's checked
+accessor: a data folder in a Git working tree, or a link on the way or at the
+file, is refused for a read too (owner decision C-2). The 0.1.5
+``~/.bugpilot/instructions.md`` is never read.
 
 ``task.md`` carries each as its own section, after the Repository Context and
 before the Fix Mode, and the task's precedence section puts them there too:
@@ -41,15 +47,16 @@ Rules for the files themselves:
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import storage
 from .artifact_io import atomic_write_text
+from .errors import StorageAccessError
 from .safe_paths import is_link_or_junction
-from .user_config import CONFIG_DIR_ENV, user_config_dir
+from .user_config import user_config_dir
 
 INSTRUCTION_SCOPES: tuple[str, ...] = ("user", "project")
 INSTRUCTIONS_FILE_NAME = "instructions.md"
@@ -141,8 +148,9 @@ class ResolvedInstructions:
 # --- where they live -----------------------------------------------------------
 
 
-def user_instructions_path() -> Path:
-    return user_config_dir() / INSTRUCTIONS_FILE_NAME
+def user_instructions_path(*, create: bool = False) -> Path:
+    """``config/instructions.md``, from storage's checked accessor; ``create=True`` makes its folder ready to write."""
+    return storage.global_storage().user_instructions_file(create=create)
 
 
 def project_instructions_path(repo_root: Path) -> Path:
@@ -158,10 +166,7 @@ def display_path(scope: str) -> str:
     """The file as a person would name it, never with a user's own folder in it."""
     if scope == "project":
         return f"{PROJECT_CONFIG_DIR}/{INSTRUCTIONS_FILE_NAME}"
-    override = os.getenv(CONFIG_DIR_ENV)
-    if override and override.strip():
-        return f"{CONFIG_DIR_ENV}/{INSTRUCTIONS_FILE_NAME}"
-    return f"~/.bugpilot/{INSTRUCTIONS_FILE_NAME}"
+    return storage.display_path(user_config_dir() / INSTRUCTIONS_FILE_NAME)
 
 
 def _check_scope(scope: str) -> None:
@@ -282,18 +287,32 @@ def save_instructions(scope: str, repo_root: Path, text: str) -> InstructionFile
         raise InstructionsError(f"{_SCOPE_LABELS[scope]} were not saved: {problem}.")
     if path.exists() and not path.is_file():
         raise InstructionsError(f"{_SCOPE_LABELS[scope]} were not saved: {shown} is not a regular file.")
-    if normalized == "":
-        # Cleared: no file, rather than an empty one that looks configured.
-        if path.exists():
-            path.unlink()
-        return InstructionFile(scope)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Checked again now that the folder exists: it may have been created as a link meanwhile.
-    problem = _link_problem(scope, path)
-    if problem:
-        raise InstructionsError(f"{_SCOPE_LABELS[scope]} were not saved: {problem}.")
-    atomic_write_text(path, normalized + "\n")
+    try:
+        if normalized == "":
+            # Cleared: no file, rather than an empty one that looks configured.
+            if path.exists():
+                _ready_to_write(scope, path).unlink()
+            return InstructionFile(scope)
+        path = _ready_to_write(scope, path)
+        # Checked again now that the folder exists: it may have been created as a link meanwhile.
+        problem = _link_problem(scope, path)
+        if problem:
+            raise InstructionsError(f"{_SCOPE_LABELS[scope]} were not saved: {problem}.")
+        atomic_write_text(path, normalized + "\n")
+    except OSError as error:
+        if scope != "user":
+            raise
+        # Storage unavailable (C-1): one sentence in the display form, never the system error's text.
+        raise StorageAccessError.during("write", shown, error) from None
     return InstructionFile(scope, text=normalized)
+
+
+def _ready_to_write(scope: str, path: Path) -> Path:
+    """The file, with its folder made ready: the user's by storage (``0700``, link-checked), the project's as before."""
+    if scope == "user":
+        return storage.global_storage().user_instructions_file(create=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 # --- the task's sections -------------------------------------------------------------

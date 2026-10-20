@@ -1,4 +1,4 @@
-"""User-level BugPilot configuration stored under the home directory.
+"""User-level BugPilot configuration, in ``config/`` of BugPilot's data folder.
 
 This is distinct from :mod:`bugpilot.core.config`, which reads process environment
 variables. ``bugpilot setup`` writes a small ``config.toml`` here so a first-time
@@ -9,6 +9,14 @@ The Jira site URL (``jira_base_url``), ``jira_email`` and (for now) ``jira_token
 are stored. Token persistence goes through :class:`TokenStore`
 so it can later be swapped for the Windows Credential Manager without touching the
 rest of the code.
+
+Since 0.1.6 (plan §14.3, Batch 2B-2) the file is ``~/.bugpilot/config/config.toml``,
+or ``config/config.toml`` under ``BUGPILOT_HOME``, read and written only through
+:mod:`bugpilot.core.storage`'s checked methods: a data folder inside a Git working
+tree, or a link on the way, is refused, and credentials are written only where
+they are proven private. The 0.1.5 file at the top of the data folder is never
+read, moved or deleted; ``bugpilot setup`` writes the new one. ``BUGPILOT_CONFIG_DIR``
+is no longer read (US-D3): only whether it is set is looked at, for one warning.
 """
 
 from __future__ import annotations
@@ -18,7 +26,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-from .artifact_io import atomic_write_text
+from . import storage
+from .errors import StorageAccessError
 from .safe_paths import UnsafePathError, is_link_or_junction
 
 # There is deliberately no default Jira site.
@@ -30,8 +39,10 @@ from .safe_paths import UnsafePathError, is_link_or_junction
 # environment or from `bugpilot setup`, and its absence is reported as
 # "not configured" rather than guessed at.
 
+#: Retired in 0.1.6 (US-D3): ``BUGPILOT_HOME`` names the whole data folder. Only its presence is looked at.
 CONFIG_DIR_ENV = "BUGPILOT_CONFIG_DIR"
-_CONFIG_FILE_NAME = "config.toml"
+#: What the CLI says, once, in text mode, when :data:`CONFIG_DIR_ENV` is set (owner decision Q-4).
+CONFIG_DIR_WARNING = "BUGPILOT_CONFIG_DIR is no longer used; set BUGPILOT_HOME to choose BugPilot's data folder"
 
 
 @dataclass(frozen=True)
@@ -42,19 +53,22 @@ class UserConfig:
 
 
 def user_config_dir() -> Path:
-    """Directory holding the user's BugPilot config (``~/.bugpilot`` by default).
+    """The user configuration folder, ``config/`` in BugPilot's data folder (``~/.bugpilot/config`` by default).
 
-    Overridable via the ``BUGPILOT_CONFIG_DIR`` environment variable, which keeps
-    tests hermetic and lets advanced users relocate the file.
+    Where it is, for messages and tests: computed, never checked, read or
+    created. Every read and write goes through storage's checked methods.
     """
-    override = os.getenv(CONFIG_DIR_ENV)
-    if override and override.strip():
-        return Path(override.strip())
-    return Path.home() / ".bugpilot"
+    return Path(storage.global_storage().diagnostics()["config_dir"])
 
 
 def user_config_path() -> Path:
-    return user_config_dir() / _CONFIG_FILE_NAME
+    """Where ``config.toml`` is; computed, as :func:`user_config_dir` is."""
+    return user_config_dir() / storage.CREDENTIALS_NAME
+
+
+def config_dir_variable_is_set() -> bool:
+    """Whether the retired :data:`CONFIG_DIR_ENV` is in the environment, whatever it holds. Its value is never read."""
+    return CONFIG_DIR_ENV in os.environ
 
 
 # --- token storage seam -----------------------------------------------------
@@ -100,17 +114,33 @@ def _token_store() -> TokenStore:
 
 
 def load_user_config() -> UserConfig:
-    path = user_config_path()
-    if not path.exists():
-        return UserConfig()
-    # errors="replace": this file is hand-editable, it is read by *every* command
-    # through load_config, and a decode error here would take down
-    # `bugpilot doctor` — the one command whose job is to explain what is wrong.
-    data = _parse_toml(path.read_text(encoding="utf-8", errors="replace"))
+    data = _read_config()
     email = data.get("jira_email") or None
     token = _token_store().load(data)
     base_url = data.get("jira_base_url") or None
     return UserConfig(jira_email=email, jira_token=token, jira_base_url=base_url)
+
+
+def _read_config() -> dict[str, str]:
+    """The file's table, or an empty one when there is no file.
+
+    The path comes from storage's checked read: a data folder in a Git working
+    tree, or a link on the way or at the file, is refused (``StorageError``).
+    A file that is not there is "not configured"; one that cannot be read is a
+    :class:`~bugpilot.core.errors.StorageAccessError`, never its system error's
+    text.
+    """
+    path = storage.global_storage().config_file(create=False)
+    try:
+        # errors="replace": this file is hand-editable, it is read by *every* command
+        # through load_config, and a decode error here would take down
+        # `bugpilot doctor` — the one command whose job is to explain what is wrong.
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except (FileNotFoundError, NotADirectoryError):
+        return {}
+    except OSError as error:
+        raise StorageAccessError.during("read", shown_config_path(), error) from None
+    return _parse_toml(text)
 
 
 def save_user_config(
@@ -123,14 +153,11 @@ def save_user_config(
     The site is written now that there is no built-in one; ``setup`` asks for it.
     Returns the path.
     """
-    path = user_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     data: dict[str, str] = {"jira_email": jira_email}
     if jira_base_url:
         data["jira_base_url"] = jira_base_url
     _token_store().save(data, jira_token)
-    _write_config(path, data)
-    return path
+    return _write_config(data)
 
 
 def save_jira_site(jira_base_url: str) -> Path:
@@ -141,48 +168,47 @@ def save_jira_site(jira_base_url: str) -> Path:
     CLI reads it too: one site for both, not two that can disagree. The caller
     validates the site (``jira.normalize_jira_site``).
     """
-    path = user_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     # Refused before it is read, not only before it is written: nothing behind a link — a FIFO
     # would block the read — is opened at all (0.1.5, O4).
-    _refuse_link_at(path)
-    data = _parse_toml(path.read_text(encoding="utf-8", errors="replace")) if path.exists() else {}
+    _refuse_link_at(user_config_path())
+    data = _read_config()
     data["jira_base_url"] = jira_base_url
-    _write_config(path, data)
-    return path
+    return _write_config(data)
 
 
-def _write_config(path: Path, data: dict[str, str]) -> None:
+def _write_config(data: dict[str, str]) -> Path:
     """The file that may hold the Jira token, written owner-only from its first moment (0.1.5, S2, B5, O4).
 
-    Through the atomic writer, ``private``: the temp file is created new and
-    owner-only (0600 on POSIX) before the token is written into it, then renamed
-    into place — so the file is never visible with the umask's bits, and a
-    rewrite never keeps old, wider ones (0.1.4 wrote it, then ``chmod``-ed it).
+    Only through storage's ``write_config_file()`` (G-3): the data folder,
+    ``config/`` and the file are proven private first, the atomic writer
+    creates the temp file new and owner-only (0600 on POSIX) before the token
+    is written into it, then renames it into place, and the file is checked
+    again after. A place that cannot be proven private is refused, and nothing
+    ever changes a permission.
 
-    A link or junction at the file's own path is refused, as for every file
-    BugPilot writes whole; the token never follows it. The folder holding it is
-    the user's to place (``~/.bugpilot``, or ``BUGPILOT_CONFIG_DIR``), as a
-    repository root is. Nothing of the file's content is in any message.
+    A link or junction at the file's own path is refused first, in this
+    module's words, as for every file BugPilot writes whole; the token never
+    follows it. Nothing of the file's content is in any message.
     """
-    _refuse_link_at(path)
-    atomic_write_text(path, _dump_toml(data), private=True)
+    _refuse_link_at(user_config_path())
+    try:
+        return storage.global_storage().write_config_file(_dump_toml(data))
+    except OSError as error:
+        raise StorageAccessError.during("write", shown_config_path(), error) from None
 
 
 def _refuse_link_at(path: Path) -> None:
     """O4: a symbolic link or junction at the credentials file's own path, refused in one sentence."""
     if is_link_or_junction(path):
         raise UnsafePathError(
-            f"BugPilot cannot write {_shown_config_path()}: it is a symbolic link or junction, and the file "
+            f"BugPilot cannot write {shown_config_path()}: it is a symbolic link or junction, and the file "
             "that holds the Jira token is written only as a real file. Nothing was written."
         )
 
 
-def _shown_config_path() -> str:
-    """The credentials file as a person names it, never with their own folder in it."""
-    override = os.getenv(CONFIG_DIR_ENV)
-    folder = CONFIG_DIR_ENV if override and override.strip() else "~/.bugpilot"
-    return f"{folder}/{_CONFIG_FILE_NAME}"
+def shown_config_path() -> str:
+    """The credentials file as messages name it (US-D22): ``~/.bugpilot/config/config.toml`` or ``BUGPILOT_HOME/…``."""
+    return storage.display_path(user_config_path())
 
 
 # --- minimal flat-TOML reader/writer ----------------------------------------

@@ -138,32 +138,32 @@
    "files": 16
   },
   "bugpilot-dir": {
-   "occurrences": 116,
-   "files": 28
+   "occurrences": 115,
+   "files": 27
   },
   "home-bugpilot": {
-   "occurrences": 21,
+   "occurrences": 20,
    "files": 12
   },
   "config-dir-env": {
-   "occurrences": 5,
-   "files": 3
+   "occurrences": 4,
+   "files": 2
   },
   "agent-instruction": {
    "occurrences": 17,
    "files": 11
   },
   "path-helper": {
-   "occurrences": 105,
-   "files": 26
+   "occurrences": 104,
+   "files": 25
   },
   "path-constant": {
-   "occurrences": 106,
+   "occurrences": 103,
    "files": 21
   },
   "home-lookup": {
-   "occurrences": 4,
-   "files": 4
+   "occurrences": 3,
+   "files": 3
   }
  },
  "counts": {
@@ -171,7 +171,7 @@
    "ai-dir": 44,
    "ai-memory": 1,
    "bugpilot-dir": 18,
-   "home-bugpilot": 5,
+   "home-bugpilot": 4,
    "agent-instruction": 1,
    "path-helper": 2,
    "path-constant": 4
@@ -226,8 +226,6 @@
   "bugpilot/core/fix_mode_store.py": {
    "bugpilot-dir": 3,
    "home-bugpilot": 1,
-   "config-dir-env": 1,
-   "path-helper": 1,
    "path-constant": 5
   },
   "bugpilot/core/fix_report.py": {
@@ -256,7 +254,7 @@
    "bugpilot-dir": 3,
    "home-bugpilot": 2,
    "path-helper": 8,
-   "path-constant": 6
+   "path-constant": 3
   },
   "bugpilot/core/issue.py": {
    "ai-dir": 2,
@@ -337,12 +335,10 @@
    "path-helper": 3
   },
   "bugpilot/core/user_config.py": {
-   "bugpilot-dir": 1,
    "home-bugpilot": 3,
    "config-dir-env": 3,
    "path-helper": 6,
-   "path-constant": 4,
-   "home-lookup": 1
+   "path-constant": 4
   },
   "bugpilot/core/verification.py": {
    "ai-dir": 2,

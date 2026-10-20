@@ -440,11 +440,12 @@ def test_the_cli_writes_utf8_json_through_a_pipe_whatever_the_code_page(tmp_path
     import subprocess
     import sys
 
-    config = tmp_path / "config"
-    config.mkdir()
+    data = tmp_path / "data"  # its own data folder; the user configuration is its config/ (0.1.6)
+    config = data / "config"
+    config.mkdir(parents=True)
     (config / "instructions.md").write_text("Prefer small changes → 三维 é.\n", encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("PYTHONUTF8", "JIRA_"))}
-    env.update(PYTHONIOENCODING="cp1252", BUGPILOT_CONFIG_DIR=str(config), HOME=str(tmp_path), USERPROFILE=str(tmp_path))
+    env.update(PYTHONIOENCODING="cp1252", BUGPILOT_HOME=str(data), HOME=str(tmp_path), USERPROFILE=str(tmp_path))
     done = subprocess.run(
         [sys.executable, "-m", "bugpilot", "instructions", "show", "--json"],
         cwd=tmp_path, env=env, capture_output=True, timeout=120,

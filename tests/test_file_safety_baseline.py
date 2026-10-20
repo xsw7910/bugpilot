@@ -149,15 +149,32 @@ def test_setuid_setgid_and_sticky_are_never_carried(tmp_path, umask, special):
 
 @posix_only
 def test_the_credentials_file_ends_owner_only_new_and_rewritten(umask):
-    """EXPECTED_CURRENT_SAFE for the final mode: 0600 after a first save and after a rewrite."""
+    """EXPECTED_CURRENT_SAFE for the final mode: 0600 after a first save and after a rewrite of a private file.
+
+    Since 0.1.6 Batch 2B-2, Unified Storage's G-3 governs a rewrite (owner decision, Option A): a file another
+    account may reach, here 0644, is refused before anything is written and left as it was, where 0.1.5 replaced
+    it with a 0600 one (S2). That was 0.1.5's behaviour, and its record stands for 0.1.5.
+    """
+    from bugpilot.core.storage import StorageError
+
     umask(0o022)
     path = user_config.save_user_config("dev@example.invalid", "synthetic-token", "https://jira.example.invalid")
     first = _mode(path)
-    path.chmod(0o644)
-    user_config.save_jira_site("https://other.example.invalid")
+    user_config.save_jira_site("https://second.example.invalid")
     rewritten = _mode(path)
-    OBSERVED["credentials_final_mode"] = {"new": oct(first), "rewritten_from_0o644": oct(rewritten)}
+    path.chmod(0o644)
+    before = path.read_bytes()
+    with pytest.raises(StorageError):
+        user_config.save_jira_site("https://other.example.invalid")
+    after_refusal = _mode(path)
+    OBSERVED["credentials_final_mode"] = {
+        "new": oct(first),
+        "rewritten_from_0o600": oct(rewritten),
+        "rewrite_of_0o644": f"refused; left {oct(after_refusal)}",
+    }
     assert first == 0o600 and rewritten == 0o600
+    assert after_refusal == 0o644 and path.read_bytes() == before
+    assert [name for name in os.listdir(path.parent) if name.endswith(".tmp")] == []
 
 
 @posix_only
@@ -191,14 +208,14 @@ def test_the_credentials_file_is_born_owner_only(umask, monkeypatch):
     assert _mode(path) == 0o600
 
 
-def test_a_link_at_the_credentials_files_path_is_refused(tmp_path):
+def test_a_link_at_the_credentials_files_path_is_refused(tmp_path, user_config_folder):
     """Fixed in Batch 4 (O4; Batch 0 recorded EXPECTED_CURRENT_ESCAPE: unlike every atomically written file, the
     credentials file followed a link put at its path, and the token landed wherever it pointed). Refused now, as
     every file BugPilot writes whole refuses one: the target and the link are left as they were."""
     outside = tmp_path / "outside.toml"
     outside.write_bytes(b"untouched\n")
     path = user_config.user_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    assert path.parent == user_config_folder  # made private, as BugPilot makes it
     _link_file(path, outside)
     with pytest.raises(UnsafePathError):
         user_config.save_user_config("dev@example.invalid", "synthetic-token", "https://jira.example.invalid")

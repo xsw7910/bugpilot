@@ -123,21 +123,25 @@ class Workspace:
 
     @contextmanager
     def configured(self) -> Iterator[None]:
-        """The user configuration directory pointed at this workspace's, for the duration."""
-        previous = os.environ.get(CONFIG_DIR_ENV)
-        os.environ[CONFIG_DIR_ENV] = str(self.config)
+        """BugPilot's data folder pointed at this workspace's own, for the duration.
+
+        Since 0.1.6 Batch 2B-2 the user configuration is ``config/`` in the data
+        folder (``BUGPILOT_HOME``), so the workspace's is ``<base>/data/config``.
+        """
+        previous = os.environ.get("BUGPILOT_HOME")
+        os.environ["BUGPILOT_HOME"] = str(self.root.parent / "data")
         try:
             yield
         finally:
             if previous is None:
-                os.environ.pop(CONFIG_DIR_ENV, None)
+                os.environ.pop("BUGPILOT_HOME", None)
             else:
-                os.environ[CONFIG_DIR_ENV] = previous
+                os.environ["BUGPILOT_HOME"] = previous
 
     def reset(self) -> None:
         for path in (self.root / ".bugpilot", self.root / ".ai", self.root / ".ai_memory"):
             shutil.rmtree(path, ignore_errors=True)
-        (self.config / "instructions.md").unlink(missing_ok=True)
+        (self.root.parent / "data" / "config" / "instructions.md").unlink(missing_ok=True)
 
     def _write(self, path: Path, text: str) -> None:
         """Bytes as given: a CR or a U+2028 reaches the product as the file holds it."""
@@ -163,7 +167,7 @@ class Workspace:
         if project is not None:
             self._write(self.root / ".bugpilot" / "instructions.md", project)
         if user is not None:
-            self._write(self.config / "instructions.md", user)
+            self._write(self.root.parent / "data" / "config" / "instructions.md", user)
         if ai_behavior is not None:
             self._write(self.root / ".bugpilot" / "ai_behavior.md", render_ai_behavior(ai_behavior))
         if verification is not None:

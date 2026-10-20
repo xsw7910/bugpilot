@@ -103,8 +103,8 @@ def test_every_switch_says_what_it_means_and_nothing_invents_a_command():
         assert "the AI Fix Mode decides how this attempt verifies within it" in text
 
 
-def test_the_policy_sits_with_the_project_layer_and_does_not_repeat_the_fix_mode(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
-    (isolate_bugpilot_config / "instructions.md").write_text("Be brief.\n", encoding="utf-8")
+def test_the_policy_sits_with_the_project_layer_and_does_not_repeat_the_fix_mode(tmp_path, monkeypatch, capsys, user_config_folder):
+    (user_config_folder / "instructions.md").write_text("Be brief.\n", encoding="utf-8")
     root = _repo(tmp_path / "r")
     (root / ".bugpilot").mkdir()
     (root / ".bugpilot" / "instructions.md").write_text("Run module tests with the repo script.\n", encoding="utf-8")

@@ -26,19 +26,36 @@ import pytest  # noqa: E402 - deliberately after the isolation
 def isolate_bugpilot_config(monkeypatch):
     """A home of its own for each test, inside the session: `~`, `Path.home()` and a child's home.
 
-    Returns the test's (empty, existing) user configuration folder, named by
-    ``BUGPILOT_CONFIG_DIR`` as before. It sits beside the home, so the home's
-    own ``.bugpilot`` stays absent unless a test creates it.
+    Returns the test's user configuration folder, ``<BUGPILOT_HOME>/config``
+    (0.1.6 Batch 2B-2). It is not created: the data root stays absent until
+    BugPilot, or a test through :func:`user_config_folder`, creates it.
+
+    The session keeps ``BUGPILOT_CONFIG_DIR`` set (``tests/_isolation.py``);
+    BugPilot no longer reads it, but warns when it is set, so each test starts
+    without it and a test that wants the warning sets it itself.
     """
     from pathlib import Path
 
     home = _isolation.new_test_home()
     for name, value in home.items():
         monkeypatch.setenv(name, value)
-    config_dir = Path(home["HOME"]).parent / (Path(home["HOME"]).name + "-config")
-    config_dir.mkdir()
-    monkeypatch.setenv("BUGPILOT_CONFIG_DIR", str(config_dir))
-    return config_dir
+    monkeypatch.delenv("BUGPILOT_CONFIG_DIR", raising=False)
+    return Path(home["BUGPILOT_HOME"]) / "config"
+
+
+@pytest.fixture
+def user_config_folder(isolate_bugpilot_config):
+    """The test's user configuration folder, created as BugPilot creates it: ``ensure_config_dir()``.
+
+    For a test that places a user file there itself. A plain ``mkdir`` would
+    leave the data root without its private mode, and a later credential write
+    would then be refused, as it would on a machine.
+    """
+    from bugpilot.core.storage import global_storage
+
+    folder = global_storage().ensure_config_dir()
+    assert folder == isolate_bugpilot_config, (folder, isolate_bugpilot_config)
+    return folder
 
 
 @pytest.fixture(autouse=True)

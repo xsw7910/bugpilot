@@ -11,15 +11,24 @@ The platform path observations (plan §7.3) are written to
 `$BUGPILOT_BASELINE_OUT` when that is set, so CI keeps each system's record in
 its file-safety artifact. They are never compared: a runner's privileges
 (symbolic links on Windows) differ from a developer machine's.
+
+Batch 2B-2 changes three values on purpose. They are listed, exactly, in
+`tests/baselines/0.1.6-batch2b2/designed_differences.json`, and the frozen
+records stay byte for byte as Batch 0A wrote them. Whether a listed value is
+right is one test; whether the owner has approved it is another, so a pending
+review never hides a wrong value.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
 import sys
 from pathlib import Path, PurePosixPath, PureWindowsPath
+
+import pytest
 
 import storage_baseline as baseline
 
@@ -27,6 +36,162 @@ import storage_baseline as baseline
 def test_the_compared_baselines_match_todays_behaviour(tmp_path: Path):
     baseline.generate(tmp_path / "now", timing=False)
     assert baseline.differences(baseline.OUT, tmp_path / "now") == []
+
+
+def test_every_designed_difference_is_approved_by_the_owner():
+    """The approval gate (plan §14.3, Q-6 and C-4): a value is recorded only after the owner reviewed it."""
+    assert baseline.unapproved(baseline.load_designed()) == []
+
+
+def test_the_designed_differences_record_is_well_formed_and_made_against_the_frozen_records():
+    designed = baseline.load_designed()
+    assert baseline.designed_problems(designed) == []
+    assert designed["base_commit"] == "ea9659cd39ccc16565a95ffce5937eee1bdbbf51"
+
+
+def test_each_designed_difference_names_independent_evidence_that_exists():
+    """Its `evidence` is a test that asserts the new value from first principles, never from a baseline."""
+    for entry in baseline.load_designed()["differences"]:
+        file, _, name = entry["evidence"].partition("::")
+        assert file.startswith("tests/test_") and file != "tests/test_storage_baseline.py", entry["id"]
+        assert f"def {name}(" in (baseline.REPO / file).read_text(encoding="utf-8"), entry["id"]
+
+
+# --- the designed-difference mechanism, on synthetic records ----------------------------------------
+
+
+@pytest.fixture
+def synthetic(tmp_path: Path):
+    """Four synthetic committed records, today's copies of them, and a designed record made against them."""
+    expected, actual = tmp_path / "expected", tmp_path / "actual"
+    expected.mkdir()
+    actual.mkdir()
+    records = {name: {"name": name, "flag": True, "items": ["a", "b"], "odd/key~": "x"} for name in baseline.COMPARED}
+    for name, value in records.items():
+        (expected / name).write_bytes(baseline._dump(value))
+        (actual / name).write_bytes(baseline._dump(value))
+    designed = {
+        "describes": "synthetic",
+        "base_commit": "0" * 40,
+        "frozen": {name: baseline.frozen_sha256(expected / name) for name in baseline.COMPARED},
+        "differences": [],
+    }
+
+    def change(name: str, update) -> None:
+        value = copy.deepcopy(records[name])
+        update(value)
+        (actual / name).write_bytes(baseline._dump(value))
+
+    def entry(pointer: str, before, after, record: str = "cli_paths.json", ident: str = "DD-x") -> dict:
+        return {"id": ident, "record": record, "pointer": pointer, "from": before, "to": after,
+                "decision": "synthetic", "evidence": "synthetic", "approved": None}
+
+    return expected, actual, designed, change, entry
+
+
+def test_unchanged_records_and_no_entries_compare_clean(synthetic):
+    expected, actual, designed, _change, _entry = synthetic
+    assert baseline.differences(expected, actual, designed) == []
+
+
+def test_a_listed_difference_that_happened_passes(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value["items"].__setitem__(1, "c"))
+    designed["differences"] = [entry("/items/1", "b", "c")]
+    assert baseline.differences(expected, actual, designed) == []
+
+
+def test_an_unlisted_difference_fails(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value["items"].__setitem__(1, "c"))
+    assert baseline.differences(expected, actual, designed) == ["cli_paths.json: differs from the committed baseline"]
+    change("handoff.json", lambda value: value.__setitem__("flag", False))
+    designed["differences"] = [entry("/items/1", "b", "c")]
+    assert baseline.differences(expected, actual, designed) == ["handoff.json: differs from the committed baseline"]
+
+
+def test_a_difference_beside_a_listed_one_fails(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: (value["items"].__setitem__(1, "c"), value.__setitem__("flag", False)))
+    designed["differences"] = [entry("/items/1", "b", "c")]
+    assert baseline.differences(expected, actual, designed) == [
+        "cli_paths.json: differs from the committed baseline beyond its designed differences"]
+
+
+def test_a_listed_difference_that_did_not_happen_fails(synthetic):
+    expected, actual, designed, _change, entry = synthetic
+    designed["differences"] = [entry("/items/1", "b", "c")]
+    assert baseline.differences(expected, actual, designed) == ["cli_paths.json DD-x: today's value at /items/1 is not `to`"]
+
+
+def test_a_stale_from_fails(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value["items"].__setitem__(1, "c"))
+    designed["differences"] = [entry("/items/1", "z", "c")]
+    assert baseline.differences(expected, actual, designed) == [
+        "cli_paths.json DD-x: the committed value at /items/1 is not `from`"]
+
+
+def test_values_are_compared_with_their_type(synthetic):
+    """``true`` is not ``1``: a pair that only matches by Python's ``==`` is stale."""
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value.__setitem__("flag", 0))
+    designed["differences"] = [entry("/flag", 1, 0)]
+    assert baseline.differences(expected, actual, designed) == [
+        "cli_paths.json DD-x: the committed value at /flag is not `from`"]
+
+
+def test_pointer_escapes_follow_rfc_6901(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value.__setitem__("odd/key~", "y"))
+    designed["differences"] = [entry("/odd~1key~0", "x", "y")]
+    assert baseline.differences(expected, actual, designed) == []
+    assert baseline.pointer_parts("/a~1b/c~0d/0") == ["a/b", "c~d", "0"]
+    for bad in ("", "a/b", "/a~2b", "/a~"):
+        with pytest.raises(ValueError):
+            baseline.pointer_parts(bad)
+
+
+def test_a_changed_frozen_record_is_refused(synthetic):
+    expected, actual, designed, _change, _entry = synthetic
+    (expected / "task_size.json").write_bytes(baseline._dump({"name": "edited"}))
+    problems = baseline.differences(expected, actual, designed)
+    assert problems == ["task_size.json: the committed baseline is not the one the designed differences were made against"]
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda d, e: d["differences"].extend([e("/items", ["a", "b"], []), e("/items/1", "b", "c", ident="DD-y")]),
+     "DD-y: /items/1 is listed twice, or lies inside another listed pointer"),
+    (lambda d, e: d["differences"].extend([e("/flag", True, False), e("/flag", True, False, ident="DD-y")]),
+     "DD-y: /flag is listed twice, or lies inside another listed pointer"),
+    (lambda d, e: d["differences"].append(e("/flag", True, False, record="prepare_timing.json")),
+     "DD-x: 'prepare_timing.json' is not a compared record"),
+    (lambda d, e: d["differences"].append(e("/flag", True, True)),
+     "DD-x: `from` and `to` are the same value, so nothing would differ"),
+    (lambda d, e: d["differences"].extend([e("/flag", True, False), e("/name", "x", "y")]),
+     "designed differences: a missing or repeated id 'DD-x'"),
+])
+def test_a_malformed_designed_record_is_refused(synthetic, mutate, message):
+    expected, actual, designed, _change, entry = synthetic
+    mutate(designed, entry)
+    assert message in baseline.differences(expected, actual, designed)
+
+
+def test_approval_is_judged_apart_from_the_values(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value["items"].__setitem__(1, "c"))
+    designed["differences"] = [entry("/items/1", "b", "c")]
+    assert baseline.differences(expected, actual, designed) == []
+    assert baseline.unapproved(designed) == ["DD-x"]
+    designed["differences"][0]["approved"] = "2026-10-19, the owner"
+    assert baseline.unapproved(designed) == []
+
+
+def test_pointer_differences_name_each_changed_value():
+    before = {"a": {"b": 1, "c": [1, 2]}, "d": ["x"], "e": "same"}
+    after = {"a": {"b": 2, "c": [1, 3]}, "d": [], "e": "same", "f": True}
+    assert baseline.pointer_differences(before, after) == [
+        ("/a/b", 1, 2), ("/a/c/1", 2, 3), ("/d", ["x"], []), ("/f", None, True)]
 
 
 def _strings(value: object) -> list[str]:
@@ -65,7 +230,7 @@ def test_no_compared_record_spells_a_temporary_path_with_a_backslash():
     """`<input>\\review.json` is a Windows spelling, which Linux and macOS would not reproduce."""
     for name in baseline.COMPARED:
         for text in _strings(json.loads((baseline.OUT / name).read_text(encoding="utf-8"))):
-            assert not re.search(r"<(?:repo|config|input|home)>\\", text), (name, text)
+            assert not re.search(r"<(?:repo|config|data|input|home)>\\", text), (name, text)
 
 
 def test_the_0_1_5_pollution_baseline_records_repository_local_folders():

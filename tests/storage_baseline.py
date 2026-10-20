@@ -8,6 +8,7 @@ the real CLI (`python -m bugpilot`) as a guarded Python child.
 
     python tests/storage_baseline.py --write     # regenerate tests/baselines/0.1.6-batch0/
     python tests/storage_baseline.py --check     # regenerate into a temporary folder and compare
+    python tests/storage_baseline.py --pointers  # regenerate, and list every value that differs, by JSON pointer
 
 The records:
 
@@ -20,14 +21,22 @@ The records:
 - ``realpath_<platform>.json``  how this platform canonicalizes spellings of one folder (plan §7.3);
                         an observation of the machine that wrote it, never compared.
 
-Determinism: temporary roots become `<repo>`, `<config>`, `<home>` or `<input>`, a hand-written
-item's id becomes `local_<timestamp>`, lists are sorted, and nothing machine-specific (timings,
-installed tools, versions) is in a compared file. A path-valued command argument is recorded
-with `/` on every platform (`portable_path`), so Windows, Linux and macOS write the same bytes.
+Determinism: temporary roots become `<repo>`, `<config>`, `<data>`, `<home>` or `<input>`, a
+hand-written item's id becomes `local_<timestamp>`, lists are sorted, and nothing machine-specific
+(timings, installed tools, versions) is in a compared file. A path-valued command argument is
+recorded with `/` on every platform (`portable_path`), so Windows, Linux and macOS write the same
+bytes.
+
+Designed differences (0.1.6 Batch 2B-2, plan §14.3, "Batch 2B-2 — final contract resolution"):
+the frozen Batch 0A records are never rewritten. A later batch that changes them on purpose lists
+each change in `tests/baselines/0.1.6-batch2b2/designed_differences.json` as an exact JSON-pointer
+`from`/`to` pair, and `differences()` applies those pairs to the frozen record in memory before
+the byte comparison: any other difference fails, and so does a listed one that did not happen.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -47,6 +56,7 @@ TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 OUT = TESTS / "baselines" / "0.1.6-batch0"
 COMPARED = ("pollution.json", "handoff.json", "cli_paths.json", "task_size.json")
+DESIGNED = TESTS / "baselines" / "0.1.6-batch2b2" / "designed_differences.json"
 
 JIRA_ID = "JR-12345"
 SECOND_ID = "JR-23456"
@@ -84,13 +94,17 @@ def portable_path(path: PurePath, labels: Iterable[tuple[PurePath, str]]) -> str
 
 
 class Session:
-    """One synthetic repository, its isolated configuration folder, and the CLI run inside it."""
+    """One synthetic repository, its isolated configuration and data folders, and the CLI run inside it."""
 
     def __init__(self, base: Path) -> None:
         _isolation.require_isolated()
         self.base = base
         self.repo = base / "repo"
         self.config = base / "config"
+        # Each session's own data root (Batch 2B-2), so one session's user files never reach another's. Not
+        # created here: BugPilot creates it, private, as it would on a machine. BugPilot before 2B-2 ignores
+        # it, so this generator reproduces the frozen records on that product too.
+        self.data = base / "data"
         self.inputs = base / "inputs"
         for folder in (self.repo, self.config, self.inputs):
             folder.mkdir(parents=True)
@@ -107,6 +121,7 @@ class Session:
         env = dict(os.environ)
         env["PYTHONPATH"] = _isolation.child_pythonpath(REPO)
         env["BUGPILOT_CONFIG_DIR"] = str(self.config)
+        env["BUGPILOT_HOME"] = str(self.data)
         env["PYTHONIOENCODING"] = "utf-8"
         # Nothing here may start an agent.
         env["BUGPILOT_CLAUDE_COMMAND"] = env["BUGPILOT_COPILOT_COMMAND"] = "bugpilot-baseline-no-agent"
@@ -123,9 +138,13 @@ class Session:
             capture_output=True, text=True, encoding="utf-8", timeout=300,
         )
 
+    def labels(self) -> tuple[tuple[Path, str], ...]:
+        """The session's temporary roots and the labels the records show for them."""
+        return ((self.repo, "<repo>"), (self.config, "<config>"), (self.data, "<data>"), (self.inputs, "<input>"))
+
     def command(self, args: Sequence[str | Path]) -> str:
         """A command as ``pollution.json`` records it: each ``Path`` argument portable, other text normalized."""
-        labels = ((self.repo, "<repo>"), (self.config, "<config>"), (self.inputs, "<input>"))
+        labels = self.labels()
         words = [portable_path(arg, labels) if isinstance(arg, PurePath) else self.normalize(arg) for arg in args]
         return "bugpilot " + " ".join(words)  # type: ignore[arg-type]
 
@@ -140,7 +159,7 @@ class Session:
         """Temporary roots and local ids replaced; lists of strings sorted unless they are a sequence (``sort=False``)."""
         if isinstance(value, str):
             text = value
-            for path, label in ((self.repo, "<repo>"), (self.config, "<config>"), (self.inputs, "<input>")):
+            for path, label in self.labels():
                 for spelling in {str(path), path.as_posix(), str(path.resolve()), path.resolve().as_posix()}:
                     text = text.replace(spelling, label)
             home = os.environ.get("HOME")
@@ -454,15 +473,184 @@ def generate(directory: Path, *, timing: bool) -> list[str]:
     return written
 
 
-def differences(expected_dir: Path, actual_dir: Path) -> list[str]:
-    problems = []
+# --- designed differences (Batch 2B-2) --------------------------------------------------------------
+
+_ENTRY_KEYS = frozenset({"id", "record", "pointer", "from", "to", "decision", "evidence", "approved"})
+_MISSING = object()
+
+
+def frozen_bytes(path: Path) -> bytes:
+    """A committed record's bytes as compared: line endings as the generator writes them (a checkout may add CRs)."""
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
+def frozen_sha256(path: Path) -> str:
+    return hashlib.sha256(frozen_bytes(path)).hexdigest()
+
+
+def load_designed(path: Path = DESIGNED) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def pointer_parts(pointer: str) -> list[str]:
+    """An RFC 6901 JSON pointer's reference tokens (``~1`` is ``/``, ``~0`` is ``~``). The whole document is refused."""
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        raise ValueError(f"not a JSON pointer to a value inside a record: {pointer!r}")
+    tokens = pointer[1:].split("/")
+    if any(re.search(r"~(?![01])", token) for token in tokens):
+        raise ValueError(f"a JSON pointer with a bad escape: {pointer!r}")
+    return [token.replace("~1", "/").replace("~0", "~") for token in tokens]
+
+
+def _at(document: object, parts: Sequence[str]) -> object:
+    node = document
+    for part in parts:
+        if isinstance(node, dict):
+            if part not in node:
+                return _MISSING
+            node = node[part]
+        elif isinstance(node, list):
+            if not re.fullmatch(r"0|[1-9][0-9]*", part) or int(part) >= len(node):
+                return _MISSING
+            node = node[int(part)]
+        else:
+            return _MISSING
+    return node
+
+
+def _put(document: object, parts: Sequence[str], value: object) -> None:
+    parent = _at(document, parts[:-1])
+    if isinstance(parent, list):
+        parent[int(parts[-1])] = value
+    else:
+        parent[parts[-1]] = value  # type: ignore[index]
+
+
+def _same(first: object, second: object) -> bool:
+    """Equal as JSON values, type included: ``1``, ``1.0`` and ``true`` are three different values."""
+    return json.dumps(first, sort_keys=True, ensure_ascii=False) == json.dumps(second, sort_keys=True, ensure_ascii=False)
+
+
+def designed_problems(designed: dict[str, object], expected_dir: Path = OUT) -> list[str]:
+    """What is wrong with a designed-differences record itself, before anything is compared."""
+    problems: list[str] = []
+    if set(designed) != {"describes", "base_commit", "frozen", "differences"}:
+        return [f"designed differences: unexpected keys {sorted(designed)}"]
+    frozen = designed["frozen"]
+    if not isinstance(frozen, dict) or sorted(frozen) != sorted(COMPARED):
+        return [f"designed differences: `frozen` must hash exactly {list(COMPARED)}"]
     for name in COMPARED:
-        expected, actual = expected_dir / name, actual_dir / name
-        if not expected.exists():
+        path = expected_dir / name
+        if not path.exists():
             problems.append(f"{name}: no committed baseline")
-        elif expected.read_bytes().replace(b"\r\n", b"\n") != actual.read_bytes():
-            problems.append(f"{name}: differs from the committed baseline")
+        elif frozen[name] != frozen_sha256(path):
+            problems.append(f"{name}: the committed baseline is not the one the designed differences were made against")
+    entries = designed["differences"]
+    if not isinstance(entries, list):
+        return problems + ["designed differences: `differences` must be a list"]
+    ids: set[str] = set()
+    seen: dict[str, list[list[str]]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != _ENTRY_KEYS:
+            problems.append(f"designed differences: an entry must have exactly {sorted(_ENTRY_KEYS)}: {entry!r}")
+            continue
+        label = entry["id"]
+        if not isinstance(label, str) or not label or label in ids:
+            problems.append(f"designed differences: a missing or repeated id {label!r}")
+        ids.add(str(label))
+        if entry["record"] not in COMPARED:
+            problems.append(f"{label}: {entry['record']!r} is not a compared record")
+            continue
+        try:
+            parts = pointer_parts(entry["pointer"])
+        except ValueError as error:
+            problems.append(f"{label}: {error}")
+            continue
+        for other in seen.setdefault(entry["record"], []):
+            shorter = min(len(parts), len(other))
+            if parts[:shorter] == other[:shorter]:
+                problems.append(f"{label}: {entry['pointer']} is listed twice, or lies inside another listed pointer")
+        seen[entry["record"]].append(parts)
+        if _same(entry["from"], entry["to"]):
+            problems.append(f"{label}: `from` and `to` are the same value, so nothing would differ")
     return problems
+
+
+def unapproved(designed: dict[str, object]) -> list[str]:
+    """The listed differences the owner has not approved yet (``approved`` is empty)."""
+    return [str(entry.get("id")) for entry in designed.get("differences", []) if not entry.get("approved")]  # type: ignore[union-attr]
+
+
+def differences(expected_dir: Path, actual_dir: Path, designed: dict[str, object] | None = None) -> list[str]:
+    """Every way today's records differ from the committed ones, after the designed differences are applied.
+
+    The committed bytes must match their recorded hashes. For each listed entry the committed value at its
+    pointer must be exactly ``from``; it is replaced by ``to`` in memory, and the result must equal today's
+    record byte for byte. A record without entries is compared byte for byte, as Batch 0A did. Approval is
+    judged separately (:func:`unapproved`), so a pending review never hides a wrong value.
+    """
+    if designed is None:
+        designed = load_designed()
+    problems = designed_problems(designed, expected_dir)
+    if problems:
+        return problems
+    by_record: dict[str, list[dict[str, object]]] = {}
+    for entry in designed["differences"]:  # type: ignore[union-attr]
+        by_record.setdefault(entry["record"], []).append(entry)
+    for name in COMPARED:
+        frozen, now = frozen_bytes(expected_dir / name), (actual_dir / name).read_bytes()
+        entries = by_record.get(name, [])
+        if not entries:
+            if frozen != now:
+                problems.append(f"{name}: differs from the committed baseline")
+            continue
+        document = json.loads(frozen)
+        if _dump(document) != frozen:
+            problems.append(f"{name}: the committed baseline does not survive a JSON round trip")
+            continue
+        stale = False
+        for entry in entries:
+            parts = pointer_parts(entry["pointer"])  # type: ignore[arg-type]
+            found = _at(document, parts)
+            if found is _MISSING or not _same(found, entry["from"]):
+                problems.append(f"{name} {entry['id']}: the committed value at {entry['pointer']} is not `from`")
+                stale = True
+            else:
+                _put(document, parts, json.loads(json.dumps(entry["to"])))
+        if stale or _dump(document) == now:
+            continue
+        current = json.loads(now)
+        for entry in entries:
+            parts = pointer_parts(entry["pointer"])  # type: ignore[arg-type]
+            seen = _at(current, parts)
+            if seen is _MISSING or not _same(seen, entry["to"]):
+                problems.append(f"{name} {entry['id']}: today's value at {entry['pointer']} is not `to`")
+                if seen is not _MISSING:
+                    _put(document, parts, seen)
+        if _dump(document) != now:
+            problems.append(f"{name}: differs from the committed baseline beyond its designed differences")
+    return problems
+
+
+def pointer_differences(expected: object, actual: object, pointer: str = "") -> list[tuple[str, object, object]]:
+    """Each place two JSON values differ, as ``(pointer, expected, actual)``; a missing value is ``None``.
+
+    Objects are compared key by key and lists of equal length item by item; a list whose length changed is one
+    difference at the list itself. For reviewing what a regeneration changed; never a pass or fail by itself.
+    """
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        found: list[tuple[str, object, object]] = []
+        for key in list(expected) + [key for key in actual if key not in expected]:
+            here = f"{pointer}/{key.replace('~', '~0').replace('/', '~1')}"
+            if key not in actual or key not in expected:
+                found.append((here, expected.get(key), actual.get(key)))
+            else:
+                found.extend(pointer_differences(expected[key], actual[key], here))
+        return found
+    if isinstance(expected, list) and isinstance(actual, list) and len(expected) == len(actual):
+        return [item for index, pair in enumerate(zip(expected, actual))
+                for item in pointer_differences(pair[0], pair[1], f"{pointer}/{index}")]
+    return [] if _same(expected, actual) else [(pointer, expected, actual)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -473,6 +661,8 @@ def main(argv: list[str] | None = None) -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--write", action="store_true", help=f"Regenerate {OUT.relative_to(REPO).as_posix()}/.")
     group.add_argument("--check", action="store_true", help="Regenerate into a temporary folder and compare.")
+    group.add_argument("--pointers", action="store_true",
+                       help="Regenerate into a temporary folder and list every differing value by JSON pointer.")
     args = parser.parse_args(argv)
     if args.write:
         for name in generate(OUT, timing=True):
@@ -480,11 +670,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     with tempfile.TemporaryDirectory() as scratch:
         generate(Path(scratch), timing=False)
+        if args.pointers:
+            for name in COMPARED:
+                expected = json.loads(frozen_bytes(OUT / name))
+                actual = json.loads((Path(scratch) / name).read_text(encoding="utf-8"))
+                for pointer, before, after in pointer_differences(expected, actual):
+                    print(json.dumps({"record": name, "pointer": pointer, "from": before, "to": after},
+                                     ensure_ascii=False))
+            return 0
         problems = differences(OUT, Path(scratch))
+    pending = unapproved(load_designed())
     for line in problems:
         print(line)
     print("baselines match" if not problems else f"{len(problems)} baseline(s) differ")
-    return 1 if problems else 0
+    if pending:
+        print(f"awaiting the owner's approval: {', '.join(pending)}")
+    return 1 if problems or pending else 0
 
 
 if __name__ == "__main__":  # pragma: no cover - a developer command

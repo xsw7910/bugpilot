@@ -2,8 +2,13 @@
 
 Two scopes, and the difference between them is who the mode belongs to:
 
-    ~/.bugpilot/fix_modes/<id>.json          one developer's own workflows
+    ~/.bugpilot/config/fix_modes/<id>.json   one developer's own workflows
     <repo>/.bugpilot/fix_modes/<id>.json     a team's, committed with the code
+
+The user folder is in ``config/`` of BugPilot's data folder (``BUGPILOT_HOME``
+when set; 0.1.6, plan §14.3, Batch 2B-2), reached only through storage's checked
+accessor: a data folder in a Git working tree, or a link on the way, is refused
+(owner decision C-2). The 0.1.5 folder at the top of the data folder is never read.
 
 Built-ins stay packaged and read-only. A custom file may not claim one of their
 ids, and may not claim to *be* one: `source` is never stored in the file, it is
@@ -32,7 +37,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal
 
+from . import storage
 from .artifact_io import atomic_write_text
+from .errors import StorageAccessError
 from .fix_modes import (
     BUILTIN_FIX_MODES,
     FixMode,
@@ -43,7 +50,6 @@ from .fix_modes import (
     is_valid_fix_mode_id,
 )
 from .safe_paths import is_link_or_junction
-from .user_config import user_config_dir
 
 CUSTOM_SCHEMA_VERSION = 1
 FIX_MODE_DIR_NAME = ".bugpilot"
@@ -267,17 +273,20 @@ class FixModeStore:
 
     def __init__(self, repo_root: Path | None = None, home_dir: Path | None = None) -> None:
         self._repo_root = Path(repo_root) if repo_root is not None else None
-        # The same directory the rest of BugPilot calls home, so a test that
-        # redirects BUGPILOT_CONFIG_DIR redirects custom modes with it.
-        self._home_dir = Path(home_dir) if home_dir is not None else user_config_dir()
+        # The user scope is `config/fix_modes` in BugPilot's data folder, from storage's checked accessor
+        # (0.1.6 Batch 2B-2). An explicit `home_dir` is a folder of the caller's own, holding `fix_modes/`,
+        # for tests of this store on its own; no product caller passes one.
+        self._home_dir = Path(home_dir) if home_dir is not None else None
 
     # --- locations ---------------------------------------------------------
 
-    def scope_dir(self, scope: str) -> Path:
-        """Where a scope's modes live. Not created by reading."""
+    def scope_dir(self, scope: str, *, create: bool = False) -> Path:
+        """Where a scope's modes live. Not created by reading; ``create=True`` makes the user's folder ready."""
         _require_scope(scope)
         if scope == "user":
-            return self._home_dir / FIX_MODE_SUBDIR
+            if self._home_dir is not None:
+                return self._home_dir / FIX_MODE_SUBDIR
+            return storage.global_storage().user_fix_modes_dir(create=create)
         if self._repo_root is None:
             raise FixModeError(
                 "Project Fix Modes need a repository. Run this from inside the "
@@ -416,7 +425,7 @@ class FixModeStore:
         )
         # Version is managed here, not by whoever wrote the payload.
         mode = _with(mode, version=1)
-        self._write(path, mode)
+        self._write(scope, path, mode)
         return mode
 
     def duplicate(
@@ -459,7 +468,7 @@ class FixModeStore:
             raise FixModeError(
                 f"A {scope} Fix Mode {new_id!r} already exists. Choose another id."
             )
-        self._write(path, copy)
+        self._write(scope, path, copy)
         return copy
 
     def update(self, scope: str, mode_id: str, payload: object, expected_version: object) -> FixMode:
@@ -500,7 +509,7 @@ class FixModeStore:
             based_on=current.based_on,
             based_on_version=current.based_on_version,
         )
-        self._write(self.mode_path(scope, mode_id), updated)
+        self._write(scope, self.mode_path(scope, mode_id), updated)
         return updated
 
     def delete(self, scope: str, mode_id: str, expected_version: object) -> FixMode:
@@ -520,17 +529,35 @@ class FixModeStore:
             raise FixModeError(
                 f"{path.name} is a symbolic link and will not be deleted through BugPilot."
             )
-        path.unlink()
+        if not self._through_storage(scope):
+            path.unlink()
+            return current
+        try:
+            (self.scope_dir("user", create=True) / path.name).unlink()
+        except OSError as error:
+            raise StorageAccessError.during("delete", storage.display_path(path), error) from None
         return current
 
-    def _write(self, path: Path, mode: FixMode) -> None:
+    def _write(self, scope: str, path: Path, mode: FixMode) -> None:
         if path.is_symlink():
             raise FixModeError(
                 f"{path.name} is a symbolic link. BugPilot will not write through it."
             )
-        path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps(custom_mode_payload(mode), indent=2, sort_keys=True) + "\n"
-        atomic_write_text(path, text)
+        if not self._through_storage(scope):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(path, text)
+            return
+        try:
+            # The folder made ready by storage (0700, link-checked); the file written inside it.
+            atomic_write_text(self.scope_dir("user", create=True) / path.name, text)
+        except OSError as error:
+            # Storage unavailable (C-1): one sentence in the display form, never the system error's text.
+            raise StorageAccessError.during("write", storage.display_path(path), error) from None
+
+    def _through_storage(self, scope: str) -> bool:
+        """Whether this scope's folder is BugPilot's own, in its data folder: the user scope, with no ``home_dir``."""
+        return scope == "user" and self._home_dir is None
 
 
 def _with(mode: FixMode, **changes: object) -> FixMode:

@@ -1,6 +1,6 @@
 """User Instructions and Project / Team Instructions.
 
-Two optional files — ``~/.bugpilot/instructions.md`` for the developer,
+Two optional files — ``~/.bugpilot/config/instructions.md`` for the developer,
 ``<repo>/.bugpilot/instructions.md`` for the repository — become two sections of
 ``task.md``, after the Repository Context and before the Fix Mode, below
 BugPilot's safety rules in the stated precedence. These tests hold the files,
@@ -121,8 +121,8 @@ def test_repo_b_has_its_own_advice_and_no_qt_anywhere(tmp_path, monkeypatch, cap
     assert not re.search(r"\bQt\b|QObject|UI thread", task)
 
 
-def test_repo_c_with_user_instructions_only(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
-    _user(isolate_bugpilot_config, "Prefer small focused changes.\nExplain non-obvious decisions.\n")
+def test_repo_c_with_user_instructions_only(tmp_path, monkeypatch, capsys, user_config_folder):
+    _user(user_config_folder, "Prefer small focused changes.\nExplain non-obvious decisions.\n")
     repo = repo_c_typescript(tmp_path / "c")
     task, _payload = _prepare(repo, monkeypatch, capsys)
 
@@ -141,20 +141,20 @@ def test_project_instructions_belong_to_their_repository(tmp_path, monkeypatch, 
     assert PYTEST_ADVICE in b_task and "Qt object ownership" not in b_task
 
 
-def test_unicode_is_kept_as_written(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
+def test_unicode_is_kept_as_written(tmp_path, monkeypatch, capsys, user_config_folder):
     text = "Kommentare auf Deutsch — 日本語のコメントも可 ✓\nÜmläute bleiben."
-    _user(isolate_bugpilot_config, text + "\n")
+    _user(user_config_folder, text + "\n")
     task, _ = _prepare(repo_c_typescript(tmp_path / "c"), monkeypatch, capsys)
 
     assert text in _section(task, "## User Instructions")
 
 
-def test_no_absolute_path_reaches_the_task(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
-    _user(isolate_bugpilot_config, "Be brief.\n")
+def test_no_absolute_path_reaches_the_task(tmp_path, monkeypatch, capsys, user_config_folder):
+    _user(user_config_folder, "Be brief.\n")
     repo = repo_a_cpp_qt(tmp_path / "a")
     task, _ = _prepare(repo, monkeypatch, capsys)
 
-    for absolute in (str(tmp_path), str(isolate_bugpilot_config), str(Path.home())):
+    for absolute in (str(tmp_path), str(user_config_folder), str(Path.home())):
         assert absolute not in task
         assert absolute.replace("\\", "/") not in task
 
@@ -162,8 +162,8 @@ def test_no_absolute_path_reaches_the_task(tmp_path, monkeypatch, capsys, isolat
 # --- the task's layering and the precedence ------------------------------------------------------
 
 
-def test_sections_sit_between_the_repository_context_and_the_branch_rules(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
-    _user(isolate_bugpilot_config, "Be brief.\n")
+def test_sections_sit_between_the_repository_context_and_the_branch_rules(tmp_path, monkeypatch, capsys, user_config_folder):
+    _user(user_config_folder, "Be brief.\n")
     task, _ = _prepare(repo_a_cpp_qt(tmp_path / "a"), monkeypatch, capsys, "--hint", "Look at the save path")
     order = [
         task.index(heading)
@@ -202,9 +202,9 @@ def test_the_precedence_is_the_six_layers_safety_first():
     assert "where two layers conflict, follow the earlier one" in section
 
 
-def test_project_instructions_beat_user_instructions(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
+def test_project_instructions_beat_user_instructions(tmp_path, monkeypatch, capsys, user_config_folder):
     """The plan's example: the team says no new dependencies, one developer prefers a library."""
-    _user(isolate_bugpilot_config, "Prefer library X for parsing.\n")
+    _user(user_config_folder, "Prefer library X for parsing.\n")
     repo = repo_b_python(tmp_path / "b")
     _write(repo, ".bugpilot/instructions.md", "Do not add new dependencies.\n")
     task, _ = _prepare(repo, monkeypatch, capsys)
@@ -274,8 +274,8 @@ def test_exactly_the_limit_is_included_and_one_more_is_refused_whole(tmp_path, m
     )
 
 
-def test_a_file_that_is_not_utf8_is_left_out_with_a_warning(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
-    (isolate_bugpilot_config / "instructions.md").write_bytes(b"caf\xe9 au lait\n")
+def test_a_file_that_is_not_utf8_is_left_out_with_a_warning(tmp_path, monkeypatch, capsys, user_config_folder):
+    (user_config_folder / "instructions.md").write_bytes(b"caf\xe9 au lait\n")
     task, payload = _prepare(repo_c_typescript(tmp_path / "c"), monkeypatch, capsys)
 
     assert "it is not UTF-8 text." in _section(task, "## User Instructions")
@@ -405,7 +405,7 @@ def test_set_edit_and_clear_through_the_cli(tmp_path, monkeypatch, capsys, isola
     code, saved = _cli_json("set", "--scope", "user", "--from-file", str(source), monkeypatch=monkeypatch, capsys=capsys)
     assert code == 0 and saved["user"]["text"] == "Prefer small focused changes."
     assert (isolate_bugpilot_config / "instructions.md").is_file()
-    assert saved["user"]["path"] == "BUGPILOT_CONFIG_DIR/instructions.md"
+    assert saved["user"]["path"] == "BUGPILOT_HOME/config/instructions.md"
 
     # Saving empty text removes the file; so does --clear.
     code, cleared = _cli_json("set", "--scope", "project", "--stdin", stdin="  \n", monkeypatch=monkeypatch, capsys=capsys)
@@ -437,12 +437,12 @@ def test_set_needs_a_scope_and_a_source_and_takes_no_path(tmp_path, monkeypatch,
         main(["instructions", "set", "--scope", "../../elsewhere", "--clear"])
 
 
-def test_show_prints_the_text_to_the_terminal_without_a_personal_path(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
-    _user(isolate_bugpilot_config, "Prefer small focused changes.\n")
+def test_show_prints_the_text_to_the_terminal_without_a_personal_path(tmp_path, monkeypatch, capsys, user_config_folder):
+    _user(user_config_folder, "Prefer small focused changes.\n")
     monkeypatch.chdir(repo_a_cpp_qt(tmp_path / "a"))
     assert main(["instructions"]) == 0
     out = capsys.readouterr().out
-    assert "User Instructions (BUGPILOT_CONFIG_DIR/instructions.md): 29 characters" in out
+    assert "User Instructions (BUGPILOT_HOME/config/instructions.md): 29 characters" in out
     assert "Project / Team Instructions (.bugpilot/instructions.md):" in out
     assert QT_ADVICE in out
     assert str(tmp_path) not in out
@@ -451,8 +451,8 @@ def test_show_prints_the_text_to_the_terminal_without_a_personal_path(tmp_path, 
 # --- privacy, single source and the other entry points ----------------------------------------------
 
 
-def test_the_log_says_loaded_and_never_the_content(tmp_path, monkeypatch, capsys, isolate_bugpilot_config, execution_trace):
-    _user(isolate_bugpilot_config, "SECRET-USER-GUIDANCE\n")
+def test_the_log_says_loaded_and_never_the_content(tmp_path, monkeypatch, capsys, user_config_folder, execution_trace):
+    _user(user_config_folder, "SECRET-USER-GUIDANCE\n")
     repo = repo_a_cpp_qt(tmp_path / "a")
     _task, payload = _prepare(repo, monkeypatch, capsys)
     item = repo / ".ai" / payload["work_item_id"]
@@ -480,9 +480,9 @@ def test_regenerating_the_task_reads_the_files_again(tmp_path, monkeypatch, caps
     assert PYTEST_ADVICE not in task
 
 
-def test_the_cli_and_the_core_entry_point_write_the_same_sections(tmp_path, monkeypatch, capsys, isolate_bugpilot_config):
+def test_the_cli_and_the_core_entry_point_write_the_same_sections(tmp_path, monkeypatch, capsys, user_config_folder):
     """The MCP prepare tools call run_investigation exactly like this, with no instructions of their own."""
-    _user(isolate_bugpilot_config, "Prefer small focused changes.\n")
+    _user(user_config_folder, "Prefer small focused changes.\n")
     cli_task, _ = _prepare(repo_a_cpp_qt(tmp_path / "cli"), monkeypatch, capsys)
     core_repo = repo_a_cpp_qt(tmp_path / "core")
     spec = bug_spec_from_description("Saving a record crashes", repo_root=core_repo)
@@ -493,11 +493,11 @@ def test_the_cli_and_the_core_entry_point_write_the_same_sections(tmp_path, monk
         assert _section(cli_task, heading) == _section(core_task, heading)
 
 
-def test_the_mcp_prepare_tool_reads_the_same_files(tmp_path, isolate_bugpilot_config):
+def test_the_mcp_prepare_tool_reads_the_same_files(tmp_path, user_config_folder):
     pytest.importorskip("mcp")
     from bugpilot import mcp_server
 
-    _user(isolate_bugpilot_config, "Prefer small focused changes.\n")
+    _user(user_config_folder, "Prefer small focused changes.\n")
     repo = repo_b_python(tmp_path / "b")
     result = mcp_server._run("prepare", repo, InvestigationRequest(spec=bug_spec_from_description("crash", repo_root=repo)))
     task = (repo / ".ai" / result.issue_key / "task.md").read_text(encoding="utf-8")

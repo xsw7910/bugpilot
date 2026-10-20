@@ -113,9 +113,10 @@ def _save(writer: str) -> Path:
 
 
 def test_the_credentials_file_holds_what_it_held_before():
-    """Location and format unchanged (§44.7): the same flat table, the same order, read back the same."""
+    """Format unchanged (§44.7): the same flat table, the same order, read back the same. The place is
+    `config/config.toml` in BugPilot's data folder since 0.1.6 Batch 2B-2."""
     path = user_config.save_user_config(EMAIL, TOKEN, SITE)
-    assert path == Path(os.environ["BUGPILOT_CONFIG_DIR"]) / "config.toml"
+    assert path == Path(os.environ["BUGPILOT_HOME"]) / "config" / "config.toml"
     assert path.read_bytes().decode("utf-8").replace("\r\n", "\n") == EXPECTED_TOML
     user_config.save_jira_site("https://other.example.invalid")
     loaded = user_config.load_user_config()
@@ -125,11 +126,11 @@ def test_the_credentials_file_holds_what_it_held_before():
 
 @posix_only
 @pytest.mark.parametrize("mask", [0o022, 0o002, 0o000, 0o077, 0o277])
-def test_every_state_of_a_new_credentials_file_is_owner_only(umask, monkeypatch, mask):
+def test_every_state_of_a_new_credentials_file_is_owner_only(umask, monkeypatch, mask, user_config_folder):
     """The temp file as created, as renamed, and the file in place, each read with `lstat` as it happens: never
     readable by anyone but its owner (a umask that takes the owner's write bit makes the first state `0400`,
     narrower still); `0600` in place."""
-    user_config.user_config_path().parent.mkdir(parents=True, exist_ok=True)  # before a mask that takes write
+    assert user_config_folder.is_dir()  # made private, as BugPilot makes it, before a mask that takes write
     umask(mask)
     seen: list[tuple[str, int]] = []
     real_mkstemp, real_replace = tempfile.mkstemp, os.replace
@@ -155,16 +156,33 @@ def test_every_state_of_a_new_credentials_file_is_owner_only(umask, monkeypatch,
 @posix_only
 @pytest.mark.parametrize("bits", [0o644, 0o640, 0o664, 0o444, 0o755, 0o600, 0o4644, 0o2644])
 def test_a_rewritten_credentials_file_is_owner_only_whatever_its_old_bits(umask, bits):
-    """S2: "always 600, never the old bits" — unlike every other file BugPilot rewrites, which keeps its own."""
+    """G-3 governs a rewrite (0.1.6 Batch 2B-2, owner decision Option A; it supersedes 0.1.5's S2 repair for
+    Unified Storage). A file still owner-only (`0600`) is rewritten and stays `0600`. A file another account may
+    reach is refused before anything is written, in one sentence that names it as messages do, and is left as it
+    was: content, bits, and no temp file. Nothing repairs, or widens, a permission."""
+    from bugpilot.core.storage import StorageError
+
     umask(0o022)
     path = user_config.save_user_config(EMAIL, TOKEN, SITE)
     try:
         path.chmod(bits)
     except OSError:
         pytest.skip(f"the system would not set {oct(bits)} on a file")
-    user_config.save_jira_site("https://other.example.invalid")
-    assert _mode(path) == 0o600
-    assert "https://other.example.invalid" in path.read_text(encoding="utf-8")
+    if bits == 0o600:
+        user_config.save_jira_site("https://other.example.invalid")
+        assert _mode(path) == 0o600
+        assert "https://other.example.invalid" in path.read_text(encoding="utf-8")
+        return
+    before, mode = path.read_bytes(), _mode(path)
+    assert mode & 0o077, f"{oct(bits)} was meant to reach another account; the system set {oct(mode)}"
+    with pytest.raises(StorageError) as refused:
+        user_config.save_jira_site("https://other.example.invalid")
+    message = str(refused.value)
+    assert path.read_bytes() == before and _mode(path) == mode
+    assert _temp_files(path.parent) == []
+    assert "BUGPILOT_HOME/config/config.toml" in message and "Nothing was written" in message
+    for private in (TOKEN, EMAIL, str(path.parent)):
+        assert private not in message
 
 
 @posix_only
@@ -236,23 +254,23 @@ def _refusal(writer: str) -> str:
 
 
 @pytest.mark.parametrize("writer", ["save_user_config", "save_jira_site"])
-def test_a_link_to_a_file_at_the_credentials_path_is_refused(tmp_path, writer):
+def test_a_link_to_a_file_at_the_credentials_path_is_refused(tmp_path, writer, user_config_folder):
     outside = tmp_path / "outside" / "token-sink.toml"
     outside.parent.mkdir()
     outside.write_bytes(b"untouched\n")
     path = user_config.user_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    assert path.parent == user_config_folder  # made private, as BugPilot makes it
     _link_file(path, outside)
     message = _refusal(writer)
     assert outside.read_bytes() == b"untouched\n"
     assert path.is_symlink() and _link_target(path) == str(outside)
     assert _temp_files(path.parent) == []
-    assert "BUGPILOT_CONFIG_DIR/config.toml" in message and "Nothing was written" in message
+    assert "BUGPILOT_HOME/config/config.toml" in message and "Nothing was written" in message
     for private in (TOKEN, EMAIL, str(tmp_path), "untouched"):
         assert private not in message
 
 
-def test_the_site_writer_reads_nothing_through_a_link_at_the_credentials_path(tmp_path, monkeypatch):
+def test_the_site_writer_reads_nothing_through_a_link_at_the_credentials_path(tmp_path, monkeypatch, user_config_folder):
     """Final review: `save_jira_site` reads the file before it writes it, and used to read it through the link
     the write then refused. The refusal now comes first — nothing behind the link is opened at all."""
     import pathlib
@@ -260,7 +278,7 @@ def test_the_site_writer_reads_nothing_through_a_link_at_the_credentials_path(tm
     sink = tmp_path / "token-sink.toml"
     sink.write_bytes(b'jira_token = "elsewhere"\n')
     path = user_config.user_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    assert path.parent == user_config_folder  # made private, as BugPilot makes it
     _link_file(path, sink)
     read: list[str] = []
     real_read_text = pathlib.Path.read_text
@@ -276,13 +294,13 @@ def test_the_site_writer_reads_nothing_through_a_link_at_the_credentials_path(tm
 
 
 @posix_only
-def test_a_link_to_a_fifo_at_the_credentials_path_is_refused_without_blocking(tmp_path):
+def test_a_link_to_a_fifo_at_the_credentials_path_is_refused_without_blocking(tmp_path, user_config_folder):
     """On POSIX a read through a link to a FIFO would block until something wrote to it: the refusal comes
     before any read, so the writer returns at once."""
     fifo = tmp_path / "fifo"
     os.mkfifo(fifo)
     path = user_config.user_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    assert path.parent == user_config_folder  # made private, as BugPilot makes it
     path.symlink_to(fifo)
     outcome: list[BaseException] = []
 
@@ -303,23 +321,23 @@ def test_a_link_to_a_fifo_at_the_credentials_path_is_refused_without_blocking(tm
     assert len(outcome) == 1 and isinstance(outcome[0], UnsafePathError)
 
 
-def test_a_dangling_link_at_the_credentials_path_is_refused_and_creates_nothing(tmp_path):
+def test_a_dangling_link_at_the_credentials_path_is_refused_and_creates_nothing(tmp_path, user_config_folder):
     nowhere = tmp_path / "nowhere" / "token-sink.toml"
     path = user_config.user_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    assert path.parent == user_config_folder  # made private, as BugPilot makes it
     _link_file(path, nowhere)
     _refusal("save_user_config")
     assert not nowhere.exists() and not nowhere.parent.exists()
     assert path.is_symlink() and _temp_files(path.parent) == []
 
 
-def test_a_link_to_a_folder_at_the_credentials_path_is_refused(tmp_path):
+def test_a_link_to_a_folder_at_the_credentials_path_is_refused(tmp_path, user_config_folder):
     """A junction on Windows, which any account can make."""
     sink = tmp_path / "sink"
     sink.mkdir()
     (sink / "keep.txt").write_bytes(b"keep\n")
     path = user_config.user_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    assert path.parent == user_config_folder  # made private, as BugPilot makes it
     _link_dir(path, sink)
     _refusal("save_user_config")
     assert sorted(os.listdir(sink)) == ["keep.txt"] and (sink / "keep.txt").read_bytes() == b"keep\n"
@@ -327,24 +345,27 @@ def test_a_link_to_a_folder_at_the_credentials_path_is_refused(tmp_path):
 
 
 def test_the_folder_holding_the_file_may_sit_behind_a_link(tmp_path, monkeypatch):
-    """The policy, kept by decision B4-2: as a repository root may (§44.10), the configuration folder may sit
-    behind a link — dotfiles often do — and the file is written, owner-only, in the real folder. Only the file's
-    own path is judged (O4). A folder someone else controls is outside the guarantee."""
-    real = tmp_path / "real-config"
+    """The policy, kept by decision B4-2: as a repository root may (§44.10), the folder holding the file may sit
+    behind a link — dotfiles often do — and the file is written, owner-only, in the real folder. Since 0.1.6
+    Batch 2B-2 that folder is the data folder `BUGPILOT_HOME` names; its `config/` is BugPilot's own, and a link
+    there is refused. Only the file's own path is judged (O4). A folder someone else controls is outside the
+    guarantee."""
+    real = tmp_path / "real-data"
     real.mkdir()
-    _link_dir(tmp_path / "linked-config", real)
-    monkeypatch.setenv("BUGPILOT_CONFIG_DIR", str(tmp_path / "linked-config"))
+    _link_dir(tmp_path / "linked-data", real)
+    monkeypatch.setenv("BUGPILOT_HOME", str(tmp_path / "linked-data"))
     path = user_config.save_user_config(EMAIL, TOKEN, SITE)
-    assert (real / "config.toml").read_bytes().decode("utf-8").replace("\r\n", "\n") == EXPECTED_TOML
+    assert (real / "config" / "config.toml").read_bytes().decode("utf-8").replace("\r\n", "\n") == EXPECTED_TOML
     if POSIX:
-        assert _mode(real / "config.toml") == 0o600
-    assert path.parent.name == "linked-config"
+        assert _mode(real / "config" / "config.toml") == 0o600
+    # Named in the real folder: storage hands out the canonical path, where the write landed.
+    assert path == Path(os.path.realpath(real)) / "config" / "config.toml"
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS's /tmp is a link into /private")
 def test_on_macos_a_config_folder_under_tmp_is_not_refused(monkeypatch):
-    folder = Path("/tmp") / f"bugpilot-config-{uuid.uuid4().hex}"
-    monkeypatch.setenv("BUGPILOT_CONFIG_DIR", str(folder))
+    folder = Path("/tmp") / f"bugpilot-data-{uuid.uuid4().hex}"
+    monkeypatch.setenv("BUGPILOT_HOME", str(folder))
     try:
         path = user_config.save_user_config(EMAIL, TOKEN, SITE)
         assert str(path.resolve()).startswith("/private/") and _mode(path) == 0o600
@@ -394,7 +415,7 @@ def test_a_link_swapped_in_while_the_file_is_written_is_never_written_through(tm
 
 
 @pytest.mark.parametrize("writer", ["credentials", "ordinary"])
-def test_a_dangling_link_planted_at_the_temp_name_is_never_written_through(tmp_path, monkeypatch, writer):
+def test_a_dangling_link_planted_at_the_temp_name_is_never_written_through(tmp_path, monkeypatch, writer, user_config_folder):
     """Found in Batch 4: Windows' exclusive create (`O_EXCL`) follows a *dangling* link and creates its target;
     POSIX's refuses it. A link planted at the temp file's name — here at the very name the writer gets — so never
     receives what is written: on POSIX the create fails; on Windows the writer sees that the file it opened is not
@@ -415,13 +436,19 @@ def test_a_dangling_link_planted_at_the_temp_name_is_never_written_through(tmp_p
 
     monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
     if writer == "credentials":
+        from bugpilot.core.errors import StorageAccessError
+
         target, secret = user_config.user_config_path(), TOKEN
-        target.parent.mkdir(parents=True, exist_ok=True)
+        assert target.parent == user_config_folder  # made private, as BugPilot makes it
         save = lambda: user_config.save_user_config(EMAIL, TOKEN, SITE)  # noqa: E731
+        # The credentials writer reports a failed create as storage unavailable (0.1.6 Batch 2B-2, C-1 M-1): POSIX's
+        # refused exclusive create arrives as StorageAccessError; Windows' own check still refuses as before.
+        expected = StorageAccessError if POSIX else UnsafePathError
     else:
         target, secret = tmp_path / "run.json", "run-record-JR-12345"
         save = lambda: atomic_write_text(target, secret)  # noqa: E731
-    with pytest.raises((UnsafePathError, FileExistsError)):
+        expected = (UnsafePathError, FileExistsError)
+    with pytest.raises(expected) as caught:
         save()
     assert real_mkstemp is not tempfile.mkstemp and planted
     assert not os.path.lexists(target)
@@ -429,6 +456,12 @@ def test_a_dangling_link_planted_at_the_temp_name_is_never_written_through(tmp_p
     if not POSIX:
         assert sink.read_bytes() == b"", "Windows created the target, empty; nothing was written into it"
         assert not os.path.lexists(planted[0]), "the writer's own name, a link, is removed"
+    if writer == "credentials":
+        assert type(caught.value) is expected
+        if POSIX:  # the planted link is left as it was, still dangling: nothing was created through it
+            assert os.path.islink(planted[0]) and _link_target(Path(planted[0])) == str(sink) and not sink.exists()
+        leftover = [Path(planted[0]).name] if POSIX else []
+        assert _temp_files(target.parent) == leftover, "no partial credentials file or temp file of BugPilot's own"
 
 
 
@@ -494,12 +527,22 @@ def test_an_ordinary_write_still_falls_back_in_place(tmp_path, monkeypatch):
     assert target.read_text(encoding="utf-8") == "after\n" and _temp_files(tmp_path) == []
 
 
-def test_a_folder_at_the_credentials_path_is_an_error_and_is_left_as_it_was():
+def test_a_folder_at_the_credentials_path_is_an_error_and_is_left_as_it_was(user_config_folder):
+    """On POSIX G-3 refuses it before anything is written: a credentials file must be a regular file (0.1.6
+    Batch 2B-2, owner decision Option A). On Windows, whose privacy check reads access lists only, the write itself
+    fails, as it always did."""
+    from bugpilot.core.storage import StorageError
+
     path = user_config.user_config_path()
-    path.mkdir(parents=True)
+    path.mkdir()  # in the configuration folder made private, as BugPilot makes it
     (path / "inside.txt").write_bytes(b"inside\n")
-    with pytest.raises(OSError):
-        user_config.save_user_config(EMAIL, TOKEN, SITE)
+    if POSIX:
+        with pytest.raises(StorageError) as refused:
+            user_config.save_user_config(EMAIL, TOKEN, SITE)
+        assert type(refused.value) is StorageError and "it is not a regular file" in str(refused.value)
+    else:
+        with pytest.raises(OSError):
+            user_config.save_user_config(EMAIL, TOKEN, SITE)
     assert path.is_dir() and sorted(os.listdir(path)) == ["inside.txt"]
     assert (path / "inside.txt").read_bytes() == b"inside\n" and _temp_files(path.parent) == []
 

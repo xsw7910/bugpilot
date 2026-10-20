@@ -87,21 +87,32 @@ class Decoy:
 
 @pytest.fixture
 def decoy(tmp_path: Path) -> Decoy:
-    """A home whose `.bugpilot` holds canaries, standing in for the real one."""
+    """A home whose `.bugpilot` holds canaries, standing in for the real one.
+
+    Canaries sit at the 0.1.5 places and at 0.1.6's `config/` (Batch 2B-2), where the product now reads
+    the user's configuration, so a refusal is proven where a real read would land.
+    """
     home = tmp_path / "decoy-home"
     data = home / ".bugpilot"
     token = f"canary-token-{uuid.uuid4().hex}"
     instructions = f"canary-instructions-{uuid.uuid4().hex}"
     task = f"canary-task-{uuid.uuid4().hex}"
+    config_token = f"canary-config-token-{uuid.uuid4().hex}"
+    config_instructions = f"canary-config-instructions-{uuid.uuid4().hex}"
     files = {
         data / "config.toml": f'jira_base_url = "https://jira.example.invalid"\njira_email = "decoy@example.invalid"\njira_token = "{token}"\n',
         data / "instructions.md": f"{instructions}\n",
+        data / "config" / "config.toml": (
+            f'jira_base_url = "https://jira.example.invalid"\njira_email = "decoy@example.invalid"\njira_token = "{config_token}"\n'
+        ),
+        data / "config" / "instructions.md": f"{config_instructions}\n",
         data / "repositories" / "app-0123456789abcdef" / "work" / "JR-12345" / "task.md": f"{task}\n",
     }
     for path, text in files.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-    return Decoy(home=home, data=data, token=token, canaries=(token, instructions, task), before=_snapshot(home))
+    canaries = (token, instructions, task, config_token, config_instructions)
+    return Decoy(home=home, data=data, token=token, canaries=canaries, before=_snapshot(home))
 
 
 @pytest.fixture

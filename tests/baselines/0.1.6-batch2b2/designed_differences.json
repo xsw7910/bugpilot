@@ -1,0 +1,44 @@
+{
+ "describes": "Designed differences of 0.1.6 Batch 2B-2 from the frozen Batch 0A records (plan section 14.3, Batch 2B-2 final contract resolution). Each entry is an exact JSON-pointer from/to pair; `approved` stays empty until the owner approves the observed values.",
+ "base_commit": "ea9659cd39ccc16565a95ffce5937eee1bdbbf51",
+ "frozen": {
+  "pollution.json": "26f9d0bea3c4fe805deae71ecf9e276209bac397de3b718756183d1faf7b2536",
+  "handoff.json": "77cee49805bc8c19f4cb2eb1678f86b129a4a572553f3c96adab93e5a32e6530",
+  "cli_paths.json": "0e8ac086364efb785ae041b59977ebc84e35b1b650bee97c39a571e3d215e30a",
+  "task_size.json": "3da947696009e3adee34c24f7eefab7702d1ab0db0506ca1711e3056044af8d1"
+ },
+ "differences": [
+  {
+   "id": "DD-1",
+   "record": "cli_paths.json",
+   "pointer": "/instructions show --json path fields/user",
+   "from": "BUGPILOT_CONFIG_DIR/instructions.md",
+   "to": "BUGPILOT_HOME/config/instructions.md",
+   "decision": "D-2, D-9 (US-D2 with conditions; US-D22 in part): user instructions in config/ of the data folder, shown in display form",
+   "evidence": "tests/test_global_config_storage.py::test_dd1_instructions_show_names_the_user_file_in_display_form",
+   "approved": "2026-10-20"
+  },
+  {
+   "id": "DD-2",
+   "record": "handoff.json",
+   "pointer": "/cli_text/bug/0",
+   "from": "WARN: Jira is not configured: no Jira site, email and API token were found in the environment or in ~/.bugpilot/config.toml. Run `bugpilot setup`, or set JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN. Using mock/demo Jira data.",
+   "to": "WARN: Jira is not configured: no Jira site, email and API token were found in the environment or in ~/.bugpilot/config/config.toml. Run `bugpilot setup`, or set JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN. Using mock/demo Jira data.",
+   "decision": "D-2, D-9, C-3 (a): the Jira not-configured message names config/config.toml",
+   "evidence": "tests/test_global_config_storage.py::test_dd2_the_not_configured_message_names_the_file_load_user_config_reads",
+   "approved": "2026-10-20"
+  },
+  {
+   "id": "DD-3",
+   "record": "pollution.json",
+   "pointer": "/user_configuration_written",
+   "from": [
+    "instructions.md"
+   ],
+   "to": [],
+   "decision": "D-2, D-3 (US-D3): BUGPILOT_CONFIG_DIR is no longer read, so its folder gets nothing",
+   "evidence": "tests/test_global_config_storage.py::test_dd3_the_retired_variables_folder_gets_nothing",
+   "approved": "2026-10-20"
+  }
+ ]
+}

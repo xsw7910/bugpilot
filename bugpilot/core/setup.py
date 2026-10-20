@@ -110,10 +110,11 @@ def run_setup(
     out(f"{_CHECK} Login successful")
 
     # Persist only after a successful login so we never store bad credentials.
-    path = user_config.save_user_config(email, token, base_url)
+    user_config.save_user_config(email, token, base_url)
 
     out("")
-    out(f"Configuration saved to: {path}")
+    # As messages name it (US-D22): the display form, never the user's own folder.
+    out(f"Configuration saved to: {user_config.shown_config_path()}")
     out("")
     out("Setup completed!")
     out("")
