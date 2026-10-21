@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -100,7 +100,7 @@ The repository-local paths are not configuration that a few modules read:
 
 **Readiness.** The plan is ready for owner decisions.
 
-- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. On 2026-10-18 the owner approved, with conditions, US-D28 as an amended design contract (§16.5.11), US-D14 as Refined Option A′ (§16.4.1), US-D13 as the hybrid task-document contract (§9.8.1), US-D30 as Option D, a fixed prompt-budget allowance (§9.8.2), US-D10 as Option D, the agent handoff, with the probe gap accepted for design only (§9.5.1), US-D12 as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 as Option B, the CLI as the only path resolver (§8.9.1). On 2026-10-19, at the Batch 2B-2 decision gate, the owner approved US-D2 with conditions, and US-D29 and US-D22 in part (§14.3, "Batch 2B-2 — decision gate"). 14 still await the owner: 7 OPEN and 7 PROPOSED. 4 items are DEFERRED.
+- **Decisions (§16.1).** The owner approved US-D32 and US-D33 for Batch 0A (2026-10-15), and at the Batch 1 decision gate (2026-10-16) US-D1, D3, D6, D7 and D24; US-D5, D23 and D34 with conditions; and US-D26 in part. On 2026-10-18 the owner approved, with conditions, US-D28 as an amended design contract (§16.5.11), US-D14 as Refined Option A′ (§16.4.1), US-D13 as the hybrid task-document contract (§9.8.1), US-D30 as Option D, a fixed prompt-budget allowance (§9.8.2), US-D10 as Option D, the agent handoff, with the probe gap accepted for design only (§9.5.1), US-D12 as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 as Option B, the CLI as the only path resolver (§8.9.1). On 2026-10-19, at the Batch 2B-2 decision gate, the owner approved US-D2 with conditions, and US-D29 and US-D22 in part (§14.3, "Batch 2B-2 — decision gate"). On 2026-10-20, at the Batch 2B-3 decision gate, the owner approved US-D9, US-D4 with conditions and US-D8 in part, and widened US-D22's approved part to Batch 2B-3's user-facing messages (§14.3, "Batch 2B-3 — owner decisions and final contract gate"); later that day B-1 completed US-D8 (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract"). 11 still await the owner: 5 OPEN and 6 PROPOSED. 4 items are DEFERRED.
 - **The 2026-10-15 architecture review recommends:**
 
   | Recommendation | Count | Decisions |
@@ -803,6 +803,7 @@ Every rule below chooses the split when it cannot be sure.
 | NFC vs NFD spellings of the same folder (macOS) | one ID from `getcwd()`; possibly two from an explicit root | no Unicode normalization on purpose: on Linux two such folders are different folders |
 | Repository moved or renamed | **a new ID**; the old namespace stays where it was, orphaned, not deleted | no relocation in 0.1.6 (US-D8, DEFERRED). §13 tells the user how to find old data. |
 | Repository cloned to a new path | a new ID (correct: a different working tree) | — |
+| A different repository later created at a former repository's exact path *(added 2026-10-20)* | **the same ID**: it inherits that namespace (T-15) | identity is the path's alone, and the record stores the path, so a replaced folder is not detected. **Accepted for 0.1.6** by the owner (B-1, 2026-10-20) as a configuration-contamination risk (§7.6, RK-20). No detection is claimed; an explicit reset is deferred and is not part of 0.1.6 |
 | Several VS Code windows or workspaces on one repository | **one ID**: every window resolves the same root | concurrency in §8.7 |
 | A multi-root workspace with two repositories | two IDs; the extension uses the folder the developer chose (unchanged) | — |
 | Git worktrees (`git worktree add ../repo-wt`) | **one ID per worktree** (PROPOSED, US-D7) | Each worktree is a separate working tree, usually on a different branch for a different bug. Sharing `work/` between worktrees would let one worktree's agent read another's work. Keying by `git rev-parse --git-common-dir` would merge them. The extension today does not even recognize a worktree root (`.git` is a file; `host.ts:36-45`), a limitation that stays. |
@@ -878,6 +879,7 @@ Before that run, the "Unverified" rows above had no observation from the other s
 ### 7.6 Limitations, stated
 
 - **A move or rename starts an empty namespace.** Old data stays where it was until the user acts (US-D8).
+- **A different repository at a former repository's exact path inherits its namespace** (T-15; accepted for 0.1.6 by the owner on 2026-10-20, B-1). Identity is the path's alone, and BugPilot cannot detect a replaced folder. So the newcomer's `task.md` can carry instructions, policies and Fix Modes written for the earlier repository, and from 2B-4 its work items and similar-fix memory. This is a known configuration-contamination risk within one account (RK-20), and the release notes say so. An explicit reset or reassociation is deferred to a future design, and is not part of 0.1.6.
 - **A subdirectory gets its own namespace,** as it gets its own `.ai/` today (US-D4). `doctor` says so (§7.1).
 - **No automatic re-association.** A subdirectory, moved repository, new clone or worktree is never joined with another namespace in 0.1.6 (§7.1).
 - **Spelling-dependent IDs on macOS:** an explicitly configured root with different case or Unicode normalization than the stored name splits the namespace.
@@ -1000,7 +1002,9 @@ The callers on the repository-local base keep their exact messages until Batch 2
 ### 8.6 Errors and messages
 
 - **One error family.** `StorageError` and `StorageIdentityError` are `UnsafePathError` subclasses, so they reach the CLI as one sentence (`ERROR: …` or `INVALID_INPUT`) with no traceback.
+  - *(Clarified on 2026-10-20, F2-S (B-2): this governs the policy refusals and invalid configuration that reach a public boundary as `StorageError` or `StorageIdentityError`. A `storage.StorageUnavailable` is translated by the repository-settings consumers into `errors.StorageAccessError`, which reports each command's existing code under M-1: `INTERNAL_ERROR` at the last resort, `INVALID_INPUT` inside the `set` handlers. No code was added and the fixture is unchanged. §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 3.)*
 - **New error code: OPEN.** A new `errors` code, for example `STORAGE_UNAVAILABLE`, could distinguish "cannot create `~/.bugpilot`" (a permission or disk problem) from bad input. It is part of US-D26.
+  - *(2026-10-20: not added for 2B-3 (G-5, B-2); it stays OPEN for later slices.)*
 - **No absolute paths in messages.** Every message names paths in the display form (`display_path`). A system `OSError` can still carry one, the known F12 limit (`docs/safety.md:68`).
 
 ### 8.7 Simultaneous callers
@@ -1358,7 +1362,9 @@ The US-D17 review also noted US-D4 (OPEN, what the repository root is), which de
 - The envelope (`schema_version`, `ok`, `command`, `error.code`, `error.message`) is unchanged.
 - A 0.1.5 client ignores the new keys. The only removed keys are the two `ai_artifacts_ignored*`, and only if US-D16 is approved.
 - `StorageError` and `StorageIdentityError` report `INVALID_INPUT`.
+  - *(Clarified on 2026-10-20, F2-S (B-2): this governs the policy refusals and invalid configuration that reach a public boundary as `StorageError` or `StorageIdentityError`. A `storage.StorageUnavailable` is translated by the repository-settings consumers into `errors.StorageAccessError`, which reports each command's existing code under M-1: `INTERNAL_ERROR` at the last resort, `INVALID_INPUT` inside the `set` handlers. No code was added and the fixture is unchanged. §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 3.)*
 - Whether to add a separate `STORAGE_UNAVAILABLE` code (the data root cannot be created or written) stays an owner choice within US-D26. Until it is chosen, such failures use the existing generic code.
+  - *(2026-10-20: not added for 2B-3 (G-5, B-2). Under M-1 and F2-S such failures report each command's existing code: `INTERNAL_ERROR` at the last resort, `INVALID_INPUT` inside the `set` handlers. §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 3.)*
 
 **How each side checks it.**
 
@@ -2760,7 +2766,7 @@ Either must avoid becoming a legacy reader (R4).
 
 - The managed runtime installs `bugpilot==<extension version>`, as before, so a matching pair is the default.
 - If the extension meets a CLI without the `unified-storage` capability (a user-configured `bugpilot.executablePath` pointing at an older CLI), it shows the existing "outdated CLI" message and does not run storage-dependent actions.
-- A 0.1.5 extension with a 0.1.6 CLI is unsupported. It would look for `.ai/`, find nothing, and show empty History. That is harmless, and documented.
+- A 0.1.5 extension with a 0.1.6 CLI is unsupported. It would look for `.ai/`, find nothing, and show empty History. That is harmless, and documented. *(2B-3 decision gate, 2026-10-20: not harmless for repository settings. Such an extension's AI Behavior and Verification Edit can overwrite the relocated file through the CLI. Recorded for Batch 3 and Batch 5, §14.3, "Batch 2B-3 — decision gate and slice design".)*
 
 **0.1.5 and 0.1.6 CLIs on one machine** see different data: 0.1.5 the legacy files, 0.1.6 the new layout. Neither touches the other's.
 
@@ -2775,7 +2781,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **IN PROGRESS** (2026-10-18). P10: direct shells and the Python launcher PASS (narrowed run), then VS Code `sendText` PASS (completion run): **PASS for the tested Windows configuration**, with limitations. P7 attempted the same day: UNKNOWN, blocked before its tests by an in-progress VS Code update. P7 retry after the update (VS Code 1.142.0, Windows): P7-A to P7-H PASS, `revealFileInOS` UNKNOWN. P2 (one run, Claude Code 2.1.214): FAIL against the owner's criteria; external reads under `dontAsk` worked, the marker was declined, and a Bash request was refused. P1, P3–P6, P8, P9 and P11 NOT EXECUTED (§14.1.B) | — | — | each further probe awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -5586,10 +5592,11 @@ There are no wildcards, no patterns and no added normalization. The mechanism's 
 | Slice | Decisions it needs | Live-agent evidence it needs |
 | --- | --- | --- |
 | 2B-2 | US-D2 (with conditions); US-D3 (approved; its warning approved by Q-4); US-D22 (in part); US-D26 (in part), with this contract (M-1, approved as C-1); US-D29 (in part) | none (D-7) |
-| 2B-3 | US-D9 | none known |
+| 2B-3 | US-D9 *(2B-3 decision gate, 2026-10-20: a proposed correction, not approved. 2B-3a also needs US-D4, US-D8, and US-D26's `STORAGE_UNAVAILABLE` or an approved interim rule, because 2B-3a is the first reader of `repository.json`. 2B-3b also needs its golden approvals under US-D30, and US-D22's wording for its messages. §14.3, "Batch 2B-3 — decision gate and slice design")* *(G-14, 2026-10-20: approved. US-D4 is approved with conditions, US-D8 in part and US-D9 in full; US-D26's applicable contract still waits on F2-S; T-15 is open. §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(B-1 to B-4, 2026-10-20: decided. 2B-3a's decisions are complete; its implementation awaits authorization. §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* | none known |
 | 2B-4 | US-D4, D8, D13, D14, D15, D18, D25, D30, and US-D10's wording; `STORAGE_UNAVAILABLE` (the residue above) | P1 and P3 (US-D10) for the task and handoff text; P2 (US-D28) for the captured review |
 | 2B-5 | US-D27, D31, and the rest of the 2B-5 gate | P8 (US-D27) |
 | 2B-6 | US-D12, D16, D18, D20, D21, and US-D26's remaining rows | none known |
+| 2B-7 *(proposed on 2026-10-20, not approved)*: storage JSON contract completion, after 2B-3b and before Batch 3 | §8.10 rows 18 to 21 together; US-D22 (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 6) | none known |
 | Activation | everything above, all eight of §14.3's blockers, and every live-agent dependency | Batch 0B complete for P1, P2, P3 and P8. P2 is FAIL, and P1, P3 and P8 are NOT EXECUTED: none of them counts as a pass. |
 
 For 2B-2, blockers 1, 2, 3 and 7 are met only on the consumer side 2B-2 reaches. Blocker 5 is met for 2B-2 only, now that C-1 is answered (M-1). US-D26's `STORAGE_UNAVAILABLE` stays OPEN.
@@ -5921,6 +5928,1126 @@ The run stays recorded as a failure.
 
 No decision status changed.
 
+#### Batch 2B-3 — decision gate and slice design (2026-10-20)
+
+**Status: Batch 2B-3 — NOT STARTED.** This is a decision gate: documentation and a read-only review only. *(The owner's decisions were recorded later on 2026-10-20: "Batch 2B-3 — owner decisions and final contract gate", below.)*
+
+- **Reviewed at:** `92efd66` on `verify/0.1.6-storage`, with `main` and `origin/main` at `ea9659c`.
+- **What it does not do:**
+  - it changes no code, test, helper, fixture, golden, baseline or extension file;
+  - it approves nothing, and changes no decision's status;
+  - it runs no probe and regenerates nothing.
+- **What was read:**
+  - `storage.py`'s identity and `RepositoryStorage`;
+  - the six settings modules, `cli.py`'s handlers and `mcp_server.py`;
+  - the frozen Batch 0A records, both contract fixtures and the task goldens;
+  - the extension's sources.
+
+  Two read-only searches mapped the current CLI and MCP behaviour and the extension's access; their key claims were checked against the source.
+- **Every "proposed" item below waits for the owner.** Implementation waits for explicit authorization.
+
+**Why 2B-3 needs a gate of its own.**
+
+- **The first `RepositoryStorage` consumer.** 2B-3 is the first product code to use it. That makes it the first to read and publish `repository.json`, and the first to meet the containment and record checks.
+- **Its prerequisites are not decided.** §14.3's per-slice table lists only US-D9 for 2B-3. In fact 2B-3 also depends on:
+  - US-D4 (OPEN);
+  - US-D8 (PROPOSED);
+  - US-D26's `STORAGE_UNAVAILABLE` (OPEN), or an interim rule for it;
+  - for its second half, the golden approvals that US-D30 requires.
+
+##### Part 1 — The split (proposed)
+
+| Slice | Moves | User-facing change | AI-facing change | Task goldens |
+| --- | --- | --- | --- | --- |
+| **2B-3a**: namespace and identity access, and the files that do not reach task text | <ul><li>project `instructions.md`</li><li>project Fix Modes</li><li>`project_settings.json`</li><li>`repository_profile.json`</li></ul> Each to `settings/` of the repository namespace (`settings/fix_modes/` for Fix Modes) | <ul><li>the files live in the data folder</li><li>the new refusals (part 3)</li><li>CLI text and warnings name the new place in display form</li><li>the instructions help stops calling the file committed (US-D9)</li></ul> | none | **all 17 byte-identical** |
+| **2B-3b**: the files whose source lines reach task text | <ul><li>`verification.md`</li><li>`ai_behavior.md`</li></ul> | their CLI display, help and messages | <ul><li>the source and notice lines</li><li>the US-D9 introduction line of Project Instructions</li></ul> | 6 of 17, each separately approved (part 8) |
+
+- **The order.**
+  - 2B-3a exercises the namespace, the identity record and the new refusals with no change an AI agent can see.
+  - 2B-3b holds every task-text and golden change, so that review is about wording alone.
+- **One proposed placement.** The US-D9 introduction line ("This repository's shared instructions for AI agents.") belongs to the instructions file. It is placed in 2B-3b because it is task text.
+- **A transient inconsistency.** Between the two slices, `task.md` still calls the per-user Project Instructions "shared". Also, `verification.md` and `ai_behavior.md` still live in `.bugpilot/` while the other four have moved. This exists only on the verification branch, which is not activated.
+- **Independently testable.**
+  - 2B-3a passes only with all 17 goldens unchanged and only its listed designed differences.
+  - 2B-3b passes only with exactly the approved golden diffs and its own listed differences.
+- **Reviewed separately.** Each slice has its own approvals, commit, push authorization and CI run.
+
+##### Part 2 — US-D26 is needed before 2B-3, not 2B-4 (corrected sequencing)
+
+Earlier records say `STORAGE_UNAVAILABLE` must be decided "before 2B-4", where identity-record reads begin. In fact 2B-3a reads the record first.
+
+- **Every settings read reads the record.** It goes through `RepositoryStorage.settings_file(name, create=False)` or `fix_modes_dir(create=False)`. Once a namespace exists, `_check_record` reads `repository.json`.
+- **A record that cannot be read** (a permission error, or a file still in use after storage's retries) raises `storage.StorageUnavailable` at once.
+- **Every settings write runs `ensure()`.** That publishes the record, and its system failures reach the caller as raw `OSError`.
+
+So `StorageUnavailable` reaches clients for the first time in 2B-3a, through `bug`, `task-preview`, `context-preview`, every `show`, and the MCP prepare and Fix Mode tools.
+
+**Proposed:** the public `STORAGE_UNAVAILABLE` code, or an owner-approved interim rule for 2B-3 (part 3), becomes a prerequisite of 2B-3a.
+
+The register row and §14.3's per-slice table carry a matching note. Their earlier text is kept, and no decision status changes.
+
+##### Part 3 — The storage-failure matrix for project settings (US-D26; no code chosen here)
+
+Classes, as Q-1 defined them:
+
+- **U:** storage unavailable;
+- **P:** a policy refusal;
+- **I:** invalid configuration;
+- **A:** absent.
+
+"0.1.5" means the same failure today, on the same surface, at `.bugpilot/`. The internal exceptions are as implemented in `storage.py` today, which is not changed.
+
+| # | Condition | Internal exception | 0.1.5 (today) | 2B-3a with no new rule | Proposed rule (pending) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `repository.json` cannot be read: no permission, or still in use after the retries (U) | `storage.StorageUnavailable`, a `StorageError` | none: no record exists | F2: `INVALID_INPUT` on every surface. Text: `ERROR: BugPilot cannot read ~/.bugpilot/repositories/<id>/repository.json right now: …`. MCP prepare tools: `[INVALID_INPUT]`. MCP Fix Mode tools: the SDK's generic tool error | **O1, O2 or O3** (below); O2 recommended |
+| 2 | Record corrupt, mismatched, a link, or not a regular file (P) | `StorageIdentityError` | none | `INVALID_INPUT` (F2, frozen); fatal for reads and writes | frozen: F2, US-D24 |
+| 3 | A namespace component cannot be examined: a permission error on `lstat` (U) | raw `PermissionError` from `_existing` | `is_link_or_junction` lets the raw error escape. JSON: `INTERNAL_ERROR`, with the absolute path in the text. Text mode: a traceback | the same, now naming the data root's absolute path | the consumer raises `errors.StorageAccessError.during("read", <display path>, error)`. Each surface keeps its code (M-1): `INTERNAL_ERROR` at the last resort, or its own handler's code. One sentence, no absolute path, no traceback |
+| 4 | A non-folder on the way (for example `settings` is a file) (P) | `StorageError` | `.bugpilot` as a file: treated as missing, or a non-fatal problem | `INVALID_INPUT`, fatal | frozen: F2; fail closed |
+| 5 | `BUGPILOT_HOME` unusable: its parent missing (I) | writes: `StorageError` from `_ensure_root`. Reads: none, because absent means defaults | none | writes: `INVALID_INPUT`. Reads: defaults, nothing created | as 2B-2 (I) |
+| 6 | Permission or space failure on write (U): data-root creation, `mkdir`, the atomic write's temporary file or replace, `unlink` on clear, reset or delete | raw `OSError` from `_ensure_root`, `_directory` or `atomic_write_text` | `INVALID_INPUT` from each handler: <ul><li>`instructions`, `verification` and `ai-behavior` `set`: "The text could not be read: …" (mislabelled);</li><li>`project-settings set`: "--from-file could not be read: …";</li><li>`repository-profile set`: the `OSError` text, **with the absolute path**;</li><li>`fix-mode`: "Fix Mode storage is not writable: …", **with the absolute path**</li></ul> | the same codes, now exposing the data root's absolute path | **M-1 extended to project scope:** `StorageAccessError.during(<action>, <display path>, error)`. Every surface keeps its 0.1.5 code (all `INVALID_INPUT` through the handlers), with one sentence and no absolute path. The handlers' mislabelled prefix stays as in 2B-2, unless the owner asks for a wording fix (F4 allows one) |
+| 7 | Publishing the identity record fails | `mkstemp`: raw (U). `os.link` not `EEXIST`: raw (U). `_check_temp`: `StorageError` (P). A POSIX file system without hard links: `StorageError` (I). The final state is not "ok": `StorageIdentityError` (P) | none | U: as row 6. P and I: `INVALID_INPUT` | U as row 6; P and I frozen (F2) |
+| 8 | Policy refusals: <ul><li>the data root inside this repository, or the repository inside the data root (containment);</li><li>the data root inside a Git working tree or `GIT_WORK_TREE`, including "cannot be examined" (G-1, G-2);</li><li>a link or junction at the file or on the way (P)</li></ul> | `StorageError` from `_check_containment`, `_check_data_root`, `_existing` or `_file` | containment: none. Links: non-fatal on reads (a warning, then defaults); `INVALID_INPUT` on writes | `INVALID_INPUT`, **fatal for reads and writes** | frozen: F2. **P-1** (part 4): fail closed; storage is not loosened |
+| 9 | Invalid user paths and arguments: <ul><li>a `--from-file` that is missing, too large or not JSON;</li><li>an invalid Fix Mode id;</li><li>a repository root that is missing or not a folder;</li><li>a settings name outside `SETTINGS_NAMES` (a programming error, unreachable from input)</li></ul> | the handlers' `ValueError`, `FixModeError` and `OSError`; identity: `StorageError` | `INVALID_INPUT` from the handlers. A deleted working folder: raw | unchanged for input files. The root: `INVALID_INPUT` (I) | unchanged (not storage) |
+| 10 | The settings file's own content: unreadable once located, not UTF-8, too large, invalid JSON or front matter, a bad value. Also a Fix Mode file that is invalid or unreadable | the readers' own handling | non-fatal: a visible problem, then the defaults, or the mode left out | unchanged | **unchanged:** Q-1's rule for optional documents |
+| 11 | Absent: no namespace, or no file (A) | none | the defaults; no warning | the defaults; no warning; **nothing created** (`create=False`) | unchanged |
+
+**Options for row 1** (the owner's choice; none is chosen here):
+
+| | **O1**: keep F2's letter | **O2**: classify as U at the consumer boundary (recommended) | **O3**: a public `STORAGE_UNAVAILABLE` code |
+| --- | --- | --- | --- |
+| What happens | `StorageUnavailable` reaches clients as a `StorageError`: `INVALID_INPUT` | <ul><li>The settings consumers catch `storage.StorageUnavailable` and raise `errors.StorageAccessError` with storage's sentence.</li><li>It then follows M-1 per surface: `INTERNAL_ERROR` at the last resort; `INVALID_INPUT` inside the `set` handlers.</li><li>F2 stays true in letter: no `StorageError` reaches a client with another code.</li></ul> | <ul><li>a new code in `errors.py`, and an arm in `error_code_for`;</li><li>F2 amended to exclude `StorageUnavailable`;</li><li>the fixture's `open_choices` resolved;</li><li>the extension's `diagnose` learns the code (Batch 3)</li></ul> |
+| Contract change | none | none (no new code). It decides F5 for 2B-3 in the sense of Q-1's class U | yes: a public code, §8.10, the fixture and F2 |
+| Weakness | a transient permission problem reads as bad input | <ul><li>`INTERNAL_ERROR`'s advice in the extension points to a trace, which this failure no longer has (as in 2B-2);</li><li>the two handlers that report U as `INVALID_INPUT` keep doing so</li></ul> | the largest change; the extension is not ready for the code before Batch 3 |
+| Files | none beyond the consumers | the consumers, or one shared helper (part 10) | `errors.py`, the fixture, `tests/test_storage_identity.py`, §8.10, and later the extension |
+
+**MCP.**
+
+- **`prepare_jira_bug`, `prepare_bug_description` and `refine_investigation`** already turn any exception into `Could not … [CODE]: <sentence>`, with the code from `error_code_for`.
+- **`list_fix_modes` and `show_fix_mode` catch only `FixModeError`.** A `StorageError` or a `StorageAccessError` escapes to the SDK's generic tool error, with no BugPilot sentence. This has been true for the user scope since 2B-2, and becomes common with the project scope (rows 1, 2 and 8).
+- **Proposed (M-P, the owner's choice):** both tools turn `StorageError` and `StorageAccessError` into `ToolError("Could not list Fix Modes [CODE]: <sentence>")`, or `show`'s equivalent. That needs no new code. The alternative is to leave them as they are.
+
+##### Part 4 — Link and containment policy for the project scope (P-1, proposed)
+
+**Fatal: fail closed.** The command stops and nothing is read or written. The code is `INVALID_INPUT` (P, I) or the surface's U code (part 3). The conditions:
+
+- **Containment:** the data root is this repository's folder or inside it, or the repository is inside the data root.
+  - This includes **a repository root that is the home folder while the default data root is in use**. Today BugPilot runs there; from 2B-3a, every command that reads project settings refuses it (`bug`, `task-preview`, `context-preview`, every `show`, the MCP prepare and Fix Mode tools).
+  - It works with a `BUGPILOT_HOME` outside the home folder.
+  - This is approved storage behaviour (R5, H1, Batch 1). 2B-3a is the first place a user meets it, so the owner's acknowledgement is asked for.
+- **Git working trees:** the data root inside a Git working tree or `GIT_WORK_TREE`, including when that cannot be examined (G-1, G-2).
+- **Links:** a link or junction anywhere from the data root to the settings file, **for reads too**:
+  - `repositories/`, the namespace, `settings/` and `settings/fix_modes/`;
+  - the file itself.
+
+  This is the project-scope analogue of C-2 (a). No existing user is affected: the 0.1.5 files are not read, so a link at the new place would be a new one.
+- **Other refusals:** a non-folder on the way; a corrupt or mismatched record; an unreadable record; an unexaminable component.
+
+**Non-fatal: 0.1.5's rule is kept.** The problem is visible, then the defaults apply or the mode is left out. Never silent, never fatal. This covers part 3's row 10.
+
+**Absent:** the defaults, no warning, nothing created. No read creates a namespace.
+
+**Writes:**
+
+- `ensure()` runs first, so the record exists before any settings file does.
+- `settings/` and `settings/fix_modes/` are created by storage (`0700`).
+- The existing atomic writer writes inside the located folder, and its `refuse_link` still catches a link created in between.
+- `fix_mode_store`'s own folder and containment checks (`_unsafe_directory_reason`, `mode_path`) stay as defence in depth.
+
+**Not changed:** `storage.py`, and every storage check.
+
+**0.1.5 defects found by this review.**
+
+| Defect | Where | Proposed for 2B-3a |
+| --- | --- | --- |
+| absolute paths in messages: the profile's read warning (`str(OSError)`), the profile `set` error, and every project Fix Mode message and `issues[].path` | `repository_profile.py`, `cli.py`, `fix_mode_store.py` | **fix**: the move would otherwise expose the data root's absolute path. Display form (US-D22 for these messages: owner decision) |
+| `UnicodeDecodeError` and `RecursionError` from a Fix Mode file are not caught, so one bad file fails every catalog user; the profile does not catch `RecursionError` | `fix_mode_store.py`, `repository_profile.py` | residue: not storage, recorded for a later fix |
+| write failures labelled as read failures | the `set` handlers in `cli.py` | residue, as in 2B-2 (F4 would allow a wording fix) |
+| a folder at a `.json` settings name is treated as missing; the `.md` readers report it | `project_settings.py`, `repository_profile.py` | residue: read semantics unchanged |
+| the profile save does not check for a link again after `mkdir` | `repository_profile.py` | superseded: storage's `_file` and `atomic_write_text` refuse it |
+
+##### Part 5 — Repository identity against the implementation: US-D4 and US-D8 (no change to the algorithm)
+
+**What is frozen:**
+
+- US-D5 (APPROVED with conditions): the algorithm, §7.2;
+- US-D6 and US-D24 (APPROVED): the record, and refusal without repair;
+- US-D7 (APPROVED): one namespace per worktree;
+- the existing tests in `tests/test_storage_identity.py` and `tests/test_storage_safety.py`.
+
+**What is open:** US-D4 (OPEN), the root is the folder BugPilot runs in; and US-D8 (PROPOSED), a move or rename starts a new namespace.
+
+2B-3 is where both start to govern user settings. The rule as implemented:
+
+1. `realpath(root, strict=True)`.
+2. The key is `normcase` on Windows, and the path unchanged on POSIX.
+3. `slug-<16 hex>`.
+4. The record stores `root`. A mismatch is refused, and a case-only rename of the same folder is accepted (B1-13).
+
+| Case | Identity (implementation, existing test) | Effect on project settings in 2B-3 | Status | New 2B-3a test (synthetic folders only) |
+| --- | --- | --- | --- | --- |
+| T-1: the top-level folder, spelled differently (separators, `.`, a trailing separator; letter case on Windows) | one ID (`test_storage_identity`: spelling variants, Windows case) | the same settings | frozen (US-D5) | `project-settings set` under one spelling, `show` under another: the same values. Windows case: Windows only |
+| T-2: a subfolder of a repository | its own namespace (§7.1) | settings saved at the top level are **not** seen in the subfolder, which gets the defaults | **open: US-D4** | set at the top level, show in a subfolder: the defaults, no warning, nothing created for the subfolder |
+| T-3: a nested repository (a submodule or a vendored checkout) | the folder BugPilot runs in (nested test) | the outer and inner settings are independent | follows US-D4 | set in the outer, show in the inner: the defaults, and the reverse |
+| T-4: a Git worktree | its own namespace (worktree test) | **each worktree is configured separately**. Today an untracked `.bugpilot/` is also per worktree; a committed one is shared | frozen (US-D7) | set in the main checkout, show in a worktree: the defaults (needs `git`; skipped where it is missing) |
+| T-5: outside any repository | any folder can be a root; no `git` needed | works as today | follows US-D4 | a folder without `.git`: set and show round-trip |
+| T-6: the home folder with the default data root | containment "inside" (safety tests: data root inside the repository) | **refused** for reads and writes (part 4) | frozen (R5, H1); newly visible | with a synthetic home folder as the root and no `BUGPILOT_HOME`: `project-settings show` and `set` fail with one sentence and create nothing in the data root; `bug --allow-mock` fails with one sentence |
+| T-7: a repository inside the data root | containment "contains" | refused | frozen | `show` fails with `INVALID_INPUT`, and nothing is created |
+| T-8: the root reached through a symbolic link or junction | one ID, the target's (symlink and junction tests) | the same settings through the link and the target | frozen | set through the link, show through the target (skipped where links cannot be made) |
+| T-9: Windows folders that differ only in case, in a case-sensitive directory | equal keys; the record check sees another root and **refuses** (folded collision test) | settings commands fail with `INVALID_INPUT` in the second folder | frozen | covered by the storage test; no consumer test needed |
+| T-10: macOS `/var` and `/private/var` | one ID (macOS `/private` test) | the same settings | frozen | macOS only: set through `/var/…`, show through `/private/var/…` |
+| T-11: macOS, `BUGPILOT_MCP_REPO_ROOT` spelled with a different case, or NFC and NFD spellings | **two IDs** (POSIX case and NFC/NFD tests) | the MCP server sees the defaults where the CLI saved settings | frozen ("prefer split over merge"); documented limitation | macOS only: the CLI saves under the stored spelling, MCP is bound to a case variant, and the MCP tools see the defaults and create nothing |
+| T-12: the repository moved or renamed | a new ID (rename test) | **the settings revert to the defaults, silently.** The old namespace keeps them, orphaned, and nothing is deleted | **open: US-D8** | set, rename the folder, show: the defaults. The old namespace's files are unchanged |
+| T-13: a case-only rename of the same folder (Windows, macOS) | accepted: same file identity (B1-13) | the settings are kept | frozen | covered by the storage test (case-only rename); a consumer round-trip is optional *(Corrected on 2026-10-20 ("Batch 2B-3 — owner decisions and final contract gate", part 2): Windows only. On macOS and Linux a case-only rename gives a new ID, as T-12.)* |
+| T-14: a new clone at another path | a new ID | per clone | frozen | covered by T-12's pattern |
+| T-15: a *different* repository later placed at a former repository's path | **the same ID** (predicted from the code): the key is the path, and the record's `root` matches | **the newcomer inherits the earlier folder's settings** (and, from 2B-4, its work items) | frozen (US-D5, US-D6: a path, not an inode, §7.2); this consequence for settings is newly stated | set in folder A, remove A, create a different folder at the same path, show: the earlier values. This pins the behaviour, not a fix |
+| T-16: a root that is missing or not a folder | `StorageError` before anything is written | a fatal one-sentence error | frozen | `show` in a removed folder: `INVALID_INPUT`, nothing created |
+
+**Decisions asked:**
+
+- **US-D4:** approve as recommended. The root stays the folder BugPilot runs in, with the settings consequences T-2, T-3 and T-6. The `below_git_toplevel` diagnostic stays 2B-5 work.
+- **US-D8:** approve as recommended. The settings consequences T-12 and T-15 are acknowledged, and relocation stays DEFERRED.
+- **Acknowledge** the frozen consequences T-4 (settings per worktree), T-11 and T-15.
+- **No identity change is proposed.**
+
+##### Part 6 — US-D9: migration and sharing
+
+| Situation | 0.1.5 | 0.1.6 after 2B-3 |
+| --- | --- | --- |
+| an untracked `.bugpilot/` with settings | read | **not read, not copied, not deleted** (R4). The developer's settings revert to the defaults with no warning (US-D20's notice is DEFERRED). The release notes (§13.1, §13.2) say so |
+| a committed team `.bugpilot/` | shared through Git | the same, for every teammate. The files stay committed and BugPilot never touches them. Each developer sets their own, and changes to them are no longer reviewed through Git |
+| no settings anywhere | the defaults | the defaults. Nothing is created by a read |
+| both legacy and new settings | — | only the new ones are used. No merge, no precedence, no warning. Until Batch 3 the extension may still open the legacy file (part 9) |
+| a read-only repository (permissions, or a read-only mount) | `set` fails | `set` works: nothing is written to the repository |
+| several working copies: clones, worktrees, subfolders | committed settings shared; untracked ones per copy | **per working copy** (T-2, T-4, T-14). Each is configured separately |
+| a moved or renamed repository | the settings move with it | **the defaults** (T-12; US-D8) |
+| `BUGPILOT_HOME` set | — | the settings live under it. Changing it changes every repository's settings, as with any second data folder. A `BUGPILOT_HOME` inside the repository, or in another Git working tree, is refused (part 4) |
+| migration, fallback or deletion | — | **none** (§15.3, R4). No reader of `.bugpilot/`, no "if absent, try the old file" |
+
+**Import and export (recommendation).**
+
+- **Not needed for 0.1.6.** §13.2's manual re-creation stands.
+- **A candidate for later:** an explicit, user-started export and import pair, for example `bugpilot settings export --to FILE` and `import --from FILE`. Its rules:
+  - it names one file explicitly;
+  - it never looks for `.bugpilot/` by itself, and never runs automatically.
+
+  It would serve both deferred needs: team sharing (§13.3) and relocation (US-D8, T-12).
+- **What it must not be:** a legacy reader (R4). An "import from `.bugpilot/`" shortcut would be one.
+- **When:** in its own decision, not in 2B-3.
+
+**Decision asked: US-D9.** Approve "per-user per-repository; no team sharing through the repository; no reading, copying or deleting of `.bugpilot/`". Its wording part (no claim of "shared" or "committed") applies as follows:
+
+- **In 2B-3a:** the CLI help, including `instructions`' "can be committed with it" (`cli.py`, the `instructions` help), and the module docstrings of the moved files.
+- **In 2B-3b:** the task-text introduction line (part 8).
+
+The section names "Project / Team Instructions" are kept.
+
+##### Part 7 — The JSON and profile contracts
+
+**Today, on the branch** (`show --json` path keys):
+
+| Command | Key and value today | §8.10 (frozen, approved in part) | Storage accessor in 2B-3 |
+| --- | --- | --- | --- |
+| `instructions show` | `project.path` = `.bugpilot/instructions.md`. `user.path` = `~/.bugpilot/config/instructions.md` or `BUGPILOT_HOME/config/instructions.md`, a display string kept by DD-1 | row 18: `path` `abs`, "value (was a display string)". Row 19: `display_path` `display`, **new** | `RepositoryStorage.settings_file("instructions.md")`; the user scope's `GlobalStorage` accessor |
+| `project-settings show`, `repository-profile show` | `path` = `.bugpilot/<name>` (the profile's built in `cli.py`) | row 20: `path` `abs`. Row 21: `display_path`, **new** | `settings_file("project_settings.json")`, `settings_file("repository_profile.json")` |
+| `verification show`, `ai-behavior show` (2B-3b) | `path` = `.bugpilot/<name>` | rows 20 and 21 | `settings_file("verification.md")`, `settings_file("ai_behavior.md")` |
+| `fix-mode list` | `issues[].path` **absolute** (`str(path)`) | row 22: `display`, "value (was absolute; SF-3)" | `fix_modes_dir()` |
+| MCP `list_fix_modes` | `issues[]` has no `path`; the message may hold an absolute path | — | the same |
+
+**The conflict.** 2B-2 deliberately kept `instructions show`'s user `path` as a display string and added no field (D-9, DD-1). §8.10's rows 18 to 21 say `abs`, plus a new `display_path`.
+
+The extension reads none of these `path` values. From `show` it reads only `file.exists`, and it ignores `instructions`' per-scope `path`. Its only use of a CLI path is `fix-mode list`'s `issues[].path`, shown as text. So the timing is a contract choice, not an extension constraint.
+
+**Exact definitions (proposed).**
+
+- **`path`, when rows 18 and 20 are implemented:** `str()` of the accessor's result with `create=False`.
+  - Project scope: `<data root>/repositories/<repository id>/settings/<name>`. User instructions: `<data root>/config/instructions.md`.
+  - The form: storage's canonical data root, the platform's separators, no trailing separator.
+  - It is present whether or not the file exists, and never null. Computing it creates nothing.
+  - When the accessor refuses (part 3), the command fails, so a `path` is never a guess.
+- **`display_path`:** `storage.display_path(path)`, which is `~/.bugpilot/repositories/<repository id>/settings/<name>` or `BUGPILOT_HOME/…`, written with `/`.
+- **The interim `path`** (option J-2 below): the display form of the new place, as DD-1 did. No `display_path` is added.
+- **CLI text, warnings, problems, lint lines and `bugpilot.log`:** the display form only. This extends US-D22 to these messages; US-D22 is PROPOSED beyond 2B-2, so it is the owner's decision.
+- **`task.md` and other AI-facing text:** no settings path (part 8, 2B-3b).
+
+**Options for when rows 18 to 22 are implemented:**
+
+| | J-1: in each slice | **J-2: in one later contract step (recommended for rows 18 to 21)** |
+| --- | --- | --- |
+| 2B-3a | <ul><li>rows 18 and 19 (both instruction scopes, so DD-1's approved value is superseded);</li><li>rows 20 and 21 for `project-settings` and `repository-profile`;</li><li>row 22</li></ul> | `path` keeps being a display string, now of the new place. No new field |
+| 2B-3b | rows 20 and 21 for `verification` and `ai-behavior` | the same interim form |
+| Rows 18 to 21 | split across two slices and the scopes | all at once: in 2B-6, which already holds US-D26's remaining rows, or in a separate step before Batch 3. Batch 3's Edit needs the absolute `path` (part 9) |
+| Baseline generator | absolute values need the `<data>` label **and** portable separators (a cross-OS byte comparison) | the display values need only the repository-ID label |
+
+**Row 22, either way:** it is proposed for **2B-3a**. Otherwise `fix-mode list --json` would start exposing the data root's absolute path for project-scope issues. The extension already treats the value as display text (`fixModes.ts`). The user scope's `issues[].path` changes with it.
+
+**`tests/fixtures/repository_profile_contract.json`** (no change is made here). Field by field:
+
+| Field | Today | Affected | Proposed |
+| --- | --- | --- | --- |
+| `//` | the comment | no | unchanged |
+| `modes`, `default_mode`, `fallback_mode`, `labels`, `fields` | the model | no | unchanged byte for byte. The extension's `repositoryProfile.test.ts` reads these |
+| `path` | `.bugpilot/repository_profile.json` | **yes** | **PC-1 (recommended):** `"settings/repository_profile.json"`, of the `ns` kind, relative to the namespace. `tests/test_repository_profile.py`'s one assertion (`test_the_contract_fixture_is_the_model`) then checks it against storage's name: `"settings/" + PROFILE_FILE_NAME`, with `PROFILE_FILE_NAME` in `storage.SETTINGS_NAMES`. <br> **PC-2:** leave it. That would keep a constant for a place no product code uses, so the contract would be stale. <br> **PC-3:** remove `path` (changes the fixture's key set). <br> Nothing in the extension reads `path` |
+
+##### Part 8 — Goldens and baselines
+
+**2B-3a.**
+
+- **Goldens:** all 17 task goldens are byte-identical, and so are the context, retry and prompt-boundary goldens. A hard gate.
+  - The task text cannot change in 2B-3a. The only project-instructions text in `task.md` that named `.bugpilot` was the link-problem text, and a link is now fatal (P-1).
+- **The harnesses move their inputs.** `tests/task_golden.py` (`_resolved_inputs`) and `tests/prompt_boundary_sources.py` write project inputs straight into `<root>/.bugpilot/`. In 2B-3a they write `instructions.md` and `project_settings.json` through the storage accessor (`settings_file(name, create=True)`) in the per-session data root. In 2B-3b they do the same for `verification.md` and `ai_behavior.md`.
+  - If a harness is not moved, the configured goldens lose their inputs and fail, which is the intended guard.
+  - The converse guard is the R4 test (part 10): unchanged goldens alone cannot prove that the product stopped reading `.bugpilot/`.
+- **Predicted designed differences** (from the frozen Batch 0A values). They are categories now. Exact values are observed, then reviewed by the owner before the commit, as with DD-1 to DD-3:
+
+| Id (proposed) | Record | Pointer | From (frozen) | To (predicted) |
+| --- | --- | --- | --- | --- |
+| DD-4 | `pollution.json` | `/steps/8/created` | `[".bugpilot", ".bugpilot/instructions.md"]` | `[]` |
+| DD-5 | `pollution.json` | `/steps/9/created` | `[".bugpilot/verification.md"]` | `[".bugpilot", ".bugpilot/verification.md"]`: indirect, because `verification set` now creates the folder first |
+| DD-6 | `pollution.json` | `/steps/11/created` | `[".bugpilot/project_settings.json"]` | `[]` |
+| DD-7 | `pollution.json` | `/steps/12/created` | `[".bugpilot/repository_profile.json"]` | `[]` |
+| DD-8 | `pollution.json` | `/steps/13/created` | `[".bugpilot/fix_modes", ".bugpilot/fix_modes/team-fix.json"]` | `[]` |
+| DD-9 | `pollution.json` | `/git_status` | the 26 frozen lines | 22 lines. The four `?? .bugpilot/` lines for `fix_modes/team-fix.json`, `instructions.md`, `project_settings.json` and `repository_profile.json` are gone. One entry for the whole list, since its length changes |
+| DD-10 | `cli_paths.json` | `/instructions show --json path fields/project` | `".bugpilot/instructions.md"` | J-2: `"BUGPILOT_HOME/repositories/<repository-id>/settings/instructions.md"` |
+| DD-11 | `cli_paths.json` | `/project-settings show --json path fields/path` | `".bugpilot/project_settings.json"` | J-2: `"BUGPILOT_HOME/repositories/<repository-id>/settings/project_settings.json"` |
+| DD-12 | `cli_paths.json` | `/repository-profile show --json path fields/path` | `".bugpilot/repository_profile.json"` | J-2: `"BUGPILOT_HOME/repositories/<repository-id>/settings/repository_profile.json"` |
+
+  Unchanged in 2B-3a:
+  - `/bugpilot_folders_in_repository`: `verification` and `ai-behavior` still create `.bugpilot`;
+  - `/steps/10/created`;
+  - `/user_configuration_written`, still DD-3's `[]`;
+  - `handoff.json` and `task_size.json`.
+
+  Under J-1, DD-10 to DD-12 would hold `<data>/…` values with portable separators, and DD-1 would be superseded.
+- **Two mechanism changes** (`tests/storage_baseline.py`; proposed):
+  - **M-a, the repository-ID label.**
+    - The session computes its own repository's ID through `storage.repository_identity(session.repo).repository_id`. That function is frozen and pinned by golden vectors; the ID is never parsed from command output.
+    - `normalize()` replaces exactly that string with `<repository-id>`.
+    - A test checks that no other `<slug>-<16 hex>` ID survives normalization. An ID from another root would mean a wrong namespace.
+    - The label hides the per-OS key, so the records stay byte-identical across systems.
+  - **CH-1, chained per-slice records** (recommended).
+    - Each slice gets its own file: `tests/baselines/0.1.6-batch2b3a/designed_differences.json`, later `…batch2b3b/…`.
+    - The files are applied in slice order: 2B-2, then 2B-3a, then 2B-3b. Each entry's `from` is the value after the earlier slices: the frozen value when none touched it, otherwise the earlier `to`.
+    - `frozen` keeps hashing the Batch 0A records. A pointer may recur only across files, in order.
+    - Approval is recorded per file, so DD-1 to DD-3's approved record is never edited.
+    - The alternative, **CH-2**, is one cumulative file rewritten per slice. It is simpler, but it edits approved entries. CH-1 is needed because 2B-3b changes `/steps/9/created` and `/git_status` again.
+- **Neutrality first** (2B-2's sequence):
+  1. M-a and CH-1 alone, with an empty 2B-3a file. Every record must match under 2B-2's approved DD-1 to DD-3, and all 17 goldens must be unchanged.
+  2. Then the implementation.
+  3. Then the observed values.
+  4. Then the owner's approval of the exact values.
+  5. Then the commit, the authorized push, and CI.
+
+**2B-3b.**
+
+- **Affected goldens:** 6 of 17, and 9 lines.
+  - 5 goldens carry the source lines (`verification.py`'s `SOURCE_FILE` line, `ai_behavior.py`'s additions line).
+  - 3 carry the US-D9 introduction.
+  - One golden, `jira-fix-current-configured`, carries only the introduction. The earlier 2B-3 scope review counted 5 goldens, for the source lines alone; with the introduction it is 6.
+- **Candidate texts** (proposed, for the owner to choose; no path, so the goldens need no repository-ID normalization):
+  - **V:** `Source: repository Verification Policy (.bugpilot/verification.md).` → `Source: repository Verification Policy.`
+  - **A:** `Source: BugPilot defaults, with this repository's additions (.bugpilot/ai_behavior.md).` → `Source: BugPilot defaults, with this repository's additions.`
+  - **I:** `This repository's shared instructions for AI agents.` → `This repository's instructions for AI agents.`
+
+  The alternative is to name the display path. That is longer, needs the ID label in the golden harness, and gives the agent a path it has no use for.
+- **Predicted per golden.** Computed in memory from the committed goldens with the candidate texts; no file was written.
+
+| Golden | Lines | Chars | Approx. tokens |
+| --- | --- | ---: | ---: |
+| `jira-fix-current-ai-behavior` | 57 (A) | 12,023 → 11,996 | 3,006 → 2,999 |
+| `jira-fix-current-configured` | 44 (I) | 12,363 → 12,356 | 3,091 → 3,089 |
+| `jira-fix-current-configured-ai-behavior` | 44 (I), 65 (A) | 12,729 → 12,695 | 3,182 → 3,174 |
+| `jira-fix-current-verification-file` | 44 (I), 50 (V) | 11,975 → 11,940 | 2,994 → 2,985 |
+| `jira-fix-current-verification-file-ai-behavior` | 42 (V), 56 (A) | 11,697 → 11,642 | 2,924 → 2,910 |
+| `jira-investigation-current-ai-behavior` | 57 (A) | 12,671 → 12,644 | 3,168 → 3,161 |
+
+  - **Size:** every affected golden shrinks, which is within US-D30's per-golden rule with a zero delta.
+  - **The median** moves from 3,090 to 3,089: `jira-fix-current-configured` becomes the median case. So `task_size.json`'s `/median_approx_tokens` and `/normalized_median_approx_tokens` change, along with each affected case's `/cases/<name>/chars` and `/approx_tokens`.
+- **2B-3b's other predicted differences, chained on 2B-3a's:**
+
+| Pointer | From | To |
+| --- | --- | --- |
+| `pollution.json` `/steps/9/created` | `[".bugpilot", ".bugpilot/verification.md"]` | `[]` |
+| `pollution.json` `/steps/10/created` | `[".bugpilot/ai_behavior.md"]` | `[]` |
+| `pollution.json` `/git_status` | 22 lines | 20 lines |
+| `pollution.json` `/bugpilot_folders_in_repository` | `[".ai", ".ai_memory", ".bugpilot"]` | `[".ai", ".ai_memory"]` |
+| `cli_paths.json` | the `verification` and `ai-behavior` `path` values | their interim display form |
+
+- **The AI-facing effect:**
+  - the agent no longer sees a repository-relative `.bugpilot/` path that it might open or edit, or recreate in the repository;
+  - nothing it needs is lost, because the policy text itself is still in `task.md`;
+  - the introduction stops claiming the instructions are shared.
+- **Other AI-facing text, not covered by a golden** (listed for approval with V, A and I): the Verification Policy's and AI Behavior's problem-source and notice lines (`verification.py`'s and `ai_behavior.py`'s fallback lines). Each names `.bugpilot/…` today. They are proposed to follow V and A: no path.
+- **Per-golden approval, before any golden is touched:**
+  1. The owner approves the exact replacement strings (V, A, I, and the fallback lines).
+  2. The implementation renders the 17 tasks in memory and gives one reviewer-readable diff per golden. `--update` is not used yet.
+  3. The owner approves each golden by name.
+  4. Only then does `python tests/task_golden.py --update` run. Its diff must equal the approved diffs exactly; any other byte is a stop.
+  5. `task_size.json`'s differences are recorded with the approved values.
+  6. The plan records the approval per golden.
+
+##### Part 9 — Extension compatibility (US-D29 preserved; no extension change)
+
+**What the extension does today.**
+
+- **Writes:** none of the six files directly. It writes through the CLI, with the working directory set to the repository and temporary input files in the system temporary folder.
+- **Direct contact**, all at hard-coded `<repository>/.bugpilot/…` paths:
+  - `lstat` and `stat` of `verification.md` and `ai_behavior.md` (`host/bugpilotFiles.ts`, `host/ports.ts`);
+  - opening those two files in an editor tab (`controller.ts`, `#editVerificationPolicy` and `editAiBehavior`);
+  - one watcher on `.bugpilot/` for `instructions.md`, `verification.md`, `ai_behavior.md` and `project_settings.json`.
+
+| Component | 2B-3a | 2B-3b |
+| --- | --- | --- |
+| Project Instructions (`instructions.ts`; `show` and `set --stdin`/`--clear`; the per-scope `path` ignored) | compatible | — |
+| Project settings and Repository Profile (`show` and `set --from-file`) | compatible. They reread at environment checks, and the profile is not watched | — |
+| Fix Modes (`fix-mode` commands; `issues[].path` shown as text) | compatible | — |
+| The watcher | **degraded:** saves to `instructions.md` and `project_settings.json` no longer fire it. Rereads still happen on window focus, Run, Rebuild, Fix with AI, New Attempt and environment checks | **degraded** likewise for `verification.md` and `ai_behavior.md` |
+| Verification and AI Behavior **Edit** | unaffected (the files are still in `.bugpilot/`) | **disagrees.** Edit decides "absent" by `lstat` of the repository path, then creates the file through the CLI and opens the repository path |
+| The outdated-CLI gate (`verification-text`, `ai-behavior-text`) | unaffected | it asks whether the repository file exists |
+| Strings (`VERIFICATION_FILE`, `AI_BEHAVIOR_FILE`, `html.ts`, the Reset dialogs) | unaffected | **wrong:** "This deletes .bugpilot/verification.md" while `reset` deletes the namespace file |
+
+**Overwrite risk in 2B-3b with today's extension.** When `<repository>/.bugpilot/ai_behavior.md` is absent but the namespace file exists:
+
+- **AI Behavior Edit** runs `ai-behavior set --stdin` with the CLI's empty template, **replacing the developer's additions**. It then fails to open the repository path, and it repeats this on every click.
+- **Verification Edit** re-renders a valid file's front matter, which silently clears the "default changed" state. It **replaces** a file that has a problem with BugPilot's default.
+- **When a legacy repository file exists,** Edit opens it, and the CLI ignores it. Nothing warns.
+- **A linked `.bugpilot` folder** makes Edit refuse, although the CLI's file is elsewhere.
+
+**Nothing deletes a legacy file.**
+
+**Version skew.** The same overwrite applies to a 0.1.5 extension driving a 0.1.6 CLI, which a user-configured `bugpilot.executablePath` allows. §13.5 calls that pairing harmless; for these settings it is not. It is recorded for Batch 3 and Batch 5, with no 2B-3 change.
+
+**An intermediate layer is not recommended.**
+
+- A CLI-side compatibility path would be a legacy fallback (§15.3, R4), and a feature flag was rejected (§15.2).
+- Batch 3 must instead:
+  - open the file the CLI names, which needs rows 20 and 21's absolute `path` first (part 7);
+  - take the file's state from the CLI, not from a repository `lstat`;
+  - rely on the reread points, or watch the namespace's `settings/`;
+  - gate on `unified-storage` (§13.5);
+  - change the strings.
+
+**Is testing blocked?**
+
+- **Python:** no.
+- **Extension unit tests:** no failure is predicted. They mock the CLI's JSON. The cross-language tests read only `MAX_INSTRUCTION_CHARS`, the project-settings switches and `DEFAULT_BRANCH_TEMPLATE_LABEL`, `git_ops.py`'s template limit and the Fix Mode id pattern, and those lines are protected in both slices.
+
+  Each slice's CI confirms this. A failure goes on §15.4's ledger, unmasked, and stops the slice for review.
+- **Real-window checks:**
+  - after 2B-3a, only with a disposable `BUGPILOT_HOME` and synthetic repositories;
+  - after 2B-3b, **never Edit or Reset against real settings** before Batch 3.
+
+**US-D29.** Both slices stay on `verify/0.1.6-storage`. No partial integration into `main`, no pull request, no activation.
+
+##### Part 10 — Slice contracts (proposed; nothing is authorized)
+
+**2B-3a: namespace and identity access, and four settings.**
+
+1. **Scope:**
+   - project `instructions.md`, `project_settings.json`, `repository_profile.json` and project Fix Modes, read and written through `RepositoryStorage`;
+   - the namespace's creation by the first write (`ensure()`);
+   - part 3's rules, as approved;
+   - P-1;
+   - row 22, and rows 18 to 21 per the J choice;
+   - US-D9's CLI-facing wording;
+   - the display form for the messages listed in §4.
+
+   **Excluded:**
+   - `verification.md` and `ai_behavior.md`;
+   - all task text and goldens;
+   - work items, memory, deletion (2B-4) and `doctor` (2B-5);
+   - any `.bugpilot/` reader, copy or deletion;
+   - the extension.
+2. **Production allowlist:**
+   - `bugpilot/core/instructions.py`: the project scope, its shown name and the docstring. Not `MAX_INSTRUCTION_CHARS`, and not the introduction text.
+   - `bugpilot/core/project_settings.py`: the path and shown name only. Not the switch tuples, and not `DEFAULT_BRANCH_TEMPLATE_LABEL`.
+   - `bugpilot/core/repository_profile.py`.
+   - `bugpilot/core/fix_mode_store.py`: the project scope's folder; message display form.
+   - `bugpilot/cli.py`: the profile's and settings' text, `fix-mode list`'s `issues[].path`, the help wording, and part 3's arms if needed.
+   - `bugpilot/mcp_server.py`, only if M-P is approved.
+   - **Proposed:** one new module, `bugpilot/core/repository_settings.py`. It would be the single chokepoint that resolves the namespace for a root and applies part 3's U mapping. The alternative is the same helper in each consumer.
+   - **Only under O3:** `bugpilot/core/errors.py`.
+3. **Test and helper allowlist:**
+   - **modified:**
+     - `tests/test_instructions.py`, `test_project_settings.py`, `test_repository_profile.py`, `test_fix_mode_store.py`, `test_fix_mode_custom.py`, `test_mcp_server.py`, `test_context_preview.py`, `test_task_preview.py`, `test_terminal_output.py`, `test_protected_rules.py`, `test_storage_baseline.py` and `test_storage_inventory.py`, each only where it pins a moved place;
+     - `tests/storage_inventory.json`;
+     - `tests/storage_baseline.py` (M-a, CH-1);
+     - `tests/task_golden.py` (`_resolved_inputs` only);
+     - `tests/prompt_boundary_sources.py` (the input writer and reset only);
+   - **added:**
+     - `tests/test_repository_settings_storage.py`: T-1 to T-16, part 3's matrix, P-1, and the R4 test (a planted `.bugpilot/` file's sentinel text never appears in any output or task);
+     - `tests/baselines/0.1.6-batch2b3a/designed_differences.json`.
+   - **Conditional:** `tests/fixtures/repository_profile_contract.json`, under PC-1 or PC-3 only.
+   - **Any other test file:** stop and ask, as in 2B-2.
+4. **Protected:**
+   - `bugpilot/core/storage.py`, `tests/_isolation.py`, `verification.py`, `ai_behavior.py`, `prompts.py`, `handoff.py`, `workflow.py`, `task_preview.py`, `context_preview.py`;
+   - every golden, and the frozen Batch 0A records;
+   - `tests/fixtures/storage_cli_contract.json` and `tests/test_storage_identity.py`;
+   - `extension/`, and the version files;
+   - the owner's local files.
+5. **Security and privacy:**
+   - fail closed (P-1); `storage.py` is not loosened;
+   - no absolute path in any message;
+   - `repository.json`'s `root` only where US-D6 allows;
+   - `0700` folders and `0600` files, by storage;
+   - no reading, copying or deleting of `.bugpilot/`;
+   - synthetic folders and a per-test data root only;
+   - the isolation guard and the storage write witness stay green;
+   - no network and no credentials; no hostile-character matrices.
+6. **CLI and MCP:** the codes per part 3 as approved. No new code unless O3. No new JSON field unless J-1.
+7. **Golden and baseline:** 17 goldens unchanged; DD-4 to DD-12 exact values observed, then approved; neutrality first (part 8).
+8. **Local verification (Windows):**
+   - the whole Python suite, with an absolute `PYTHONPATH` and an isolated home;
+   - the new test file;
+   - the neutrality run;
+   - the baseline comparison with the approval gate;
+   - the golden check;
+   - the extension suite, unchanged;
+   - publishability;
+   - `git diff --check`;
+   - the protected files.
+9. **CI:**
+   - one owner-dispatched `workflow_dispatch` on the branch, after an authorized push;
+   - all nine jobs;
+   - the POSIX permission checks of `settings/`, the record and the new files must run on Linux and macOS;
+   - skips compared with run 39486855193;
+   - pass, skip and deselect counts reported per job.
+10. **Prerequisites and gates:**
+    - US-D4 and US-D8 approved, and US-D9's substance approved;
+    - the part 3 choice (O1, O2 or O3) and M-P;
+    - P-1, J, PC, M-a and CH-1;
+    - the allowlists;
+    - an explicit implementation authorization.
+11. **Rollback and stop conditions:** stop on any of these:
+    - any golden byte changed;
+    - a record difference beyond DD-4 to DD-12;
+    - a change to `storage.py`;
+    - a file outside the allowlist;
+    - a test failure (keep the traceback);
+    - a remaining `.bugpilot/` reader for the moved files;
+    - an absolute path in a message;
+    - an unexpected extension failure;
+    - a red CI job.
+
+    Rollback is the owner's decision. The slice is one commit on the branch, so before an authorized push it can be discarded on instruction, and after it reverted by an approved commit. There is no force-push or reset.
+12. **Plan updates:** §14.0, a §14.3 record, §18 and §19. §16.1 changes only for what the owner approves.
+
+**2B-3b: Verification Policy and AI Behavior.**
+
+1. **Scope:**
+   - `verification.md` and `ai_behavior.md` through `RepositoryStorage`;
+   - their CLI display, help and messages;
+   - the approved task texts V, A and I and the fallback lines;
+   - the 6 approved goldens;
+   - rows 20 and 21 for these two commands, per J.
+
+   **Excluded:** everything 2B-3a excluded, and any other task text.
+2. **Production allowlist:**
+   - `bugpilot/core/verification.py` and `bugpilot/core/ai_behavior.py`: path, shown name, source and notice lines, messages;
+   - `bugpilot/core/instructions.py`: the introduction text only;
+   - `bugpilot/cli.py`: these two commands' text and help;
+   - the 2B-3a chokepoint module, if it exists.
+   - If `task_preview.py` or `workflow.py` turn out to need a change: stop and ask.
+3. **Test and helper allowlist:**
+   - `tests/test_verification_policy.py`, `test_ai_behavior.py`, `test_task_golden.py`, `test_protected_rules.py`, `test_context_preview.py`, `test_task_preview.py`, `test_repository_profile.py` (its `verification.md` reference), `test_storage_inventory.py` and `test_repository_settings_storage.py`;
+   - `tests/storage_inventory.json`;
+   - `tests/task_golden.py` and `tests/prompt_boundary_sources.py` (the two inputs);
+   - **the 6 named golden files, only after per-golden approval;**
+   - `tests/baselines/0.1.6-batch2b3b/designed_differences.json`.
+4. **Protected:**
+   - 2B-3a's list;
+   - the other 11 task goldens, and the context, retry and prompt-boundary goldens;
+   - `MAX_*` constants and the verification switches read by the extension's tests;
+   - US-D13's work-path text (2B-4).
+5. **Security and privacy:**
+   - as 2B-3a;
+   - `task.md` names no settings path;
+   - the protected-rule framing of both documents is unchanged; only their source lines change.
+6. **CLI and MCP:**
+   - `verification` and `ai-behavior` `show`, `set`, `clear` and `reset`, and the MCP prepare tools' warnings, under part 3's rules;
+   - no new code unless O3.
+7. **Golden and baseline:**
+   - part 8's six goldens, per-golden approval, the `task_size.json` values;
+   - the chained `pollution.json` and `cli_paths.json` differences;
+   - no golden is modified before its approval.
+8. **Local verification:** as 2B-3a, plus the approved-diff check of `--update`.
+9. **CI:** as 2B-3a.
+10. **Prerequisites and gates:**
+    - 2B-3a committed and CI-verified;
+    - V, A, I and the fallback lines approved;
+    - each golden approved;
+    - US-D22's extension to these messages;
+    - US-D30's per-golden rule applied. Every delta is negative, so no budget A is needed.
+11. **Rollback and stop conditions:** stop on any of these:
+    - a golden diff that differs from the approved one;
+    - a size above a golden's frozen size;
+    - any 2B-3a stop condition.
+12. **Plan updates:** as 2B-3a, plus the per-golden approval table.
+
+**Live-agent evidence:** none known for either slice. Every activation gate (§14.3's eight blockers, Batch 0B's P1, P2, P3 and P8) still applies.
+
+##### Part 11 — Owner decisions this gate asks for (none is approved here)
+
+| # | Decision | Recommendation |
+| --- | --- | --- |
+| G-1 | The split into 2B-3a and 2B-3b, with the US-D9 introduction in 2B-3b | approve |
+| G-2 | US-D4 (OPEN), with the settings consequences T-2, T-3, T-6 | approve as recommended in §16.1 |
+| G-3 | US-D8 (PROPOSED), with T-12 and T-15; relocation DEFERRED | approve as recommended |
+| G-4 | US-D9 (OPEN): per-user per-repository, no sharing, no reading, copying or deleting of `.bugpilot/`; wording per part 6; import and export not in 0.1.6 | approve |
+| G-5 | US-D26 for 2B-3: O1, O2 or O3 (part 3), now needed **before 2B-3a** | O2. The public code stays OPEN under O1 and O2 |
+| G-6 | P-1, including the home-folder refusal (T-6) | approve |
+| G-7 | When rows 18 to 22 are implemented: J-1 or J-2, and row 22 in 2B-3a | J-2 for rows 18 to 21; row 22 in 2B-3a |
+| G-8 | `repository_profile_contract.json`'s `path`: PC-1, PC-2 or PC-3 | PC-1 |
+| G-9 | M-P: the MCP Fix Mode tools report storage failures as one sentence with a code | approve |
+| G-10 | M-a (the repository-ID label) and CH-1 (chained per-slice records) | approve |
+| G-11 | US-D22 extended to 2B-3's messages, including the absolute paths the move would expose (part 4) | approve |
+| G-12 | 2B-3a's allowlists (part 10), including whether to add `repository_settings.py` | approve, or narrow |
+| G-13 | 2B-3b's texts V, A and I and the fallback lines (can wait until before 2B-3b) | the candidates in part 8 |
+| G-14 | The corrections recorded with this gate: §14.3's per-slice row for 2B-3, and US-D26's "before 2B-4" | approve |
+
+**Unchanged by this record:**
+
+- every register status: 21 APPROVED, 7 OPEN, 7 PROPOSED, 4 DEFERRED;
+- the version, 0.1.5;
+- US-D26's `STORAGE_UNAVAILABLE`, OPEN;
+- Batch 0B's evidence (P1, P3 and P8 NOT EXECUTED; P2 FAIL), and all eight activation blockers;
+- US-D29's open terms.
+
+**Batch 2B-3 — NOT STARTED. Batch 2B-4 to 2B-6 — NOT STARTED.**
+
+#### Batch 2B-3 — owner decisions and final contract gate (2026-10-20)
+
+**Status:**
+
+- **Batch 2B-3a and 2B-3b: NOT STARTED.**
+- **Batch 2B-3a: NOT READY.** Two owner choices still block it: T-15 (part 3) and F2-S (part 4). Two exact-behaviour approvals are also needed before its implementation: PC-1's values (part 6) and M-P's behaviour (part 7). *(B-1 to B-4 were decided later on 2026-10-20: "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", below.)*
+
+**Nature of this record.** Documentation and a read-only analysis, at `92efd66` on `verify/0.1.6-storage`, with the decision-gate record above.
+
+- No code, test, helper, fixture, golden, baseline or extension file changed.
+- No probe ran, nothing was regenerated, and nothing was staged, committed or pushed. *(The 2B-3 records were then committed together on 2026-10-20, without pushing: §19.)*
+- The version is 0.1.5, and Unified Storage is not activated.
+
+##### Part 1 — The owner's decisions (2026-10-20)
+
+| # | Owner's decision | Recorded as | Remaining condition |
+| --- | --- | --- | --- |
+| G-1 | **APPROVED** | 2B-3 is split into 2B-3a and 2B-3b. The AI-facing "shared instructions" wording and every task-golden change belong to 2B-3b | none |
+| G-2 | **APPROVED WITH CONDITIONS** | **US-D4: APPROVED — with conditions.** The existing root and identity rules are unchanged, the home-folder refusal included | <ul><li>T-1 to T-16 verified (part 2: one correction, T-13);</li><li>they are implemented as tests that pass on Windows, Linux and macOS;</li><li>the unresolved choices are named (part 2)</li></ul> |
+| G-3 | **PARTIALLY APPROVED** | **US-D8: APPROVED — in part.** A moved or renamed repository may start a new namespace, with no automatic migration | T-15 is **not approved** (part 3) |
+| G-4 | **APPROVED** | **US-D9: APPROVED** | <ul><li>Settings are per user and per repository namespace.</li><li>Legacy `.bugpilot/` is never read, migrated, copied or deleted.</li><li>No import or export in 0.1.6.</li><li>Losing implicit Git-based team sharing is an **intentional compatibility impact** (§13.3).</li><li>The exact AI-facing texts are decided at the 2B-3b gate (G-13).</li></ul> |
+| G-5 | **O2 APPROVED IN PRINCIPLE**, subject to exact error-contract verification | US-D26 stays **APPROVED — in part**. No public `STORAGE_UNAVAILABLE` code is introduced for 2B-3 | Not fully resolved: matrix row 1 needs F2-S (part 4) |
+| G-6 | **APPROVED** | P-1: fail closed for links, containment, Git working trees and identity records. Content problems stay non-fatal where the existing contract says so. `storage.py` is unchanged | its consequences are in part 4 |
+| G-7 | **J-2 APPROVED AS A STAGING DIRECTION ONLY** | rows 18 to 21 deferred; row 22 in 2B-3a, which is compliant | the interim state is **not compliant** with rows 18 to 21 (part 5) |
+| G-8 | **PC-1 APPROVED IN PRINCIPLE** | the fixture stays unchanged until its exact values are approved | the exact values are in part 6 |
+| G-9 | **M-P APPROVED IN PRINCIPLE** | — | the exact behaviour is in part 7, awaiting approval |
+| G-10 | **APPROVED IN PRINCIPLE** | M-a (the repository-ID label) and CH-1 (chained per-slice records) | the requirements are in part 8 |
+| G-11 | **APPROVED** | **US-D22:** its approved part now also covers Batch 2B-3's user-facing messages, with no unnecessary wording change | the rest of US-D22 stays PROPOSED |
+| G-12 | **APPROVED FOR PLANNING ONLY** | 2B-3a's allowlist, including a new `bugpilot/core/repository_settings.py`, is a plan. No file was modified | an implementation authorization |
+| G-13 | **DEFERRED** to the 2B-3b gate | V, A, I, the fallback lines and the six task goldens are untouched and unapproved | the 2B-3b gate |
+| G-14 | **APPROVED** | US-D26's applicable contract must be resolved **before 2B-3a**, not before 2B-4. This is recorded in §14.3's per-slice table and in §16.1 | — |
+
+##### Part 2 — T-1 to T-16, verified against the implementation (G-2)
+
+Each classification in "Batch 2B-3 — decision gate and slice design", part 5, was checked against `storage.py` and the existing tests:
+
+| Case | Verified against | Result |
+| --- | --- | --- |
+| T-1 spellings | `_identity` (`realpath`, then `normcase` on Windows); `test_spelling_variants_of_one_folder_share_one_id`, `test_windows_letter_case_variants_share_one_id` | confirmed |
+| T-2 a subfolder | `repository_identity` does no Git discovery | confirmed (2B-3a adds the consumer test) |
+| T-3 a nested repository | `test_a_nested_repository_has_its_own_namespace` | confirmed |
+| T-4 a worktree | `test_each_git_worktree_has_its_own_namespace` | confirmed |
+| T-5 outside a repository | identity needs no `.git`; G-1 applies only to the data root | confirmed |
+| T-6 the home folder | `test_a_repository_that_is_the_home_folder_is_refused_by_default`, `test_a_repository_above_the_default_data_root_is_refused` | confirmed, and **wider**: every ancestor of the data root is refused: the home folder, a folder above it, a drive or file-system root. Separately, since 2B-2, a home folder that is itself a Git working tree makes G-1 refuse the default data root (`test_a_home_folder_that_is_a_git_repository_keeps_the_default_data_root_out`) |
+| T-7 inside the data root | `test_a_repository_inside_the_data_root_is_refused` | confirmed |
+| T-8 through a link | the symbolic-link and junction identity tests; the retargeted-link tests | confirmed |
+| T-9 a Windows case collision | `test_a_genuine_folded_key_collision_is_refused` | confirmed |
+| T-10 macOS `/private` | `test_macos_working_directory_gives_the_stored_case_and_private_var_resolves` (macOS only) | confirmed |
+| T-11 macOS case or NFC/NFD | `test_posix_case_distinct_folders_are_distinct_repositories`, `test_nfc_and_nfd_spellings_never_merge_two_folders` | confirmed |
+| T-12 moved or renamed | `test_a_renamed_repository_gets_a_new_namespace_and_the_old_one_is_untouched` | confirmed |
+| T-13 a case-only rename | `_renamed_by_case_only` returns early unless `os.name == "nt"`; `test_a_case_only_rename_keeps_the_namespace_and_never_rewrites_the_record` is Windows-only | **corrected:** the namespace is kept **on Windows only**. On macOS and Linux the key is the case-sensitive canonical path, so a case-only rename gives a new ID and behaves as T-12. The gate's "(Windows, macOS)" was wrong |
+| T-14 a new clone elsewhere | the same mechanism as T-12; `test_two_repositories_with_the_same_basename_get_different_ids_and_the_same_slug` | confirmed |
+| T-15 path reuse | `test_a_folder_replaced_at_the_same_path_keeps_its_path_based_id`: **a frozen test pins it** | confirmed (part 3) |
+| T-16 a missing root | `test_a_missing_folder_or_a_file_is_refused_before_anything_is_written` | confirmed, refined: the CLI computes `Path.cwd()` before any handler, so a deleted working folder fails there first, as in 0.1.5 (unchanged). Storage's refusal is reached through MCP's bound root, or a direct call; 2B-3a's T-16 test uses those |
+
+**Root and identity choices still unresolved:**
+
+- **T-15:** part 3; the owner's choice.
+- **`below_git_toplevel`:** the US-D26 row that follows US-D4. G-2 does not decide the diagnostic, which stays with 2B-5.
+- **`subst` and mapped drives:** still NOT VERIFIED (D0A-5).
+
+There are no others.
+
+##### Part 3 — T-15: a different repository at a former repository's path
+
+**Findings** (`storage.py` as committed; nothing changed):
+
+1. **Identity comes from the path alone.** `_identity` computes `realpath(strict=True)`, then the key (`normcase` on Windows), then SHA-256 with the versioned prefix, then `<slug>-<16 hex>`. No file index, Git data, remote or time is used. US-D5 and the test above pin this.
+2. **`repository.json` binds to the path, not to the folder.** It holds `schema_version`, `repository_id` and `root`, the canonical path as text. `_record_state` compares `root` exactly. File identity (`_same_folder`) is consulted only on Windows, and only to *accept* a case-only rename. The per-process cache stores `(st_dev, st_ino)` only to decide whether to recompute; a recomputation gives the same ID.
+3. **Deleting repository A and creating repository B at the same path cannot be detected.** The key, the ID and the record's `root` are all the same, so the namespace is "ok", and B inherits A's project settings: Project Instructions, Fix Modes, project settings and Repository Profile. From 2B-4 it would also inherit A's work items and similar-fix memory.
+4. **What ordinary operations do:**
+   - **Inside one folder:** checkout, pull, reset, rebase, stash and clean keep one ID. So settings no longer vary by branch, whereas a committed `.bugpilot/` did.
+   - **Clones:** a clone to a new path gets a new ID. Deleting and re-cloning at the same path, of the same or another project, inherits the namespace.
+   - **Worktrees:** `git worktree add` gives a new path and ID. Removing a worktree and adding another at the same path inherits.
+   - **Moves:** moving a repository gives a new ID (US-D8). Moving it back reaches the original namespace again.
+5. **A stronger rule would change frozen behaviour.**
+   - A file index in the ID would keep the namespace across a rename on one volume, which changes US-D8. It would also break the frozen test and US-D5; §7.2 rejected it as unstable across restores and re-clones.
+   - A Git-based ID would need Git, against US-D4; would merge clones, against R3; and would merge worktrees, against US-D7.
+   - Only a binding check *beside* the path ID leaves US-D4 and US-D8 as they are (option B).
+
+**Options:**
+
+| | **A**: accept and document | **B**: detect a replaced folder and fail closed | **C**: an explicit, user-started reset or reassociation |
+| --- | --- | --- | --- |
+| What | the namespace belongs to the path; stated in §7.6 and the release notes; pinned by a test | <ul><li>record a binding when the namespace is created: the root folder's `(st_dev, st_ino)`, as a new record key or a second file;</li><li>on mismatch, refuse ("this namespace was created for another folder at this path");</li><li>a *new* namespace for the same path is impossible without changing the ID rule</li></ul> | a command, for example `bugpilot storage reset`, moves this path's namespace aside inside `repositories/` after confirmation, deleting nothing, so the next write starts afresh. Later it could reassociate an orphaned one (US-D8's deferred relocation) |
+| Security | <ul><li>no privilege boundary is crossed: the namespace, the settings and both repositories belong to the same account, and only someone who can already write that account's folders can arrange this;</li><li>the risk is confusion: B's `task.md` carries A's instructions and policies, which is the merge §7.3 calls unsafe;</li><li>visible through `show`, `task-preview` and later `doctor`</li></ul> | prevents silent inheritance and fails closed | user-started and never automatic; refuses links and containment, crosses no namespace, deletes nothing. It does not prevent inheritance; it gives the remedy |
+| Compatibility | none. The benign cases keep their settings: re-cloning the same project at the same path, a restore from backup, moving a folder back | **false positives exactly in those benign cases**, plus file systems that report no file index (they cannot prove a match, so they must refuse or skip). Each false positive stops every command for that repository until the user resets, so B needs C anyway | additive: a new command, its JSON and later a panel action. Nothing existing changes |
+| Tests | a consumer test that settings set in folder A are read after A is replaced at the same path; the existing identity test stays | binding match and mismatch on three systems; no file index; restore; re-clone; record-schema tests | reset moves the namespace aside and the next write creates a new one; refusals; nothing deleted; not callable by MCP |
+| Scope | documentation and one test, in 2B-3a | `storage.py`, the record contract (US-D6, US-D24: `_RECORD_KEYS` and `schema_version`), a new refusal class, `doctor`'s state, and C. Beyond 2B-3; against §7.2's reasons | a new storage operation (`storage.py`), a CLI command and its contract (§8.10), and later extension UI. Fits 2B-5 or a later release |
+
+**Recommendation: A for 0.1.6, with C recorded as the deferred remedy.** C would be decided with `doctor` (2B-5) or later, and is not approved by this. B is not recommended.
+
+What A needs in 2B-3a:
+
+- the T-15 consumer test;
+- a limitation line in §7.6;
+- the release-note sentence (Batch 5);
+- `doctor` showing the record's root (2B-5, US-D21).
+
+**This is the owner's choice, and it blocks 2B-3a.**
+
+##### Part 4 — US-D26: the 11-row matrix reconciled (G-5, O2)
+
+**The public boundaries**, as `cli.py` and `mcp_server.py` handle exceptions today:
+
+| Boundary | Commands | Handling |
+| --- | --- | --- |
+| **R**: reaches `main()` | <ul><li>`instructions show`;</li><li>`project-settings show` and `repository-profile show`;</li><li>`verification` (every action ends in `resolve_project_settings`, which reads `project_settings.json` in 2B-3a);</li><li>`task-preview` and `context-preview`;</li><li>every `fix-mode` action, whose catalog load comes first and includes the project scope</li></ul> | <ul><li>Text: `UnsafePathError` (the `StorageError` family) and `StorageAccessError` print `ERROR: <sentence>`; any other `OSError` prints a traceback.</li><li>JSON: `error_code_for`: `StorageError` gives `INVALID_INPUT`, and `StorageAccessError` gives `INTERNAL_ERROR`.</li></ul> |
+| **W**: the `set` handlers' `except (OSError, ValueError)` | <ul><li>`instructions set`;</li><li>`project-settings set` and `repository-profile set`;</li><li>`fix-mode` `create`, `update`, `duplicate` and `delete` (`except OSError`, wrapped as `FixModeError`)</li></ul> | `INVALID_INPUT`. A `ValueError` gives its own text. An `OSError` gets the handler's prefix: "The text could not be read: …", "--from-file could not be read: …", or "Fix Mode storage is not writable: …". The profile's handler gives the text alone |
+| **BUG**: `bug` | `run_investigation` | `ValueError` gives `INVALID_INPUT`, plus the log hint in text. Anything else reaches `main()` |
+| **MCP-R** | `prepare_jira_bug`, `prepare_bug_description`, `refine_investigation` | `ToolError("Could not … [CODE]: <text>")`, with `CODE` from `error_code_for` |
+| **MCP-F** | `list_fix_modes`, `show_fix_mode` | only `FixModeError` is caught. Anything else is the SDK's unanticipated error: the model sees only `Error executing tool <name>` (MCP SDK 2.1.1) |
+
+**The rows.** "Chokepoint" means the consumer-side helper G-12 plans (`repository_settings.py`). Every sentence is in display form, and none holds an absolute path.
+
+| # | Actual source | Class | 0.1.5 public behaviour | 2B-3a CLI text | 2B-3a CLI JSON | 2B-3a MCP | Frozen implications | Required tests |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `_record_state` raises `storage.StorageUnavailable` through `_unreadable`: a `PermissionError` on the record's `lstat` or read, after the retries. Reached from `_check_record` (every read with an existing namespace) and from `ensure()` before publishing (writes) | U | none: no record existed. The nearest failure, a permission error on the way to a settings file, gave: R and BUG `INTERNAL_ERROR` (raw, absolute path, text traceback); W `INVALID_INPUT` | the chokepoint re-raises it as `errors.StorageAccessError` with storage's sentence ("BugPilot cannot read `~/.bugpilot/repositories/<id>/repository.json` right now: …"). R and BUG: `ERROR: <sentence>`. W: `ERROR: <prefix><sentence>` | **under O2:** R and BUG `INTERNAL_ERROR`; W `INVALID_INPUT` | MCP-R `[INTERNAL_ERROR]`; MCP-F as part 7 | **F2's letter** says a `StorageError` reports `INVALID_INPUT`, and `StorageUnavailable` is one. O2 therefore needs **F2-S** (below) | an unreadable record (an injected `PermissionError`; POSIX: mode `000`) at each boundary: the code, one sentence, no absolute path, no traceback, nothing written |
+| 2 | `_record_state` returns "corrupt" or "mismatch" (including a link or folder at the record, a wrong schema or ID, another root), and `RepositoryStorage._refusal` raises `StorageIdentityError` | P | none | R: `ERROR: BugPilot will not use … : it belongs to a different repository folder. …` or `…: it is not a readable repository record. …`. BUG: the same, plus the log hint. W: the sentence alone (`ValueError` branch). `fix-mode` writes: reaches `main()` | `INVALID_INPUT` everywhere | MCP-R `[INVALID_INPUT]`; MCP-F as part 7 | F2 exactly; US-D24 (refuse, never repair) | a corrupt record and a record naming another root: `INVALID_INPUT` at each boundary; the record's bytes unchanged |
+| 3 | `_existing` and `refuse_link`: a raw `PermissionError` from `lstat` of `repositories/`, the namespace, `settings/`, `settings/fix_modes/` or the file | U | R and BUG `INTERNAL_ERROR`, with the absolute path in the text and a traceback in text mode; W `INVALID_INPUT` with the system error's text | the chokepoint raises `StorageAccessError.during("read", <settings folder display path>, error)`, or `"prepare"` on writes | R and BUG `INTERNAL_ERROR`; W `INVALID_INPUT` | MCP-R `[INTERNAL_ERROR]` | M-1 (C-1): every surface keeps 0.1.5's code; F4: the wording changes and loses the absolute path; F2 does not apply (an `OSError`) | an `lstat` that raises `PermissionError` on the settings folder: code, sentence, no absolute path, no traceback |
+| 4 | `_existing`: something that is not a folder on the way (`StorageError`) | P | `.bugpilot` as a file was read as missing (the `.json` files) or reported as a problem (the `.md` files), non-fatal | `ERROR: <sentence>` | `INVALID_INPUT` | `[INVALID_INPUT]` | F2. A new refusal at a new place; no existing user is affected | `settings` as a file: `INVALID_INPUT` at each boundary, nothing replaced |
+| 5 | `data_root()`: an unusable `BUGPILOT_HOME` (relative, `~`, control characters; refused for reads too, since 2B-2). `_ensure_root`: a missing parent (writes) | I | none | `ERROR: <sentence>` | `INVALID_INPUT` | `[INVALID_INPUT]` | F2; 2B-2's class I. Reads with a valid root and no namespace stay row 11 | one read and one write with a missing parent; nothing created |
+| 6 | Writing the settings file: `_ensure_root` or `_directory` (`mkdir`), `atomic_write_text` (`mkstemp`, `os.replace` and its fallback), `unlink` (clear, delete): raw `OSError` | U | W `INVALID_INPUT`, with the handler's prefix; the profile's and Fix Modes' messages held the **absolute path** | each consumer's save wraps it as `StorageAccessError.during("write" or "remove", <file display path>, error)`. W: `ERROR: <prefix><sentence>`; the profile: the sentence | `INVALID_INPUT` | MCP has no settings writes | M-1; F4; G-11: the absolute paths go | an injected `PermissionError` from the atomic writer, and POSIX mode `0500` on `settings/`: `INVALID_INPUT`, sentence, no absolute path, the file unchanged |
+| 7 | `ensure()` when the first write publishes the record. `_publish_record`'s `mkstemp`, write or `os.link` (not `EEXIST`): raw (U). `_check_temp`: `StorageError` (P). A POSIX file system without hard links: `StorageError` (I). The final `_record_state`: "mismatch" or "corrupt" gives `StorageIdentityError` (P), and a permission failure gives `StorageUnavailable` (U, as row 1) | U, P, I | none | W: U as row 6, with the action `prepare` and the namespace's display path; P and I give the sentence | `INVALID_INPUT` on every W surface, for U, P and I alike. No F2 conflict here: W reports `INVALID_INPUT` either way | no MCP writes | F2 for P and I; M-1 for U. A failure after the folder exists leaves a namespace with no record, which the next `ensure()` completes (§7.5). Harmless and deterministic | injected `os.link` (`EPERM`) and `mkstemp` failures: `INVALID_INPUT`, sentence; a rerun after recovery succeeds, and the record equals `_record_text` |
+| 8 | `_check_containment` (inside, contains), `_check_data_root` (G-1, G-2, "cannot be examined"), `_existing` and `_file` (a link or junction on the way or at the file, including `settings/fix_modes/`): `StorageError` | P | containment: none. Links: non-fatal on reads (a warning, defaults; a linked project Fix Mode folder was one `issues[]` entry, and the built-ins remained); `INVALID_INPUT` on writes | `ERROR: <sentence>` | `INVALID_INPUT`, **fatal for reads and writes** (G-6) | `[INVALID_INPUT]` | F2; G-6 | home-folder root (T-6), repository inside the data root (T-7), `BUGPILOT_HOME` inside a checkout, a symbolic link (and a junction on Windows) at `settings/`, `settings/fix_modes/` and the file: `INVALID_INPUT` at each boundary, nothing read or written |
+| 9 | Input: `--from-file` (missing, too large, not JSON or UTF-8); an invalid Fix Mode ID (`FixModeError`); a repository root that is missing or not a folder (`StorageError`, MCP's bound root); a settings name outside `SETTINGS_NAMES` (a programming error) | I | `INVALID_INPUT` from the handlers. A deleted CLI working folder fails at `Path.cwd()` (unchanged) | unchanged | `INVALID_INPUT` | `[INVALID_INPUT]` | F2 for the root; the handlers unchanged | the existing input tests, re-pointed; MCP with a removed bound root gives `[INVALID_INPUT]` |
+| 10 | The file's own content, once located: unreadable, not UTF-8, too large, invalid JSON or front matter, bad values; a Fix Mode file that is invalid or unreadable | content | non-fatal: a warning and defaults, or a catalog issue. Messages held the absolute path for the profile's read failure and for Fix Modes | unchanged: a non-fatal `WARN:`, now in display form (G-11) | not an error; `warnings[]` or `issues[]` | `warnings` or `issues[].message`, display form | Q-1's rule for optional documents; G-6 "where explicitly required". Residue, not storage: `UnicodeDecodeError` and `RecursionError` from a Fix Mode file and `RecursionError` from the profile stay uncaught, as in 0.1.5 | the content tests re-pointed to the new place; no absolute path in any warning or issue |
+| 11 | Absent: no data root, namespace or file | A | defaults, no warning | none | not an error | not an error | §7.5 (reads create nothing) | a fresh data root: every R command, `bug --allow-mock` and the MCP prepare tools create no `repositories/` entry |
+
+**`StorageUnavailable` is not one thing.** Each source is decided where it occurs:
+
+- **The record read** (rows 1 and 7) is the only source that reaches 2B-3a.
+- **Deletion's** "could not finish deleting …; part of it may remain" (2B-4) means a partial removal, with different recovery advice.
+- **`check()`'s** unavailable state is `doctor`'s (2B-5).
+
+Neither of the last two is decided by this record.
+
+**What G-6 means for the catalog.** `fix-mode` (every action), `bug`, `task-preview`, `context-preview`, `show_fix_mode` and `list_fix_modes` load the whole Fix Mode catalog, including the project scope. Under G-6, a row 1 to 8 failure on the project scope therefore stops them, built-ins included. 0.1.5 kept the built-ins and reported a linked project folder as an issue. This matches 2B-2's C-2 (a) for the user scope, and it is recorded as a consequence of G-6, not a new choice.
+
+**F2-S: the smallest owner decision that blocks 2B-3a.**
+
+- **The conflict.** O2 keeps every existing code for the nearest 0.1.5 failure, and makes row 1 consistent with row 3: the same physical cause, no permission, gives `INTERNAL_ERROR` on R, BUG and MCP-R. But `StorageUnavailable` is a `StorageError`, and F2 (§8.10; fixture `unchanged.storage_errors_report`) says a `StorageError` reports `INVALID_INPUT`. The plan already noted this conflict as F5 (§14.3, "Batch 2B-2 — final contract resolution").
+- **F2-S (recommended).** The owner confirms that F2 governs the policy refusals and invalid configuration that reach a public boundary as `StorageError` or `StorageIdentityError`. A `StorageUnavailable` (class U) is translated at the consumer boundary into `errors.StorageAccessError` and reports under M-1.
+  - §8.10's bullet gets a dated clarifying note. The fixture value `INVALID_INPUT` is unchanged; it names no class.
+  - No public code is added.
+- **The alternatives:**
+  - **O1 for row 1 only.** F2 is kept literally, so an unreadable record reports `INVALID_INPUT` on R, BUG and MCP-R. That is inconsistent with row 3, for the same cause.
+  - **O3.** A public `STORAGE_UNAVAILABLE` code, which G-5 has ruled out for 2B-3.
+- **Until F2-S is decided, US-D26 is not fully reconciled, and 2B-3a cannot start (G-14).**
+
+##### Part 5 — J-2, the staged JSON contract (G-7)
+
+| Field | 2B-3a | Against §8.10 |
+| --- | --- | --- |
+| the envelope; every error code (part 4); every other `show --json` key | unchanged | compliant |
+| `instructions show` `user.path` | a display string, as since 2B-2 (DD-1) | **not compliant** with row 18 (`abs`). This was already true after 2B-2 |
+| `instructions show` `project.path` | a display string of the new place (`~/.bugpilot/repositories/<id>/settings/instructions.md` or `BUGPILOT_HOME/…`) | **not compliant** with row 18 |
+| `instructions show` `display_path` (both scopes) | absent | **not compliant** with row 19 (new, never null) |
+| `project-settings show` and `repository-profile show`: `path` | a display string of the new place | **not compliant** with row 20 |
+| the same commands' `display_path` | absent | **not compliant** with row 21 |
+| `verification show` and `ai-behavior show`: `path` | `.bugpilot/<name>`, still accurate: their files move in 2B-3b | **not compliant** with row 20 (unchanged since 0.1.5); `display_path` absent (row 21) |
+| `fix-mode list` `issues[].path` (both scopes) | **display** | **compliant** with row 22 |
+
+**Who can observe it.**
+
+- **The extension:** no. It reads none of these `path` values (only `fix-mode list`'s, as text), so row 22 suits it.
+- **MCP:** no. No path fields.
+- **Automated tests:** no. `tests/test_storage_contract.py`, which §8.10 names, does not exist yet; the fixture is checked only against §8.10's prose.
+- **Third-party scripts: yes.**
+  - A script that joined 0.1.5's relative `path` to the repository root gets a wrong path under J-2 (`<repository>/BUGPILOT_HOME/…` or `<repository>/~/.bugpilot/…`).
+  - Under the target `abs` value, a join yields the right file.
+  - This is an interim compatibility gap, recorded and not called compliant.
+
+**What must transition together, later.** Rows 18 to 21, for all five commands and both instruction scopes, in one step, together with:
+
+- the runtime contract test;
+- `cli_paths.json`'s DD-1 and DD-10 to DD-12 (and 2B-3b's) superseded by `abs` values, written with portable separators by the generator;
+- the absolute `path` that Batch 3's Edit needs.
+
+Proposed placement: one step after 2B-3b and before Batch 3, either 2B-6 or a dedicated step. That is the owner's choice and does not block 2B-3a.
+
+**Row 22 in 2B-3a.**
+
+- `issues[].path` becomes `storage.display_path` of the file, for the user and project scopes.
+- The text mode's `WARN: <scope> Fix Mode <display path>: <message>` matches it.
+- MCP keeps omitting the path. The messages lose any absolute path (G-11).
+- The existing assertions (`test_fix_mode_custom.py`, `test_fix_mode_store.py`) check `endswith("broken.json")`, which still holds.
+
+##### Part 6 — PC-1, exact values (G-8; the fixture is not changed here)
+
+`tests/fixtures/repository_profile_contract.json`: 16 lines, SHA-256 `a52f632d68a0b2086460969586e62d495e002473c62d87449e099231aa00dd33` at `92efd66`.
+
+| Field | From (exact) | To (exact) | Consumers |
+| --- | --- | --- | --- |
+| `path` (line 7) | `".bugpilot/repository_profile.json"` | `"settings/repository_profile.json"`: §8.10's `ns` kind, relative to the repository namespace | only `tests/test_repository_profile.py::test_the_contract_fixture_is_the_model` (its `path` assertion) |
+| `//`, `modes`, `default_mode`, `fallback_mode`, `labels`, `fields` | unchanged byte for byte | unchanged | <ul><li>the Python test (all but `//`);</li><li>`extension/test/repositoryProfile.test.ts`: `modes`, `default_mode`, `labels`, `fields`, never `path`;</li><li>no product code reads the fixture</li></ul> |
+
+**Tests required with it:**
+
+1. The `path` assertion becomes `f"settings/{PROFILE_FILE_NAME}" == CONTRACT["path"]`, with `PROFILE_FILE_NAME in storage.SETTINGS_NAMES`.
+2. A new assertion ties the fixture to the product. The file `RepositoryStorage.settings_file(PROFILE_FILE_NAME, create=False)` returns, relative to the namespace, equals `CONTRACT["path"]`. `repository-profile show --json`'s interim `path` ends with `/` plus `CONTRACT["path"]`.
+3. The extension test is unchanged and passes.
+4. The review shows exactly one changed line, line 7.
+
+The approval asked for is these exact values.
+
+##### Part 7 — M-P, the exact MCP behaviour (G-9)
+
+| Tool | Caught, in addition to today | Message the model sees | Code |
+| --- | --- | --- | --- |
+| `list_fix_modes` | `StorageError` (including `StorageIdentityError`) and `errors.StorageAccessError` (including the translated `StorageUnavailable`), around the catalog load | `Error executing tool list_fix_modes: Could not list the Fix Modes [CODE]: <sentence>` | `INVALID_INPUT` for `StorageError`; `INTERNAL_ERROR` for `StorageAccessError`. These are the codes `_run` already gives the same failures in the prepare tools. No new code |
+| `show_fix_mode` (`_resolve_fix_mode`) | the same, beside the existing `FixModeError` | `Error executing tool show_fix_mode: Could not read the Fix Modes [CODE]: <sentence>` | as above |
+
+**Not caught:** anything else, including a raw `OSError`, `UnicodeDecodeError` and `RecursionError`. These stay the SDK's `Error executing tool <name>`, which carries no text to the model. The server's own log keeps the traceback, as today.
+
+**The output:**
+
+- `<sentence>` is storage's or the carrier's own: display form only, never an absolute path or a system error's text.
+- No partial list is returned.
+- `issues[]` for content problems is unchanged in shape (`scope`, `message`), and its messages are in display form.
+
+**Tests:**
+
+- for each tool, a policy refusal (a link at `settings/fix_modes/`, the home-folder root) and a U failure (an unreadable record);
+- the exact prefix and code;
+- the per-test data root's and repository's absolute paths never appear;
+- the prepare tools are unchanged.
+
+The approval asked for is this exact behaviour.
+
+##### Part 8 — Baselines and goldens (G-10): requirements and review
+
+| Requirement | How it is met | Status |
+| --- | --- | --- |
+| The frozen Batch 0A records stay byte-identical | CH-1 never edits them; each slice's file keeps `frozen` as the 0A records' SHA-256s, checked on every comparison | met by design |
+| Per-slice differences are chained and individually approved | <ul><li>files are applied in order: 2B-2, 2B-3a, 2B-3b;</li><li>each entry's `from` must equal the value after the earlier files (DD-5 and DD-9 chain into 2B-3b's `/steps/9/created` and `/git_status`);</li><li>within one file, a pointer is never listed twice or nested;</li><li>`approved` per entry;</li><li>the approval-gate test covers every file</li></ul> | a condition of 2B-3a's mechanism change |
+| The repository-ID label cannot hide a wrong identity | <ul><li>M-a replaces only the session repository's ID, computed by `storage.repository_identity(session.repo)` and never parsed from output;</li><li>afterwards no other ID may match `REPOSITORY_ID_RE` anywhere in the records, so a namespace computed from a subfolder, the data root or another root fails;</li><li>a normalizer test plants a second, foreign ID and expects that failure (the identity-collision test G-10 asks for);</li><li>the algorithm itself stays pinned by the golden vectors</li></ul> | a condition |
+| Consumer-level identity collision | T-9: the folded Windows collision refuses settings commands; T-15 per part 3 | a condition (T-15 pending) |
+| Neutrality first | M-a and CH-1 alone, with an empty 2B-3a file: every record equals the committed ones under DD-1 to DD-3, and all 17 goldens are unchanged, before any product change | a condition |
+| All 17 task goldens unchanged in 2B-3a | the only `.bugpilot` and "shared" strings in task goldens are the six 2B-3b lines and the three introduction lines; the context, retry and prompt-boundary goldens have none. The two harnesses must write their 2B-3a inputs through storage, or the configured goldens fail, which is the intended guard. The R4 test proves no legacy read | met, with the harness change |
+| The six affected goldens reserved for 2B-3b | 2B-3a's allowlist excludes every golden. Any golden byte change in 2B-3a is a stop | met by design |
+| Exact owner approval of each observed difference | DD-4 to DD-12 are categories now. Their observed values are approved before the 2B-3a commit, as with DD-1 to DD-3 | in flow |
+
+**No blocker was found in the baselines or goldens.** The conditions above become 2B-3a's stop conditions.
+
+##### Part 9 — 2B-3a readiness, and what remains
+
+**Readiness: NOT READY.**
+
+**Blocking owner choices:**
+
+| # | Choice | Options | Recommendation |
+| --- | --- | --- | --- |
+| B-1 | T-15 (part 3) | A, B or C | A, with C deferred |
+| B-2 | F2-S (part 4) | F2-S, O1 for row 1, or O3 | F2-S |
+| B-3 | PC-1's exact values (part 6) | approve, or keep the fixture unchanged in 2B-3a | approve |
+| B-4 | M-P's exact behaviour (part 7) | approve, or change it | approve |
+
+B-3 and B-4 are approvals of exact behaviour that G-8 and G-9 asked to see.
+
+**Then:** an implementation authorization naming the final allowlist. G-12 approved it for planning only.
+
+**Not blocking 2B-3a:**
+
+- where the rows 18 to 21 transition goes (part 5);
+- C's timing (part 3);
+- the residue fixes (part 4, row 10);
+- the extension's Edit overwrite risk (Batch 3);
+- the handlers' prefix wording;
+- G-13 (the 2B-3b gate);
+- the DD-4 to DD-12 values (approved after observation).
+
+**Prerequisites once those are decided:**
+
+- **US-D4, US-D8 (in part) and US-D9:** approved (G-2, G-3, G-4).
+- **US-D26's applicable contract:** resolved by B-2 (G-5, G-14).
+- **Already approved (G-6, G-10, G-11):**
+  - P-1;
+  - M-a and CH-1, with part 8's conditions;
+  - US-D22 for 2B-3's messages.
+- **Live-agent evidence:** none needed.
+- **Activation gates:** unchanged.
+
+**Unchanged by this record:**
+
+- **The register's other statuses.** After this record: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+- **US-D26:** APPROVED — in part.
+- **Batch 0B's evidence:** P1, P3 and P8 NOT EXECUTED; P2 FAIL.
+- **All eight activation blockers.**
+- **US-D29's open terms.**
+- **The version:** 0.1.5.
+
+**Batch 2B-3a and 2B-3b — NOT STARTED.**
+
+#### Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract (2026-10-20)
+
+**Status:**
+
+- **Batch 2B-3a:** its decisions are complete. It is **ready for an implementation authorization, which has not been given**, and has **NOT STARTED**.
+- **Batch 2B-3b: NOT STARTED.** Its gate (G-13) is still ahead.
+
+**Nature of this record.** Documentation and a read-only verification, at `92efd66` on `verify/0.1.6-storage`, after the two 2B-3 records above.
+
+- No code, test, helper, fixture, golden, baseline or extension file changed.
+- Nothing was staged, committed or pushed, and no CI ran. *(The 2B-3 records were then committed together on 2026-10-20, without pushing: §19.)*
+- The version is 0.1.5. Unified Storage is not activated, and US-D29's branch isolation is unchanged.
+
+##### Part 1 — The owner's decisions (2026-10-20)
+
+| # | Decision | Conditions | Register effect |
+| --- | --- | --- | --- |
+| B-1 | **T-15: option A APPROVED.** The path-based identity is accepted for 0.1.6: a different repository at exactly the same normalized path may inherit the earlier namespace | <ul><li>It is documented as a known compatibility and **configuration-contamination** risk (part 2).</li><li>No claim that identity detects a replaced folder.</li><li>The identity algorithm and the frozen identity tests are unchanged.</li><li>Option C (an explicit namespace reset or reassociation) is **deferred** to its own future design.</li><li>No automatic clean-up, migration or reassignment.</li></ul> | **US-D8: APPROVED** in full: T-15 was its only open part. US-D4's named choice T-15 is decided |
+| B-2 | **F2-S APPROVED** as an explicit contract clarification, subject to verification | <ul><li>Policy refusals and invalid configuration report `INVALID_INPUT`.</li><li>Genuine unavailability keeps each command's existing failure behaviour (M-1).</li><li>No public `STORAGE_UNAVAILABLE` code.</li><li>No silent rewrite of frozen evidence.</li><li>A fixture or public-code change would need separate approval.</li></ul> **Verified (part 3): none is needed** | US-D26 stays **APPROVED — in part**. For 2B-3a, its applicable contract is resolved (G-14). The public `STORAGE_UNAVAILABLE` question stays OPEN for later slices |
+| B-3 | **PC-1 APPROVED**: exactly one expected fixture difference, `repository_profile_contract.json`'s `path`, from `.bugpilot/repository_profile.json` to `settings/repository_profile.json` | <ul><li>no other field, entry or schema change;</li><li>exact-value verification;</li><li>the four tests (part 5);</li><li>the fixture is changed only by the authorized implementation</li></ul> | — |
+| B-4 | **M-P APPROVED WITH CONTRACT CONDITIONS**, with part 7 of the previous record as the basis | <ul><li>concise, actionable, safe;</li><li>no absolute path or environment value;</li><li>successful results unchanged;</li><li>public codes and the frozen contract kept;</li><li>2B-2's per-call request scope and concurrency unchanged;</li><li>no programming error caught as a storage failure;</li><li>no retry, and no bypass of a fail-closed check.</li></ul> **Verified (part 4): no new envelope and no contradiction** | — |
+| JSON | **J-2 kept.** Rows 18 to 21 transition together in a later, explicitly approved step | a dedicated contract-completion step before Batch 3 (part 6); an interim field is never called compliant | — |
+
+##### Part 2 — T-15, the accepted limitation (B-1)
+
+**What is accepted.** BugPilot 0.1.6 keys a repository's namespace by its normalized path alone (§7.2, US-D5). It records that path in `repository.json` (US-D6). It **cannot tell** that the folder at a path was replaced. So a different repository created at exactly the path of an earlier one gets the earlier one's namespace:
+
+- **in 2B-3:** its Project Instructions, project Fix Modes, project settings and Repository Profile;
+- **from 2B-4:** its work items and similar-fix memory.
+
+**The risk.** This is a configuration-contamination risk within one account. The new repository's `task.md` can carry instructions and policies written for another codebase. It crosses no account boundary: the namespace, the settings and both repositories belong to the same user. It is a compatibility limitation, not a detection feature: **nothing in BugPilot detects a replaced repository.**
+
+**Where it is stated:**
+
+- §7.3's case table;
+- §7.6's limitations;
+- risk RK-20 (§16.2);
+- 2B-3a's test, which pins the behaviour: settings saved in folder A are read after A is replaced by another folder at the same path. The existing identity test `test_a_folder_replaced_at_the_same_path_keeps_its_path_based_id` stays unchanged;
+- Batch 5's release notes, which must say it.
+
+**How a developer gets out of it today:**
+
+- see the effective settings with `show` and `task-preview`, and remove the unwanted ones with the existing commands (`instructions set --clear`, `fix-mode delete`, `project-settings set`, `repository-profile set`);
+- or set a different `BUGPILOT_HOME`.
+
+**Deferred:** option C, an explicit reset or reassociation of a namespace, needs its own design and approval. It is not part of 0.1.6. Nothing automatic is added.
+
+##### Part 3 — F2-S, the contract clarification (B-2), verified
+
+**The clarification.** "`StorageError` and `StorageIdentityError` report `INVALID_INPUT`" (F2) governs the **policy refusals** and **invalid configuration** that reach a public boundary as `StorageError` or `StorageIdentityError`.
+
+- A `storage.StorageUnavailable`, which is genuine unavailability (class U), is translated where the repository-settings consumers call storage into `errors.StorageAccessError`, carrying storage's own sentence.
+- It then reports each command's existing failure behaviour under M-1.
+- This is decided for Batch 2B-3a's consumers. It is a dated clarification, not a rewrite: F2's sentence, the 2B-2 F1 to F6 analysis and every earlier record stay as written.
+
+**The verification the owner asked for:**
+
+1. **The 11-row matrix** ("Batch 2B-3 — owner decisions and final contract gate", part 4) was rechecked against `cli.py`, `mcp_server.py`, `fix_mode_state.py` and the MCP SDK (2.1.1). It holds, with three precisions:
+   - **Every `fix-mode` action is a read boundary for row 1:** the catalog load comes first and catches only `FixModeError`. That includes `create` and the other writes, so an unreadable record gives `INTERNAL_ERROR` there. A U failure *during* a Fix Mode write is still the handler's `INVALID_INPUT`.
+   - **`bug`'s first storage read is the Fix Mode catalog** (`select_fix_mode`, before `.ai/<id>/` is prepared), so a namespace-level failure stops it before anything is written. A refusal at a single settings file is met later, after `.ai/<id>/` is prepared, as any 0.1.5 mid-run failure is.
+   - **The `set` handlers wrap an `OSError` as `"<prefix>: {strerror or text}."`.** The carrier's sentence already ends with a full stop, so the message ends with two. This was already so for 2B-2's user scope, and is kept as residue (G-11).
+2. **The frozen statements affected,** and what happens to each:
+
+| Statement | Where | Effect |
+| --- | --- | --- |
+| "`StorageError` and `StorageIdentityError` report `INVALID_INPUT`." | §8.10, "What stays the same" | a dated clarifying note is added next to it; the sentence itself is unchanged |
+| "One error family …" | §8.6 | a dated note is added next to it |
+| "Until it is chosen, such failures use the existing generic code." | §8.10; the fixture's `open_choices` | an open choice, not a frozen rule (F3). A dated note in §8.10 gives the per-command codes. The fixture text is unchanged and still true in what it decides: no separate code |
+| `unchanged.storage_errors_report: "INVALID_INPUT"` | `tests/fixtures/storage_cli_contract.json`, asserted by `tests/test_storage_identity.py::test_the_contract_fixture_is_well_formed` | **unchanged.** The value names no class; F2-S does not change it |
+| `StorageUnavailable`'s docstring: "which error code it maps to is still open" | `storage.py` | unchanged (`storage.py` is not modified). It stays true in general; the 2B-3a mapping is the consumer's, documented there |
+| F2, F3 and F5 in "Batch 2B-2 — final contract resolution" | §14.3 | historical analysis, unchanged. F5's conflict is resolved for 2B-3a by F2-S |
+
+3. **The approved clarification** is recorded here, in §8.6 and §8.10 as dated notes, and in §16.1.
+4. **Exact assertions for an unreadable `repository.json`.** M is storage's sentence, exactly:
+
+   > BugPilot cannot read BUGPILOT_HOME/repositories/&lt;id&gt;/repository.json right now: it is in use or not readable. Nothing was read or written; try again, and check the folder's permissions if it persists.
+
+   The tests set `BUGPILOT_HOME`, and `<id>` is the test repository's ID.
+
+| Boundary | Command or tool | Exit | Machine-readable result | Text |
+| --- | --- | --- | --- | --- |
+| R, JSON | `project-settings show --json` | 1 | one envelope: `ok: false`, `command: "project-settings"`, `error.code: "INTERNAL_ERROR"`, `error.message` = M | stderr `ERROR: M` |
+| R, text | `project-settings show` | 1 | — | stderr `ERROR: M`; stdout empty |
+| R, Fix Modes | `fix-mode list --json` (any action) | 1 | `command: "fix-mode"`, `INTERNAL_ERROR`, M | — |
+| W | `project-settings set --from-file F --json` | 1 | `INVALID_INPUT`, `--from-file could not be read: M.` | — |
+| W | `instructions set --scope project --stdin --json` | 1 | `INVALID_INPUT`, `The text could not be read: M.` | — |
+| W | `repository-profile set --mode generic --json` | 1 | `INVALID_INPUT`, M | — |
+| BUG, JSON | `bug JR-12345 --allow-mock --json` | 1 | `command: "bug"`, `INTERNAL_ERROR`, M (the last-resort envelope, with no `work_item_id`) | — |
+| BUG, JSON lines | `bug JR-12345 --allow-mock --json-lines` | 1 | the terminal event: `type: "completed"`, `ok: false`, `error.code: "INTERNAL_ERROR"`, `error.message` = M | — |
+| BUG, text | `bug JR-12345 --allow-mock` | 1 | — | stderr `ERROR: M`, with no log hint |
+| MCP | `prepare_jira_bug` (`issue_key` `JR-12345`) | — | a `ToolError`, not an `UnexpectedToolError`: `Error executing tool prepare_jira_bug: Could not prepare JR-12345 [INTERNAL_ERROR]: M` | — |
+| MCP | `list_fix_modes` (M-P) | — | `Error executing tool list_fix_modes: Could not list the Fix Modes [INTERNAL_ERROR]: M` | — |
+
+   **Common to every row:**
+   - no absolute path of the repository or the data root, and no environment value;
+   - no `Traceback`, and no system error's own text;
+   - the record, every settings file and the repository tree byte-identical afterwards.
+
+   **The contrast case:** a corrupt or mismatched record (row 2) gives `INVALID_INPUT` at every one of these boundaries, under F2. Text `bug` then also prints its log hint.
+5. **Fixture or public-code change: none is needed.**
+   - No fixture changes: `storage_cli_contract.json`'s value and open choice stay; PC-1 is separate, under B-3.
+   - No error code is added, renamed or repurposed (F4).
+   - The envelope is unchanged (F1).
+
+**US-D26 after B-2:**
+
+- **For 2B-3a:** its applicable error contract is resolved (G-14).
+- **Still OPEN:**
+  - the public `STORAGE_UNAVAILABLE` question for later slices: 2B-4's deletion, whose `StorageUnavailable` means a partial removal, and 2B-5's `doctor` state;
+  - the rows that follow US-D16, US-D18 and US-D25;
+  - US-D3's `legacy_config_dir_variable`;
+  - `below_git_toplevel`.
+- **The status** stays **APPROVED — in part**.
+
+##### Part 4 — M-P, verified (B-4)
+
+**The current exception boundaries.**
+
+- **`list_fix_modes`** calls `catalog_for(bound.repo_root)` with no `try`. Every exception reaches MCP SDK 2.1.1's tool runner. The runner turns a `ToolError` into `Error executing tool list_fix_modes: <text>`, and anything else into `UnexpectedToolError` (`Error executing tool list_fix_modes`, with no text and the traceback in the server's log).
+- **`show_fix_mode`** goes through `_resolve_fix_mode`. That catches `FixModeError` only, as `ToolError(str(exc))`. Everything else is unanticipated.
+- **Both run inside `_request_scoped`:** one storage request scope per call.
+
+**The representation (unchanged from the basis).**
+
+| Tool | Success | `StorageError` or `StorageIdentityError` (P, I) | `errors.StorageAccessError`, including a translated `StorageUnavailable` (U) | Anything else |
+| --- | --- | --- | --- | --- |
+| `list_fix_modes` | unchanged: `default_mode_id`, `modes[]`, `issues[]` (`scope`, `message`); messages in display form (G-11) | `Error executing tool list_fix_modes: Could not list the Fix Modes [INVALID_INPUT]: <sentence>` | `… [INTERNAL_ERROR]: <sentence>` | unchanged: `Error executing tool list_fix_modes` (unanticipated) |
+| `show_fix_mode` | unchanged | `Error executing tool show_fix_mode: Could not read the Fix Modes [INVALID_INPUT]: <sentence>` | `… [INTERNAL_ERROR]: <sentence>` | unchanged; `FixModeError` unchanged as `ToolError(str(exc))` |
+
+**Compatibility:**
+
+- **No new envelope.** MCP has no structured error object in BugPilot. The text form `Could not <action> [CODE]: <sentence>` is the one `_run` already uses for the prepare tools (`Could not prepare JR-12345 [CODE]: …`), as 2B-2's `test_a_refused_data_folder_reaches_the_client_as_one_sentence_with_its_code` and `test_an_unavailable_configuration_reaches_the_client_as_one_sentence_with_the_generic_code` (`tests/test_mcp_request_scope.py`) assert.
+- **The codes** are `errors.error_code_for`'s, the same ones the prepare tools give for the same failures. No code is new or changed.
+- **Successful results are unchanged in shape.** Only `issues[].message` text loses any absolute path (G-11).
+- **Safety.** Every storage sentence names paths only through `display_path`, as `~/.bugpilot/…` or `BUGPILOT_HOME/…`; this review scanned `storage.py`'s refusal messages. Variable *names* appear, never their values. `display_path` refuses a path outside the data folder.
+- **Scope and concurrency.** The `try` sits inside the decorated tool body, so `_request_scoped` still opens and closes one scope per call. No lock is added, and the scope ends with the exception (2B-2's tests assert `storage._active_scope() is None` after a failure).
+- **The existing tests stay valid.** `test_a_change_between_two_calls_is_seen_by_the_second` (2B-2) expects a `ToolError` without the repository's or data root's path, and gets one, now anticipated. `test_an_unknown_mode_is_an_error_not_a_quiet_default` is unaffected.
+- **Narrow catching.** Only `storage.StorageError` (with its subclasses) and `errors.StorageAccessError` are caught. Never `ValueError`, `UnsafePathError`, `OSError` or `Exception`.
+  - `UnicodeDecodeError`, `RecursionError` and raw `OSError` stay unanticipated.
+  - The two programming-error `StorageError`s in `storage.py` (an unknown settings name; an invalid computed ID) cannot be reached from the Fix Mode path.
+- **No retry,** and no change to any storage check.
+
+**Tests (2B-3a):**
+
+- for each tool: a policy refusal (a link at `settings/fix_modes/`; the home folder as root), an identity refusal (a mismatched record) and a U failure (an unreadable record);
+- the exact prefix and code, and `not isinstance(…, UnexpectedToolError)`;
+- no absolute path or `BUGPILOT_HOME` value;
+- the scope closed afterwards;
+- a raw `OSError` injected below the catalog stays unanticipated;
+- success results unchanged.
+
+**Result: B-4's conditions are met by the specification, with no discrepancy.** It is implementation-ready.
+
+##### Part 5 — PC-1, the approved expected difference (B-3)
+
+`tests/fixtures/repository_profile_contract.json` at `92efd66`: 16 lines, SHA-256 `a52f632d68a0b2086460969586e62d495e002473c62d87449e099231aa00dd33`.
+
+| Line | From (exact) | To (exact) |
+| --- | --- | --- |
+| 7 | `  "path": ".bugpilot/repository_profile.json",` | `  "path": "settings/repository_profile.json",` |
+
+Every other byte is unchanged, including `//`, `modes`, `default_mode`, `fallback_mode`, `labels` and `fields`. The new SHA-256 is recorded when the file is changed.
+
+**The four tests:**
+
+1. `tests/test_repository_profile.py::test_the_contract_fixture_is_the_model` asserts `f"settings/{PROFILE_FILE_NAME}" == CONTRACT["path"]` and `PROFILE_FILE_NAME in storage.SETTINGS_NAMES`.
+2. A new assertion: the file `RepositoryStorage.settings_file(PROFILE_FILE_NAME, create=False)` returns, relative to the namespace and written with `/`, equals `CONTRACT["path"]`. `repository-profile show --json`'s interim `path` ends with `/` plus `CONTRACT["path"]`.
+3. `extension/test/repositoryProfile.test.ts` is unchanged and passes. It reads `modes`, `default_mode`, `labels` and `fields`, never `path`.
+4. The fixture's diff is exactly line 7.
+
+**Affected:** `tests/test_repository_profile.py` (one assertion changed, one added). No product code reads the fixture.
+
+##### Part 6 — Rows 18 to 21: J-2 kept, and a dedicated completion step (proposed)
+
+**Through 2B-3a and 2B-3b,** the `path` values of `instructions`, `project-settings`, `repository-profile`, `verification` and `ai-behavior` `show --json` are display strings, or `.bugpilot/…` until a file moves. `display_path` is absent.
+
+These are **interim and not compliant** with §8.10 rows 18 to 21. That includes `instructions show`'s user `path` since 2B-2 (DD-1). Row 22 is compliant from 2B-3a.
+
+**Proposed: Batch 2B-7, "storage JSON contract completion".** It is a step of its own, after 2B-3b and before Batch 3, approved separately, and it folds into no consumer migration. It contains:
+
+- rows 18 to 21 for all five commands and both instruction scopes, at once: `path` becomes `abs`, and `display_path` is new and never null;
+- the runtime contract test §8.10 names (`tests/test_storage_contract.py`), which checks every listed key's kind;
+- the `cli_paths.json` designed differences: the generator writes `abs` values with portable separators, superseding DD-1, DD-10 to DD-12 and 2B-3b's entries through a chained record (CH-1);
+- no extension change. Batch 3 then uses the absolute `path` for Edit (§15.1).
+
+The interim gap stays recorded: a third-party script that joins `path` to the repository root builds a wrong path until 2B-7.
+
+##### Part 7 — Implementation requirements found by the verification (within G-6 and G-11)
+
+- **R-PRE, no write before a refusal.** In 2B-3a, two commands write first and read project settings afterwards:
+  - `instructions set --scope user` writes the user file, then reloads both scopes;
+  - `verification set`, `clear` and `reset` write `.bugpilot/verification.md`, then call `resolve_project_settings`.
+
+  In a refused root (the home folder; a link; a bad record), each would write, and then fail with a sentence that says "Nothing was read or written". Both must check the project namespace for reading, through the chokepoint, **before** writing, so that the refusal comes first and stays true. This is a consequence of G-6, not a new choice. The tests cover both. The checks live in `cli.py`'s `instructions` and `verification` handlers (allowlisted) and run before `save_instructions`, `save_verification` or `remove_verification`. No protected file changes for them: `verification.py` stays protected until 2B-3b.
+- **The chokepoint catches narrowly** (F2-S, G-6; found at the commit review, 2026-10-20). Around the storage accessor calls and the settings-file I/O it wraps, it catches only `storage.StorageUnavailable` and an `OSError` that is not already an `errors.StorageAccessError`. It never catches `ValueError`, `UnsafePathError`, any other `StorageError`, or `Exception`. Policy refusals keep their class and code, and programming errors propagate unchanged.
+- **2B-3a's test allowlist: three files the slice contract omitted** (found at the commit review, 2026-10-20). Each must change by design. None is added silently: each is **proposed for approval with the implementation authorization**.
+  - `tests/test_verification_policy.py`: its `_switches` helper writes `.bugpilot/project_settings.json`, which 2B-3a moves. The helper only.
+  - `tests/test_ai_behavior.py`: `test_the_task_has_one_ai_behavior_section_and_no_working_guidance` writes `.bugpilot/instructions.md`, which 2B-3a moves. That line only; its `verification.md` and `ai_behavior.md` stay for 2B-3b.
+  - `tests/test_global_config_storage.py` (2B-2): `test_user_files_live_in_the_configuration_folder_and_project_files_where_they_were` asserts the project files in `.bugpilot/`, the boundary 2B-3a moves by design. Its two project assertions, and its name, only.
+  - Checked and not expected to change: `test_file_safety_baseline.py` (`save_instructions("project", …)` under a linked root expects "ok"); `test_storage_safety.py` (legacy `.bugpilot/` files are never touched); `test_storage_identity.py` (protected); `test_fix_modes.py`, `test_fix_mode_prompts.py` and `test_fix_mode_selection.py` (in-memory `source="project"` values only). If any of them fails, stop and ask.
+- **Residue, recorded and not changed in 2B-3a:**
+  - storage's link refusal at a settings *file* reads "BugPilot cannot write …" also on reads (`storage.py`'s `_file`, as for 2B-2's user scope);
+  - the handlers' double full stop;
+  - the uncaught `UnicodeDecodeError` and `RecursionError` from a Fix Mode file, and `RecursionError` from the profile;
+  - a folder at a `.json` settings name read as missing;
+  - for `bug` and the MCP prepare tools, a refusal at a single settings file comes after `.ai/<id>/` is prepared (moved by 2B-4).
+
+##### Part 8 — 2B-3a readiness
+
+**Decided:**
+
+- G-1 to G-14 and B-1 to B-4;
+- US-D4 (with conditions), US-D8 and US-D9 approved;
+- US-D22's part covering 2B-3's messages;
+- US-D26's applicable contract for 2B-3a (F2-S);
+- P-1;
+- M-a and CH-1 (with the conditions of "owner decisions and final contract gate", part 8);
+- PC-1 and M-P as specified;
+- J-2 and the proposed 2B-7.
+
+**Still needed before any implementation:** the owner's explicit **implementation authorization**. It names the final allowlist, since G-12 approved the allowlist for planning only, and the phases. It also approves or refuses the three test files part 7 found.
+
+**Within the implementation, before its commit:**
+
+- the neutrality run;
+- the observed DD-4 to DD-12 values and PC-1's exact diff, each approved by the owner;
+- R-PRE;
+- every stop condition in "Batch 2B-3 — decision gate and slice design", part 10.
+
+**Not needed:** live-agent evidence.
+
+**Unchanged:**
+
+- **US-D29:** Batches 2 to 4 stay on `verify/0.1.6-storage`. No partial integration into `main`, no pull request, no fast-forward without the owner's approval.
+- **Activation:** not activated. All eight activation blockers and Batch 0B's evidence (P1, P3 and P8 NOT EXECUTED; P2 FAIL) still apply.
+- **The version:** 0.1.5.
+- **The counts:** 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+
+**Batch 2B-3a and 2B-3b — NOT STARTED.**
+
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
 **1. Scope.**
@@ -6236,7 +7363,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 **How to read it.**
 
 - **Owner status** is the decision's state: APPROVED, PROPOSED, OPEN or DEFERRED.
-  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11), US-D14 with conditions, as Refined Option A′ (§16.4.1), US-D13 with conditions, as the hybrid task-document contract (§9.8.1), US-D30 with conditions, as Option D (§9.8.2), US-D10 with conditions, as Option D for the agent handoff, with the probe gap accepted for design only (§9.5.1; "Accepted evidence gaps" below), US-D12 with conditions, as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 with conditions, as Option B, the CLI as the only path resolver (§8.9.1). On 2026-10-19, at the Batch 2B-2 decision gate, the owner approved US-D2 with conditions, and US-D29 and US-D22 in part (§14.3, "Batch 2B-2 — decision gate"). No other decision is approved.
+  - Beyond the requirements R1–R8, the APPROVED decisions are US-D32 and US-D33, for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions ratified at the Batch 1 decision gate (2026-10-16): US-D1, D3, D5, D6, D7, D23, D24, D26 and D34. On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract (§16.5.11), US-D14 with conditions, as Refined Option A′ (§16.4.1), US-D13 with conditions, as the hybrid task-document contract (§9.8.1), US-D30 with conditions, as Option D (§9.8.2), US-D10 with conditions, as Option D for the agent handoff, with the probe gap accepted for design only (§9.5.1; "Accepted evidence gaps" below), US-D12 with conditions, as Option C, the prompt gate kept and tightened (§9.9.1), and US-D17 with conditions, as Option B, the CLI as the only path resolver (§8.9.1). On 2026-10-19, at the Batch 2B-2 decision gate, the owner approved US-D2 with conditions, and US-D29 and US-D22 in part (§14.3, "Batch 2B-2 — decision gate"). On 2026-10-20, at the Batch 2B-3 decision gate, the owner approved US-D9, US-D4 with conditions and US-D8 in part, and widened US-D22's approved part to Batch 2B-3's user-facing messages (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). Later that day B-1 approved T-15 as option A, which completed US-D8 (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract"). No other decision is approved.
   - An approval may be qualified, in the status column:
     - **APPROVED — with conditions**: the decision stands; the named conditions must be met before the gate the row names (for Batch 1's decisions: activation in Batch 2, §14.3). Code may exist before then; it is not activated.
     - **APPROVED — in part**: only the stated part is approved. Every other part stays OPEN or PROPOSED, is named in the row, and is listed in "Open parts of approved decisions" below. It is decided on its own, before it is built.
@@ -6256,8 +7383,8 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 
 | | Count | Decisions |
 | --- | ---: | --- |
-| APPROVED by the owner | **21** | <ul><li>US-D32, US-D33 (Batch 0A's scope, 2026-10-15)</li><li>US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16)</li><li>with conditions US-D28 (an amended design contract), US-D14 (Refined Option A′), US-D13 (the hybrid task-document contract), US-D30 (Option D), US-D10 (Option D, design only), US-D12 (Option C) and US-D17 (Option B), 2026-10-18</li><li>with conditions US-D2; in part US-D29 and US-D22 (Batch 2B-2 decision gate, 2026-10-19)</li></ul> |
-| Await the owner | **14** | 7 OPEN, 7 PROPOSED |
+| APPROVED by the owner | **24** | <ul><li>US-D32, US-D33 (Batch 0A's scope, 2026-10-15)</li><li>US-D1, D3, D6, D7, D24; with conditions US-D5, D23, D34; in part US-D26 (Batch 1 decision gate, 2026-10-16)</li><li>with conditions US-D28 (an amended design contract), US-D14 (Refined Option A′), US-D13 (the hybrid task-document contract), US-D30 (Option D), US-D10 (Option D, design only), US-D12 (Option C) and US-D17 (Option B), 2026-10-18</li><li>with conditions US-D2; in part US-D29 and US-D22 (Batch 2B-2 decision gate, 2026-10-19)</li><li>US-D9; with conditions US-D4; in part US-D8; US-D22's part widened (Batch 2B-3 decision gate, 2026-10-20); US-D8 in full later that day (B-1)</li></ul> |
+| Await the owner | **11** | 5 OPEN, 6 PROPOSED |
 | DEFERRED | **4** | US-D35 to US-D38 |
 | Review: *Accept* | 28 | |
 | Review: *Accept conditionally* | 2 | US-D5, US-D26 |
@@ -6269,12 +7396,12 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D1 | Layout: `config/` and `repositories/<id>/{repository.json, settings/, work/, memory/}`; `memory/<id>.md`; no `cache/` | **APPROVED** | **Accept** | §6.1; alt: the brief's draft with `memory/bugs/` and `cache/` | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: the unified layout, version 1; no `cache/` |
 | US-D2 | Global config moves into `<root>/config/`. Users re-run `setup`; extension users re-enter the site. | **APPROVED** — with conditions | **Accept** (move) | a clean, uniformly checked tree, which resolves the B4-2 inconsistency; alt: keep the 0.1.5 files at the root (no reconfiguration, but 0.1.5 files are then loaded) | 2 | 2026-10-19: approved with conditions by the owner at the Batch 2B-2 decision gate (D-2): `<root>/config/config.toml`, with user instructions and user Fix Modes at `GlobalStorage`'s places; no migration, fallback or deletion; users re-run `setup` once the feature is activated. Conditions: §14.3, "Batch 2B-2 — decision gate" (its specification, and Q-1 to Q-6). Q-1 to Q-6 were answered later that day, which leaves choices C-1 to C-5 (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day; DD-1 to DD-3's exact values are reviewed before the implementation commit. The extension's half, re-entering the site, is Batch 3's (§15.4) |
 | US-D3 | `BUGPILOT_HOME` names the data root; `BUGPILOT_CONFIG_DIR` is no longer honoured | **APPROVED** | **Accept**, with a **safe warning**: when `BUGPILOT_CONFIG_DIR` is set, text mode prints one line on stderr ("BUGPILOT_CONFIG_DIR is no longer used; set BUGPILOT_HOME to choose BugPilot's data folder"), and `doctor --json` sets `storage.legacy_config_dir_variable` (§8.10). The variable's *value* is never read, shown or used, and nothing goes to `--json` stdout except that field. | §8.2, §13.2; alt: `BUGPILOT_DATA_DIR`; no warning | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: `BUGPILOT_HOME` defines the entire data root. The handling of the deprecated `BUGPILOT_CONFIG_DIR` remains Batch 2 work. 2026-10-19 (D-3, Batch 2B-2 decision gate): the warning's direction is set: at most one stderr line per CLI invocation; the value never read, used or shown; machine-readable stdout unchanged. Its exact text awaits Q-4, and `legacy_config_dir_variable` is deferred to the `doctor` slice. Later that day, Q-4 approved the text: "BUGPILOT_CONFIG_DIR is no longer used; set BUGPILOT_HOME to choose BugPilot's data folder", in text mode only |
-| US-D4 | The repository root stays the directory BugPilot runs in, with no git top-level discovery | OPEN | **Accept**, plus the diagnostic of §7.1 (`doctor`'s `below_git_toplevel`; one panel line in Batch 5). No git-root discovery, no relocation. | §7.1; alt: git top-level for identity only | 2 | — |
+| US-D4 | The repository root stays the directory BugPilot runs in, with no git top-level discovery | **APPROVED** — with conditions | **Accept**, plus the diagnostic of §7.1 (`doctor`'s `below_git_toplevel`; one panel line in Batch 5). No git-root discovery, no relocation. | §7.1; alt: git top-level for identity only | 2 | 2026-10-20: approved with conditions by the owner at the Batch 2B-3 decision gate (G-2): the existing root and identity rules unchanged, including the home-folder refusal. Conditions: T-1 to T-16 implemented as tests passing on Windows, Linux and macOS (verified as classifications, with T-13 corrected), and the unresolved choices named: T-15 (with US-D8), `below_git_toplevel` (not decided by this), `subst` NOT VERIFIED (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). Later that day T-15 was decided (B-1, option A). The remaining condition: the T-1 to T-16 tests passing on three systems (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract") |
 | US-D5 | Identity algorithm: `realpath(strict)`, `normcase` on Windows only, a versioned SHA-256 prefix, `<slug≤24>-<16 hex>`; prefer split over merge | **APPROVED** — with conditions | **Accept conditionally**: pending the cross-platform verification of §7.3's unverified rows (CI observations in Batch 0A, tests in Batch 1). A row that behaves otherwise returns US-D5 to the owner. | §7.2, §7.3; alt: git remote; inode; full-length hash | 1 | 2026-10-16: approved with conditions by the owner at the Batch 1 decision gate: the canonical identity algorithm, with Batch 1's accepted refinements (B1-2, B1-13, B1-16). Condition: Batch 1's cross-platform CI passes before activation |
 | US-D6 | `repository.json` records the canonical root path | **APPROVED** | **Accept** | §7.4; alt: digest only | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: the deterministic identity record, published without replacement (B1-14) |
 | US-D7 | One namespace per git worktree | **APPROVED** | **Accept** | §7.3; alt: key by `--git-common-dir` (merges worktrees) | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: distinct git worktrees use distinct namespaces |
-| US-D8 | A moved or renamed repository starts a new namespace; no relocation tooling in 0.1.6 | PROPOSED | **Accept** (relocation DEFERRED) | §7.1, §7.3 | 2 | — |
-| US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | OPEN | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | — |
+| US-D8 | A moved or renamed repository starts a new namespace; no relocation tooling in 0.1.6 | **APPROVED** | **Accept** (relocation DEFERRED) | §7.1, §7.3 | 2 | 2026-10-20: approved in part by the owner at the Batch 2B-3 decision gate (G-3): a moved or renamed repository may start a new namespace, with no automatic migration. Not approved: T-15, a different repository reusing a former repository's path and inheriting its namespace (options A, B and C, §14.3, "Batch 2B-3 — owner decisions and final contract gate", part 3). Later on 2026-10-20 (B-1): T-15 approved as option A, an accepted limitation (§7.3, §7.6, RK-20); option C deferred to a future design. US-D8 approved in full (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract") |
+| US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | **APPROVED** | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | 2026-10-20: approved by the owner at the Batch 2B-3 decision gate (G-4): settings per user and per repository namespace; legacy `.bugpilot/` never read, migrated, copied or deleted; no import or export in 0.1.6; the loss of implicit Git-based team sharing is an intentional compatibility impact. The exact AI-facing texts are decided at the 2B-3b gate (G-13; §14.3, "Batch 2B-3 — owner decisions and final contract gate") |
 | US-D10 | Agent handoff: Option D. <ul><li>The agent starts in the repository root and is told `Read <WORK>/task.md and complete the workflow.`; the retry is `Read <WORK>/agent_retry_prompt.md and continue the workflow.`.</li><li>`<WORK>` is resolved and validated by the CLI (US-D13, US-D17), with forward slashes.</li><li>The CLI, the extension and the retry prompt use the same wording; MCP follows US-D27.</li><li>No new permission mode, grant, sandbox bypass or shell-free launch (no US-D11 grant).</li><li>US-D12's gate is kept until US-D12 is decided. No rejected prompt reaches a shell. A refused, unlaunchable or bridge handoff uses the clipboard with an accurate notice.</li><li>Storage failures fail closed, with no legacy fallback.</li></ul>(§9.5.1) | **APPROVED** — with conditions | **Keep open** until the Batch 0B probes (§9.7) and the §9.10 acceptance criteria are met; Option D is the provisional recommendation | §9.5, §9.10; alt: B (inline only); C by default (violates R8) | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.5.1). <ul><li>The owner accepts the Batch 0B real-agent evidence gap for design approval only (§9.7; "Accepted evidence gaps" below).</li><li>No agent combination is declared supported.</li><li>Conditions: §9.5.1's implementation conditions and release gates.</li></ul>This is not an approval to implement, verify or activate. |
 | US-D11 | An opt-in `--add-dir <work folder>` grant | OPEN | **Defer** past 0.1.6. Never automatic (R8); reconsider after Batch 5's live measurement. | §9.4 C, §9.5 point 8 | 3 | — |
 | US-D12 | The prompt gate keeps its character set (ASCII letters and digits, the ASCII space, `. , : # / _ -`), never broadened, and is tightened. <ul><li>No string passes through JavaScript's `\s` alone, and the handoff starts with its expected literal text.</li><li>The complete prompt is validated.</li><li>**Exact prompt preservation:** both the generated prompt and the final argument are validated, nothing is collapsed, trimmed, normalized or escaped into a different path, and the handoff is refused if preservation can't be guaranteed.</li><li>**Parity:** Python's `--launch-agent` gets an equivalent gate, checked against one shared corpus.</li><li>The gate stays on the terminal paths, the bridges and the captured review (US-D28). There is none on MCP JSON, Copy Handoff Prompt or the body of `task.md`, which rely on path validation (US-D13, US-D17) instead.</li><li>A refused handoff starts nothing and falls back to US-D10's manual handoff. A bridge copies and notifies without revealing its view.</li><li>No relaxation for any transport.</li></ul>(§9.9.1) | **APPROVED** — with conditions | **Accept**: retain the gate. Investigate a launch without a shell for native executables (§9.9, P11) without weakening the gate; adopting one needs P11 PASS on three systems and a separate owner approval; shims never | §9.5, §9.9; alt: widen the gate (per-shell quoting; security-sensitive) | 3 | 2026-10-18: approved with conditions by the owner, as Option C with the exact-prompt-preservation and cross-language-parity amendments, as a design decision (§9.9.1). <ul><li>No per-transport relaxation; P10 stays PASS only for the tested Windows configuration, and P11 stays NOT EXECUTED.</li><li>Conditions: §9.9.1's tests and release conditions.</li></ul>This is not an approval to implement or activate. |
@@ -6287,11 +7414,11 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D19 | The extension's VS Code-owned storage (runtime, attachment staging, scratch) stays in `globalStorageUri` | PROPOSED | **Accept** | §6.2; alt: move attachment staging under the data root | 3 | — |
 | US-D20 | `doctor` reports *whether* legacy paths exist (`lstat` only, never read) | OPEN | **Defer**: no legacy-presence probing in 0.1.6. The change is explained by §13's documentation instead. | §6.3; alt: one `doctor` line | 5 | — |
 | US-D21 | Diagnostics surface: `doctor`'s `storage` object (and the panel's Diagnostics); no new command | OPEN | **Accept** | §8.10; alt: a read-only `bugpilot storage` command | 2 | — |
-| US-D22 | Absolute paths only in designated JSON fields, the handoff and `task.md`'s work line; the display form (`~/.bugpilot/…`) everywhere else | **APPROVED** — in part (Batch 2B-2's configuration messages) | **Accept** | §8.8, §8.10 | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-9): the display form for 2B-2's configuration messages; no environment variable's value in any message; no unrelated message change; no JSON contract expansion. The rest stays PROPOSED |
+| US-D22 | Absolute paths only in designated JSON fields, the handoff and `task.md`'s work line; the display form (`~/.bugpilot/…`) everywhere else | **APPROVED** — in part (Batch 2B-2's configuration messages; Batch 2B-3's user-facing messages) | **Accept** | §8.8, §8.10 | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-9): the display form for 2B-2's configuration messages; no environment variable's value in any message; no unrelated message change; no JSON contract expansion. The rest stays PROPOSED. 2026-10-20 (G-11, Batch 2B-3 decision gate): the approved part also covers Batch 2B-3's user-facing messages, with no unnecessary wording change; the JSON fields stay J-2's staging (G-7). The rest stays PROPOSED (§14.3, "Batch 2B-3 — owner decisions and final contract gate") |
 | US-D23 | New folders `0700`; an existing data root's mode is never changed | **APPROVED** — with conditions | **Accept** | §8.3; alt: `chmod` the root (touches a legacy folder) | 1 | 2026-10-16: approved with conditions by the owner at the Batch 1 decision gate: private folder creation, existing permissions unchanged. Condition: Windows privacy is claimed only after verification, and credential-bearing writes need Q1's verified access-list check (G-3, §14.3) |
 | US-D24 | An identity record that mismatches or is corrupt is refused, never repaired | **APPROVED** | **Accept** | §7.5; alt: overwrite | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: mismatched or corrupt records refused without repair; temporary unreadability distinguished (B1-15) |
 | US-D25 | `run.json` `generated_files` and JSON-lines `path` are relative to the namespace; `schema_version` stays 1 | PROPOSED | **Accept** | §8.10; alt: absolute; a schema bump | 2 | — |
-| US-D26 | The storage JSON contract | **APPROVED** — in part (the `STORAGE_UNAVAILABLE` code is OPEN) | **Accept conditionally**: only once the exact, independently testable contract (§8.10, frozen as `tests/fixtures/storage_cli_contract.json` in Batch 1) is approved at the Batch 1 gate | §8.10 | 2 | 2026-10-16: approved in part by the owner at the Batch 1 decision gate: §8.10's defined contract semantics and the fixture's typed entries. Still OPEN: `STORAGE_UNAVAILABLE`. Not approved by this: the rows that follow US-D4, US-D16, US-D18, US-D25 and US-D3's Batch 2 handling. 2026-10-19 (D-4, Batch 2B-2 decision gate): `STORAGE_UNAVAILABLE` stays OPEN; the direction for errors is recorded, and its mapping waits for Q-1 and Q-2. Later that day, Q-1 was approved in principle (an internal classification, with no new code), and the 2B-2 mapping became choice C-1 (§14.3, "Batch 2B-2 — final contract resolution"). C-1 then approved M-1, which keeps every existing public code; `STORAGE_UNAVAILABLE` stays OPEN |
+| US-D26 | The storage JSON contract | **APPROVED** — in part (the `STORAGE_UNAVAILABLE` code is OPEN) | **Accept conditionally**: only once the exact, independently testable contract (§8.10, frozen as `tests/fixtures/storage_cli_contract.json` in Batch 1) is approved at the Batch 1 gate | §8.10 | 2 | 2026-10-16: approved in part by the owner at the Batch 1 decision gate: §8.10's defined contract semantics and the fixture's typed entries. Still OPEN: `STORAGE_UNAVAILABLE`. Not approved by this: the rows that follow US-D4, US-D16, US-D18, US-D25 and US-D3's Batch 2 handling. 2026-10-19 (D-4, Batch 2B-2 decision gate): `STORAGE_UNAVAILABLE` stays OPEN; the direction for errors is recorded, and its mapping waits for Q-1 and Q-2. Later that day, Q-1 was approved in principle (an internal classification, with no new code), and the 2B-2 mapping became choice C-1 (§14.3, "Batch 2B-2 — final contract resolution"). C-1 then approved M-1, which keeps every existing public code; `STORAGE_UNAVAILABLE` stays OPEN. 2026-10-20 (G-5, G-14, Batch 2B-3 decision gate): O2 approved in principle for 2B-3, subject to exact error-contract verification; no public `STORAGE_UNAVAILABLE` code for 2B-3; the applicable contract is resolved before 2B-3a. Not fully resolved: the matrix's row 1 waits on F2-S (§14.3, "Batch 2B-3 — owner decisions and final contract gate", part 4). Later that day (B-2): F2-S approved as an explicit contract clarification and verified, with no fixture or public-code change. For 2B-3a the applicable contract is resolved; the public `STORAGE_UNAVAILABLE` question stays OPEN for later slices (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract", part 3) |
 | US-D27 | MCP keys unchanged; values absolute (`issue_dir`, `agent_task`, `next_step` paths); `search_memory` relative | PROPOSED | **Accept**: preserve the keys | §8.10; alt: return the task text inline | 2 | — |
 | US-D28 | Captured review reads `context.md`, `retrieval.json` and `fix_report.md` by absolute, CLI-resolved, validated work-folder paths, under the unchanged read-only restrictions. There is no automatic inline fallback. A separately identified, developer-initiated Partial Review uses at most 2,400 characters of `fix_report.md` (§16.5.11). | **APPROVED** — with conditions | **Keep open** until probe P2 (Batch 0B) | §9.5 point 5; §16.5 (P2 evidence, the decision review and the approved contract) | 2 | 2026-10-18: approved with conditions by the owner, with amendments, as a design contract (§16.5.11). The review's narrow Option C was not approved verbatim. Conditions: §16.5.11's activation gates. This is not an approval to implement, activate or ship. |
 | US-D29 | Integration: Batches 0A and 1 on `main`; Batches 2–4 on `verify/0.1.6-storage` until integration is complete; owner-dispatched CI; owner-approved fast-forward after Batch 4 | **APPROVED** — in part (the integration branch) | **Accept** the isolated integration branch, with §15.4's gates | §15.2, §15.4; alt: push Batches 2 and 3 together from `main` | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-1): `verify/0.1.6-storage`, based on `73ee57e`, is the isolated integration branch. It is not created yet, and no partial consumer migration reaches `main` without separate authorization. Still OPEN: the owner-dispatched CI and the fast-forward after Batch 4. Later that day (C-5 (a)): the branch is based instead on the verified `main` commit that carries this record |
@@ -6306,14 +7433,14 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D38 | Retention and pruning of orphaned namespaces | DEFERRED | Defer | — | — | — |
 | US-D39 | SF-1: route the project-settings and repository-profile payloads through `scratchFile.ts` | OPEN | **Accept**: include in Batch 4 | the same class 0.1.5 fixed; alt: leave as is | 4 | — |
 
-**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16; US-D28, US-D14, US-D13, US-D30, US-D10, US-D12 and US-D17, 2026-10-18; US-D2, US-D29 and US-D22, 2026-10-19):
+**Open parts of approved decisions** (Batch 1 decision gate, 2026-10-16; US-D28, US-D14, US-D13, US-D30, US-D10, US-D12 and US-D17, 2026-10-18; US-D2, US-D29 and US-D22, 2026-10-19; US-D4, US-D8 and US-D22, 2026-10-20):
 
 | Approved decision | Part not approved | Its own status | Needed before |
 | --- | --- | --- | --- |
 | US-D3 | `doctor`'s `legacy_config_dir_variable` (§8.10), deferred to the `doctor` slice. The warning is decided: its direction by D-3 and its text by Q-4 (2026-10-19) | Batch 2 work | 2B-6 |
-| US-D26 | a separate `STORAGE_UNAVAILABLE` error code | OPEN as a public code. The classification was approved in principle (Q-1), and the 2B-2 mapping as M-1 (C-1), both on 2026-10-19 | the code: before 2B-4 |
+| US-D26 | a separate `STORAGE_UNAVAILABLE` error code | OPEN as a public code. The classification was approved in principle (Q-1), and the 2B-2 mapping as M-1 (C-1), both on 2026-10-19 | the code: before 2B-4 *(2B-3 decision gate, 2026-10-20, proposed: before 2B-3a, which reads `repository.json` first, unless an interim rule for 2B-3 is approved; §14.3, "Batch 2B-3 — decision gate and slice design")* *(G-14, 2026-10-20: approved, before 2B-3a. G-5: no public code for 2B-3; O2 in principle; row 1 waits on F2-S.)* *(B-2, 2026-10-20: F2-S approved and verified; resolved for 2B-3a; the public code stays OPEN for 2B-4 and 2B-5.)* |
 | US-D26 | removing `ai_artifacts_ignored*` | follows US-D16 (OPEN) | 2 |
-| US-D26 | `below_git_toplevel` | follows US-D4 (OPEN) | 2 |
+| US-D26 | `below_git_toplevel` | follows US-D4 (OPEN) *(US-D4 approved with conditions on 2026-10-20 (G-2), which does not decide this diagnostic)* | 2 |
 | US-D26 | `--feedback-file` | follows US-D18 (PROPOSED) | 2 |
 | US-D26 | `run.json`'s relative `generated_files`, `schema_version` 1 | follows US-D25 (PROPOSED) | 2 |
 | US-D5, US-D23, US-D34 | their conditions: cross-platform CI; Q1's access-list check; the G-1/G-2 gate | conditions, §14.3 | activation |
@@ -6326,7 +7453,9 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D17 | <ul><li>its conditions: §8.9.1's implementation conditions (US-D18, US-D22, US-D27 and US-D26's error code decided; US-D29)</li><li>its required tests</li><li>Batch 3's real-window checks and Batch 4's cross-platform validation</li></ul> | conditions, §8.9.1 | implementation; activation |
 | US-D2 | its conditions: §14.3, "Batch 2B-2 — decision gate" (the specification as corrected by its final contract resolution, with C-1 to C-5 approved; DD-1 to DD-3's exact values are reviewed before the implementation commit). The extension's half, re-entering the site, is Batch 3's (§15.4) | conditions | 2B-2's implementation |
 | US-D29 | the owner-dispatched CI on the branch, and the owner-approved fast-forward after Batch 4 | OPEN | the branch's CI; integration |
-| US-D22 | everything beyond Batch 2B-2's configuration messages | PROPOSED | 2B-3 to 2B-6; Batch 3 |
+| US-D22 | everything beyond Batch 2B-2's configuration messages *(and beyond Batch 2B-3's user-facing messages, approved on 2026-10-20, G-11)* | PROPOSED | 2B-3 to 2B-6; Batch 3 |
+| US-D4 | its conditions: T-1 to T-16 implemented as tests passing on Windows, Linux and macOS (§14.3, "Batch 2B-3 — owner decisions and final contract gate", part 2). The `below_git_toplevel` diagnostic is not decided by it | conditions | 2B-3a's implementation |
+| US-D8 | T-15: a different repository reusing a former repository's path inherits its namespace | OPEN: options A, B and C (§14.3, "Batch 2B-3 — owner decisions and final contract gate", part 3) *(decided on 2026-10-20, B-1: option A, an accepted limitation; option C deferred)* | 2B-3a |
 
 **Decisions that block Batch 2 on their own:**
 
@@ -6335,7 +7464,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D10 | Decided: APPROVED with conditions on 2026-10-18 as a design, with the probe gap accepted for design only (§9.5.1). It no longer holds Batch 2 back under §14.3's OPEN rule, but its implementation conditions and release gates remain. |
 | US-D14 | Decided: APPROVED with conditions on 2026-10-18, as Refined Option A′ (§16.4.1). It no longer holds Batch 2 back under §14.3's OPEN rule, but its implementation conditions remain. |
 | US-D28 | Decided: APPROVED with conditions on 2026-10-18, as a design contract (§16.5.11). It no longer holds Batch 2 back under §14.3's OPEN rule, but its activation gates remain. |
-| US-D26 | approved in part on 2026-10-16; still: the `STORAGE_UNAVAILABLE` code, and the rows that follow other decisions (below). For Batch 2B-2 this was Q-1 (§14.3, "Batch 2B-2 — decision gate"): approved in principle on 2026-10-19, and the mapping approved as M-1 (C-1). |
+| US-D26 | approved in part on 2026-10-16; still: the `STORAGE_UNAVAILABLE` code, and the rows that follow other decisions (below). For Batch 2B-2 this was Q-1 (§14.3, "Batch 2B-2 — decision gate"): approved in principle on 2026-10-19, and the mapping approved as M-1 (C-1). For 2B-3 (2026-10-20, G-5 and G-14): resolved before 2B-3a; O2 in principle; F2-S open. Later that day F2-S was approved and verified (B-2). |
 
 Every other Batch 2 decision may be approved on the review's advice alone, if the owner chooses.
 
@@ -6368,6 +7497,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | RK-17 | A stale legacy `.ai/<id>/task.md` in the repository confuses an agent | low–medium | medium | the Execution Location wording names the work folder; §16.4 option A′; F22 guards keep it out of evidence |
 | RK-18 | Owner decisions that block Batch 2 (US-D26; US-D28, US-D14 and US-D10 were decided on 2026-10-18) wait on evidence or review | medium | schedule | Batch 0A and Batch 1 proceed meanwhile; Batch 0B can run in parallel |
 | RK-19 | A red required CI job on the branch is normalized as "expected" | low | high | §15.4: only ledger entries are excused, CI is still reported red, and the ledger must be empty before Batch 3's gate |
+| RK-20 | A different repository created at a former repository's exact path inherits its namespace (T-15): its Project Instructions, policies, Fix Modes and Repository Profile (2B-3), and from 2B-4 its work items and memory | low | medium | accepted for 0.1.6 (B-1, 2026-10-20) and stated in §7.3, §7.6 and the release notes; visible through `show` and `task-preview`; removable with the existing commands or another `BUGPILOT_HOME`; an explicit reset (option C) deferred to a future design, not part of 0.1.6 |
 
 ### 16.3 Assumptions
 
@@ -7049,6 +8179,9 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-20 | 2B-2 | **Batch 2B-2 committed on `verify/0.1.6-storage`; not pushed; not CI-verified; NOT activated.** <ul><li>**The commit:** one commit (`feat(storage): move global configuration onto unified storage (Batch 2B-2)`), parent `ea9659c`, by the noreply identity, holding the 32 approved files: nine production files, the approved tests and helpers, three new test and baseline entries, the inventory and this plan.</li><li>**Evidence (local Windows, as reported before the commit):** full suite 3,756 passed, 57 skipped, 0 failed. Extension typecheck passed, and 2,350 unit tests passed. DD-1 to DD-3 approved, with the gate passing.</li><li>**Not verified:** POSIX behaviour, until Linux and macOS CI runs.</li></ul> (§14.3, "Batch 2B-2 — implementation and local verification"). Pushing the branch and dispatching CI need separate authorization. |
 | 2026-10-20 | 2B-2 | **CI run 39463867534 on `7a1c891`: FAILURE; remediated by `0b7dd6c`.** <ul><li>**Results:** four jobs failed, four succeeded, and macOS safety was cancelled because its runner was not acquired.</li><li>**The failures:** the same two isolation-guard tests on Linux and macOS. The `decoy` fixture's new-layout `config/` and `config.toml` took the umask's bits, so G-3 refused the decoy's credentials, correctly, before any write, and the guard was never reached.</li><li>**What was not found:** a product defect, or an unauthorized write.</li><li>**The fix:** `0b7dd6c`, `tests/test_isolation_guard.py`'s `decoy` fixture only. On POSIX, `config/` is set to `0700` and `config.toml` to `0600`, before the snapshot. It was pushed by fast-forward with the owner's authorization.</li></ul> The run stays recorded as a failure (§14.3, "Batch 2B-2 — cross-platform CI verification"). |
 | 2026-10-20 | 2B-2 | **CI run 39486855193 on `0b7dd6c`: SUCCESS, 9/9. Batch 2B-2 — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED.** <ul><li>**Safety:** Ubuntu 3.13 and 3.10 1,758 passed and 48 skipped each; macOS 1,760 passed, 46 skipped; Windows 1,772 passed, 59 skipped.</li><li>**Full suite:** Ubuntu 3,733 passed, 54 skipped; macOS 3,735 passed, 52 skipped; Windows 3,753 passed, 59 skipped.</li><li>**Deselected:** one per Python job.</li><li>**Extension:** 2,348 passed and 2 skipped; the evidence boundary 27 passed.</li><li>**POSIX:** the isolation guard, the G-3 rewrite expectations (`0o600` kept, `0o644` refused and left), the eight permission patterns, the two POSIX-only assertions, and every test of the two new test files ran and passed on Linux and macOS.</li></ul> DD-1 to DD-3 remain approved. Not integrated into `main`; not activated. Batch 2B-3 to 2B-6 NOT STARTED. |
+| 2026-10-20 | 2B-3 | **Batch 2B-3 decision gate and slice design recorded; Batch 2B-3 NOT STARTED.** <ul><li>**Nature:** documentation and a read-only review at `92efd66`. No code, test, fixture, golden, baseline or extension change, and no probe.</li><li>**Proposed:** <ul><li>the split into 2B-3a (namespace and identity access, and four settings) and 2B-3b (the Verification Policy, AI Behavior and every task-text change);</li><li>US-D26's `STORAGE_UNAVAILABLE`, or an interim rule (O1 to O3), needed before 2B-3a;</li><li>the storage-failure matrix, P-1, identity cases T-1 to T-16, and US-D9's semantics;</li><li>the JSON timing (J-1 or J-2), the profile contract (PC-1 to PC-3), and DD-4 to DD-12;</li><li>2B-3b's six goldens with per-golden approval;</li><li>both slice contracts.</li></ul></li><li>**Found:** <ul><li>today's extension Edit can overwrite relocated AI Behavior and Verification files (2B-3b, and a 0.1.5 extension with a 0.1.6 CLI);</li><li>the golden harnesses write `.bugpilot/` inputs directly;</li><li>a different repository later at a former path inherits its namespace (frozen behaviour, newly stated for settings).</li></ul></li><li>**Asked:** G-1 to G-14.</li></ul> No decision status changed; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3 — decision gate and slice design"). |
+| 2026-10-20 | 2B-3 | **Batch 2B-3 owner decisions and final contract gate recorded; 2B-3a NOT READY; 2B-3a and 2B-3b NOT STARTED.** <ul><li>**Decisions:** <ul><li>G-1, G-4, G-6, G-11 and G-14 approved;</li><li>G-2 approved with conditions;</li><li>G-3 approved in part (T-15 not approved);</li><li>G-5, G-8, G-9 and G-10 approved in principle;</li><li>G-7 as a staging direction only;</li><li>G-12 for planning only;</li><li>G-13 deferred to the 2B-3b gate.</li></ul></li><li>**Register:** US-D4 APPROVED with conditions, US-D8 APPROVED in part, US-D9 APPROVED, and US-D22's approved part widened. US-D26 stays approved in part. Counts: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.</li><li>**Analysis:** <ul><li>T-1 to T-16 verified, with T-13 corrected (Windows only);</li><li>T-15 is pinned by a frozen identity test, and cannot be detected without a record change; options A, B and C, A recommended with C deferred;</li><li>the 11-row US-D26 matrix reconciled per boundary;</li><li>J-2's interim discrepancies listed, and called non-compliant;</li><li>PC-1's exact values and M-P's exact behaviour specified;</li><li>no baseline or golden blocker.</li></ul></li><li>**Blocking:** <ul><li>B-1 (T-15) and B-2 (F2-S: O2 meets F2's letter only if F2 governs policy refusals and invalid configuration, not a translated `StorageUnavailable`);</li><li>B-3 (PC-1's values) and B-4 (M-P's behaviour) as approvals.</li></ul></li></ul> Documentation only; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). |
+| 2026-10-20 | 2B-3a | **B-1 to B-4 decided; the 2B-3a implementation contract recorded; 2B-3a's decisions complete; implementation NOT STARTED and not authorized.** <ul><li>**B-1:** T-15 option A, an accepted configuration-contamination limitation (§7.3, §7.6, RK-20); option C deferred; US-D8 approved in full.</li><li>**B-2:** F2-S approved as a dated contract clarification (§8.6, §8.10) and verified. No fixture or public-code change; exact CLI JSON, text and MCP assertions recorded; US-D26 stays approved in part, resolved for 2B-3a.</li><li>**B-3:** PC-1, one expected fixture line, `path` to `settings/repository_profile.json`; four tests.</li><li>**B-4:** M-P verified against MCP SDK 2.1.1 and the existing tests: no new envelope, codes kept, narrow catching, request scope unchanged.</li><li>**JSON:** J-2 kept; 2B-7, a dedicated contract-completion step for rows 18 to 21, proposed.</li><li>**Found:** R-PRE (`instructions set --scope user` and `verification set`, `clear` and `reset` must check the project namespace before writing), and recorded residue.</li></ul> Counts unchanged: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED. Documentation only; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract"). |
 
 ---
 
@@ -7095,6 +8228,11 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-20 | 2B-2 | `verify/0.1.6-storage` | `7a1c8913827ed641a60090597fed02379dafaf5a` (parent `ea9659c`; pushed, owner-authorized) | 39463867534 (`CI`, `workflow_dispatch`, owner-authorized) | **failure**: 4 succeeded, 4 failed, 1 cancelled | two isolation-guard tests on Linux and macOS (a test-fixture permission defect); macOS safety's runner not acquired |
 | 2026-10-20 | 2B-2 remediation | `verify/0.1.6-storage` | `0b7dd6cc820384b4035711ff9abbb07434fd8479` (parent `7a1c891`; fast-forward push, owner-authorized) | 39486855193 (`CI`, `workflow_dispatch`, owner-authorized) | **success: 9/9** | Batch 2B-2 — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED |
 | 2026-10-20 | 2B-2 | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: this plan only (`docs(storage): record Batch 2B-2 cross-platform CI verification`), parent `0b7dd6c` | — | — | documentation only |
+| 2026-10-20 | 2B-2 docs | `verify/0.1.6-storage` | `92efd66486fad0a871e486b135ed5bfe9bb0b0a4` pushed by fast-forward (`0b7dd6c..92efd66`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is pushed |
+| 2026-10-20 | 2B-3 gate | `verify/0.1.6-storage` | carried by the 2B-3 documentation commit below | — | — | the Batch 2B-3 decision gate; documentation only |
+| 2026-10-20 | 2B-3 decisions | `verify/0.1.6-storage` | carried by the 2B-3 documentation commit below | — | — | the owner decisions and final contract gate; documentation only |
+| 2026-10-20 | 2B-3a contract | `verify/0.1.6-storage` | carried by the 2B-3 documentation commit below | — | — | B-1 to B-4 and the 2B-3a implementation contract; documentation only |
+| 2026-10-20 | 2B-3 docs | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: this plan only (`docs(storage): record Batch 2B-3 decision gate and 2B-3a contract`), parent `92efd66` | — | — | documentation only; no CI |
 
 ---
 
