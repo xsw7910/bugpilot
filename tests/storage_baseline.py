@@ -32,6 +32,15 @@ the frozen Batch 0A records are never rewritten. A later batch that changes them
 each change in `tests/baselines/0.1.6-batch2b2/designed_differences.json` as an exact JSON-pointer
 `from`/`to` pair, and `differences()` applies those pairs to the frozen record in memory before
 the byte comparison: any other difference fails, and so does a listed one that did not happen.
+
+Chained per-slice records (CH-1, Batch 2B-3a): each later slice has a record of its own
+(`tests/baselines/0.1.6-batch2b3a/designed_differences.json`, ...), applied after the earlier ones
+in `DESIGNED_CHAIN`'s order. An entry's `from` is the value the earlier records leave, so a value two
+slices change is listed by both, and no approved record is ever edited.
+
+The repository ID (M-a, Batch 2B-3a): a session computes its own repository's ID with BugPilot's
+identity function, and the records show it as `<repository-id>`. Any other repository ID in a record
+is an error, so a namespace computed from the wrong folder can never be normalized away.
 """
 
 from __future__ import annotations
@@ -57,6 +66,11 @@ REPO = TESTS.parent
 OUT = TESTS / "baselines" / "0.1.6-batch0"
 COMPARED = ("pollution.json", "handoff.json", "cli_paths.json", "task_size.json")
 DESIGNED = TESTS / "baselines" / "0.1.6-batch2b2" / "designed_differences.json"
+#: Every slice's designed-differences record, in the order the slices change the frozen records (CH-1).
+DESIGNED_CHAIN = (DESIGNED, TESTS / "baselines" / "0.1.6-batch2b3a" / "designed_differences.json")
+REPOSITORY_ID_LABEL = "<repository-id>"
+#: A repository ID (plan §7.2) standing on its own in a text: the slug, a hyphen and 16 hex digits.
+REPOSITORY_ID_TEXT = re.compile(r"(?<![a-z0-9._-])[a-z0-9][a-z0-9._-]{0,23}-[0-9a-f]{16}(?![0-9a-z._-])")
 
 JIRA_ID = "JR-12345"
 SECOND_ID = "JR-23456"
@@ -116,6 +130,11 @@ class Session:
                "-c", "commit.gpgsign=false"]
         for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "initial"]):
             subprocess.run([*git, *args], cwd=self.repo, check=True, capture_output=True)
+        # The repository's ID, from BugPilot's own identity function and never read back from a command's
+        # output (M-a): the records show it as <repository-id>, and any other ID fails (`_label_repository_id`).
+        from bugpilot.core import storage
+
+        self.repository_id = storage.repository_identity(self.repo).repository_id
 
     def env(self) -> dict[str, str]:
         env = dict(os.environ)
@@ -165,13 +184,28 @@ class Session:
             home = os.environ.get("HOME")
             if home:
                 text = text.replace(home, "<home>").replace(Path(home).as_posix(), "<home>")
-            return LOCAL_ID.sub("local_<timestamp>", text)
+            return self._label_repository_id(LOCAL_ID.sub("local_<timestamp>", text))
         if isinstance(value, list):
             items = [self.normalize(item, sort=sort) for item in value]
             return sorted(items) if sort and all(isinstance(item, str) for item in items) else items
         if isinstance(value, dict):
             return {key: self.normalize(item, sort=sort) for key, item in sorted(value.items())}
         return value
+
+    def _label_repository_id(self, text: str) -> str:
+        """This session's repository ID as ``<repository-id>``; another repository ID is an error, never hidden (M-a).
+
+        Only the whole ID is replaced: a longer name that merely contains it is left as it is, and the check
+        below then refuses it like any other foreign ID.
+        """
+        text = re.sub(rf"(?<![a-z0-9._-]){re.escape(self.repository_id)}(?![0-9a-z._-])", REPOSITORY_ID_LABEL, text)
+        foreign = REPOSITORY_ID_TEXT.search(text)
+        if foreign:
+            raise RuntimeError(
+                f"a record names a repository ID that is not this session's ({foreign.group(0)}): BugPilot used "
+                "another folder's namespace"
+            )
+        return text
 
     def tree(self) -> set[str]:
         """Every path in the repository, `.git` aside, as repository-relative POSIX text."""
@@ -492,6 +526,23 @@ def load_designed(path: Path = DESIGNED) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_chain(paths: Sequence[Path] = DESIGNED_CHAIN) -> list[dict[str, object]]:
+    """Every slice's designed-differences record, in the order the slices change the frozen records (CH-1)."""
+    return [load_designed(path) for path in paths]
+
+
+def _as_chain(designed: dict[str, object] | Sequence[dict[str, object]] | None) -> list[dict[str, object]]:
+    """One record (as a single slice), a chain of them, or the committed chain."""
+    if designed is None:
+        return load_chain()
+    return [designed] if isinstance(designed, dict) else list(designed)
+
+
+def _within(parts: Sequence[str], outer: Sequence[str]) -> bool:
+    """Whether the value at ``parts`` is the value at ``outer`` or lies inside it."""
+    return list(parts[: len(outer)]) == list(outer)
+
+
 def pointer_parts(pointer: str) -> list[str]:
     """An RFC 6901 JSON pointer's reference tokens (``~1`` is ``/``, ``~0`` is ``~``). The whole document is refused."""
     if not isinstance(pointer, str) or not pointer.startswith("/"):
@@ -576,27 +627,51 @@ def designed_problems(designed: dict[str, object], expected_dir: Path = OUT) -> 
     return problems
 
 
-def unapproved(designed: dict[str, object]) -> list[str]:
-    """The listed differences the owner has not approved yet (``approved`` is empty)."""
-    return [str(entry.get("id")) for entry in designed.get("differences", []) if not entry.get("approved")]  # type: ignore[union-attr]
+def chain_problems(chain: Sequence[dict[str, object]], expected_dir: Path = OUT) -> list[str]:
+    """What is wrong with each record of a chain, and with the chain: an id may be used by one slice only."""
+    problems = [problem for designed in chain for problem in designed_problems(designed, expected_dir)]
+    owners: dict[str, int] = {}
+    for position, designed in enumerate(chain):
+        entries = designed.get("differences")
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+                continue
+            label = entry["id"]
+            if owners.setdefault(label, position) != position:
+                problems.append(f"designed differences: the id {label!r} is listed by more than one slice's record")
+    return problems
 
 
-def differences(expected_dir: Path, actual_dir: Path, designed: dict[str, object] | None = None) -> list[str]:
+def unapproved(designed: dict[str, object] | Sequence[dict[str, object]]) -> list[str]:
+    """The listed differences the owner has not approved yet (``approved`` is empty), in one record or a chain."""
+    return [
+        str(entry.get("id"))
+        for record in _as_chain(designed)
+        for entry in record.get("differences", [])  # type: ignore[union-attr]
+        if not entry.get("approved")
+    ]
+
+
+def differences(
+    expected_dir: Path, actual_dir: Path, designed: dict[str, object] | Sequence[dict[str, object]] | None = None
+) -> list[str]:
     """Every way today's records differ from the committed ones, after the designed differences are applied.
 
-    The committed bytes must match their recorded hashes. For each listed entry the committed value at its
-    pointer must be exactly ``from``; it is replaced by ``to`` in memory, and the result must equal today's
-    record byte for byte. A record without entries is compared byte for byte, as Batch 0A did. Approval is
-    judged separately (:func:`unapproved`), so a pending review never hides a wrong value.
+    The committed bytes must match their recorded hashes. The records of the chain (one record counts as a
+    chain of one; none given means the committed chain) are applied in their order: for each listed entry the
+    value at its pointer must be exactly ``from`` (the committed value, or the value an earlier slice's record
+    left); it is replaced by ``to`` in memory, and the result must equal today's record byte for byte. A record
+    without entries is compared byte for byte, as Batch 0A did. Approval is judged separately
+    (:func:`unapproved`), so a pending review never hides a wrong value.
     """
-    if designed is None:
-        designed = load_designed()
-    problems = designed_problems(designed, expected_dir)
+    chain = _as_chain(designed)
+    problems = chain_problems(chain, expected_dir)
     if problems:
         return problems
     by_record: dict[str, list[dict[str, object]]] = {}
-    for entry in designed["differences"]:  # type: ignore[union-attr]
-        by_record.setdefault(entry["record"], []).append(entry)
+    for record in chain:
+        for entry in record["differences"]:  # type: ignore[union-attr]
+            by_record.setdefault(entry["record"], []).append(entry)
     for name in COMPARED:
         frozen, now = frozen_bytes(expected_dir / name), (actual_dir / name).read_bytes()
         entries = by_record.get(name, [])
@@ -609,19 +684,25 @@ def differences(expected_dir: Path, actual_dir: Path, designed: dict[str, object
             problems.append(f"{name}: the committed baseline does not survive a JSON round trip")
             continue
         stale = False
+        touched: list[list[str]] = []
         for entry in entries:
             parts = pointer_parts(entry["pointer"])  # type: ignore[arg-type]
             found = _at(document, parts)
             if found is _MISSING or not _same(found, entry["from"]):
-                problems.append(f"{name} {entry['id']}: the committed value at {entry['pointer']} is not `from`")
+                earlier = any(_within(parts, other) or _within(other, parts) for other in touched)
+                where = "the value the earlier designed differences leave" if earlier else "the committed value"
+                problems.append(f"{name} {entry['id']}: {where} at {entry['pointer']} is not `from`")
                 stale = True
             else:
                 _put(document, parts, json.loads(json.dumps(entry["to"])))
+            touched.append(parts)
         if stale or _dump(document) == now:
             continue
         current = json.loads(now)
-        for entry in entries:
+        for index, entry in enumerate(entries):
             parts = pointer_parts(entry["pointer"])  # type: ignore[arg-type]
+            if any(_within(parts, pointer_parts(later["pointer"])) for later in entries[index + 1:]):  # type: ignore[arg-type]
+                continue  # a later slice sets this value again: only that slice's `to` is today's
             seen = _at(current, parts)
             if seen is _MISSING or not _same(seen, entry["to"]):
                 problems.append(f"{name} {entry['id']}: today's value at {entry['pointer']} is not `to`")
@@ -679,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
                                      ensure_ascii=False))
             return 0
         problems = differences(OUT, Path(scratch))
-    pending = unapproved(load_designed())
+    pending = unapproved(load_chain())
     for line in problems:
         print(line)
     print("baselines match" if not problems else f"{len(problems)} baseline(s) differ")

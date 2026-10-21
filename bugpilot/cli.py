@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from bugpilot import __version__, cli_json
-from bugpilot.core import agent_runner, copilot, doctor, errors, setup, storage, workflow
+from bugpilot.core import agent_runner, copilot, doctor, errors, repository_settings, setup, storage, workflow
 from bugpilot.core.branch_policy import BRANCH_POLICIES
 from bugpilot.core.cleanup import clean_issue_artifacts
 from bugpilot.core.safe_paths import UnsafePathError
@@ -42,16 +42,16 @@ from bugpilot.core.verification_report import (
 )
 from bugpilot.core.instructions import (
     INSTRUCTION_SCOPES,
+    INSTRUCTIONS_FILE_NAME,
     MAX_INSTRUCTION_CHARS,
     InstructionFile,
-    display_path,
     instructions_payload,
     load_instructions,
     save_instructions,
 )
 from bugpilot.core.project_settings import (
     DEFAULT_BRANCH_TEMPLATE_LABEL,
-    SHOWN_PATH as SETTINGS_SHOWN_PATH,
+    SETTINGS_FILE_NAME,
     VERIFICATION_FILE_WINS,
     load_project_settings,
     project_settings_payload,
@@ -59,6 +59,7 @@ from bugpilot.core.project_settings import (
     save_project_settings,
     settings_from_mapping,
     settings_path,
+    shown_path as settings_shown_path,
     verification_file_wins,
 )
 from bugpilot.core.ai_behavior import (
@@ -106,8 +107,6 @@ from bugpilot.core.repository_profile import (
     PROFILE_FIELDS,
     PROFILE_MODE_LABELS,
     PROFILE_MODES,
-    PROJECT_CONFIG_DIR,
-    PROFILE_FILE_NAME,
     RepositoryProfile,
     detect_repository,
     load_repository_profile,
@@ -115,6 +114,7 @@ from bugpilot.core.repository_profile import (
     profile_path,
     resolve_repository_context,
     save_repository_profile,
+    shown_profile_path,
 )
 
 
@@ -475,7 +475,7 @@ def build_parser() -> argparse.ArgumentParser:
             "How task.md describes this repository, for this run only: 'auto' reads high-confidence "
             "facts from its build and package files, 'generic' assumes nothing, 'custom' uses the "
             "details saved with `bugpilot repository-profile set`. "
-            "Default: the repository's .bugpilot/repository_profile.json, otherwise 'auto'."
+            "Default: the profile saved for this repository, otherwise 'auto'."
         ),
     )
     bug_mock = bug_parser.add_mutually_exclusive_group()
@@ -486,9 +486,10 @@ def build_parser() -> argparse.ArgumentParser:
         "repository-profile",
         help="Show or set how task.md describes this repository (Auto-detect, Generic or Custom).",
         description=(
-            "The Repository Profile is saved in .bugpilot/repository_profile.json in the repository, "
-            "where the CLI, the MCP server and the VS Code extension all read it. Without the file "
-            "the profile is Auto-detect."
+            "The Repository Profile is saved for this repository in BugPilot's data folder "
+            "(~/.bugpilot/repositories/<repository id>/settings/repository_profile.json, under BUGPILOT_HOME "
+            "when it is set), where the CLI, the MCP server and the VS Code extension all read it. It is your "
+            "own setting: it is not stored in the repository. Without the file the profile is Auto-detect."
         ),
     )
     profile_parser.add_argument(
@@ -538,8 +539,10 @@ def build_parser() -> argparse.ArgumentParser:
         "project-settings",
         help="Show or set the repository's Verification Policy and branch naming template.",
         description=(
-            "Project settings are saved in .bugpilot/project_settings.json in the repository, where the CLI, "
-            "the MCP server and the VS Code extension all read them. Without the file the defaults apply: run "
+            "Project settings are saved for this repository in BugPilot's data folder "
+            "(~/.bugpilot/repositories/<repository id>/settings/project_settings.json, under BUGPILOT_HOME when "
+            "it is set), where the CLI, the MCP server and the VS Code extension all read them. They are your "
+            "own settings: they are not stored in the repository. Without the file the defaults apply: run "
             "relevant tests and static checks, report what was not run, no full suite, and branch names "
             "feature/{issue}-{slug}."
         ),
@@ -569,8 +572,9 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "User Instructions live in ~/.bugpilot/config/instructions.md (BUGPILOT_HOME/config/instructions.md "
             "when BUGPILOT_HOME is set) and apply to every repository; "
-            "Project / Team Instructions live in .bugpilot/instructions.md in the repository and can be "
-            "committed with it. The CLI, the MCP server and the VS Code extension all read these two files. "
+            "Project / Team Instructions live in ~/.bugpilot/repositories/<repository id>/settings/instructions.md "
+            "(under BUGPILOT_HOME when it is set) and apply to this repository; they are your own, not stored in "
+            "the repository. The CLI, the MCP server and the VS Code extension all read these two files. "
             "They refine how the AI agent works; BugPilot's safety rules come first in the task and win any conflict."
         ),
     )
@@ -584,7 +588,8 @@ def build_parser() -> argparse.ArgumentParser:
     instructions_parser.add_argument(
         "--scope",
         choices=INSTRUCTION_SCOPES,
-        help="user (~/.bugpilot/config/instructions.md) or project (.bugpilot/instructions.md). Required for set.",
+        help="user (~/.bugpilot/config/instructions.md) or project (this repository's, in BugPilot's data folder). "
+        "Required for set.",
     )
     instructions_source = instructions_parser.add_mutually_exclusive_group()
     instructions_source.add_argument(
@@ -604,7 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "The Verification Policy says what a pass that changes source code is expected to verify. "
             "With .bugpilot/verification.md, its text replaces BugPilot's default whole; without it, the "
-            "Verification switches in .bugpilot/project_settings.json (BugPilot 0.1.2 and earlier) apply, or "
+            "Verification switches in the project settings (BugPilot 0.1.2 and earlier) apply, or "
             "the default. The CLI, the MCP server and the VS Code extension all read it the same way, and "
             "the task puts BugPilot's own rules ahead of it."
         ),
@@ -2003,8 +2008,9 @@ def _report_issue_failure(issue_key: str, exc: IssueArtifactError) -> int:
 def _run_repository_profile_command(args, repo_root: Path) -> int:
     """`bugpilot repository-profile [show|set]`: the profile every entry point reads.
 
-    `show` is read-only. `set` writes `.bugpilot/repository_profile.json`, which
-    is repository configuration a team may commit, like `.bugpilot/fix_modes/`.
+    `show` is read-only. `set` writes `repository_profile.json` in this repository's
+    namespace in BugPilot's data folder, beside its project Fix Modes: the
+    developer's own setting for the repository, not stored in it (0.1.6, US-D9).
     The VS Code extension reads and writes the profile through this command, so
     the validation and Auto-detect live in one place.
     """
@@ -2042,12 +2048,14 @@ def _run_repository_profile_command(args, repo_root: Path) -> int:
     detected = detect_repository(repo_root)
     effective = resolve_repository_context(repo_root)
     saved = profile_path(repo_root).is_file()
+    shown = shown_profile_path(repo_root)
     if args.json_output:
         cli_json.emit(
             cli_json.success(
                 "repository-profile",
                 profile={"mode": profile.mode, "custom": profile.custom.to_dict()},
-                path=f"{PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}",
+                # The display form (J-2, Batch 2B-3a): §8.10's absolute `path` and new `display_path` come later.
+                path=shown,
                 saved=saved,
                 detected={"facts": detected.facts.to_dict(), "guidance_files": list(detected.guidance_files)},
                 effective={
@@ -2061,8 +2069,8 @@ def _run_repository_profile_command(args, repo_root: Path) -> int:
         return 0
 
     if args.action == "set":
-        print(f"Saved the repository profile: {PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}")
-    origin = f"{PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}" if saved else "the default; nothing saved"
+        print(f"Saved the repository profile: {shown}")
+    origin = shown if saved else "the default; nothing saved"
     print(f"Repository profile: {PROFILE_MODE_LABELS[profile.mode]} ({origin})")
     for warning in warnings:
         print(f"WARN: {warning}")
@@ -2150,10 +2158,11 @@ def _run_jira_site_command(args) -> int:
 def _run_project_settings_command(args, repo_root: Path) -> int:
     """`bugpilot project-settings [show|set]`: the Verification Policy and branch naming every entry point reads.
 
-    `show` is read-only. `set` writes `.bugpilot/project_settings.json` through
-    the same checks a run reads it with (no links; a branch template that could
-    produce an unsafe ref is refused). The VS Code extension reads and writes
-    through this command, so the validation lives in one place.
+    `show` is read-only. `set` writes `project_settings.json` in this repository's
+    namespace in BugPilot's data folder (0.1.6, US-D9) through the same checks a
+    run reads it with (no links; a branch template that could produce an unsafe
+    ref is refused). The VS Code extension reads and writes through this
+    command, so the validation lives in one place.
     """
 
     def fail(message: str) -> int:
@@ -2178,13 +2187,14 @@ def _run_project_settings_command(args, repo_root: Path) -> int:
                 raise ValueError(f"--from-file is not valid JSON: {exc.msg}.") from exc
             except RecursionError as exc:
                 raise ValueError("--from-file is nested too deeply to be project settings.") from exc
-            settings, _warnings = settings_from_mapping(payload, strict=True)
+            settings, _warnings = settings_from_mapping(payload, strict=True, shown=settings_shown_path(repo_root))
             save_project_settings(repo_root, settings)
         except (OSError, ValueError) as exc:
             return fail(str(exc) if isinstance(exc, ValueError) else f"--from-file could not be read: {exc.strerror or exc}.")
 
     settings, warnings = load_project_settings(repo_root)
     saved = settings_path(repo_root).is_file()
+    shown = settings_shown_path(repo_root)
     # Which Verification Policy is effective. Once `.bugpilot/verification.md`
     # exists the switches are kept — older BugPilot versions still read and write
     # them — but no longer decide anything for this one, and a save says so.
@@ -2196,15 +2206,15 @@ def _run_project_settings_command(args, repo_root: Path) -> int:
             cli_json.success(
                 "project-settings",
                 **project_settings_payload(
-                    settings, saved=saved, warnings=warnings, verification_source=verification_source
+                    settings, saved=saved, warnings=warnings, path=shown, verification_source=verification_source
                 ),
             )
         )
         return 0
 
     if args.action == "set":
-        print(f"Saved the project settings: {SETTINGS_SHOWN_PATH}")
-    origin = SETTINGS_SHOWN_PATH if saved else "the defaults; nothing saved"
+        print(f"Saved the project settings: {shown}")
+    origin = shown if saved else "the defaults; nothing saved"
     print(f"Project settings ({origin}):")
     for warning in warnings:
         print(f"WARN: {warning}")
@@ -2238,6 +2248,10 @@ def _run_verification_command(args, repo_root: Path) -> int:
 
     if args.action != "set" and (args.from_file or args.stdin):
         return fail("--from-file and --stdin are for `bugpilot verification set`.")
+    if args.action in ("set", "clear", "reset"):
+        # R-PRE (Batch 2B-3a): the answer reads the project settings, which storage may refuse; that refusal
+        # comes before anything is written, so its "Nothing was read or written" stays true.
+        repository_settings.require_readable(repo_root, SETTINGS_FILE_NAME)
     note = ""
     try:
         if args.action == "set":
@@ -2269,7 +2283,7 @@ def _run_verification_command(args, repo_root: Path) -> int:
         print(note)
     origin = {
         VERIFICATION_SOURCE_FILE: VERIFICATION_SHOWN_PATH,
-        VERIFICATION_SOURCE_LEGACY: f"the Verification switches in {SETTINGS_SHOWN_PATH}",
+        VERIFICATION_SOURCE_LEGACY: f"the Verification switches in {settings_shown_path(repo_root)}",
     }.get(resolved.source, "BugPilot's default")
     print(f"Verification Policy ({resolved.source}: {origin}):")
     for warning in resolved.warnings:
@@ -2516,6 +2530,10 @@ def _run_instructions_command(args, repo_root: Path) -> int:
     if args.action == "set":
         if args.scope is None:
             return fail("`bugpilot instructions set` needs --scope user or --scope project.")
+        if args.scope == "user":
+            # R-PRE (Batch 2B-3a): the answer reads both scopes, and storage may refuse the project's; that
+            # refusal comes before the user's file is written, so its "Nothing was read or written" stays true.
+            repository_settings.require_readable(repo_root, INSTRUCTIONS_FILE_NAME)
         try:
             if args.clear:
                 text = ""
@@ -2544,7 +2562,7 @@ def _run_instructions_command(args, repo_root: Path) -> int:
 
     if saved is not None:
         verb = "Saved" if saved.configured else "Removed"
-        print(f"{verb} {saved.scope} instructions: {display_path(saved.scope)}")
+        print(f"{verb} {saved.scope} instructions: {saved.place}")
     for file in files:
         label = "User Instructions" if file.scope == "user" else "Project / Team Instructions"
         state = (
@@ -2554,7 +2572,7 @@ def _run_instructions_command(args, repo_root: Path) -> int:
             if file.problem
             else "none configured"
         )
-        print(f"{label} ({display_path(file.scope)}): {state}")
+        print(f"{label} ({file.place}): {state}")
         if file.configured and saved is None:
             print("---")
             print(file.text)

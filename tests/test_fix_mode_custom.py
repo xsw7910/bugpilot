@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from bugpilot.cli import main
-from bugpilot.core import workflow
+from bugpilot.core import storage, workflow
 from bugpilot.core.fix_mode_store import FixModeStore, custom_mode_payload
 from bugpilot.core.fix_modes import builtin_fix_mode_registry
 
@@ -419,9 +419,9 @@ def test_the_selection_record_stays_audit_metadata(repo):
 def test_project_modes_come_from_the_target_repository(tmp_path, home):
     """Not from whichever directory BugPilot itself happens to live in."""
     target = tmp_path / "target"
-    (target / ".bugpilot" / "fix_modes").mkdir(parents=True)
+    target.mkdir()
     other = tmp_path / "other"
-    (other / ".bugpilot" / "fix_modes").mkdir(parents=True)
+    other.mkdir()
     FixModeStore(target, home).create("project", "target-mode", definition("target-mode"))
     FixModeStore(other, home).create("project", "other-mode", definition("other-mode"))
 
@@ -433,9 +433,11 @@ def test_project_modes_come_from_the_target_repository(tmp_path, home):
 def test_bugpilot_does_not_touch_the_repository_beyond_the_mode_file(repo):
     assert main(["fix-mode", "duplicate", "standard", "team-safe", "--scope", "project"]) == 0
 
-    written = sorted(path.name for path in (repo / ".bugpilot" / "fix_modes").iterdir())
+    folder = storage.repository_storage(repo).fix_modes_dir(create=False)
+    written = sorted(path.name for path in folder.iterdir())
 
     assert written == ["team-safe.json"]
-    # Project modes are ordinary repository files: BugPilot neither stages them
-    # nor hides them from the developer's own commits.
+    # Project modes are the developer's own for this repository, kept in BugPilot's data folder
+    # (0.1.6 Batch 2B-3a): nothing is written into the repository, not even a .gitignore line.
+    assert not (repo / ".bugpilot").exists()
     assert not (repo / ".gitignore").exists()

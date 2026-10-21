@@ -1,17 +1,22 @@
 """User Instructions and Project / Team Instructions.
 
-Two optional Markdown files, each in one fixed place::
+Two optional Markdown files, each in one fixed place in BugPilot's data folder::
 
-    ~/.bugpilot/config/instructions.md User Instructions: this developer's own,
-                                       for every repository they work on
-    <repo>/.bugpilot/instructions.md   Project / Team Instructions: this
-                                       repository's, meant to be committed
+    ~/.bugpilot/config/instructions.md
+        User Instructions: this developer's own, for every repository they work on
+    ~/.bugpilot/repositories/<repository id>/settings/instructions.md
+        Project / Team Instructions: this developer's own for this repository
 
 The user file is in ``config/`` of BugPilot's data folder (``BUGPILOT_HOME`` when
 set; 0.1.6, plan §14.3, Batch 2B-2), reached only through storage's checked
 accessor: a data folder in a Git working tree, or a link on the way or at the
 file, is refused for a read too (owner decision C-2). The 0.1.5
 ``~/.bugpilot/instructions.md`` is never read.
+
+The project file is in the repository's namespace (Batch 2B-3a), reached only
+through :mod:`repository_settings`, with the same refusals. It is not shared
+through the repository (US-D9); the 0.1.5 ``<repo>/.bugpilot/instructions.md``
+is never read, copied or deleted.
 
 ``task.md`` carries each as its own section, after the Repository Context and
 before the Fix Mode, and the task's precedence section puts them there too:
@@ -49,10 +54,10 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import storage
+from . import repository_settings, storage
 from .artifact_io import atomic_write_text
 from .errors import StorageAccessError
 from .safe_paths import is_link_or_junction
@@ -60,6 +65,7 @@ from .user_config import user_config_dir
 
 INSTRUCTION_SCOPES: tuple[str, ...] = ("user", "project")
 INSTRUCTIONS_FILE_NAME = "instructions.md"
+#: The 0.1.5 repository folder, where the Verification Policy and AI Behavior still live until Batch 2B-3b.
 PROJECT_CONFIG_DIR = ".bugpilot"
 
 #: The most characters one file may hold. About 5,000 tokens: room for a team's
@@ -88,12 +94,22 @@ class InstructionFile:
     """One scope's instructions as a task would carry them.
 
     ``text`` is what goes into the task, empty when there is none to include.
-    ``problem`` says why a file that is there was left out.
+    ``problem`` says why a file that is there was left out. ``shown`` is the
+    file as messages name it (US-D22), when known; it is not part of what the
+    file is, so it never makes two files differ.
     """
 
     scope: str
     text: str = ""
     problem: str | None = None
+    shown: str = field(default="", compare=False)
+
+    @property
+    def place(self) -> str:
+        """The file as messages name it: ``shown``, or a description when it was built without one."""
+        if self.shown:
+            return self.shown
+        return display_path("user") if self.scope == "user" else "this repository's settings"
 
     @property
     def configured(self) -> bool:
@@ -116,7 +132,7 @@ class InstructionFile:
     def warning(self) -> str | None:
         if self.problem is None:
             return None
-        return f"{_SCOPE_LABELS[self.scope]} ({display_path(self.scope)}) were not included: {self.problem}"
+        return f"{_SCOPE_LABELS[self.scope]} ({self.place}) were not included: {self.problem}"
 
     @property
     def log_line(self) -> str:
@@ -154,7 +170,8 @@ def user_instructions_path(*, create: bool = False) -> Path:
 
 
 def project_instructions_path(repo_root: Path) -> Path:
-    return repo_root / PROJECT_CONFIG_DIR / INSTRUCTIONS_FILE_NAME
+    """``settings/instructions.md`` in the repository's namespace, from storage's checked accessor; creates nothing."""
+    return repository_settings.settings_file(repo_root, INSTRUCTIONS_FILE_NAME, create=False)
 
 
 def instructions_path(scope: str, repo_root: Path) -> Path:
@@ -162,10 +179,15 @@ def instructions_path(scope: str, repo_root: Path) -> Path:
     return user_instructions_path() if scope == "user" else project_instructions_path(repo_root)
 
 
-def display_path(scope: str) -> str:
-    """The file as a person would name it, never with a user's own folder in it."""
+def display_path(scope: str, repo_root: Path | None = None) -> str:
+    """The file as a person would name it, never with a user's own folder in it (US-D22).
+
+    The project's file is named by its repository's namespace, so it needs ``repo_root``.
+    """
     if scope == "project":
-        return f"{PROJECT_CONFIG_DIR}/{INSTRUCTIONS_FILE_NAME}"
+        if repo_root is None:
+            raise ValueError("The project's instructions file is named by its repository: repo_root is required.")
+        return repository_settings.shown_path(repo_root, INSTRUCTIONS_FILE_NAME)
     return storage.display_path(user_config_dir() / INSTRUCTIONS_FILE_NAME)
 
 
@@ -188,8 +210,8 @@ def link_problem(path: Path, shown: str, rule: str) -> str | None:
     return None
 
 
-def _link_problem(scope: str, path: Path) -> str | None:
-    return link_problem(path, display_path(scope), "instructions are")
+def _link_problem(path: Path, shown: str) -> str | None:
+    return link_problem(path, shown, "instructions are")
 
 
 # --- reading -------------------------------------------------------------------
@@ -238,10 +260,16 @@ def read_text_document(path: Path, link: str | None) -> TextDocument:
 
 
 def read_instructions(scope: str, repo_root: Path) -> InstructionFile:
-    """One scope's file, as a task would carry it. Never raises for the file's own state."""
+    """One scope's file, as a task would carry it. Never raises for the file's own state.
+
+    Reaching it may refuse (storage's checks: a link on the way, a data folder
+    inside the repository, a record naming another repository): that is not the
+    file's state, and fails the command (owner decisions C-2, G-6).
+    """
     path = instructions_path(scope, repo_root)
-    document = read_text_document(path, _link_problem(scope, path))
-    return InstructionFile(scope, text=document.text, problem=document.problem)
+    shown = display_path(scope, repo_root)
+    document = read_text_document(path, _link_problem(path, shown))
+    return InstructionFile(scope, text=document.text, problem=document.problem, shown=shown)
 
 
 def load_instructions(repo_root: Path) -> ResolvedInstructions:
@@ -275,14 +303,14 @@ def normalize_instructions(text: str) -> str:
 def save_instructions(scope: str, repo_root: Path, text: str) -> InstructionFile:
     """Write one scope's file, or remove it when ``text`` is empty. Refuses through a link."""
     path = instructions_path(scope, repo_root)
-    shown = display_path(scope)
+    shown = display_path(scope, repo_root)
     normalized = normalize_instructions(text)
     if len(normalized) > MAX_INSTRUCTION_CHARS:
         raise InstructionsError(
             f"{_SCOPE_LABELS[scope]} were not saved: they are {len(normalized):,} characters, "
             f"more than the {MAX_INSTRUCTION_CHARS:,} BugPilot includes."
         )
-    problem = _link_problem(scope, path)
+    problem = _link_problem(path, shown)
     if problem:
         raise InstructionsError(f"{_SCOPE_LABELS[scope]} were not saved: {problem}.")
     if path.exists() and not path.is_file():
@@ -291,28 +319,27 @@ def save_instructions(scope: str, repo_root: Path, text: str) -> InstructionFile
         if normalized == "":
             # Cleared: no file, rather than an empty one that looks configured.
             if path.exists():
-                _ready_to_write(scope, path).unlink()
-            return InstructionFile(scope)
-        path = _ready_to_write(scope, path)
+                _ready_to_write(scope, repo_root).unlink()
+            return InstructionFile(scope, shown=shown)
+        path = _ready_to_write(scope, repo_root)
         # Checked again now that the folder exists: it may have been created as a link meanwhile.
-        problem = _link_problem(scope, path)
+        problem = _link_problem(path, shown)
         if problem:
             raise InstructionsError(f"{_SCOPE_LABELS[scope]} were not saved: {problem}.")
         atomic_write_text(path, normalized + "\n")
+    except StorageAccessError:
+        raise  # already one sentence (the repository's namespace could not be made ready)
     except OSError as error:
-        if scope != "user":
-            raise
-        # Storage unavailable (C-1): one sentence in the display form, never the system error's text.
+        # Storage unavailable (C-1, F2-S): one sentence in the display form, never the system error's text.
         raise StorageAccessError.during("write", shown, error) from None
-    return InstructionFile(scope, text=normalized)
+    return InstructionFile(scope, text=normalized, shown=shown)
 
 
-def _ready_to_write(scope: str, path: Path) -> Path:
-    """The file, with its folder made ready: the user's by storage (``0700``, link-checked), the project's as before."""
+def _ready_to_write(scope: str, repo_root: Path) -> Path:
+    """The file, with its folder made ready by storage (``0700``, link-checked): the user's, or the repository's."""
     if scope == "user":
         return storage.global_storage().user_instructions_file(create=True)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    return repository_settings.settings_file(repo_root, INSTRUCTIONS_FILE_NAME, create=True)
 
 
 # --- the task's sections -------------------------------------------------------------
@@ -553,7 +580,8 @@ def instructions_payload(instructions: ResolvedInstructions, *, include_text: bo
             "configured": file.configured,
             "characters": file.characters,
             "sha256": file.sha256,
-            "path": display_path(file.scope),
+            # The display form (J-2, Batch 2B-3a): §8.10's absolute `path` and new `display_path` come later.
+            "path": file.place,
         }
         if file.problem:
             entry["problem"] = file.problem

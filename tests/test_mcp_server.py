@@ -613,23 +613,34 @@ def test_each_repository_sees_only_its_own_project_modes(tmp_path, home):
 
 
 def test_an_unsafe_scope_directory_cannot_inject_modes_through_mcp(tmp_path, home):
+    """A link at the project's Fix Mode folder, BugPilot's own since 0.1.6 Batch 2B-3a: storage refuses it, and
+    both Fix Mode tools say so in one sentence with its code (M-P), never a mode read through it."""
+    import os
+
+    from bugpilot.core import storage
+
     repo = tmp_path / "repo"
     repo.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "leaked.json").write_text(json.dumps(_definition("leaked")), encoding="utf-8")
-    link = repo / ".bugpilot" / "fix_modes"
-    link.parent.mkdir(parents=True)
+    link = storage.repository_storage(repo).fix_modes_dir(create=True)
+    link.rmdir()
     try:
         link.symlink_to(outside, target_is_directory=True)
     except (OSError, NotImplementedError):  # pragma: no cover - needs privilege on Windows
         pytest.skip("symlinks are not available to this account")
 
-    payload = _modes(build_server(repo))
-
-    assert not any(mode["id"] == "leaked" for mode in payload["modes"])
-    assert any("symbolic link" in issue["message"] for issue in payload["issues"])
-    assert any(mode["id"] == "standard" for mode in payload["modes"])
+    server = build_server(repo)
+    for tool, arguments, action in (
+        ("list_fix_modes", {}, "list the Fix Modes"),
+        ("show_fix_mode", {"mode_id": "leaked"}, "read the Fix Modes"),
+    ):
+        message = _expect_tool_error(server, tool, arguments)
+        assert message.startswith(f"Error executing tool {tool}: Could not {action} [INVALID_INPUT]: "), message
+        assert "fix_modes is a symbolic link or junction" in message
+        assert "leaked" not in message.split("[INVALID_INPUT]: ", 1)[1]
+        assert str(tmp_path) not in message and os.environ["BUGPILOT_HOME"] not in message
 
 
 # --- inspection --------------------------------------------------------------

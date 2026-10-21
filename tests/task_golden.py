@@ -176,10 +176,13 @@ def _resolved_inputs(
     """The Repository Profile, instructions and settings, read from a fresh synthetic repository.
 
     BugPilot's data folder is a fresh one for the duration (``BUGPILOT_HOME``;
-    the user configuration is its ``config/`` since 0.1.6 Batch 2B-2), so the
-    developer's own `~/.bugpilot` never reaches a golden file. Since 0.1.6
+    the user configuration is its ``config/`` since 0.1.6 Batch 2B-2, and the
+    repository's own settings its namespace's ``settings/`` since Batch 2B-3a),
+    so the developer's own `~/.bugpilot` never reaches a golden file. Since 0.1.6
     Batch 0A it also refuses to run outside the test isolation (plan §11.1).
     """
+    from bugpilot.core import storage
+
     _isolation.require_isolated()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory) / "repo"
@@ -191,11 +194,6 @@ def _resolved_inputs(
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8", newline="\n")
         if configured:
-            (root / ".bugpilot").mkdir()
-            (root / ".bugpilot" / "instructions.md").write_text(_PROJECT_INSTRUCTIONS, encoding="utf-8", newline="\n")
-            (root / ".bugpilot" / "project_settings.json").write_text(
-                json.dumps(_PROJECT_SETTINGS, indent=2) + "\n", encoding="utf-8", newline="\n"
-            )
             (config / "instructions.md").write_text(_USER_INSTRUCTIONS, encoding="utf-8", newline="\n")
         if verification_file:
             (root / ".bugpilot").mkdir(exist_ok=True)
@@ -206,6 +204,15 @@ def _resolved_inputs(
         previous = os.environ.get("BUGPILOT_HOME")
         os.environ["BUGPILOT_HOME"] = str(data)
         try:
+            if configured:
+                # The repository's own settings, where 0.1.6 keeps them: written through storage's accessor.
+                namespace = storage.repository_storage(root)
+                namespace.settings_file("instructions.md", create=True).write_text(
+                    _PROJECT_INSTRUCTIONS, encoding="utf-8", newline="\n"
+                )
+                namespace.settings_file("project_settings.json", create=True).write_text(
+                    json.dumps(_PROJECT_SETTINGS, indent=2) + "\n", encoding="utf-8", newline="\n"
+                )
             yield {
                 "repository": resolve_repository_context(root),
                 "instructions": load_instructions(root),

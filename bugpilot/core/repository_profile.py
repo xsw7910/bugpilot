@@ -9,13 +9,17 @@ replaces it with a profile the developer chooses:
     generic  no assumption about languages, frameworks or tooling
     custom   the facts the developer wrote down
 
-The profile is repository configuration, not issue content, so it lives with
-the repository, beside the project's Fix Modes::
+The profile is repository configuration, not issue content: the developer's
+own for this repository, kept beside the project's Fix Modes in the
+repository's namespace in BugPilot's data folder (0.1.6, plan §14.3, Batch
+2B-3a), not in the repository and not shared through it (US-D9)::
 
-    <repo>/.bugpilot/repository_profile.json
+    ~/.bugpilot/repositories/<repository id>/settings/repository_profile.json
 
-and every entry point reads the same file: the CLI, the MCP prepare tools and
-the VS Code extension (through ``bugpilot repository-profile``). No file means
+The 0.1.5 ``<repo>/.bugpilot/repository_profile.json`` is never read, copied or
+deleted. Every entry point reads the same file, through
+:mod:`repository_settings`: the CLI, the MCP prepare tools and the VS Code
+extension (through ``bugpilot repository-profile``). No file means
 Auto-detect. One override exists, for a single CLI run:
 ``bugpilot bug … --repository-profile MODE`` beats the file's mode; the custom
 facts always come from the file.
@@ -44,7 +48,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable
 
-from .artifact_io import atomic_write_text
+from . import repository_settings
 from .safe_paths import is_link_or_junction
 
 PROFILE_MODES: tuple[str, ...] = ("auto", "generic", "custom")
@@ -54,7 +58,6 @@ DEFAULT_PROFILE_MODE = "auto"
 FALLBACK_PROFILE_MODE = "generic"
 PROFILE_MODE_LABELS: dict[str, str] = {"auto": "Auto-detect", "generic": "Generic", "custom": "Custom"}
 
-PROJECT_CONFIG_DIR = ".bugpilot"
 PROFILE_FILE_NAME = "repository_profile.json"
 PROFILE_SCHEMA_VERSION = 1
 
@@ -143,7 +146,13 @@ class RepositoryContext:
 
 
 def profile_path(repo_root: Path) -> Path:
-    return repo_root / PROJECT_CONFIG_DIR / PROFILE_FILE_NAME
+    """``settings/repository_profile.json`` in the repository's namespace, from storage's checked accessor."""
+    return repository_settings.settings_file(repo_root, PROFILE_FILE_NAME, create=False)
+
+
+def shown_profile_path(repo_root: Path) -> str:
+    """The file as messages name it: ``~/.bugpilot/repositories/<id>/settings/repository_profile.json`` (US-D22)."""
+    return repository_settings.shown_path(repo_root, PROFILE_FILE_NAME)
 
 
 def clean_fact(value: str) -> str:
@@ -209,14 +218,13 @@ def profile_from_payload(data: object) -> RepositoryProfile:
     return RepositoryProfile(mode=mode, custom=custom)
 
 
-def _config_dir_problem(repo_root: Path) -> str | None:
-    """Why the profile may not be read or written, if it may not: a link on the way."""
-    shown = (PROJECT_CONFIG_DIR, f"{PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}")
-    for candidate, name in zip((repo_root / PROJECT_CONFIG_DIR, profile_path(repo_root)), shown):
+def _link_problem(path: Path, shown: str) -> str | None:
+    """A link that appeared at the file, or at its folder, after storage's checks: never read or written through."""
+    for candidate, name in ((path.parent, shown.rsplit("/", 1)[0]), (path, shown)):
         if is_link_or_junction(candidate):
             return (
                 f"{name} is a symbolic link or junction. The repository profile is read and written "
-                "only as a real file inside this repository."
+                "only as a real file."
             )
     return None
 
@@ -225,23 +233,27 @@ def load_repository_profile(repo_root: Path) -> tuple[RepositoryProfile, list[st
     """The saved profile, and what was wrong with the file if anything was.
 
     No file is the default, Auto-detect. A file that cannot be used — unreadable,
-    not JSON, an unknown mode, a link — is Generic plus a warning: the one
-    choice that claims nothing about the repository.
+    not JSON, an unknown mode — is Generic plus a warning: the one choice that
+    claims nothing about the repository. Reaching the file may refuse
+    (storage's checks: a link on the way, a namespace that is not this
+    repository's), which fails the command (owner decision G-6).
     """
-    problem = _config_dir_problem(repo_root)
+    path = profile_path(repo_root)
+    shown = shown_profile_path(repo_root)
+    problem = _link_problem(path, shown)
     if problem:
         return RepositoryProfile(mode=FALLBACK_PROFILE_MODE), [f"{problem} Using the Generic profile."]
-    path = profile_path(repo_root)
     if not path.is_file():
         return RepositoryProfile(), []
-    shown = f"{PROJECT_CONFIG_DIR}/{PROFILE_FILE_NAME}"
     try:
         if path.stat().st_size > 64 * 1024:
             raise ValueError("it is far larger than a repository profile")
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
+        # The system error's class, never its text, which holds the absolute path (US-D22).
+        reason = (exc.strerror or type(exc).__name__) if isinstance(exc, OSError) else str(exc)
         return RepositoryProfile(mode=FALLBACK_PROFILE_MODE), [
-            f"{shown} could not be read ({exc}). Using the Generic profile."
+            f"{shown} could not be read ({reason}). Using the Generic profile."
         ]
     if not isinstance(data, dict):
         return RepositoryProfile(mode=FALLBACK_PROFILE_MODE), [
@@ -267,13 +279,11 @@ def save_repository_profile(repo_root: Path, profile: RepositoryProfile) -> Path
         raise RepositoryProfileError(f"Unknown repository profile mode {profile.mode!r}.")
     # Through the same checks a file from outside gets: limits and one-line text.
     checked, _warnings = facts_from_mapping(profile.custom.to_dict(), strict=True)
-    problem = _config_dir_problem(repo_root)
+    problem = _link_problem(profile_path(repo_root), shown_profile_path(repo_root))
     if problem:
         raise RepositoryProfileError(problem)
-    path = profile_path(repo_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, json.dumps(replace(profile, custom=checked).to_dict(), indent=2) + "\n")
-    return path
+    text = json.dumps(replace(profile, custom=checked).to_dict(), indent=2) + "\n"
+    return repository_settings.write_text(repo_root, PROFILE_FILE_NAME, text)
 
 
 # --- resolution -----------------------------------------------------------------

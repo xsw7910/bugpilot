@@ -99,8 +99,10 @@ def test_context_preview_text_mode_escapes_the_issues_words_and_keeps_the_file(r
 
 def test_task_preview_text_mode_escapes_a_hint_and_a_policy(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo, "--description", "Saving a record crashes", "--hint", "Look at \x1b]0;x\x07save\rEVIL")
-    (repo / ".bugpilot").mkdir(exist_ok=True)
-    (repo / ".bugpilot" / "instructions.md").write_text("Keep \x1b[5mblinking\x1b[0m out.\n", encoding="utf-8")
+    from bugpilot.core import storage  # the repository's own settings, where 0.1.6 keeps them (Batch 2B-3a)
+
+    project = storage.repository_storage(repo).settings_file("instructions.md", create=True)
+    project.write_text("Keep \x1b[5mblinking\x1b[0m out.\n", encoding="utf-8")
     assert main(["task-preview", work_item]) == 0
     out = capsys.readouterr().out
     assert _raw_controls(out) == []

@@ -138,12 +138,12 @@
    "files": 16
   },
   "bugpilot-dir": {
-   "occurrences": 115,
-   "files": 27
+   "occurrences": 103,
+   "files": 28
   },
   "home-bugpilot": {
-   "occurrences": 20,
-   "files": 12
+   "occurrences": 30,
+   "files": 15
   },
   "config-dir-env": {
    "occurrences": 4,
@@ -154,12 +154,12 @@
    "files": 11
   },
   "path-helper": {
-   "occurrences": 104,
+   "occurrences": 102,
    "files": 25
   },
   "path-constant": {
-   "occurrences": 103,
-   "files": 21
+   "occurrences": 83,
+   "files": 18
   },
   "home-lookup": {
    "occurrences": 3,
@@ -170,11 +170,10 @@
   "bugpilot/cli.py": {
    "ai-dir": 44,
    "ai-memory": 1,
-   "bugpilot-dir": 18,
-   "home-bugpilot": 4,
+   "bugpilot-dir": 9,
+   "home-bugpilot": 7,
    "agent-instruction": 1,
-   "path-helper": 2,
-   "path-constant": 4
+   "path-helper": 2
   },
   "bugpilot/core/agent_runner.py": {
    "ai-dir": 1
@@ -224,9 +223,9 @@
    "bugpilot-dir": 1
   },
   "bugpilot/core/fix_mode_store.py": {
-   "bugpilot-dir": 3,
-   "home-bugpilot": 1,
-   "path-constant": 5
+   "bugpilot-dir": 1,
+   "home-bugpilot": 2,
+   "path-constant": 2
   },
   "bugpilot/core/fix_report.py": {
    "path-helper": 1
@@ -252,9 +251,9 @@
   },
   "bugpilot/core/instructions.py": {
    "bugpilot-dir": 3,
-   "home-bugpilot": 2,
+   "home-bugpilot": 3,
    "path-helper": 8,
-   "path-constant": 3
+   "path-constant": 1
   },
   "bugpilot/core/issue.py": {
    "ai-dir": 2,
@@ -276,9 +275,9 @@
    "bugpilot-dir": 1
   },
   "bugpilot/core/project_settings.py": {
-   "bugpilot-dir": 4,
-   "path-helper": 5,
-   "path-constant": 5
+   "bugpilot-dir": 3,
+   "home-bugpilot": 2,
+   "path-helper": 4
   },
   "bugpilot/core/prompts.py": {
    "ai-dir": 7,
@@ -292,9 +291,13 @@
    "ai-memory": 1
   },
   "bugpilot/core/repository_profile.py": {
-   "bugpilot-dir": 2,
-   "path-helper": 4,
-   "path-constant": 6
+   "bugpilot-dir": 1,
+   "home-bugpilot": 2,
+   "path-helper": 3
+  },
+  "bugpilot/core/repository_settings.py": {
+   "bugpilot-dir": 1,
+   "home-bugpilot": 1
   },
   "bugpilot/core/retrieval.py": {
    "ai-dir": 2,

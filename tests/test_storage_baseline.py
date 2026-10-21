@@ -17,6 +17,10 @@ Batch 2B-2 changes three values on purpose. They are listed, exactly, in
 records stay byte for byte as Batch 0A wrote them. Whether a listed value is
 right is one test; whether the owner has approved it is another, so a pending
 review never hides a wrong value.
+
+Batch 2B-3a adds a record of its own (CH-1), applied after 2B-2's, and the
+sessions label their repository's ID (M-a): another repository's ID in a
+record is an error, never normalized away.
 """
 
 from __future__ import annotations
@@ -40,18 +44,22 @@ def test_the_compared_baselines_match_todays_behaviour(tmp_path: Path):
 
 def test_every_designed_difference_is_approved_by_the_owner():
     """The approval gate (plan §14.3, Q-6 and C-4): a value is recorded only after the owner reviewed it."""
-    assert baseline.unapproved(baseline.load_designed()) == []
+    assert baseline.unapproved(baseline.load_chain()) == []
 
 
-def test_the_designed_differences_record_is_well_formed_and_made_against_the_frozen_records():
-    designed = baseline.load_designed()
-    assert baseline.designed_problems(designed) == []
-    assert designed["base_commit"] == "ea9659cd39ccc16565a95ffce5937eee1bdbbf51"
+def test_the_designed_differences_records_are_well_formed_and_made_against_the_frozen_records():
+    chain = baseline.load_chain()
+    assert baseline.chain_problems(chain) == []
+    assert [designed["base_commit"] for designed in chain] == [
+        "ea9659cd39ccc16565a95ffce5937eee1bdbbf51",  # Batch 2B-2
+        "5b66ffea28ee660599428453391cf32ad20a6818",  # Batch 2B-3a
+    ]
+    assert [path.parent.name for path in baseline.DESIGNED_CHAIN] == ["0.1.6-batch2b2", "0.1.6-batch2b3a"]
 
 
 def test_each_designed_difference_names_independent_evidence_that_exists():
     """Its `evidence` is a test that asserts the new value from first principles, never from a baseline."""
-    for entry in baseline.load_designed()["differences"]:
+    for entry in (entry for designed in baseline.load_chain() for entry in designed["differences"]):
         file, _, name = entry["evidence"].partition("::")
         assert file.startswith("tests/test_") and file != "tests/test_storage_baseline.py", entry["id"]
         assert f"def {name}(" in (baseline.REPO / file).read_text(encoding="utf-8"), entry["id"]
@@ -185,6 +193,104 @@ def test_approval_is_judged_apart_from_the_values(synthetic):
     assert baseline.unapproved(designed) == ["DD-x"]
     designed["differences"][0]["approved"] = "2026-10-19, the owner"
     assert baseline.unapproved(designed) == []
+
+
+# --- chained per-slice records (CH-1, Batch 2B-3a) ---------------------------------------------------
+
+
+def _slice(designed: dict, *entries: dict) -> dict:
+    """A later slice's record, made against the same frozen records as ``designed``."""
+    return {**copy.deepcopy(designed), "describes": "a later synthetic slice", "differences": list(entries)}
+
+
+def test_a_later_slice_changes_a_value_again_from_the_earlier_slices_to(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value["items"].__setitem__(1, "d"))
+    first = {**designed, "differences": [entry("/items/1", "b", "c", ident="DD-1")]}
+    second = _slice(designed, entry("/items/1", "c", "d", ident="DD-2"))
+    assert baseline.differences(expected, actual, [first, second]) == []
+    assert baseline.unapproved([first, second]) == ["DD-1", "DD-2"]
+
+
+def test_a_later_slice_whose_from_ignores_the_earlier_slice_fails(synthetic):
+    """`from` is the value the earlier records leave, not the frozen one: a chain is never skipped over."""
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value["items"].__setitem__(1, "d"))
+    first = {**designed, "differences": [entry("/items/1", "b", "c", ident="DD-1")]}
+    second = _slice(designed, entry("/items/1", "b", "d", ident="DD-2"))
+    assert baseline.differences(expected, actual, [first, second]) == [
+        "cli_paths.json DD-2: the value the earlier designed differences leave at /items/1 is not `from`"]
+
+
+def test_the_earlier_slices_values_still_hold_where_no_later_slice_changes_them(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    change("cli_paths.json", lambda value: value["items"].__setitem__(1, "c"))
+    first = {**designed, "differences": [entry("/items/1", "b", "c", ident="DD-1")]}
+    assert baseline.differences(expected, actual, [first, _slice(designed)]) == []
+    change("cli_paths.json", lambda value: value["items"].__setitem__(1, "b"))
+    assert baseline.differences(expected, actual, [first, _slice(designed)]) == [
+        "cli_paths.json DD-1: today's value at /items/1 is not `to`"]
+
+
+def test_a_value_a_later_slice_changes_is_judged_by_that_slices_to_only(synthetic):
+    expected, actual, designed, change, entry = synthetic
+    first = {**designed, "differences": [entry("/items/1", "b", "c", ident="DD-1")]}
+    second = _slice(designed, entry("/items", ["a", "c"], ["z"], ident="DD-2"))
+    assert baseline.differences(expected, actual, [first, second]) == [
+        "cli_paths.json DD-2: today's value at /items is not `to`"]
+
+
+def test_an_id_two_slices_use_is_refused(synthetic):
+    expected, actual, designed, _change, entry = synthetic
+    first = {**designed, "differences": [entry("/flag", True, False, ident="DD-1")]}
+    second = _slice(designed, entry("/name", "cli_paths.json", "x", ident="DD-1"))
+    assert "designed differences: the id 'DD-1' is listed by more than one slice's record" in baseline.differences(
+        expected, actual, [first, second])
+
+
+def test_every_slice_must_be_made_against_the_frozen_records(synthetic):
+    expected, actual, designed, _change, _entry = synthetic
+    second = _slice(designed)
+    second["frozen"] = {**second["frozen"], "handoff.json": "0" * 64}
+    assert baseline.differences(expected, actual, [designed, second]) == [
+        "handoff.json: the committed baseline is not the one the designed differences were made against"]
+
+
+# --- the repository-ID label (M-a, Batch 2B-3a) ----------------------------------------------------
+
+
+def test_a_session_labels_its_own_repository_id_computed_by_bugpilots_identity(tmp_path: Path):
+    from bugpilot.core import storage
+
+    session = baseline.Session(tmp_path / "s")
+    own = storage.repository_identity(session.repo).repository_id
+    assert session.repository_id == own and storage.REPOSITORY_ID_RE.fullmatch(own)
+    shown = f"BUGPILOT_HOME/repositories/{own}/settings/instructions.md"
+    assert session.normalize(shown) == "BUGPILOT_HOME/repositories/<repository-id>/settings/instructions.md"
+    assert session.normalize({"a": [shown, own]}) == {"a": ["<repository-id>", shown.replace(own, "<repository-id>")]}
+
+
+@pytest.mark.parametrize("folder", ["subfolder", "elsewhere"])
+def test_another_folders_repository_id_in_a_record_is_an_error_never_normalized_away(tmp_path: Path, folder):
+    """The identity-collision guard: a namespace computed from the wrong folder fails the generator."""
+    from bugpilot.core import storage
+
+    session = baseline.Session(tmp_path / "s")
+    other = (session.repo / "src") if folder == "subfolder" else (tmp_path / "repo")
+    other.mkdir(exist_ok=True)
+    foreign = storage.repository_identity(other).repository_id
+    assert foreign != session.repository_id
+    with pytest.raises(RuntimeError, match=re.escape(foreign)):
+        session.normalize(f"BUGPILOT_HOME/repositories/{foreign}/settings/project_settings.json")
+
+
+def test_a_name_that_only_contains_the_sessions_id_is_not_relabelled(tmp_path: Path):
+    session = baseline.Session(tmp_path / "s")
+    longer = f"x{session.repository_id}"
+    with pytest.raises(RuntimeError, match="not this session's"):
+        session.normalize(f"repositories/{longer}/settings")
+    assert session.normalize("JR-12345 and local_20261020101010 and 0123456789abcdef") == (
+        "JR-12345 and local_<timestamp> and 0123456789abcdef")
 
 
 def test_pointer_differences_name_each_changed_value():

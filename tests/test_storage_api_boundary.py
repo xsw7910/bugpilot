@@ -52,6 +52,9 @@ APPROVED_IMPORTERS: dict[str, str] = {
     "bugpilot/core/fix_mode_store.py": "Batch 2B-2: user Fix Modes through user_fix_modes_dir()",
     "bugpilot/cli.py": "Batch 2B-2: one request scope per command",
     "bugpilot/mcp_server.py": "Batch 2B-2: one request scope per tool call",
+    "bugpilot/core/repository_settings.py": (
+        "Batch 2B-3a: project settings through the repository-storage chokepoint, settings_file() and fix_modes_dir()"
+    ),
 }
 #: The only production modules that may open a request scope: the entry points (D-8).
 SCOPE_OPENERS = frozenset({"bugpilot/cli.py", "bugpilot/mcp_server.py"})

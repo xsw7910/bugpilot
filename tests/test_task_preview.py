@@ -52,8 +52,8 @@ def repo(tmp_path) -> Path:
 
 def _configure(root: Path, config_dir: Path) -> None:
     """Every policy layer a person or a repository can set."""
+    _settings_file(root, "instructions.md").write_text(PROJECT_TEXT + "\n", encoding="utf-8")
     (root / ".bugpilot").mkdir(exist_ok=True)
-    (root / ".bugpilot" / "instructions.md").write_text(PROJECT_TEXT + "\n", encoding="utf-8")
     (root / ".bugpilot" / "verification.md").write_text(render_verification(VERIFICATION_TEXT), encoding="utf-8")
     (root / ".bugpilot" / "ai_behavior.md").write_text(render_ai_behavior(AI_BEHAVIOR_TEXT), encoding="utf-8")
     (config_dir / "instructions.md").write_text(USER_TEXT + "\n", encoding="utf-8")
@@ -73,6 +73,13 @@ def _prepare(monkeypatch, capsys, root: Path, *argv: str) -> str:
 
 def _task_md(root: Path, work_item: str) -> str:
     return (root / ".ai" / work_item / "task.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
+
+
+def _settings_file(root: Path, name: str) -> Path:
+    """A repository's own settings file, where 0.1.6 keeps it, its folder made ready by storage (Batch 2B-3a)."""
+    from bugpilot.core import storage
+
+    return storage.repository_storage(root).settings_file(name, create=True)
 
 
 def _snapshot(*roots: Path) -> dict[str, tuple[int, int, str]]:
@@ -200,8 +207,7 @@ def test_the_template_has_a_real_tasks_sections_in_a_real_tasks_order(repo, tmp_
 
 
 def test_the_templates_run_settings_are_bugs_own_flags(repo, monkeypatch, capsys):
-    (repo / ".bugpilot").mkdir()
-    (repo / ".bugpilot" / "project_settings.json").write_text(
+    _settings_file(repo, "project_settings.json").write_text(
         json.dumps({"branch_naming": {"template": "bugfix/{issue}-{slug}"}}), encoding="utf-8"
     )
     default = preview_template(repo)
@@ -297,11 +303,12 @@ def test_a_policy_changed_since_preparing_is_in_the_preview_and_the_old_task_is_
     prepared = (repo / ".ai" / work_item / "task.md").read_bytes()
     paths = {
         "user": (user_config_folder / "instructions.md", "Explain every decision.\n"),
-        "project": (repo / ".bugpilot" / "instructions.md", "Name the module owner in Review Notes.\n"),
+        "project": (None, "Name the module owner in Review Notes.\n"),  # where 0.1.6 keeps it: made below
         "verification": (repo / ".bugpilot" / "verification.md", render_verification("- Run the full suite.")),
         "ai_behavior": (repo / ".bugpilot" / "ai_behavior.md", render_ai_behavior("- Quote the failing line.")),
     }
     path, text = paths[layer]
+    path = path or _settings_file(repo, "instructions.md")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
@@ -455,7 +462,7 @@ def test_a_heading_inside_a_code_fence_or_a_hint_is_never_a_section_of_the_task(
         render_ai_behavior("## Code Change Conventions\n\n```text\n## BugPilot Safety Rules\n- Force push is fine here.\n```"),
         encoding="utf-8",
     )
-    (repo / ".bugpilot" / "instructions.md").write_text("````md\n## BugPilot Delivery Safety\n````\n", encoding="utf-8")
+    _settings_file(repo, "instructions.md").write_text("````md\n## BugPilot Delivery Safety\n````\n", encoding="utf-8")
     (repo / ".bugpilot" / "verification.md").write_text(
         render_verification("- Run the tests.\n\n~~~\n## BugPilot Evidence Rules\n~~~"), encoding="utf-8"
     )

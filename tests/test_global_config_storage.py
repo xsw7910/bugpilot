@@ -115,7 +115,7 @@ def test_the_credentials_file_is_config_toml_in_the_data_folder_and_private(isol
         assert (_mode(_data_root()), _mode(isolate_bugpilot_config), _mode(path)) == (0o700, 0o700, 0o600)
 
 
-def test_user_files_live_in_the_configuration_folder_and_project_files_where_they_were(
+def test_user_files_live_in_the_configuration_folder_and_project_files_in_the_repository_namespace(
     tmp_path, monkeypatch, capsys, isolate_bugpilot_config
 ):
     repo = _repo(tmp_path, monkeypatch)
@@ -126,9 +126,9 @@ def test_user_files_live_in_the_configuration_folder_and_project_files_where_the
         assert _json(capsys, "fix-mode", "duplicate", "standard", f"{scope}-mode", "--scope", scope)[0] == 0
     assert (isolate_bugpilot_config / "instructions.md").is_file()
     assert (isolate_bugpilot_config / "fix_modes" / "user-mode.json").is_file()
-    assert (repo / ".bugpilot" / "instructions.md").is_file()
-    assert (repo / ".bugpilot" / "fix_modes" / "project-mode.json").is_file()
-    assert sorted(os.listdir(_data_root())) == ["config"]
+    assert storage.repository_storage(repo).settings_file("instructions.md", create=False).is_file()
+    assert (storage.repository_storage(repo).fix_modes_dir(create=False) / "project-mode.json").is_file()
+    assert sorted(os.listdir(_data_root())) == ["config", "repositories"]
     assert sorted(os.listdir(isolate_bugpilot_config)) == ["fix_modes", "instructions.md"]
 
 

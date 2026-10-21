@@ -475,7 +475,7 @@ def test_the_lint_is_shown_carried_into_the_run_and_never_blocks(tmp_path, monke
 def test_the_task_has_one_ai_behavior_section_and_no_working_guidance(tmp_path, user_config_folder):
     root = _repo(tmp_path / "r")
     (root / ".bugpilot").mkdir()
-    (root / ".bugpilot" / "instructions.md").write_text("Keep the exports stable.\n", encoding="utf-8")
+    __import__("bugpilot.core.storage", fromlist=["storage"]).repository_storage(root).settings_file("instructions.md", create=True).write_text("Keep the exports stable.\n", encoding="utf-8")  # where 0.1.6 keeps it (Batch 2B-3a)
     (root / ".bugpilot" / "verification.md").write_text(render_verification("- Run the unit tests."), encoding="utf-8")
     (user_config_folder / "instructions.md").write_text("Prefer explicit names.\n", encoding="utf-8")
     _file(root, render_document(ADDITIONS))

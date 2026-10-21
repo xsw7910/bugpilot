@@ -444,11 +444,15 @@ def test_the_cli_writes_utf8_json_through_a_pipe_whatever_the_code_page(tmp_path
     config = data / "config"
     config.mkdir(parents=True)
     (config / "instructions.md").write_text("Prefer small changes → 三维 é.\n", encoding="utf-8")
+    # The repository beside the data folder, never around it: a data folder inside the repository is refused
+    # (0.1.6 Batch 2B-3a, P-1), now that `instructions show` reads the project scope through storage too.
+    repo = tmp_path / "repo"
+    repo.mkdir()
     env = {k: v for k, v in os.environ.items() if not k.startswith(("PYTHONUTF8", "JIRA_"))}
     env.update(PYTHONIOENCODING="cp1252", BUGPILOT_HOME=str(data), HOME=str(tmp_path), USERPROFILE=str(tmp_path))
     done = subprocess.run(
         [sys.executable, "-m", "bugpilot", "instructions", "show", "--json"],
-        cwd=tmp_path, env=env, capture_output=True, timeout=120,
+        cwd=repo, env=env, capture_output=True, timeout=120,
     )
     assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
     payload = json.loads(done.stdout.decode("utf-8"))

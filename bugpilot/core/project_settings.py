@@ -1,9 +1,18 @@
 """Project settings: the repository's Verification Policy and branch naming.
 
-Two small things a team decides once for a repository and that every task
-then follows, kept beside the repository's other BugPilot configuration::
+Two small things the developer decides once for a repository and that every
+task then follows, kept with that repository's other settings in its namespace
+in BugPilot's data folder (0.1.6, plan §14.3, Batch 2B-3a), not in the
+repository and not shared through it (US-D9)::
 
-    <repo>/.bugpilot/project_settings.json
+    ~/.bugpilot/repositories/<repository id>/settings/project_settings.json
+
+The 0.1.5 ``<repo>/.bugpilot/project_settings.json`` is never read, copied or
+deleted. The file is reached only through :mod:`repository_settings`: a link on
+the way or at the file, or a namespace that is not this repository's, is
+refused, for a read too (owner decision G-6).
+
+The file::
 
     {
       "schema_version": 1,
@@ -34,9 +43,9 @@ reused before any template. Empty is the default ``feature/{issue}-{slug}``.
 
 Every entry point reads the same file the same way: the CLI, the MCP prepare
 tools and the VS Code extension (through ``bugpilot project-settings``). No file
-means the defaults. A file that cannot be used — a link, unreadable, not JSON —
-is the defaults plus a warning; a single bad value is that value's default plus
-a warning. Change Scope was considered and deferred: every Fix Mode already
+means the defaults. A file that cannot be used — unreadable, not JSON — is the
+defaults plus a warning; a single bad value is that value's default plus a
+warning. Change Scope was considered and deferred: every Fix Mode already
 sets how broad a change may be, so a second control would duplicate it;
 teams that need one write it in their project instructions.
 """
@@ -47,7 +56,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .artifact_io import atomic_write_text
+from . import repository_settings
 from .git_ops import branch_template_problem
 from .safe_paths import is_link_or_junction
 from .verification import (
@@ -57,7 +66,6 @@ from .verification import (
     verification_from_switches,
 )
 
-PROJECT_CONFIG_DIR = ".bugpilot"
 SETTINGS_FILE_NAME = "project_settings.json"
 SETTINGS_SCHEMA_VERSION = 1
 DEFAULT_BRANCH_TEMPLATE_LABEL = "feature/{issue}-{slug}"
@@ -105,27 +113,33 @@ class ProjectSettings:
 
 
 def settings_path(repo_root: Path) -> Path:
-    return repo_root / PROJECT_CONFIG_DIR / SETTINGS_FILE_NAME
+    """``settings/project_settings.json`` in the repository's namespace, from storage's checked accessor; creates nothing."""
+    return repository_settings.settings_file(repo_root, SETTINGS_FILE_NAME, create=False)
 
 
-SHOWN_PATH = f"{PROJECT_CONFIG_DIR}/{SETTINGS_FILE_NAME}"
+def shown_path(repo_root: Path) -> str:
+    """The file as messages name it: ``~/.bugpilot/repositories/<id>/settings/project_settings.json`` (US-D22)."""
+    return repository_settings.shown_path(repo_root, SETTINGS_FILE_NAME)
 
 
-def _link_problem(repo_root: Path) -> str | None:
-    for candidate, name in ((repo_root / PROJECT_CONFIG_DIR, PROJECT_CONFIG_DIR), (settings_path(repo_root), SHOWN_PATH)):
+#: How a message names the file when no repository is at hand (a file checked on its own, before it is saved).
+SHOWN_NAME = SETTINGS_FILE_NAME
+
+
+def _link_problem(path: Path, shown: str) -> str | None:
+    """A link that appeared at the file, or at its folder, after storage's checks: never read or written through."""
+    for candidate, name in ((path.parent, shown.rsplit("/", 1)[0]), (path, shown)):
         if is_link_or_junction(candidate):
-            return (
-                f"{name} is a symbolic link or junction. Project settings are read and written only as a "
-                "real file inside this repository."
-            )
+            return f"{name} is a symbolic link or junction. Project settings are read and written only as a real file."
     return None
 
 
-def settings_from_mapping(data: object, *, strict: bool) -> tuple[ProjectSettings, list[str]]:
+def settings_from_mapping(data: object, *, strict: bool, shown: str = SHOWN_NAME) -> tuple[ProjectSettings, list[str]]:
     """Settings from a parsed JSON object.
 
     ``strict`` (a save) refuses what a lenient read (a run) warns about and
-    replaces with the default; the message says which happened.
+    replaces with the default; the message says which happened. ``shown`` names
+    the file in those messages.
     """
     warnings: list[str] = []
 
@@ -137,10 +151,10 @@ def settings_from_mapping(data: object, *, strict: bool) -> tuple[ProjectSetting
     if not isinstance(data, dict):
         if strict:
             raise ProjectSettingsError("Project settings must be a JSON object.")
-        return ProjectSettings(), [f"{SHOWN_PATH} is not a JSON object. Using the defaults."]
+        return ProjectSettings(), [f"{shown} is not a JSON object. Using the defaults."]
     unknown = sorted(str(key) for key in set(data) - _TOP_LEVEL_KEYS)
     if unknown:
-        problem(f"{SHOWN_PATH} has unknown key(s) {', '.join(unknown)}", "they were ignored")
+        problem(f"{shown} has unknown key(s) {', '.join(unknown)}", "they were ignored")
 
     values: dict[str, bool] = {}
     verification = data.get("verification", {})
@@ -177,11 +191,16 @@ def settings_from_mapping(data: object, *, strict: bool) -> tuple[ProjectSetting
 
 
 def load_project_settings(repo_root: Path) -> tuple[ProjectSettings, list[str]]:
-    """The saved settings, or the defaults, and what was wrong with the file if anything was."""
-    problem = _link_problem(repo_root)
+    """The saved settings, or the defaults, and what was wrong with the file if anything was.
+
+    Reaching the file may refuse (storage's checks), which fails the command (G-6); the file's own
+    state — unreadable, not JSON, a bad value — is the defaults plus a warning, as in 0.1.5.
+    """
+    path = settings_path(repo_root)
+    shown = shown_path(repo_root)
+    problem = _link_problem(path, shown)
     if problem:
         return ProjectSettings(), [f"{problem} Using the defaults."]
-    path = settings_path(repo_root)
     if not path.is_file():
         return ProjectSettings(), []
     try:
@@ -190,11 +209,11 @@ def load_project_settings(repo_root: Path) -> tuple[ProjectSettings, list[str]]:
         # utf-8-sig: Windows tools (PowerShell 5's `-Encoding UTF8`) write a BOM.
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except RecursionError:
-        return ProjectSettings(), [f"{SHOWN_PATH} could not be read (it is nested too deeply). Using the defaults."]
+        return ProjectSettings(), [f"{shown} could not be read (it is nested too deeply). Using the defaults."]
     except (OSError, ValueError) as exc:
-        reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else str(exc)
-        return ProjectSettings(), [f"{SHOWN_PATH} could not be read ({reason}). Using the defaults."]
-    return settings_from_mapping(data, strict=False)
+        reason = (exc.strerror or type(exc).__name__) if isinstance(exc, OSError) else str(exc)
+        return ProjectSettings(), [f"{shown} could not be read ({reason}). Using the defaults."]
+    return settings_from_mapping(data, strict=False, shown=shown)
 
 
 def save_project_settings(repo_root: Path, settings: ProjectSettings) -> Path:
@@ -203,16 +222,11 @@ def save_project_settings(repo_root: Path, settings: ProjectSettings) -> Path:
         reason = branch_template_problem(settings.branch_template)
         if reason:
             raise ProjectSettingsError(reason)
-    problem = _link_problem(repo_root)
-    if problem:
-        raise ProjectSettingsError(problem)
     path = settings_path(repo_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    problem = _link_problem(repo_root)
+    problem = _link_problem(path, shown_path(repo_root))
     if problem:
         raise ProjectSettingsError(problem)
-    atomic_write_text(path, json.dumps(settings.to_dict(), indent=2) + "\n")
-    return path
+    return repository_settings.write_text(repo_root, SETTINGS_FILE_NAME, json.dumps(settings.to_dict(), indent=2) + "\n")
 
 
 def is_saved(repo_root: Path) -> bool:
@@ -233,6 +247,8 @@ class ResolvedProjectSettings:
     saved: bool = False
     warnings: tuple[str, ...] = ()
     verification: ResolvedVerification | None = None
+    #: The file as messages name it (US-D22), when known; never part of what the settings are.
+    shown: str = field(default="", compare=False)
 
     @property
     def effective_verification(self) -> ResolvedVerification:
@@ -244,7 +260,7 @@ class ResolvedProjectSettings:
     def log_line(self) -> str:
         policy = ", ".join(f"{key}={str(value).lower()}" for key, value in self.settings.verification.to_dict().items())
         naming = "custom template" if self.settings.branch_template else "default"
-        origin = SHOWN_PATH if self.saved else "defaults"
+        origin = (self.shown or SHOWN_NAME) if self.saved else "defaults"
         return f"[INFO] project settings: {origin} (verification: {policy}; branch naming: {naming})"
 
 
@@ -256,6 +272,7 @@ def resolve_project_settings(repo_root: Path) -> ResolvedProjectSettings:
         saved=saved,
         warnings=tuple(warnings),
         verification=resolve_verification(repo_root, _switches(settings.verification, saved=saved)),
+        shown=shown_path(repo_root),
     )
 
 
@@ -283,18 +300,21 @@ def project_settings_payload(
     *,
     saved: bool,
     warnings: list[str],
+    path: str,
     verification_source: str | None = None,
 ) -> dict[str, object]:
     """``bugpilot project-settings show --json``.
 
-    ``verification_source`` says which policy is effective (`bugpilot-default`,
-    `legacy-project-settings` or `verification-file`; `verification.py`),
-    so a client can tell when the switches it shows no longer decide anything.
+    ``path`` is the file in display form (J-2, Batch 2B-3a: §8.10's absolute
+    ``path`` and new ``display_path`` come later). ``verification_source`` says
+    which policy is effective (`bugpilot-default`, `legacy-project-settings` or
+    `verification-file`; `verification.py`), so a client can tell when the
+    switches it shows no longer decide anything.
     """
     payload: dict[str, object] = {
         "settings": settings.to_dict(),
         "saved": saved,
-        "path": SHOWN_PATH,
+        "path": path,
         "defaults": ProjectSettings().to_dict(),
         "default_branch_template": DEFAULT_BRANCH_TEMPLATE_LABEL,
         "warnings": warnings,

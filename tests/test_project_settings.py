@@ -1,6 +1,7 @@
 """Project settings: the Verification Policy and branch naming.
 
-One file, ``<repo>/.bugpilot/project_settings.json``, read the same way by the
+One file, the repository's own ``settings/project_settings.json`` in its namespace in BugPilot's
+data folder (0.1.6 Batch 2B-3a; never ``<repo>/.bugpilot/``), read the same way by the
 CLI, the MCP prepare tools and the extension (through ``bugpilot
 project-settings``). These tests hold the defaults, the file's rules, what
 ``task.md`` says, the branch names a template gives — deterministic, safe, never
@@ -18,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from bugpilot.cli import main
-from bugpilot.core import workflow
+from bugpilot.core import storage, workflow
 from bugpilot.core.git_ops import branch_name, branch_template_problem, render_branch_template
 from bugpilot.core.input_adapters import bug_spec_from_description
 from bugpilot.core.models import InvestigationRequest
@@ -30,8 +31,10 @@ from bugpilot.core.project_settings import (
     load_project_settings,
     save_project_settings,
     settings_from_mapping,
+    settings_path,
 )
 from bugpilot.core.prompts import generate_task
+from bugpilot.core.storage import StorageError
 from bugpilot.core.verification import verification_section
 
 DEFAULT_LINES = (
@@ -50,9 +53,18 @@ def _repo(root: Path) -> Path:
     return root
 
 
+def _settings_file(root: Path, name: str = "project_settings.json") -> Path:
+    """A repository's own settings file, where 0.1.6 keeps it, its folder made ready by storage (Batch 2B-3a)."""
+    return storage.repository_storage(root).settings_file(name, create=True)
+
+
+def _shown(root: Path) -> str:
+    """The file as messages name it: built here from the repository's ID and the test's BUGPILOT_HOME."""
+    return f"BUGPILOT_HOME/repositories/{storage.repository_identity(root).repository_id}/settings/project_settings.json"
+
+
 def _settings(root: Path, data: object) -> None:
-    (root / ".bugpilot").mkdir(exist_ok=True)
-    (root / ".bugpilot" / "project_settings.json").write_text(json.dumps(data), encoding="utf-8")
+    _settings_file(root).write_text(json.dumps(data), encoding="utf-8")
 
 
 def _prepare(root: Path, monkeypatch, capsys, *extra: str) -> tuple[str, dict]:
@@ -106,8 +118,7 @@ def test_every_switch_says_what_it_means_and_nothing_invents_a_command():
 def test_the_policy_sits_with_the_project_layer_and_does_not_repeat_the_fix_mode(tmp_path, monkeypatch, capsys, user_config_folder):
     (user_config_folder / "instructions.md").write_text("Be brief.\n", encoding="utf-8")
     root = _repo(tmp_path / "r")
-    (root / ".bugpilot").mkdir()
-    (root / ".bugpilot" / "instructions.md").write_text("Run module tests with the repo script.\n", encoding="utf-8")
+    _settings_file(root, "instructions.md").write_text("Run module tests with the repo script.\n", encoding="utf-8")
     task, _ = _prepare(root, monkeypatch, capsys)
     order = [task.index(h) for h in (
         "## Repository Context", "## Project / Team Instructions", "## Verification Policy",
@@ -134,8 +145,7 @@ def test_a_saved_policy_reaches_the_task(tmp_path, monkeypatch, capsys):
 
 def test_a_file_that_cannot_be_used_is_the_defaults_with_a_warning(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path / "r")
-    (root / ".bugpilot").mkdir()
-    (root / ".bugpilot" / "project_settings.json").write_text("{not json", encoding="utf-8")
+    _settings_file(root).write_text("{not json", encoding="utf-8")
     task, payload = _prepare(root, monkeypatch, capsys)
     assert "Source: BugPilot defaults (no project settings saved)." in task
     assert any("project_settings.json could not be read" in w and "Using the defaults." in w for w in payload["warnings"])
@@ -148,7 +158,8 @@ def test_a_bad_value_is_its_default_and_said(tmp_path):
     )
     assert settings == ProjectSettings()
     assert warnings == [
-        ".bugpilot/project_settings.json has unknown key(s) extra; they were ignored.",
+        # Named without a repository at hand: the file's own name (0.1.6 Batch 2B-3a; it is no longer in .bugpilot/).
+        "project_settings.json has unknown key(s) extra; they were ignored.",
         "verification.full_suite must be true or false; the default (false) was used.",
         "verification has unknown switch(es) colour; they were ignored.",
         "A branch naming template cannot contain '..' or '//'; the default branch name is used.",
@@ -174,16 +185,18 @@ def _junction(link: Path, target: Path) -> None:
 
 @pytest.mark.parametrize("make_link", [_symlink, _junction], ids=["symlink", "junction"])
 def test_a_linked_config_folder_is_neither_read_nor_written(tmp_path, make_link):
+    """Storage refuses a link on the way, for a read too (0.1.6 Batch 2B-3a, G-6): the command stops."""
     root = _repo(tmp_path / "r")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (elsewhere / "project_settings.json").write_text(json.dumps({"verification": {"full_suite": True}}), encoding="utf-8")
-    make_link(root / ".bugpilot", elsewhere)
+    settings_folder = _settings_file(root).parent
+    settings_folder.rmdir()
+    make_link(settings_folder, elsewhere)
 
-    settings, warnings = load_project_settings(root)
-    assert settings == ProjectSettings()
-    assert warnings and warnings[0].startswith(".bugpilot is a symbolic link or junction")
-    with pytest.raises(ProjectSettingsError, match="symbolic link or junction"):
+    with pytest.raises(StorageError, match="settings is a symbolic link or junction"):
+        load_project_settings(root)
+    with pytest.raises(StorageError, match="settings is a symbolic link or junction"):
         save_project_settings(root, ProjectSettings(branch_template="fix/{issue}"))
     assert json.loads((elsewhere / "project_settings.json").read_text(encoding="utf-8")) == {"verification": {"full_suite": True}}
 
@@ -199,7 +212,7 @@ def test_show_and_set_through_the_cli(tmp_path, monkeypatch, capsys):
     assert shown["saved"] is False
     assert shown["settings"] == shown["defaults"] == ProjectSettings().to_dict()
     assert shown["default_branch_template"] == "feature/{issue}-{slug}"
-    assert shown["path"] == ".bugpilot/project_settings.json"
+    assert shown["path"] == _shown(root)
 
     payload = tmp_path / "s.json"
     payload.write_text(json.dumps({"verification": {"full_suite": True}, "branch_naming": {"template": "bugfix/{issue}-{slug}"}}), encoding="utf-8")
@@ -208,8 +221,9 @@ def test_show_and_set_through_the_cli(tmp_path, monkeypatch, capsys):
     assert saved["saved"] is True
     assert saved["settings"]["verification"]["full_suite"] is True
     assert saved["settings"]["branch_naming"]["template"] == "bugfix/{issue}-{slug}"
-    on_disk = json.loads((root / ".bugpilot" / "project_settings.json").read_text(encoding="utf-8"))
+    on_disk = json.loads(settings_path(root).read_text(encoding="utf-8"))
     assert on_disk == saved["settings"]
+    assert not (root / ".bugpilot").exists()  # nothing in the repository
 
 
 def test_set_refuses_an_unsafe_template_and_keeps_the_file(tmp_path, monkeypatch, capsys):
@@ -223,7 +237,7 @@ def test_set_refuses_an_unsafe_template_and_keeps_the_file(tmp_path, monkeypatch
         failed = json.loads(capsys.readouterr().out)
         assert failed["error"]["code"] == "INVALID_INPUT"
         assert "default branch name is used" not in failed["error"]["message"]
-    assert json.loads((root / ".bugpilot" / "project_settings.json").read_text(encoding="utf-8")) == {"branch_naming": {"template": "fix/{issue}"}}
+    assert json.loads(settings_path(root).read_text(encoding="utf-8")) == {"branch_naming": {"template": "fix/{issue}"}}
 
 
 # --- branch naming --------------------------------------------------------------------------
@@ -351,9 +365,8 @@ def test_change_scope_is_not_a_setting():
 def test_a_file_with_a_bom_is_read_like_any_other(tmp_path, monkeypatch, capsys):
     """PowerShell 5's `Set-Content -Encoding UTF8` writes a BOM; it is not an error."""
     root = _repo(tmp_path / "repo")
-    (root / ".bugpilot").mkdir()
     data = {"verification": {"full_suite": True}, "branch_naming": {"template": "bugfix/{issue}-{slug}"}}
-    (root / ".bugpilot" / "project_settings.json").write_bytes(b"\xef\xbb\xbf" + json.dumps(data).encode("utf-8"))
+    _settings_file(root).write_bytes(b"\xef\xbb\xbf" + json.dumps(data).encode("utf-8"))
     settings, warnings = load_project_settings(root)
     assert warnings == []
     assert settings.verification.full_suite is True and settings.branch_template == "bugfix/{issue}-{slug}"
@@ -368,9 +381,8 @@ def test_a_file_with_a_bom_is_read_like_any_other(tmp_path, monkeypatch, capsys)
 def test_a_deeply_nested_file_is_the_defaults_not_a_crash(tmp_path, monkeypatch, capsys):
     """Under the size cap, but deep enough that json raises RecursionError."""
     root = _repo(tmp_path / "repo")
-    (root / ".bugpilot").mkdir()
     nested = "[" * 30_000 + "]" * 30_000  # 60 KB: under the 64 KB cap
-    (root / ".bugpilot" / "project_settings.json").write_text(nested, encoding="utf-8")
+    _settings_file(root).write_text(nested, encoding="utf-8")
     settings, warnings = load_project_settings(root)
     assert settings == ProjectSettings()
     assert any("nested too deeply" in w and "Using the defaults." in w for w in warnings)

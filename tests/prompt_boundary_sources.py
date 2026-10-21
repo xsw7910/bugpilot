@@ -142,6 +142,8 @@ class Workspace:
         for path in (self.root / ".bugpilot", self.root / ".ai", self.root / ".ai_memory"):
             shutil.rmtree(path, ignore_errors=True)
         (self.root.parent / "data" / "config" / "instructions.md").unlink(missing_ok=True)
+        # The repository's own settings are in its namespace in the data folder (0.1.6 Batch 2B-3a).
+        shutil.rmtree(self.root.parent / "data" / "repositories", ignore_errors=True)
 
     def _write(self, path: Path, text: str) -> None:
         """Bytes as given: a CR or a U+2028 reaches the product as the file holds it."""
@@ -165,7 +167,10 @@ class Workspace:
         """`task.md` through `generate_task`, with each layer read from its file as a run reads it."""
         self.reset()
         if project is not None:
-            self._write(self.root / ".bugpilot" / "instructions.md", project)
+            from bugpilot.core import storage
+
+            with self.configured():  # the repository's own settings, through storage's accessor (Batch 2B-3a)
+                self._write(storage.repository_storage(self.root).settings_file("instructions.md", create=True), project)
         if user is not None:
             self._write(self.root.parent / "data" / "config" / "instructions.md", user)
         if ai_behavior is not None:

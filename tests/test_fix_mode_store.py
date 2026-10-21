@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from bugpilot.core import storage
 from bugpilot.core.fix_mode_store import (
     BUILTIN_FIX_MODE_IDS,
     FixModeStore,
@@ -30,6 +31,7 @@ from bugpilot.core.fix_mode_store import (
     effective_registry_for,
 )
 from bugpilot.core.fix_modes import FixModeError, FixModeNotFoundError, builtin_fix_mode_registry
+from bugpilot.core.storage import StorageError
 
 BUILTIN = builtin_fix_mode_registry()
 
@@ -60,6 +62,11 @@ def definition(mode_id: str = "my-safe", **overrides) -> dict:
     return payload
 
 
+def project_dir(repo: Path) -> Path:
+    """The repository's own Fix Mode folder, where 0.1.6 keeps it, made ready by storage (Batch 2B-3a)."""
+    return storage.repository_storage(repo).fix_modes_dir(create=True)
+
+
 def write_mode(directory: Path, payload: dict, *, name: str | None = None) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (name or f"{payload['id']}.json")
@@ -71,16 +78,18 @@ def write_mode(directory: Path, payload: dict, *, name: str | None = None) -> Pa
 
 
 def test_scopes_are_two_directories_and_nothing_is_created_by_reading(store, home, repo):
+    namespace = storage.data_root() / "repositories" / storage.repository_identity(repo).repository_id
     assert store.scope_dir("user") == home / "fix_modes"
-    assert store.scope_dir("project") == repo / ".bugpilot" / "fix_modes"
+    assert store.scope_dir("project") == namespace / "settings" / "fix_modes"
 
     catalog = store.load_catalog()
 
     assert [mode.id for mode in catalog.builtin] == [mode.id for mode in BUILTIN.list_modes()]
     assert catalog.user == ()
     assert catalog.project == ()
-    # Listing must not litter a repository with directories nobody asked for.
+    # Listing must not litter a repository, or BugPilot's data folder, with directories nobody asked for.
     assert not (repo / ".bugpilot").exists()
+    assert not namespace.exists()
     assert not (home / "fix_modes").exists()
 
 
@@ -100,7 +109,7 @@ def test_an_unknown_scope_is_refused(store):
 
 def test_source_comes_from_the_directory_not_the_file(store, home, repo):
     write_mode(home / "fix_modes", definition("mine"))
-    write_mode(repo / ".bugpilot" / "fix_modes", definition("theirs"))
+    write_mode(project_dir(repo), definition("theirs"))
 
     catalog = store.load_catalog()
 
@@ -176,7 +185,7 @@ def test_the_file_name_and_the_id_must_agree(store, home):
 
 def test_a_reserved_id_is_refused_wherever_it_is_written(store, home, repo):
     write_mode(home / "fix_modes", definition("standard"))
-    write_mode(repo / ".bugpilot" / "fix_modes", definition("conservative"))
+    write_mode(project_dir(repo), definition("conservative"))
 
     catalog = store.load_catalog()
 
@@ -193,7 +202,7 @@ def test_a_reserved_id_is_refused_wherever_it_is_written(store, home, repo):
 
 def test_a_project_mode_beats_a_user_mode_with_the_same_id(store, home, repo):
     write_mode(home / "fix_modes", definition("my-safe", name="Mine", version=3))
-    write_mode(repo / ".bugpilot" / "fix_modes", definition("my-safe", name="Ours", version=1))
+    write_mode(project_dir(repo), definition("my-safe", name="Ours", version=1))
 
     catalog = store.load_catalog()
     effective = catalog.effective_registry().resolve("my-safe")
@@ -204,7 +213,7 @@ def test_a_project_mode_beats_a_user_mode_with_the_same_id(store, home, repo):
 def test_the_shadowed_definition_stays_addressable(store, home, repo):
     """Otherwise the user's own copy could never be edited or deleted again."""
     write_mode(home / "fix_modes", definition("my-safe", name="Mine"))
-    write_mode(repo / ".bugpilot" / "fix_modes", definition("my-safe", name="Ours"))
+    write_mode(project_dir(repo), definition("my-safe", name="Ours"))
 
     catalog = store.load_catalog()
 
@@ -219,7 +228,7 @@ def test_the_shadowed_definition_stays_addressable(store, home, repo):
 def test_the_effective_order_is_deterministic(store, home, repo):
     for mode_id in ("zulu", "alpha"):
         write_mode(home / "fix_modes", definition(mode_id))
-    write_mode(repo / ".bugpilot" / "fix_modes", definition("mike"))
+    write_mode(project_dir(repo), definition("mike"))
 
     ids = [mode.id for mode in store.load_catalog().effective_modes()]
 
@@ -284,7 +293,7 @@ def symlink_dir(link: Path, target: Path) -> None:
         pytest.skip("symlinks are not available to this account")
 
 
-@pytest.mark.parametrize("scope", ["user", "project"])
+@pytest.mark.parametrize("scope", ["user"])
 def test_a_symlinked_scope_directory_is_not_read_through(tmp_path, store, home, repo, scope):
     """A cloned repository can ship a symlink, and git will recreate it.
 
@@ -295,7 +304,7 @@ def test_a_symlinked_scope_directory_is_not_read_through(tmp_path, store, home, 
     outside = tmp_path / "outside"
     outside.mkdir()
     write_mode(outside, definition("leaked"))
-    directory = home / "fix_modes" if scope == "user" else repo / ".bugpilot" / "fix_modes"
+    directory = home / "fix_modes"
     symlink_dir(directory, outside)
 
     catalog = store.load_catalog()
@@ -308,12 +317,12 @@ def test_a_symlinked_scope_directory_is_not_read_through(tmp_path, store, home, 
     assert catalog.effective_registry().resolve("standard").source == "builtin"
 
 
-@pytest.mark.parametrize("scope", ["user", "project"])
+@pytest.mark.parametrize("scope", ["user"])
 def test_no_mutation_follows_a_symlinked_scope_directory(tmp_path, store, home, repo, scope):
     outside = tmp_path / "outside"
     outside.mkdir()
     write_mode(outside, definition("existing"))
-    directory = home / "fix_modes" if scope == "user" else repo / ".bugpilot" / "fix_modes"
+    directory = home / "fix_modes"
     symlink_dir(directory, outside)
 
     for call in (
@@ -331,19 +340,33 @@ def test_no_mutation_follows_a_symlinked_scope_directory(tmp_path, store, home, 
     assert (outside / "existing.json").exists()
 
 
-def test_a_symlinked_config_directory_redirects_the_whole_store(tmp_path, store, repo, home):
-    """`.bugpilot` itself is the other level that can redirect everything."""
+@pytest.mark.parametrize("level", ["fix_modes", "settings"])
+def test_a_linked_project_folder_is_refused_for_reads_and_writes(tmp_path, store, repo, home, level):
+    """The project's folder is BugPilot's own (0.1.6 Batch 2B-3a): storage refuses a link at it, or at the
+    `settings/` folder holding it, for a read too, and the command stops (G-6) — the whole catalog with it."""
     outside = tmp_path / "outside"
     (outside / "fix_modes").mkdir(parents=True)
-    write_mode(outside / "fix_modes", definition("leaked"))
-    symlink_dir(repo / ".bugpilot", outside)
+    write_mode(outside, definition("existing"))
+    write_mode(outside / "fix_modes", definition("existing"))
+    folder = project_dir(repo) if level == "fix_modes" else project_dir(repo).parent
+    if level == "settings":
+        folder.joinpath("fix_modes").rmdir()
+    folder.rmdir()
+    symlink_dir(folder, outside)
 
-    catalog = store.load_catalog()
+    for call in (
+        store.load_catalog,
+        lambda: store.create("project", "escaped", definition("escaped")),
+        lambda: store.duplicate("standard", "escaped", "project"),
+        lambda: store.update("project", "existing", definition("existing"), 1),
+        lambda: store.delete("project", "existing", 1),
+        lambda: store.read("project", "existing"),
+    ):
+        with pytest.raises(StorageError, match=f"{level} is a symbolic link or junction"):
+            call()
 
-    assert catalog.project == ()
-    assert "symbolic link or junction" in catalog.issues[0].message
-    with pytest.raises(FixModeError, match="symbolic link or junction"):
-        store.create("project", "escaped", definition("escaped"))
+    # Nothing was written, and what was already there was left alone.
+    assert sorted(path.name for path in outside.rglob("*")) == ["existing.json", "existing.json", "fix_modes"]
 
 
 def test_a_directory_named_like_a_mode_is_not_a_mode(store, home):
@@ -526,7 +549,7 @@ def test_delete_removes_one_file_and_reveals_what_it_shadowed(store, home, repo)
 
     assert store.effective_registry().resolve("my-safe").name == "Mine"
     assert (home / "fix_modes" / "my-safe.json").exists()
-    assert not (repo / ".bugpilot" / "fix_modes" / "my-safe.json").exists()
+    assert not (project_dir(repo) / "my-safe.json").exists()
 
 
 def test_a_stale_delete_is_refused(store):

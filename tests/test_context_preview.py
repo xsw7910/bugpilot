@@ -58,6 +58,13 @@ def _context_md(root: Path, work_item: str) -> str:
     return (root / ".ai" / work_item / "context.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
 
 
+def _settings_file(root: Path, name: str) -> Path:
+    """A repository's own settings file, where 0.1.6 keeps it, its folder made ready by storage (Batch 2B-3a)."""
+    from bugpilot.core import storage
+
+    return storage.repository_storage(root).settings_file(name, create=True)
+
+
 def _snapshot(*roots: Path) -> dict[str, tuple[int, int, str]]:
     found = {}
     for root in roots:
@@ -156,10 +163,11 @@ def test_a_changed_task_input_makes_the_context_stale_and_it_is_still_shown(
     else:
         path, text = {
             "user": (user_config_folder / "instructions.md", "Explain every decision.\n"),
-            "project": (repo / ".bugpilot" / "instructions.md", "Name the module owner.\n"),
+            "project": (None, "Name the module owner.\n"),  # where 0.1.6 keeps it: made below
             "verification": (repo / ".bugpilot" / "verification.md", render_verification("- Run the full suite.")),
             "ai_behavior": (repo / ".bugpilot" / "ai_behavior.md", render_ai_behavior("- Quote the failing line.")),
         }[layer]
+        path = path or _settings_file(repo, "instructions.md")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
@@ -179,8 +187,7 @@ def test_a_changed_task_input_makes_the_context_stale_and_it_is_still_shown(
 
 def test_putting_the_input_back_makes_it_current_again(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo)
-    instructions = repo / ".bugpilot" / "instructions.md"
-    instructions.parent.mkdir()
+    instructions = _settings_file(repo, "instructions.md")
     instructions.write_text("Name the module owner.\n", encoding="utf-8")
     assert preview_context(repo, work_item).state == "stale"
     instructions.unlink()
@@ -189,8 +196,7 @@ def test_putting_the_input_back_makes_it_current_again(repo, monkeypatch, capsys
 
 def test_a_branch_naming_change_is_named_as_such(repo, monkeypatch, capsys):
     work_item = _prepare(monkeypatch, capsys, repo)
-    (repo / ".bugpilot").mkdir()
-    (repo / ".bugpilot" / "project_settings.json").write_text(
+    _settings_file(repo, "project_settings.json").write_text(
         json.dumps({"branch_naming": {"template": "bugfix/{issue}-{slug}"}}), encoding="utf-8"
     )
     codes = [reason.code for reason in preview_context(repo, work_item).reasons]
@@ -328,9 +334,10 @@ def test_previewing_runs_no_retrieval_no_process_no_jira_and_writes_nothing(repo
     subprocess.run([*git, "add", "-A"], cwd=repo, check=True)
     subprocess.run([*git, "commit", "-qm", "init"], cwd=repo, check=True)
     work_item = _prepare(monkeypatch, capsys, repo)
-    (repo / ".bugpilot").mkdir()
-    (repo / ".bugpilot" / "instructions.md").write_text("Name the module owner.\n", encoding="utf-8")
-    before = _snapshot(repo, isolate_bugpilot_config)
+    project = _settings_file(repo, "instructions.md")
+    project.write_text("Name the module owner.\n", encoding="utf-8")
+    namespace = project.parent.parent  # the repository's namespace in the data folder: nothing written there either
+    before = _snapshot(repo, isolate_bugpilot_config, namespace)
 
     def refuse(*_args, **_kwargs):
         raise AssertionError("the context preview searched, started a process or talked to Jira")
@@ -353,7 +360,7 @@ def test_previewing_runs_no_retrieval_no_process_no_jira_and_writes_nothing(repo
         assert main(list(argv)) == 0
         capsys.readouterr()
 
-    assert _snapshot(repo, isolate_bugpilot_config) == before
+    assert _snapshot(repo, isolate_bugpilot_config, namespace) == before
 
 
 # --- Context Quality, read back exactly -----------------------------------------------------------

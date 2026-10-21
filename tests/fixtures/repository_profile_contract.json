@@ -4,7 +4,7 @@
   "default_mode": "auto",
   "fallback_mode": "generic",
   "labels": { "auto": "Auto-detect", "generic": "Generic", "custom": "Custom" },
-  "path": ".bugpilot/repository_profile.json",
+  "path": "settings/repository_profile.json",
   "fields": [
     { "key": "languages", "label": "Languages", "max": 200 },
     { "key": "frameworks", "label": "Frameworks", "max": 200 },

@@ -63,8 +63,11 @@ def _file(root: Path, text: str) -> Path:
 
 
 def _switches(root: Path, verification: dict) -> None:
-    (root / ".bugpilot").mkdir(exist_ok=True)
-    (root / ".bugpilot" / "project_settings.json").write_text(json.dumps({"verification": verification}), encoding="utf-8")
+    # The repository's own project settings, where 0.1.6 keeps them (Batch 2B-3a), through storage's accessor.
+    from bugpilot.core import storage
+
+    path = storage.repository_storage(root).settings_file("project_settings.json", create=True)
+    path.write_text(json.dumps({"verification": verification}), encoding="utf-8")
 
 
 def _section(task: str, heading: str) -> str:

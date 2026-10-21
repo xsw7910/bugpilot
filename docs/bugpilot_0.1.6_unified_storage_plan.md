@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* *(On 2026-10-21: `5b66ffe` pushed (documentation); Batch 2B-3a implemented and verified locally on Windows, uncommitted, not CI-verified, NOT ACTIVATED; DD-4 to DD-12 observed and awaiting the owner (§14.3, "Batch 2B-3a — implementation and local verification").)* *(Later on 2026-10-21: DD-4 to DD-12 approved after exact-value verification. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED. Linux and macOS not verified; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification").)* *(Then, with the owner's authorization: Batch 2B-3a committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -2781,7 +2781,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **IN PROGRESS** (2026-10-18). P10: direct shells and the Python launcher PASS (narrowed run), then VS Code `sendText` PASS (completion run): **PASS for the tested Windows configuration**, with limitations. P7 attempted the same day: UNKNOWN, blocked before its tests by an in-progress VS Code update. P7 retry after the update (VS Code 1.142.0, Windows): P7-A to P7-H PASS, `revealFileInOS` UNKNOWN. P2 (one run, Claude Code 2.1.214): FAIL against the owner's criteria; external reads under `dontAsk` worked, the marker was declined, and a Bash request was refused. P1, P3–P6, P8, P9 and P11 NOT EXECUTED (§14.1.B) | — | — | each further probe awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* *(2026-10-21: 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; not activated; DD-4 to DD-12 await the owner; §14.3, "Batch 2B-3a — implementation and local verification")* *(2026-10-21, later: DD-4 to DD-12 approved; final local Windows verification passed; still uncommitted, not CI-verified, not activated; "Owner approval of DD-4 to DD-12 and final local verification")* *(2026-10-21, then: committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; not activated)* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -6755,7 +6755,7 @@ The approval asked for is this exact behaviour.
 | Neutrality first | M-a and CH-1 alone, with an empty 2B-3a file: every record equals the committed ones under DD-1 to DD-3, and all 17 goldens are unchanged, before any product change | a condition |
 | All 17 task goldens unchanged in 2B-3a | the only `.bugpilot` and "shared" strings in task goldens are the six 2B-3b lines and the three introduction lines; the context, retry and prompt-boundary goldens have none. The two harnesses must write their 2B-3a inputs through storage, or the configured goldens fail, which is the intended guard. The R4 test proves no legacy read | met, with the harness change |
 | The six affected goldens reserved for 2B-3b | 2B-3a's allowlist excludes every golden. Any golden byte change in 2B-3a is a stop | met by design |
-| Exact owner approval of each observed difference | DD-4 to DD-12 are categories now. Their observed values are approved before the 2B-3a commit, as with DD-1 to DD-3 | in flow |
+| Exact owner approval of each observed difference | DD-4 to DD-12 are categories now. Their observed values are approved before the 2B-3a commit, as with DD-1 to DD-3 | in flow *(done on 2026-10-21, before any commit; §14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification")* |
 
 **No blocker was found in the baselines or goldens.** The conditions above become 2B-3a's stop conditions.
 
@@ -7047,6 +7047,286 @@ The interim gap stays recorded: a third-party script that joins `path` to the re
 - **The counts:** 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
 
 **Batch 2B-3a and 2B-3b — NOT STARTED.**
+
+#### Batch 2B-3a — implementation and local verification (2026-10-21)
+
+**Status: Batch 2B-3a — IMPLEMENTED and verified locally on Windows; uncommitted; NOT CI-verified; NOT ACTIVATED.**
+
+- **Where:** `verify/0.1.6-storage` at `5b66ffe`. The work is in the working tree only: nothing is staged, committed or pushed for it.
+- **Not yet verified:** Linux and macOS have run none of it. It needs a commit, an authorized push and an owner-dispatched CI run.
+- **Awaiting the owner:** the review of the implementation and of DD-4 to DD-12's observed values. *(DD-4 to DD-12 approved on 2026-10-21; see "Owner approval of DD-4 to DD-12 and final local verification" below. The implementation's review remains.)*
+- **Unchanged:** Batch 2B-3b has NOT STARTED, the version is 0.1.5, and US-D29's branch isolation and every activation blocker still apply.
+
+**The documentation push.** With the owner's authorization, `5b66ffe` (the 2B-3 decision records) was fast-forwarded to `origin/verify/0.1.6-storage`, which now points at it. No CI was dispatched; the workflow runs on pushes to `main` only.
+
+**Owner approvals made during implementation (2026-10-21):**
+
+- **Outside the slice contract's allowlist**, after a stop:
+  - `tests/test_cli_json.py`: only `test_the_cli_writes_utf8_json_through_a_pipe_whatever_the_code_page`'s setup. The command now runs in `tmp_path / "repo"`, beside the data folder `tmp_path / "data"`. Every assertion is unchanged. The data folder had been inside the folder the test ran in, which P-1 now refuses.
+  - `tests/test_storage_api_boundary.py`: only `APPROVED_IMPORTERS`, which gains `bugpilot/core/repository_settings.py`, the chokepoint.
+- **The chokepoint:** the unused `shown_fix_modes_dir` and `remove` were removed from `bugpilot/core/repository_settings.py`, with the `os` import only they used. `tests/test_no_unwired_symbols.py` is unchanged and passes.
+- **The three test files found at the commit review** (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4", part 7):
+  - `tests/test_verification_policy.py`: its `_switches` helper only;
+  - `tests/test_ai_behavior.py`: the one `.bugpilot/instructions.md` line only, now one line through storage's accessor, with an inline import to stay within the line;
+  - `tests/test_global_config_storage.py`: one test's name and its two project assertions.
+
+**A third assertion, approved separately (2026-10-21).** That same `test_global_config_storage.py` test had a third project-location assertion, which the first approval did not name:
+
+```text
+assert sorted(os.listdir(_data_root())) == ["config"]
+```
+
+The project's files now live in the data folder too (`repositories/`, the US-D1 layout), so the test failed on that line with `['config', 'repositories'] == ['config']`.
+
+- **Change:** the line was left alone until the owner approved exactly `== ["config", "repositories"]`. Nothing else changed, and the optional repository-ID assertion was not added.
+- **Result:** the test then passed with every assertion, including the `config/` listing after it, which had not run before. Its file passes 22/22.
+
+**Phase A — neutrality, before any product change.**
+
+- **M-a and CH-1** were added to `tests/storage_baseline.py`:
+  - the session's repository ID comes from `storage.repository_identity` and shows as `<repository-id>`;
+  - any other repository-ID token in a record raises;
+  - the designed-difference files apply in `DESIGNED_CHAIN` order, each entry's `from` taken from the earlier slices, with chain-wide unique ids and the frozen 0A hashes checked per file.
+- **The empty 2B-3a record:** `tests/baselines/0.1.6-batch2b3a/designed_differences.json`, base commit `5b66ffe`.
+- **New tests in `tests/test_storage_baseline.py`:**
+  - six for the chain;
+  - four for the label and the foreign-ID guard, two of which are identity-collision tests, a subfolder's ID and another folder's ID.
+- **The neutrality result:**
+  - 37 baseline tests pass;
+  - `python tests/storage_baseline.py --check` reports "baselines match";
+  - the task goldens and the identity tests pass (249 passed, 3 platform skips);
+  - the frozen Batch 0A records and the 2B-2 record are unchanged.
+
+**Phase B — production.** Allowlisted files only:
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/repository_settings.py` (new) | The chokepoint: `settings_file`, `fix_modes_dir`, `shown_path`, `require_readable` (R-PRE) and `write_text`. `guarded` catches only `storage.StorageUnavailable` and a non-carrier `OSError`, and re-raises them as `errors.StorageAccessError` (F2-S); nothing else is caught |
+| `bugpilot/core/instructions.py` | The project scope goes through the chokepoint. Each `InstructionFile` carries its display path (`shown`, never compared), and `display_path(scope, repo_root)`. A project write failure is one sentence. `PROJECT_CONFIG_DIR`, `link_problem` and `read_text_document` are kept for the 2B-3b modules |
+| `bugpilot/core/project_settings.py` | Through the chokepoint. Warnings, the log line and the payload name the display path, and a read failure names the error's class, never its text. `SHOWN_PATH` is replaced by `shown_path(repo_root)`; `settings_from_mapping` names the file passed to it |
+| `bugpilot/core/repository_profile.py` | Through the chokepoint. Its read warning no longer holds the absolute path; `shown_profile_path` is added; `PROJECT_CONFIG_DIR` is removed |
+| `bugpilot/core/fix_mode_store.py` | The project scope goes through the chokepoint. Issue paths and folder messages use display form where storage owns the folder (row 22). A read failure names the error's class. Writes re-raise the chokepoint's sentence unchanged. `FIX_MODE_DIR_NAME` is removed |
+| `bugpilot/cli.py` | R-PRE in the `instructions` (user scope) and `verification` handlers, before anything is written. The profile's, the settings' and the legacy switches' text and `path` are in display form. US-D9 help wording |
+| `bugpilot/mcp_server.py` | M-P: `list_fix_modes` and `show_fix_mode` turn `StorageError` and `StorageAccessError` alone into `Could not … [CODE]: <sentence>` |
+
+No other production file changed. Untouched:
+
+- `storage.py` and `_isolation.py`;
+- the 2B-3b modules (`verification.py`, `ai_behavior.py`) and `prompts.py`, `workflow.py`, `task_preview.py`, `context_preview.py`, `fix_mode_state.py`, `errors.py`;
+- every golden and the frozen records;
+- `storage_cli_contract.json`;
+- the extension.
+
+All 214 of these files' SHA-256s match.
+
+**Phase C — tests and harnesses.**
+
+- **Harnesses:** `task_golden._resolved_inputs` and `prompt_boundary_sources` (the project input in `task()`, and `reset()`) write the two moved inputs through storage's accessor. All 17 task goldens stay byte-identical; the golden and prompt-boundary suites pass 589.
+- **The allowlisted test files,** each only where it pinned a moved place or asserted changed behaviour:
+  - the link tests now expect storage's fail-closed refusal (G-6);
+  - expected places are built from the repository's ID and the test's `BUGPILOT_HOME`.
+- **New `tests/test_repository_settings_storage.py`:**
+  - T-1 to T-16, including T-13 per platform and the T-15 inheritance pin;
+  - matrix rows 1 to 8, 10 and 11, row 1 at every boundary with part 3's exact assertions;
+  - R-PRE, M-P, row 22 and the R4 legacy sentinel;
+  - the nine DD evidence tests.
+
+  On Windows: 41 passed and 2 macOS-only skips (T-10, T-11).
+- **The inventory record** was regenerated by its own `--update`, from 650 occurrences in all to 626. `bugpilot-dir` fell from 115 to 103, `path-constant` from 103 to 83 and `path-helper` from 104 to 102. `home-bugpilot` rose from 20 to 30: help text and docstrings now name the 0.1.6 place, `~/.bugpilot/repositories/…`, which the pattern counts alike.
+
+**PC-1** (B-3).
+
+- **The change:** `tests/fixtures/repository_profile_contract.json` line 7, `"path": ".bugpilot/repository_profile.json"` to `"path": "settings/repository_profile.json"`. That is the only changed line (1 in, 1 out, 16 lines).
+- **SHA-256:** `a52f632d…dd33` before, `4a848a30…a08a` after.
+- **The four tests:**
+  1. the contract assertion against storage's name;
+  2. `test_the_contract_path_is_where_the_profile_lives`, which ties the fixture to `settings_file` and to `show --json`;
+  3. the extension's `repositoryProfile.test.ts`, unchanged and passing;
+  4. the one-line diff.
+
+**Phase D — the designed differences, observed.**
+
+- **Method:** the records were regenerated into a scratch folder, Batch 2B-2's approved differences applied in memory, and what remained listed by pointer.
+- **Result:** exactly nine differences, the categories DD-4 to DD-12 and nothing else.
+- **Recorded** with their exact values in the 2B-3a file. Each names its evidence test in `tests/test_repository_settings_storage.py`; `approved` is empty. *(Approved on 2026-10-21; the gate now passes. See below.)*
+
+| Id | Record | Pointer | From | To |
+| --- | --- | --- | --- | --- |
+| DD-4 | `pollution.json` | `/steps/8/created` | `[".bugpilot", ".bugpilot/instructions.md"]` | `[]` |
+| DD-5 | `pollution.json` | `/steps/9/created` | `[".bugpilot/verification.md"]` | `[".bugpilot", ".bugpilot/verification.md"]` |
+| DD-6 | `pollution.json` | `/steps/11/created` | `[".bugpilot/project_settings.json"]` | `[]` |
+| DD-7 | `pollution.json` | `/steps/12/created` | `[".bugpilot/repository_profile.json"]` | `[]` |
+| DD-8 | `pollution.json` | `/steps/13/created` | `[".bugpilot/fix_modes", ".bugpilot/fix_modes/team-fix.json"]` | `[]` |
+| DD-9 | `pollution.json` | `/git_status` | the 26 frozen lines | 22 lines: the same in the same order, without `?? .bugpilot/fix_modes/team-fix.json`, `?? .bugpilot/instructions.md`, `?? .bugpilot/project_settings.json` and `?? .bugpilot/repository_profile.json` |
+| DD-10 | `cli_paths.json` | `/instructions show --json path fields/project` | `".bugpilot/instructions.md"` | `"BUGPILOT_HOME/repositories/<repository-id>/settings/instructions.md"` |
+| DD-11 | `cli_paths.json` | `/project-settings show --json path fields/path` | `".bugpilot/project_settings.json"` | `"BUGPILOT_HOME/repositories/<repository-id>/settings/project_settings.json"` |
+| DD-12 | `cli_paths.json` | `/repository-profile show --json path fields/path` | `".bugpilot/repository_profile.json"` | `"BUGPILOT_HOME/repositories/<repository-id>/settings/repository_profile.json"` |
+
+- **Unchanged, as predicted:**
+  - `handoff.json`, `task_size.json` and `/bugpilot_folders_in_repository`;
+  - `/steps/10/created` and `/user_configuration_written` (still DD-3's `[]`).
+- **No foreign repository ID** appeared anywhere.
+- **DD-10 to DD-12** are J-2's interim display strings, **not compliant** with §8.10 rows 18 to 21, which the proposed 2B-7 completes.
+
+**Local verification (Windows, Python 3.14).**
+
+- **The whole Python suite** (absolute `PYTHONPATH`, the test isolation's own home): **2 failed, 3,805 passed, 59 skipped**, in 27.5 minutes.
+  - It started before the third assertion was approved, so it ran the old line, and does not validate the change. Its two failures:
+    - `test_global_config_storage.py::test_user_files_live_in_the_configuration_folder_and_project_files_in_the_repository_namespace`: `assert ['config', 'repositories'] == ['config']`, the old line;
+    - `test_storage_baseline.py::test_every_designed_difference_is_approved_by_the_owner`: `assert ['DD-4', … 'DD-9', …] == []`, the approval gate. DD-4 to DD-12 await the owner.
+  - The approved line was then verified on its own (above). It is the only change made after this run started.
+  - **Skips:** 59, against 2B-2's 57. The difference is the new file's two macOS-only tests; the `subst` skip is as before.
+  - **The expected failure that remains** is the approval gate, until the owner approves DD-4 to DD-12. *(Approved on 2026-10-21; the fresh full run below has no failure.)*
+- **Extension, from Git Bash:** `npm run typecheck` clean; `npm test` 2,350 passed, 0 failed, 0 skipped.
+- **Extension, from PowerShell:** `executablePath.test.ts`'s "on Windows, a bugpilot.exe in the working directory never runs — the one on PATH does" fails with `spawn bugpilot ENOENT`. It passes 12/12 from Git Bash, from the same unchanged files.
+  - **The cause:** PowerShell hands Node the variable as `Path`, Git Bash as `PATH`, and the test's `{ PATH }` does not replace a `Path` key.
+  - **Scope:** an environment sensitivity of an existing extension test, unrelated to this batch, and out of its scope (no extension change). It is recorded for Batch 3's attention.
+- **Generator and integrity:**
+  - `python tests/storage_baseline.py --check`: "baselines match", and "awaiting the owner's approval: DD-4, …, DD-12"; *(nothing pending since the approval on 2026-10-21)*
+  - the protected and frozen files, publishability and `git diff --check`: see §19 and the report.
+
+**Precisions found while implementing:**
+
+- **Text-mode `bug` and the log hint.** A namespace refusal comes from the Fix Mode catalog, before `.ai/<id>/` is prepared. So text-mode `bug` prints no `bugpilot status` hint for it, for row 2 either. The hint needs `run.json`. The matrix's "text `bug` then also prints its log hint" holds only for a refusal met after preparation.
+- **`fix-mode` user-scope actions** now also stop on a project-scope refusal, because the catalog is loaded first (G-6, recorded earlier).
+
+**What remains:**
+
+1. The owner's review of the implementation, and approval of DD-4 to DD-12's values. *(The values were approved on 2026-10-21; the review remains.)*
+2. The implementation commit authorization.
+3. An authorized push.
+4. One owner-dispatched CI run, all nine jobs. It covers:
+   - the POSIX permission and storage checks;
+   - Linux's and macOS's case-only rename (T-13);
+   - macOS's T-10 and T-11, skipped on Windows.
+5. Activation stays blocked: §14.3's eight blockers, Batch 0B's evidence and US-D29's open terms.
+
+**Owner approval of DD-4 to DD-12 and final local verification** (2026-10-21):
+
+**Status: Batch 2B-3a — IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED.** *(Later on 2026-10-21, with the owner's authorization: committed on `verify/0.1.6-storage` by the commit that carries this note, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* DD-4 to DD-12 are approved. Linux and macOS are not verified. Batch 2B-3b: NOT STARTED.
+
+- **Preflight.** Every check passed before anything changed:
+  - `verify/0.1.6-storage` and `origin/verify/0.1.6-storage` at `5b66ffe`; `main` and `origin/main` at `ea9659c`; nothing staged;
+  - the 11 protected files and the 214 protected 2B-3a files match their SHA-256s;
+  - the frozen Batch 0A records and the 17 task goldens are byte-identical; the version is 0.1.5.
+- **DD-4 to DD-12 are approved,** after exact-value verification:
+  - the four frozen records match the hashes that both files of the chain carry, and are unchanged;
+  - with 2B-2's DD-1 to DD-3 applied, each frozen value equals its entry's `from`, and each regenerated value its `to`;
+  - with the whole chain applied, no difference and no pointer is left over, so no entry is missing or extra;
+  - each category is the contract's:
+    - DD-4 to DD-8 are the pollution steps of the four moved settings and of the Verification Policy;
+    - DD-9 is the Git status;
+    - DD-10 to DD-12 are the display paths;
+  - each of the nine evidence tests passes on its own.
+
+  Each entry's `approved` is `2026-10-21`, and nothing else in the record changed. The approval gate passes, and `--check` reports "baselines match" with nothing pending. The values are those in the Phase D table above.
+
+  | Id | Evidence test, in `tests/test_repository_settings_storage.py` |
+  | --- | --- |
+  | DD-4 | `test_dd4_project_instructions_are_written_to_the_namespace_and_nothing_into_the_repository` |
+  | DD-5 | `test_dd5_the_verification_policy_now_creates_the_bugpilot_folder_itself` |
+  | DD-6 | `test_dd6_project_settings_are_written_to_the_namespace_and_nothing_into_the_repository` |
+  | DD-7 | `test_dd7_the_repository_profile_is_written_to_the_namespace_and_nothing_into_the_repository` |
+  | DD-8 | `test_dd8_a_project_fix_mode_is_written_to_the_namespace_and_nothing_into_the_repository` |
+  | DD-9 | `test_dd9_only_the_verification_policy_and_ai_behavior_still_reach_git_status` |
+  | DD-10 | `test_dd10_instructions_show_names_the_project_file_in_display_form` |
+  | DD-11 | `test_dd11_project_settings_show_names_its_file_in_display_form` |
+  | DD-12 | `test_dd12_repository_profile_show_names_its_file_in_display_form` |
+- **DD-5: where `.bugpilot` now comes from.** There is no unauthorized repository write. Each settings step was traced, in the repository and in the data folder:
+  - **Step 8**, project instructions, now writes nothing into the repository. The data folder gets the namespace, its `repository.json`, `settings/` and `settings/instructions.md`.
+  - **Step 9**, `verification set`, creates exactly `.bugpilot` and `.bugpilot/verification.md` in the repository, and nothing in the data folder.
+    - The folder comes from `save_verification`'s own `path.parent.mkdir(parents=True, exist_ok=True)` in `bugpilot/core/verification.py`.
+    - That is the Verification Policy, which 2B-3b moves and this batch leaves unchanged.
+  - **R-PRE writes nothing.** It is the read check before that write. `verification set` was also run first, in a fresh repository with no namespace. It again created exactly those two entries, and nothing in the data folder.
+  - **Step 10** adds only `.bugpilot/ai_behavior.md` (2B-3b, unchanged).
+  - **Steps 11 to 13** write only into the namespace.
+
+  So the folder's creation moves from step 8 to step 9 only because the instructions no longer create it first.
+- **DD-9: the complete Git status.** The frozen status has 26 lines; today's has 22.
+  - **Removed, exactly four:** `?? .bugpilot/fix_modes/team-fix.json`, `?? .bugpilot/instructions.md`, `?? .bugpilot/project_settings.json` and `?? .bugpilot/repository_profile.json`.
+  - **Added:** none.
+  - **Order:** the 22 that remain are in the same order. Their `.bugpilot` lines are `ai_behavior.md` and `verification.md`, the 2B-3b files.
+
+  Both complete lists are the entry's `from` and `to` in the record.
+- **DD-10 to DD-12: the full display paths.** Before any normalization, the three values are:
+  - `BUGPILOT_HOME/repositories/<id>/settings/instructions.md`;
+  - `BUGPILOT_HOME/repositories/<id>/settings/project_settings.json`;
+  - `BUGPILOT_HOME/repositories/<id>/settings/repository_profile.json`.
+
+  All three carry one repository ID:
+  - it equals both `storage.repository_identity(repo)` and `storage.repository_id_for` of the real path, the pure function the golden vectors pin;
+  - it is the only ID in the three values, so the `<repository-id>` label hides no foreign ID;
+  - the guard's tests pass: a foreign ID raises, and so do a subfolder's ID and another folder's ID (the collision tests).
+
+  The values are approved under J-2, as interim display strings. They stay **not compliant** with §8.10 rows 18 to 21, which the proposed 2B-7 completes.
+- **PC-1.** The fixture differs from `5b66ffe` only at line 7's `path`: `.bugpilot/repository_profile.json` to `settings/repository_profile.json` (SHA-256 `a52f632d…dd33` to `4a848a30…a08a`). The consumer tests pass:
+  - `test_repository_profile.py`, 44;
+  - the extension's `repositoryProfile.test.ts`, 12 of 12.
+
+**The approval gate and the focused groups** (Windows 11, Python 3.14, an absolute `PYTHONPATH` naming the checkout; separate runs; skips are platform skips, not counted as passed):
+
+| Group | Files or command | Result |
+| --- | --- | --- |
+| The approval gate, the baselines, the goldens and PC-1's consumer | `test_storage_baseline.py`, `test_task_golden.py`, `test_global_config_storage.py`, `test_repository_profile.py` | 222 passed |
+| The approval gate alone | `test_every_designed_difference_is_approved_by_the_owner` | 1 passed |
+| The gate, label, foreign-ID and collision tests, selected | six tests in `test_storage_baseline.py` | 6 passed |
+| The nine DD evidence tests | `test_dd4_` to `test_dd12_` in `test_repository_settings_storage.py` | 9 passed |
+| The generator | `python tests/storage_baseline.py --check` | "baselines match", exit 0 |
+| Storage identity and security | `test_storage_identity.py`, `test_storage_safety.py`, `test_storage_witness.py`, `test_isolation_guard.py`, `test_storage_api_boundary.py`, `test_batch4_file_safety.py`, `test_file_safety_baseline.py` | 435 passed, 52 skipped |
+| MCP | `test_mcp_server.py`, `test_mcp_request_scope.py` | 100 passed |
+| R-PRE, links, containment and legacy | `test_containment.py`, `test_repository_settings_storage.py`, `test_storage_safety.py`, `test_file_safety_baseline.py`, `test_instructions.py`, `test_project_settings.py`, `test_repository_profile.py`, `test_fix_mode_store.py`, `test_fix_mode_custom.py`, `test_verification_policy.py`, `test_ai_behavior.py`; then the legacy-sentinel and R-PRE tests selected by name | 614 passed, 31 skipped (platform skips, among the full suite's 59); the selected tests 12 passed |
+| Inventory and publishability | `test_storage_inventory.py`, `test_publishable.py`, `test_no_unwired_symbols.py` | 26 passed |
+
+**The fresh full Python suite.** It ran after the DD approvals and the third-assertion correction, on Windows 11 with Python 3.14, an absolute `PYTHONPATH` and the test isolation's own HOME.
+
+- **Result:** **3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit code 0, in 29 minutes.
+- **The earlier run is unchanged.** Its 2 failed, 3,805 passed and 59 skipped stand as recorded above; it is not relabelled.
+- **Skips:** all 59 are platform skips, none counted as passed. 48 are POSIX permission bits and file names. 2 are other POSIX-only cases: `mkdir` with `dir_fd`, and `st_ctime`. 2 are Windows limitations: a file held open, and the file-symlink privilege. 5 are macOS-only cases, including the new file's T-10 and T-11. 1 is the identity suite's case-folding case. The last is the deferred subst-drive check. The count equals the earlier run's 59; the 2 more passes are the two tests that failed then.
+
+**The extension.**
+
+- **From Git Bash** (GNU bash 5.3.15, Node v24.22.0, npm 11.19.1; Node sees the variable as `PATH`): `npm run typecheck` passed. `npm test` passed 2,350, with 0 failed and 0 skipped. CI uses Node 22.
+- **From PowerShell: an unresolved environment observation.**
+  - **The symptom:** from PowerShell 7.6.6, Node sees the variable as `Path`. `executablePath.test.ts` passes 11 of 12. "on Windows, a bugpilot.exe in the working directory never runs — the one on PATH does" fails with `spawn bugpilot ENOENT`.
+  - **The handling:** no extension source changed, and the test is not weakened. The observation is recorded for Batch 3's attention.
+  - **The verified environment:** Git Bash is the extension's verified environment here.
+
+**Integrity:**
+
+- `git diff --check` is clean, and nothing is staged.
+- **No public contract change beyond the approved ones:** the production diff adds no JSON field and no error code. Only the `path` values change (DD-10 to DD-12, row 22), and so do M-P's messages, which reuse the existing codes.
+- The 11 protected files and the 214 protected 2B-3a files are unchanged.
+- The frozen Batch 0A records and the 17 task goldens are byte-identical.
+- Also unchanged:
+  - `storage.py` and `_isolation.py`;
+  - the contract fixtures, except PC-1's line;
+  - the extension and the workflows;
+  - the version, 0.1.5.
+
+**Commit readiness.** Every changed file is within part 10's allowlist or the extras the owner approved after a stop, which are:
+
+- `test_verification_policy.py`, `test_ai_behavior.py` and `test_global_config_storage.py`, approved with the implementation authorization;
+- `test_cli_json.py` and `test_storage_api_boundary.py`, approved at the allowlist expansion.
+
+`errors.py` is unchanged; O3 was not needed. The proposed implementation commit holds 30 files, this plan included:
+
+- the seven production files;
+- the 22 test, harness, fixture and record files.
+
+It excludes the owner's `docs/bugpilot_prototype_development_plan.md`, `.bugpilot/` and `.vscode/extensions.json`.
+
+**Still required:**
+
+1. the owner's review of the implementation; *(done: the owner authorized the implementation commit on 2026-10-21)*
+2. the implementation commit authorization; *(given on 2026-10-21: committed on `verify/0.1.6-storage`, parent `5b66ffe`, not pushed)*
+3. an authorized push;
+4. one owner-dispatched CI run, all nine jobs. Linux and macOS have run none of 2B-3a, including:
+   - the POSIX permission and storage checks;
+   - T-13's case-only rename;
+   - macOS's T-10 and T-11;
+5. activation stays blocked: §14.3's eight blockers, Batch 0B's evidence and US-D29's open terms.
+
+J-2's interim `path` remains an accepted limitation until the proposed 2B-7. Batch 2B-3b has NOT STARTED.
 
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
@@ -8182,6 +8462,9 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-20 | 2B-3 | **Batch 2B-3 decision gate and slice design recorded; Batch 2B-3 NOT STARTED.** <ul><li>**Nature:** documentation and a read-only review at `92efd66`. No code, test, fixture, golden, baseline or extension change, and no probe.</li><li>**Proposed:** <ul><li>the split into 2B-3a (namespace and identity access, and four settings) and 2B-3b (the Verification Policy, AI Behavior and every task-text change);</li><li>US-D26's `STORAGE_UNAVAILABLE`, or an interim rule (O1 to O3), needed before 2B-3a;</li><li>the storage-failure matrix, P-1, identity cases T-1 to T-16, and US-D9's semantics;</li><li>the JSON timing (J-1 or J-2), the profile contract (PC-1 to PC-3), and DD-4 to DD-12;</li><li>2B-3b's six goldens with per-golden approval;</li><li>both slice contracts.</li></ul></li><li>**Found:** <ul><li>today's extension Edit can overwrite relocated AI Behavior and Verification files (2B-3b, and a 0.1.5 extension with a 0.1.6 CLI);</li><li>the golden harnesses write `.bugpilot/` inputs directly;</li><li>a different repository later at a former path inherits its namespace (frozen behaviour, newly stated for settings).</li></ul></li><li>**Asked:** G-1 to G-14.</li></ul> No decision status changed; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3 — decision gate and slice design"). |
 | 2026-10-20 | 2B-3 | **Batch 2B-3 owner decisions and final contract gate recorded; 2B-3a NOT READY; 2B-3a and 2B-3b NOT STARTED.** <ul><li>**Decisions:** <ul><li>G-1, G-4, G-6, G-11 and G-14 approved;</li><li>G-2 approved with conditions;</li><li>G-3 approved in part (T-15 not approved);</li><li>G-5, G-8, G-9 and G-10 approved in principle;</li><li>G-7 as a staging direction only;</li><li>G-12 for planning only;</li><li>G-13 deferred to the 2B-3b gate.</li></ul></li><li>**Register:** US-D4 APPROVED with conditions, US-D8 APPROVED in part, US-D9 APPROVED, and US-D22's approved part widened. US-D26 stays approved in part. Counts: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.</li><li>**Analysis:** <ul><li>T-1 to T-16 verified, with T-13 corrected (Windows only);</li><li>T-15 is pinned by a frozen identity test, and cannot be detected without a record change; options A, B and C, A recommended with C deferred;</li><li>the 11-row US-D26 matrix reconciled per boundary;</li><li>J-2's interim discrepancies listed, and called non-compliant;</li><li>PC-1's exact values and M-P's exact behaviour specified;</li><li>no baseline or golden blocker.</li></ul></li><li>**Blocking:** <ul><li>B-1 (T-15) and B-2 (F2-S: O2 meets F2's letter only if F2 governs policy refusals and invalid configuration, not a translated `StorageUnavailable`);</li><li>B-3 (PC-1's values) and B-4 (M-P's behaviour) as approvals.</li></ul></li></ul> Documentation only; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). |
 | 2026-10-20 | 2B-3a | **B-1 to B-4 decided; the 2B-3a implementation contract recorded; 2B-3a's decisions complete; implementation NOT STARTED and not authorized.** <ul><li>**B-1:** T-15 option A, an accepted configuration-contamination limitation (§7.3, §7.6, RK-20); option C deferred; US-D8 approved in full.</li><li>**B-2:** F2-S approved as a dated contract clarification (§8.6, §8.10) and verified. No fixture or public-code change; exact CLI JSON, text and MCP assertions recorded; US-D26 stays approved in part, resolved for 2B-3a.</li><li>**B-3:** PC-1, one expected fixture line, `path` to `settings/repository_profile.json`; four tests.</li><li>**B-4:** M-P verified against MCP SDK 2.1.1 and the existing tests: no new envelope, codes kept, narrow catching, request scope unchanged.</li><li>**JSON:** J-2 kept; 2B-7, a dedicated contract-completion step for rows 18 to 21, proposed.</li><li>**Found:** R-PRE (`instructions set --scope user` and `verification set`, `clear` and `reset` must check the project namespace before writing), and recorded residue.</li></ul> Counts unchanged: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED. Documentation only; committed with the other 2B-3 records as `docs(storage): record Batch 2B-3 decision gate and 2B-3a contract` (not pushed) (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract"). |
+| 2026-10-21 | 2B-3a | **Batch 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; NOT ACTIVATED.** <ul><li>**Push:** `5b66ffe` fast-forwarded to `origin/verify/0.1.6-storage` (owner-authorized); no CI.</li><li>**Approvals during implementation:** <ul><li>`test_cli_json.py`, one test's setup;</li><li>`test_storage_api_boundary.py`, `APPROVED_IMPORTERS`;</li><li>the removal of two unused chokepoint functions;</li><li>a third `test_global_config_storage.py` assertion, `["config", "repositories"]`.</li></ul></li><li>**Neutrality:** M-a and CH-1 matched every frozen record under DD-1 to DD-3 before any product change.</li><li>**Implementation:** <ul><li>the chokepoint `repository_settings.py`; the four settings through it;</li><li>R-PRE, M-P, row 22 and US-D9 help;</li><li>PC-1's one fixture line;</li><li>the new `test_repository_settings_storage.py` (41 passed, 2 macOS-only skips).</li></ul></li><li>**Phase D:** exactly DD-4 to DD-12, recorded with `approved` empty.</li><li>**Tests:** <ul><li>Python: 2 failed, 3,805 passed, 59 skipped. The failures were the then-unapproved old assertion and the approval gate; the approved line then passed on its own.</li><li>Extension: 2,350/2,350 from Git Bash. From PowerShell, one environment-dependent failure (`Path` against `PATH`), unrelated and recorded.</li></ul></li></ul> Awaiting the owner's review of the implementation and of DD-4 to DD-12 (§14.3, "Batch 2B-3a — implementation and local verification"). |
+| 2026-10-21 | 2B-3a | **DD-4 to DD-12 approved. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED.** <ul><li>**DD values:** <ul><li>exact values verified against the frozen records under DD-1 to DD-3, with nothing missing or extra;</li><li>the nine evidence tests pass;</li><li>`approved` is set to 2026-10-21, and the approval gate passes.</li></ul></li><li>**DD-5:** `.bugpilot` now comes from the unchanged Verification Policy's own folder creation alone; R-PRE writes nothing.</li><li>**DD-9:** 26 lines to 22, exactly the four moved files removed, the order kept.</li><li>**DD-10 to DD-12:** one repository ID, the session's, so no foreign ID is hidden. They are approved under J-2 and stay noncompliant with §8.10 rows 18 to 21.</li><li>**PC-1:** only line 7's `path` differs; its consumer tests pass.</li><li>**Results:** <ul><li>fresh full Windows suite **3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit code 0;</li><li>extension from Git Bash: typecheck passed, 2,350 passed;</li><li>from PowerShell, `executablePath.test.ts` 11/12 (`Path` against `PATH`), an unresolved environment observation.</li></ul></li><li>**Open:** <ul><li>the implementation review;</li><li>commit authorization;</li><li>a push;</li><li>CI 9/9, Linux and macOS included.</li></ul></li></ul> 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification"). Nothing staged, committed or pushed. |
+| 2026-10-21 | 2B-3a | **Batch 2B-3a committed on `verify/0.1.6-storage`; not pushed; not CI-verified; NOT ACTIVATED.** <ul><li>**The commit:** one commit (`feat(storage): move project settings into repository storage (Batch 2B-3a)`), parent `5b66ffe`, by the noreply identity. It holds the 30 approved files: <ul><li>seven production files, one of them the new chokepoint `repository_settings.py`;</li><li>22 test, helper, fixture and record files;</li><li>this plan.</li></ul></li><li>**Evidence (local Windows, as reported before the commit):** <ul><li>full suite: 3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected;</li><li>extension, from Git Bash: typecheck passed, and 2,350 passed;</li><li>DD-4 to DD-12 owner-approved, with the gate passing;</li><li>PC-1 approved and tested.</li></ul></li><li>**Still open:** <ul><li>Linux and macOS verification, until CI runs;</li><li>J-2's §8.10 rows 18 to 21, for the separate contract-completion step (the proposed 2B-7);</li><li>the PowerShell `Path`/`PATH` environment issue, unresolved.</li></ul></li></ul> 2B-3b NOT STARTED; Unified Storage NOT ACTIVATED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification"). Pushing the branch and dispatching CI need separate authorization. |
 
 ---
 
@@ -8233,6 +8516,10 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-20 | 2B-3 decisions | `verify/0.1.6-storage` | carried by the 2B-3 documentation commit below | — | — | the owner decisions and final contract gate; documentation only |
 | 2026-10-20 | 2B-3a contract | `verify/0.1.6-storage` | carried by the 2B-3 documentation commit below | — | — | B-1 to B-4 and the 2B-3a implementation contract; documentation only |
 | 2026-10-20 | 2B-3 docs | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: this plan only (`docs(storage): record Batch 2B-3 decision gate and 2B-3a contract`), parent `92efd66` | — | — | documentation only; no CI |
+| 2026-10-21 | 2B-3 docs | `verify/0.1.6-storage` | `5b66ffea28ee660599428453391cf32ad20a6818` pushed by fast-forward (`92efd66..5b66ffe`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is pushed |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` (working tree) | none: uncommitted implementation, on `5b66ffe` | — (no CI) | — | local Windows verification only; Linux and macOS not verified; DD-4 to DD-12 await the owner |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `5b66ffe`; DD-4 to DD-12 approved | — (no CI) | — | final local Windows verification: **3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit code 0; extension 2,350 passed from Git Bash; Linux and macOS not verified |
+| 2026-10-21 | 2B-3a | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: the Batch 2B-3a implementation (`feat(storage): move project settings into repository storage (Batch 2B-3a)`), parent `5b66ffe` | — (not pushed; no CI run) | — | committed; local Windows verification only; Linux and macOS not verified; not activated |
 
 ---
 

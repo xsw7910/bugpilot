@@ -2,13 +2,18 @@
 
 Two scopes, and the difference between them is who the mode belongs to:
 
-    ~/.bugpilot/config/fix_modes/<id>.json   one developer's own workflows
-    <repo>/.bugpilot/fix_modes/<id>.json     a team's, committed with the code
+    ~/.bugpilot/config/fix_modes/<id>.json                                one developer's own workflows
+    ~/.bugpilot/repositories/<repository id>/settings/fix_modes/<id>.json this developer's for one repository
 
 The user folder is in ``config/`` of BugPilot's data folder (``BUGPILOT_HOME``
 when set; 0.1.6, plan §14.3, Batch 2B-2), reached only through storage's checked
 accessor: a data folder in a Git working tree, or a link on the way, is refused
 (owner decision C-2). The 0.1.5 folder at the top of the data folder is never read.
+
+The project folder is in the repository's namespace (Batch 2B-3a), reached only
+through :mod:`repository_settings`, with the same refusals (G-6). It is not
+shared through the repository (US-D9); the 0.1.5 ``<repo>/.bugpilot/fix_modes/``
+is never read, copied or deleted.
 
 Built-ins stay packaged and read-only. A custom file may not claim one of their
 ids, and may not claim to *be* one: `source` is never stored in the file, it is
@@ -26,8 +31,7 @@ Two views of the same modes, deliberately kept apart:
     would make the shadowed one unreachable.
 
 Nothing here is cached. A store is built per command, so a file edited by hand
-between two runs is seen by the second one — these files are meant to be edited
-and committed like any other repository config.
+between two runs is seen by the second one — these files are meant to be edited.
 """
 
 from __future__ import annotations
@@ -35,9 +39,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
 
-from . import storage
+from . import repository_settings, storage
 from .artifact_io import atomic_write_text
 from .errors import StorageAccessError
 from .fix_modes import (
@@ -52,7 +56,6 @@ from .fix_modes import (
 from .safe_paths import is_link_or_junction
 
 CUSTOM_SCHEMA_VERSION = 1
-FIX_MODE_DIR_NAME = ".bugpilot"
 FIX_MODE_SUBDIR = "fix_modes"
 
 CustomScope = Literal["user", "project"]
@@ -292,7 +295,11 @@ class FixModeStore:
                 "Project Fix Modes need a repository. Run this from inside the "
                 "repository you are working on, or use --scope user."
             )
-        return self._repo_root / FIX_MODE_DIR_NAME / FIX_MODE_SUBDIR
+        return repository_settings.fix_modes_dir(self._repo_root, create=create)
+
+    def _shown(self, scope: str, path: Path) -> str:
+        """A path in a scope's folder as messages name it: display form where storage owns the folder (US-D22)."""
+        return storage.display_path(path) if self._through_storage(scope) else str(path)
 
     def mode_path(self, scope: str, mode_id: str) -> Path:
         """The one file a mode may occupy, checked to be inside its directory.
@@ -311,7 +318,7 @@ class FixModeStore:
         directory = self.scope_dir(scope)
         # Before anything is built from it: one guard here covers read, create,
         # duplicate, update and delete, which all address a file through this.
-        unsafe = _unsafe_directory_reason(directory, scope)
+        unsafe = _unsafe_directory_reason(directory, scope, lambda path: self._shown(scope, path))
         if unsafe:
             raise FixModeError(unsafe)
         candidate = directory / f"{mode_id}.json"
@@ -319,7 +326,7 @@ class FixModeStore:
         resolved = _resolved(candidate)
         if resolved.parent != base:
             raise FixModeError(
-                f"Refusing to work on {candidate}: it resolves outside the "
+                f"Refusing to work on {self._shown(scope, candidate)}: it resolves outside the "
                 f"{scope} Fix Mode directory."
             )
         return candidate
@@ -349,11 +356,12 @@ class FixModeStore:
             directory = self.scope_dir(scope)
         except FixModeError:
             return ()
-        unsafe = _unsafe_directory_reason(directory, scope)
+        unsafe = _unsafe_directory_reason(directory, scope, lambda path: self._shown(scope, path))
         if unsafe:
             # Reported rather than raised: one unusable scope must not cost the
-            # developer the built-ins and the other scope's modes.
-            issues.append(FixModeIssue(scope=scope, path=str(directory), message=unsafe))
+            # developer the built-ins and the other scope's modes. (Storage refuses
+            # a link on the way first, for the scopes it owns: that fails the command.)
+            issues.append(FixModeIssue(scope=scope, path=self._shown(scope, directory), message=unsafe))
             return ()
         if not directory.is_dir():
             return ()
@@ -363,7 +371,8 @@ class FixModeStore:
             try:
                 modes.append(self._load_file(path, scope))
             except FixModeError as exc:
-                issues.append(FixModeIssue(scope=scope, path=str(path), message=str(exc)))
+                # In display form where storage owns the folder (row 22, US-D22): never the user's folder name.
+                issues.append(FixModeIssue(scope=scope, path=self._shown(scope, path), message=str(exc)))
         return tuple(modes)
 
     def _load_file(self, path: Path, scope: str) -> FixMode:
@@ -381,7 +390,8 @@ class FixModeStore:
         except json.JSONDecodeError as exc:
             raise FixModeError(f"{path.name} is not valid JSON: {exc}.") from exc
         except OSError as exc:
-            raise FixModeError(f"{path.name} could not be read: {exc}.") from exc
+            # The system error's class, never its text, which holds the absolute path (US-D22).
+            raise FixModeError(f"{path.name} could not be read: {exc.strerror or type(exc).__name__}.") from exc
         return fix_mode_from_payload(
             raw,
             scope=scope,  # type: ignore[arg-type]
@@ -533,7 +543,9 @@ class FixModeStore:
             path.unlink()
             return current
         try:
-            (self.scope_dir("user", create=True) / path.name).unlink()
+            (self.scope_dir(scope, create=True) / path.name).unlink()
+        except StorageAccessError:
+            raise  # already one sentence: the folder could not be made ready
         except OSError as error:
             raise StorageAccessError.during("delete", storage.display_path(path), error) from None
         return current
@@ -550,14 +562,17 @@ class FixModeStore:
             return
         try:
             # The folder made ready by storage (0700, link-checked); the file written inside it.
-            atomic_write_text(self.scope_dir("user", create=True) / path.name, text)
+            atomic_write_text(self.scope_dir(scope, create=True) / path.name, text)
+        except StorageAccessError:
+            raise  # already one sentence: the folder could not be made ready
         except OSError as error:
-            # Storage unavailable (C-1): one sentence in the display form, never the system error's text.
+            # Storage unavailable (C-1, F2-S): one sentence in the display form, never the system error's text.
             raise StorageAccessError.during("write", storage.display_path(path), error) from None
 
     def _through_storage(self, scope: str) -> bool:
-        """Whether this scope's folder is BugPilot's own, in its data folder: the user scope, with no ``home_dir``."""
-        return scope == "user" and self._home_dir is None
+        """Whether this scope's folder is BugPilot's own, in its data folder: the project's always (Batch 2B-3a),
+        the user's unless a test gave a ``home_dir``."""
+        return scope == "project" or self._home_dir is None
 
 
 def _with(mode: FixMode, **changes: object) -> FixMode:
@@ -583,17 +598,19 @@ def _redirects_elsewhere(path: Path) -> bool:
     return is_link_or_junction(path)
 
 
-def _unsafe_directory_reason(directory: Path, scope: str) -> str | None:
+def _unsafe_directory_reason(directory: Path, scope: str, shown: Callable[[Path], str] = str) -> str | None:
     """Why this scope's directory may not be used, if it may not be.
 
-    The store is `<config dir>/fix_modes` and `<repo>/.bugpilot/fix_modes`, so
-    both the directory and the config directory holding it have to be real: a
-    link at either level redirects the whole store.
+    The store is `<config dir>/fix_modes` and `<namespace>/settings/fix_modes`,
+    so both the directory and the folder holding it have to be real: a link at
+    either level redirects the whole store. Storage refuses such a link first
+    for the folders it owns; this guard is the store's own, kept as defence in
+    depth. ``shown`` names the folder in the message (display form, US-D22).
     """
     for candidate in (directory, directory.parent):
         if _redirects_elsewhere(candidate):
             return (
-                f"{candidate} is a symbolic link or junction. {scope.capitalize()} Fix "
+                f"{shown(candidate)} is a symbolic link or junction. {scope.capitalize()} Fix "
                 "Mode directories must be real directories, so that modes cannot be "
                 "read from or written to somewhere else."
             )

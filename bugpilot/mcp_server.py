@@ -342,6 +342,18 @@ def _resolve_fix_mode(repo_root: Path, mode_id: str) -> FixMode:
         return fix_mode_registry(repo_root).resolve(candidate)
     except FixModeError as exc:
         raise ToolError(str(exc)) from exc
+    except _STORAGE_FAILURES as exc:
+        raise ToolError(_storage_failure("read the Fix Modes", exc)) from exc
+
+
+#: What the Fix Mode tools report as one sentence with its code (M-P, Batch 2B-3a): storage's refusals and
+#: its unavailability, and nothing else, so a programming error still reaches the SDK as a crash.
+_STORAGE_FAILURES = (storage.StorageError, errors.StorageAccessError)
+
+
+def _storage_failure(action: str, exc: Exception) -> str:
+    """``Could not <action> [CODE]: <sentence>``, as the prepare tools say it; the sentence names no absolute path."""
+    return f"Could not {action} [{errors.error_code_for(exc)}]: {exc}"
 
 
 def _options(
@@ -660,7 +672,10 @@ def build_server(repo_root: Path | None = None) -> MCPServer:
         Creating, editing and deleting modes is deliberately not available here;
         that stays with the developer, in the CLI and the editor.
         """
-        catalog = catalog_for(bound.repo_root)
+        try:
+            catalog = catalog_for(bound.repo_root)
+        except _STORAGE_FAILURES as exc:
+            raise ToolError(_storage_failure("list the Fix Modes", exc)) from exc
         return {
             "default_mode_id": catalog.effective_registry().default.id,
             "modes": [
