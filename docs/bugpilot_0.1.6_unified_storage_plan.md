@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* *(On 2026-10-21: `5b66ffe` pushed (documentation); Batch 2B-3a implemented and verified locally on Windows, uncommitted, not CI-verified, NOT ACTIVATED; DD-4 to DD-12 observed and awaiting the owner (§14.3, "Batch 2B-3a — implementation and local verification").)* *(Later on 2026-10-21: DD-4 to DD-12 approved after exact-value verification. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED. Linux and macOS not verified; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification").)* *(Then, with the owner's authorization: Batch 2B-3a committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* *(Later on 2026-10-21: `743f542` pushed; Batch 2B-3a — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39675645316, 9/9 on its second attempt, after the first attempt's macOS safety runner was not acquired. Not integrated into `main` (§14.3, "Batch 2B-3a — cross-platform CI verification").)* |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* *(On 2026-10-21: `5b66ffe` pushed (documentation); Batch 2B-3a implemented and verified locally on Windows, uncommitted, not CI-verified, NOT ACTIVATED; DD-4 to DD-12 observed and awaiting the owner (§14.3, "Batch 2B-3a — implementation and local verification").)* *(Later on 2026-10-21: DD-4 to DD-12 approved after exact-value verification. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED. Linux and macOS not verified; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification").)* *(Then, with the owner's authorization: Batch 2B-3a committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* *(Later on 2026-10-21: `743f542` pushed; Batch 2B-3a — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39675645316, 9/9 on its second attempt, after the first attempt's macOS safety runner was not acquired. Not integrated into `main` (§14.3, "Batch 2B-3a — cross-platform CI verification").)* *(Later on 2026-10-21: Batch 2B-3b's decision gate recorded, with the owner's decisions E-1 to E-10; its implementation is NOT AUTHORIZED; 2B-3b NOT STARTED (§14.3, "Batch 2B-3b — decision gate and implementation contract").)* |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -803,7 +803,7 @@ Every rule below chooses the split when it cannot be sure.
 | NFC vs NFD spellings of the same folder (macOS) | one ID from `getcwd()`; possibly two from an explicit root | no Unicode normalization on purpose: on Linux two such folders are different folders |
 | Repository moved or renamed | **a new ID**; the old namespace stays where it was, orphaned, not deleted | no relocation in 0.1.6 (US-D8, DEFERRED). §13 tells the user how to find old data. |
 | Repository cloned to a new path | a new ID (correct: a different working tree) | — |
-| A different repository later created at a former repository's exact path *(added 2026-10-20)* | **the same ID**: it inherits that namespace (T-15) | identity is the path's alone, and the record stores the path, so a replaced folder is not detected. **Accepted for 0.1.6** by the owner (B-1, 2026-10-20) as a configuration-contamination risk (§7.6, RK-20). No detection is claimed; an explicit reset is deferred and is not part of 0.1.6 |
+| A different repository later created at a former repository's exact path *(added 2026-10-20)* | **the same ID**: it inherits that namespace (T-15) | identity is the path's alone, and the record stores the path, so a replaced folder is not detected. **Accepted for 0.1.6** by the owner (B-1, 2026-10-20) as a configuration-contamination risk (§7.6, RK-20). No detection is claimed; an explicit reset is deferred and is not part of 0.1.6 *(2026-10-21, E-6: from 2B-3b this includes the Verification Policy and AI Behavior additions, which can change what is verified and how an agent works; §14.3, "Batch 2B-3b — decision gate and implementation contract", part 8)* |
 | Several VS Code windows or workspaces on one repository | **one ID**: every window resolves the same root | concurrency in §8.7 |
 | A multi-root workspace with two repositories | two IDs; the extension uses the folder the developer chose (unchanged) | — |
 | Git worktrees (`git worktree add ../repo-wt`) | **one ID per worktree** (PROPOSED, US-D7) | Each worktree is a separate working tree, usually on a different branch for a different bug. Sharing `work/` between worktrees would let one worktree's agent read another's work. Keying by `git rev-parse --git-common-dir` would merge them. The extension today does not even recognize a worktree root (`.git` is a file; `host.ts:36-45`), a limitation that stays. |
@@ -879,7 +879,7 @@ Before that run, the "Unverified" rows above had no observation from the other s
 ### 7.6 Limitations, stated
 
 - **A move or rename starts an empty namespace.** Old data stays where it was until the user acts (US-D8).
-- **A different repository at a former repository's exact path inherits its namespace** (T-15; accepted for 0.1.6 by the owner on 2026-10-20, B-1). Identity is the path's alone, and BugPilot cannot detect a replaced folder. So the newcomer's `task.md` can carry instructions, policies and Fix Modes written for the earlier repository, and from 2B-4 its work items and similar-fix memory. This is a known configuration-contamination risk within one account (RK-20), and the release notes say so. An explicit reset or reassociation is deferred to a future design, and is not part of 0.1.6.
+- **A different repository at a former repository's exact path inherits its namespace** (T-15; accepted for 0.1.6 by the owner on 2026-10-20, B-1). Identity is the path's alone, and BugPilot cannot detect a replaced folder. So the newcomer's `task.md` can carry instructions, policies and Fix Modes written for the earlier repository, and from 2B-4 its work items and similar-fix memory. This is a known configuration-contamination risk within one account (RK-20), and the release notes say so. An explicit reset or reassociation is deferred to a future design, and is not part of 0.1.6. *(Widened on 2026-10-21, E-6: from 2B-3b the newcomer also inherits the earlier repository's Verification Policy and AI Behavior additions, so an inherited policy can relax or tighten what its tasks ask to be verified, and conventions written for another codebase can reach them. BugPilot's protected rules still come first; nothing detects the replacement; §14.3, "Batch 2B-3b — decision gate and implementation contract", part 8.)*
 - **A subdirectory gets its own namespace,** as it gets its own `.ai/` today (US-D4). `doctor` says so (§7.1).
 - **No automatic re-association.** A subdirectory, moved repository, new clone or worktree is never joined with another namespace in 0.1.6 (§7.1).
 - **Spelling-dependent IDs on macOS:** an explicitly configured root with different case or Unicode normalization than the stored name splits the namespace.
@@ -2766,7 +2766,7 @@ Either must avoid becoming a legacy reader (R4).
 
 - The managed runtime installs `bugpilot==<extension version>`, as before, so a matching pair is the default.
 - If the extension meets a CLI without the `unified-storage` capability (a user-configured `bugpilot.executablePath` pointing at an older CLI), it shows the existing "outdated CLI" message and does not run storage-dependent actions.
-- A 0.1.5 extension with a 0.1.6 CLI is unsupported. It would look for `.ai/`, find nothing, and show empty History. That is harmless, and documented. *(2B-3 decision gate, 2026-10-20: not harmless for repository settings. Such an extension's AI Behavior and Verification Edit can overwrite the relocated file through the CLI. Recorded for Batch 3 and Batch 5, §14.3, "Batch 2B-3 — decision gate and slice design".)*
+- A 0.1.5 extension with a 0.1.6 CLI is unsupported. It would look for `.ai/`, find nothing, and show empty History. That is harmless, and documented. *(2B-3 decision gate, 2026-10-20: not harmless for repository settings. Such an extension's AI Behavior and Verification Edit can overwrite the relocated file through the CLI. Recorded for Batch 3 and Batch 5, §14.3, "Batch 2B-3 — decision gate and slice design".)* *(2026-10-21, E-7: confirmed against the extension's sources; part of Batch 3's review and the release review (Batch 5); §14.3, "Batch 2B-3b — decision gate and implementation contract", part 9.)*
 
 **0.1.5 and 0.1.6 CLIs on one machine** see different data: 0.1.5 the legacy files, 0.1.6 the new layout. Neither touches the other's.
 
@@ -2781,7 +2781,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **IN PROGRESS** (2026-10-18). P10: direct shells and the Python launcher PASS (narrowed run), then VS Code `sendText` PASS (completion run): **PASS for the tested Windows configuration**, with limitations. P7 attempted the same day: UNKNOWN, blocked before its tests by an in-progress VS Code update. P7 retry after the update (VS Code 1.142.0, Windows): P7-A to P7-H PASS, `revealFileInOS` UNKNOWN. P2 (one run, Claude Code 2.1.214): FAIL against the owner's criteria; external reads under `dontAsk` worked, the marker was declined, and a Bash request was refused. P1, P3–P6, P8, P9 and P11 NOT EXECUTED (§14.1.B) | — | — | each further probe awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* *(2026-10-21: 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; not activated; DD-4 to DD-12 await the owner; §14.3, "Batch 2B-3a — implementation and local verification")* *(2026-10-21, later: DD-4 to DD-12 approved; final local Windows verification passed; still uncommitted, not CI-verified, not activated; "Owner approval of DD-4 to DD-12 and final local verification")* *(2026-10-21, then: committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; not activated)* *(Then: `743f542` pushed; run 39675645316 SUCCESS 9/9 on attempt 2 (attempt 1: the macOS safety runner not acquired). **2B-3a: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-3a — cross-platform CI verification")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* *(2026-10-21: 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; not activated; DD-4 to DD-12 await the owner; §14.3, "Batch 2B-3a — implementation and local verification")* *(2026-10-21, later: DD-4 to DD-12 approved; final local Windows verification passed; still uncommitted, not CI-verified, not activated; "Owner approval of DD-4 to DD-12 and final local verification")* *(2026-10-21, then: committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; not activated)* *(Then: `743f542` pushed; run 39675645316 SUCCESS 9/9 on attempt 2 (attempt 1: the macOS safety runner not acquired). **2B-3a: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-3a — cross-platform CI verification")* *(2B-3b: decision gate recorded on 2026-10-21, E-1 to E-10; implementation not authorized; NOT STARTED; §14.3, "Batch 2B-3b — decision gate and implementation contract")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -4168,6 +4168,7 @@ This batch moves implementation paths, **not user data**: nothing is copied, imp
   6. **Batch 0B's live-agent evidence** stays the gate for every function that needs it.
   7. **Source and behavioural tests** fail on any unguarded write under the data root (G-4). *(The static half is committed and CI-verified (Batch 2A). Still open: the end-to-end write witness (Batch 2B).)*
   8. **0.1.5 behaviour is preserved** until the authorized integration batch.
+  *(2026-10-21, Batch 2B-3b decision gate, E-6 and E-7; recorded beside the eight blockers, which are not renumbered: the activation review restates RK-20 as widened to the Verification Policy and AI Behavior, and Batch 3's compatibility verification of those two files is required before integration or activation. §14.3, "Batch 2B-3b — decision gate and implementation contract".)*
 - Batch 0B is complete for the probes this batch depends on: P1, P2, P3 and P8, each recorded as PASS, FAIL or UNKNOWN (§9.7).
   - *(2026-10-19, D-7: the global-configuration slice, 2B-2, needs no live-agent probe. This waives nothing else: P1, P3 and P8 stay NOT EXECUTED, and P2 stays FAIL. Whether this precondition applies per slice is Q-3.)*
   - *(Q-3, approved with conditions on 2026-10-19: the precondition applies per slice, but missing evidence is never a pass. P1, P2, P3 and P8 stay gates for the slices that depend on them, and for activation.)*
@@ -6431,7 +6432,7 @@ The extension reads none of these `path` values. From `show` it reads only `file
     Rollback is the owner's decision. The slice is one commit on the branch, so before an authorized push it can be discarded on instruction, and after it reverted by an approved commit. There is no force-push or reset.
 12. **Plan updates:** §14.0, a §14.3 record, §18 and §19. §16.1 changes only for what the owner approves.
 
-**2B-3b: Verification Policy and AI Behavior.**
+**2B-3b: Verification Policy and AI Behavior.** *(Superseded on 2026-10-21 by "Batch 2B-3b — decision gate and implementation contract": its part 4 corrects these allowlists (E-4), and its parts 5 to 11 are the implementation contract. The text below is kept as written.)*
 
 1. **Scope:**
    - `verification.md` and `ai_behavior.md` through `RepositoryStorage`;
@@ -6543,7 +6544,7 @@ The extension reads none of these `path` values. From `show` it reads only `file
 | G-10 | **APPROVED IN PRINCIPLE** | M-a (the repository-ID label) and CH-1 (chained per-slice records) | the requirements are in part 8 |
 | G-11 | **APPROVED** | **US-D22:** its approved part now also covers Batch 2B-3's user-facing messages, with no unnecessary wording change | the rest of US-D22 stays PROPOSED |
 | G-12 | **APPROVED FOR PLANNING ONLY** | 2B-3a's allowlist, including a new `bugpilot/core/repository_settings.py`, is a plan. No file was modified | an implementation authorization |
-| G-13 | **DEFERRED** to the 2B-3b gate | V, A, I, the fallback lines and the six task goldens are untouched and unapproved | the 2B-3b gate |
+| G-13 | **DEFERRED** to the 2B-3b gate | V, A, I, the fallback lines and the six task goldens are untouched and unapproved | the 2B-3b gate *(decided on 2026-10-21: the seven texts approved as E-1; each of the six goldens still needs its own approval; §14.3, "Batch 2B-3b — decision gate and implementation contract")* |
 | G-14 | **APPROVED** | US-D26's applicable contract must be resolved **before 2B-3a**, not before 2B-4. This is recorded in §14.3's per-slice table and in §16.1 | — |
 
 ##### Part 2 — T-1 to T-16, verified against the implementation (G-2)
@@ -7459,6 +7460,549 @@ J-2's interim `path` remains an accepted limitation until the proposed 2B-7. Bat
 
 No decision status changed.
 
+#### Batch 2B-3b — decision gate and implementation contract (2026-10-21)
+
+**Status: Batch 2B-3b — NOT STARTED. Its decisions E-1 to E-10 are recorded below; its implementation is NOT AUTHORIZED.**
+
+- **Reviewed at:** `c0b8ea7` on `verify/0.1.6-storage`, local and remote, with `main` and `origin/main` at `ea9659c`.
+- **The basis:** the read-only 2B-3b scope review of 2026-10-21. It traced every read and write of `verification.md` and `ai_behavior.md` in the CLI, MCP, workflow, previews and extension.
+- **What this record does not do:**
+  - it changes no code, test, helper, fixture, golden, baseline, contract or extension file;
+  - it authorizes no implementation, and no golden change;
+  - it changes no decision's status. The register stays 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+- **Nothing here is 2B-7 or Batch 3 work.**
+
+**Labels.** This gate's decisions are E-1 to E-10. The review used other names, and its C-1 to C-5 collide with Batch 2B-2's choices C-1 to C-5. The mapping:
+
+| Review | This record |
+| --- | --- |
+| G-13 (the AI-facing texts) | E-1 |
+| C-4 (US-D22's scope) and the user-facing wording | E-2 |
+| C-1 and its option S-1, "the explicit supersession rule" here (superseded evidence) | E-3 |
+| C-2 (allowlist corrections) | E-4 |
+| R-1 (the removal helper) | E-5 |
+| C-3 (T-15's scope) | E-6 |
+| the extension's compatibility | E-7 |
+| DD-13 to DD-26, and C-5 (US-D30) | E-8 |
+| J-2 for the two commands | E-9 |
+| the golden approval protocol | E-10 |
+
+##### Part 1 — The owner's decisions (2026-10-21)
+
+| # | Decision | Recorded as | Remaining condition |
+| --- | --- | --- | --- |
+| E-1 | **G-13: the seven AI-facing texts APPROVED** (part 2) | the wording only | no golden changes until each exact diff is approved (E-10) |
+| E-2 | **US-D22 (G-11) applies to Batch 2B-3b, confirmed.** The three user-facing wording changes in part 3 are **APPROVED** | every shown storage location is in display form | none |
+| E-3 | **Superseded evidence: the explicit supersession rule APPROVED with strict constraints** (part 6; timing corrected on 2026-10-21) | DD-5 by DD-13 and DD-9 by DD-15 only; no generic skip. B1 relies on no intentionally failing old-state assertion. A pending pair is reported by the approval gate until the owner approves its successor, and only then is it active. The approved records and the historical evidence are unchanged | the mechanism is not implemented by this record |
+| E-4 | **Allowlist corrections APPROVED** (part 4) | `project_settings.py`, `instructions.py`, `tests/storage_baseline.py` and `tests/test_storage_baseline.py` added; `tests/test_repository_profile.py` removed | every other protection boundary stays |
+| E-5 | **One removal helper APPROVED**: `repository_settings.remove_file(repo_root, name) -> bool` (part 5) | its contract is fixed here | not implemented by this record |
+| E-6 | **T-15 extended: APPROVED.** B-1's accepted path-reuse limitation also covers the Verification Policy and AI Behavior (part 8) | identity unchanged; no implicit reset | RK-20, §7.3 and §7.6 widened; prominent in the activation review |
+| E-7 | **Extension compatibility restrictions APPROVED** (part 9) | Batch 3 owns the fix | no real-data Edit or Reset through the extension until Batch 3's fix is verified; Batch 3's compatibility verification is required before integration or activation |
+| E-8 | **DD-13 to DD-26 APPROVED as categories** (part 7) | US-D30's negative per-golden deltas recorded as designed differences; the size checks kept | each exact value approved after observation; no golden change authorized |
+| E-9 | **J-2 for `verification` and `ai-behavior` `show --json` APPROVED** | an interim display-form `path` | §8.10 rows 18 to 21 stay unresolved, for the proposed 2B-7 |
+| E-10 | **The golden approval protocol APPROVED** (part 10) | — | — |
+
+##### Part 2 — The AI-facing texts (E-1)
+
+Exactly these seven changes, and no other change to AI guidance. Each is the whole changed text; nothing around it moves.
+
+| # | Where | Before (exact) | After (exact) |
+| --- | --- | --- | --- |
+| V | `verification.py`, `task.md`'s source line | `Source: repository Verification Policy (.bugpilot/verification.md).` | `Source: repository Verification Policy.` |
+| A | `ai_behavior.py`, `task.md`'s source line | `Source: BugPilot defaults, with this repository's additions (.bugpilot/ai_behavior.md).` | `Source: BugPilot defaults, with this repository's additions.` |
+| I | `instructions.py`, the project introduction | `This repository's shared instructions for AI agents.` | `This repository's instructions for AI agents.` |
+| VF | `verification.py`, the problem source | `BugPilot defaults, because the repository's .bugpilot/verification.md could not be used` | `BugPilot defaults, because the repository's Verification Policy could not be used` |
+| AF | `ai_behavior.py`, the problem source | `BugPilot defaults, because the repository's .bugpilot/ai_behavior.md could not be used` | `BugPilot defaults, because the repository's AI Behavior could not be used` |
+| VN | `verification.py`, the problem notice | `The repository's Verification Policy (.bugpilot/verification.md) was not included: {problem} Until it is fixed, BugPilot's default applies.` | `The repository's Verification Policy was not included: {problem} Until it is fixed, BugPilot's default applies.` |
+| AN | `ai_behavior.py`, the problem notice | `The repository's AI Behavior (.bugpilot/ai_behavior.md) was not included: {problem} Until it is fixed, BugPilot's defaults apply.` | `The repository's AI Behavior was not included: {problem} Until it is fixed, BugPilot's defaults apply.` |
+
+- **Goldens:** V, A and I reach 9 lines of 6 task goldens (part 10). VF, VN, AF and AN reach no golden; they appear only when a file has a problem, and tests cover them.
+- **Unchanged:** the section names ("Project / Team Instructions"), the precedence wording ("project / team layer"), every protected rule, and every other line of the task.
+- **The result:** the final AI-facing guidance names no settings path, and no obsolete repository-local path for these files. B2 verifies it.
+- **One open question:** a link substituted between storage's own check and the module's read (a time-of-check to time-of-use race) is investigated in B1 (part 11). Its outcome decides whether the result also holds in that race.
+
+##### Part 3 — The user-facing wording (E-2)
+
+**The rule.** Every storage location shown to a person uses `storage.display_path` through the chokepoint: `~/.bugpilot/repositories/<repository id>/settings/<name>`, or `BUGPILOT_HOME/…`. That covers:
+
+- CLI text and warnings;
+- lint lines;
+- errors;
+- `bugpilot.log`;
+- MCP warnings.
+
+These are substitutions of the shown path, with no other wording change (G-11), except the three below.
+
+| # | Where | Before (exact) | After (exact) |
+| --- | --- | --- | --- |
+| W-1 | `project_settings.py`, `VERIFICATION_FILE_WINS` | `The Verification switches were saved for BugPilot 0.1.2 and earlier, but .bugpilot/verification.md is this repository's effective Verification Policy: the switches do not change it.` | `The Verification switches were saved for BugPilot 0.1.2 and earlier, but this repository's Verification Policy file is its effective Verification Policy: the switches do not change it.` |
+| W-2 | `ai_behavior.py`, the lint's verification-expectation line | `Line {number} of {shown} looks like a verification expectation. What to verify belongs in the Verification Policy (.bugpilot/verification.md), which the task states on its own.` | `Line {number} of {shown} looks like a verification expectation. What to verify belongs in the Verification Policy, which the task states on its own.` |
+| W-3 | `cli.py`, the `verification` and `ai-behavior` help | the `.bugpilot/…` mentions | below |
+
+**W-1** stays a constant: the sentence names no path. **W-2's** `{shown}` is AI Behavior's display path.
+
+**W-3, `verification`:**
+
+- `help`: `Show or set the repository's Verification Policy text (this repository's, in BugPilot's data folder).`
+- `description`: `The Verification Policy says what a pass that changes source code is expected to verify. It lives in ~/.bugpilot/repositories/<repository id>/settings/verification.md (under BUGPILOT_HOME when it is set); it is your own, not stored in the repository. With it, its text replaces BugPilot's default whole; without it, the Verification switches in the project settings (BugPilot 0.1.2 and earlier) apply, or the default. The CLI, the MCP server and the VS Code extension all read it the same way, and the task puts BugPilot's own rules ahead of it.`
+- the `action` help: `show (the default) prints the effective policy and where it comes from; set writes the policy file; clear and reset are the same: they remove it, so the switches or BugPilot's default apply again.`
+
+**W-3, `ai-behavior`:**
+
+- `help`: `Show or set the repository's AI Behavior additions (this repository's, in BugPilot's data folder).`
+- `description`: `AI Behavior is how an AI agent is expected to make and report changes in this repository: conventions, not safety rules. BugPilot's defaults always apply; the repository's additions file adds its own beneath them, under Code Change Conventions, Evidence Standards and Reporting Standards. It lives in ~/.bugpilot/repositories/<repository id>/settings/ai_behavior.md (under BUGPILOT_HOME when it is set); it is your own, not stored in the repository. The task puts BugPilot's own rules ahead of it, and the Fix Mode works within it.`
+- the `action` help: `show (the default) prints the effective AI Behavior and where it comes from; set writes the additions file; clear and reset are the same: they remove it, so BugPilot's defaults apply alone.`
+
+The `--from-file` and `--stdin` help are unchanged.
+
+##### Part 4 — The final allowlists (E-4)
+
+**Production (6 files):**
+
+| File | Only |
+| --- | --- |
+| `bugpilot/core/verification.py` | <ul><li>the path through the chokepoint: read `create=False`, write `create=True`, remove through `remove_file`;</li><li>the display path carried on `VerificationFile` and `ResolvedVerification` as a field never compared;</li><li>V, VF and VN, and the shown path in warnings, lint, `log_line`, errors and `verification_payload`'s `path`;</li><li>docstrings</li></ul> Not `DEFAULT_TEXT`, `ALWAYS_LINES`, the switch lines, the lint rules, `parse_document`, or any `sha256` material |
+| `bugpilot/core/ai_behavior.py` | the same for AI Behavior, with A, AF, AN and W-2. Not `DEFAULT_TEXT`, `SECTIONS`, `TEMPLATE_BODY`, `has_additions` or the lint rules |
+| `bugpilot/core/instructions.py` | <ul><li>I;</li><li>removing `PROJECT_CONFIG_DIR`, which has no user once the two modules move (`tests/test_no_unwired_symbols.py` counts constants), and its comment;</li><li>`link_problem`'s docstring</li></ul> Not `MAX_INSTRUCTION_CHARS`, `_SECTION_TITLES`, the reading rules, or the project scope's 2B-3a code |
+| `bugpilot/core/project_settings.py` | W-1, and the module docstring's one `.bugpilot/verification.md` line. Nothing else |
+| `bugpilot/cli.py` | the `verification` and `ai-behavior` handlers' text, notes and docstrings; W-3; the one comment in the `project-settings` handler. R-PRE stays as it is |
+| `bugpilot/core/repository_settings.py` | `remove_file` (part 5) only |
+
+**Tests, harnesses and records:**
+
+- **Modified, each only where it pins a moved place, a changed text, or the chain:**
+  - `tests/test_verification_policy.py`, `tests/test_ai_behavior.py`;
+  - `tests/test_task_golden.py`, including the eight pointer-specific evidence tests of DD-19 to DD-26 (part 7);
+  - `tests/test_protected_rules.py`, `tests/test_task_preview.py`, `tests/test_context_preview.py`;
+  - `tests/test_repository_settings_storage.py`: the 2B-3b tests are added, including the link-race review's tests (part 11). Only `test_dd5_the_verification_policy_now_creates_the_bugpilot_folder_itself` and `test_dd9_only_the_verification_policy_and_ai_behavior_still_reach_git_status` are retired, and only at the point part 6 allows. Every other 2B-3a test in it stays byte-identical;
+  - `tests/storage_baseline.py`: `DESIGNED_CHAIN` and the supersession table and check (part 6) only;
+  - `tests/test_storage_baseline.py`: the chain expectations, the evidence rule (part 6) and its synthetic tests only;
+  - `tests/task_golden.py` and `tests/prompt_boundary_sources.py`: the two inputs, written through storage's accessor;
+  - `tests/storage_inventory.json`, through its own `--update`.
+- **Added:** `tests/baselines/0.1.6-batch2b3b/designed_differences.json`.
+- **The six task goldens of part 10:** only after each exact diff is approved, and only through `python tests/task_golden.py --update`.
+- **Removed from the gate's earlier list:** `tests/test_repository_profile.py`. It has no `verification.md` reference.
+- **Any other test file:** stop and ask. That includes `tests/test_storage_inventory.py`: its patterns name the symbols, and removing them changes only counts.
+
+**Protected (unchanged byte for byte):**
+
+- **Product:**
+  - `bugpilot/core/storage.py`, `tests/_isolation.py`, `bugpilot/core/errors.py`, `bugpilot/mcp_server.py`;
+  - `bugpilot/core/prompts.py`, `handoff.py`, `workflow.py`, `task_preview.py`, `context_preview.py`;
+  - `fix_mode_store.py`, `fix_mode_state.py`, `repository_profile.py`, `doctor.py`, `models.py`.
+- **Goldens:** the other 11 task goldens, and every context, retry and prompt-boundary golden.
+- **Records:**
+  - the frozen Batch 0A records;
+  - the approved `tests/baselines/0.1.6-batch2b2/designed_differences.json` and `tests/baselines/0.1.6-batch2b3a/designed_differences.json`. DD-1 to DD-12 and their approvals are never edited.
+- **Contracts:** `tests/fixtures/storage_cli_contract.json` and `tests/fixtures/repository_profile_contract.json`.
+- **Tests:** `tests/test_storage_identity.py`, `tests/test_storage_api_boundary.py` (the two modules import only the chokepoint, so the list is unchanged), `tests/test_no_unwired_symbols.py`, `tests/test_global_config_storage.py`, and `tests/test_storage_inventory.py`.
+- **Elsewhere:** `extension/`, `.github/`, the version files, and the owner's local files.
+
+##### Part 5 — Repository storage access and the removal contract (E-5)
+
+**Access.** The two modules reach their files only through `bugpilot/core/repository_settings.py`, as 2B-3a's four settings do:
+
+- **Read:** `settings_file(repo_root, NAME, create=False)`. It validates the data root, containment, Git working trees, every link on the way and at the file, and the identity record when a namespace exists. It creates nothing.
+- **Write:** each module keeps its own refusal-first checks:
+  - the link check, as defence in depth;
+  - "is not a regular file";
+  - then `settings_file(create=True)`, which runs `ensure()` first;
+  - then the atomic write, wrapped as `StorageAccessError.during("write", <display path>, error)` for an `OSError`.
+- **The shown name:** `repository_settings.shown_path(repo_root, NAME)`.
+
+**`remove_file(repo_root: Path, name: storage.SettingsName) -> bool`:**
+
+1. **Locate:** `settings_file(repo_root, name, create=False)`. Storage validates the namespace exactly as for a read. A refusal propagates as `StorageError` or `StorageIdentityError` (`INVALID_INPUT`, F2); unavailability becomes `errors.StorageAccessError` through `guarded` (F2-S).
+2. **Absent:** when nothing is at the path (`os.path.lexists` is false), it returns `False`. No `ensure()` runs, and no folder or namespace is created.
+3. **Remove:** otherwise it unlinks the file inside `guarded("remove", <display path>, …)`.
+   - `unlink` never follows a link.
+   - An `OSError` becomes `StorageAccessError.during("remove", <display path>, error)`, one sentence with no absolute path.
+   - It returns `True`.
+4. **Scope:** only `settings/<name>`, for a name in `storage.SETTINGS_NAMES`. Never a folder: not `settings/`, even when it is empty, and never anything under `<repository>/.bugpilot/`.
+5. **Narrow catching:** it catches nothing else, never `ValueError`, `UnsafePathError` or `Exception`.
+6. **Wording stays with the callers.** Each caller keeps its own "is not a regular file" check and message before calling. The helper adds no wording, no public error code and no JSON field.
+7. **Its users:** `remove_verification` and `remove_ai_behavior` both use it. 2B-3a's `instructions.py` removal is not refactored.
+8. **Its tests:**
+   - an absent file with no namespace creates nothing;
+   - a link at the file, and a refused namespace, are refused;
+   - an injected `PermissionError` becomes `StorageAccessError` with the file unchanged;
+   - a legacy `.bugpilot/` file is never touched.
+
+**R-PRE.**
+
+- **`verification` keeps its 2B-3a check** (`require_readable(repo_root, SETTINGS_FILE_NAME)`): its answer still reads `project_settings.json` after the write.
+- **`ai-behavior` needs none:** its answer reads only its own file, which the write or removal checks first.
+
+##### Part 6 — Superseded evidence (E-3)
+
+**The problem.** `test_each_designed_difference_names_independent_evidence_that_exists` requires every approved entry's evidence test to exist. 2B-3b re-sets two pointers that 2B-3a's approved entries set, and their evidence tests assert values that stop being true:
+
+| Approved entry | Record and pointer | Its `to` (2B-3a) | Its evidence | After 2B-3b |
+| --- | --- | --- | --- | --- |
+| DD-5 | `pollution.json` `/steps/9/created` | `[".bugpilot", ".bugpilot/verification.md"]` | `test_dd5_the_verification_policy_now_creates_the_bugpilot_folder_itself` | `[]`, set by DD-13 |
+| DD-9 | `pollution.json` `/git_status` | the 22 lines | `test_dd9_only_the_verification_policy_and_ai_behavior_still_reach_git_status` | 20 lines, set by DD-15 |
+
+**The rule** (the mechanism is added in Phase A; the pairs are declared in Phase B1):
+
+1. **An explicit table, not a generic skip.** `tests/storage_baseline.py` gains `SUPERSEDED`, mapping an earlier entry's id to its successor and its historical evidence. It can only ever hold exactly:
+   - `DD-5` → `DD-13`;
+   - `DD-9` → `DD-15`.
+
+   Each is recorded with the commit and CI run on which its own evidence last passed: `743f542ad328b1af5eb9f0b494d07491f2b33ed7`, run 39675645316 (§19).
+2. **A declared pair is in exactly one state:**
+
+   | State | When | The earlier entry's evidence |
+   | --- | --- | --- |
+   | **inactive** | the successor is not yet in the chain | **required**: its test must exist, and it runs and passes |
+   | **pending** | the successor is in the chain and *matches* (below), but is not yet owner-approved | the old-state test is retired. The pair is **reported as pending owner approval by the approval gate**, which fails, naming it, until approval. Nothing is silently accepted |
+   | **active** | the successor matches and is owner-approved (a non-empty `approved`) | exempt; the retired test must be absent |
+
+   **"Matches" means all of these hold:**
+   - the successor exists exactly once in the chain, in a later file of `DESIGNED_CHAIN` than the earlier entry;
+   - both entries name the same `record` and the exact same `pointer`;
+   - the successor's `from` equals the earlier entry's `to` (`_same`, as `chain_problems` compares);
+   - the successor's evidence test exists, is independent, and is not the earlier entry's.
+
+   A successor that is in the chain but does not match is a **problem**, never a pending pair.
+3. **The lifecycle:**
+
+   | Stage | Table | DD-5's and DD-9's evidence | Acceptance |
+   | --- | --- | --- | --- |
+   | **Phase A** (no successor exists) | empty | `test_dd5_…` and `test_dd9_…` required; they pass, because the product is unchanged | every check passes |
+   | **Phase B1** (successors recorded, `approved` empty) | the two pairs declared; pending | **historical:** the approved 2B-3a record and the recorded commit and CI run. **Current state:** the separate candidate evidence `test_dd13_…` and `test_dd15_…`, which pass. `test_dd5_…` and `test_dd9_…`, whose old-state assertions the relocation ends, are retired in the same step that records DD-13 and DD-15. **No intentionally failing old-state assertion is part of B1's acceptance** | every test passes except the approval gate. It fails, reporting as pending owner approval exactly DD-13 to DD-18 (unapproved) and the two pending pairs. Any other failure is a stop |
+   | **After the owner approves DD-13 and DD-15's exact values** (checkpoint 4, before or during B2) | both pairs active | DD-5 and DD-9 exempt; the retired tests must be absent; DD-13's and DD-15's independent evidence passes | the gate stops reporting the two pairs |
+   | **The final gate** (Phase C) | both pairs active | as above | nothing pending: no unapproved successor, no silent exemption, no altered historical record, and no unexpected current-state difference (`differences()` empty) |
+4. **Failing closed:** the supersession check (`supersession_problems(chain)`) reports a problem for each of these:
+   - a declared id that is not in the chain;
+   - a successor that appears twice;
+   - a successor in the same file, or an earlier one;
+   - a record or pointer mismatch;
+   - a `from` that differs from the earlier `to`;
+   - a successor without evidence, or naming the earlier entry's evidence;
+   - an inactive pair whose earlier evidence is missing;
+   - an active pair whose retired test is still present;
+   - any pair beyond DD-5 → DD-13 and DD-9 → DD-15.
+
+   **The approval gate** (`test_every_designed_difference_is_approved_by_the_owner`) reports every unapproved entry **and every pending pair**. A pending pair can never make it pass.
+5. **The evidence-exists check exempts an earlier entry only while its pair is pending or active.** A pending pair is never silent: the approval gate fails while it lasts.
+   - Any other entry with a missing evidence test still fails.
+   - An earlier entry whose pointer a later file re-sets, but which is not listed, keeps its evidence test. That test runs, so a value it no longer sees fails visibly.
+6. **No tolerance is added anywhere else:**
+   - `differences()` still applies the whole chain and must report nothing;
+   - `unapproved()` still covers every file;
+   - `chain_problems()` still checks every `from`, every `frozen` hash and the ids' uniqueness.
+
+   A missing or unexpected difference is rejected as before.
+7. **Unchanged:** the approved 2B-3a record, including DD-5's and DD-9's `evidence` strings and `approved` dates; no record is edited. The plan keeps their historical evidence: both tests passed on `743f542`, in run 39675645316's three full suites (attempt 1). The safety jobs do not run `test_repository_settings_storage.py`.
+8. **The current-state replacement tests** are the successors' evidence (part 7): `test_dd13_…` for `/steps/9/created`, and `test_dd15_…` for `/git_status`.
+9. **The mechanism's own tests, on synthetic records,** in `tests/test_storage_baseline.py`:
+   - an active pair passes, and its retired test's absence is required;
+   - an inactive pair, with no successor in the chain, keeps the earlier evidence required: with it missing, the check fails;
+   - a pending pair, with a matching but unapproved successor, makes the approval gate fail and name it;
+   - each of these fails closed: a missing successor treated as present; an unapproved successor treated as active; a mismatched record; a mismatched pointer; a `from` that differs from the earlier `to`; a successor in the same file or an earlier one; a successor naming no evidence, or the earlier one's; a retired test still present once active; a pair beyond the two allowed;
+   - an unlisted entry with missing evidence still fails.
+
+##### Part 7 — The designed differences DD-13 to DD-26 (E-8: categories only)
+
+Each `from` is the value after DD-1 to DD-12, or the frozen value where no earlier slice set the pointer. Every exact value is observed, then approved by the owner. None is approved here.
+
+| Id | Record | Pointer | From | To (predicted) | Evidence (to be written) | Phase |
+| --- | --- | --- | --- | --- | --- | --- |
+| DD-13 | `pollution.json` | `/steps/9/created` | `[".bugpilot", ".bugpilot/verification.md"]` (DD-5) | `[]` | `test_dd13_the_verification_policy_writes_nothing_into_the_repository` | B1 |
+| DD-14 | `pollution.json` | `/steps/10/created` | `[".bugpilot/ai_behavior.md"]` (frozen) | `[]` | `test_dd14_ai_behavior_writes_nothing_into_the_repository` | B1 |
+| DD-15 | `pollution.json` | `/git_status` | the 22 lines (DD-9) | 20 lines: `?? .bugpilot/ai_behavior.md` and `?? .bugpilot/verification.md` gone, the order kept | `test_dd15_no_bugpilot_settings_file_reaches_git_status` | B1 |
+| DD-16 | `pollution.json` | `/bugpilot_folders_in_repository` | `[".ai", ".ai_memory", ".bugpilot"]` (frozen) | `[".ai", ".ai_memory"]` | `test_dd16_no_settings_command_creates_a_bugpilot_folder` | B1 |
+| DD-17 | `cli_paths.json` | `/ai-behavior show --json path fields/path` | `".bugpilot/ai_behavior.md"` (frozen) | `"BUGPILOT_HOME/repositories/<repository-id>/settings/ai_behavior.md"` (J-2) | `test_dd17_ai_behavior_show_names_its_file_in_display_form` | B1 |
+| DD-18 | `cli_paths.json` | `/verification show --json path fields/path` | `".bugpilot/verification.md"` (frozen) | `"BUGPILOT_HOME/repositories/<repository-id>/settings/verification.md"` (J-2) | `test_dd18_verification_show_names_its_file_in_display_form` | B1 |
+| DD-19 | `task_size.json` | `/median_approx_tokens` | `3090` | `3089` | `test_task_golden.py::test_dd19_the_median_is_measured_from_the_goldens` | B2 |
+| DD-20 | `task_size.json` | `/normalized_median_approx_tokens` | `3090` | `3089` | `test_task_golden.py::test_dd20_the_normalized_median_is_measured_from_the_goldens` | B2 |
+| DD-21 | `task_size.json` | `/cases/jira-fix-current-ai-behavior` | 12,023 chars, 3,006 tokens | 11,996, 2,999 | `test_task_golden.py::test_dd21_jira_fix_current_ai_behavior_is_measured` | B2 |
+| DD-22 | `task_size.json` | `/cases/jira-fix-current-configured` | 12,363, 3,091 | 12,356, 3,089 | `test_task_golden.py::test_dd22_jira_fix_current_configured_is_measured` | B2 |
+| DD-23 | `task_size.json` | `/cases/jira-fix-current-configured-ai-behavior` | 12,729, 3,182 | 12,695, 3,174 | `test_task_golden.py::test_dd23_jira_fix_current_configured_ai_behavior_is_measured` | B2 |
+| DD-24 | `task_size.json` | `/cases/jira-fix-current-verification-file` | 11,975, 2,994 | 11,940, 2,985 | `test_task_golden.py::test_dd24_jira_fix_current_verification_file_is_measured` | B2 |
+| DD-25 | `task_size.json` | `/cases/jira-fix-current-verification-file-ai-behavior` | 11,697, 2,924 | 11,642, 2,910 | `test_task_golden.py::test_dd25_jira_fix_current_verification_file_ai_behavior_is_measured` | B2 |
+| DD-26 | `task_size.json` | `/cases/jira-investigation-current-ai-behavior` | 12,671, 3,168 | 12,644, 3,161 | `test_task_golden.py::test_dd26_jira_investigation_current_ai_behavior_is_measured` | B2 |
+
+- **Cases are whole objects.** DD-21 to DD-26's `from` and `to` are the whole case objects. `ai_path_mentions` and `absolute_path_mentions` are predicted unchanged; any change there is a stop.
+- **DD-19 to DD-26's evidence: one test per pointer,** in `tests/test_task_golden.py`, each named in the table.
+  - **What each test does:** it measures the value at its own pointer from the committed task golden files, with the test's own arithmetic: characters, `round(chars / 4)`, the two path-mention counts, and the median over the 17. It never reads `task_size.json`, the regenerated records or the designed-difference file.
+  - **What it compares against:** the owner-approved expected value at that pointer, written into the test only after the owner approves it (Phase B2).
+  - **What they check together**, through one shared helper:
+    - **Only the six named goldens change:** the test records each of the 17 goldens' SHA-256 at the base commit. The other eleven must still match theirs byte for byte.
+    - **Only the nine approved lines change:** for each of the six, the approved new lines are put back to their exact old text, at their exact line numbers. The result must match that golden's recorded base SHA-256. So any other changed byte fails.
+    - **Every size matches:** each per-golden character and token count, and both medians, equal the approved values.
+    - **US-D30 still holds:** the median is at most 3,096, and no golden is larger than its frozen 0.1.5 size, which is a zero-allowance per-golden bound.
+  - **No frozen baseline is rewritten** to make a test pass. `task_size.json` and the other frozen records keep their recorded SHA-256s (`chain_problems`), and a change to one is a stop.
+- **US-D30 (C-5):**
+  - every per-golden delta is negative, so no allowance A is drawn;
+  - the deltas are recorded as these designed differences, in place of a separate budget record;
+  - the existing size gates stay: the median at most 3,096, and the golden equality tests;
+  - DD-19 to DD-26's evidence adds the zero-allowance per-golden bound: no golden above its frozen 0.1.5 size.
+- **Unchanged, as predicted:**
+  - `handoff.json`;
+  - `pollution.json`'s other pointers, including `/steps/8/created` (DD-4) and `/user_configuration_written` (DD-3);
+  - `cli_paths.json`'s other keys;
+  - `task_size.json`'s other cases and keys.
+
+##### Part 8 — T-15 widened (E-6)
+
+**The decision.** B-1's accepted limitation now explicitly includes the two policy-bearing files. A different repository later created at exactly the normalized path of an earlier one inherits:
+
+- its Project Instructions, Fix Modes, project settings and Repository Profile (2B-3a), as B-1 recorded;
+- **its Verification Policy and AI Behavior additions (2B-3b).**
+
+**What that can do:**
+
+- It can change what the newcomer's tasks require to be verified. An inherited policy can relax, or tighten, the tests and checks an agent is asked to run.
+- It can add conventions and reporting expectations written for another codebase.
+- BugPilot's protected rules still come first and win any conflict, and nothing detects the replacement.
+
+**Not changed:** the identity algorithm, the frozen identity tests, and US-D5, US-D6 and US-D24. No implicit reset or reassociation is added; option C stays deferred.
+
+**Where it is stated:** RK-20, §7.3's case row and §7.6, each with a dated note. It is also part of the activation review (§14.3's activation preconditions, with a dated note) and Batch 5's release notes.
+
+**A 2B-3b test pins it:** a Verification Policy and AI Behavior additions set in folder A are read after A is replaced by another folder at the same path.
+
+##### Part 9 — Extension compatibility (E-7)
+
+**Confirmed against the extension's sources** at `c0b8ea7`. The production `fileKind` and `fileExists` ports `lstat` `<repository>/.bugpilot/verification.md` and `ai_behavior.md` (`src/extension.ts`); Edit opens those paths (`src/app/controller.ts`). Once the files move:
+
+| Action | Effect on the branch |
+| --- | --- |
+| AI Behavior Edit | the repository file is absent, so Edit runs `ai-behavior set --stdin` with the CLI's empty template and **overwrites the namespace additions**. It then cannot open the repository path, and repeats on every click |
+| Verification Edit | it re-writes the namespace file from the effective policy: **clears "default changed"**, and **replaces a file that has a problem with BugPilot's default** |
+| Reset | its dialog says it deletes `.bugpilot/verification.md` (or `ai_behavior.md`); `reset` deletes the namespace file. The legacy file stays, and is ignored |
+| A legacy file | Edit opens and edits it; it has no effect |
+| The watcher | it no longer fires for these two files; rereads still happen at focus, Run, Rebuild and environment checks |
+| Version skew | a 0.1.5 extension driving a 0.1.6 CLI has the same effects (§13.5's note) |
+
+The CLI never reads, copies, overwrites or deletes a legacy file.
+
+**Restrictions:**
+
+1. **No extension change in 2B-3b.** Batch 3 owns the fix (§14.4): the CLI-given paths, the file's state from the CLI, the watcher, and the strings.
+2. **No real-data Edit or Reset through the extension** until Batch 3's fix is verified. Real-window checks use a disposable `BUGPILOT_HOME` and synthetic repositories only.
+3. **Before integration and activation.** Batch 3's compatibility verification for these two files (Edit, Reset, the watcher and the strings, against a 0.1.6 CLI) is required before any integration into `main` or activation of Unified Storage. It is recorded beside §14.3's activation preconditions and in §14.4's preconditions, as dated notes; the eight blockers are not renumbered.
+4. **Version skew** (0.1.5 extension, 0.1.6 CLI) is part of Batch 3's review and the release review (Batch 5).
+5. **An extension test failure** goes on §15.4's ledger, unmasked, and stops the slice.
+
+##### Part 10 — The golden approval protocol (E-10) and the phases
+
+**Phase A — neutrality** (no product change):
+
+- `tests/baselines/0.1.6-batch2b3b/designed_differences.json`:
+  - `base_commit` is the commit the implementation is authorized on;
+  - `frozen` holds the Batch 0A hashes;
+  - `differences` is empty.
+- `DESIGNED_CHAIN` gains it.
+- `SUPERSEDED` is empty, and the supersession check and its synthetic tests are added (part 6).
+- `tests/test_storage_baseline.py` expects three files and three base commits.
+
+**Acceptance:**
+
+- `differences()` is empty, and the approval, chain and supersession checks pass;
+- all 17 task goldens and every other golden are byte-identical;
+- the approved 2B-2 and 2B-3a records and the frozen hashes are unchanged;
+- no product file is changed.
+
+**Phase B1 — relocation without AI-facing wording changes:**
+
+- **The move:**
+  - the two modules move to the chokepoint (part 5), with `remove_file`;
+  - the user-facing display paths and W-1 to W-3 are applied (part 3);
+  - the AI-facing lines (V, A, VF, AF, VN and AN) keep their exact 0.1.5 text, through a module-private literal.
+- **That last point is a temporary verification technique.** Holding the AI-facing text still lets B1 prove that the relocation alone changes no golden byte, so that relocation and wording are reviewed apart. The rules:
+  - **the B1 state is a working-tree checkpoint only.** It is never committed, pushed or released, and never committed as the final implementation;
+  - the slice's commit carries B2's final text;
+  - B2 removes the literal, and the final output carries no obsolete repository-local policy path.
+- **The harnesses** write the two inputs through storage's accessor.
+- **The tests:**
+  - the tests move;
+  - DD-13 to DD-18's evidence tests are written;
+  - DD-13 and DD-15 are recorded, with the two pairs declared in `SUPERSEDED` (pending, part 6). `test_dd5_…` and `test_dd9_…` are retired in that same step. Their historical evidence stays in the approved record and in the table's recorded commit and CI run;
+  - a new R4 test plants sentinels in `<repository>/.bugpilot/verification.md` and `ai_behavior.md`, and checks they reach no output or task, and that both files' bytes are unchanged;
+  - the T-15 test of part 8 is added;
+  - the link-race review's tests (part 11) are added.
+
+**Acceptance:**
+
+- **all 17 task goldens and every other golden byte-identical** (a hard gate);
+- the observed differences are exactly DD-13 to DD-18's categories, recorded with `approved` empty;
+- **pending owner approval, reported and never silently accepted:** the approval gate fails, naming exactly DD-13 to DD-18 and the two pending pairs. It is the only failing test; any other failure is a stop. No intentionally failing old-state assertion is part of this acceptance;
+- no command creates `<repository>/.bugpilot`;
+- no absolute path appears in any message;
+- the P-1, U, R-PRE and `remove_file` tests pass;
+- the link-race review has a finding (part 11). If the finding needs a protected-file change, B1 stops there.
+
+**Phase B2 — the wording, and the goldens:**
+
+1. Replace B1's temporary literal with exactly E-1's seven texts (V, A, I, VF, AF, VN, AN), and nothing else.
+2. Render the 17 tasks **in memory**; no golden file is written.
+3. Check:
+   - the differences are confined to the six goldens and nine lines below, with no other byte;
+   - VF, VN, AF and AN reach no golden;
+   - the sizes equal part 7's predictions;
+   - **no rendered AI-facing text names `.bugpilot/verification.md`, `.bugpilot/ai_behavior.md` or "shared instructions".** That covers the 17 tasks, the configured problem cases that use VF, VN, AF and AN, and the retry and handoff texts.
+4. Present the complete before-and-after diff of each of the six goldens.
+5. The owner approves each exact diff by name.
+6. Only then run `python tests/task_golden.py --update`, within that scope. Its diff must equal the approved diffs exactly; any other byte is a stop.
+7. Observe DD-19 to DD-26, and record them with `approved` empty.
+8. After the owner approves DD-19 to DD-26's values, write those approved values into their eight evidence tests (part 7). Never copy them from a record.
+
+| Golden | Lines |
+| --- | --- |
+| `jira-fix-current-ai-behavior` | 57 (A) |
+| `jira-fix-current-configured` | 44 (I) |
+| `jira-fix-current-configured-ai-behavior` | 44 (I), 65 (A) |
+| `jira-fix-current-verification-file` | 44 (I), 50 (V) |
+| `jira-fix-current-verification-file-ai-behavior` | 42 (V), 56 (A) |
+| `jira-investigation-current-ai-behavior` | 57 (A) |
+
+The other 11 task goldens, and every context, retry and prompt-boundary golden, stay protected.
+
+**Phase C — approval and verification:**
+
+1. **The approvals:**
+   - the owner approves DD-13 to DD-18's exact values (after B1) and DD-19 to DD-26's (after B2);
+   - approving DD-13 and DD-15, with their independent evidence passing, makes the two pairs active (part 6).
+2. Full local verification (below):
+   - no failure, and nothing pending;
+   - no unapproved successor, no silent exemption, no altered historical record;
+   - `differences()` empty.
+3. Commit, push and one CI run, each separately authorized.
+
+##### Part 11 — Security, contracts, verification and stop conditions
+
+**Security and failing closed** (P-1, F2-S, M-1, G-11):
+
+| Situation | Required behaviour |
+| --- | --- |
+| Absent file or namespace | defaults; no warning; nothing created. `clear` and `reset` with no file: "There is no … to remove.", nothing created |
+| A link or junction on the way or at the file; containment; a Git working tree; the home folder as root | fatal for reads and writes, `INVALID_INPUT`, one sentence; nothing read or written. *(0.1.5 used the default for a linked `.bugpilot/verification.md`; under P-1 it is now fatal.)* |
+| A corrupt or mismatched identity record | `INVALID_INPUT` on every surface (F2) |
+| An unreadable record (U) | `show`, `bug`, `task-preview` and the MCP prepare tools: `INTERNAL_ERROR`. `set`, `clear` and `reset`: `INVALID_INPUT`, "The text could not be read: <sentence>." (2B-3a's residue wording) |
+| A write or removal I/O failure | `StorageAccessError.during("write"/"remove", <display path>, error)`; the file unchanged |
+| The file's own content (not UTF-8, too large, bad front matter) | non-fatal, as 0.1.5: the problem shown, the default applies |
+| Redaction | display form only. No absolute path or environment value in any message, log, warning or JSON. No settings path in `task.md` (the link race: below) |
+
+**The link-race review (B1, required).** The question: can a link substituted after storage's checks cause an unauthorized read, or put an absolute path into generated task output?
+
+**What is known before B1, from a read-only look at `c0b8ea7`:**
+
+- **Storage checks first.** It refuses a link on the way to the file and at the file, when `settings_file` is called (P-1).
+- **The module reads afterwards.** It reads through `instructions.read_text_document`:
+  - its own `link_problem` check, by `lstat`;
+  - then `exists`, `is_file` and `stat`;
+  - then `path.read_bytes()`, **which follows a link.**
+- **The only no-follow read in the code is private to storage.** It is `storage._read_regular`: `O_NOFOLLOW` where available, then `fstat` compared with what the name held. It is used only for `repository.json`, and no consumer may call it.
+- **The same window exists for 2B-3a's four settings,** which read the same way.
+- **The window's bounds.** It sits inside the user's own data folder, which is `0700`. Only someone who can already write there, the same account, can swap a file in. **This is context for the review, not an acceptance.** A confirmed unsafe read or disclosure is never classified as an acceptable residue because the folder is private.
+- **Absolute paths are not expected.** The problem texts name places only through `display_path`, and a read error by its class or `strerror`.
+
+**What B1 must establish, with focused regression tests in `tests/test_repository_settings_storage.py`:**
+
+1. **The race is simulated.** Between storage's check and the module's read:
+   - `settings/verification.md` and then `ai_behavior.md` are replaced by a link to a sentinel file outside the namespace (a file symlink on POSIX);
+   - and `settings/` by a junction (Windows) or a symbolic link (POSIX) to a folder holding a sentinel file.
+2. **The assertions.** The test checks for an unauthorized read and for disclosure, in:
+   - the generated task output (`task.md`, the task preview);
+   - the context preview;
+   - CLI messages and warnings, in text and JSON;
+   - MCP results;
+   - `bugpilot.log`.
+
+   The sentinel's text must appear in none of them, and no absolute path of the data root, the repository or the sentinel may appear in any of them.
+
+**The outcome decides what happens next:**
+
+- **If both hold with the code as allowlisted,** the tests stay as regression evidence, and the plan records the finding.
+- **If the test shows an unsafe read or a disclosure:**
+  1. **Implementation planning stops at a security decision.** That is the expected result, given `read_bytes`.
+  2. **The failing evidence is preserved:** the failing test, its output and traceback, with no change made to pass it.
+  3. **The narrowest safe remediation is proposed**, for the owner to decide. Its likely shape is a no-follow, identity-checked read of the located file: `O_NOFOLLOW` where available, then the `fstat` of what was opened compared with the `lstat` of the name, as storage's private `_read_regular` does for the record. It would live in one of:
+     - `instructions.read_text_document`, which is outside `instructions.py`'s allowlisted scope;
+     - a public storage read primitive, which changes protected `storage.py`.
+  4. **Nothing is changed without authorization.** No protected storage primitive changes, and the allowlist is never widened silently. The decision also says whether 2B-3a's four settings are fixed with it.
+
+**CLI and MCP contracts:**
+
+- **Codes:** no new public error code, and every code as today.
+- **JSON:**
+  - no new field; `show --json` keys and `source` values unchanged;
+  - only `path`'s value changes, for the two commands (DD-17, DD-18, J-2). It stays non-compliant with §8.10 rows 20 and 21 until the proposed 2B-7.
+- **MCP:**
+  - no tool, argument or result shape changes;
+  - the prepare tools' warnings carry display paths;
+  - errors follow `Could not … [CODE]: <sentence>` as today.
+- **The prepared-context hashes:** `sha256` material unchanged (source, problem, version, text). A prepared context goes stale only when the effective policy itself changes.
+- **Legacy files:** a policy that lives only in `<repository>/.bugpilot/` stops applying, silently. That is US-D9's accepted impact; US-D20 is deferred, and the release notes say it.
+
+**Local verification** (Windows; absolute `PYTHONPATH`; isolated HOME):
+
+1. the whole Python suite, with pass, fail, skip and deselect counts;
+2. the 2B-3b focused files;
+3. the identity and security, MCP, containment and legacy, and inventory and publishability groups;
+4. `python tests/storage_baseline.py --check`;
+5. B2's in-memory golden diff, then `--update` only after approval;
+6. the extension, unchanged, from Git Bash: `npm run typecheck` and `npm test`, with the shell and Node versions reported. The PowerShell `Path` issue stays a separate observation;
+7. publishability, `git diff --check`, and every protected file's hash;
+8. the plan checker.
+
+**Cross-platform CI acceptance:**
+
+- one owner-dispatched run on the exact implementation commit, with all nine jobs successful. A job with no runner is **not verified**, and needs its own authorized re-run;
+- pass, fail, skip and deselect counts reported per job;
+- skip lists compared with run 39675645316, with new skips only from the new platform-gated tests;
+- the new POSIX checks run on Linux and macOS: `0600` for `settings/verification.md` and `settings/ai_behavior.md`, `0700` for `settings/`;
+- T-cases as in 2B-3a.
+
+**Stop conditions:**
+
+- any golden byte outside part 10's six goldens and nine lines, or a diff other than the approved one;
+- a size above a golden's frozen size, or `ai_path_mentions` or `absolute_path_mentions` changed;
+- a record difference beyond DD-13 to DD-26;
+- any change to an approved designed-difference record, or to a protected file;
+- a file outside part 4's allowlist;
+- a test failure other than the approval gate's report of pending approvals in Phases B1 and B2 (the traceback kept);
+- a `<repository>/.bugpilot/` reader, writer or remover left for the two files;
+- an absolute path in a message, or a settings path or obsolete repository-local policy path in AI-facing output;
+- a link-race finding that needs a protected-file or out-of-scope change (part 11);
+- a supersession beyond DD-5 and DD-9; a pair treated as active before its successor is approved; a pending pair the approval gate does not report; or a historical record altered;
+- a frozen baseline, golden or approved record rewritten to make a test pass;
+- an evidence test that takes its expected value from a record instead of the owner's approval;
+- an extension test failure;
+- a red, cancelled or unverified CI job.
+
+**Rollback:** the owner's decision. There is no reset, stash, clean or force-push.
+
+##### Part 12 — Checkpoints and what stays open
+
+**Owner checkpoints, in order:**
+
+1. this record (a documentation commit, separately authorized);
+2. the implementation authorization, naming the phases;
+3. B1's link-race finding. If it needs a fix outside the allowlist, a separate decision;
+4. B1's observed DD-13 to DD-18. Approving DD-13 and DD-15 makes the two pending pairs active;
+5. B2's six exact golden diffs, each by name;
+6. DD-19 to DD-26's observed values;
+7. the commit;
+8. the push;
+9. one CI dispatch.
+
+**Still open, outside 2B-3b:**
+
+- §8.10 rows 18 to 21 (the proposed 2B-7);
+- US-D26's public `STORAGE_UNAVAILABLE` (2B-4, 2B-5);
+- Batch 0B's evidence: P1, P3 and P8 NOT EXECUTED; P2 FAIL;
+- all eight activation blockers;
+- US-D29's open terms. Batches 2 to 4 stay on `verify/0.1.6-storage`, with no partial integration into `main`, no pull request, and the fast-forward only after Batch 4 with the owner's approval;
+- Batch 3's extension fix (E-7);
+- the PowerShell `Path` observation (Batch 3).
+
+**Unchanged:** the version, 0.1.5. Unified Storage is **NOT ACTIVATED**. The register: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
+
+**Batch 2B-3b — NOT STARTED.**
+
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
 **1. Scope.**
@@ -7491,6 +8035,7 @@ No decision status changed.
 - Batch 2 is on the branch, and its ledger is recorded.
 - These decisions are approved: US-D11 (the review recommends deferring), D12, D17 and D19.
 - Batch 0B records exist for P6, P7, P9 and P10, and for P11 if it ran, each as PASS, FAIL or UNKNOWN.
+- *(2026-10-21, E-7: Batch 3 fixes the Verification Policy's and AI Behavior's Edit, Reset, watcher and strings for the files' new place, and its compatibility verification against a 0.1.6 CLI is required before any integration into `main` or activation; §14.3, "Batch 2B-3b — decision gate and implementation contract", part 9.)*
 
 **4. Explicit exclusions.**
 
@@ -7812,7 +8357,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D6 | `repository.json` records the canonical root path | **APPROVED** | **Accept** | §7.4; alt: digest only | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: the deterministic identity record, published without replacement (B1-14) |
 | US-D7 | One namespace per git worktree | **APPROVED** | **Accept** | §7.3; alt: key by `--git-common-dir` (merges worktrees) | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: distinct git worktrees use distinct namespaces |
 | US-D8 | A moved or renamed repository starts a new namespace; no relocation tooling in 0.1.6 | **APPROVED** | **Accept** (relocation DEFERRED) | §7.1, §7.3 | 2 | 2026-10-20: approved in part by the owner at the Batch 2B-3 decision gate (G-3): a moved or renamed repository may start a new namespace, with no automatic migration. Not approved: T-15, a different repository reusing a former repository's path and inheriting its namespace (options A, B and C, §14.3, "Batch 2B-3 — owner decisions and final contract gate", part 3). Later on 2026-10-20 (B-1): T-15 approved as option A, an accepted limitation (§7.3, §7.6, RK-20); option C deferred to a future design. US-D8 approved in full (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract") |
-| US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | **APPROVED** | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | 2026-10-20: approved by the owner at the Batch 2B-3 decision gate (G-4): settings per user and per repository namespace; legacy `.bugpilot/` never read, migrated, copied or deleted; no import or export in 0.1.6; the loss of implicit Git-based team sharing is an intentional compatibility impact. The exact AI-facing texts are decided at the 2B-3b gate (G-13; §14.3, "Batch 2B-3 — owner decisions and final contract gate") |
+| US-D9 | Repository settings become per-user per-repository, with no team sharing through the repository. Section names are kept; intro and help wording stop claiming "shared" or "committed". | **APPROVED** | **Accept** (team sharing DEFERRED) | §13.3; alt: rename to "Repository Instructions" everywhere (more golden and doc churn) | 2 | 2026-10-20: approved by the owner at the Batch 2B-3 decision gate (G-4): settings per user and per repository namespace; legacy `.bugpilot/` never read, migrated, copied or deleted; no import or export in 0.1.6; the loss of implicit Git-based team sharing is an intentional compatibility impact. The exact AI-facing texts are decided at the 2B-3b gate (G-13; §14.3, "Batch 2B-3 — owner decisions and final contract gate"). 2026-10-21 (E-1, Batch 2B-3b decision gate): those texts decided; the status is unchanged (§14.3, "Batch 2B-3b — decision gate and implementation contract") |
 | US-D10 | Agent handoff: Option D. <ul><li>The agent starts in the repository root and is told `Read <WORK>/task.md and complete the workflow.`; the retry is `Read <WORK>/agent_retry_prompt.md and continue the workflow.`.</li><li>`<WORK>` is resolved and validated by the CLI (US-D13, US-D17), with forward slashes.</li><li>The CLI, the extension and the retry prompt use the same wording; MCP follows US-D27.</li><li>No new permission mode, grant, sandbox bypass or shell-free launch (no US-D11 grant).</li><li>US-D12's gate is kept until US-D12 is decided. No rejected prompt reaches a shell. A refused, unlaunchable or bridge handoff uses the clipboard with an accurate notice.</li><li>Storage failures fail closed, with no legacy fallback.</li></ul>(§9.5.1) | **APPROVED** — with conditions | **Keep open** until the Batch 0B probes (§9.7) and the §9.10 acceptance criteria are met; Option D is the provisional recommendation | §9.5, §9.10; alt: B (inline only); C by default (violates R8) | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.5.1). <ul><li>The owner accepts the Batch 0B real-agent evidence gap for design approval only (§9.7; "Accepted evidence gaps" below).</li><li>No agent combination is declared supported.</li><li>Conditions: §9.5.1's implementation conditions and release gates.</li></ul>This is not an approval to implement, verify or activate. |
 | US-D11 | An opt-in `--add-dir <work folder>` grant | OPEN | **Defer** past 0.1.6. Never automatic (R8); reconsider after Batch 5's live measurement. | §9.4 C, §9.5 point 8 | 3 | — |
 | US-D12 | The prompt gate keeps its character set (ASCII letters and digits, the ASCII space, `. , : # / _ -`), never broadened, and is tightened. <ul><li>No string passes through JavaScript's `\s` alone, and the handoff starts with its expected literal text.</li><li>The complete prompt is validated.</li><li>**Exact prompt preservation:** both the generated prompt and the final argument are validated, nothing is collapsed, trimmed, normalized or escaped into a different path, and the handoff is refused if preservation can't be guaranteed.</li><li>**Parity:** Python's `--launch-agent` gets an equivalent gate, checked against one shared corpus.</li><li>The gate stays on the terminal paths, the bridges and the captured review (US-D28). There is none on MCP JSON, Copy Handoff Prompt or the body of `task.md`, which rely on path validation (US-D13, US-D17) instead.</li><li>A refused handoff starts nothing and falls back to US-D10's manual handoff. A bridge copies and notifies without revealing its view.</li><li>No relaxation for any transport.</li></ul>(§9.9.1) | **APPROVED** — with conditions | **Accept**: retain the gate. Investigate a launch without a shell for native executables (§9.9, P11) without weakening the gate; adopting one needs P11 PASS on three systems and a separate owner approval; shims never | §9.5, §9.9; alt: widen the gate (per-shell quoting; security-sensitive) | 3 | 2026-10-18: approved with conditions by the owner, as Option C with the exact-prompt-preservation and cross-language-parity amendments, as a design decision (§9.9.1). <ul><li>No per-transport relaxation; P10 stays PASS only for the tested Windows configuration, and P11 stays NOT EXECUTED.</li><li>Conditions: §9.9.1's tests and release conditions.</li></ul>This is not an approval to implement or activate. |
@@ -7825,7 +8370,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D19 | The extension's VS Code-owned storage (runtime, attachment staging, scratch) stays in `globalStorageUri` | PROPOSED | **Accept** | §6.2; alt: move attachment staging under the data root | 3 | — |
 | US-D20 | `doctor` reports *whether* legacy paths exist (`lstat` only, never read) | OPEN | **Defer**: no legacy-presence probing in 0.1.6. The change is explained by §13's documentation instead. | §6.3; alt: one `doctor` line | 5 | — |
 | US-D21 | Diagnostics surface: `doctor`'s `storage` object (and the panel's Diagnostics); no new command | OPEN | **Accept** | §8.10; alt: a read-only `bugpilot storage` command | 2 | — |
-| US-D22 | Absolute paths only in designated JSON fields, the handoff and `task.md`'s work line; the display form (`~/.bugpilot/…`) everywhere else | **APPROVED** — in part (Batch 2B-2's configuration messages; Batch 2B-3's user-facing messages) | **Accept** | §8.8, §8.10 | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-9): the display form for 2B-2's configuration messages; no environment variable's value in any message; no unrelated message change; no JSON contract expansion. The rest stays PROPOSED. 2026-10-20 (G-11, Batch 2B-3 decision gate): the approved part also covers Batch 2B-3's user-facing messages, with no unnecessary wording change; the JSON fields stay J-2's staging (G-7). The rest stays PROPOSED (§14.3, "Batch 2B-3 — owner decisions and final contract gate") |
+| US-D22 | Absolute paths only in designated JSON fields, the handoff and `task.md`'s work line; the display form (`~/.bugpilot/…`) everywhere else | **APPROVED** — in part (Batch 2B-2's configuration messages; Batch 2B-3's user-facing messages) | **Accept** | §8.8, §8.10 | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-9): the display form for 2B-2's configuration messages; no environment variable's value in any message; no unrelated message change; no JSON contract expansion. The rest stays PROPOSED. 2026-10-20 (G-11, Batch 2B-3 decision gate): the approved part also covers Batch 2B-3's user-facing messages, with no unnecessary wording change; the JSON fields stay J-2's staging (G-7). The rest stays PROPOSED (§14.3, "Batch 2B-3 — owner decisions and final contract gate"). 2026-10-21 (E-2): the approved part covers Batch 2B-3b's user-facing messages, confirmed; the rest stays PROPOSED (§14.3, "Batch 2B-3b — decision gate and implementation contract") |
 | US-D23 | New folders `0700`; an existing data root's mode is never changed | **APPROVED** — with conditions | **Accept** | §8.3; alt: `chmod` the root (touches a legacy folder) | 1 | 2026-10-16: approved with conditions by the owner at the Batch 1 decision gate: private folder creation, existing permissions unchanged. Condition: Windows privacy is claimed only after verification, and credential-bearing writes need Q1's verified access-list check (G-3, §14.3) |
 | US-D24 | An identity record that mismatches or is corrupt is refused, never repaired | **APPROVED** | **Accept** | §7.5; alt: overwrite | 1 | 2026-10-16: approved by the owner at the Batch 1 decision gate: mismatched or corrupt records refused without repair; temporary unreadability distinguished (B1-15) |
 | US-D25 | `run.json` `generated_files` and JSON-lines `path` are relative to the namespace; `schema_version` stays 1 | PROPOSED | **Accept** | §8.10; alt: absolute; a schema bump | 2 | — |
@@ -7833,7 +8378,7 @@ The only accepted failures on the branch are listed in §15.4's ledger. Nothing 
 | US-D27 | MCP keys unchanged; values absolute (`issue_dir`, `agent_task`, `next_step` paths); `search_memory` relative | PROPOSED | **Accept**: preserve the keys | §8.10; alt: return the task text inline | 2 | — |
 | US-D28 | Captured review reads `context.md`, `retrieval.json` and `fix_report.md` by absolute, CLI-resolved, validated work-folder paths, under the unchanged read-only restrictions. There is no automatic inline fallback. A separately identified, developer-initiated Partial Review uses at most 2,400 characters of `fix_report.md` (§16.5.11). | **APPROVED** — with conditions | **Keep open** until probe P2 (Batch 0B) | §9.5 point 5; §16.5 (P2 evidence, the decision review and the approved contract) | 2 | 2026-10-18: approved with conditions by the owner, with amendments, as a design contract (§16.5.11). The review's narrow Option C was not approved verbatim. Conditions: §16.5.11's activation gates. This is not an approval to implement, activate or ship. |
 | US-D29 | Integration: Batches 0A and 1 on `main`; Batches 2–4 on `verify/0.1.6-storage` until integration is complete; owner-dispatched CI; owner-approved fast-forward after Batch 4 | **APPROVED** — in part (the integration branch) | **Accept** the isolated integration branch, with §15.4's gates | §15.2, §15.4; alt: push Batches 2 and 3 together from `main` | 2 | 2026-10-19: approved in part by the owner at the Batch 2B-2 decision gate (D-1): `verify/0.1.6-storage`, based on `73ee57e`, is the isolated integration branch. It is not created yet, and no partial consumer migration reaches `main` without separate authorization. Still OPEN: the owner-dispatched CI and the fast-forward after Batch 4. Later that day (C-5 (a)): the branch is based instead on the verified `main` commit that carries this record |
-| US-D30 | The task-size gate with an absolute work path. <ul><li>Measure: the 17-case matrix, `round(chars / 4)` and the fixed `<work>` normalization.</li><li>Task gate: `median ≤ 3,096 + A`, plus `normalized size ≤ frozen 0.1.5 size + that golden's approved delta` for every golden.</li><li>Retry: per-golden deltas under a separate A_retry, with no median gate and no shared allowance.</li><li>A and A_retry are fixed only from the owner-approved golden diff, and never recomputed (estimates about 116 and 108, not final).</li><li>Sizes with real paths are reported, not gated.</li><li>Frozen baselines stay byte-identical; a new reviewed budget record holds the numbers.</li></ul>(§9.8.2) | **APPROVED** — with conditions | **Accept** the normalized measurement (§9.8 (a)), keeping meaningful size-regression coverage: the median gate, a per-golden growth bound, a count of absolute-path occurrences, and the raw size reported | §9.8; alt: (b) re-baseline; (c) trim protected wording | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.8.2). <ul><li>The allowance changes the future ceiling; it does not mean the original 20 % reduction still holds.</li><li>Conditions: §9.8.2's golden-diff prerequisites, the reviewed budget record, the reconciled compared-record test, and separately approved ratchet residue.</li></ul>It approves no golden change and no residue, and is not an approval to implement or activate. |
+| US-D30 | The task-size gate with an absolute work path. <ul><li>Measure: the 17-case matrix, `round(chars / 4)` and the fixed `<work>` normalization.</li><li>Task gate: `median ≤ 3,096 + A`, plus `normalized size ≤ frozen 0.1.5 size + that golden's approved delta` for every golden.</li><li>Retry: per-golden deltas under a separate A_retry, with no median gate and no shared allowance.</li><li>A and A_retry are fixed only from the owner-approved golden diff, and never recomputed (estimates about 116 and 108, not final).</li><li>Sizes with real paths are reported, not gated.</li><li>Frozen baselines stay byte-identical; a new reviewed budget record holds the numbers.</li></ul>(§9.8.2) | **APPROVED** — with conditions | **Accept** the normalized measurement (§9.8 (a)), keeping meaningful size-regression coverage: the median gate, a per-golden growth bound, a count of absolute-path occurrences, and the raw size reported | §9.8; alt: (b) re-baseline; (c) trim protected wording | 2 | 2026-10-18: approved with conditions by the owner, as Option D with amendments, as a design decision (§9.8.2). <ul><li>The allowance changes the future ceiling; it does not mean the original 20 % reduction still holds.</li><li>Conditions: §9.8.2's golden-diff prerequisites, the reviewed budget record, the reconciled compared-record test, and separately approved ratchet residue.</li></ul>It approves no golden change and no residue, and is not an approval to implement or activate. 2026-10-21 (E-8, Batch 2B-3b decision gate): 2B-3b's per-golden deltas are all negative, draw no allowance, and are recorded as the designed differences DD-19 to DD-26; the size gates are kept; the status is unchanged (§14.3, "Batch 2B-3b — decision gate and implementation contract") |
 | US-D31 | Batch outline deviation: MCP code and text switch in Batch 2; Batch 3 keeps MCP live verification | PROPOSED | **Accept** | §14.0 | 2 | — |
 | US-D32 | Test isolation: session-wide isolation before collection, plus a guard that fails closed (§11.1) | **APPROVED** (Batch 0A scope) | **Accept** the goal and the **revised design**. The r1 real-home listing is withdrawn; no default run lists or reads the real home. | §11.1; as built: §14.1.A; alt: per-test isolation only | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
 | US-D33 | CI keeps the nine blocking checks under their names; the isolated storage and isolation tests are added to the existing required jobs; `HOME` is set in the job environment | **APPROVED** (Batch 0A scope) | **Accept** | §11.7; as built: §14.1.A; alt: a new job (would change the pinned check names) | 0A | 2026-10-15: approved by the owner for Batch 0A's scope |
@@ -7908,7 +8453,7 @@ Every other Batch 2 decision may be approved on the review's advice alone, if th
 | RK-17 | A stale legacy `.ai/<id>/task.md` in the repository confuses an agent | low–medium | medium | the Execution Location wording names the work folder; §16.4 option A′; F22 guards keep it out of evidence |
 | RK-18 | Owner decisions that block Batch 2 (US-D26; US-D28, US-D14 and US-D10 were decided on 2026-10-18) wait on evidence or review | medium | schedule | Batch 0A and Batch 1 proceed meanwhile; Batch 0B can run in parallel |
 | RK-19 | A red required CI job on the branch is normalized as "expected" | low | high | §15.4: only ledger entries are excused, CI is still reported red, and the ledger must be empty before Batch 3's gate |
-| RK-20 | A different repository created at a former repository's exact path inherits its namespace (T-15): its Project Instructions, policies, Fix Modes and Repository Profile (2B-3), and from 2B-4 its work items and memory | low | medium | accepted for 0.1.6 (B-1, 2026-10-20) and stated in §7.3, §7.6 and the release notes; visible through `show` and `task-preview`; removable with the existing commands or another `BUGPILOT_HOME`; an explicit reset (option C) deferred to a future design, not part of 0.1.6 |
+| RK-20 | A different repository created at a former repository's exact path inherits its namespace (T-15): its Project Instructions, policies, Fix Modes and Repository Profile (2B-3), and from 2B-4 its work items and memory | low | medium | accepted for 0.1.6 (B-1, 2026-10-20) and stated in §7.3, §7.6 and the release notes; visible through `show` and `task-preview`; removable with the existing commands or another `BUGPILOT_HOME`; an explicit reset (option C) deferred to a future design, not part of 0.1.6 *(2026-10-21, E-6: widened to the Verification Policy and AI Behavior, which are policy-bearing; restated in the activation review; §14.3, "Batch 2B-3b — decision gate and implementation contract", part 8)* |
 
 ### 16.3 Assumptions
 
@@ -8597,6 +9142,7 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-21 | 2B-3a | **DD-4 to DD-12 approved. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED.** <ul><li>**DD values:** <ul><li>exact values verified against the frozen records under DD-1 to DD-3, with nothing missing or extra;</li><li>the nine evidence tests pass;</li><li>`approved` is set to 2026-10-21, and the approval gate passes.</li></ul></li><li>**DD-5:** `.bugpilot` now comes from the unchanged Verification Policy's own folder creation alone; R-PRE writes nothing.</li><li>**DD-9:** 26 lines to 22, exactly the four moved files removed, the order kept.</li><li>**DD-10 to DD-12:** one repository ID, the session's, so no foreign ID is hidden. They are approved under J-2 and stay noncompliant with §8.10 rows 18 to 21.</li><li>**PC-1:** only line 7's `path` differs; its consumer tests pass.</li><li>**Results:** <ul><li>fresh full Windows suite **3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit code 0;</li><li>extension from Git Bash: typecheck passed, 2,350 passed;</li><li>from PowerShell, `executablePath.test.ts` 11/12 (`Path` against `PATH`), an unresolved environment observation.</li></ul></li><li>**Open:** <ul><li>the implementation review;</li><li>commit authorization;</li><li>a push;</li><li>CI 9/9, Linux and macOS included.</li></ul></li></ul> 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification"). Nothing staged, committed or pushed. |
 | 2026-10-21 | 2B-3a | **Batch 2B-3a committed on `verify/0.1.6-storage`; not pushed; not CI-verified; NOT ACTIVATED.** <ul><li>**The commit:** one commit (`feat(storage): move project settings into repository storage (Batch 2B-3a)`), parent `5b66ffe`, by the noreply identity. It holds the 30 approved files: <ul><li>seven production files, one of them the new chokepoint `repository_settings.py`;</li><li>22 test, helper, fixture and record files;</li><li>this plan.</li></ul></li><li>**Evidence (local Windows, as reported before the commit):** <ul><li>full suite: 3,807 passed, 59 skipped, 0 failed, 0 errors, 0 deselected;</li><li>extension, from Git Bash: typecheck passed, and 2,350 passed;</li><li>DD-4 to DD-12 owner-approved, with the gate passing;</li><li>PC-1 approved and tested.</li></ul></li><li>**Still open:** <ul><li>Linux and macOS verification, until CI runs;</li><li>J-2's §8.10 rows 18 to 21, for the separate contract-completion step (the proposed 2B-7);</li><li>the PowerShell `Path`/`PATH` environment issue, unresolved.</li></ul></li></ul> 2B-3b NOT STARTED; Unified Storage NOT ACTIVATED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification"). Pushing the branch and dispatching CI need separate authorization. |
 | 2026-10-21 | 2B-3a | **CI run 39675645316 on `743f542`: SUCCESS, 9/9, on attempt 2. Batch 2B-3a — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED.** <ul><li>**Push:** `5b66ffe..743f542`, fast-forward, owner-authorized.</li><li>**Attempt 1 (failure):** eight jobs succeeded with 0 failed tests. macOS safety was cancelled: its runner was not acquired (macOS arm64 capacity).</li><li>**Attempt 2:** the owner re-ran the failed job. macOS safety 1,770 passed, 46 skipped, 1 deselected. The other eight are attempt 1's results.</li><li>**Safety:** <ul><li>Ubuntu 3.13 and 3.10: 1,768 passed and 48 skipped each;</li><li>macOS: 1,770 passed, 46 skipped;</li><li>Windows: 1,782 passed, 59 skipped.</li></ul></li><li>**Full suite:** <ul><li>Ubuntu: 3,783 passed, 57 skipped;</li><li>macOS: 3,787 passed, 53 skipped;</li><li>Windows: 3,804 passed, 61 skipped.</li></ul></li><li>**Deselected:** one per Python job.</li><li>**Extension:** 2,348 passed and 2 skipped; the evidence boundary 27 passed.</li><li>**Linux and macOS:** <ul><li>T-10 and T-11 ran on macOS; T-13 matched each system;</li><li>the POSIX permission, link, containment and write-witness tests, R-PRE, M-P, DD-4 to DD-12, PC-1, the chained baselines and the goldens ran and passed;</li><li>the only new skips are the new file's platform-gated tests.</li></ul></li></ul> DD-4 to DD-12 remain approved. Not integrated into `main`; not activated. J-2's rows 18 to 21 pending; the PowerShell `Path` issue deferred to Batch 3; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — cross-platform CI verification"). |
+| 2026-10-21 | 2B-3b | **Batch 2B-3b decision gate recorded: E-1 to E-10 decided; implementation NOT AUTHORIZED; NOT STARTED.** <ul><li>**Texts:** the seven AI-facing texts approved (E-1); three user-facing wording changes, and display form everywhere (E-2).</li><li>**Evidence:** <ul><li>DD-5 → DD-13 and DD-9 → DD-15 only, through an explicit supersession table. B1 relies on no intentionally failing old-state assertion: a pending pair is reported by the approval gate until the owner approves its successor, and only then is it active. The approved records and the historical CI evidence are unchanged (E-3).</li><li>DD-19 to DD-26 each get pointer-specific evidence measured from the goldens (E-8).</li></ul></li><li>**Security:** a link-race review in B1. A fix outside the allowlist needs a separate decision.</li><li>**Scope:** <ul><li>allowlists corrected (E-4);</li><li>`repository_settings.remove_file` specified (E-5).</li></ul></li><li>**Risks:** <ul><li>T-15 widened to the two policy-bearing files (E-6);</li><li>the extension's Edit and Reset restricted until Batch 3, whose compatibility verification is required before integration or activation (E-7).</li></ul></li><li>**Contracts:** <ul><li>DD-13 to DD-26 approved as categories (E-8);</li><li>J-2 for the two commands (E-9);</li><li>the golden approval protocol (E-10).</li></ul></li></ul> No code, test, golden or record changed; the register's statuses are unchanged (§14.3, "Batch 2B-3b — decision gate and implementation contract"). |
 
 ---
 
@@ -8655,6 +9201,8 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-21 | 2B-3a | `verify/0.1.6-storage` | `743f542ad328b1af5eb9f0b494d07491f2b33ed7` (parent `5b66ffe`; fast-forward push, owner-authorized) | 39675645316, attempt 1 (`CI`, `workflow_dispatch`, owner-dispatched) | **failure**: 8 succeeded, 1 cancelled | no test failed; macOS safety's runner not acquired (macOS arm64 capacity) |
 | 2026-10-21 | 2B-3a | `verify/0.1.6-storage` | `743f542ad328b1af5eb9f0b494d07491f2b33ed7` | 39675645316, attempt 2 (the failed job re-run, owner-authorized) | **success: 9/9** | only macOS safety ran (1,770 passed, 46 skipped, 1 deselected), the other eight carried from attempt 1. Batch 2B-3a — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED |
 | 2026-10-21 | 2B-3a | `verify/0.1.6-storage` (local, not pushed) | **the commit that carries this row**: this plan only (`docs(storage): record Batch 2B-3a cross-platform CI verification`), parent `743f542` | — | — | documentation only; no CI |
+| 2026-10-21 | 2B-3a docs | `verify/0.1.6-storage` | `c0b8ea7d3ee59002015bd86e664c1b81ffd1ae8d` pushed by fast-forward (`743f542..c0b8ea7`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is pushed; CI tested `743f542`, not this commit |
+| 2026-10-21 | 2B-3b gate | `verify/0.1.6-storage` | carried by the documentation commit that records this gate, when authorized | — | — | documentation only; no CI |
 
 ---
 
