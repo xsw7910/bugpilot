@@ -41,6 +41,13 @@ slices change is listed by both, and no approved record is ever edited.
 The repository ID (M-a, Batch 2B-3a): a session computes its own repository's ID with BugPilot's
 identity function, and the records show it as `<repository-id>`. Any other repository ID in a record
 is an error, so a namespace computed from the wrong folder can never be normalized away.
+
+Superseded evidence (E-3, Batch 2B-3b): when a later slice sets again a value an earlier slice's entry
+set, the earlier entry's own test asserts a state that no longer holds. `SUPERSEDED` names the only
+two pairs the owner approved; `supersession` judges each one as inactive (no successor yet: the
+earlier evidence is still required), pending (a matching successor the owner has not approved: the
+approval gate reports it) or active (approved: the earlier test is retired, and must be absent).
+Anything else is a problem, never an exemption.
 """
 
 from __future__ import annotations
@@ -56,7 +63,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path, PurePath
 
 import _isolation
@@ -67,7 +74,11 @@ OUT = TESTS / "baselines" / "0.1.6-batch0"
 COMPARED = ("pollution.json", "handoff.json", "cli_paths.json", "task_size.json")
 DESIGNED = TESTS / "baselines" / "0.1.6-batch2b2" / "designed_differences.json"
 #: Every slice's designed-differences record, in the order the slices change the frozen records (CH-1).
-DESIGNED_CHAIN = (DESIGNED, TESTS / "baselines" / "0.1.6-batch2b3a" / "designed_differences.json")
+DESIGNED_CHAIN = (
+    DESIGNED,
+    TESTS / "baselines" / "0.1.6-batch2b3a" / "designed_differences.json",
+    TESTS / "baselines" / "0.1.6-batch2b3b" / "designed_differences.json",
+)
 REPOSITORY_ID_LABEL = "<repository-id>"
 #: A repository ID (plan §7.2) standing on its own in a text: the slug, a hyphen and 16 hex digits.
 REPOSITORY_ID_TEXT = re.compile(r"(?<![a-z0-9._-])[a-z0-9][a-z0-9._-]{0,23}-[0-9a-f]{16}(?![0-9a-z._-])")
@@ -652,6 +663,107 @@ def unapproved(designed: dict[str, object] | Sequence[dict[str, object]]) -> lis
     ]
 
 
+# --- superseded evidence (E-3, Batch 2B-3b) -----------------------------------------------------------
+
+#: The only approved pairs (plan §14.3, "Batch 2B-3b — decision gate and implementation contract", part 6):
+#: an earlier slice's entry, the later slice's entry that sets the same value again, and the commit and CI run
+#: on which the earlier entry's own evidence last passed. Not a skip: each pair is judged by `supersession`.
+SUPERSEDED: dict[str, dict[str, str]] = {
+    "DD-5": {"by": "DD-13", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
+    "DD-9": {"by": "DD-15", "verified_at": "743f542ad328b1af5eb9f0b494d07491f2b33ed7", "ci_run": "39675645316"},
+}
+_APPROVED_PAIRS = frozenset({("DD-5", "DD-13"), ("DD-9", "DD-15")})
+INACTIVE, PENDING, ACTIVE = "inactive", "pending", "active"
+
+
+def evidence_exists(evidence: object) -> bool:
+    """Whether ``tests/<file>.py::<name>`` names a test function that is defined in that file."""
+    if not isinstance(evidence, str):
+        return False
+    file, _, name = evidence.partition("::")
+    path = REPO / file
+    return bool(name) and path.is_file() and f"def {name}(" in path.read_text(encoding="utf-8")
+
+
+def supersession(
+    chain: Sequence[dict[str, object]],
+    table: dict[str, dict[str, str]] = SUPERSEDED,
+    evidence: Callable[[object], bool] = evidence_exists,
+) -> tuple[dict[str, str], list[str]]:
+    """Each declared pair's state, keyed by the earlier id, and every problem with the pairs.
+
+    - **inactive:** the successor is not in the chain. The earlier entry's evidence is required.
+    - **pending:** the successor matches but is not approved. It is reported by `pending_supersessions`,
+      so the approval gate fails while it lasts.
+    - **active:** the successor matches and is approved. The earlier test is retired and must be absent.
+
+    The successor matches when it is exactly once in the chain, in a later slice's record, with the same
+    record and pointer, a `from` that is the earlier `to`, and evidence of its own that exists. A pair that
+    fails any of this has no state: it is a problem, so nothing is exempted for it.
+    """
+    states: dict[str, str] = {}
+    problems: list[str] = []
+    found: dict[object, list[tuple[int, dict[str, object]]]] = {}
+    for position, designed in enumerate(chain):
+        entries = designed.get("differences")
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict):
+                found.setdefault(entry.get("id"), []).append((position, entry))
+    for earlier_id, pair in table.items():
+        successor_id = pair.get("by") if isinstance(pair, dict) else None
+        label = f"supersession {earlier_id} -> {successor_id}"
+        if (earlier_id, successor_id) not in _APPROVED_PAIRS:
+            problems.append(f"{label}: not an approved pair (only DD-5 -> DD-13 and DD-9 -> DD-15 are)")
+            continue
+        if len(found.get(earlier_id, [])) != 1:
+            problems.append(f"{label}: {earlier_id} is not listed exactly once in the chain")
+            continue
+        [(earlier_at, earlier)] = found[earlier_id]
+        successors = found.get(successor_id, [])
+        if not successors:
+            states[earlier_id] = INACTIVE
+            if not evidence(earlier.get("evidence")):
+                problems.append(f"{label}: inactive, so {earlier_id}'s evidence is still required, and it is missing")
+            continue
+        if len(successors) > 1:
+            problems.append(f"{label}: {successor_id} is listed more than once in the chain")
+            continue
+        [(successor_at, successor)] = successors
+        mismatches = []
+        if successor_at <= earlier_at:
+            mismatches.append(f"{successor_id} is not in a later slice's record than {earlier_id}")
+        if successor.get("record") != earlier.get("record"):
+            mismatches.append(f"{successor_id} names another record than {earlier_id}")
+        if successor.get("pointer") != earlier.get("pointer"):
+            mismatches.append(f"{successor_id} names another pointer than {earlier_id}")
+        if not _same(successor.get("from"), earlier.get("to")):
+            mismatches.append(f"{successor_id}'s `from` is not {earlier_id}'s `to`")
+        if successor.get("evidence") == earlier.get("evidence"):
+            mismatches.append(f"{successor_id} names {earlier_id}'s evidence, not its own")
+        elif not evidence(successor.get("evidence")):
+            mismatches.append(f"{successor_id}'s evidence does not exist")
+        if mismatches:
+            problems.extend(f"{label}: {mismatch}" for mismatch in mismatches)
+            continue
+        if not successor.get("approved"):
+            states[earlier_id] = PENDING
+            continue
+        states[earlier_id] = ACTIVE
+        if evidence(earlier.get("evidence")):
+            problems.append(f"{label}: active, so {earlier_id}'s retired evidence must be removed")
+    return states, problems
+
+
+def pending_supersessions(
+    chain: Sequence[dict[str, object]],
+    table: dict[str, dict[str, str]] = SUPERSEDED,
+    evidence: Callable[[object], bool] = evidence_exists,
+) -> list[str]:
+    """The pairs awaiting the owner's approval of their successor, for the approval gate to report."""
+    states, _problems = supersession(chain, table, evidence)
+    return [f"{earlier} -> {table[earlier]['by']}" for earlier, state in states.items() if state == PENDING]
+
+
 def differences(
     expected_dir: Path, actual_dir: Path, designed: dict[str, object] | Sequence[dict[str, object]] | None = None
 ) -> list[str]:
@@ -760,13 +872,15 @@ def main(argv: list[str] | None = None) -> int:
                                      ensure_ascii=False))
             return 0
         problems = differences(OUT, Path(scratch))
-    pending = unapproved(load_chain())
-    for line in problems:
+    chain = load_chain()
+    _states, superseded = supersession(chain)
+    pending = unapproved(chain) + pending_supersessions(chain)
+    for line in problems + superseded:
         print(line)
     print("baselines match" if not problems else f"{len(problems)} baseline(s) differ")
     if pending:
         print(f"awaiting the owner's approval: {', '.join(pending)}")
-    return 1 if problems or pending else 0
+    return 1 if problems or superseded or pending else 0
 
 
 if __name__ == "__main__":  # pragma: no cover - a developer command

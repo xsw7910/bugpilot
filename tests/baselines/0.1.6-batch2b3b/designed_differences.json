@@ -1,0 +1,11 @@
+{
+ "describes": "Designed differences of 0.1.6 Batch 2B-3b, applied after Batch 2B-3a's (plan section 14.3, Batch 2B-3b - decision gate and implementation contract). Each entry is an exact JSON-pointer from/to pair whose `from` is the value the earlier records leave; `approved` stays empty until the owner approves the observed values. DD-13 and DD-15 may supersede the current-state evidence of DD-5 and DD-9 only as tests/storage_baseline.py's SUPERSEDED table allows.",
+ "base_commit": "93118926956464e6baa9c5c2631bc74166bf241c",
+ "frozen": {
+  "pollution.json": "26f9d0bea3c4fe805deae71ecf9e276209bac397de3b718756183d1faf7b2536",
+  "handoff.json": "77cee49805bc8c19f4cb2eb1678f86b129a4a572553f3c96adab93e5a32e6530",
+  "cli_paths.json": "0e8ac086364efb785ae041b59977ebc84e35b1b650bee97c39a571e3d215e30a",
+  "task_size.json": "3da947696009e3adee34c24f7eefab7702d1ab0db0506ca1711e3056044af8d1"
+ },
+ "differences": []
+}
