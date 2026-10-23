@@ -35,7 +35,7 @@ import pytest
 import _isolation
 from bugpilot import cli_json
 from bugpilot.cli import main
-from bugpilot.core import repository_settings, storage
+from bugpilot.core import _held_folders, repository_settings, storage
 from bugpilot.core.fix_mode_store import custom_mode_payload
 from bugpilot.core.fix_modes import builtin_fix_mode_registry
 from bugpilot.core.instructions import load_instructions
@@ -140,17 +140,34 @@ def _tool_error(server, name: str, arguments: dict) -> str:
 
 @pytest.fixture
 def unreadable_record(monkeypatch):
-    """Every read of a ``repository.json`` fails with a permission error, as an unreadable record would (row 1)."""
+    """Every read of a ``repository.json`` fails with a permission error, as an unreadable record would (row 1).
+
+    An unreadable record fails both of its readers: storage's path read (``_read_regular``), which the writers'
+    checks still use, and the held folder's ``open_file``, where the settings readers open it (Option C, M2).
+    Only ``repository.json`` is refused. ``install()`` returns how many times each refusal was made.
+    """
     real = storage._read_regular
+    folder_class = _held_folders._WindowsFolder if os.name == "nt" else _held_folders._PosixFolder
+    real_open_file = folder_class.open_file
+    fired = {"path read": 0, "held read": 0}
 
     def refuse(path, expected):
         if Path(path).name == storage.RECORD_NAME:
+            fired["path read"] += 1
             raise PermissionError(errno.EACCES, "Permission denied", str(path))
         return real(path, expected)
 
-    def install() -> None:
+    def refuse_held(self, name):
+        if name == storage.RECORD_NAME:
+            fired["held read"] += 1
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_open_file(self, name)
+
+    def install() -> dict[str, int]:
         monkeypatch.setattr(storage, "_TRANSIENT_DELAY", 0)
         monkeypatch.setattr(storage, "_read_regular", refuse)
+        monkeypatch.setattr(folder_class, "open_file", refuse_held)
+        return fired
 
     return install
 
@@ -343,7 +360,7 @@ def test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code(tmp_p
     source = tmp_path / "settings.json"
     source.write_text(json.dumps({}), encoding="utf-8")
     sentence = _unreadable_sentence(repo)
-    unreadable_record()
+    fired = unreadable_record()
 
     # R: the read commands reach the last resort: INTERNAL_ERROR, as 0.1.5 gave an unexaminable settings path.
     code, out, err = _run(monkeypatch, capsys, repo, "project-settings", "show", "--json")
@@ -384,6 +401,9 @@ def test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code(tmp_p
     # Read as plain files, never through storage's patched reader: nothing was written, repaired or prepared.
     assert _tree(repo, _namespace(repo)) == snapshot and record.exists()
     assert not (repo / ".ai").exists()
+    # Each reader of the record met the injected failure: the writers' path read and the readers' held read.
+    assert fired["path read"] > 0, f"the storage._read_regular hook never fired: {fired}"
+    assert fired["held read"] > 0, f"the held-folder open_file hook never fired: {fired}"
 
 
 @pytest.mark.parametrize("record_text", ["corrupt", "mismatch"])
@@ -536,14 +556,18 @@ def test_row10_a_settings_file_that_cannot_be_read_is_a_warning_naming_no_absolu
         storage.repository_storage(repo).settings_file(name, create=True).write_text(text, encoding="utf-8")
     broken = storage.repository_storage(repo).fix_modes_dir(create=True) / "broken.json"
     broken.write_text(json.dumps(_mode("broken")), encoding="utf-8")
-    real = Path.read_text
+    # Storage opens the files in its held folders (Option C, M2): fail these three opens there, and only these.
+    folder_class = _held_folders._WindowsFolder if os.name == "nt" else _held_folders._PosixFolder
+    real_open_file = folder_class.open_file
+    denied: set[str] = set()
 
-    def read_text(self, *args, **kwargs):
-        if self.name in ("project_settings.json", "repository_profile.json", "broken.json"):
-            raise PermissionError(errno.EACCES, "Permission denied", str(self))
-        return real(self, *args, **kwargs)
+    def opening(self, name):
+        if name in ("project_settings.json", "repository_profile.json", "broken.json"):
+            denied.add(name)
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_open_file(self, name)
 
-    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(folder_class, "open_file", opening)
     settings, warnings = load_project_settings(repo)
     assert warnings == [f"{_shown(repo, 'project_settings.json')} could not be read (Permission denied). Using the defaults."]
     profile, warnings = load_repository_profile(repo)
@@ -555,6 +579,7 @@ def test_row10_a_settings_file_that_cannot_be_read_is_a_warning_naming_no_absolu
         "scope": "project", "path": _shown(repo, "fix_modes/broken.json"),
         "message": "broken.json could not be read: Permission denied."}]
     _no_absolute_path(json.dumps(listed) + json.dumps(warnings), tmp_path)
+    assert denied == {"project_settings.json", "repository_profile.json", "broken.json"}, "an injection never happened"
 
 
 def test_row11_reading_with_nothing_saved_creates_nothing_anywhere(tmp_path, monkeypatch, capsys):

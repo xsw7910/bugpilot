@@ -205,3 +205,15 @@ def remove_owned_path(path: Path) -> bool:
     else:
         path.unlink()
     return True
+
+
+# --- text as ``Path.read_text`` gave it (Option C, M2) ----------------------------------------------
+
+
+def decode_text(data: bytes, encoding: str, errors: str = "strict") -> str:
+    """``data`` as ``Path.read_text(encoding, errors)`` would have read it: decoded, line endings unified.
+
+    For a reader that now gets a file's bytes from storage instead of opening a path: the same text, the
+    same decoding error, and the same line endings, so a JSON error names the same line and position.
+    """
+    return data.decode(encoding, errors).replace("\r\n", "\n").replace("\r", "\n")

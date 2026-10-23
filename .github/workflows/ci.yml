@@ -142,6 +142,10 @@ jobs:
           tests/test_storage_api_boundary.py
           tests/test_storage_scope.py
           tests/test_storage_witness.py
+          tests/test_storage_held_read.py
+          tests/test_settings_read_safety.py
+          tests/test_global_config_storage.py
+          tests/test_repository_settings_storage.py
           --deselect tests/test_publishable.py::test_the_word_list_is_present_and_private
           2>&1 | tee pytest-safety.log
 

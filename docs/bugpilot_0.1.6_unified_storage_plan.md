@@ -8,7 +8,7 @@ records are superseded or rewritten.
 
 | | |
 | --- | --- |
-| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* *(On 2026-10-21: `5b66ffe` pushed (documentation); Batch 2B-3a implemented and verified locally on Windows, uncommitted, not CI-verified, NOT ACTIVATED; DD-4 to DD-12 observed and awaiting the owner (§14.3, "Batch 2B-3a — implementation and local verification").)* *(Later on 2026-10-21: DD-4 to DD-12 approved after exact-value verification. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED. Linux and macOS not verified; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification").)* *(Then, with the owner's authorization: Batch 2B-3a committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* *(Later on 2026-10-21: `743f542` pushed; Batch 2B-3a — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39675645316, 9/9 on its second attempt, after the first attempt's macOS safety runner was not acquired. Not integrated into `main` (§14.3, "Batch 2B-3a — cross-platform CI verification").)* *(Later on 2026-10-21: Batch 2B-3b's decision gate recorded, with the owner's decisions E-1 to E-10; its implementation is NOT AUTHORIZED; 2B-3b NOT STARTED (§14.3, "Batch 2B-3b — decision gate and implementation contract").)* *(Later on 2026-10-21: the gate committed and pushed as `9311892`; Batch 2B-3b Phase A implemented and verified locally on Windows, uncommitted; Phases B1 and B2 NOT STARTED; NOT ACTIVATED (§14.3, "Batch 2B-3b — Phase A: baseline neutrality").)* |
+| **Status** | PLAN, revised after the owner's architecture review (2026-10-15). The review's recommendations are recorded in §16.1. Beyond R1–R8, the owner has APPROVED US-D32 and US-D33 for Batch 0A's scope (2026-10-15), and nine Batch 1 decisions at the Batch 1 decision gate (2026-10-16): three with conditions and one in part (§16.1). On 2026-10-18 the owner approved US-D28 with conditions, as an amended design contract for the captured review. That approves the design, not its implementation or activation (§16.5.11). The same day the owner approved US-D14 with conditions: the protected staging rule stays unchanged (rules v2), and an informational note about legacy folders is added (§16.4.1). That is also a design approval only. It also approved US-D13 with conditions: the hybrid `task.md` and retry-prompt path contract (§9.8.1), again a design approval only. And it approved US-D30 with conditions: a fixed, reviewed prompt-budget allowance for that wording, with per-golden bounds (§9.8.2), also a design approval only. It also approved US-D10 with conditions: Option D, the agent handoff (§9.5.1). Here the owner accepted the missing real-agent probe evidence for the design approval only; no agent combination is declared supported. It also approved US-D12 with conditions: the prompt gate is kept and tightened, with exact prompt preservation and TypeScript–Python parity (§9.9.1), again a design approval only. And it approved US-D17 with conditions: the CLI as the only path resolver, with validated path consumption and a read-only extension (§8.9.1), also a design approval only. **Batch 0A is COMPLETED and CI-verified.** It was committed as `8b6c567` on `main` (2026-10-16, owner-approved). CI run 38942462918 passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13 (§14.1.A, §18, §19). Batch 0 as a whole is not complete while 0B has not run. **Batch 1 is COMPLETED and CI-verified, integrated into `main` but NOT activated.** Its architecture and security review found it FAIL; the owner-authorized narrow remediation fixed it, and the owner ratified its decisions and the Q1–Q7 policies (§14.2). It was committed as `5222da7` on `verify/0.1.6-batch1` (2026-10-16, owner-approved). CI run 39003264436 on that commit passed all 9 required checks on Linux, macOS and Windows, with Python 3.10 and 3.13. The commit was then fast-forwarded into `main`, and the push to `main` ran CI again on the same commit (run 39004684594): **9/9 success** (§14.2 "Batch 1 — acceptance and CI evidence", §18, §19). No product caller uses `storage`; activation stays blocked by §14.3's preconditions, of which only the CI one is met. **Batch 2A** (the storage security foundation: G-1/G-2, G-3, cache freshness, checked global accessors) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `e78a678`, CI run 39057483843 on `verify/0.1.6-batch2a` and run 39062906366 on `main`, both 9/9 (§14.3, "Batch 2A — acceptance and CI evidence"). No product caller uses `storage` yet. **Batch 2B-1** (inactive consumer-switch preparation: C-1, C-2's storage-side invariants, checked deletion, checks that never raise, the test-only write witness) is **COMPLETED and CI-verified, integrated into `main` but NOT activated**: `7b8914d`, and `40865cf`, which fixed the two test defects that failed its first CI run (run 39085417171, 3/9). CI run 39096347226 on `verify/0.1.6-batch2b1` and run 39097757625 on `main` were both 9/9 (§14.3, "Batch 2B-1 — acceptance and CI evidence"). No product caller uses `storage` yet, and the MCP per-tool-call request scope is NOT INTEGRATED. Its follow-up fix for concurrent data-root creation (`147e1bd`), made after main CI run 39194849242 failed 8/9, is CI-verified (branch run 39285763641 and main run 39305575297, each 9/9) and integrated into `main` (§14.3, "Batch 2B-1 follow-up"). **Batch 0B** has run P10, on 2026-10-18, in two parts: a narrowed run (direct shells and the Python launcher) and a VS Code `sendText` completion. It is **PASS for the tested Windows configuration**, with limitations (§14.1.B, "Batch 0B — probe P10, narrowed" and "Batch 0B — probe P10, VS Code sendText completion"). P7's first attempt was UNKNOWN, blocked before its tests by an in-progress VS Code update. Its retry after the update passed P7-A to P7-H on Windows, with `revealFileInOS` UNKNOWN. P2, the captured review, ran once and is FAIL against the owner's acceptance criteria. Its external reads under `dontAsk` worked; the model declined to echo the marker and requested Bash, which was refused (§14.1.B, "Batch 0B — probe P2, captured review"). Every other probe is NOT EXECUTED. Batch 2B-2 to 2B-6 and Batches 3–5 have **NOT STARTED**. On 2026-10-19 the owner recorded the Batch 2B-2 decision gate (D-1 to D-9): US-D2 approved with conditions, US-D29 and US-D22 approved in part, and Batch 2B-2 specified for implementation, which is not yet authorized (§14.3, "Batch 2B-2 — decision gate"). The owner then answered Q-1 to Q-6, and the contract was resolved, with choices C-1 to C-5 still open (§14.3, "Batch 2B-2 — final contract resolution"). The owner approved C-1 to C-5 the same day. Batch 2B-1 stays COMPLETED, NOT ACTIVATED, and Batch 2B-2's implementation has NOT STARTED. *(Later: Batch 2B-2 was implemented and verified locally on Windows, uncommitted, on `verify/0.1.6-storage`; not activated (§14.3, "Batch 2B-2 — implementation and local verification"). DD-1 to DD-3 approved on 2026-10-20, and the batch committed on the branch: not pushed, not CI-verified.)* *(Later on 2026-10-20: Batch 2B-2 — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39486855193, 9/9, on `0b7dd6c`, after run 39463867534 failed on a test-fixture defect. Not integrated into `main` (§14.3, "Batch 2B-2 — cross-platform CI verification").)* *(Later on 2026-10-20: Batch 2B-3's decision gate recorded: a proposed split into 2B-3a and 2B-3b, and the owner decisions it needs. Nothing approved; Batch 2B-3 **NOT STARTED** (§14.3, "Batch 2B-3 — decision gate and slice design").)* *(Later on 2026-10-20: the owner's decisions G-1 to G-14 recorded. US-D9 approved, US-D4 with conditions, US-D8 in part. Batch 2B-3a is NOT READY until T-15 and F2-S are decided; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3 — owner decisions and final contract gate").)* *(Later on 2026-10-20: B-1 to B-4 decided. US-D8 approved in full; F2-S approved and verified. Batch 2B-3a's decisions are complete; its implementation awaits the owner's authorization; 2B-3a and 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract").)* *(On 2026-10-21: `5b66ffe` pushed (documentation); Batch 2B-3a implemented and verified locally on Windows, uncommitted, not CI-verified, NOT ACTIVATED; DD-4 to DD-12 observed and awaiting the owner (§14.3, "Batch 2B-3a — implementation and local verification").)* *(Later on 2026-10-21: DD-4 to DD-12 approved after exact-value verification. Batch 2B-3a IMPLEMENTED LOCALLY; VERIFICATION COMPLETE ON WINDOWS; NOT COMMITTED; NOT ACTIVATED. Linux and macOS not verified; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — implementation and local verification", "Owner approval of DD-4 to DD-12 and final local verification").)* *(Then, with the owner's authorization: Batch 2B-3a committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; NOT ACTIVATED.)* *(Later on 2026-10-21: `743f542` pushed; Batch 2B-3a — **IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**, by run 39675645316, 9/9 on its second attempt, after the first attempt's macOS safety runner was not acquired. Not integrated into `main` (§14.3, "Batch 2B-3a — cross-platform CI verification").)* *(Later on 2026-10-21: Batch 2B-3b's decision gate recorded, with the owner's decisions E-1 to E-10; its implementation is NOT AUTHORIZED; 2B-3b NOT STARTED (§14.3, "Batch 2B-3b — decision gate and implementation contract").)* *(Later on 2026-10-21: the gate committed and pushed as `9311892`; Batch 2B-3b Phase A implemented and verified locally on Windows, uncommitted; Phases B1 and B2 NOT STARTED; NOT ACTIVATED (§14.3, "Batch 2B-3b — Phase A: baseline neutrality").)* *(Later on 2026-10-21: Phase A committed and pushed as `d834082`. The B1-S review found a suspected link race in the settings readers, not demonstrated. **B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED.** B1-M NOT STARTED (§14.3, "Batch 2B-3b — B1-S security review and the Option A candidate").)* *(Later on 2026-10-21: the owner chose Option C, and its first milestone, M1 (the storage safe-read foundation), was implemented: **OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation").)* *(On 2026-10-22: M1's compatibility gate, the owner's decisions, and M2, the consumer migration: **OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: consumer migration").)* *(Later on 2026-10-22: the Row 1 test repaired, DD-27 approved and recorded: **OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification").)* *(Later on 2026-10-22: DD-28 approved and both DD-27 and DD-28 evidenced against their literal text: **OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence").)* *(Later on 2026-10-22: the POSIX Case B fix (a folder that cannot be searched is fatal) and the Python 3.10 CI coverage: **OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** The link race is not resolved (§14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage").)* |
 | **Created** | 2026-10-15, by a read-only audit of the working tree at `ee3fb00` (`main`, released 0.1.5) |
 | **Revisions** | **r1** (2026-10-15): created from the read-only audit. **r2** (2026-10-15): architecture review. It changed: <ul><li>the decision recommendations (§16.1);</li><li>the test-isolation redesign (§11.1);</li><li>Batch 0 split into 0A and 0B (§14.1);</li><li>the repository scope and its diagnostic (§7.1);</li><li>the exact JSON contract (§8.10);</li><li>the safer-launch evaluation (§9.9) and the handoff acceptance (§9.10);</li><li>the integration gates (§15.4) and the US-D14 options (§16.4).</li></ul> |
 | **Target version** | 0.1.6 (the version in the tree stays 0.1.5 until Batch 5's bump) |
@@ -2781,7 +2781,7 @@ Either must avoid becoming a legacy reader (R4).
 | 0A | Automated isolation, inventory and baselines | **COMPLETED**: committed and CI-verified. Review findings H-1, M-1, M-2, N-1, L-1, L-2, L-3 and L-8 remediated | `8b6c567` (2026-10-16) | run 38942462918: **9/9 success** | approved 2026-10-15 with US-D32 and US-D33; as built in §14.1.A; Batch 0 is not complete while 0B has not run |
 | 0B | Live agent capability probes | **IN PROGRESS** (2026-10-18). P10: direct shells and the Python launcher PASS (narrowed run), then VS Code `sendText` PASS (completion run): **PASS for the tested Windows configuration**, with limitations. P7 attempted the same day: UNKNOWN, blocked before its tests by an in-progress VS Code update. P7 retry after the update (VS Code 1.142.0, Windows): P7-A to P7-H PASS, `revealFileInOS` UNKNOWN. P2 (one run, Claude Code 2.1.214): FAIL against the owner's criteria; external reads under `dontAsk` worked, the marker was declined, and a Bash request was refused. P1, P3–P6, P8, P9 and P11 NOT EXECUTED (§14.1.B) | — | — | each further probe awaits a separate approval naming the agents and accounts; no commit except plan records |
 | 1 | Storage foundation | **COMPLETED**: committed, CI-verified and integrated into `main`; **NOT activated** (no caller uses `storage`). Architecture review FAIL, then remediated (H1, M1–M3, L2, L3, L6–L9; H2 investigated); decisions and Q1–Q7 ratified 2026-10-16 (§14.2). Activation blockers in §14.3: only the CI one is met | `5222da7` (2026-10-16), fast-forwarded into `main` | run 39003264436 (verification branch): **9/9 success**; run 39004684594 (push to `main`): **9/9 success** | after 0A, plus its decisions; independent of 0B |
-| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* *(2026-10-21: 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; not activated; DD-4 to DD-12 await the owner; §14.3, "Batch 2B-3a — implementation and local verification")* *(2026-10-21, later: DD-4 to DD-12 approved; final local Windows verification passed; still uncommitted, not CI-verified, not activated; "Owner approval of DD-4 to DD-12 and final local verification")* *(2026-10-21, then: committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; not activated)* *(Then: `743f542` pushed; run 39675645316 SUCCESS 9/9 on attempt 2 (attempt 1: the macOS safety runner not acquired). **2B-3a: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-3a — cross-platform CI verification")* *(2B-3b: decision gate recorded on 2026-10-21, E-1 to E-10; implementation not authorized; NOT STARTED; §14.3, "Batch 2B-3b — decision gate and implementation contract")* *(2B-3b Phase A: implemented and verified locally on 2026-10-21, uncommitted; B1 and B2 NOT STARTED; §14.3, "Batch 2B-3b — Phase A: baseline neutrality")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
+| 2 | Python CLI, MCP and prompts on the new layout | **2A COMPLETED**: committed `e78a678`, CI-verified (run 39057483843 on the verification branch and run 39062906366 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2A — acceptance and CI evidence"). **2B-1 COMPLETED**: `7b8914d` and the corrective `40865cf`, CI-verified (run 39085417171 failed 3/9; run 39096347226 on the verification branch and run 39097757625 on `main`, each 9/9), integrated into `main`, **NOT activated** (§14.3 "Batch 2B-1 — acceptance and CI evidence"). **2B-1 follow-up** (concurrent data-root creation): `147e1bd`, branch CI 39285763641 and main CI 39305575297, each 9/9; integrated by fast-forward `7a2a1f4..147e1bd`. **2B-2 to 2B-6 NOT STARTED** (the switch of callers); 2B-2's decision gate recorded and the slice specified on 2026-10-19 (§14.3, "Batch 2B-2 — decision gate"), implementation not authorized; Q-1 to Q-6 answered and the contract resolved the same day, with C-1 to C-5 open (§14.3, "Batch 2B-2 — final contract resolution"); C-1 to C-5 approved later that day, and implementation NOT STARTED *(then implemented and verified locally on Windows, 2026-10-19/20: uncommitted, not pushed, not activated; Linux and macOS not verified; §14.3, "Batch 2B-2 — implementation and local verification"; DD-1 to DD-3 approved on 2026-10-20; committed on `verify/0.1.6-storage`, not pushed, no CI)*. *(Then: run 39463867534 on `7a1c891` FAILED on a test-fixture defect; remediation `0b7dd6c`; run 39486855193 SUCCESS 9/9. **2B-2: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-2 — cross-platform CI verification")*. *(2B-3's records committed on `verify/0.1.6-storage` on 2026-10-20, not pushed; §19)* *(2B-3: decision gate recorded on 2026-10-20, with a proposed split into 2B-3a and 2B-3b; **2B-3 NOT STARTED**; §14.3, "Batch 2B-3 — decision gate and slice design")* *(Owner decisions G-1 to G-14 recorded the same day; **2B-3a NOT READY**: T-15 and F2-S are open; §14.3, "Batch 2B-3 — owner decisions and final contract gate")* *(Then B-1 to B-4 decided: 2B-3a's decisions complete; **2B-3a implementation NOT STARTED** and not yet authorized; §14.3, "Batch 2B-3a — owner decisions B-1 to B-4 and the implementation contract")* *(2026-10-21: 2B-3a implemented and verified locally on Windows; uncommitted; not CI-verified; not activated; DD-4 to DD-12 await the owner; §14.3, "Batch 2B-3a — implementation and local verification")* *(2026-10-21, later: DD-4 to DD-12 approved; final local Windows verification passed; still uncommitted, not CI-verified, not activated; "Owner approval of DD-4 to DD-12 and final local verification")* *(2026-10-21, then: committed on `verify/0.1.6-storage`, parent `5b66ffe`; not pushed; not CI-verified; not activated)* *(Then: `743f542` pushed; run 39675645316 SUCCESS 9/9 on attempt 2 (attempt 1: the macOS safety runner not acquired). **2B-3a: IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED**; not integrated; §14.3, "Batch 2B-3a — cross-platform CI verification")* *(2B-3b: decision gate recorded on 2026-10-21, E-1 to E-10; implementation not authorized; NOT STARTED; §14.3, "Batch 2B-3b — decision gate and implementation contract")* *(2B-3b Phase A: implemented and verified locally on 2026-10-21, uncommitted; B1 and B2 NOT STARTED; §14.3, "Batch 2B-3b — Phase A: baseline neutrality")* *(Then: Phase A committed and pushed as `d834082`; B1-S3: B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED; the suspected race unresolved; B1-M NOT STARTED; §14.3, "Batch 2B-3b — B1-S security review and the Option A candidate")* *(Then: Option C chosen; M1: OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED; the race unresolved; §14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation")* *(2026-10-22: M2: OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: consumer migration")* *(Then: Row 1 repaired, DD-27 approved; OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification")* *(Then: DD-28 approved; exact-message evidence; OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence")* *(Then: the POSIX Case B fix and CI coverage; OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED; the race unresolved; §14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage")* | — | — | implementation paths only; **no user data is migrated**; blocked until §8.10 is approved (US-D28, US-D14 and US-D10: APPROVED with conditions on 2026-10-18, §16.5.11, §16.4.1 and §9.5.1) |
 | 3 | Extension and Agent Handoff | **NOT STARTED** | — | — | — |
 | 4 | Security and cross-platform validation | **NOT STARTED** | — | — | — |
 | 5 | Final UX, packaging and release readiness | **NOT STARTED** | — | — | — |
@@ -8086,6 +8086,745 @@ The other 11 task goldens, and every context, retry and prompt-boundary golden, 
 - **The version:** 0.1.5.
 - **The register:** 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED.
 
+#### Batch 2B-3b — B1-S security review and the Option A candidate (2026-10-21)
+
+**Status: B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED.**
+
+- **The risk is not resolved.** The suspected time-of-check-to-time-of-use (TOCTOU) race is open until the adversarial tests below exist, pass, and run in CI on Linux, macOS and Windows.
+- **Not started:** Phases B1-M and B2. **Not activated:** Unified Storage.
+- **The state of the work:** on `verify/0.1.6-storage` at `d834082`, in the working tree only. Nothing is staged, committed or pushed.
+
+**B1-S: what the code does** (a static analysis of `d834082`; no probe):
+
+- **Validation:** storage validates a settings or configuration path one component at a time, by path (`_existing`, `_file`: `lstat`, never followed), and returns a *path*. It opens nothing.
+- **Reading, before this change:** every reader then opened that path with a call that follows links:
+  - `instructions.read_text_document` (`read_bytes`), for both instruction scopes, the Verification Policy and AI Behavior;
+  - project settings and the Repository Profile (`read_text`);
+  - Fix Modes of both scopes (`glob`, then `read_text`);
+  - `config.toml` (`read_text`).
+- **The only no-follow read:** storage's private `_read_regular`, for `repository.json`: `O_NOFOLLOW` where the system has it, then the opened file's identity compared with the earlier `lstat`. Its folders are checked by path beforehand.
+- **What follows:** a file, or a folder above it, substituted between the validation and the open would be followed. The readers' own `lstat` checks narrow that window; they do not close it.
+- **Messages:** they name places only in display form and errors by class, so no absolute path is expected. The exposure is the substituted file's content, which can reach `task.md`, the previews, `show` and MCP results.
+
+**Dynamic reproduction: none.**
+
+- **Not performed:** no deterministic link-substitution reproduction was performed in this work, on any system. The race is **suspected, from the code; it is not demonstrated.**
+- **Not claimed:** no remediation result below is evidence that it is closed.
+
+**The Option A candidate.** `bugpilot/core/safe_paths.py` gains `read_verified(path, revalidate, limit, *, shown)`, `VerifiedBytes`, `UnsafeReadError` (an `UnsafePathError`) and `decode_text`. The read goes:
+
+1. **Open:** open the file with `O_NOFOLLOW` and `O_NONBLOCK` where the system has them (Linux, macOS), and `O_BINARY` on Windows.
+2. **Identity from the handle** (`fstat`): a regular file with a file index. A file index of 0 is refused.
+3. **Check again:** run the caller's own checked accessor again, which walks the place again and refuses a link. It must name the same path. Then `lstat` the path: a regular file, not a link or name-surrogate reparse point, with the handle's identity.
+4. **Read:** from the handle only, up to the limit.
+
+- **What it establishes:** the bytes come from the file that, when step 3 ran, was the regular file at the path, reached through folders that were not links when they were walked again.
+- **What it does not establish:** the folders are not held open. **It does not prove that no folder changed while it ran**, and it is not a guarantee by construction.
+- **A missing file** is the defaults only where the accessor accepts the place and no dangling link is at the name.
+
+**The readers changed** (each existing pre-check, warning and default kept):
+
+| File | Reader | Checked again through |
+| --- | --- | --- |
+| `instructions.py` | `read_instructions`, both scopes, via the new `read_verified_document` | `repository_settings.settings_file`; `GlobalStorage.user_instructions_file` |
+| `project_settings.py` | `load_project_settings` | `repository_settings.read_bytes` → `settings_file` |
+| `repository_profile.py` | `load_repository_profile` | the same |
+| `fix_mode_store.py` | `_load_file`, both scopes | `scope_dir` |
+| `user_config.py` | `_read_config` (`config.toml`) | `GlobalStorage.config_file` |
+| `repository_settings.py` | the new `read_bytes` helper | — |
+
+**Not changed:**
+
+- **Verification Policy and AI Behavior:** `verification.py` and `ai_behavior.py` still read `<repository>/.bugpilot/` with `read_text_document`, whose behaviour is unchanged. B1-M decides their reader.
+- **Protected modules:** `storage.py`, `errors.py`, `_isolation.py` and every other protected module.
+
+**The error and fallback contract:**
+
+| Situation | Behaviour |
+| --- | --- |
+| A legitimate file | read as before: the same text, the same warnings and parse errors |
+| No file, at a safe place | the defaults; nothing created |
+| A file that is not the checked one; an unknown identity (a file index of 0); a link at the name | `UnsafeReadError`: one sentence, display path only, `INVALID_INPUT` on the CLI (text and JSON) and in MCP. **Never the defaults** |
+| The accessor's own refusal while checking again | as before: `StorageError` (`INVALID_INPUT`) or `StorageAccessError` |
+| A genuine read failure (no permission, in use, a folder at the name) | each reader's existing handling: a non-fatal warning or problem, or `StorageAccessError` for `config.toml` |
+
+**The tests:**
+
+- **New: `tests/test_settings_read_safety.py`, 27 tests, all non-adversarial.**
+  - legitimate reads in every changed reader;
+  - missing files are the defaults and create nothing;
+  - reads write nothing;
+  - limits, line endings and decoding as `Path.read_text` gave;
+  - a stubbed identity mismatch, and a file index of 0, are refused;
+  - a refusal is never the defaults, and names no absolute path;
+  - the open flags.
+- **What the new file does not cover:** it substitutes no link while a read runs.
+- **Two existing tests, adapted with the owner's approval:** only their injection point moved, from `Path.read_bytes`/`read_text` to a narrowly targeted `os.open`. Each now also asserts that its injected failure happened, and every original assertion is unchanged:
+  - `tests/test_global_config_storage.py::test_unreadable_user_instructions_are_left_out_with_a_problem_not_an_error`;
+  - `tests/test_repository_settings_storage.py::test_row10_a_settings_file_that_cannot_be_read_is_a_warning_naming_no_absolute_path`.
+
+**Local results** (Windows 11, NTFS, Python 3.14, an absolute `PYTHONPATH`):
+
+- **The full Windows Python suite:** **3,851 passed, 59 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 28 minutes.
+  - Against 2B-3a's fresh run (3,807 passed), 44 more pass: the 17 Phase A baseline tests and the 27 new read-safety tests.
+  - The skips are the same 59 platform skips, none counted as passed.
+- **Focused runs:**
+
+  | Group | Result |
+  | --- | --- |
+  | the new read-safety tests | 27 passed |
+  | the two adapted tests | 2 passed |
+  | the readers' test files and both adapted files | 271 passed, 2 skipped |
+  | storage security and file safety | 568 passed, 57 skipped |
+  | MCP | 100 passed |
+  | the baselines, the approval gate and the goldens | 173 passed |
+  | `python tests/storage_baseline.py --check` | "baselines match" |
+  | inventory, unused symbols, the import boundary and publishability | 37 passed |
+
+- **Not run:** the extension suite, which is unchanged.
+- **What these results show:** every local test passes. They are not evidence about the race.
+
+**Protected files:**
+
+- 11/11 owner-protected files unchanged;
+- 213/213 non-exempt Batch 2B-3a protected files unchanged;
+- `safe_paths.py` changed, under the explicit B1-S3 authorization.
+
+The 17 task goldens, the six frozen Batch 0A records and the approved 2B-2 and 2B-3a records are byte-identical. The 2B-3b record is still empty, and DD-5 and DD-9 are inactive.
+
+**Per-system limits:**
+
+- **Windows:**
+  - there is no `O_NOFOLLOW`. A link at the name is opened, then refused, because its `lstat` is a link with another identity: detection, not prevention;
+  - junctions and symbolic links are judged by the reparse tag (`is_link_stat`);
+  - a data folder on a file system that reports no file index (0) refuses every settings read: fail closed, and a compatibility risk to record.
+- **Linux and macOS:** `O_NOFOLLOW` and `O_NONBLOCK` are in the open flags. **Nothing ran on these systems.** CI is required.
+
+**Still missing before the security gate can close:**
+
+- **Adversarial tests** for each changed reader and each system:
+  - a file replaced by a link after validation;
+  - `settings/` replaced;
+  - an ancestor (the namespace, `repositories/`) replaced;
+  - a replacement undone before the check;
+  - Windows junctions and reparse points.
+
+  Each must show that no sentinel content and no absolute path reaches `task.md`, the previews, the CLI, MCP or `bugpilot.log`.
+- **A CI run:** an owner-dispatched run, 9/9.
+- **The owner's review** of the candidate, and of whether a stronger design (B or C, a change to `storage.py`) is needed.
+
+**Unchanged:** the decision register (24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED), every DD approval, US-D29, the eight activation blockers and the version, 0.1.5.
+
+#### Batch 2B-3b — Option C M1: the storage safe-read foundation (2026-10-21)
+
+**Status: OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.**
+
+- **What M1 is:** the storage side of Option C.
+  - The owner chose Option C after the B1-S review (B1-S4).
+  - Its design was gated and probed on Windows (B1-S5), and its first milestone, M1, was authorized (B1-S6).
+  - M1 adds readers to `storage` and nothing else: **no consumer uses them yet**. Every settings reader still reads as the previous section describes.
+- **Not claimed:** the suspected link race is **not resolved**. No adversarial test was written; that suite is the M3 gate.
+- **The state of the work:**
+  - on `verify/0.1.6-storage` at `d834082`, in the working tree only;
+  - beside the uncommitted Option A candidate, which is kept whole;
+  - nothing is staged, committed or pushed.
+
+**Files** (the M1 allowlist):
+
+| File | Change |
+| --- | --- |
+| `bugpilot/core/storage.py` | `SettingsContent`, seven readers, `_held_record_state`; `_record_verdict` factored out of `_record_state`, whose behaviour is unchanged |
+| `bugpilot/core/_held_folders.py` (new) | The held walk: descriptor-relative opens on POSIX, held handles on Windows. It knows nothing of the layout and does not import `storage` |
+| `tests/test_storage_held_read.py` (new) | 73 tests: 72 run on Windows; 1, POSIX-only, skipped |
+
+**The API.** Every reader returns `SettingsContent(state, data)`. The state is `present`, `absent`, `too_large`, `not_a_file` or `link`.
+
+- `RepositoryStorage`: `read_settings(name, *, limit)`, `fix_mode_names()`, `read_fix_mode(file_name, *, limit)`.
+- `GlobalStorage`: `read_user_instructions(*, limit)`, `user_fix_mode_names()`, `read_user_fix_mode(file_name, *, limit)`, `read_config(*, limit=None)`.
+
+**The rules:**
+
+- **The same checks, in the same order and words, as each path accessor:**
+  1. the name;
+  2. containment and the Git working tree;
+  3. every folder on the way;
+  4. then, for a repository, the identity record.
+
+  The tests compare each refusal message with the path accessor's.
+- **`link` is a state only for a Fix Mode file**, as the existing non-fatal issue. A link at any other file is still a `StorageError`, and so is any link or non-folder on the way.
+- **Never `absent` by mistake:**
+  - a component that cannot be opened is judged by what is there, never taken as missing;
+  - a sharing violation is an `OSError`, retried by `_transient`.
+- **The identity record:**
+  - it is opened as itself in the held namespace;
+  - it gets the same verdicts as `_record_state`;
+  - it uses the same request-scope key and signature, so a verdict from either path counts for the other.
+- **A system without the primitives:** refused in one sentence (`StorageError`), and never read the old way.
+- **No path in an error:** an `OSError` from the held walk carries only the system's error number and text.
+- **Fix Mode file names:**
+  - a plain name ending in `.json`, compared with `normcase` as the `*.json` glob was;
+  - refused, and not repeated in the message, if it has a separator, `.` or `..`, a NUL, or (on Windows) `:`.
+
+**POSIX:**
+
+- **The data root** is opened as itself, following a link (owner decision B4-2).
+- **Each component** is opened relative to its parent's descriptor, with `O_NOFOLLOW` and `O_CLOEXEC`, and `O_DIRECTORY` for a folder.
+- **A file** also gets `O_NONBLOCK` and `O_NOCTTY`. It is checked with `fstat` and read from its descriptor.
+- **Listing:** `scandir` on the folder's descriptor.
+
+**Nothing ran on Linux or macOS.**
+
+**Windows** (documented Win32, through `ctypes`):
+
+- **Folders** are opened with `FILE_FLAG_OPEN_REPARSE_POINT`, `FILE_FLAG_BACKUP_SEMANTICS` and list access. They share read and write but not delete, so they cannot be renamed or deleted during the read.
+- **A child:**
+  - opened by a name built from its held parent's `GetFinalPathNameByHandleW` path;
+  - its own final path must equal the parent's plus its name;
+  - otherwise it is refused ("changed while it was being read").
+- **Types** come from the handle (`FileAttributeTagInfo`):
+  - a name-surrogate reparse tag, or no tag, is a link;
+  - any other reparse tag is refused as unsupported.
+- **Files** share read, write and delete, and are read through `msvcrt.open_osfhandle`.
+- **Listing** goes through the held handle (`FileFullDirectoryInfo`).
+- **Auditing:** each native open raises Python's `open` audit event, as `os.open` does.
+
+**What Windows relies on without proof:**
+
+- **Above the data root:** the data root's ancestors are governed by B4-2.
+- **Parent renames:** that a held folder's parent cannot be renamed was observed in B1-S5, not documented. If it ever happens, the final-path check fails closed.
+- **Hard links:** a hard-linked file reports the link it was opened by (observed). Anything else would fail closed.
+- **Untested, local NTFS only:**
+  - network shares;
+  - other file systems;
+  - cloud placeholders;
+  - files that are reparse points without a name-surrogate tag. These are refused.
+
+**A finding: atomic writers on Windows.**
+
+- **What happens:** on NTFS, `os.replace` onto a file a reader holds open is refused, even when delete is shared. `atomic_write_text` then writes in place, which the reader may see.
+- **Not new:** Python's own `open()`, which today's readers use, shares no delete at all.
+- **Not blocking:** the writer still succeeds.
+
+**For the consumer migration to decide** (M1 changes none of these, because no consumer uses the new readers):
+
+- **A data root that is a file:** the new readers refuse it. The path accessors return a path that does not exist.
+- **Folder permissions:** the held walk opens each folder, so it needs read access where the path walk needed only search access.
+- **A file that cannot be opened:** the new readers raise an `OSError` for the consumer to map. Today each consumer maps the error from its own read.
+
+**Local results** (Windows 11, NTFS, Python 3.14.6, an absolute `PYTHONPATH`):
+
+- **The full Windows Python suite:** **3,923 passed, 60 skipped, 0 failed, 0 errors**, exit 0, in 27 minutes.
+  - Against B1-S3's run (3,851 passed, 59 skipped), 72 more pass: the new tests that run on Windows.
+  - The one new skip is the POSIX-only test. The other 59 are the same platform skips, none counted as passed.
+- **Focused runs:**
+
+  | Group | Result |
+  | --- | --- |
+  | the new held-read tests | 72 passed, 1 skipped (POSIX only) |
+  | storage identity, safety, scope, witness, containment, file safety, private folders, the isolation guard, the MCP request scope, both settings-storage files and the B1-S3 read-safety tests | 804 passed, 59 skipped |
+  | the import boundary, unused symbols, the inventory and publishability | 37 passed |
+  | the baselines, the approval gate, the task goldens and the prompt-boundary suites | 392 passed |
+  | `python tests/storage_baseline.py --check` | "baselines match" |
+  | the plan checker | 0 problems |
+  | `git diff --check` | clean |
+
+- **Not run:** the extension suite, which is unchanged.
+- **What these results show:** every local test passes, and the new readers behave as specified on Windows. They are not evidence about the race.
+
+**Protected files and records:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged. `storage.py` changed under the M1 authorization, and `safe_paths.py` under B1-S3's.
+- **The B1-S3 candidate:** its 11 files unchanged.
+- **Goldens and records:** 25 files byte-identical: the 17 task goldens, the six frozen Batch 0A records, and the approved 2B-2 and 2B-3a records.
+- **The 2B-3b record:** unchanged and still empty. DD-5 and DD-9 are still inactive.
+- **`storage_baseline.py --check`:** "baselines match".
+
+**Unchanged:**
+
+- US-D29;
+- the eight activation blockers of this section;
+- J-2 and T-15;
+- the Batch 3 compatibility requirement (E-7);
+- every DD approval;
+- the decision register: 24 APPROVED, 5 OPEN, 6 PROPOSED, 4 DEFERRED;
+- the version, 0.1.5.
+
+**Still to come:**
+
+- **Consumer migration:** moving these readers onto the new API, each on the owner's authorization:
+  - instructions;
+  - project settings;
+  - the Repository Profile;
+  - Fix Modes of both scopes;
+  - `config.toml`.
+- **Removing the Option A candidate**, on the owner's authorization.
+- **The adversarial suite:** the M3 gate.
+- **CI** on Linux, macOS and Windows.
+
+#### Batch 2B-3b — Option C M2: consumer migration (2026-10-22)
+
+**Status: OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST THAT AWAITS THE OWNER'S APPROVAL; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.**
+
+- **The suspected link race is not resolved.** Nothing here is adversarial evidence; that is the M3 gate.
+- **The state of the work:** on `verify/0.1.6-storage` at `d834082`, in the working tree only, on top of the uncommitted M1 work. Nothing is staged, committed or pushed.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5;
+  - the Batch 2B-3b designed-difference record is still empty.
+
+**The M1 compatibility gate (2026-10-22, read-only).** A review of M1 before any consumer used it, with probes on synthetic temporary files only.
+
+- **Windows atomic writes, observed:**
+  - `os.replace` onto a file that any reader holds open fails (WinError 5), whatever the reader shares;
+  - `atomic_write_text` writes in place once a hold lasts past its retries (about 150 ms), identically for the 0.1.5 reader and the M1 reader;
+  - holding only the folders never forces that fallback;
+  - torn reads were observed with the 0.1.5 reader under stress.
+
+  This is pre-existing, documented behaviour (`artifact_io`, T-S8). The zero-torn-write guarantee is POSIX's only. M1 shares delete, which lets a file be deleted, or replaced by a POSIX-semantics rename, while it is read; the latter would be a writer change and needs its own decision.
+- **The consumers' contracts:** measured on the committed tree (`d834082`) for absent, non-regular, oversized, invalid UTF-8, malformed and locked files, for every consumer below.
+- **POSIX:** analysed only. No Linux or macOS ran.
+- **Six decisions requested:** the gate asked the owner for six decisions before M2. The answers are below.
+
+**The owner's decisions (M2 authorization, 2026-10-22):**
+
+| Gate item | Decision |
+| --- | --- |
+| (a) a folder's failure and the file's own failure were one `OSError` | a narrow exception for the final file's own open or read; a folder on the way stays fatal (§4 of the authorization) |
+| (b) the Fix Mode link wording | one safe, sanitized issue for every link entry, never following a link to choose words; a before/after proposal, not approved (5.5) |
+| (c) a data root that is a regular file | fails closed; recorded as a behaviour change (5.1) |
+| (d) POSIX folders need read as well as search permission | accepted and recorded; Linux and macOS verification required, search-only folders included; no path-based fallback (5.2) |
+| (e) non-link reparse points | refused; no cloud placeholder is followed and there is no unverified fallback (5.3) |
+| (f) the test injection points | the two existing permission-error tests may move to the held-folder seam (§7) |
+| also | the data root opened reliably or failing closed (5.4); invalid UTF-8 Fix Modes kept as they are, the defect recorded separately (5.6); the writer and its Windows fallback unchanged (5.7) |
+
+**Changes** (the M2 allowlist; nothing else changed):
+
+| File | Change |
+| --- | --- |
+| `storage.py` | `StorageFileReadError(OSError)`: raised by the held readers only for the final file's own open or read. It carries the original's number, `os.strerror`'s text and the original (`error`), never a path. A file in use is retried as before. The Fix Mode readers' `limit` is typed `int \| None`. No write, identity or cache change |
+| `_held_folders.py` | The data root is opened by its `\\?\` form (the audit event names the plain path) and is absent only for Windows' own not-found codes 2 and 3. A handle query the file system cannot answer (1, 50, 87) is `Unsupported` |
+| `repository_settings.py` | `read_settings`, `fix_mode_names`, `read_fix_mode` through storage's held readers. `guarded()` passes the file's own failure through (`FileReadError`, re-exported for the readers that may not import storage). Option A's `read_bytes` is removed |
+| `instructions.py` | Both scopes read through storage, the user scope wrapped by `guarded()` too; `read_text_document`'s rules applied to the result. `read_text_document` itself is unchanged (the Verification Policy and AI Behavior, not migrated) |
+| `project_settings.py` | One storage read gives the settings, their warnings and the saved state. `is_saved`, whose one caller now uses that read, is removed |
+| `repository_profile.py` | Read through storage, with the same defaults and warnings |
+| `fix_mode_store.py` | Storage-owned scopes are listed and read through storage. A listed file gone before its read keeps "is not a file.", every link entry is one issue, and invalid UTF-8 still stops the catalog. The test-only `home_dir` folder keeps 0.1.5's path read |
+| `user_config.py` | `config.toml` read through storage. A folder at its name keeps its sentence and error class; folder failures are one sentence |
+| `safe_paths.py` | Option A's verified read removed; `decode_text` (decoding and line endings as `Path.read_text` gave them) kept |
+
+**How each reader handles each state:**
+
+| State | Instructions | Project settings | Repository Profile | Fix Mode file | `config.toml` |
+| --- | --- | --- | --- | --- | --- |
+| absent | none | defaults | Auto-detect | (not listed) or "is not a file." | empty |
+| not a regular file | "it is not a regular file." | defaults, silent | Auto-detect, silent | "is not a file." | `StorageAccessError` (PermissionError on Windows, IsADirectoryError on POSIX) |
+| too large | the size problem | warning, defaults | warning, Generic | (no limit) | (no limit) |
+| the file's own `OSError` | "it could not be read (…)" | warning, defaults | warning, Generic | issue | `StorageAccessError` |
+| a folder's `OSError` | `StorageAccessError` | `StorageAccessError` | `StorageAccessError` | `StorageAccessError` | `StorageAccessError` |
+| a refusal | `StorageError` | `StorageError` | `StorageError` | `StorageError` (a link entry: an issue) | `StorageError` |
+| malformed | "not UTF-8" | warning with the parser's message | warning, Generic | "is not valid JSON"; invalid UTF-8 raises, as before | replacement characters |
+
+- **Parity:** a probe ran the same 33 synthetic cases through the committed consumers and the M2 consumers. 32 were byte-identical: wording, error classes, the JSON error positions (CRLF translated), the Windows "Permission denied" text, and the preserved invalid-UTF-8 failure. The one difference is the link issue (DD-27).
+- **Found and fixed during M2:** Python files Windows errors 206 (a name too long), 53 and 67 (an unreachable network path) under `FileNotFoundError`. The data root's own open had caught that class as "absent"; it now goes by Windows' own code, so these fail closed.
+
+**Proposed designed difference DD-27 (NOT APPROVED).** Every link entry among a storage-owned scope's Fix Modes gets one issue, never followed to choose its words. *(Later on 2026-10-22: approved by the owner exactly as worded; §14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification".)*
+
+| Link kind | Committed issue | M2 issue |
+| --- | --- | --- |
+| symbolic link to a regular file | `<name> is a symbolic link. Custom Fix Modes must be real files inside their scope directory.` | `<name> is a symbolic link or junction. Custom Fix Modes must be real files inside their scope directory.` |
+| symbolic link to a folder | `<name> is not a file.` | the same M2 issue |
+| dangling symbolic link | `<name> is not a file.` | the same M2 issue |
+| junction (Windows) | `<name> is not a file.` | the same M2 issue |
+
+- **Surfaces affected:**
+  - the CLI's `fix-mode list` JSON (`issues[].message`);
+  - its text-mode `WARN:` line;
+  - MCP `list_fix_modes` (`issues[].message`);
+  - the extension's Manage Fix Modes, which shows the CLI's issues.
+- **Not affected:**
+  - task goldens and frozen records, none of which holds these messages;
+  - one mode read by its id, which `mode_path`'s unchanged containment check refuses first, as before. *(Correction, 2026-10-22: only for a link that resolves outside the folder. A link to a sibling inside it is read through storage and gets the DD-27 issue; this is not approved; §14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification".)*
+- **Test assertions:** none pins the committed wording for a storage-owned scope. `tests/test_fix_mode_store.py:284` checks the substring "symbolic link" on the test-only `home_dir` path, which is unchanged and passes. The new tests refer to the store's constant, not to the wording.
+- **Supersedes:** no approved designed difference.
+- **Record:** the 2B-3b record stays empty. The proposed identifier follows E-8's DD-13 to DD-26, and its form of record is the owner's to set.
+
+**Pre-existing defect, recorded separately (not fixed, decision 5.6).** A Fix Mode file that is not valid UTF-8 raises an uncaught `UnicodeDecodeError` out of the whole catalog, instead of being one issue. This is so in `d834082` and unchanged by M2.
+
+**Tests** (the M2 allowlist):
+
+- **`tests/test_settings_read_safety.py`:** rewritten from Option A to Option C, 61 tests, all non-adversarial. They cover:
+  - every consumer's legitimate reads, absence and defaults;
+  - final-file failures and folder-chain failures;
+  - refusals (links, unsupported reparse points, a system without the primitives, a record naming another repository);
+  - the CLI (JSON and text) and an MCP tool, with no bare `OSError`;
+  - a Fix Mode listed and gone before its read;
+  - every link kind among the Fix Modes;
+  - the saved state from one read;
+  - JSON error positions, and Windows' exclusive locks.
+- **`tests/test_storage_held_read.py`:** the in-use test now expects `StorageFileReadError`. 12 tests are added (85 in all):
+  - the file's failure told apart from a folder's;
+  - a file in use retried;
+  - the data root's long form and its audit path;
+  - a real data root longer than `MAX_PATH`;
+  - a data-root open failure that is never "absent";
+  - handle queries a file system cannot answer, refused (6 combinations);
+  - any other failed query kept as the system's error.
+- **The two approved moves:**
+  - `tests/test_global_config_storage.py::test_unreadable_user_instructions_are_left_out_with_a_problem_not_an_error`;
+  - `tests/test_repository_settings_storage.py::test_row10_a_settings_file_that_cannot_be_read_is_a_warning_naming_no_absolute_path`.
+
+  Each injection now goes to the held folder's `open_file`. The original assertions are unchanged, and each test proves its injection fired.
+
+**Local results** (Windows 11, NTFS, Python 3.14.6, an absolute `PYTHONPATH`):
+
+| Group | Result |
+| --- | --- |
+| consumers and MCP (Fix Mode suites, instructions, project settings, Repository Profile, both settings-storage files, read safety, three MCP suites) | 679 passed, 2 skipped (macOS only), **1 failed** (below) |
+| storage, identity, containment, file safety, private folders, the isolation guard, held reads, the import boundary, unused symbols, the inventory, publishability | 755 passed, 57 skipped (POSIX only) |
+| the baselines, the approval gate, the task goldens, the prompt-boundary and context-boundary suites | 573 passed |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the plan checker | 0 problems |
+| `git diff --check` | clean |
+| the full Windows suite | **not run**: the authorization runs it only after focused verification passes |
+
+- **The skips:** POSIX- and macOS-only tests, none counted as verified.
+- **What these results show:** nothing about the race.
+
+**The one failing test, a stop condition, awaiting the owner:** `tests/test_repository_settings_storage.py::test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code`, at its first assertion: `(code, json.loads(out)) == (1, _failure("project-settings", "INTERNAL_ERROR", sentence))`.
+
+- **The cause:** its fixture `unreadable_record` injects the record's failure at `storage._read_regular`, the 0.1.5 path read. The migrated readers check the identity record in the held namespace (`_held_record_state`), so the injection never fires.
+- **It is not a behaviour change:** a scratch run with the same injection at the held seam gave the expected exit 1, `INTERNAL_ERROR`, the same sentence, and the text-mode `ERROR:` line with no traceback.
+- **What is needed:** the owner's approval to move the fixture's injection to the held folder's `open_file` for `repository.json`, with a fired-assertion, the test's assertions unchanged. Only then can the full Windows suite run.
+
+**Protected files and records:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged; `storage.py` (M1, M2) and `safe_paths.py` (B1-S3, M2) changed by authorization.
+- **Goldens and records:** the 17 task goldens, the six frozen Batch 0A records, and the 2B-2 and 2B-3a records are byte-identical.
+- **The 2B-3b record:** unchanged and empty. DD-5 and DD-9 are still inactive.
+- **Changed files:** exactly the nine production and four test files allowed.
+
+**Outstanding before commit:**
+
+- **POSIX, never run:**
+  - descriptor-relative opens;
+  - folders that are search-only (the new read-permission requirement, decision (d)), read-only, and unreadable;
+  - a permission-denied file;
+  - the open-descriptor count;
+  - macOS's error codes for `O_DIRECTORY|O_NOFOLLOW` on a link;
+  - a `config.toml` folder (IsADirectoryError).
+- **Windows compatibility limits:**
+  - **Not exercised:** FAT and exFAT, ReFS, SMB and network shares, and a data root without `LongPathsEnabled` (now opened by its long form).
+  - **Refused:** cloud, deduplicated and compressed files (non-link reparse points). A data root inside OneDrive would stop working.
+  - **The writer:** the atomic writer's Windows in-place fallback is unchanged. No zero-torn-write safety is claimed on Windows.
+- **The adversarial suite (M3), for each migrated reader on each system:**
+  - a file replaced by a link after validation;
+  - `settings/`, `config/` or `fix_modes/` replaced;
+  - an ancestor (the namespace, `repositories/`) replaced;
+  - a replacement undone;
+  - Windows junctions and reparse points.
+
+  Each case must show that no sentinel content and no absolute path reaches `task.md`, the previews, the CLI, MCP or `bugpilot.log`.
+- **CI:** an owner-dispatched run, 9/9.
+- **The owner's decisions:** DD-27, the row-1 injection move, and the commit.
+
+#### Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification (2026-10-22)
+
+**Status: OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.**
+
+- **The link-race security gate stays OPEN.** These are non-adversarial Windows tests, and they are no evidence that the race is closed. The adversarial suite (M3) is mandatory.
+- **Pending:** Linux and macOS verification.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5.
+- **The state of the work:** on `verify/0.1.6-storage` at `d834082`, in the working tree only. Nothing is staged, committed or pushed.
+
+**The owner's authorization (2026-10-22):**
+
+- the repair of the Row 1 test's injection point;
+- the exact designed difference DD-27;
+- the local verification that follows.
+
+No commit, push or CI.
+
+**The Row 1 repair.** The test is `tests/test_repository_settings_storage.py::test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code`. Its injection is in that file's fixture `unreadable_record`, which no other test uses.
+
+- **What the fixture does now:** it refuses `repository.json`, and only it, at both of the record's readers:
+  - storage's path read (`_read_regular`), which the writers' checks (`ensure()` through `_record_state`) still use, as before;
+  - the held folder's `open_file`, where the settings readers open it (M2).
+
+  `install()` returns how often each refusal was made, and the test now ends by asserting that both fired. Every earlier assertion is unchanged: the exit codes, the error codes, the one-sentence messages, text mode with no traceback, the MCP sentences, the redaction, and the unchanged tree. `monkeypatch` restores everything.
+- **Why both readers, not the held one alone:** replacing the injection with the held seam alone was tried first, and the test then failed.
+  - `project-settings set --from-file` returned `INTERNAL_ERROR` with the bare sentence, not `INVALID_INPUT` with `--from-file could not be read: …`.
+  - The `set` handlers check the record by its path inside their own error wrapper, and that check then passed. The failure only surfaced later, outside the wrapper.
+  - A record that cannot be read fails both readers, so both are refused.
+- **What did not change:** no production code and no other test function.
+- **Results:** the test passes alone and in its file (41 passed, 2 skipped, macOS only).
+
+**DD-27 — APPROVED by the owner on 2026-10-22, exactly as worded.** An individual Fix Mode entry, in a storage-owned scope, that is a symbolic link, a directory link, a dangling link or a Windows junction gets one issue:
+
+`<name> is a symbolic link or junction. Custom Fix Modes must be real files inside their scope directory.`
+
+| Link kind | Before (`d834082`) | DD-27 |
+| --- | --- | --- |
+| symbolic link to a regular file | `<name> is a symbolic link. Custom Fix Modes must be real files inside their scope directory.` | the DD-27 issue |
+| symbolic link to a folder | `<name> is not a file.` | the DD-27 issue |
+| dangling symbolic link | `<name> is not a file.` | the DD-27 issue |
+| Windows junction | `<name> is not a file.` | the DD-27 issue |
+
+- **Rules:** the link is never followed to classify it. No public error code or JSON field changes.
+- **Approved surfaces:**
+  - `fix-mode list` JSON (`issues[].message`);
+  - `fix-mode list` text-mode `WARN:` lines;
+  - MCP `list_fix_modes`;
+  - the extension's Manage Fix Modes, through the message the CLI returns.
+- **Not approved:** any change to single-mode reads (below).
+- **Evidence:**
+  - `tests/test_settings_read_safety.py::test_every_link_among_the_fix_modes_is_one_issue_and_never_followed` covers a symbolic link to a file, to a folder and dangling, plus a Windows junction. It compares each issue with the store's `_LINK_ISSUE`, whose text was checked to equal the approved wording exactly. Its assertion names the constant rather than the words, so pinning the literal wording is a recommended follow-up, which needs the owner's approval of that test change.
+  - A probe observed the approved text on each surface: the JSON issue (its `scope`, `path` and `message` fields unchanged, exit 0), the `WARN:` line, and MCP `list_fix_modes`.
+- **Relationship to the DD records:**
+  - DD-27 changes no value in any compared baseline record. No record holds a Fix Mode link issue; the baseline scenario lists no link entry.
+  - The 2B-3b record's entries must be exact JSON-pointer `from`/`to` pairs over those records, so under its rules DD-27 has no entry. The record stays empty, and `storage_baseline.py --check` reports "baselines match".
+  - No historical DD record is edited, DD-27 supersedes none, and DD-5 and DD-9 stay inactive.
+- **Pending cross-platform validation:** the symbolic-link kinds on Linux and macOS (only Windows, with symbolic links enabled, ran).
+
+**Finding: single-mode reads of links inside the Fix Mode folder changed. NOT APPROVED; the owner's decision is needed.** *(Later on 2026-10-22: approved as DD-28 for `fix-mode show`, `update` and `delete`. `duplicate`, named below in error, reads no mode by its id and is unchanged; §14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence".)* One mode read by its id (`FixModeStore.read`, through `fix-mode show`, `update`, `delete` and `duplicate`) is still refused first by `mode_path`'s containment check when the link resolves outside the folder. A link to a sibling *inside* the folder passes that check. M2 then reads it through storage, which reports the DD-27 issue.
+
+| In-folder link | Before (`d834082`), observed | M2, observed |
+| --- | --- | --- |
+| to a sibling file | `<name> is a symbolic link. Custom Fix Modes must be real files inside their scope directory.` | the DD-27 issue |
+| to a sibling folder | `<name> is not a file.` | the DD-27 issue |
+| dangling, to a sibling name | `No project Fix Mode '<id>'. Run: bugpilot fix-mode list --all-scopes` (`FixModeNotFoundError`) | the DD-27 issue (`FixModeError`) |
+| a junction to a sibling folder | `<name> is not a file.` | the DD-27 issue |
+
+- **Observed through `fix-mode show <id> --scope project --json`:** exit 1 and `INVALID_INPUT` in both trees. The change is message-only; no error code or JSON field changes.
+- **Why it cannot simply be restored:** the earlier wording came from following the link (`exists()`, `is_file()`), which the approved rule forbids.
+- **The options are the owner's:**
+  - approve it as a further designed difference (proposed DD-28, not approved);
+  - or choose another single-mode behaviour that follows no link.
+- **No production change was made for it.**
+- **Correction:** the M2 section above said single-mode reads were unaffected. That holds only for links that resolve outside the folder.
+
+**Local verification** (Windows 11, NTFS, Python 3.14.6, an absolute `PYTHONPATH`):
+
+| Group | Result |
+| --- | --- |
+| the repaired Row 1 test, alone | 1 passed |
+| its file, `tests/test_repository_settings_storage.py` | 41 passed, 2 skipped (macOS only) |
+| consumers, MCP and the DD-27 evidence (Fix Mode suites, instructions, project settings, Repository Profile, both settings-storage files, read safety, three MCP suites) | 680 passed, 2 skipped (macOS only) |
+| storage security, identity, containment, file safety, private folders, the isolation guard, held reads, the import boundary, unused symbols, the inventory, publishability | 755 passed, 57 skipped (POSIX only) |
+| the baselines and approval gate, the task goldens, the prompt-boundary and context-boundary suites | 573 passed |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the plan checker | 0 problems |
+| `git diff --check` | clean |
+| **the full Windows Python suite** | **3,969 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 24 minutes. Against M1's run (3,923 passed, 60 skipped), 46 more pass: M2's new tests (34 more in the read-safety file, 12 in the held-read file); the 60 skips are the same platform skips |
+
+- **The skips:** platform skips, none counted as verified.
+- **What these results show:** nothing about the race.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged. `storage.py` and `safe_paths.py` are the documented, authorized exceptions.
+- **Goldens and records:** the 17 task goldens, the six frozen Batch 0A records, and the 2B-2 and 2B-3a records are byte-identical.
+- **The 2B-3b record:** unchanged and empty, as its rules require for DD-27. DD-5 and DD-9 are inactive.
+- **This step's changes:** one test file, `tests/test_repository_settings_storage.py` (the fixture and the one test), and this plan.
+
+**Still required before commit:**
+
+- the owner's decision on the single-mode read finding;
+- Linux and macOS verification, including search-only folders and the symbolic-link kinds;
+- the adversarial suite (M3);
+- an owner-dispatched CI run, 9/9;
+- the owner's commit authorization.
+
+#### Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence (2026-10-22)
+
+**Status: OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.**
+
+- **The suspected TOCTOU link race is unresolved.** Option C is not adversarially validated, and the adversarial suite (M3) is still required.
+- **Not security-verified:** B1-S3, M1 and M2 are none of them security-verified.
+- **Pending:** Linux and macOS verification.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5.
+- **The state of the work:** in the working tree only, on `d834082`. Nothing is staged, committed or pushed.
+
+**DD-28 — APPROVED by the owner on 2026-10-22, exactly as worded.** One Fix Mode read by its id, where the entry is a link to a sibling inside the scope's Fix Mode folder, gets:
+
+`<name> is a symbolic link or junction. Custom Fix Modes must be real files inside their scope directory.`
+
+| In-folder link | Before (`d834082`), observed | DD-28 |
+| --- | --- | --- |
+| symbolic link to a sibling regular file | `<name> is a symbolic link. Custom Fix Modes must be real files inside their scope directory.` | the DD-28 issue |
+| symbolic link to a sibling folder | `<name> is not a file.` | the DD-28 issue |
+| dangling symbolic link | `No project Fix Mode '<id>'. Run: bugpilot fix-mode list --all-scopes` | the DD-28 issue |
+| Windows junction to a sibling folder | `<name> is not a file.` | the DD-28 issue |
+
+- **Kept:**
+  - exit 1 and `INVALID_INPUT`;
+  - the JSON envelope (`schema_version`, `ok`, `command`, `error.code`, `error.message`);
+  - the text-mode `ERROR:` line;
+  - every entry that is not a link: a folder at the name stays `<name> is not a file.`, and nothing there stays `No project Fix Mode …`;
+  - the refusal, before anything is read, of a link that resolves outside the folder (`mode_path`'s containment check);
+  - nothing is written or deleted.
+- **The link is never followed to classify it.**
+- **The commands the owner listed, and what was observed:**
+  - `fix-mode show`, `update` and `delete` read one mode by its id. They have the DD-28 difference, and nothing else changed.
+  - `fix-mode duplicate` reads no mode by its id. A link given as the source is unknown to the catalog (`Unknown Fix Mode '<id>'. Available modes: …`). A link given as the copy's id is refused by the writer's own checks: `already exists`, or, for a dangling link, `<name> is a symbolic link. BugPilot will not write through it.`. Both are exactly as in `d834082`.
+  - So DD-28 has nothing to change in `duplicate`, and it is not expanded to it.
+  - The previous section's list of these commands named `duplicate` among them in error.
+- **MCP:** it reads no mode by its id (`show_fix_mode` resolves through the catalog), so DD-28 has no MCP surface. The extension shows the CLI's message.
+- **Relationship to DD-27:** DD-28 uses the same text as DD-27 but is a separate approved decision. DD-27 covers the catalog's list surfaces (`fix-mode list` JSON and `WARN:` lines, MCP `list_fix_modes`); DD-28 covers one mode read by its id. Neither changes the other, and no historical DD approval is changed.
+- **The 2B-3b record stays empty:** no compared baseline record holds either message, and no baseline difference is invented. `storage_baseline.py --check` reports "baselines match". DD-5 and DD-9 stay inactive.
+
+**Exact-message evidence** (`tests/test_settings_read_safety.py`). The approved text is written out in the test (`APPROVED_LINK_ISSUE`), never imported from the code, so a change of wording fails these tests. No production code changed: no mismatch was found.
+
+- **DD-27:**
+  - `test_dd27_every_list_surface_shows_the_approved_issue`: the in-folder link kinds, plus a link to outside the folder. It checks `fix-mode list --json` (the issue's `scope`, `path` and `message`), the text-mode `WARN:` line, and MCP `list_fix_modes` (`scope` and `message`).
+  - `test_every_link_among_the_fix_modes_is_one_issue_and_never_followed`: strengthened with an assertion against the literal; its earlier assertions are kept.
+- **DD-28:**
+  - `test_dd28_one_mode_read_by_its_id_gives_the_approved_issue`: `show`, `update` and `delete` × each in-folder link kind. It checks the whole JSON envelope, the text-mode `ERROR:` line, `FixModeStore.read`, and the folder unchanged.
+  - `test_dd28_holds_in_the_user_scope_too`.
+- **DD-28's boundaries:**
+  - `test_dd28_leaves_duplicate_as_it_was`;
+  - `test_dd28_leaves_entries_that_are_not_links_as_they_were`: a folder at the name, and nothing there, for each of the three commands.
+- **Count:** 33 evidence tests on Windows; the junction cases are Windows' own.
+
+**Row 1:** the approved two-hook fixture is kept, both `storage._read_regular` and the held folder's `open_file`. The test now ends with two explicit assertions, one per hook, each with its own message. Nothing else in Row 1 changed.
+
+**Local verification** (Windows 11, NTFS, Python 3.14.6, an absolute `PYTHONPATH`):
+
+| Group | Result |
+| --- | --- |
+| the DD-27 and DD-28 evidence tests | 33 passed |
+| the Row 1 test, alone | 1 passed |
+| the four approved test files | 239 passed, 3 skipped (POSIX or macOS only) |
+| consumers and MCP (Fix Mode suites, instructions, project settings, Repository Profile, both settings-storage files, read safety, three MCP suites) | 711 passed, 2 skipped (macOS only) |
+| storage security, identity, containment, file safety, private folders, the isolation guard, held reads, the import boundary, unused symbols, the inventory, publishability | 755 passed, 57 skipped (POSIX only) |
+| the baselines and approval gate, the task goldens, the prompt-boundary and context-boundary suites | 573 passed |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the plan checker | 0 problems |
+| `git diff --check` | clean |
+| **the full Windows Python suite** | **4,000 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; against the previous run (3,969 passed), 31 more pass: the new evidence tests; the 60 skips are the same platform skips |
+
+- **The skips:** platform skips, none counted as verified.
+- **What these results show:** nothing about the race.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged. `storage.py` and `safe_paths.py` are the documented, authorized exceptions, and neither changed in this step.
+- **Goldens and records:** the 17 task goldens, the six frozen Batch 0A records, and the 2B-2 and 2B-3a records are byte-identical.
+- **The 2B-3b record:** unchanged and empty.
+- **This step's changes:** two approved test files (`tests/test_settings_read_safety.py` and `tests/test_repository_settings_storage.py`) and this plan.
+
+**Still required before commit:**
+
+- Linux and macOS verification, including search-only folders and the symbolic-link kinds;
+- the adversarial suite (M3);
+- an owner-dispatched CI run, 9/9;
+- the owner's commit authorization.
+
+#### Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage (2026-10-22)
+
+**Status: OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.**
+
+- **The TOCTOU link race is unresolved.** The M3 adversarial gate stays OPEN.
+- **Not yet run:** the POSIX permission tests below have not run anywhere; they skip on Windows.
+- **Unchanged:**
+  - B1-M and B2 are NOT STARTED, and Unified Storage is inactive;
+  - the version is 0.1.5.
+- **The state of the work:** in the working tree only, on `d834082`. Nothing is staged, committed or pushed.
+
+**Case B: the root cause, found by reading the code during the CI-readiness review.** On POSIX, consider a folder on the way with read permission but no search permission.
+
+- **What happened:**
+  - The held reader opens the folder, because only read permission is needed for that.
+  - Opening a file inside it then fails. The follow-up look at the entry (a no-follow `fstatat` relative to the folder) fails too, because both need search permission on the folder.
+  - `open_file` raised that failure as the file's own, and storage wrapped it as `StorageFileReadError`.
+  - The instructions, project settings and Repository Profile readers then fell back to defaults with a warning. The Fix Modes got a non-fatal issue.
+- **The contract it broke:** M2's approved contract keeps directory-chain failures fatal, and the committed path accessor was fatal here for the settings files.
+
+**The owner's decision (2026-10-22): option (a), APPROVED.** A folder that denies looking up its entries is a folder-access failure:
+
+- fatal at the consumer boundary (`StorageAccessError`), with no fallback to defaults and no non-fatal Fix Mode issue;
+- no change to public error codes or JSON shapes;
+- no change to identity, the writers or the record cache;
+- no path-based read and no link followed.
+
+No designed difference is created for the rejected behaviour (the defaults).
+
+**The fix** (production: `bugpilot/core/_held_folders.py`, `bugpilot/core/storage.py`):
+
+- **The marker:** `_held_folders.FolderDenied(PermissionError)`. The POSIX `open_file` raises it only when the open fails *and* the look at the entry is refused with a `PermissionError`.
+- **Why that look decides it:** the look needs search permission on the folder and none on the entry.
+  - If it is refused, it is the folder that cannot be searched: Case B.
+  - If it succeeds, the entry is there and it is the file that cannot be read: Case C, the file's failure as before.
+  - Any other failed look keeps its earlier classification, so not every final-file `EACCES` becomes a folder error.
+- **What storage does with it:** `storage._content` re-raises it as the plain, pathless `PermissionError` every other folder failure is. Consumers' `guarded()` turns it into the usual `StorageAccessError` sentence.
+- **The identity record is unchanged:** `FolderDenied` is a `PermissionError`, so `_held_record_state` still reports "cannot read … right now".
+- **Not changed:** Windows, which has no equivalent; the writers; and identity.
+
+**Behaviour by case** (POSIX, an unprivileged account), compared with `d834082`:
+
+| Case | `d834082` | Now |
+| --- | --- | --- |
+| A. a search-only folder (search, no read) | the read succeeded | fatal `StorageAccessError` for every reader. Opening a folder takes read permission: decision 5.2's recorded limitation, never "absent" |
+| B. a readable folder that cannot be searched | settings readers: fatal `StorageAccessError`. Fix Modes: the non-fatal issue `<name> is not a file.` (the old `isfile()` was false) | fatal `StorageAccessError` for every reader, the Fix Mode catalog included: no defaults, no issue (this decision) |
+| C. a file that cannot be read, in a searchable folder | settings readers: a warning and the defaults. Fix Modes: an issue. `config.toml`: fatal | the same, with the same words |
+
+**The tests added** (`tests/test_storage_held_read.py`, POSIX only):
+
+- `test_posix_a_search_only_folder_fails_every_read_never_the_defaults` (Case A);
+- `test_posix_a_folder_that_can_be_read_but_not_searched_fails_every_reader` (Case B: `settings/` for instructions, project settings and the Repository Profile; `fix_modes/` for the catalog; `config/` for the user instructions and `config.toml`);
+- `test_posix_a_file_that_cannot_be_read_keeps_each_readers_handling` (Case C).
+
+How they run:
+
+- **Gated:** they skip off POSIX and for a privileged account (root), and skip at run time if the bits just set do not deny access.
+- **Permissions are restored** before cleanup.
+- **Platform-neutral wording:** the expected words come from the error's own number (`os.strerror`), never a platform's list of numbers.
+- **What they assert:** the consumer boundary (the error class, the one sentence in display form, no defaults, no issue), not only the lowest-level exception.
+- **Status:** they skip on Windows and are no evidence there. A scratch check with stubbed errors confirmed only the classification logic: B gives `FolderDenied`, then a plain `PermissionError`, then fatal; C gives the file's own error, then `StorageFileReadError`. Real POSIX behaviour awaits CI.
+
+**Python 3.10 CI coverage** (`.github/workflows/ci.yml`):
+
+- **The change:** four files appended to the `safety-and-baselines` job's explicit file list: `tests/test_storage_held_read.py`, `tests/test_settings_read_safety.py`, `tests/test_global_config_storage.py` and `tests/test_repository_settings_storage.py`.
+- **Where they now run:** in that job's four matrix entries, including Ubuntu with Python 3.10.
+- **Kept:** every existing entry, the nine jobs, the system matrix, the Python versions, the triggers (`workflow_dispatch` included), the permissions, the concurrency, the deselection, the isolated test home and the publishing restrictions.
+- **3.10 evidence so far:** a static check found no syntax or API newer than 3.10 in these files or the M1/M2 modules. No 3.10 run has happened.
+
+**Local verification** (Windows 11, NTFS, Python 3.14.6):
+
+| Group | Result |
+| --- | --- |
+| `tests/test_storage_held_read.py` | 84 passed, 4 skipped (POSIX only: the three new tests and the descriptor-relative test) |
+| consumers and MCP | 711 passed, 2 skipped (macOS only) |
+| storage security, identity, containment, file safety, held reads, the import boundary, unused symbols, the inventory, publishability, the CI and release workflow structure | 835 passed, 60 skipped (POSIX only, the three new tests among them) |
+| the baselines and approval gate, the task goldens, the prompt-boundary and context-boundary suites | 573 passed |
+| `python tests/storage_baseline.py --check` | "baselines match" |
+| the plan checker | 0 problems |
+| `git diff --check` | clean |
+| **the full Windows Python suite** | **4,000 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; the same 4,000 as before the fix, and 3 more skips: the new POSIX-only permission tests |
+
+No skipped test is counted as passed.
+
+**Integrity:**
+
+- **Owner-protected files:** 11/11 unchanged.
+- **The 2B-3a protected set:** 212 of 214 unchanged, with `storage.py` and `safe_paths.py` the documented exceptions.
+- **Goldens and records:** the 17 task goldens and the frozen records are byte-identical.
+- **The 2B-3b record:** unchanged and empty.
+- **Unchanged decisions:** DD-27, DD-28, US-D29 and the eight activation blockers.
+- **This step's changes:** exactly the five files allowed.
+
+**Still required before commit:**
+
+- the first Linux and macOS run, including Cases A, B and C, and the first Python 3.10 run of the M1/M2 tests, both in an owner-dispatched CI run (9/9);
+- the adversarial suite (M3);
+- the owner's commit authorization.
+
 ### 14.4 Batch 3 — Extension and Agent Handoff
 
 **1. Scope.**
@@ -9227,6 +9966,12 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-21 | 2B-3a | **CI run 39675645316 on `743f542`: SUCCESS, 9/9, on attempt 2. Batch 2B-3a — IMPLEMENTATION COMPLETE; CROSS-PLATFORM CI VERIFIED; NOT ACTIVATED.** <ul><li>**Push:** `5b66ffe..743f542`, fast-forward, owner-authorized.</li><li>**Attempt 1 (failure):** eight jobs succeeded with 0 failed tests. macOS safety was cancelled: its runner was not acquired (macOS arm64 capacity).</li><li>**Attempt 2:** the owner re-ran the failed job. macOS safety 1,770 passed, 46 skipped, 1 deselected. The other eight are attempt 1's results.</li><li>**Safety:** <ul><li>Ubuntu 3.13 and 3.10: 1,768 passed and 48 skipped each;</li><li>macOS: 1,770 passed, 46 skipped;</li><li>Windows: 1,782 passed, 59 skipped.</li></ul></li><li>**Full suite:** <ul><li>Ubuntu: 3,783 passed, 57 skipped;</li><li>macOS: 3,787 passed, 53 skipped;</li><li>Windows: 3,804 passed, 61 skipped.</li></ul></li><li>**Deselected:** one per Python job.</li><li>**Extension:** 2,348 passed and 2 skipped; the evidence boundary 27 passed.</li><li>**Linux and macOS:** <ul><li>T-10 and T-11 ran on macOS; T-13 matched each system;</li><li>the POSIX permission, link, containment and write-witness tests, R-PRE, M-P, DD-4 to DD-12, PC-1, the chained baselines and the goldens ran and passed;</li><li>the only new skips are the new file's platform-gated tests.</li></ul></li></ul> DD-4 to DD-12 remain approved. Not integrated into `main`; not activated. J-2's rows 18 to 21 pending; the PowerShell `Path` issue deferred to Batch 3; 2B-3b NOT STARTED (§14.3, "Batch 2B-3a — cross-platform CI verification"). |
 | 2026-10-21 | 2B-3b | **Batch 2B-3b decision gate recorded: E-1 to E-10 decided; implementation NOT AUTHORIZED; NOT STARTED.** <ul><li>**Texts:** the seven AI-facing texts approved (E-1); three user-facing wording changes, and display form everywhere (E-2).</li><li>**Evidence:** <ul><li>DD-5 → DD-13 and DD-9 → DD-15 only, through an explicit supersession table. B1 relies on no intentionally failing old-state assertion: a pending pair is reported by the approval gate until the owner approves its successor, and only then is it active. The approved records and the historical CI evidence are unchanged (E-3).</li><li>DD-19 to DD-26 each get pointer-specific evidence measured from the goldens (E-8).</li></ul></li><li>**Security:** a link-race review in B1. A fix outside the allowlist needs a separate decision.</li><li>**Scope:** <ul><li>allowlists corrected (E-4);</li><li>`repository_settings.remove_file` specified (E-5).</li></ul></li><li>**Risks:** <ul><li>T-15 widened to the two policy-bearing files (E-6);</li><li>the extension's Edit and Reset restricted until Batch 3, whose compatibility verification is required before integration or activation (E-7).</li></ul></li><li>**Contracts:** <ul><li>DD-13 to DD-26 approved as categories (E-8);</li><li>J-2 for the two commands (E-9);</li><li>the golden approval protocol (E-10).</li></ul></li></ul> No code, test, golden or record changed; the register's statuses are unchanged (§14.3, "Batch 2B-3b — decision gate and implementation contract"). |
 | 2026-10-21 | 2B-3b | **Phase A implemented and verified locally on Windows; uncommitted; not CI-verified; B1 and B2 NOT STARTED; NOT ACTIVATED.** <ul><li>**Files:** the empty `tests/baselines/0.1.6-batch2b3b/designed_differences.json` (base `9311892`); `tests/storage_baseline.py` (`DESIGNED_CHAIN`, `SUPERSEDED` and the supersession check); `tests/test_storage_baseline.py` (the gate, the chain, the evidence rule, 17 new tests).</li><li>**Results:** <ul><li>54 baseline tests pass; `--check` "baselines match";</li><li>both pairs inactive, and DD-5's and DD-9's evidence still required and passing;</li><li>DD-1 to DD-12 approved and their 12 evidence tests pass;</li><li>236 golden, baseline and settings tests pass, with 2 macOS-only skips;</li><li>the 17 goldens and every frozen and approved record byte-identical.</li></ul></li><li>**For the owner:** the pending-state retirement wording, to confirm before B1. *(Confirmed on 2026-10-21.)*</li></ul> (§14.3, "Batch 2B-3b — Phase A: baseline neutrality"). Nothing staged, committed or pushed. |
+| 2026-10-21 | 2B-3b | **B1-S3 OPTION A CANDIDATE IMPLEMENTED LOCALLY; ADVERSARIAL SECURITY VALIDATION PENDING; NOT COMMITTED; NOT VERIFIED.** <ul><li>**B1-S:** every settings reader validated a path and then opened it with a call that follows links. This is a suspected race, from the code; no reproduction was performed.</li><li>**Option A:** `safe_paths.read_verified`: open (`O_NOFOLLOW` where the system has it), check again through the reader's own storage accessor, then compare identities. It is detection after the open, not a guarantee by construction.</li><li>**Readers moved to it:** project and user instructions, project settings, the Repository Profile, project and user Fix Modes, and `config.toml`. The Verification Policy and AI Behavior are unchanged.</li><li>**Tests:** <ul><li>27 new non-adversarial tests;</li><li>two existing tests' injections moved to `os.open` (owner-approved);</li><li>full Windows suite 3,851 passed, 59 skipped, 0 failed.</li></ul></li><li>**Protected files:** 11/11 and 213/213 non-exempt unchanged; `safe_paths.py` changed under the explicit authorization.</li><li>**Missing:** the adversarial tests, CI on Linux and macOS, and the owner's review.</li></ul> The TOCTOU risk is not resolved; B1-M NOT STARTED (§14.3, "Batch 2B-3b — B1-S security review and the Option A candidate"). Nothing staged, committed or pushed. |
+| 2026-10-21 | 2B-3b | **OPTION C M1 IMPLEMENTED LOCALLY; CONSUMER MIGRATION PENDING; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** <ul><li>**Option C:** chosen by the owner after B1-S (B1-S4), designed and probed on Windows (B1-S5), its M1 authorized (B1-S6).</li><li>**M1:** `storage` gains `SettingsContent` and seven readers that return a file's bytes, with every folder from the data root held open while the file is read (`_held_folders.py`: `dir_fd` on POSIX, held handles on Windows). The checks and refusal words are the path accessors'. No consumer uses them yet.</li><li>**Tests:** 73 new non-adversarial tests (72 run on Windows); full Windows suite 3,923 passed, 60 skipped, 0 failed.</li><li>**Protected files:** owner 11/11; the 2B-3a set 212/214 (`storage.py` under M1, `safe_paths.py` under B1-S3); the B1-S3 candidate 11/11; goldens and records 25/25.</li><li>**Missing:** the consumer migration, the adversarial suite (M3), CI on Linux, macOS and Windows, and the owner's review.</li></ul> The TOCTOU risk is not resolved (§14.3, "Batch 2B-3b — Option C M1: the storage safe-read foundation"). Nothing staged, committed or pushed. |
+| 2026-10-22 | 2B-3b | **OPTION C M2 IMPLEMENTED LOCALLY; FOCUSED VERIFICATION STOPPED ON ONE EXISTING TEST AWAITING THE OWNER; FULL SUITE NOT RUN; DD-27 PROPOSED, NOT APPROVED; ADVERSARIAL VALIDATION PENDING; NOT COMMITTED; NOT CROSS-PLATFORM VERIFIED.** <ul><li>**M1 compatibility gate** (read-only): Windows' atomic-write fallback is pre-existing and not newly reached; POSIX folders need read permission; the consumers' contracts were measured on `d834082`; six decisions were requested.</li><li>**The owner's decisions:** a final-file exception; one link issue (a proposal); a data root that is a file fails closed; POSIX read permission accepted; non-link reparse points refused; two test injections moved.</li><li>**M2:** project and user instructions, project settings, the Repository Profile, project and user Fix Modes and `config.toml` read through storage's held readers; `StorageFileReadError`; the data root opened by its long form and absent only for Windows' own not-found codes; Option A's verified read removed, `decode_text` kept; `is_saved` removed.</li><li>**Parity:** 32 of 33 contract cases byte-identical with `d834082`; the one difference is DD-27, proposed and not approved.</li><li>**Results:** 679 + 755 + 573 passed in the focused groups; one existing test (`test_row1_an_unreadable_record_is_one_sentence_with_each_surfaces_code`) fails because its injection point is no longer on the read path, and awaits the owner; the full suite was not run.</li></ul> The TOCTOU risk is not resolved (§14.3, "Batch 2B-3b — Option C M2: consumer migration"). Nothing staged, committed or pushed. |
+| 2026-10-22 | 2B-3b | **OPTION C M2 IMPLEMENTED AND VERIFIED LOCALLY ON WINDOWS; DD-27 APPROVED; A SINGLE-MODE READ FINDING AWAITS THE OWNER; ADVERSARIAL VALIDATION PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** <ul><li>**Row 1:** `tests/test_repository_settings_storage.py`'s fixture `unreadable_record` refuses `repository.json` at both of its readers (storage's path read, which the writers' checks still use, and the held folder's `open_file`); the test asserts both fired; every earlier assertion unchanged. The held seam alone was tried first and failed the `set` handlers' assertions.</li><li>**DD-27 APPROVED** (owner, 2026-10-22), exactly as worded; surfaces: `fix-mode list` JSON and `WARN:` lines, MCP `list_fix_modes`, the extension through the CLI. No compared baseline record holds it, so the 2B-3b record has no entry for it and stays empty; "baselines match".</li><li>**Finding, not approved:** single-mode reads (`fix-mode show`, `update`, `delete`, `duplicate`) of a link to a sibling inside the Fix Mode folder now get the DD-27 issue; exit and error code unchanged; the owner's decision is needed (a proposed DD-28 or another rule).</li><li>**Results:** focused groups 680 + 755 + 573 passed; full Windows suite **3,969 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 24 minutes. Against M1's run (3,923 passed, 60 skipped), 46 more pass: M2's new tests (34 more in the read-safety file, 12 in the held-read file); the 60 skips are the same platform skips.</li></ul> The link-race gate stays OPEN (§14.3, "Batch 2B-3b — Option C M2: Row 1 repair, DD-27 approval and verification"). Nothing staged, committed or pushed. |
+| 2026-10-22 | 2B-3b | **OPTION C M2 VERIFIED LOCALLY ON WINDOWS; DD-27 AND DD-28 APPROVED AND EVIDENCED; TOCTOU RISK UNRESOLVED; ADVERSARIAL VALIDATION (M3) PENDING; LINUX AND MACOS NOT VERIFIED; NOT COMMITTED.** <ul><li>**DD-28 APPROVED** (owner, 2026-10-22), exactly as worded: one mode read by its id that is a link to a sibling inside the Fix Mode folder (a file, a folder, dangling, a Windows junction) gets the DD-27 text; exit 1, `INVALID_INPUT`, the JSON envelope and every non-link entry unchanged. Observed on `show`, `update` and `delete`; `duplicate` reads no mode by its id and is unchanged, so DD-28 is not expanded to it.</li><li>**Evidence against the literal** (written out in `tests/test_settings_read_safety.py`, never imported): 33 tests over `fix-mode list` JSON and `WARN:`, MCP `list_fix_modes`, `show`/`update`/`delete` (JSON and text), the user scope, and DD-28's boundaries (`duplicate`, non-link entries). No production change.</li><li>**Row 1:** both hooks kept; one explicit assertion per hook.</li><li>**Results:** the full Windows suite **4,000 passed, 60 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; against the previous run (3,969 passed), 31 more pass: the new evidence tests; the 60 skips are the same platform skips.</li></ul> The 2B-3b record stays empty; the link race is unresolved (§14.3, "Batch 2B-3b — Option C M2: DD-28 approval and exact-message evidence"). Nothing staged, committed or pushed. |
+| 2026-10-22 | 2B-3b | **OPTION C M2 WITH THE CASE B FIX VERIFIED LOCALLY ON WINDOWS; THE POSIX PERMISSION TESTS NOT YET RUN (POSIX ONLY); PYTHON 3.10 CI COVERAGE ADDED, NOT YET RUN; TOCTOU RISK UNRESOLVED; M3 PENDING; NOT COMMITTED.** <ul><li>**Case B (POSIX):** a folder with read but no search permission made a file read fail as the file's own, so the settings readers fell back to defaults and the Fix Modes got an issue. Owner decision, option (a): fatal, as a folder-access failure.</li><li>**Fix:** `_held_folders.FolderDenied`, raised only when the open fails and the no-follow look at the entry (which needs search on the folder, nothing on the file) is refused; `storage._content` re-raises it as the plain folder `PermissionError`. Case C (an unreadable file in a searchable folder) unchanged; Windows, writers, identity and the record cache unchanged.</li><li>**Tests:** three POSIX-only permission tests (A, B, C) in `tests/test_storage_held_read.py`, skipped on Windows; not yet run anywhere.</li><li>**CI:** the four M1/M2 test files appended to the `safety-and-baselines` list (Python 3.10 included); nine jobs unchanged; not yet run.</li><li>**Results:** the full Windows suite **4,000 passed, 63 skipped, 0 failed, 0 errors, 0 deselected**, exit 0, in 21 minutes; the same 4,000 as before the fix, and 3 more skips: the new POSIX-only permission tests.</li></ul> The link race is unresolved; M3 is open (§14.3, "Batch 2B-3b — Option C M2: POSIX Case B fix and CI coverage"). Nothing staged, committed or pushed. |
 
 ---
 
@@ -9289,6 +10034,13 @@ These add to the gates that already apply; they do not replace them:
 | 2026-10-21 | 2B-3b gate | `verify/0.1.6-storage` | carried by the documentation commit that records this gate, when authorized | — | — | documentation only; no CI |
 | 2026-10-21 | 2B-3b gate | `verify/0.1.6-storage` | `93118926956464e6baa9c5c2631bc74166bf241c` (parent `c0b8ea7`), pushed by fast-forward (`c0b8ea7..9311892`), owner-authorized | — (documentation only; no CI dispatched) | — | the row above is committed and pushed |
 | 2026-10-21 | 2B-3b Phase A | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `9311892` | — (no CI) | — | local Windows verification only; Linux and macOS not verified |
+| 2026-10-21 | 2B-3b Phase A | `verify/0.1.6-storage` | `d8340823546a36cf4800facff3137c84e4617f64` (parent `9311892`), pushed by fast-forward (`9311892..d834082`), owner-authorized | — (no CI dispatched) | — | the Phase A row above is committed and pushed; Phase A has not run in CI |
+| 2026-10-21 | 2B-3b B1-S3 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | the Option A candidate; adversarial validation pending; local Windows verification only |
+| 2026-10-21 | 2B-3b Option C M1 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | M1 beside the Option A candidate; the consumer migration and adversarial validation pending; local Windows verification only |
+| 2026-10-22 | 2B-3b Option C M2 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | M2 on top of M1; one existing test awaits the owner; the full suite not run; local Windows verification only |
+| 2026-10-22 | 2B-3b Option C M2, Row 1 and DD-27 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | the Row 1 test repaired; DD-27 approved; a single-mode read finding awaits the owner; local Windows verification only |
+| 2026-10-22 | 2B-3b Option C M2, DD-28 | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | DD-28 approved; DD-27 and DD-28 evidenced against their literal text; local Windows verification only |
+| 2026-10-22 | 2B-3b Option C M2, Case B and CI coverage | `verify/0.1.6-storage` (working tree) | none: uncommitted, on `d834082` | — (no CI) | — | the Case B fix, three POSIX permission tests, the Python 3.10 file list; local Windows verification only |
 
 ---
 

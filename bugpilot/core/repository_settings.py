@@ -26,11 +26,19 @@ all of them (F2-S, owner decision B-2):
   an ``OSError`` from a storage call or a settings file's own write. One
   sentence in display form; each command reports it with the code it gave the
   same failure in 0.1.5 (M-1).
+- **A file that cannot be read is the reader's to report** (Option C, M2): a
+  :class:`FileReadError`, an ``OSError`` at the file itself, passes through
+  unchanged, so each reader keeps its own handling of an unreadable file (a
+  warning, the defaults), while a folder on the way that cannot be read is
+  still a ``StorageAccessError``.
 - **Nothing else is caught** here: no ``ValueError``, no other ``StorageError``,
   no ``Exception``.
 
-A read creates nothing. A write makes the namespace ready first (``ensure()``:
-its folder and identity record), then writes the file inside it.
+The reads go through storage's readers, which follow no link
+(:meth:`~bugpilot.core.storage.RepositoryStorage.read_settings` and the Fix Mode
+readers): a consumer gets a file's bytes, never a path to open. A read creates
+nothing. A write makes the namespace ready first (``ensure()``: its folder and
+identity record), then writes the file inside it.
 """
 
 from __future__ import annotations
@@ -45,6 +53,10 @@ from .errors import StorageAccessError
 
 FIX_MODES_DIR_NAME = "fix_modes"
 
+#: A file a read reached but could not open or read (storage's ``StorageFileReadError``), for the readers that
+#: may not import storage themselves.
+FileReadError = storage.StorageFileReadError
+
 _T = TypeVar("_T")
 
 
@@ -58,8 +70,8 @@ def guarded(action: str, shown: Callable[[], str], call: Callable[[], _T]) -> _T
         return call()
     except storage.StorageUnavailable as error:
         raise StorageAccessError(str(error)) from None
-    except StorageAccessError:
-        raise
+    except (StorageAccessError, FileReadError):
+        raise  # already one sentence; or the file itself, which its reader reports
     except OSError as error:
         raise StorageAccessError.during(action, shown(), error) from None
 
@@ -95,6 +107,41 @@ def fix_modes_dir(repo_root: Path, *, create: bool) -> Path:
         "prepare" if create else "read",
         lambda: storage.display_path(_settings_dir(namespace) / FIX_MODES_DIR_NAME),
         lambda: namespace.fix_modes_dir(create=create),
+    )
+
+
+def read_settings(repo_root: Path, name: storage.SettingsName, *, limit: int) -> storage.SettingsContent:
+    """``settings/<name>``, read without following a link (storage's held read; Option C, M2). Creates nothing.
+
+    :func:`settings_file`'s checks and words. A folder on the way that cannot be read is a
+    ``StorageAccessError``, worded as :func:`settings_file` words it; the file's own failure is a
+    :class:`FileReadError` for the caller to report.
+    """
+    namespace = _namespace(repo_root)
+    return guarded(
+        "read",
+        lambda: storage.display_path(_settings_dir(namespace)),
+        lambda: namespace.read_settings(name, limit=limit),
+    )
+
+
+def fix_mode_names(repo_root: Path) -> list[str]:
+    """The ``.json`` names in the project Fix Mode folder, sorted, listed without following a link."""
+    namespace = _namespace(repo_root)
+    return guarded(
+        "read",
+        lambda: storage.display_path(_settings_dir(namespace) / FIX_MODES_DIR_NAME),
+        namespace.fix_mode_names,
+    )
+
+
+def read_fix_mode(repo_root: Path, file_name: str, *, limit: int | None) -> storage.SettingsContent:
+    """One project Fix Mode file, read without following a link; a link there is the state ``link``."""
+    namespace = _namespace(repo_root)
+    return guarded(
+        "read",
+        lambda: storage.display_path(_settings_dir(namespace) / FIX_MODES_DIR_NAME),
+        lambda: namespace.read_fix_mode(file_name, limit=limit),
     )
 
 

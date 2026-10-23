@@ -28,7 +28,8 @@ from pathlib import Path
 
 from . import storage
 from .errors import StorageAccessError
-from .safe_paths import UnsafePathError, is_link_or_junction
+from .repository_settings import FileReadError, guarded
+from .safe_paths import UnsafePathError, decode_text, is_link_or_junction
 
 # There is deliberately no default Jira site.
 #
@@ -69,6 +70,11 @@ def user_config_path() -> Path:
 def config_dir_variable_is_set() -> bool:
     """Whether the retired :data:`CONFIG_DIR_ENV` is in the environment, whatever it holds. Its value is never read."""
     return CONFIG_DIR_ENV in os.environ
+
+
+#: What reading a folder at ``config.toml``'s name raised before Option C, by its class (the one part a
+#: message shows): Windows refuses to open a folder as a file; POSIX opens it and cannot read it.
+_FOLDER_AT_NAME = PermissionError if os.name == "nt" else IsADirectoryError
 
 
 # --- token storage seam -----------------------------------------------------
@@ -124,23 +130,26 @@ def load_user_config() -> UserConfig:
 def _read_config() -> dict[str, str]:
     """The file's table, or an empty one when there is no file.
 
-    The path comes from storage's checked read: a data folder in a Git working
-    tree, or a link on the way or at the file, is refused (``StorageError``).
-    A file that is not there is "not configured"; one that cannot be read is a
-    :class:`~bugpilot.core.errors.StorageAccessError`, never its system error's
-    text.
+    Storage reads the file without following a link (Option C, M2): a data
+    folder in a Git working tree, or a link on the way or at the file, is
+    refused (``StorageError``). A file that is not there is "not configured";
+    one that cannot be read, a folder on the way that cannot be, or a folder
+    at the file's name is a :class:`~bugpilot.core.errors.StorageAccessError`,
+    never its system error's text.
     """
-    path = storage.global_storage().config_file(create=False)
+    shown = shown_config_path()
     try:
-        # errors="replace": this file is hand-editable, it is read by *every* command
-        # through load_config, and a decode error here would take down
-        # `bugpilot doctor` — the one command whose job is to explain what is wrong.
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except (FileNotFoundError, NotADirectoryError):
+        found = guarded("read", lambda: shown, storage.global_storage().read_config)
+    except FileReadError as error:
+        raise StorageAccessError.during("read", shown, error.error) from None
+    if found.state == "absent":
         return {}
-    except OSError as error:
-        raise StorageAccessError.during("read", shown_config_path(), error) from None
-    return _parse_toml(text)
+    if found.state == "not_a_file":
+        raise StorageAccessError.during("read", shown, _FOLDER_AT_NAME()) from None
+    # errors="replace": this file is hand-editable, it is read by *every* command
+    # through load_config, and a decode error here would take down
+    # `bugpilot doctor` — the one command whose job is to explain what is wrong.
+    return _parse_toml(decode_text(found.data, "utf-8", errors="replace"))
 
 
 def save_user_config(

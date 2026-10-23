@@ -22,10 +22,10 @@ from __future__ import annotations
 import errno
 import json
 import os
-import pathlib
 import stat
 import sys
 import uuid
+import weakref
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -33,7 +33,7 @@ import pytest
 
 from bugpilot import cli
 from bugpilot.cli import main
-from bugpilot.core import jira, private_folder, storage, user_config
+from bugpilot.core import _held_folders, jira, private_folder, storage, user_config
 from bugpilot.core.agent_runner import AgentRunResult
 from bugpilot.core.fix_mode_store import custom_mode_payload
 from bugpilot.core.fix_modes import builtin_fix_mode_registry
@@ -365,15 +365,28 @@ def test_unreadable_user_instructions_are_left_out_with_a_problem_not_an_error(
     _repo(tmp_path, monkeypatch)
     target = user_config_folder / "instructions.md"
     target.write_text("Prefer small changes.\n", encoding="utf-8")
-    real_read_bytes = pathlib.Path.read_bytes
+    # Storage opens the file in its held folders (Option C, M2): fail its open there, in the held config/ folder only.
+    folder_class = _held_folders._WindowsFolder if os.name == "nt" else _held_folders._PosixFolder
+    real_child, real_open_file = folder_class.child, folder_class.open_file
+    config_folders: weakref.WeakSet = weakref.WeakSet()
+    denied: list[str] = []
 
-    def read_bytes(self):
-        if os.path.normcase(str(self)) == os.path.normcase(str(target)):
-            raise PermissionError(errno.EACCES, "Permission denied", str(self))
-        return real_read_bytes(self)
+    def child(self, name):
+        found = real_child(self, name)
+        if name == "config" and found is not None:
+            config_folders.add(found)
+        return found
 
-    monkeypatch.setattr(pathlib.Path, "read_bytes", read_bytes)
+    def opening(self, name):
+        if self in config_folders and name == target.name:
+            denied.append(name)
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_open_file(self, name)
+
+    monkeypatch.setattr(folder_class, "child", child)
+    monkeypatch.setattr(folder_class, "open_file", opening)
     code, payload = _json(capsys, "instructions", "show")
+    assert denied, "the injected failure never happened"
     assert code == 0
     assert payload["user"]["configured"] is False
     assert payload["user"]["problem"] == "it could not be read (Permission denied)."

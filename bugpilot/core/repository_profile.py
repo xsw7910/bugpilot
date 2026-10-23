@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Iterable
 
 from . import repository_settings
-from .safe_paths import is_link_or_junction
+from .safe_paths import decode_text, is_link_or_junction
 
 PROFILE_MODES: tuple[str, ...] = ("auto", "generic", "custom")
 DEFAULT_PROFILE_MODE = "auto"
@@ -235,25 +235,27 @@ def load_repository_profile(repo_root: Path) -> tuple[RepositoryProfile, list[st
     No file is the default, Auto-detect. A file that cannot be used — unreadable,
     not JSON, an unknown mode — is Generic plus a warning: the one choice that
     claims nothing about the repository. Reaching the file may refuse
-    (storage's checks: a link on the way, a namespace that is not this
-    repository's), which fails the command (owner decision G-6).
+    (storage's checks: a link on the way or at the file, a namespace that is not
+    this repository's), which fails the command (owner decision G-6); so does a
+    folder on the way that cannot be read. Storage reads the file without
+    following a link (Option C, M2).
     """
-    path = profile_path(repo_root)
     shown = shown_profile_path(repo_root)
-    problem = _link_problem(path, shown)
-    if problem:
-        return RepositoryProfile(mode=FALLBACK_PROFILE_MODE), [f"{problem} Using the Generic profile."]
-    if not path.is_file():
+    try:
+        found = repository_settings.read_settings(repo_root, PROFILE_FILE_NAME, limit=64 * 1024)
+    except repository_settings.FileReadError as exc:
+        return RepositoryProfile(mode=FALLBACK_PROFILE_MODE), [
+            f"{shown} could not be read ({exc.strerror or type(exc).__name__}). Using the Generic profile."
+        ]
+    if found.state in ("absent", "not_a_file"):
         return RepositoryProfile(), []
     try:
-        if path.stat().st_size > 64 * 1024:
+        if found.state == "too_large":
             raise ValueError("it is far larger than a repository profile")
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        # The system error's class, never its text, which holds the absolute path (US-D22).
-        reason = (exc.strerror or type(exc).__name__) if isinstance(exc, OSError) else str(exc)
+        data = json.loads(decode_text(found.data, "utf-8"))  # line endings as `read_text` gave them
+    except ValueError as exc:
         return RepositoryProfile(mode=FALLBACK_PROFILE_MODE), [
-            f"{shown} could not be read ({reason}). Using the Generic profile."
+            f"{shown} could not be read ({exc}). Using the Generic profile."
         ]
     if not isinstance(data, dict):
         return RepositoryProfile(mode=FALLBACK_PROFILE_MODE), [

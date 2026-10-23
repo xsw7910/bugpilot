@@ -66,6 +66,15 @@ Batch 2B-1 prepared the switch of callers, still before any caller uses it:
 - **Checks that never raise:** ``check()`` on both storages, for ``doctor``
   (:class:`StorageCheck`).
 
+Option C added reads that follow no link, still before any caller uses them:
+:meth:`RepositoryStorage.read_settings`, :meth:`~RepositoryStorage.read_fix_mode`,
+:meth:`GlobalStorage.read_user_instructions`, :meth:`~GlobalStorage.read_user_fix_mode`
+and :meth:`~GlobalStorage.read_config` return a file's bytes
+(:class:`SettingsContent`), not a path for the caller to open, and the two
+``fix_mode_names`` methods list a Fix Mode folder. Every folder from the data
+root down stays held open while the file is opened and read
+(:mod:`._held_folders`); the checks and their words are the path accessors'.
+
 Standard library only; Python 3.10 and later.
 """
 
@@ -90,12 +99,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable, Iterator, Literal, TypeVar
 
-from . import private_folder
+from . import _held_folders, private_folder
 from .artifact_io import _check_temp, atomic_write_text
 from .identity import is_work_item_id, validate_work_item_id
 from .safe_paths import (
     UnsafePathError,
     _check_parts,
+    _write_refusal,
     is_link_or_junction,
     is_link_stat,
     refuse_link,
@@ -117,9 +127,11 @@ __all__ = [
     "RepositoryStorage",
     "SETTINGS_NAMES",
     "STORAGE_LAYOUT_VERSION",
+    "SettingsContent",
     "SettingsName",
     "StorageCheck",
     "StorageError",
+    "StorageFileReadError",
     "StorageIdentityError",
     "StorageUnavailable",
     "WorkItemEntry",
@@ -210,6 +222,24 @@ class StorageUnavailable(StorageError):
     :class:`StorageError`, so every entry point reports it as one sentence;
     which error code it maps to is still open (``STORAGE_UNAVAILABLE``, US-D26).
     """
+
+
+class StorageFileReadError(OSError):
+    """The file a held read reached could not be opened or read: the file itself, never a folder on the way (M2).
+
+    Raised only by the readers that return :class:`SettingsContent`, and only for the final file, so a
+    consumer can keep its own handling of a file it cannot read (a warning, the defaults) while a folder that
+    cannot be read, and every refusal, still fails the command. An ``OSError``, with the original's number;
+    ``strerror`` is that number's standard text (``os.strerror``), as an error from Python's own ``open``
+    carries, never a path. ``error`` is the original, without its path.
+    """
+
+    def __init__(self, error: OSError) -> None:
+        if error.errno is None:
+            super().__init__(error.strerror or type(error).__name__)
+        else:
+            super().__init__(error.errno, os.strerror(error.errno))
+        self.error = error
 
 
 # --- the data root ----------------------------------------------------------------------------
@@ -774,6 +804,58 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
         raise _unreadable(path) from None
     except OSError:
         return "corrupt"  # a link swapped in, or the record changed while it was read
+    state = _record_verdict(data, identity)
+    if state == "ok" and verdicts is not None:
+        verdicts[key] = signature
+    return state
+
+
+def _held_record_state(
+    namespace: _held_folders.Folder, path: Path, identity: RepositoryIdentity, parts: tuple[str, ...]
+) -> RecordState:
+    """:func:`_record_state` for a namespace held open: the record opened in it as itself, never by its path (Option C).
+
+    The same verdicts, words and request-scope memory (the same key and
+    :func:`_record_signature`, here from the opened record itself), so a record
+    verified by either one counts for the other.
+    """
+    try:
+        opened = _transient(lambda: namespace.open_file(RECORD_NAME))
+    except PermissionError:
+        raise _unreadable(path) from None
+    except _held_folders.Refused as refused:
+        raise StorageError(
+            _read_refusal((*parts, RECORD_NAME), _HELD_REASONS[refused.reason].format(RECORD_NAME))
+        ) from None
+    except OSError:
+        return "corrupt"
+    if opened.kind == "absent":
+        return "missing-record"
+    if opened.kind != "file" or opened.info is None:
+        return "corrupt"  # a link, a folder or anything else at the name is not a record
+    signature = _record_signature(opened.info, identity)
+    verdicts = _active_scope()
+    key = ("record", str(path))
+    if verdicts is not None and verdicts.get(key) == signature:
+        return "ok"
+    if opened.info.st_size > _RECORD_LIMIT:
+        return "corrupt"
+    try:
+        data = opened.read(_RECORD_LIMIT)
+    except PermissionError:
+        raise _unreadable(path) from None
+    except OSError:
+        return "corrupt"
+    if data is None:
+        return "corrupt"
+    state = _record_verdict(data, identity)
+    if state == "ok" and verdicts is not None:
+        verdicts[key] = signature
+    return state
+
+
+def _record_verdict(data: bytes, identity: RepositoryIdentity) -> RecordState:
+    """What a record's bytes say about ``identity``: ok, mismatch or corrupt (§7.5)."""
     try:
         record = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
@@ -790,8 +872,6 @@ def _record_state(path: Path, identity: RepositoryIdentity) -> RecordState:
     # same folder after a case-only rename, proven by its file identity, not by its folded spelling.
     if recorded_root != str(identity.root) and not _renamed_by_case_only(recorded_root, identity):
         return "mismatch"
-    if verdicts is not None:
-        verdicts[key] = signature
     return "ok"
 
 
@@ -1029,6 +1109,185 @@ def _check_data_root(root: Path) -> None:
         raise StorageError(problem)
 
 
+# --- reads that follow no link (Option C) ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SettingsContent:
+    """A settings or configuration file, read without following a link (Option C).
+
+    - ``present``: ``data`` is the whole file, at most the limit asked for;
+    - ``absent``: nothing is at the name, or a folder on the way does not exist; nothing was created;
+    - ``too_large``: the file holds more than the limit; no bytes are returned;
+    - ``not_a_file``: a folder, or another entry that is not a regular file, is at the name;
+    - ``link``: a link or junction is at the name. Only a Fix Mode file is reported this way (that one
+      file is left out, as before); a link at any other file, and every link on the way to one, is
+      refused with :class:`StorageError`.
+
+    A failure of the system itself (no permission, a file in use) is an ``OSError`` that names no path: a
+    :class:`StorageFileReadError` at the file itself, a plain ``OSError`` in a folder on the way.
+    """
+
+    state: Literal["present", "absent", "too_large", "not_a_file", "link"]
+    data: bytes = b""
+
+
+#: Why a component was not gone through, in :func:`_existing`'s words where it has them.
+_HELD_REASONS = {
+    "link": "{} is a symbolic link or junction",
+    "not-a-folder": "{} is not a directory",
+    "reparse": "{} is a reparse point BugPilot does not support",
+    "moved": "{} changed while it was being read",
+}
+#: What a Fix Mode file's name ends with, compared as the system compares names, as a ``*.json`` glob did.
+_FIX_MODE_SUFFIX = ".json"
+
+
+def _is_fix_mode_name(name: str) -> bool:
+    return os.path.normcase(name).endswith(_FIX_MODE_SUFFIX)
+
+
+def _fix_mode_file(file_name: str) -> str:
+    """``file_name``, when it names one entry and ends in ``.json``. A refusal never repeats it."""
+    if not _held_folders.plain_name(file_name) or not _is_fix_mode_name(file_name):
+        raise StorageError(
+            "BugPilot reads a Fix Mode only by its plain file name, ending in .json, inside a Fix Mode folder. "
+            "Nothing was read."
+        )
+    return file_name
+
+
+def _descend(
+    folder: _held_folders.Folder, parts: tuple[str, ...], *, walked: tuple[str, ...], wanted: tuple[str, ...]
+) -> _held_folders.Folder | None:
+    """``parts`` below ``folder``, each held in turn; ``None`` at the first that does not exist.
+
+    :func:`_existing`'s read contract, kept with handles instead of looks: a
+    link, a non-folder or an unsupported reparse point on the way is refused,
+    never taken as missing, in the same words (``wanted`` is what was asked
+    for, ``walked`` what lies above ``folder``).
+    """
+    for part in parts:
+        walked = (*walked, part)
+        try:
+            found = folder.child(part)
+        except _held_folders.Refused as refused:
+            raise StorageError(_read_refusal(wanted, _HELD_REASONS[refused.reason].format("/".join(walked)))) from None
+        if found is None:
+            return None
+        folder = found
+    return folder
+
+
+def _content(
+    folder: _held_folders.Folder, name: str, parts: tuple[str, ...], limit: int | None, *, entry: bool
+) -> SettingsContent:
+    """The file ``name`` in the held ``folder`` (``parts`` below the data root), read from its own handle.
+
+    ``entry`` marks a Fix Mode file, the one kind for which a link is a state
+    rather than a refusal. A link at any other file is refused in
+    :func:`_file`'s words. An ``OSError`` while opening or reading the file
+    itself is a :class:`StorageFileReadError`; one in a folder on the way stays
+    a plain ``OSError``, and so does a held folder that denies even a look at
+    the file (``FolderDenied``: read permission without search, on POSIX).
+    """
+    try:
+        opened = folder.open_file(name)
+    except _held_folders.Refused as refused:
+        raise StorageError(_read_refusal((*parts, name), _HELD_REASONS[refused.reason].format(name))) from None
+    except _held_folders.FolderDenied as denied:
+        raise denied.error from None  # the folder's failure, as any other folder's: fatal, never a file's warning
+    except OSError as error:
+        raise StorageFileReadError(error) from None
+    if opened.kind == "absent":
+        return SettingsContent("absent")
+    if opened.kind in ("folder", "other"):
+        return SettingsContent("not_a_file")
+    if opened.kind == "link":
+        if entry:
+            return SettingsContent("link")
+        raise StorageError(_write_refusal(name, f"{name} is a symbolic link or junction", DATA_ROOT_BOUNDARY))
+    if opened.kind != "file" or opened.info is None:  # a reparse point that is no link
+        raise StorageError(_read_refusal((*parts, name), _HELD_REASONS["reparse"].format(name)))
+    if limit is not None and opened.info.st_size > limit:
+        return SettingsContent("too_large")
+    try:
+        data = opened.read(limit)
+    except OSError as error:
+        raise StorageFileReadError(error) from None
+    return SettingsContent("too_large") if data is None else SettingsContent("present", data)
+
+
+def _held(read: Callable[[], _T], root: Path) -> _T:
+    """``read()``, retried while the system says a file is in use; a system that cannot hold folders is refused.
+
+    Never a path-based read instead: what this system cannot do safely, it does not do. A file in use is
+    retried as a folder in use is (:func:`_transient`'s attempts), whichever error carries it.
+    """
+    try:
+        for attempt in range(_TRANSIENT_ATTEMPTS):
+            try:
+                return read()
+            except (PermissionError, StorageFileReadError) as error:
+                busy = isinstance(getattr(error, "error", error), PermissionError)
+                if not busy or attempt == _TRANSIENT_ATTEMPTS - 1:
+                    raise
+                time.sleep(_TRANSIENT_DELAY)
+        raise AssertionError("not reached")  # pragma: no cover
+    except _held_folders.Unsupported:
+        raise StorageError(
+            "BugPilot cannot read its data folder safely on this system: it cannot open files there without "
+            "following links. Nothing was read."
+        ) from None
+    except _held_folders.Refused:  # the data root's own; every other refusal is worded where it is met
+        raise StorageError(
+            f"BugPilot cannot use {display_path(root)} as its data folder: it is not a folder."
+        ) from None
+
+
+def _read_held(
+    root: Path,
+    reach: Callable[[_held_folders.Folder | None], _held_folders.Folder | None],
+    parts: tuple[str, ...],
+    name: str,
+    limit: int | None,
+    *,
+    entry: bool,
+) -> SettingsContent:
+    """``name`` in the folder ``parts`` that ``reach`` holds from the data root, read from its own handle."""
+
+    def read() -> SettingsContent:
+        with _held_folders.held(root) as anchor:
+            folder = reach(anchor)
+            return SettingsContent("absent") if folder is None else _content(folder, name, parts, limit, entry=entry)
+
+    return _held(read, root)
+
+
+def _fix_mode_names(
+    root: Path, reach: Callable[[_held_folders.Folder | None], _held_folders.Folder | None]
+) -> list[str]:
+    """The ``.json`` names in the folder ``reach`` holds, sorted as a glob's paths were; none when it is absent."""
+
+    def names() -> list[str]:
+        with _held_folders.held(root) as anchor:
+            folder = reach(anchor)
+            if folder is None:
+                return []
+            return sorted((name for name in folder.names() if _is_fix_mode_name(name)), key=os.path.normcase)
+
+    return _held(names, root)
+
+
+def _checked_parts(parts: tuple[str, ...]) -> tuple[str, ...]:
+    """``parts``, each a plain name, as :func:`_existing` checks them first."""
+    try:
+        _check_parts(parts)
+    except UnsafePathError as error:
+        raise StorageError(str(error)) from None
+    return parts
+
+
 # --- diagnostics that never raise (Batch 2B-1) --------------------------------------------------
 
 CheckState = Literal["usable", "uninitialized", "refused", "unavailable", "unverifiable"]
@@ -1144,6 +1403,43 @@ class GlobalStorage:
     def user_fix_modes_dir(self, *, create: bool) -> Path:
         """``config/fix_modes``: the user-scope Fix Modes. Not a credential: no privacy gate."""
         return self._config_location(("fix_modes",), create=create)
+
+    def read_config(self, *, limit: int | None = None) -> SettingsContent:
+        """``config/config.toml``, read without following a link (Option C). Creates nothing.
+
+        As :meth:`config_file` with ``create=False``: no privacy check, since
+        refusing to read a file that is already exposed would protect nothing.
+        A link there is refused.
+        """
+        return self._read((), CREDENTIALS_NAME, limit, entry=False)
+
+    def read_user_instructions(self, *, limit: int) -> SettingsContent:
+        """``config/instructions.md``, read without following a link (Option C); a link there is refused."""
+        return self._read((), _USER_INSTRUCTIONS_NAME, limit, entry=False)
+
+    def user_fix_mode_names(self) -> list[str]:
+        """The ``.json`` names in ``config/fix_modes``, sorted; a link among them is listed, never followed."""
+        with request_scope():
+            _check_data_root(self._data_root)
+            return _fix_mode_names(self._data_root, self._reach(("fix_modes",)))
+
+    def read_user_fix_mode(self, file_name: str, *, limit: int | None) -> SettingsContent:
+        """One file of ``config/fix_modes``, read without following a link; a link there is ``link``, left out."""
+        return self._read(("fix_modes",), _fix_mode_file(file_name), limit, entry=True)
+
+    def _reach(self, rest: tuple[str, ...]) -> Callable[[_held_folders.Folder | None], _held_folders.Folder | None]:
+        """How ``config/<rest>`` is held from the data root: :meth:`_config_location`'s checks, by handle."""
+        parts = _checked_parts(("config", *rest))
+
+        def reach(anchor: _held_folders.Folder | None) -> _held_folders.Folder | None:
+            return None if anchor is None else _descend(anchor, parts, walked=(), wanted=parts)
+
+        return reach
+
+    def _read(self, rest: tuple[str, ...], name: str, limit: int | None, *, entry: bool) -> SettingsContent:
+        with request_scope():
+            _check_data_root(self._data_root)
+            return _read_held(self._data_root, self._reach(rest), ("config", *rest), name, limit, entry=entry)
 
     def diagnostics(self) -> dict[str, str]:
         """The global paths ``doctor`` reports (§8.10), as text. Pure: no check, nothing read or created."""
@@ -1367,6 +1663,53 @@ class RepositoryStorage:
     def fix_modes_dir(self, *, create: bool) -> Path:
         """``settings/fix_modes``: the repository's project-scope Fix Modes."""
         return self._location(("settings", "fix_modes"), create=create)
+
+    def read_settings(self, name: SettingsName, *, limit: int) -> SettingsContent:
+        """``settings/<name>``, read without following a link (Option C). Creates nothing.
+
+        :meth:`settings_file`'s checks, in its order and words: the name; the
+        data root and the repository kept apart, outside every Git working
+        tree; no link or non-folder on the way; then the identity record, read
+        in the held namespace. A link at the file is refused too.
+        """
+        if name not in SETTINGS_NAMES:
+            raise StorageError(f"{name!r} is not one of BugPilot's repository settings files.")
+        return self._read(("settings",), name, limit, entry=False)
+
+    def fix_mode_names(self) -> list[str]:
+        """The ``.json`` names in ``settings/fix_modes``, sorted; a link among them is listed, never followed."""
+        with request_scope():
+            self._check_containment()
+            return _fix_mode_names(self._data_root, self._reach(("settings", "fix_modes")))
+
+    def read_fix_mode(self, file_name: str, *, limit: int | None) -> SettingsContent:
+        """One file of ``settings/fix_modes``, read without following a link; a link there is ``link``, left out."""
+        return self._read(("settings", "fix_modes"), _fix_mode_file(file_name), limit, entry=True)
+
+    def _reach(self, rest: tuple[str, ...]) -> Callable[[_held_folders.Folder | None], _held_folders.Folder | None]:
+        """How ``rest`` in this namespace is held from the data root: :meth:`_location`'s checks, by handle.
+
+        Every folder first, then the record (as :meth:`_check_record`: only when
+        the namespace exists), read in the namespace that stays held.
+        """
+        wanted = _checked_parts(self._parts(*rest))
+
+        def reach(anchor: _held_folders.Folder | None) -> _held_folders.Folder | None:
+            namespace = None if anchor is None else _descend(anchor, self._parts(), walked=(), wanted=wanted)
+            if namespace is None:
+                return None
+            folder = _descend(namespace, rest, walked=self._parts(), wanted=wanted)
+            state = _held_record_state(namespace, self._record_file, self.identity, self._parts())
+            if state in ("mismatch", "corrupt"):
+                raise self._refusal(state)
+            return folder
+
+        return reach
+
+    def _read(self, rest: tuple[str, ...], name: str, limit: int | None, *, entry: bool) -> SettingsContent:
+        with request_scope():
+            self._check_containment()
+            return _read_held(self._data_root, self._reach(rest), self._parts(*rest), name, limit, entry=entry)
 
     def work_items(self) -> list[WorkItemEntry]:
         """The work item folders in ``work/``, by id. Read only; links and stray names are skipped."""

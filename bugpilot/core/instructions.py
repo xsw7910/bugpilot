@@ -249,6 +249,10 @@ def read_text_document(path: Path, link: str | None) -> TextDocument:
         raw = path.read_bytes()
     except OSError as exc:
         return TextDocument(problem=f"it could not be read ({exc.strerror or type(exc).__name__}).", exists=True)
+    return _document_from(raw)
+
+
+def _document_from(raw: bytes) -> TextDocument:
     try:
         decoded = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -262,14 +266,42 @@ def read_text_document(path: Path, link: str | None) -> TextDocument:
 def read_instructions(scope: str, repo_root: Path) -> InstructionFile:
     """One scope's file, as a task would carry it. Never raises for the file's own state.
 
-    Reaching it may refuse (storage's checks: a link on the way, a data folder
-    inside the repository, a record naming another repository): that is not the
-    file's state, and fails the command (owner decisions C-2, G-6).
+    Reaching it may refuse (storage's checks: a link on the way or at the file,
+    a data folder inside the repository, a record naming another repository):
+    that is not the file's state, and fails the command (owner decisions C-2,
+    G-6). So does a folder on the way that cannot be read (``StorageAccessError``).
+    The file is read by storage without following a link (Option C, M2), and
+    judged by :func:`read_text_document`'s rules.
     """
-    path = instructions_path(scope, repo_root)
-    shown = display_path(scope, repo_root)
-    document = read_text_document(path, _link_problem(path, shown))
-    return InstructionFile(scope, text=document.text, problem=document.problem, shown=shown)
+    _check_scope(scope)
+    try:
+        found = _read_scope(scope, repo_root)
+    except repository_settings.FileReadError as exc:
+        document = TextDocument(problem=f"it could not be read ({exc.strerror or type(exc).__name__}).", exists=True)
+    else:
+        document = _document_of(found)
+    return InstructionFile(scope, text=document.text, problem=document.problem, shown=display_path(scope, repo_root))
+
+
+def _read_scope(scope: str, repo_root: Path) -> storage.SettingsContent:
+    if scope == "user":
+        return repository_settings.guarded(
+            "read",
+            lambda: display_path("user"),
+            lambda: storage.global_storage().read_user_instructions(limit=_MAX_FILE_BYTES),
+        )
+    return repository_settings.read_settings(repo_root, INSTRUCTIONS_FILE_NAME, limit=_MAX_FILE_BYTES)
+
+
+def _document_of(found: storage.SettingsContent) -> TextDocument:
+    """A held read's result, judged as :func:`read_text_document` judges a file (a link was refused before)."""
+    if found.state == "absent":
+        return TextDocument()
+    if found.state == "not_a_file":
+        return TextDocument(problem="it is not a regular file.", exists=True)
+    if found.state == "too_large":
+        return TextDocument(problem=_too_long_problem(None), exists=True)
+    return _document_from(found.data)
 
 
 def load_instructions(repo_root: Path) -> ResolvedInstructions:

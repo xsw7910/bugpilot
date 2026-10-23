@@ -58,7 +58,7 @@ from pathlib import Path
 
 from . import repository_settings
 from .git_ops import branch_template_problem
-from .safe_paths import is_link_or_junction
+from .safe_paths import decode_text, is_link_or_junction
 from .verification import (
     SOURCE_FILE,
     ResolvedVerification,
@@ -193,27 +193,39 @@ def settings_from_mapping(data: object, *, strict: bool, shown: str = SHOWN_NAME
 def load_project_settings(repo_root: Path) -> tuple[ProjectSettings, list[str]]:
     """The saved settings, or the defaults, and what was wrong with the file if anything was.
 
-    Reaching the file may refuse (storage's checks), which fails the command (G-6); the file's own
-    state — unreadable, not JSON, a bad value — is the defaults plus a warning, as in 0.1.5.
+    Reaching the file may refuse (storage's checks), which fails the command (G-6); so does a folder on the
+    way that cannot be read. The file's own state — unreadable, not JSON, a bad value — is the defaults plus a
+    warning, as in 0.1.5.
     """
-    path = settings_path(repo_root)
+    settings, warnings, _present = _load(repo_root)
+    return settings, warnings
+
+
+def _load(repo_root: Path) -> tuple[ProjectSettings, list[str], bool]:
+    """The settings and their warnings, and whether a regular file is there: one read, following no link (M2).
+
+    Storage reads the file without following a link (Option C): a link there is refused with the command,
+    never the defaults; nothing there, or no regular file, is the defaults without a warning, as before.
+    """
     shown = shown_path(repo_root)
-    problem = _link_problem(path, shown)
-    if problem:
-        return ProjectSettings(), [f"{problem} Using the defaults."]
-    if not path.is_file():
-        return ProjectSettings(), []
     try:
-        if path.stat().st_size > _MAX_FILE_BYTES:
+        found = repository_settings.read_settings(repo_root, SETTINGS_FILE_NAME, limit=_MAX_FILE_BYTES)
+    except repository_settings.FileReadError as exc:
+        reason = exc.strerror or type(exc).__name__
+        return ProjectSettings(), [f"{shown} could not be read ({reason}). Using the defaults."], True
+    if found.state in ("absent", "not_a_file"):
+        return ProjectSettings(), [], False
+    try:
+        if found.state == "too_large":
             raise ValueError("it is far larger than project settings")
-        # utf-8-sig: Windows tools (PowerShell 5's `-Encoding UTF8`) write a BOM.
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        # utf-8-sig: Windows tools (PowerShell 5's `-Encoding UTF8`) write a BOM. Line endings as `read_text` gave them.
+        data = json.loads(decode_text(found.data, "utf-8-sig"))
     except RecursionError:
-        return ProjectSettings(), [f"{shown} could not be read (it is nested too deeply). Using the defaults."]
-    except (OSError, ValueError) as exc:
-        reason = (exc.strerror or type(exc).__name__) if isinstance(exc, OSError) else str(exc)
-        return ProjectSettings(), [f"{shown} could not be read ({reason}). Using the defaults."]
-    return settings_from_mapping(data, strict=False, shown=shown)
+        return ProjectSettings(), [f"{shown} could not be read (it is nested too deeply). Using the defaults."], True
+    except ValueError as exc:
+        return ProjectSettings(), [f"{shown} could not be read ({exc}). Using the defaults."], True
+    settings, warnings = settings_from_mapping(data, strict=False, shown=shown)
+    return settings, warnings, True
 
 
 def save_project_settings(repo_root: Path, settings: ProjectSettings) -> Path:
@@ -227,10 +239,6 @@ def save_project_settings(repo_root: Path, settings: ProjectSettings) -> Path:
     if problem:
         raise ProjectSettingsError(problem)
     return repository_settings.write_text(repo_root, SETTINGS_FILE_NAME, json.dumps(settings.to_dict(), indent=2) + "\n")
-
-
-def is_saved(repo_root: Path) -> bool:
-    return settings_path(repo_root).is_file()
 
 
 @dataclass(frozen=True)
@@ -265,8 +273,8 @@ class ResolvedProjectSettings:
 
 
 def resolve_project_settings(repo_root: Path) -> ResolvedProjectSettings:
-    settings, warnings = load_project_settings(repo_root)
-    saved = is_saved(repo_root) and not warnings_mean_defaults(warnings)
+    settings, warnings, present = _load(repo_root)  # one read: what was loaded is what is called saved
+    saved = present and not warnings_mean_defaults(warnings)
     return ResolvedProjectSettings(
         settings=settings,
         saved=saved,
